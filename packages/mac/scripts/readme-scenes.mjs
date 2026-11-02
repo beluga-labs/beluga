@@ -15,9 +15,8 @@ const out = path.join(repo, 'assets/scenes');
 const tmp = path.join(repo, '.context/scenes');
 const only = process.argv.slice(2);
 
-// Drawn at 2x, kept at 1.5x and 12 fps: GitHub's phone app flickers the whole README under bigger, faster GIFs.
-const FPS = 12;
-const SCALE = 1.5;
+// Drawn at 1x (about 720p): smooth beats sharp, and GitHub's phone app flickers the whole README under 2x GIFs.
+const FPS = 24;
 const TICK = 8;
 /** How long a loop's end blends into its start (a scene's timers start a tick late, so even a whole loop drifts a little). */
 const BLEND_MS = 600;
@@ -25,7 +24,7 @@ const BLEND_MS = 600;
 const THEMES = { dark: '#0d1117' };
 
 /**
- * Each scene's frame (CSS px; drawn at 2x) and which stretch of it to keep. `loop` scenes repeat on
+ * Each scene's frame (CSS px; GIFs drawn at 1x, the still at 2x) and which stretch of it to keep. `loop` scenes repeat on
  * their own: `from` skips the entrance and `ms` is one loop (or a part of one). The others play once
  * (`ms` covers the entrance and a hold) and fade to the page at the end. `fps` for a busy one, to keep it small.
  */
@@ -66,7 +65,7 @@ function stepAnimations(dt) {
 async function frames(browser, base, name, scene, theme, dir) {
   const fps = scene.fps ?? FPS;
   const dt = 1000 / fps;
-  const context = await browser.newContext({ viewport: { width: scene.w, height: scene.h }, deviceScaleFactor: 2, colorScheme: theme });
+  const context = await browser.newContext({ viewport: { width: scene.w, height: scene.h }, deviceScaleFactor: 1, colorScheme: theme });
   const page = await context.newPage();
   // Time stands still between frames: only the steps below move it.
   const start = new Date('2026-11-02T09:00:00Z').getTime();
@@ -161,7 +160,7 @@ async function record(browser, base, name, scene, theme) {
   const hex = THEMES[theme];
   // Played once: fade out to the page at the end, so starting over is a fade in from nothing.
   const fade = scene.loop ? '' : `,fade=t=out:st=${(seconds - 0.7).toFixed(2)}:d=0.7:color=${hex}`;
-  const look = `format=rgb24,scale=${Math.round(scene.w * SCALE)}:-2:flags=lanczos${fade}`;
+  const look = `format=rgb24${fade}`;
   const input = ['-framerate', String(fps), '-i', path.join(dir, '%05d.png')];
   const palette = path.join(dir, 'palette.png');
   execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...input, '-vf', `${look},palettegen=max_colors=256:stats_mode=full`, palette]);
