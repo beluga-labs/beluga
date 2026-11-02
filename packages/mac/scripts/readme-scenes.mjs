@@ -15,7 +15,9 @@ const out = path.join(repo, 'assets/scenes');
 const tmp = path.join(repo, '.context/scenes');
 const only = process.argv.slice(2);
 
-const FPS = 25;
+// Drawn at 2x, kept at 1.5x and 12 fps: GitHub's phone app flickers the whole README under bigger, faster GIFs.
+const FPS = 12;
+const SCALE = 1.5;
 const TICK = 8;
 /** How long a loop's end blends into its start (a scene's timers start a tick late, so even a whole loop drifts a little). */
 const BLEND_MS = 600;
@@ -30,7 +32,7 @@ const THEMES = { dark: '#0d1117' };
 const SCENES = {
   // The header: a still once everything has come in (a PNG, not a GIF).
   hello: { w: 900, h: 360, still: 4500 },
-  parallel: { w: 720, h: 460, loop: true, from: 13_500, ms: 13_500, fps: 20 },
+  parallel: { w: 720, h: 460, loop: true, from: 13_500, ms: 13_500 },
   agents: { w: 720, h: 460, loop: true, from: 8800, ms: 8800 },
   // The answer, then a pointer sorting, paging, filtering and searching it (showcase/TablesTour).
   tables: { w: 800, h: 680, ms: 14_500 },
@@ -159,12 +161,13 @@ async function record(browser, base, name, scene, theme) {
   const hex = THEMES[theme];
   // Played once: fade out to the page at the end, so starting over is a fade in from nothing.
   const fade = scene.loop ? '' : `,fade=t=out:st=${(seconds - 0.7).toFixed(2)}:d=0.7:color=${hex}`;
+  const look = `format=rgb24,scale=${Math.round(scene.w * SCALE)}:-2:flags=lanczos${fade}`;
   const input = ['-framerate', String(fps), '-i', path.join(dir, '%05d.png')];
   const palette = path.join(dir, 'palette.png');
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...input, '-vf', `format=rgb24${fade},palettegen=max_colors=256:stats_mode=full`, palette]);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...input, '-vf', `${look},palettegen=max_colors=256:stats_mode=full`, palette]);
   await exactPalette(browser, palette, hex);
   const gif = path.join(out, `${name}-${theme}.gif`);
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...input, '-i', palette, '-lavfi', `[0]format=rgb24${fade}[v];[v][1]paletteuse=dither=none:diff_mode=rectangle`, '-loop', '0', gif]);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...input, '-i', palette, '-lavfi', `[0]${look}[v];[v][1]paletteuse=dither=none:diff_mode=rectangle`, '-loop', '0', gif]);
   console.log(`${name} (${theme}): ${path.relative(repo, gif)}`);
 }
 
