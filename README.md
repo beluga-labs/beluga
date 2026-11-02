@@ -1,6 +1,7 @@
 <p align="center">
-  <img src="assets/scenes/hello-dark.png" alt="Beluga: every project, every agent, all at once" width="900">
+  <img src="assets/logo.svg" alt="" width="96">
 </p>
+<h1 align="center">Beluga</h1>
 
 <p align="center">
   <b>A desktop app for every project and the agent working in each.<br>And your agent can talk to your friends' agents, computer to computer.</b>
@@ -42,20 +43,29 @@
 ## Work on everything at once
 
 <p align="center">
-  <img src="assets/scenes/parallel-dark.gif" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/parallel-dark.gif">
+    <img src="assets/scenes/parallel-dark-still.png" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
+  </picture>
 </p>
 
 Describe a task and Beluga makes a fresh worktree for it: its own folder, branch and agent, named for the task. Your main folder stays untouched (there, your agent only reads), and every task runs at the same time, in one repository or across all of them.
 
 <p align="center">
-  <img src="assets/mac/worktree-per-task.gif" alt="Asking your agent to add rate limiting in the add-auth worktree: its steps appear live, the changed files show in the right panel, and it's ready to merge" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/worktree-per-task.gif">
+    <img src="assets/mac/worktree-per-task-still.png" alt="Asking your agent to add rate limiting in the add-auth worktree: its steps appear live, the changed files show in the right panel, and it's ready to merge" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>A worktree per task</b>: the sidebar shows who is working, what is ready to merge and what needs you. Changes, diffs, files and terminals sit beside the chat; commit, open a pull request or merge in one click.</sub></p>
 
 ## See every agent work
 
 <p align="center">
-  <img src="assets/scenes/agents-dark.gif" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/agents-dark.gif">
+    <img src="assets/scenes/agents-dark-still.png" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
+  </picture>
 </p>
 
 Steps arrive as your agent works: the files it reads, the commands it runs, the sub-agents and background tasks it starts. Say something mid-run and it changes course.
@@ -63,30 +73,45 @@ Steps arrive as your agent works: the files it reads, the commands it runs, the 
 The **Scratch** tab shows what your agent makes along the way (screenshots of the page it just checked, test runs, logs, the JSON an API sent back) as each file lands, so you see what your agent sees, not just what it says about it. Your agent attaches the best of it to the task as proof.
 
 <p align="center">
-  <img src="assets/mac/scratch.gif" alt="Asking your agent to review the changes and screenshot the login page: three reviewer sub-agents start, and the Scratch tab fills up live with a test log that grows to 27 passed, a screenshot of the login page and the session response as JSON" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/scratch.gif">
+    <img src="assets/mac/scratch-still.png" alt="Asking your agent to review the changes and screenshot the login page: three reviewer sub-agents start, and the Scratch tab fills up live with a test log that grows to 27 passed, a screenshot of the login page and the session response as JSON" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Scratch</b>: a test log that grows to 27 passed, a screenshot of the login page and an API response, live. The folder stays out of git.</sub></p>
 
 ## Answers you can see
 
 <p align="center">
-  <img src="assets/scenes/tables-dark.gif" alt="Asked which customers churned last month, the agent finds the database and answers with a live table; then it is sorted by MRR, paged, filtered to the Team plan and searched, right in the chat" width="800">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/tables-dark.gif">
+    <img src="assets/scenes/tables-dark-still.png" alt="Asked which customers churned last month, the agent finds the database and answers with a live table; then it is sorted by MRR, paged, filtered to the Team plan and searched, right in the chat" width="800">
+  </picture>
 </p>
 
 Ask about your data and your agent finds the database, connects and runs the query; the answer is a live table you can sort, search and turn into a chart. Ask how something works and it draws a diagram. Ask what is left and your tasks show up as cards. You explore all of it without asking again.
 
 <p align="center">
-  <img src="assets/mac/views.gif" alt="Asking 'show me the payments dashboard': your agent answers with stat tiles (revenue, payments, failed rate, p95), an area chart of payments per day whose legend turns series off and on, and a table of the latest orders paged straight from the source" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/views.gif">
+    <img src="assets/mac/views-still.png" alt="Asking 'show me the payments dashboard': your agent answers with stat tiles (revenue, payments, failed rate, p95), an area chart of payments per day whose legend turns series off and on, and a table of the latest orders paged straight from the source" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Charts, stats and tables</b>: line, area, bar, pie, scatter, gantt, heatmap, calendar. A table pages, sorts and searches by itself, straight from a file, a database, a URL or a command. <a href="docs/views.md">More</a></sub></p>
 
 <p align="center">
-  <img src="assets/mac/graph.gif" alt="Asking your agent to visualize how a payment flows: an interactive diagram from the web app through the Express server, Stripe and the webhook handler to the orders table, then a step-by-step walkthrough that highlights each part" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/graph.gif">
+    <img src="assets/mac/graph-still.png" alt="Asking your agent to visualize how a payment flows: an interactive diagram from the web app through the Express server, Stripe and the webhook handler to the orders table, then a step-by-step walkthrough that highlights each part" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Diagrams</b> of how your code fits together: hover a part to see what it touches, click it for details, or let your agent walk you through it step by step. <a href="docs/graphs.md">More</a></sub></p>
 
 <p align="center">
-  <img src="assets/mac/tasks.gif" alt="Asking 'where do my tasks stand?': the answer shows live task cards with their status, then the project's task board as a list, a board with a column per status, and a graph of which task waits on which" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/tasks.gif">
+    <img src="assets/mac/tasks-still.png" alt="Asking 'where do my tasks stand?': the answer shows live task cards with their status, then the project's task board as a list, a board with a column per status, and a graph of which task waits on which" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Tasks</b>: a board for every project, shared with friends. Your agent opens tasks when you ask for several things at once and moves them along as it works. A task is done when its worktree merges. <a href="docs/tasks-and-plans.md">More</a></sub></p>
 
@@ -95,20 +120,29 @@ Plain Markdown gets the same care: tables sort and turn into charts, JSON folds,
 ## Your agent, and your friends' agents
 
 <p align="center">
-  <img src="assets/scenes/friends-dark.gif" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/friends-dark.gif">
+    <img src="assets/scenes/friends-dark-still.png" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
+  </picture>
 </p>
 
 Tag a friend, say what you need, and your agent asks **their** agent to do it **on their Mac**: a file only they have, an account only they can change, a page they're signed in to. They click **Allow**, the result comes back into your conversation, and your agent carries on. Every agent runs on its owner's Mac with its owner's subscription and logins, and Macs talk directly, end-to-end encrypted, with no server in between.
 
 <p align="center">
-  <img src="assets/mac/ask-a-friend.gif" alt="Typing '@bob run the tests in bob-api' in Beluga: your agent asks bob's agent, bob's agent runs the tests on his Mac, and the result (27 passed) comes back into the conversation" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/ask-a-friend.gif">
+    <img src="assets/mac/ask-a-friend-still.png" alt="Typing '@bob run the tests in bob-api' in Beluga: your agent asks bob's agent, bob's agent runs the tests on his Mac, and the result (27 passed) comes back into the conversation" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Tag them and keep working</b>: <code>@bob run the tests in bob-api</code>, and 27 passed comes back.</sub></p>
 
 On their side, a small card slides in wherever they are. **See more** shows everything your agent sent; **Allow**, **Allow Always** or **Decline** decides. Below, mia's agent asks kay for a screenshot while kay is browsing GitHub.
 
 <p align="center">
-  <img src="assets/mac/wants-to.gif" alt="kay is browsing GitHub in Chrome when a pop-up slides in at the top right: 'mia's Claude wants to take a screenshot of your desktop and send it to me', with See more, Decline, Allow Always and Allow. See more opens the full request; Allow hands it to kay's agent." width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/wants-to.gif">
+    <img src="assets/mac/wants-to-still.png" alt="kay is browsing GitHub in Chrome when a pop-up slides in at the top right: 'mia's Claude wants to take a screenshot of your desktop and send it to me', with See more, Decline, Allow Always and Allow. See more opens the full request; Allow hands it to kay's agent." width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>The pop-up</b> your friend sees, wherever they are.</sub></p>
 
@@ -127,13 +161,19 @@ More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can
 ## Sentinel
 
 <p align="center">
-  <img src="assets/scenes/sentinel-dark.gif" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/sentinel-dark.gif">
+    <img src="assets/scenes/sentinel-dark-still.png" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
+  </picture>
 </p>
 
 A sentinel is work you describe once, in a sentence. It waits for its moment (seven in the morning, a failing test, a Stripe payment, your site going quiet), works through its steps with your agent, and leaves you a report. It runs on your Mac, as you, with your logins.
 
 <p align="center">
-  <img src="assets/mac/sentinel.gif" alt="The Sentinel list with six watchers and their last runs; New Sentinel's eleven recipes; Nightly tests made from its recipe and turned on; Morning brief's page and Run Now; a run's report; and a fix waiting for Merge" width="900">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/mac/sentinel.gif">
+    <img src="assets/mac/sentinel-still.png" alt="The Sentinel list with six watchers and their last runs; New Sentinel's eleven recipes; Nightly tests made from its recipe and turned on; Morning brief's page and Run Now; a run's report; and a fix waiting for Merge" width="900">
+  </picture>
 </p>
 <p align="center"><sub><b>Sentinel</b>: eleven recipes to start from, every run kept with its report, and a fix waiting for your Merge.</sub></p>
 
@@ -146,8 +186,14 @@ More: [Sentinel](docs/sentinel.md)
 ## Also in the app
 
 <p align="center">
-  <img src="assets/scenes/earnings-dark.gif" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
-  <img src="assets/scenes/archive-dark.gif" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/earnings-dark.gif">
+    <img src="assets/scenes/earnings-dark-still.png" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
+  </picture>
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/archive-dark.gif">
+    <img src="assets/scenes/archive-dark-still.png" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
+  </picture>
 </p>
 <p align="center"><sub><b>Earnings</b>: connect Stripe and each project shows what it earns, next to the work. <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
 
@@ -201,6 +247,7 @@ npm run app:build          # the .app and the designed .dmg
 npm run release            # build, sign and publish a release (see docs/updates.md)
 node scripts/gifs.mjs      # re-record the README's app GIFs (vite + the demo daemon, needs ffmpeg)
 node scripts/readme-scenes.mjs  # re-record the README's scene GIFs (needs ffmpeg)
+node scripts/readme-stills.mjs  # a still of each README GIF, for phones (needs ffmpeg)
 ```
 
 ```
