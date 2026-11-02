@@ -82,11 +82,13 @@ interface FolderGrant {
 }
 
 /** Room messages that may travel over a friend's link, and only about what you share. */
-const KINDS = new Set<Body['kind']>(['chat', 'agent_request', 'agent_event', 'agent_question', 'agent_answer', 'fs_list', 'fs_read', 'fs_fetch', 'fs_search', 'ws_diff', 'fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result', 'fs_changed', 'ws_roster', 'ws_leave', 'ws_handoff', 'ws_handoff_result']);
+const KINDS = new Set<Body['kind']>(['chat', 'agent_request', 'agent_event', 'agent_question', 'agent_answer', 'fs_list', 'fs_read', 'fs_fetch', 'fs_search', 'ws_diff', 'fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result', 'fs_changed', 'ws_roster', 'ws_leave', 'ws_handoff', 'ws_handoff_result', 'ws_handoff_check', 'ws_handoff_check_result']);
 const RESULTS = new Set<Body['kind']>(['fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result']);
 /** A Claude's steps as they stream only go to who's linked now; these wait for an offline Mac. */
 const KEPT_EVENTS = new Set(['queued', 'awaiting_approval', 'started', 'done', 'error', 'denied', 'answered']);
 const INBOUND_KEPT = 500;
+/** How long a "do you have this repository?" before a handoff waits for its answer. */
+const CHECK_TTL_MS = 60_000;
 /** A friend's worktree's conversation kept on your Mac (the pages you scrolled back to, and what's said since). */
 const HISTORY_KEPT = 2000;
 /** How long each message of a fork's conversation may be. */
@@ -132,6 +134,9 @@ export class FriendShares implements FriendSharing {
   private readonly handoffsOut = new Map<string, string>();
   /** Handoffs a friend offered you over the network, to answer them the same way (hid → them). */
   private readonly handoffsIn = new Map<string, string>();
+  /** "Do you have this repository?" asked of a friend outside your room before a handoff, and asked of you (reqId → them, BLG-614). */
+  private readonly checksOut = new Map<string, string>();
+  private readonly checksIn = new Map<string, string>();
   /** The names you gave forks you asked for (their worktree's id → name). */
   private readonly forkNames = new Map<string, string>();
 
@@ -419,6 +424,7 @@ export class FriendShares implements FriendSharing {
     // A folder shared with a friend over the network: its own `folder` message says so (see syncFolders).
     if (body.kind === 'share_offer') return mesh.isFriend(to) && (this.folders[body.name]?.peers.includes(to) || !this.state.peers.some((p) => p.peerId === to)) ? true : undefined;
     if (body.kind === 'ws_handoff' || body.kind === 'ws_handoff_result') return this.routeHandoff(to, body);
+    if (body.kind === 'ws_handoff_check' || body.kind === 'ws_handoff_check_result') return this.routeHandoffCheck(to, body);
     if (!KINDS.has(body.kind) || !mesh.isFriend(to)) return undefined;
     if (!this.about(to, body)) return undefined;
     // Who's in a shared worktree goes with the project's own message.
@@ -461,6 +467,29 @@ export class FriendShares implements FriendSharing {
     }, COPY_TTL_MS).unref();
     this.courier.send(to, { k: 'body', b: body }, { reliable: true });
     return true;
+  }
+
+  /** The quick "do you have this repository?" before a handoff goes the same way as the handoff would (BLG-614). */
+  private routeHandoffCheck(to: string, body: Extract<BodyInput, { kind: 'ws_handoff_check' | 'ws_handoff_check_result' }>): boolean | undefined {
+    const { mesh } = this.opts;
+    if (!mesh.isFriend(to)) return undefined;
+    if (body.kind === 'ws_handoff_check_result') {
+      if (this.checksIn.get(body.reqId) !== to) return undefined;
+      this.checksIn.delete(body.reqId);
+      return this.courier.send(to, { k: 'body', b: body }, { reliable: false });
+    }
+    if (this.state.peers.some((p) => p.peerId === to)) return undefined;
+    if (cannotTake('', mesh.belugaOf(to), 'share.handoff', mesh.isLinked(to))) return false;
+    // Only asked of someone reachable now: an offline friend's handoff simply waits for them, as before.
+    if (!this.courier.send(to, { k: 'body', b: body }, { reliable: false })) return false;
+    this.remember(this.checksOut, body.reqId, to);
+    return true;
+  }
+
+  /** Remember who a request went to (or came from) for a while, to match their answer. */
+  private remember(map: Map<string, string>, key: string, peerId: string): void {
+    map.set(key, peerId);
+    setTimeout(() => map.delete(key), CHECK_TTL_MS).unref();
   }
 
   /** Is this message about something shared between you and `peerId` over the network? */
@@ -564,6 +593,14 @@ export class FriendShares implements FriendSharing {
     if ('channel' in body && body.channel !== undefined && !mine && !theirs) return;
     if (body.kind === 'ws_roster' || body.kind === 'ws_leave') return;
     if (body.kind === 'ws_handoff' && !this.tookHandoff(from, body)) return;
+    if (body.kind === 'ws_handoff_check') {
+      if (this.checksIn.has(body.reqId)) return;
+      this.remember(this.checksIn, body.reqId, from);
+    }
+    if (body.kind === 'ws_handoff_check_result') {
+      if (this.checksOut.get(body.reqId) !== from) return;
+      this.checksOut.delete(body.reqId);
+    }
     if (body.kind === 'ws_handoff_result') {
       if (this.handoffsOut.get(body.hid) !== from) return;
       this.handoffsOut.delete(body.hid);

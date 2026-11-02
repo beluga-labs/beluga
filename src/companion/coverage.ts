@@ -92,6 +92,7 @@ export const PHONE: Record<Method, Side> = {
   'invites.remove': 'mac',
   'remote.requestWorktree': 'mac',
   'remote.handoff': 'mac',
+  'remote.canHandOff': 'mac',
 
   // ---- diffs, shells, files by path: code, never on the phone
   'diff.load': 'mac',

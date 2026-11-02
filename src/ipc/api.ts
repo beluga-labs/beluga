@@ -197,6 +197,8 @@ export const API = {
   // ---- work on a friend's computer
   'remote.requestWorktree': args(id, z.string().max(80), str, opt(bool)),
   'remote.handoff': args(id, id),
+  // Can this worktree go to them (who they are, and whether their Mac has the repository)? Asked as the Hand Off sheet opens.
+  'remote.canHandOff': args(id, id),
 
   // ---- a workspace shared with you: what changed, and its read-only shell
   'diff.load': args(id),

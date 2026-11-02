@@ -199,6 +199,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `invites.remove` | ✓ |
 | `remote.requestWorktree` | ✓ |
 | `remote.handoff` | ✓ |
+| `remote.canHandOff` | ✓ the Hand Off sheet, as it opens: who can't take it and why |
 | `diff.load` | ✓ |
 | `diff.select` | ✓ |
 | `shell.run` | ✓ the search field over a shared workspace's Files (find + grep) |

@@ -351,7 +351,18 @@ export const WsHandoffBody = z.object({
   history: historyItems,
   bundle: z.object({ share: z.string().regex(/^[\w.-]{1,64}$/), path: relPath, size: z.number().int().min(0) }).optional(),
 });
-export const WsHandoffResultBody = z.object({ kind: z.literal('ws_handoff_result'), hid: shortStr, ok: z.boolean(), error: z.string().max(500).optional() });
+/**
+ * Why a handoff can't (or didn't) go through, so the one handing off hears the real reason (BLG-614):
+ * they said no, they turned off work from friends, they don't have the repository, the branch name
+ * isn't allowed here, or getting the branch failed. Unknown codes from a newer Beluga read as `failed`.
+ */
+export const HandoffReason = z.enum(['declined', 'off', 'no_repo', 'bad_branch', 'failed']).catch('failed');
+export type HandoffReason = z.infer<typeof HandoffReason>;
+export const WsHandoffResultBody = z.object({ kind: z.literal('ws_handoff_result'), hid: shortStr, ok: z.boolean(), error: z.string().max(500).optional(), reason: HandoffReason.optional() });
+
+/** "Could you take this one over?" before anything is written or sent: do you have the same repository (BLG-614). */
+export const WsHandoffCheckBody = z.object({ kind: z.literal('ws_handoff_check'), reqId: shortStr, remote: z.string().max(500) });
+export const WsHandoffCheckResultBody = z.object({ kind: z.literal('ws_handoff_check_result'), reqId: shortStr, ok: z.boolean(), reason: HandoffReason.optional() });
 
 /** Ask for a file anywhere on someone's computer (they approve unless they fully trust you). */
 export const FileRequestBody = z.object({ kind: z.literal('file_request'), reqId: shortStr, path: z.string().min(1).max(4096), why: z.string().max(500).default('') });
@@ -475,6 +486,8 @@ export const Body = z.discriminatedUnion('kind', [
   WsRequestResultBody,
   WsHandoffBody,
   WsHandoffResultBody,
+  WsHandoffCheckBody,
+  WsHandoffCheckResultBody,
   FileRequestBody,
   FileRequestResultBody,
   FileOfferBody,

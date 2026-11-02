@@ -150,6 +150,7 @@ export const HANDLERS = {
 
   'remote.requestWorktree': (s, peerId, project, task, plan) => s.remote.requestWorktree(peerId, project, task, plan),
   'remote.handoff': (s, wsId, peerId) => s.remote.handoff(wsId, peerId),
+  'remote.canHandOff': (s, wsId, peerId) => s.remote.canHandOff(wsId, peerId),
 
   'diff.load': (s, id) => s.diff.load(id),
   'diff.select': (s, index) => s.diff.select(index),

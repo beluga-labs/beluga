@@ -66,7 +66,7 @@ describe('handing a worktree to a friend outside your room', () => {
     expect(ata.store.getState().friendFolders).toEqual([]);
   }, 60_000 * SLOW);
 
-  it('a decline comes back over the network too', async () => {
+  it('a friend without the repository is told before anything is sent, over the network too (BLG-614)', async () => {
     net = await crowd();
     const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
     const kay = await mac(net, 'kay', { workspaces: await createDemoWorkspaces() });
@@ -75,10 +75,30 @@ describe('handing a worktree to a friend outside your room', () => {
     const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
     const ws = await ata.session.workspaces!.manager.createWorktree(project.id, 'feature');
     await ata.session.workspaces!.refresh();
+    expect((await ata.session.remote.canHandOff(ws.id, kay.id)).why).toMatch(/^kay doesn't have bob-api on their Mac/);
+    expect(await ata.session.remote.handoff(ws.id, kay.id)).toBe(false);
+    expect(ata.runs).toHaveLength(0);
+    expect(kay.store.getState().approvals).toHaveLength(0);
+    expect(ata.store.getState().log.some((l) => l.type === 'system' && l.text.startsWith("Not handed off: kay doesn't have bob-api"))).toBe(true);
+  }, 60_000 * SLOW);
+
+  it('a decline comes back over the network too', async () => {
+    net = await crowd();
+    const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
+    const kay = await mac(net, 'kay', { workspaces: await createDemoWorkspaces() });
+    macs.push(ata, kay);
+    await befriend(ata.person, kay.person);
+    const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
+    const clone = path.join(mkdtempSync(path.join(os.tmpdir(), 'beluga-ho-kay-')), 'bob-api');
+    git(os.tmpdir(), 'clone', '-q', git(project.root!, 'remote', 'get-url', 'origin'), clone);
+    kay.session.workspaces!.manager.addProject(clone);
+    await kay.session.workspaces!.refresh();
+    const ws = await ata.session.workspaces!.manager.createWorktree(project.id, 'feature');
+    await ata.session.workspaces!.refresh();
     expect(await ata.session.remote.handoff(ws.id, kay.id)).toBe(true);
     await settle(() => kay.store.getState().approvals.length > 0 || undefined);
     kay.session.answerApproval('no');
-    await settle(() => ata.store.getState().log.find((l) => l.type === 'system' && l.text.includes("didn't take it over: declined")));
+    await settle(() => ata.store.getState().log.find((l) => l.type === 'system' && l.text === 'Not handed off: kay said no to taking it over.'));
     expect(ata.session.workspaces!.manager.find(ws.id)?.handedTo).toBeUndefined();
   }, 60_000 * SLOW);
 });

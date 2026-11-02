@@ -10,7 +10,7 @@ import { Store, initialState } from '../src/core/store.js';
 import { deriveKeys, generateSecret } from '../src/net/crypto.js';
 import { startHub, type Hub } from '../src/net/hub.js';
 import { PeerClient } from '../src/net/peer-client.js';
-import { expandPath, handoffNotePrompt } from '../src/core/remote-work.js';
+import { expandPath, handoffNotePrompt, handoffProblem } from '../src/core/remote-work.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
 import { waitFor, attach } from './helpers.js';
@@ -295,22 +295,93 @@ describe('handoff', () => {
     await waitFor(() => kay.state().shared.some((w) => w.id === theirs?.id), 4000);
   });
 
-  it('declines cleanly when the friend does not have the repository', async () => {
-    hub = await startHub({ keys });
-    const dirs = repos('kay');
+  /** bob with a different repository than kay's. */
+  function otherRepo(): string {
     const other = path.join(base, 'bob', 'code', 'other');
     mkdirSync(other, { recursive: true });
     git(other, 'init', '-b', 'main');
     writeFileSync(path.join(other, 'x'), 'x');
     git(other, 'add', '.');
     git(other, 'commit', '-m', 'x');
+    return other;
+  }
+
+  it('checks the friend has the repository before writing a note, committing or asking them (BLG-614)', async () => {
+    hub = await startHub({ keys });
+    const dirs = repos('kay');
     const kay = await person('kay', { repo: dirs.kay, script: async () => 'note' });
-    const bob = await person('bob', { repo: other });
+    const bob = await person('bob', { repo: otherRepo() });
     await together(kay, bob);
     const ws = await kay.workspaces!.createWorktree(kay.workspaces!.list.find((p) => p.root)!.id, 'feature');
-    await kay.session.remote.handoff(ws.id, bob.id());
-    await approve(bob);
-    await waitFor(() => kay.state().log.some((l) => l.type === 'system' && l.text.includes("didn't take it over")), 4000);
+    writeFileSync(path.join(ws.path, 'wip.ts'), '// half done\n');
+    const toasts: string[] = [];
+    kay.screen.store.subscribe(() => {
+      const t = kay.screen.store.getState().toast?.text;
+      if (t && toasts.at(-1) !== t) toasts.push(t);
+    });
+
+    expect(await kay.session.remote.canHandOff(ws.id, bob.id())).toEqual({ ok: false, why: expect.stringMatching(/^bob doesn't have app on their Mac\. Ask them to clone .*origin\.git and add it to Beluga/) });
+    expect(await kay.session.remote.handoff(ws.id, bob.id())).toBe(false);
+    // Nothing happened: no note, no WIP commit, nothing for bob to approve.
+    expect(kay.runs).toHaveLength(0);
+    expect(git(ws.path, 'status', '--porcelain')).toContain('wip.ts');
+    expect(bob.state().approvals).toHaveLength(0);
+    expect(toasts.at(-1)).toMatch(/^bob doesn't have app on their Mac/);
+    expect(kay.state().log.some((l) => l.type === 'system' && l.text.startsWith("Not handed off: bob doesn't have app"))).toBe(true);
     expect(kay.workspaces!.find(ws.id)?.handedTo).toBeUndefined();
+  });
+
+  it('says when the friend turned off work from friends, and when they can take it', async () => {
+    hub = await startHub({ keys });
+    const dirs = repos('kay', 'bob');
+    const kay = await person('kay', { repo: dirs.kay });
+    const bob = await person('bob', { repo: dirs.bob });
+    await together(kay, bob);
+    const ws = await kay.workspaces!.createWorktree(kay.workspaces!.list.find((p) => p.root)!.id, 'feature');
+    expect(await kay.session.remote.canHandOff(ws.id, bob.id())).toEqual({ ok: true });
+    bob.session.setFriendWorktrees('off');
+    expect((await kay.session.remote.canHandOff(ws.id, bob.id())).why).toMatch(/^bob has turned off work from friends/);
+  });
+
+  it('tells you plainly when they said no', async () => {
+    hub = await startHub({ keys });
+    const dirs = repos('kay', 'bob');
+    const kay = await person('kay', { repo: dirs.kay, script: async () => 'note' });
+    const bob = await person('bob', { repo: dirs.bob });
+    await together(kay, bob);
+    const ws = await kay.workspaces!.createWorktree(kay.workspaces!.list.find((p) => p.root)!.id, 'feature');
+    expect(await kay.session.remote.handoff(ws.id, bob.id())).toBe(true);
+    await approve(bob, 'no');
+    await waitFor(() => kay.state().log.some((l) => l.type === 'system' && l.text === 'Not handed off: bob said no to taking it over.'), 4000);
+    expect(kay.workspaces!.find(ws.id)?.handedTo).toBeUndefined();
+  });
+
+  it('an offer from a Beluga that skipped the check never asks you to approve what you cannot take', async () => {
+    hub = await startHub({ keys });
+    const dirs = repos('kay');
+    const kay = await person('kay', { repo: dirs.kay });
+    const bob = await person('bob', { repo: otherRepo() });
+    await together(kay, bob);
+    const toasts: string[] = [];
+    bob.screen.store.subscribe(() => {
+      const t = bob.screen.store.getState().toast?.text;
+      if (t && toasts.at(-1) !== t) toasts.push(t);
+    });
+    const remote = path.join(base, 'origin.git');
+    kay.session.send({ kind: 'ws_handoff', hid: 'old-beluga', ws: { name: 'feature', project: 'app', branch: 'feature', base: 'origin/main' }, remote, note: 'n', history: [] }, { to: bob.id() });
+    await waitFor(() => toasts.some((t) => t.startsWith("kay wanted to hand you feature, but you don't have app here")), 4000);
+    expect(bob.state().approvals).toHaveLength(0);
+  });
+
+  it('turns every reason into words, older Belugas\' too', () => {
+    const what = { who: 'bob', project: 'app', remote: 'git@github.com:k/app.git' };
+    expect(handoffProblem('no_repo', undefined, what)).toBe("bob doesn't have app on their Mac. Ask them to clone git@github.com:k/app.git and add it to Beluga, then hand it off again");
+    expect(handoffProblem('bad_branch', undefined, what)).toMatch(/didn't accept this branch's name/);
+    expect(handoffProblem('failed', 'fatal: bad object', what)).toBe("bob's Beluga couldn't set it up: fatal: bad object");
+    // An older Beluga sends only words.
+    expect(handoffProblem(undefined, "bob don't have that repository cloned", what)).toMatch(/^bob doesn't have app/);
+    expect(handoffProblem(undefined, 'they turned off work from friends', what)).toMatch(/turned off work from friends/);
+    expect(handoffProblem(undefined, 'declined', what)).toBe('bob said no to taking it over');
+    expect(handoffProblem(undefined, 'disk full', what)).toBe("bob's Beluga couldn't set it up: disk full");
   });
 });

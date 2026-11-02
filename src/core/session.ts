@@ -1209,6 +1209,10 @@ export class Session {
         return this.remote.onHandoff(from, body);
       case 'ws_handoff_result':
         return this.remote.onHandoffResult(from, body);
+      case 'ws_handoff_check':
+        return this.remote.onHandoffCheck(from, body);
+      case 'ws_handoff_check_result':
+        return this.remote.onHandoffCheckResult(from, body);
       case 'file_request':
         return this.remote.onFileRequest(from, body);
       case 'file_request_result':

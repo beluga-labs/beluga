@@ -612,6 +612,16 @@ keeps the `hid` so only that answer is let through, and the bundle's share is fe
 Mac shares the new worktree back to you over the network to follow along. Packs in an outbox (copies, forks,
 handoffs) are never offered as folders. A Beluga without `share.handoff` is told before anything is sent.
 
+**Checking first, and saying why (BLG-614).** Before a note is written or anything is committed or sent, the Mac
+handing off asks `ws_handoff_check` (just the origin URL): does their Mac have that repository, and do they take work
+from friends? Nobody approves it; the answer is only yes or a reason. The Hand Off sheet asks it of everyone online
+as it opens (`remote.canHandOff`) and shows who can't take it and why. It goes the same way the handoff would (room,
+or the friend's link via `FriendShares.routeHandoffCheck`, matched by `reqId`). No answer within 8 seconds (an older
+Beluga, or someone offline) lets the handoff go ahead as before. The receiving Mac also checks for the repository
+before asking you to approve. Its `ws_handoff_result` carries a `reason` (`declined`, `off`, `no_repo`,
+`bad_branch`, `failed`), and the sender says it in words (`handoffProblem`); from an older Beluga, the reason is read
+back out of its `error` text.
+
 **Folders, under Files.** A folder you share with only some people (**Share a Folder** › *Only…*, which lists your
 friends as well as the room's people) goes to those of them who are friends over the network as well, with no room
 needed: a `folder` message, again when you change it, `active: false` when you stop or untick them. On their Mac it's in
