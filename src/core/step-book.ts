@@ -18,6 +18,11 @@ export const MAX_RUN_STEPS = 500;
 export const MAX_RUN_CHARS = 3_000_000;
 /** Runs kept in memory. */
 const MEMORY_RUNS = 40;
+/**
+ * Characters of details kept in memory across runs when they're saved to disk: past it the
+ * least recently used runs are written and let go (read back from disk when a card opens them).
+ */
+export const MEMORY_CHARS = 12_000_000;
 /** Runs kept on disk (the oldest files go). */
 const DISK_RUNS = 300;
 /** A run's file is written this long after its last change (and right away when it ends). */
@@ -114,13 +119,19 @@ export class StepBook {
     // Most recently used last: the first one is the one to forget.
     this.runs.delete(key);
     this.runs.set(key, run);
-    while (this.runs.size > MEMORY_RUNS) {
+    while (this.runs.size > MEMORY_RUNS || (this.dir && this.runs.size > 1 && this.memoryChars() > MEMORY_CHARS)) {
       const [oldest] = this.runs.values();
       if (!oldest) break;
       this.flush(oldest.key);
       this.runs.delete(oldest.key);
     }
     return run;
+  }
+
+  private memoryChars(): number {
+    let n = 0;
+    for (const run of this.runs.values()) n += run.chars;
+    return n;
   }
 
   private trim(run: Run): void {

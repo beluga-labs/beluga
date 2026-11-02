@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { archiveWorktree, dropArchive, freeSpace, planArchive, readManifest, restoreWorktree } from '../src/workspaces/archive.js';
+import { archiveWorktree, dropArchive, freeSpace, planArchive, readManifest, restoreWorktree, sweepPartialArchives } from '../src/workspaces/archive.js';
+import { deletesSettled } from '../src/workspaces/others.js';
 import { regenRule, remakeSteps } from '../src/workspaces/regenerable.js';
 
 const sh = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
@@ -263,6 +264,17 @@ describe('a smart archive', () => {
     await restoreWorktree({ repo, dir: wt, id: 'p1', archivesDir: archives });
     expect(readFileSync(path.join(wt, 'notes.md'), 'utf8')).toBe('mine\n');
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('SECRET=1\n');
+  });
+
+  it('throws away an archive cut short by a quit, and keeps finished ones', async () => {
+    await archiveWorktree({ repo, dir: wt, id: 'done1', archivesDir: archives });
+    put(path.join(archives, 'cut1.partial/kept.tar.xz'), 'half written');
+    put(path.join(archives, 'notes.partial.txt'), 'not an archive');
+    expect(await sweepPartialArchives(archives)).toBe(1);
+    await deletesSettled();
+    expect(readdirSync(archives).sort()).toEqual(['done1', 'notes.partial.txt']);
+    expect(readManifest(archives, 'done1')).toBeDefined();
+    expect(await sweepPartialArchives(path.join(base, 'nowhere'))).toBe(0);
   });
 
   it('a second archive never replaces one that’s there', async () => {

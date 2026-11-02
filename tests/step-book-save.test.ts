@@ -106,6 +106,24 @@ describe('saving a run’s steps (BLG-407)', () => {
     expect(readFileSync(file, 'utf8')).toBe(text);
   });
 
+  it('lets go of the least recently used big runs past its memory budget, and reads them back whole', () => {
+    const book = new StepBook(dir);
+    const big = 'x'.repeat(2_500_000);
+    for (const k of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) book.put(k, rec(`${k}-step`, { output: big }));
+    const inMemory = (book as unknown as { runs: Map<string, unknown> }).runs;
+    expect(inMemory.size).toBeLessThan(6);
+    expect(inMemory.has('r6')).toBe(true);
+    expect(inMemory.has('r1')).toBe(false);
+    expect(book.get('r1', 'r1-step')?.output).toBe(big);
+  });
+
+  it('keeps every run in memory when it has nowhere to save them', () => {
+    const book = new StepBook();
+    const big = 'x'.repeat(2_500_000);
+    for (const k of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) book.put(k, rec(`${k}-step`, { output: big }));
+    expect(book.get('r1', 'r1-step')?.output).toBe(big);
+  });
+
   it('still keeps only the newest runs on disk', async () => {
     for (let i = 0; i < 305; i++) writeFileSync(path.join(dir, `old-${String(i).padStart(3, '0')}.json`), '{}');
     for (let i = 0; i < 305; i++) utimesSync(path.join(dir, `old-${String(i).padStart(3, '0')}.json`), new Date(1_000 + i * 1000), new Date(1_000 + i * 1000));

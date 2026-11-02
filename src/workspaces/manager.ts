@@ -12,7 +12,7 @@ import { WorkspaceStore } from './store.js';
 import { migrateMainConversations } from './main-migration.js';
 import { stopTestProcesses } from './test-procs.js';
 import { applySnapshot, dropSnapshots, snapshotBase } from './snapshots.js';
-import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree } from './archive.js';
+import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree, sweepPartialArchives } from './archive.js';
 import { worktreeOrigin } from './origin.js';
 import { deleteFolderInBackground, removeWorktreeKeepingBranch, sweepSetAside } from './others.js';
 import { moveToTrash } from './trash.js';
@@ -106,6 +106,7 @@ export class WorkspaceManager {
   /** The refresh running now, and the one queued behind it (every call made meanwhile shares it). */
   private refreshing?: Promise<readonly Project[]>;
   private followUp?: Promise<readonly Project[]>;
+  private archivesSwept = false;
   /** One folder's status refresh in flight, per folder: the next waits for it (see refreshWorkspace). */
   private readonly folderRefreshes = new Map<string, Promise<boolean>>();
   /** Fetching state per project root (in flight, the last failure), shown with the default branch. */
@@ -401,6 +402,11 @@ export class WorkspaceManager {
       .then((projects) => {
         // Worktree folders an earlier background delete couldn't finish sit next to the ones still here.
         void sweepSetAside(new Set(projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree').map((w) => path.dirname(w.path)))));
+        // Archives cut short by a quit (their worktree is still there): once a run, before any new archive starts.
+        if (!this.archivesSwept) {
+          this.archivesSwept = true;
+          void sweepSetAside([this.store.archivesDir]).then(() => sweepPartialArchives(this.store.archivesDir));
+        }
         return projects;
       })
       .finally(() => {

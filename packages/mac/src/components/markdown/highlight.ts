@@ -96,6 +96,9 @@ export function languageOf(lang: string | undefined): string {
 /** Colored once per code and language, then remembered (a live file re-renders often). */
 const cache = new Map<string, TokenLines>();
 const CACHE_MAX = 120;
+/** Characters of code remembered in all: a live file colored version after version would otherwise keep near-copies of itself. */
+const CACHE_MAX_CHARS = 2_000_000;
+let cacheChars = 0;
 
 /** The code's tokens if they're already colored (so it's drawn colored at once, not plain first). */
 export function cachedTokens(code: string, lang: string | undefined): TokenLines | undefined {
@@ -113,7 +116,13 @@ export async function tokenize(code: string, lang: string | undefined): Promise<
   const e = await loadEngine();
   if (!(await e.load(id))) return undefined;
   const lines = e.tokenize(code, id);
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);
+  if (cache.has(key)) return cache.get(key);
+  while (cache.size && (cache.size >= CACHE_MAX || cacheChars + key.length > CACHE_MAX_CHARS)) {
+    const oldest = cache.keys().next().value!;
+    cache.delete(oldest);
+    cacheChars -= oldest.length;
+  }
   cache.set(key, lines);
+  cacheChars += key.length;
   return lines;
 }

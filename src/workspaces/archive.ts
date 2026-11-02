@@ -1,9 +1,9 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { folderSize } from './disk.js';
 import { parseWorktreeList } from './git.js';
-import { removeWorktreeKeepingBranch } from './others.js';
+import { deleteFolderInBackground, removeWorktreeKeepingBranch } from './others.js';
 import { ArchiveError, LONG_MS, RAW_ARGS, RAW_ENV, assertSettled, fingerprint, git, gitLiteral, ignoredByProject, ignoredIn, pack, run, snapshot, submoduleOnlyHere, submodulesIn, tryGit, unpackKeeping, untrackedDirs } from './archive-git.js';
 import { type RegenRule, regenRule, remakeSteps } from './regenerable.js';
 
@@ -302,6 +302,23 @@ export function restoreWorktree(o: Omit<ArchiveOptions, 'onPhase'>): Promise<Arc
     rmSync(folder, { recursive: true, force: true });
     return m;
   });
+}
+
+const PARTIAL = /^([\w.-]{1,128})\.partial$/;
+
+/**
+ * Throw away archives that were cut short (Beluga quit or crashed while compressing): their
+ * worktree is still there, untouched, so nothing in them is needed. Left alone, each could be
+ * hundreds of MB. Skips one being written now. → how many went.
+ */
+export async function sweepPartialArchives(archivesDir: string): Promise<number> {
+  const names = await readdir(archivesDir).catch(() => [] as string[]);
+  const stale = names.filter((name) => {
+    const id = PARTIAL.exec(name)?.[1];
+    return id !== undefined && !busy.has(id);
+  });
+  await Promise.all(stale.map((name) => deleteFolderInBackground(path.join(archivesDir, name)).catch(() => undefined)));
+  return stale.length;
 }
 
 /** Forget an archive (the worktree is deleted for good). */

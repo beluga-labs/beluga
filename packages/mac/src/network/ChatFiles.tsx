@@ -21,6 +21,14 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message 
 
 /** Pictures already read from the store, by checksum (a data URL), so scrolling doesn't read them again. */
 const previews = new Map<string, string>();
+/** Pictures remembered (each up to a few MB); the least recently shown is read again when it's back. */
+const PREVIEWS_MAX = 24;
+
+function remember(sha: string, data: string): void {
+  previews.delete(sha);
+  previews.set(sha, data);
+  while (previews.size > PREVIEWS_MAX) previews.delete(previews.keys().next().value!);
+}
 
 async function saveAs(client: SocketClient, f: ChatFile): Promise<string | undefined> {
   if (!inApp()) return undefined;
@@ -67,7 +75,7 @@ function Picture({ f, state }: { f: ChatFile; state: ChatFileState | undefined }
     client.api.network['files.preview'](f.sha).then(
       (p) => {
         const data = `data:${p.mime};base64,${p.b64}`;
-        previews.set(f.sha, data);
+        remember(f.sha, data);
         if (alive) setUrl(data);
       },
       () => undefined,
