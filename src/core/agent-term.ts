@@ -5,6 +5,7 @@ import type { StepRecord } from '../shared/steps.js';
 import { describeVisual } from '../shared/term-visuals.js';
 import { agentTermId } from '../shared/terminal-keys.js';
 import type { PtyProcess } from '../terminal/pty-host.js';
+import { hasShellUnder } from '../terminal/shells-under.js';
 import type { Workspace } from '../workspaces/types.js';
 import { TranscriptTail, claudeTranscriptFile, claudeTurns, sizeOf } from './agent-term-sync.js';
 import { belugaHome } from './home.js';
@@ -42,7 +43,16 @@ export interface AgentTermDeps {
   /** How often the transcript is looked at while the terminal is open (default 700 ms; 0: only when asked, tests). */
   readonly pollMs?: number;
   readonly now?: () => number;
+  /** How long a terminal nobody shows and nothing happens in keeps its program (default 20 min; 0: always). */
+  readonly restAfterMs?: number;
+  /** Whether a shell runs under the program (a command, a dev server): then it's never let go. */
+  readonly shellUnder?: (pid: number | undefined) => Promise<boolean>;
 }
+
+/** A terminal's program is let go of (and resumed when shown again) after this long unseen and quiet. */
+export const REST_AFTER_MS = 20 * 60_000;
+/** How often an unseen, quiet terminal looks for shells under its program. */
+const REST_CHECK_MS = 60_000;
 
 /** One open terminal. */
 interface Live {
@@ -59,6 +69,11 @@ interface Live {
   tail?: TranscriptTail;
   /** Transcript messages let go of (their turns are in the chat). */
   first: number;
+  /** When a screen last showed it. */
+  seenAt: number;
+  /** When it last looked for shells under its program (and whether it's looking now). */
+  checkedAt?: number;
+  checking?: boolean;
   timer?: NodeJS.Timeout;
 }
 
@@ -135,7 +150,7 @@ export class AgentTerminals {
       const startAt = sizeOf(existing);
       const pty = this.deps.openProgram(key, ws, { file: launch.file, args: launch.args, env: launch.env, title: agent.label }, size);
       if (!pty) throw new Error('Beluga couldn’t start a terminal here.');
-      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, first: 0, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
+      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, first: 0, seenAt: startedAt, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
       this.live.set(wsId, entry);
       this.deps.store.dispatch({ type: 'agent_term', id: wsId, state: { runtime: agent.runtime, label: agent.label, since: startedAt } });
       pty.onExit(() => this.finish(wsId));
@@ -177,6 +192,33 @@ export class AgentTerminals {
     // Closed some other way (archived, the window's ✕): the conversation is the chat's again.
     if (this.deps.pty(live.key) !== live.pty || !live.pty.running) return this.finish(wsId);
     this.sync(wsId);
+    this.restIfIdle(wsId, live);
+  }
+
+  /**
+   * A terminal no screen has shown for a while, whose program wrote nothing since, whose last
+   * turn ended and with no shell running under it (a command, a dev server) is let go of: its
+   * Claude (hundreds of MB) stops, the conversation's turns are in the chat, and the screen
+   * resumes it when it's shown again. Never one that's working or asking something.
+   */
+  private restIfIdle(wsId: string, live: Live): void {
+    const after = this.deps.restAfterMs ?? REST_AFTER_MS;
+    if (after <= 0) return;
+    const now = this.now;
+    if (live.pty.watchers > 0) {
+      live.seenAt = now;
+      return;
+    }
+    const quiet = (): boolean => live.pty.watchers === 0 && now - Math.max(live.seenAt, live.pty.lastOutputAt) >= after && Boolean(live.tail?.turnEnded);
+    if (!quiet() || live.checking || now - (live.checkedAt ?? 0) < REST_CHECK_MS) return;
+    live.checking = true;
+    live.checkedAt = now;
+    void (this.deps.shellUnder ?? hasShellUnder)(live.pty.pid)
+      .catch(() => true)
+      .then((busy) => {
+        live.checking = false;
+        if (!busy && this.live.get(wsId) === live && quiet()) this.takeOver(wsId);
+      });
   }
 
   /** Read what the terminal's agent wrote since the last look, into the chat. */

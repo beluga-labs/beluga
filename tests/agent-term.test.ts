@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentBackend, AgentRunInput, TerminalLaunch, TerminalSink } from '../src/agent/types.js';
 import { sessionArgs, trustFolder } from '../src/agent/runtime/claude/terminal.js';
 import { childEnv } from '../src/terminal/pty.js';
+import { shellChildren } from '../src/terminal/shells-under.js';
 import { readFileSync } from 'node:fs';
 import { GATE_HOOK_SCRIPT, gateHookSettings, hasRawVisual, lastAnswer, shellQuote, terminalHookAnswer } from '../src/agent/terminal-hook.js';
 import { buildGraphAppend } from '../src/agent/graph-prompt.js';
@@ -309,6 +310,9 @@ function fakePty(): PtyProcess & { end(): void } {
   const exits: Array<() => void> = [];
   let running = true;
   return {
+    watchers: 0,
+    lastOutputAt: 0,
+    pid: 4242,
     get running() {
       return running;
     },
@@ -321,7 +325,7 @@ function fakePty(): PtyProcess & { end(): void } {
   } as unknown as PtyProcess & { end(): void };
 }
 
-function terminals() {
+function terminals(extra: Partial<ConstructorParameters<typeof AgentTerminals>[0]> = {}) {
   const store = new Store(initialState('room', 'auto'));
   const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-terms-'));
   const config = path.join(home, 'claude');
@@ -356,6 +360,7 @@ function terminals() {
     home,
     claudeConfigDir: config,
     pollMs: 0,
+    ...extra,
   });
   const transcript = (): string => {
     const variant = cwd.startsWith('/var/') ? `/private${cwd}` : cwd;
@@ -476,6 +481,65 @@ describe('the agent’s terminal on a conversation', () => {
     await expect(t.terms.open('nope')).rejects.toThrow(/archived or gone/);
     const codex = new AgentTerminals({ store: t.store, find: () => ({ id: 'w1', path: '/w', kind: 'worktree' }) as Workspace, ensureLoaded: () => undefined, launch: async () => { throw new Error('never launched'); }, openProgram: () => undefined, closeTerminal: () => undefined, pty: () => undefined, agentOf: () => ({ runtime: 'codex', label: 'Codex' }), rememberSession: () => undefined, self: () => ({ id: 'me', name: 'K' }), home: t.home, pollMs: 0 });
     await expect(codex.open('w1')).rejects.toThrow(/stay in the chat/);
+  });
+});
+
+describe('an unseen, quiet terminal rests (BLG-610)', () => {
+  const ended = (claude: string): string => `${line({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: 'hi' } })}\n${line({ type: 'assistant', timestamp: new Date().toISOString(), message: { role: 'assistant', stop_reason: claude, content: [{ type: 'text', text: 'done' }] } })}\n`;
+  const setup = async (o: { shell?: boolean; stop?: string } = {}) => {
+    let now = 1_000;
+    const asked: Array<number | undefined> = [];
+    const t = terminals({ now: () => now, restAfterMs: 60_000, shellUnder: async (pid) => (asked.push(pid), o.shell ?? false) });
+    const key = await t.terms.open('w1');
+    appendFileSync(t.transcript(), ended(o.stop ?? 'end_turn'));
+    const pty = t.ptys.get(key)! as unknown as { watchers: number; lastOutputAt: number };
+    pty.lastOutputAt = now;
+    const later = async (ms: number): Promise<void> => {
+      now += ms;
+      t.terms.tick('w1');
+      await new Promise((r) => setImmediate(r));
+    };
+    return { t, key, pty, later, asked };
+  };
+
+  it('lets go of its program once nobody has shown it and nothing happened for a while, its turns in the chat', async () => {
+    const { t, key, later, asked } = await setup();
+    await later(30_000);
+    expect(t.terms.driving('ws:w1')).toBe(true);
+    await later(31_000);
+    expect(asked).toEqual([4242]);
+    expect(t.terms.driving('ws:w1')).toBe(false);
+    expect(t.ptys.has(key)).toBe(false);
+    expect(t.closed()).toBe(1);
+    expect(t.store.getState().log.filter((l) => l.channel === 'ws:w1').map((l) => l.type)).toEqual(['chat', 'agent']);
+    // Shown again: it opens on the same conversation.
+    await t.terms.open('w1');
+    expect(t.launches()).toBe(2);
+  });
+
+  it('keeps one a screen shows, one with a shell under it, and one in the middle of a turn', async () => {
+    const shown = await setup();
+    shown.pty.watchers = 1;
+    await shown.later(120_000);
+    expect(shown.t.terms.driving('ws:w1')).toBe(true);
+    expect(shown.asked).toEqual([]);
+
+    const server = await setup({ shell: true });
+    await server.later(120_000);
+    expect(server.asked).toEqual([4242]);
+    expect(server.t.terms.driving('ws:w1')).toBe(true);
+
+    const working = await setup({ stop: 'tool_use' });
+    await working.later(120_000);
+    expect(working.asked).toEqual([]);
+    expect(working.t.terms.driving('ws:w1')).toBe(true);
+  });
+
+  it('counts only shells right under the program, not what its MCP servers start', () => {
+    const ps = ['  100     1 /Users/k/.beluga/claude-code/0.3/claude', '  101   100 /bin/zsh', '  102   100 npm exec @ratel-ai/mcp-server', '  103   102 sh', '  104   100 -zsh', '  105     7 /bin/bash'].join('\n');
+    expect(shellChildren(ps, 100)).toBe(2);
+    expect(shellChildren(ps, 102)).toBe(1);
+    expect(shellChildren(ps, 999)).toBe(0);
   });
 });
 

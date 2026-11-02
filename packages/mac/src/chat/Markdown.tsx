@@ -43,9 +43,9 @@ function Code({ code, lang }: { code: string; lang?: string }) {
   useEffect(() => {
     if (!lang) return;
     let alive = true;
-    void loadHighlighter().then((h) => {
-      if (!alive || !h.langs.has(lang)) return;
-      setHtml(h.codeToHtml(code, { lang, themes: { light: 'github-light', dark: 'github-dark-dimmed' } }));
+    void loadHighlighter().then(async (h) => {
+      const id = await h.language(lang);
+      if (alive && id) setHtml(h.codeToHtml(code, id));
     });
     return () => {
       alive = false;

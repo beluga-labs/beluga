@@ -29,11 +29,24 @@ export function claudeTranscriptFile(cwd: string, session: string, configDir = c
 export class TranscriptTail {
   readonly lines: string[] = [];
   private rest = '';
+  /** Whether the last thing said is Claude's finished answer (nothing running, nothing asked). */
+  turnEnded = false;
 
   constructor(
     readonly file: string,
     private offset: number,
   ) {}
+
+  private note(line: string): void {
+    let l: { type?: string; isSidechain?: boolean; message?: { stop_reason?: unknown } };
+    try {
+      l = JSON.parse(line) as typeof l;
+    } catch {
+      return;
+    }
+    if ((l.type !== 'user' && l.type !== 'assistant') || l.isSidechain) return;
+    this.turnEnded = l.type === 'assistant' && l.message?.stop_reason === 'end_turn';
+  }
 
   /** Let go of the first `n` lines (turns already in the chat), so a long session isn't held and read again whole. */
   drop(n: number): void {
@@ -56,7 +69,12 @@ export class TranscriptTail {
         const text = this.rest + buf.subarray(0, n).toString('utf8');
         const parts = text.split('\n');
         this.rest = parts.pop() ?? '';
-        for (const line of parts) if (line.trim()) this.lines.push(line), (grew = true);
+        for (const line of parts) {
+          if (!line.trim()) continue;
+          this.lines.push(line);
+          this.note(line);
+          grew = true;
+        }
       }
     } catch {
       return grew;

@@ -48,6 +48,7 @@ export class PtyProcess {
   private readonly exitListeners = new Set<(exit: PtyExit) => void>();
   private readonly resizeListeners = new Set<(size: { cols: number; rows: number }) => void>();
   private disposed = false;
+  private lastOut = Date.now();
 
   constructor(opts: PtyOptions) {
     this.id = opts.id;
@@ -71,6 +72,21 @@ export class PtyProcess {
     return { cols: this.cols, rows: this.rows };
   }
 
+  /** The program's process id while it runs. */
+  get pid(): number | undefined {
+    return this.pty?.pid;
+  }
+
+  /** When it last wrote anything (or started). */
+  get lastOutputAt(): number {
+    return this.lastOut;
+  }
+
+  /** How many are following its output now (screens showing it). */
+  get watchers(): number {
+    return this.dataListeners.size;
+  }
+
   private start(opts: PtyOptions): void {
     try {
       const pty = spawnPty({ file: this.shell, args: opts.args ?? ['-l'], cwd: opts.cwd, env: childEnv(opts.env), cols: this.cols, rows: this.rows });
@@ -86,6 +102,7 @@ export class PtyProcess {
 
   private emit(data: string): void {
     if (this.disposed) return;
+    this.lastOut = Date.now();
     this.chunks.push(data);
     this.kept += data.length;
     while (this.kept > BACKLOG_BYTES && this.chunks.length > 1) this.kept -= this.chunks.shift()!.length;
