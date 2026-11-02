@@ -181,8 +181,9 @@ export function buildAgentScratchNote(dir: string): string {
 /**
  * For runs in a project's main folder: questions only. A request to change anything moves the
  * conversation to a new worktree (continue_in_worktree) instead of being refused or attempted.
+ * With the board (BLG-626), its tasks are made and changed right here: they aren't files in the folder.
  */
-export function buildAskOnlyAppend(project: string, canMove: boolean): string {
+export function buildAskOnlyAppend(project: string, canMove: boolean, board = false): string {
   return [
     '',
     `IMPORTANT: You're in the main folder of ${project}. It's read-only: you can read files, run read-only`,
@@ -198,6 +199,12 @@ export function buildAskOnlyAppend(project: string, canMove: boolean): string {
           "Questions (explain, find, review, compare) you answer here as usual.",
         ].join('\n')
       : 'If a change is wanted, say so and ask the owner of this computer to continue in a new worktree.',
+    ...(board
+      ? [
+          'The task board is not in this folder: making, changing, commenting on or moving tasks (mcp__beluga_board__*) is',
+          'fine right here and never needs a worktree. Do it yourself when asked; only work on the code itself moves.',
+        ]
+      : []),
   ].join('\n');
 }
 

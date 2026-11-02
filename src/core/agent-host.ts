@@ -1155,12 +1155,14 @@ export class AgentHost {
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
-      // Not for guests, nor in a main folder (questions only) unless planning there: a run doing a task gets it, and the tools to keep it true.
-      // (In a plan's conversation, planning is the plan's: no single task to define.)
+      // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
+      // folder's chat too (BLG-626): the board is Beluga's, not a file there, so the folder stays read-only.
+      // Not while syncing main, nor in a plan's conversation there (planning is the plan's: no single task to define).
       const planFirst = body.plan && !plans?.tools;
-      // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools even in a main folder (it makes tasks there).
+      // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools (it makes tasks).
       const sentinel = from === this.selfId && !place?.syncMain ? this.deps.sentinel?.(body.channel, from) : undefined;
-      const board = (place?.askOnly && !sentinel?.inRun && (!planFirst || place.syncMain)) || from !== this.selfId ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst });
+      const noBoard = place?.syncMain || (place?.askOnly && plans?.tools && !sentinel?.inRun);
+      const board = noBoard || from !== this.selfId ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst });
       // A run stopped but not ending (wedged, or never started: no Claude Code yet) has its Claude
       // Code killed after a moment (at once when it's gone already), then is left behind so what
       // comes next in the conversation starts (BLG-402): never while its Claude Code could still
@@ -1317,7 +1319,7 @@ export class AgentHost {
     const tag: Record<string, string> = worktree ? belugaEnvBoth('WORKTREE', worktree) : {};
     const scratch = !place.askOnly && this.store.getState().prefs.scratchFolder && (await ensureScratch(place.cwd)) ? SCRATCH_DIR : undefined;
     const phone = this.deps.phone?.(scratch ? path.join(place.cwd, scratch) : undefined);
-    const board = place.askOnly ? undefined : this.deps.board?.(channel, this.selfId, { plan: false });
+    const board = this.deps.board?.(channel, this.selfId, { plan: false });
     const setup = worktree && channel.startsWith('ws:') ? this.deps.setup?.(channel) : undefined;
     const requestId = `term-${randomUUID()}`;
     this.deps.questions.track(requestId, this.selfId, channel);

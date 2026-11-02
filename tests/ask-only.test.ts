@@ -130,6 +130,17 @@ describe('the system prompt for a main folder', () => {
     expect(text).toContain('mcp__beluga__continue_in_worktree right away');
     expect(buildAskOnlyAppend('api', false)).not.toContain('continue_in_worktree');
   });
+
+  it('with the board, says tasks are changed right here, not in a worktree (BLG-626)', () => {
+    expect(buildAskOnlyAppend('api', true, true)).toMatch(/task board is not in this folder.*\n.*never needs a worktree/);
+    expect(buildAskOnlyAppend('api', true)).not.toContain('mcp__beluga_board__');
+  });
+
+  it('board tools stay allowed in a main folder (they change no file there)', () => {
+    const main = { cwd: '/repo', roots: ['/repo'], autoEdit: false, scope: 'full' as const, askOnly: true };
+    expect(decideTool('mcp__beluga_board__task_create', { title: 'x' }, main)).toBe('allow');
+    expect(decideTool('mcp__beluga_board__task_update', { status: 'done' }, main)).toBe('allow');
+  });
 });
 
 describe('the demo Claude in a main folder', () => {
