@@ -1257,6 +1257,8 @@ export class AgentHost {
         ...this.modelFor(place?.model, place?.agent ?? named, place?.effort),
         // Your MCP servers (your logins: Figma, Linear…) are for runs you asked for, never a friend's.
         ...(from === this.selfId ? { ownerMcp: true } : {}),
+        // Your own flags for `claude` and `codex` (Settings › Agents), never on a friend's run.
+        ...(from === this.selfId ? this.launchArgs() : {}),
         // Your variables can hold secrets: only runs you asked for get them, never a friend's.
         // Your own runs also get adb on PATH (and ANDROID_SERIAL) when a phone is set up, so Bash can drive it (BLG-174).
         ...(from === this.selfId && (this.deps.envFor || phone?.env) ? { env: { ...this.deps.envFor?.(body.channel, place?.cwd), ...(phone?.env ?? {}), ...tag } } : worktree ? { env: tag } : {}),
@@ -1344,6 +1346,7 @@ export class AgentHost {
         ...(setup ? { setup } : {}),
         ...this.modelFor(place.model, place.agent, place.effort),
         ownerMcp: true,
+        ...this.launchArgs(),
         env: { ...this.deps.envFor?.(channel, place.cwd), ...(phone?.env ?? {}), ...tag },
       },
       sink,
@@ -1378,6 +1381,12 @@ export class AgentHost {
       ...(opts.defaultModel ? this.modelFor(opts.place?.model, opts.place?.agent, opts.place?.effort) : {}),
     });
     return { text, tokens };
+  }
+
+  /** Your launch flags per runtime (Settings › Agents › Launch flags), when you set any. */
+  private launchArgs(): Pick<AgentRunInput, 'launchArgs'> {
+    const { claudeArgs, codexArgs } = this.store.getState().prefs;
+    return claudeArgs.length || codexArgs.length ? { launchArgs: { claude: claudeArgs, codex: codexArgs } } : {};
   }
 
   /**

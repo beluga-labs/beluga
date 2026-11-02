@@ -3,6 +3,7 @@ import { AgentRef } from '../protocol.js';
 import { AUTO_COMPACT_DEFAULT, AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from './context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from './run-slots.js';
 import { CHAT_LIMIT_DEFAULT, CHAT_LIMIT_MAX } from './chat-limit.js';
+import { MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH } from './agent-args.js';
 import { coercePerKind, coerceSound, DEFAULT_SOUND, DEFAULT_VOLUME, PerKindSounds, SoundChoice } from './notify-sound.js';
 
 // Settings as data (no file access), so the reducer and the clients can use them anywhere.
@@ -128,6 +129,9 @@ export const Settings = z.object({
   shellLogin: z.boolean().default(true),
   /** Extra arguments for the shell, after -l. */
   shellArgs: z.array(z.string().max(200)).max(20).default([]),
+  /** Your own flags for `claude` and `codex` on your own runs (shared/agent-args.ts), e.g. --dangerously-skip-permissions. */
+  claudeArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
+  codexArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
   /** Show every earnings total in this currency (lowercase ISO code; unset: the one most was earned in). */
   earningsCurrency: z.string().regex(/^[a-z]{3}$/).optional(),
   /** Be on the Beluga network (friends, groups, presence) while the Mac app's daemon runs. Off by default for now. */

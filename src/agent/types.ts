@@ -4,6 +4,7 @@ import type { DraftContext, TaskDraft } from './task-drafter.js';
 import type { AgentRef, ClaudeAnswer, ClaudeQuestion, FsEntry, PeerInfo, Usage } from '../protocol.js';
 import type { UsageUpdate } from './usage.js';
 import type { StepRecord } from '../shared/steps.js';
+import type { ArgsRuntime } from '../shared/agent-args.js';
 
 /** How far a request may reach on the owner's computer. */
 export type AccessScope = 'folder' | 'full';
@@ -66,6 +67,11 @@ export interface AgentRunInput {
    * that runs commands without asking Beluga first (Codex) asks for each one instead.
    */
   readonly askBeforeCommands?: boolean;
+  /**
+   * Your own run: your flags for the agent's command line, by runtime (Settings › Agents › Launch
+   * flags; shared/agent-args.ts). Never set on a friend's or a guest's run.
+   */
+  readonly launchArgs?: Readonly<Partial<Record<ArgsRuntime, readonly string[]>>>;
   /**
    * Your own Claude wants a .env file (policy.ts 'secret'): ask you, even when nothing else would.
    * Without it (a friend's request, a task from outside) .env files are refused like every secret.
