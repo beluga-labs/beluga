@@ -127,6 +127,8 @@ Say what you want done and Beluga makes a fresh worktree for it (its own folder,
 - 🧩 **Everything beside the chat**: changes and diffs, files, terminals and details in the right panel. Commit, open a pull request or merge in one click.
 - 💬 **Questions stay safe**: in the main folder your agent only reads; asking for a change moves you to a new worktree.
 
+To rename a chat, right-click its sidebar row and select **Rename…**. Enter saves the name. Escape cancels the edit.
+
 ### 🔬 Watch what your agent is making: the Scratch tab
 
 While your agent and its sub-agents work, they save what they produce along the way to the worktree's `.beluga/scratch/` folder: screenshots of the page they just checked, test runs, logs, the JSON an API sent back, notes. The **Scratch** tab in the right panel (⌥⌘6) shows that folder live, newest first, and previews each file as it lands. Pictures show as pictures, JSON is laid out, and a log keeps scrolling while it's written. So you can see what your agent is seeing, not just what it says about it.

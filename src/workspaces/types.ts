@@ -37,6 +37,8 @@ export interface WorkspaceRecord {
   readonly id: string;
   readonly projectRoot: string;
   readonly name: string;
+  /** The user set this name. Automatic titles must preserve it. */
+  readonly nameSetByUser?: boolean;
   readonly path: string;
   readonly kind: WorkspaceKind;
   readonly branch?: string;

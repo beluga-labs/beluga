@@ -1241,8 +1241,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { sessionId: undefined, forkFromSession: undefined, sessionRuntime: undefined });
   }
 
-  rename(id: string, name: string): void {
-    this.patchRecord(id, { name: name.trim().slice(0, 40) || this.require(id).name });
+  rename(id: string, name: string, opts: { readonly automatic?: boolean } = {}): void {
+    const ws = this.require(id);
+    if (opts.automatic && ws.nameSetByUser) return;
+    const clean = opts.automatic ? name.trim().slice(0, 40) || ws.name : name.trim();
+    if (!clean || clean.length > 200) throw new WorkspaceError('A workspace name must contain 1 to 200 characters');
+    this.patchRecord(id, { name: clean, ...(opts.automatic ? {} : { nameSetByUser: true }) });
   }
 
   /**

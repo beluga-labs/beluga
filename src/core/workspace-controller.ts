@@ -778,10 +778,16 @@ export class WorkspaceController {
     return ws;
   }
 
-  /** A chat's name changed for you (a plan's conversation follows the plan's name). */
+  /** Set the workspace name and publish it to connected screens. */
+  async rename(id: string, name: string): Promise<void> {
+    this.deps.manager.rename(id, name);
+    await this.refresh();
+  }
+
+  /** An automatic title follows the plan until the user sets a name. */
   async renameChat(id: string, name: string): Promise<void> {
     try {
-      this.deps.manager.rename(id, name);
+      this.deps.manager.rename(id, name, { automatic: true });
       await this.refresh();
     } catch {
       // Keeps its name.

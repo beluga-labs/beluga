@@ -141,6 +141,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.openInFinder': 'mac',
   'workspaces.setGroup': 'mac',
   'workspaces.renameGroup': 'mac',
+  'workspaces.rename': 'mac',
   'workspaces.ungroup': 'mac',
   'workspaces.arrange': 'mac',
   'workspaces.newGroup': 'mac',
