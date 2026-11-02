@@ -1,4 +1,5 @@
 import { promises as fs, realpathSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import { type FsEntry, MAX_DOWNLOAD_BYTES, MAX_FILE_BYTES, type ShareInfo } from '../protocol.js';
@@ -39,8 +40,11 @@ const MAX_WATCHED = 200;
 
 const segmentsOf = (p: string): string[] => p.split(/[\\/]/).filter(Boolean).map((s) => s.toLowerCase());
 
+/** Your home folder: $HOME where it's set (tests set it), else the system's (Windows has no $HOME). */
+const userHome = (): string => process.env.HOME || os.homedir();
+
 /** Beluga's own home (~/.beluga): your identity key, settings and trust choices live there. */
-export const belugaHomeDir = (): string => path.resolve(belugaEnv('HOME') ?? process.env.KLAUDE_HOME ?? path.join(process.env.HOME ?? '~', '.beluga'));
+export const belugaHomeDir = (): string => path.resolve(belugaEnv('HOME') ?? process.env.KLAUDE_HOME ?? path.join(userHome(), '.beluga'));
 
 /** The Mac's file system ignores case: compare paths the way it does. */
 const fold = (p: string): string => (process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p);
@@ -61,7 +65,7 @@ export function realOf(p: string): string {
 /** Beluga's home in every form it can be reached by: as named, really, and the old ~/.klaud and ~/.klaude. */
 function belugaHomes(): string[] {
   const named = belugaHomeDir();
-  const legacy = ['.beluga', '.klaud', '.klaude'].map((name) => path.resolve(process.env.HOME ?? '~', name));
+  const legacy = ['.beluga', '.klaud', '.klaude'].map((name) => path.resolve(userHome(), name));
   return [...new Set([named, realOf(named), ...legacy.flatMap((p) => [p, realOf(p)])].map(fold))];
 }
 

@@ -17,6 +17,7 @@ import v from './PlansView.module.css';
 import { SharedPlansList } from '../team/SharedPlans.js';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
+import { NoProjects } from '../work/NoProjects.js';
 
 /**
  * Plans: one project's at a time (the one you're in, like Tasks). Each is a row with how far it
@@ -49,7 +50,7 @@ export function PlansView() {
   }, [project]);
 
   if (!state.enabled) return <Empty icon="flag" title="Plans need the Beluga app" detail="Open Beluga for Mac to plan big work with your agent." />;
-  if (!here) return <Empty icon="flag" title="No projects yet" detail="Plans belong to a project. Add one from the sidebar." />;
+  if (!here) return <NoProjects icon="flag" detail="Plans belong to a project. Add one to plan its work here." />;
   return (
     <div className={p.list}>
       <div className={p.listBar}>
