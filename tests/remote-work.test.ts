@@ -295,6 +295,23 @@ describe('handoff', () => {
     await waitFor(() => kay.state().shared.some((w) => w.id === theirs?.id), 4000);
   });
 
+  // A name you give is up to 200 characters; the handoff carries at most 80 (what older peers accept).
+  it('offers a worktree with a long name: the friend gets it cut to 80, yours stays whole', async () => {
+    hub = await startHub({ keys });
+    const dirs = repos('kay', 'bob');
+    const kay = await person('kay', { repo: dirs.kay, script: async () => 'note' });
+    const bob = await person('bob', { repo: dirs.bob });
+    await together(kay, bob);
+    const ws = await kay.workspaces!.createWorktree(kay.workspaces!.list.find((p) => p.root)!.id, 'feature');
+    const long = 'x'.repeat(81);
+    kay.workspaces!.rename(ws.id, long);
+    await kay.session.workspaces!.refresh();
+
+    expect(await kay.session.remote.handoff(ws.id, bob.id())).toBe(true);
+    expect(await approve(bob)).toContain(`hand ${long.slice(0, 80)} (app)`);
+    expect(kay.workspaces!.find(ws.id)?.name).toBe(long);
+  });
+
   it('declines cleanly when the friend does not have the repository', async () => {
     hub = await startHub({ keys });
     const dirs = repos('kay');

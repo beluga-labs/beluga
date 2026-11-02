@@ -34,6 +34,8 @@ export interface SharingDeps {
 }
 
 const HISTORY_ITEMS = 60;
+/** The longest name `ws_invite` carries (`WsInviteBody`); a name you give may be longer, so the invite cuts it. */
+const WIRE_NAME_MAX = 80;
 const wsIdOf = (channel: string): string | undefined => (channel.startsWith('ws:') ? channel.slice(3) : undefined);
 
 /** A short, plain-text version of the recent conversation for someone joining. */
@@ -119,7 +121,7 @@ export class WorkspaceSharing {
     this.syncShare(wsId);
     const project = state.projects.find((p) => p.id === ws.projectId)?.name ?? '';
     const history = historyFor(state.log, `ws:${wsId}`, (id) => peerName(state, id));
-    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: ws.name, project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
+    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: ws.name.slice(0, WIRE_NAME_MAX), project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
     this.broadcastRoster(wsId);
     this.onChange?.();
     if (!opts.quiet) this.deps.toast(`${peer.name} ${role === 'contribute' ? 'can now work with you' : 'can now follow along'} in ${ws.name}`, 'success');

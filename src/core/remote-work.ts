@@ -56,6 +56,8 @@ const OUTBOX_TTL_MS = 15 * 60_000;
 const HANDOFF_TTL_MS = 60 * 60_000;
 const AUTO_ACCEPT_BYTES = 50 * 1024 * 1024;
 const AUTO_ACCEPT_PER_10_MIN = 10;
+/** The longest name `ws_handoff` carries (`WsHandoffBody`); a name you give may be longer, so the handoff cuts it. */
+const WIRE_NAME_MAX = 80;
 
 /** Files waiting to be fetched by someone. Private to you; old ones are swept, yours removed on quit. */
 export const outboxDir = (): string => path.join(belugaHome(), 'outbox');
@@ -442,7 +444,7 @@ export class RemoteWork {
       .map((l) => (l.type === 'chat' ? { from: l.name, text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent } : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true }));
     this.handoffs.set(hid, { wsId, to: peerId, share: bundle?.share });
     const sent = this.deps.send(
-      { kind: 'ws_handoff', hid, ws: { name: ws.name, project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
+      { kind: 'ws_handoff', hid, ws: { name: ws.name.slice(0, WIRE_NAME_MAX), project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
       { to: peerId },
     );
     if (!sent) {
