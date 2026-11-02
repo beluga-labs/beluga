@@ -34,17 +34,19 @@ export interface SharingDeps {
 }
 
 const HISTORY_ITEMS = 60;
+/** How long each message of a room invite's history may be (the room's ws_invite takes no more). */
+const HISTORY_TEXT = 8000;
 const wsIdOf = (channel: string): string | undefined => (channel.startsWith('ws:') ? channel.slice(3) : undefined);
 
-/** A short, plain-text version of the recent conversation for someone joining. */
-export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
+/** A short, plain-text version of the recent conversation for someone joining: its last `limit` messages, each up to `max` characters. */
+export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS, max = HISTORY_TEXT): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
   return log
     .filter((l) => l.channel === channel && (l.type === 'chat' || (l.type === 'agent' && l.status === 'done')))
     .slice(-limit)
     .map((l) =>
       l.type === 'chat'
-        ? { from: nameOf(l.from), text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent }
-        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true },
+        ? { from: nameOf(l.from), text: l.text.slice(0, max), ts: l.ts, byAgent: l.byAgent }
+        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, max) : '', ts: l.ts, byAgent: true },
     );
 }
 

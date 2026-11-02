@@ -21,6 +21,8 @@ export const FEATURE_NAMES = {
   'share.copy': 'project copies',
   /** Sends a shared worktree's earlier conversation a page at a time (core/friend-share). */
   'share.history': 'whole conversations',
+  /** Takes a conversation's long messages whole (a graph, a long answer), not cut at 4,000 characters (BLG-622). */
+  'share.history.long': 'long messages in conversations',
   /** Packs a shared worktree (its changes, Scratch, conversation) for a friend's own fork of it (core/friend-share/fork.ts). */
   'share.fork': 'forks of worktrees',
   /** Takes a worktree handed over by a friend outside the room: its note, branch bundle and chat (core/friend-share, BLG-341). */
@@ -40,7 +42,7 @@ export const FEATURE_NAMES = {
 export type Feature = keyof typeof FEATURE_NAMES;
 
 /** What a Mac takes while it shares projects and folders with friends (core/friend-share). */
-export const SHARE_FEATURES: readonly Feature[] = ['share.project', 'share.folder', 'share.copy', 'share.history', 'share.fork', 'share.handoff'];
+export const SHARE_FEATURES: readonly Feature[] = ['share.project', 'share.folder', 'share.copy', 'share.history', 'share.history.long', 'share.fork', 'share.handoff'];
 
 /** What a Mac takes while its team boards run (core/team). */
 export const TEAM_FEATURES: readonly Feature[] = ['team.board', 'team.plans', 'team.context', 'team.knock'];

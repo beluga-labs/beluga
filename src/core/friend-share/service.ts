@@ -23,7 +23,7 @@ import { type FriendShareInput, type FriendSharing, historyFor, saidBy } from '.
 import { COPY_TTL_MS, cloneFrom, cloneFromBundle, cloneUrl, copiesHome, copyTarget, packProject } from './copy.js';
 import { ShareCourier, type ShareMesh } from './courier.js';
 import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } from './fork.js';
-import { HISTORY_ITEMS, HISTORY_TEXT, type ShareMsg } from './protocol.js';
+import { HISTORY_TEXT, HISTORY_TEXT_LONG, type ShareMsg, historyPageOf } from './protocol.js';
 
 /**
  * Sharing with friends over the network, with nobody hosting (docs/network.md, "Sharing with
@@ -92,7 +92,7 @@ const CHECK_TTL_MS = 60_000;
 /** A friend's worktree's conversation kept on your Mac (the pages you scrolled back to, and what's said since). */
 const HISTORY_KEPT = 2000;
 /** How long each message of a fork's conversation may be. */
-const FORK_TEXT = 20_000;
+const FORK_TEXT = HISTORY_TEXT_LONG;
 /** A fork's progress as it comes over goes to the screens at most this often. */
 const FORK_PROGRESS_MS = 250;
 const ICON_MAX = 120_000;
@@ -318,7 +318,7 @@ export class FriendShares implements FriendSharing {
         if (had?.sig === sig && !fresh.length) continue;
         changed = true;
         if (had?.sig !== sig) this.courier.send(peerId, msg, { reliable: true, key: `project:${projectId}` });
-        for (const w of fresh) this.courier.send(peerId, { k: 'history', ws: w.id, ...this.historyPage(w.id) }, { reliable: true });
+        for (const w of fresh) this.courier.send(peerId, { k: 'history', ws: w.id, ...this.historyPage(w.id, peerId) }, { reliable: true });
         this.sent = { ...this.sent, [peerId]: { ...this.sent[peerId], [projectId]: { sig, ws: worktrees.map((w) => w.id) } } };
       }
     }
@@ -385,9 +385,10 @@ export class FriendShares implements FriendSharing {
    * A page of a worktree's conversation, the newest before `before` (or the newest of all): from
    * what's saved on disk and what's said this session, so the whole of it can be scrolled back to.
    */
-  private historyPage(wsId: string, before = Infinity): { items: HistoryItem[]; more: boolean } {
-    const all = this.historyOf(wsId, HISTORY_TEXT).filter((h) => h.ts < before);
-    return { items: all.slice(-HISTORY_ITEMS), more: all.length > HISTORY_ITEMS };
+  private historyPage(wsId: string, to: string, before = Infinity): { items: HistoryItem[]; more: boolean } {
+    // A Mac from before long messages refuses a page with one over 4,000 characters: cut them for it.
+    const long = this.opts.mesh.belugaOf(to)?.can.includes('share.history.long') ?? false;
+    return historyPageOf(this.historyOf(wsId, long ? HISTORY_TEXT_LONG : HISTORY_TEXT).filter((h) => h.ts < before));
   }
 
   /** All of a worktree's conversation, each message up to `max` characters. */
@@ -402,7 +403,7 @@ export class FriendShares implements FriendSharing {
       // Only what's on screen, then.
     }
     const ids = new Set(live.map((l) => l.id));
-    return historyFor([...saved.filter((l) => !ids.has(l.id)), ...live], channel, (id) => peerName(state, id), Number.MAX_SAFE_INTEGER)
+    return historyFor([...saved.filter((l) => !ids.has(l.id)), ...live], channel, (id) => peerName(state, id), Number.MAX_SAFE_INTEGER, max)
       .filter((h) => h.text.trim())
       .map((h) => ({ from: h.from.slice(0, 120), text: h.text.slice(0, max), ts: Math.max(0, Math.floor(h.ts)), byAgent: h.byAgent }));
   }
@@ -560,7 +561,7 @@ export class FriendShares implements FriendSharing {
       case 'history':
         return this.onHistory(from, m);
       case 'history_request':
-        if (this.grantedTo(m.ws, from)) this.courier.send(from, { k: 'history', ws: m.ws, before: m.before, ...this.historyPage(m.ws, m.before) }, { reliable: false });
+        if (this.grantedTo(m.ws, from)) this.courier.send(from, { k: 'history', ws: m.ws, before: m.before, ...this.historyPage(m.ws, from, m.before) }, { reliable: false });
         return;
       case 'body':
         return this.onBody(from, m, got.id);
@@ -986,8 +987,8 @@ export class FriendShares implements FriendSharing {
     const rec = ws ? this.receivedWs(ws) : undefined;
     if (!rec || !ws) return;
     let item: HistoryItem | undefined;
-    if (action.type === 'chat') item = { from: peerName(this.state, action.from), text: action.text.slice(0, HISTORY_TEXT), ts: action.ts, byAgent: action.byAgent };
-    if (action.type === 'agent_event' && action.event === 'done' && action.text.trim()) item = { from: agentLabel(action.agent, peerName(this.state, action.owner), false), text: action.text.slice(0, HISTORY_TEXT), ts: action.ts, byAgent: true };
+    if (action.type === 'chat') item = { from: peerName(this.state, action.from), text: action.text.slice(0, HISTORY_TEXT_LONG), ts: action.ts, byAgent: action.byAgent };
+    if (action.type === 'agent_event' && action.event === 'done' && action.text.trim()) item = { from: agentLabel(action.agent, peerName(this.state, action.owner), false), text: action.text.slice(0, HISTORY_TEXT_LONG), ts: action.ts, byAgent: true };
     if (!item) return;
     const history = [...(rec.history[ws] ?? []), item].slice(-HISTORY_KEPT);
     this.received = { ...this.received, [keyOf(rec.owner, rec.id)]: { ...rec, history: { ...rec.history, [ws]: history } } };

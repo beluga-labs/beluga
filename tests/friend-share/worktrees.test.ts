@@ -154,4 +154,26 @@ describe('a worktree shared over the network', () => {
     await settle(() => !kay.store.getState().shared.find((w) => w.id === ws.id)?.earlier);
     expect(kay.shares.earlier(ata.id, ws.id)).toBe(false);
   }, 60_000 * SLOW);
+
+  it('a long answer in its conversation (a graph) reaches the friend whole, not cut at 4,000 characters (BLG-622)', async () => {
+    net = await crowd();
+    const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
+    const kay = await mac(net, 'kay');
+    macs.push(ata, kay);
+    await befriend(ata.person, kay.person);
+    await settle(() => ata.person.mesh.belugaOf(kay.id)?.can.includes('share.history.long'));
+    const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
+    const ws = project.workspaces.find((w) => !w.archived && !w.external && w.kind === 'worktree')!;
+    const channel = `ws:${ws.id}`;
+    const nodes = Array.from({ length: 120 }, (_, i) => ({ id: `n${i}`, type: 'function', label: `Step ${i}`, sublabel: 'one stage of the pipeline, with a longer note' }));
+    const answer = `Here it is:\n\`\`\`beluga-graph\n${JSON.stringify({ title: 'How it runs', nodes })}\n\`\`\``;
+    expect(answer.length).toBeGreaterThan(10_000);
+    ata.session.workspaces!.manager.saveHistory(ws.id, [{ id: 'g-1', type: 'chat', channel, from: ata.id, text: answer, ts: Date.now() - 1000, byAgent: false }]);
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'view' });
+    // The line reads "<who>: <text>"; what was said is what's checked.
+    const seen = (): string | undefined => kay.store.getState().log.flatMap((l) => (l.channel === channel && l.type === 'system' ? [l.text.replace(/^[^:]*: /, '')] : []))[0];
+    await settle(() => seen());
+    expect(seen()?.length).toBe(answer.length);
+    expect(seen()).toBe(answer);
+  }, 60_000 * SLOW);
 });

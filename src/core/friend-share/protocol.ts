@@ -32,7 +32,28 @@ const text = (max: number) => z.string().max(max);
 const repoUrl = z.string().regex(/^https:\/\/[\w.~/-]{4,500}$/);
 
 export const HISTORY_ITEMS = 60;
+/** How long each message of a history page may be, for a Mac from before `share.history.long`. */
 export const HISTORY_TEXT = 4000;
+/** How long it may be for one that takes long messages: a graph or a long answer comes whole (BLG-622). */
+export const HISTORY_TEXT_LONG = 60_000;
+/** A history page stays under this many bytes, so it fits a link frame and a friend's mailbox. */
+export const HISTORY_PAGE_BYTES = 400_000;
+
+/**
+ * The newest of `items` that fit one page: at most HISTORY_ITEMS, and under HISTORY_PAGE_BYTES
+ * (always at least the newest one). `more`: there are older ones it left out.
+ */
+export function historyPageOf<T extends { readonly text: string }>(items: readonly T[], maxBytes = HISTORY_PAGE_BYTES): { items: T[]; more: boolean } {
+  let bytes = 0;
+  let start = items.length;
+  while (start > 0 && items.length - start < HISTORY_ITEMS) {
+    const size = Buffer.byteLength(JSON.stringify(items[start - 1]));
+    if (start < items.length && bytes + size > maxBytes) break;
+    bytes += size;
+    start -= 1;
+  }
+  return { items: items.slice(start), more: start > 0 };
+}
 
 export const ShareMsg = z.discriminatedUnion('k', [
   z.object({
@@ -57,7 +78,7 @@ export const ShareMsg = z.discriminatedUnion('k', [
   z.object({
     k: z.literal('history'),
     ws: id,
-    items: z.array(z.object({ from: text(120), text: text(HISTORY_TEXT), ts: z.number().int().min(0), byAgent: z.boolean() })).max(HISTORY_ITEMS),
+    items: z.array(z.object({ from: text(120), text: text(HISTORY_TEXT_LONG), ts: z.number().int().min(0), byAgent: z.boolean() })).max(HISTORY_ITEMS),
     more: z.boolean().optional(),
     before: z.number().int().min(0).optional(),
   }),

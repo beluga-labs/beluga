@@ -558,8 +558,10 @@ in `~/.beluga/project-shares.json`.
 - `project {id, name, icon?, role, worktrees[{id, name, branch?}], members[{peerId, name, role}]}`: what they have of it
   now, sent whenever any of that changes (the newest replaces one still waiting). The icon goes when it's under 120 KB.
 - `unshare {id}` (you took it back), `leave {id}` (they left).
-- `history {ws, items}`: a worktree's last 60 messages and answers (4000 characters each), once, when it's first shared
-  with them; their Mac keeps it, and what's said after, with the project.
+- `history {ws, items}`: a worktree's last 60 messages and answers, once, when it's first shared
+  with them; their Mac keeps it, and what's said after, with the project. Each message goes whole up to 60,000
+  characters (a graph or a long answer) to a Beluga with `share.history.long`, and cut at 4,000 to one without it.
+  A page stays under 400 KB, so long messages make it shorter and the rest comes as they scroll back.
 - `body {b, as?}`: one of the room's own messages about a shared worktree or folder: `chat`, `agent_request`,
   `agent_event`, `agent_question`/`agent_answer`, the files' `fs_list`/`fs_read`/`fs_fetch`/`fs_search`/`ws_diff` and
   their answers. The sending Session hands it over instead of the room (`Session.meshRoute`); the receiving one checks
