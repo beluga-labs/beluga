@@ -26,8 +26,18 @@ const RESERVED: Readonly<Record<ArgsRuntime, ReadonlySet<string>>> = {
 };
 
 /**
+ * Flags that turn off hooks. Beluga's policy gate (secrets, folder bounds) runs as a PreToolUse
+ * hook, so with these a run's tools would go unchecked.
+ */
+const UNHOOKED: Readonly<Record<ArgsRuntime, ReadonlySet<string>>> = {
+  claude: new Set(['--bare', '--safe-mode']),
+  codex: new Set(),
+};
+
+/**
  * What's wrong with these flags for `runtime`, in words, or undefined when they're fine: a flag
- * Beluga sets itself, or a first word that isn't a flag (a prompt or a subcommand: Beluga gives those).
+ * Beluga sets itself, a flag that turns off its safety checks, or a first word that isn't a flag (a
+ * prompt or a subcommand: Beluga gives those).
  */
 export function agentArgsProblem(runtime: ArgsRuntime, args: readonly string[]): string | undefined {
   const first = args[0];
@@ -35,6 +45,7 @@ export function agentArgsProblem(runtime: ArgsRuntime, args: readonly string[]):
   for (const arg of args) {
     const name = arg.split('=')[0] ?? arg;
     if (RESERVED[runtime].has(name)) return `Beluga sets ${name} itself, so it can’t be one of yours.`;
+    if (UNHOOKED[runtime].has(name)) return `${name} turns off the hooks that keep a run safe, so it can’t be one of yours.`;
   }
   return undefined;
 }

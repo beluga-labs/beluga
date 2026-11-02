@@ -23,6 +23,13 @@ describe('agentArgsProblem', () => {
     expect(agentArgsProblem('codex', ['--cd', '/tmp'])).toMatch(/--cd/);
   });
 
+  it('refuses flags that turn off hooks (Beluga’s policy gate runs as one)', () => {
+    expect(agentArgsProblem('claude', ['--bare'])).toMatch(/--bare/);
+    expect(agentArgsProblem('claude', ['--safe-mode'])).toMatch(/--safe-mode/);
+    expect(agentArgsProblem('claude', ['--bare=1'])).toMatch(/--bare/);
+    expect(agentArgsProblem('claude', ['--dangerously-skip-permissions', '--bare'])).toMatch(/--bare/);
+  });
+
   it('refuses words that are not flags (a prompt or a subcommand)', () => {
     expect(agentArgsProblem('claude', ['hello'])).toMatch(/hello/);
     expect(agentArgsProblem('codex', ['exec'])).toMatch(/exec/);
