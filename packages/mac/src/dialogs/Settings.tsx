@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { TRUST_INFO, trustOf } from '@beluga/core/trust.js';
-import { BRANCH_PREFIX_RE, EFFORTS } from '@beluga/shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, type LowPower } from '@beluga/shared/settings-schema.js';
 import { agentChoices, agentForChoice, choiceForAgent } from '@beluga/ui/agent-choice.js';
 import { EFFORT_INFO, agentEntries, modelInfo, myModel, myRuntime, setMyAgent } from '../chat/ModelPicker.js';
 import { HIDEABLE_BUTTONS, TUNNEL_LABELS, TUNNEL_ORDER } from '@beluga/ui/settings-menus.js';
@@ -14,7 +14,7 @@ import { FIX_LABEL } from '../onboarding/agent-setup.js';
 import { APP_VERSION } from '../lib/boot.js';
 import { revealInFinder } from '../lib/files.js';
 import { type SettingsPane, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
-import { ACCENTS, type Accent, setPrefs, usePrefs } from '../lib/prefs.js';
+import { ACCENTS, type Accent, setPrefs, useChosenPrefs, usePrefs } from '../lib/prefs.js';
 import { EnvironmentSettings } from './EnvironmentSettings.js';
 import { ContextSettings } from './ContextSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
@@ -197,8 +197,18 @@ function General() {
   );
 }
 
+const LOW_POWER_OPTIONS: ReadonlyArray<{ value: LowPower; label: string }> = [
+  { value: 'off', label: 'Off' },
+  { value: 'battery', label: 'On battery' },
+  { value: 'always', label: 'Always' },
+];
+
 function Appearance() {
-  const prefs = usePrefs();
+  const prefs = useChosenPrefs();
+  const api = useApi();
+  const lowPower = useApp((st) => st.prefs.lowPower ?? 'off');
+  const saving = useApp((st) => st.powerSaving);
+  const savingNote = saving ? 'Off while Low Power mode saves power.' : undefined;
   return (
     <>
       <Group>
@@ -220,6 +230,14 @@ function Appearance() {
               <button key={a} type="button" aria-label={a} aria-pressed={prefs.accent === a} className={cx(s.swatch, prefs.accent === a && s.swatchOn)} style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }} onClick={() => setPrefs({ accent: a })} />
             ))}
           </div>
+        </Row>
+      </Group>
+      <Group title="Low Power">
+        <Row
+          label="Low Power mode"
+          detail={`Beluga does less and shows less to save the battery: no motion or blur, the window redraws a few times a second, terminals skip the GPU, background checks come less often, and idle terminals rest sooner. On battery counts macOS Low Power Mode too.${saving ? ' Saving power now.' : ''}`}
+        >
+          <Select label="Low Power mode" value={lowPower} onChange={(v) => void api.session.setPrefs({ lowPower: v })} options={LOW_POWER_OPTIONS.map((o) => ({ ...o }))} />
         </Row>
       </Group>
       <Group title="Layout">
@@ -255,11 +273,11 @@ function Appearance() {
         <Row label="Sidebar width">
           <input className={s.slider} type="range" min={200} max={360} step={4} value={prefs.sidebarWidth} onChange={(e) => setPrefs({ sidebarWidth: Number(e.target.value) })} />
         </Row>
-        <Row label="Reduce motion">
+        <Row label="Reduce motion" {...(savingNote ? { detail: savingNote } : {})}>
           <Switch label="Reduce motion" on={prefs.reduceMotion} onChange={(v) => setPrefs({ reduceMotion: v })} />
         </Row>
         {keyPlatform() === 'mac' && (
-          <Row label="Reduce transparency" detail="A solid sidebar, with no blur behind the window. Lighter on slower Macs.">
+          <Row label="Reduce transparency" detail={savingNote ?? 'A solid sidebar, with no blur behind the window. Lighter on slower Macs.'}>
             <Switch label="Reduce transparency" on={prefs.reduceTransparency} onChange={(v) => setPrefs({ reduceTransparency: v })} />
           </Row>
         )}

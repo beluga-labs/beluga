@@ -6,6 +6,7 @@ import { describeVisual } from '../shared/term-visuals.js';
 import { agentTermId } from '../shared/terminal-keys.js';
 import type { PtyProcess } from '../terminal/pty-host.js';
 import { hasShellUnder } from '../terminal/shells-under.js';
+import { paced } from './power-saver.js';
 import type { Workspace } from '../workspaces/types.js';
 import { TranscriptTail, claudeTranscriptFile, claudeTurns, sizeOf } from './agent-term-sync.js';
 import { belugaHome } from './home.js';
@@ -43,14 +44,18 @@ export interface AgentTermDeps {
   /** How often the transcript is looked at while the terminal is open (default 700 ms; 0: only when asked, tests). */
   readonly pollMs?: number;
   readonly now?: () => number;
-  /** How long a terminal nobody shows and nothing happens in keeps its program (default 20 min; 0: always). */
+  /** How long a terminal nobody shows and nothing happens in keeps its program (default 20 min, 5 while saving power; 0: always). */
   readonly restAfterMs?: number;
+  /** Whether Low Power mode is saving now (BLG-621): terminals rest sooner. */
+  readonly saving?: () => boolean;
   /** Whether a shell runs under the program (a command, a dev server): then it's never let go. */
   readonly shellUnder?: (pid: number | undefined) => Promise<boolean>;
 }
 
 /** A terminal's program is let go of (and resumed when shown again) after this long unseen and quiet. */
 export const REST_AFTER_MS = 20 * 60_000;
+/** The same while Low Power mode saves (BLG-621). */
+export const REST_AFTER_SAVING_MS = 5 * 60_000;
 /** How often an unseen, quiet terminal looks for shells under its program. */
 const REST_CHECK_MS = 60_000;
 
@@ -156,7 +161,7 @@ export class AgentTerminals {
       pty.onExit(() => this.finish(wsId));
       const every = this.deps.pollMs ?? 700;
       if (every > 0) {
-        entry.timer = setInterval(() => this.tick(wsId), every);
+        entry.timer = setInterval(paced(every, () => this.deps.saving?.() ?? false, () => this.tick(wsId)), every);
         entry.timer.unref();
       }
       return key;
@@ -202,7 +207,7 @@ export class AgentTerminals {
    * resumes it when it's shown again. Never one that's working or asking something.
    */
   private restIfIdle(wsId: string, live: Live): void {
-    const after = this.deps.restAfterMs ?? REST_AFTER_MS;
+    const after = this.deps.restAfterMs ?? (this.deps.saving?.() ? REST_AFTER_SAVING_MS : REST_AFTER_MS);
     if (after <= 0) return;
     const now = this.now;
     if (live.pty.watchers > 0) {

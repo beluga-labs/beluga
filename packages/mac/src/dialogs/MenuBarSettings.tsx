@@ -9,6 +9,7 @@ import { Dial } from './FireSettings.js';
 import { Group, Row, Select } from './settings-controls.js';
 import f from './fire-settings.module.css';
 import m from './menubar-settings.module.css';
+import { powerSaving } from '../lib/power.js';
 
 /** The sliders' track: the water's soft blues. */
 const WATER = ['#bfdcf7', '#7fb6ea'] as const;
@@ -114,7 +115,7 @@ export function MenuBarSettings() {
         )}
       </Group>
       <Group title="The spout">
-        <Row label="When the whale spouts" detail={prefs.reduceMotion ? 'Reduce Motion is on (Appearance), so the whale keeps still.' : look.spout === 'working' ? 'Every few seconds while an agent of yours is at work.' : look.spout === 'done' ? 'Once, each time an agent of yours finishes.' : 'The whale keeps still.'}>
+        <Row label="When the whale spouts" detail={powerSaving() ? 'Low Power mode is saving power (Appearance), so the whale keeps still.' : prefs.reduceMotion ? 'Reduce Motion is on (Appearance), so the whale keeps still.' : look.spout === 'working' ? 'Every few seconds while an agent of yours is at work.' : look.spout === 'done' ? 'Once, each time an agent of yours finishes.' : 'The whale keeps still.'}>
           <Segmented
             label="When the whale spouts"
             radio

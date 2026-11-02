@@ -95,8 +95,9 @@ export function Xterm({ termKey, start, focus = true, gpu = false, extend, onKey
     term.loadAddon(new WebLinksAddon((_e, uri) => void openExternal(uri)));
     term.open(el);
     // The GPU draws a full-window terminal smoothly; when WebGL isn't there (or its context is lost), the DOM does.
+    // Low Power mode (BLG-621): the DOM always, no GPU textures (a terminal opened since it turned on).
     let webgl: WebglAddon | undefined;
-    if (gpu) {
+    if (gpu && !client.store.getDomain().powerSaving) {
       try {
         webgl = new WebglAddon();
         webgl.onContextLoss(() => {

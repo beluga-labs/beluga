@@ -4,6 +4,7 @@ import { type GhRunner, type GitHubInfo, type GitHubRepo, fetchGitHubInfo, ghHos
 import type { WorkspaceManager } from '../workspaces/manager.js';
 import * as sync from '../workspaces/sync.js';
 import type { Project, Workspace } from '../workspaces/types.js';
+import { paced } from './power-saver.js';
 
 /**
  * Keeping each project's main folder current, for the project home's Update main / Fetch: a
@@ -30,6 +31,8 @@ export interface MainSyncDeps {
   /** Open a workspace's conversation. */
   readonly open: (wsId: string) => void;
   readonly gh?: GhRunner;
+  /** Low Power mode is saving now (BLG-621): the background fetches come less often. */
+  readonly saving?: () => boolean;
   /** Hosts gh is signed in to (enterprise GitHub under any name); default: gh's hosts.yml. */
   readonly ghHosts?: () => string[];
   readonly now?: () => number;
@@ -79,7 +82,7 @@ export class MainSync {
     if (this.timer) return;
     this.first = setTimeout(() => void this.backgroundPass(), FIRST_PASS_MS);
     this.first.unref();
-    this.timer = setInterval(() => void this.backgroundPass(), BACKGROUND_FETCH_MS);
+    this.timer = setInterval(paced(BACKGROUND_FETCH_MS, () => this.deps.saving?.() ?? false, () => void this.backgroundPass()), BACKGROUND_FETCH_MS);
     this.timer.unref();
   }
 

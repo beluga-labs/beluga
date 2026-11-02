@@ -28,6 +28,9 @@ export const BRANCH_PREFIX_RE = /^(?![./-])(?!.*\.\.)(?!.*\/\/)(?!.*\/[.-])[\w./
 /** Keep the Mac awake for your phone: never, only on power, or always (the display may still sleep). */
 export const KEEP_AWAKE = ['off', 'power', 'always'] as const;
 export type KeepAwake = (typeof KEEP_AWAKE)[number];
+/** Low Power mode (BLG-621): never, on battery (or macOS Low Power Mode), or always. */
+export const LOW_POWER = ['off', 'battery', 'always'] as const;
+export type LowPower = (typeof LOW_POWER)[number];
 
 /** Which events can notify you (desktop notification + the in-app inbox). */
 export const NotifySettings = z.object({
@@ -82,6 +85,8 @@ export const Settings = z.object({
   tunnel: z.enum(['auto', 'p2p', 'cloudflared', 'ngrok', 'none']).default('auto'),
   /** Keep the Mac from sleeping while a phone is paired, so it stays reachable (companion/awake.ts): never, on power only, or always. */
   keepAwake: z.enum(KEEP_AWAKE).default('off'),
+  /** Low Power mode: Beluga does less and shows less to save the battery (core/power-saver.ts). */
+  lowPower: z.enum(LOW_POWER).default('off'),
   /** Whether your own Claude asks before shell commands and other risky actions. */
   selfApproval: z.enum(['never', 'ask']).default('never'),
   notify: NotifySettings.default(NotifySettings.parse({})),

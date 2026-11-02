@@ -5,6 +5,7 @@ import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { useActions } from '../lib/actions.js';
 import { onWindowActive, windowActive } from '../lib/window-active.js';
 import { sameDeep, sameItems } from '../lib/stable.js';
+import { beat, onPowerSaving, powerSaving } from '../lib/power.js';
 
 /** What the Plans screens share: the plans, a plan where it stands (live), and acting on plans. */
 
@@ -40,13 +41,15 @@ function runClock(): void {
   clockTimer = undefined;
   if (!clockSubs.size || !windowActive()) return;
   tickClock();
-  clockTimer = setInterval(tickClock, CLOCK_MS);
+  clockTimer = setInterval(tickClock, beat(CLOCK_MS, powerSaving()));
 }
+let stopSaving: (() => void) | undefined;
 function subscribeClock(onChange: () => void): () => void {
   clockSubs.add(onChange);
   clockNow = Date.now();
   if (!stopLooking) {
     stopLooking = onWindowActive(runClock);
+    stopSaving = onPowerSaving(runClock);
     runClock();
   }
   return () => {
@@ -54,6 +57,8 @@ function subscribeClock(onChange: () => void): () => void {
     if (clockSubs.size) return;
     stopLooking?.();
     stopLooking = undefined;
+    stopSaving?.();
+    stopSaving = undefined;
     runClock();
   };
 }

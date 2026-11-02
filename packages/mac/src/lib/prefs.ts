@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { onPowerSaving, powerSaving } from './power.js';
 import { DEFAULT_FIRE, type FireLook, fireLookOf } from '../chat/fire-look.js';
 import { DEFAULT_MENU_BAR, type MenuBarLook, menuBarLookOf } from '../menubar/menubar-look.js';
 import { type TermKeysPref, type TermThemePref, termKeysOf, themeOf } from './terminal-import-model.js';
@@ -207,16 +208,32 @@ function load(): UiPrefs {
 
 let current = load();
 
-export const getPrefs = (): UiPrefs => current;
+/**
+ * Low Power mode is saving now (the daemon says, BLG-621): motion and the window's blur are off
+ * whatever's chosen. `getPrefs` gives what's in effect; Settings shows what you chose.
+ */
+const inEffect = (p: UiPrefs): UiPrefs => (powerSaving() ? { ...p, reduceMotion: true, reduceTransparency: true } : p);
+let shown = inEffect(current);
+
+export const getPrefs = (): UiPrefs => shown;
+/** The choices as made, before Low Power mode (for Settings' own switches). */
+export const getChosenPrefs = (): UiPrefs => current;
+
+onPowerSaving(() => {
+  shown = inEffect(current);
+  apply(shown);
+  for (const l of [...listeners]) l();
+});
 
 export function setPrefs(patch: Partial<UiPrefs>): void {
   current = { ...current, ...patch };
+  shown = inEffect(current);
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
     // storage full or unavailable: the change still applies until the app quits
   }
-  apply(current);
+  apply(shown);
   for (const l of [...listeners]) l();
 }
 
@@ -230,6 +247,10 @@ export function usePrefs(): UiPrefs {
   return useSyncExternalStore(subscribePrefs, getPrefs);
 }
 
+export function useChosenPrefs(): UiPrefs {
+  return useSyncExternalStore(subscribePrefs, getChosenPrefs);
+}
+
 const dark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 /** The window's blur, on or off, told to the app once per change (nothing outside the app). */
@@ -241,7 +262,7 @@ function vibrancy(on: boolean): void {
 }
 
 /** Put the preferences on the document (CSS variables and data attributes do the rest). */
-export function apply(p: UiPrefs = current): void {
+export function apply(p: UiPrefs = shown): void {
   const root = document.documentElement;
   root.dataset.theme = p.appearance === 'system' ? (dark() ? 'dark' : 'light') : p.appearance;
   root.dataset.density = p.density;

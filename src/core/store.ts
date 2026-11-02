@@ -268,6 +268,8 @@ export interface Prefs {
   readonly tunnel: Settings['tunnel'];
   /** Keep the Mac awake while a phone is paired (companion/awake.ts). */
   readonly keepAwake: Settings['keepAwake'];
+  /** Low Power mode: when Beluga saves power (core/power-saver.ts). */
+  readonly lowPower: Settings['lowPower'];
   /** 'never': your own Claude just works; 'ask': it asks before risky actions. */
   readonly selfApproval: 'never' | 'ask';
   readonly notify: NotifySettings;
@@ -518,6 +520,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   /** Recent downloads (newest last). */
   readonly transfers: readonly Transfer[];
   readonly prefs: Prefs;
+  /** Saving power now: Low Power mode is on, always or on battery while on battery (core/power-saver.ts). */
+  readonly powerSaving: boolean;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
 }
@@ -610,6 +614,7 @@ export type Action =
   | { type: 'dir_cache'; key: string; entries: readonly FsEntry[] }
   | { type: 'transfer'; transfer: Transfer }
   | { type: 'prefs'; prefs: { readonly [K in keyof Prefs]?: Prefs[K] | null } }
+  | { type: 'power_saving'; on: boolean }
   | { type: 'clear'; channel: string }
   | { type: 'context_reset'; channel: string }
   /** A conversation's side question (/btw) changed; none: it was closed. */
@@ -652,6 +657,7 @@ export const DEFAULT_PREFS: Prefs = {
   mouse: true,
   tunnel: 'auto',
   keepAwake: 'off',
+  lowPower: 'off',
   selfApproval: 'never',
   notify: NotifySchema.parse({}),
   autoSetup: true,
@@ -705,6 +711,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     dirCache: {},
     transfers: [],
     prefs: { ...DEFAULT_PREFS, ...prefs },
+    powerSaving: (prefs.lowPower ?? DEFAULT_PREFS.lowPower) === 'always',
     selfId: '',
     home: '',
     isHost: false,
@@ -1095,6 +1102,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'trust':
       if (!action.trusted && state.levels[action.peerId] !== 'trusted') return state;
       return reduceDomain(state, { type: 'trust_level', peerId: action.peerId, level: action.trusted ? (state.levels[action.peerId] === 'full' ? 'full' : 'trusted') : 'ask' });
+    case 'power_saving':
+      return state.powerSaving === action.on ? state : { ...state, powerSaving: action.on };
     case 'prefs': {
       // A null clears a preference back to its default (an unset value can't travel as JSON).
       const prefs: Record<string, unknown> = { ...state.prefs };

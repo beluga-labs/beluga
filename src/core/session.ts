@@ -55,6 +55,8 @@ import { type PeerRun, type ShellRunner, describeShellResult } from './peer-run.
 import type { GuestControl, ProjectInvites } from './project-invites.js';
 import type { GuestShell } from './guest-shell.js';
 import { type SharedDiff, guestMayDo } from './shared-diff.js';
+import { coalesce } from './coalesce.js';
+import { PowerSaver, paced } from './power-saver.js';
 import type { EnvVars } from './env-vars.js';
 import { gatewayOf } from './gateway/registry.js';
 import { receiveFriendOffer } from './friend-offers.js';
@@ -149,6 +151,10 @@ export interface RoomControl {
 type AgentWaiter = { peer: string; resolve: (text: string) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; mirror?: string };
 
 const USAGE_REFRESH_MS = 10 * 60_000;
+/** Reading usage starts a whole Claude Code: never two at once, at most once a minute (BLG-620). */
+const USAGE_MIN_GAP_MS = 60_000;
+/** While saving power (BLG-621): at most every half hour. */
+const USAGE_SAVING_GAP_MS = 30 * 60_000;
 const WORKSPACE_REFRESH_MS = 30_000;
 
 /**
@@ -195,6 +201,8 @@ export class Session {
   private readonly sentById = new Map<string, string>();
   private usageTimer?: NodeJS.Timeout;
   private usageFetched = false;
+  private readonly usageCheck = coalesce(() => this.readUsage(), () => (this.store.getState().powerSaving ? USAGE_SAVING_GAP_MS : USAGE_MIN_GAP_MS));
+  private powerSaver?: PowerSaver;
   /** The room welcomed you at least once (a later outage is "lost", not "can’t reach yet"). */
   private everConnected = false;
   readonly questions: QuestionBroker;
@@ -353,14 +361,16 @@ export class Session {
       (message) => this.system(message, 'warn'),
     );
     this.opts.client.connect();
+    this.powerSaver ??= new PowerSaver({ store: this.store });
     this.usageTimer = setInterval(() => void this.refreshUsage(), USAGE_REFRESH_MS);
     this.usageTimer.unref();
     this.workbench?.start();
     if (this.workspaces) {
       void this.workspaces.refresh().then(() => this.offerProjects());
-      this.projectsTimer = setInterval(() => this.offerProjects(), WORKSPACE_REFRESH_MS);
+      const saving = (): boolean => this.store.getState().powerSaving;
+      this.projectsTimer = setInterval(paced(WORKSPACE_REFRESH_MS, saving, () => this.offerProjects()), WORKSPACE_REFRESH_MS);
       this.projectsTimer.unref();
-      this.workspaceTimer = setInterval(() => void this.workspaces?.refresh(), WORKSPACE_REFRESH_MS);
+      this.workspaceTimer = setInterval(paced(WORKSPACE_REFRESH_MS, saving, () => void this.workspaces?.refresh()), WORKSPACE_REFRESH_MS);
       this.workspaceTimer.unref();
       // A quiet fetch of each project's remote every ~15 minutes (the project home's "fetched … ago").
       this.workspaces.mainSync.start();
@@ -376,6 +386,8 @@ export class Session {
     this.opts.client.close();
     await this.opts.shares.close();
     clearInterval(this.usageTimer);
+    this.usageCheck.stop();
+    this.powerSaver?.stop();
     clearInterval(this.workspaceTimer);
     this.workspaces?.stop();
     this.workbench?.stop();
@@ -1408,8 +1420,12 @@ export class Session {
     this.updateProfile(withUsage(this.opts.client.currentProfile, agent, update));
   }
 
-  /** Ask the agent backend for fresh plan usage (no prompt is sent). */
-  async refreshUsage(): Promise<void> {
+  /** Ask the agent backend for fresh plan usage (no prompt is sent), joined with other asks around it. */
+  refreshUsage(): Promise<void> {
+    return this.usageCheck();
+  }
+
+  private async readUsage(): Promise<void> {
     const usage = await this.agent?.refreshUsage?.().catch(() => undefined);
     if (usage) this.updateUsage(usage, CLAUDE_AGENT);
   }

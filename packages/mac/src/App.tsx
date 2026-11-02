@@ -20,6 +20,7 @@ import { useActions } from './lib/actions.js';
 import { SHORTCUTS, TALK_ID, keyPlatform, shortcutFor } from './lib/shortcuts-model.js';
 import { fromKey, getBindings, isRecording, useMenuKeys } from './lib/shortcuts.js';
 import { useApp, useBeluga } from './lib/beluga.js';
+import { setPowerSaving } from './lib/power.js';
 import { usePrefs } from './lib/prefs.js';
 import { joinRoom, runMenuItem, useMenuState, useNative, useNotificationTaps, useTrayStatus, useTraySpout, useWindowFocus } from './lib/native.js';
 import { AddProjectSheet } from './dialogs/AddProjectSheet.js';
@@ -197,6 +198,9 @@ export function App() {
   useNative(client, ui, actions, setJoining);
   useTrayStatus(client);
   useTraySpout();
+  // Low Power mode (BLG-621): the daemon says when it saves; the window follows.
+  const saving = useApp((st) => st.powerSaving);
+  useEffect(() => setPowerSaving(saving), [saving]);
   useMenuState(client);
   useMenuKeys();
   useWindowFocus(client);

@@ -163,6 +163,7 @@ export function fixFailedPrompt(kind: 'setup' | 'run', command: string, code: nu
 
 export { shellId, setupId, runId, githubId, globalShellId, isGlobalShell, globalShellNumber, globalShellDir } from '../shared/terminal-keys.js';
 import { agentTermId, githubId, runId, setupId, shellId, isGlobalShell, globalShellNumber, cleanTerminalName } from '../shared/terminal-keys.js';
+import { pace, paced } from './power-saver.js';
 
 /**
  * What changed about a pull request that's worth telling you. A PR showing up is only news
@@ -305,7 +306,7 @@ export class Workbench {
     void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
     void this.checkRuntimes();
     setTimeout(() => void this.measureDisk(), 3000).unref();
-    this.diskTimer = setInterval(() => void this.measureDisk(), DISK_EVERY_MS);
+    this.diskTimer = setInterval(paced(DISK_EVERY_MS, () => this.deps.store.getState().powerSaving, () => void this.measureDisk()), DISK_EVERY_MS);
     this.diskTimer.unref();
     this.prTimer = setInterval(() => void this.pollPrs(), PR_TICK_MS);
     this.prTimer.unref();
@@ -948,7 +949,8 @@ export class Workbench {
         // Merge When Ready waits on it: looked at often, so it merges soon after its checks pass.
         const every = ws.mergeWhenReady && prs[ws.id]?.state === 'OPEN' ? PR_FAST_MS : prCadence(prs[ws.id], this.pushedAt.get(ws.id), now);
         if (every === undefined) return false;
-        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : every);
+        // Low Power mode (BLG-621): looked at less often, unless you came back to the window or pushed.
+        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : pace(every, this.deps.store.getState().powerSaving));
       });
       if (due.length) await this.lookUpPrs(due, false);
     } finally {

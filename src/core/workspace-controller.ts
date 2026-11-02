@@ -230,6 +230,7 @@ export class WorkspaceController {
       newWorktree: (projectId, name, opts) => this.newWorktree(projectId, name, opts),
       armSync: (wsId, target) => void this.syncRuns.set(wsId, target),
       askClaude: (prompt, channel) => deps.askClaude(prompt, channel),
+      saving: () => deps.store.getState().powerSaving,
       open: (wsId) => this.open(wsId),
     });
   }

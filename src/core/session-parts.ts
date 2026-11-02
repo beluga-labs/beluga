@@ -246,6 +246,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
             self: () => ({ id: session.selfId, name: session.store.getState().self?.name ?? 'you' }),
             keepSteps: (steps) => host.keepTerminalSteps(steps),
             claudeConfigDir: claudeHome(),
+            saving: () => opts.store.getState().powerSaving,
           })
         : undefined;
     const remote = new RemoteWork({

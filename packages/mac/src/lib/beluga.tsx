@@ -4,6 +4,7 @@ import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { type UiState, initialUi } from '@beluga/ui/keymap.js';
 import type { MenuKind } from '@beluga/ui/menus.js';
 import { onWindowActive, windowActive } from './window-active.js';
+import { SAVING_DRAW_MS, powerSaving } from './power.js';
 
 /**
  * This window's own UI state. It uses the shared shape (UiState) for everything the
@@ -121,6 +122,11 @@ function viewSubscribe(store: { subscribe: (listener: () => void) => () => void 
   store.subscribe(() => {
     if (!windowActive()) {
       timer ??= setTimeout(flush, AWAY_MS);
+      return;
+    }
+    // Low Power mode (BLG-621): what changed is drawn a few times a second, not every frame.
+    if (powerSaving()) {
+      timer ??= setTimeout(flush, SAVING_DRAW_MS);
       return;
     }
     if (frame !== undefined || soon !== undefined) return;
