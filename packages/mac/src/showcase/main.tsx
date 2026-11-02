@@ -7,19 +7,23 @@ import { BelugaProvider } from '../lib/beluga.js';
 import { apply } from '../lib/prefs.js';
 import { EASE_OUT, Rise, Words } from '../onboarding/fx.js';
 import { Mark } from '../onboarding/Mark.js';
+import { Agents } from '../onboarding/scenes/Agents.js';
+import { Archive } from '../onboarding/scenes/Archive.js';
+import { Earnings } from '../onboarding/scenes/Earnings.js';
+import { Friends } from '../onboarding/scenes/Friends.js';
+import { Parallel } from '../onboarding/scenes/Parallel.js';
+import { Sentinel } from '../onboarding/scenes/Sentinel.js';
+import { SentinelUses } from '../onboarding/scenes/SentinelUses.js';
+import { Tables } from '../onboarding/scenes/Tables.js';
 import o from '../onboarding/onboarding.module.css';
-import { AgentsStory } from './stories/AgentsStory.js';
-import { AnswersStory } from './stories/AnswersStory.js';
-import { FriendsStory } from './stories/FriendsStory.js';
-import { ParallelStory } from './stories/ParallelStory.js';
-import { SentinelStory } from './stories/SentinelStory.js';
+import { STAGING, Staged } from './staging.js';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
 /**
- * The README's GIFs, one at a time on a plain page (scripts/readme-scenes.mjs):
- * `/showcase.html?scene=parallel&theme=dark&bg=%230d1117`. The welcome's banner, then a story per
- * section (./stories): a real job told in pictures, not the app's own screens.
+ * The onboarding's scenes, one at a time on a plain page, for the README's GIFs
+ * (scripts/readme-scenes.mjs): `/showcase.html?scene=parallel&theme=dark&bg=%230d1117`.
+ * The flat ones are tilted in 3D for it (./staging), like the Parallel scene.
  * The background matches GitHub's, so the GIF looks cut out on the page. Only in development.
  */
 
@@ -44,15 +48,20 @@ function Hello() {
 
 const SCENES: Record<string, () => ReactNode> = {
   hello: () => <Hello />,
-  parallel: () => <ParallelStory />,
-  agents: () => <AgentsStory />,
-  tables: () => <AnswersStory />,
-  friends: () => <FriendsStory />,
-  sentinel: () => <SentinelStory />,
+  parallel: () => <Parallel />,
+  agents: () => <Agents />,
+  tables: () => <Tables />,
+  friends: () => <Friends />,
+  sentinel: () => <Sentinel />,
+  uses: () => <SentinelUses />,
+  earnings: () => <Earnings />,
+  archive: () => <Archive />,
 };
 
 const params = new URLSearchParams(location.search);
-const scene = SCENES[params.get('scene') ?? ''] ?? SCENES.parallel!;
+const name = params.get('scene') ?? 'parallel';
+const scene = SCENES[name] ?? SCENES.parallel!;
+const staging = STAGING[name];
 const width = Number(params.get('w') ?? 640);
 const height = Number(params.get('h') ?? 440);
 
@@ -73,7 +82,13 @@ createRoot(document.getElementById('root')!).render(
           animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
           transition={{ duration: 0.9, ease: EASE_OUT, delay: 0.1 }}
         >
-          {scene()}
+          {staging ? (
+            <Staged staging={staging}>
+              {scene()}
+            </Staged>
+          ) : (
+            scene()
+          )}
         </motion.div>
       </div>
     </Tooltip.Provider>
