@@ -117,7 +117,14 @@ export function branchState(state: Pick<DomainState, 'projects' | 'gh' | 'prs' |
   const commit: BranchStep | false = changed > 0 && { id: 'commit', label: 'Commit…', hint: `Your agent commits the ${plural(changed, 'uncommitted change')} with a message`, claude: true };
   // Merged is done: putting it away leads; carrying on here (a new PR next) is the other way.
   const archive: BranchStep = { id: 'archive', label: 'Archive Worktree', hint: 'It’s done: put it away (the branch and the conversation are kept)' };
-  const remove: BranchStep = { id: 'delete', label: 'Delete Worktree…', hint: 'Remove the folder and its branch for good', danger: true };
+  // Commits pushed nowhere go with the branch (BLG-617): its hint says so, and the phone's confirm leads with Archive.
+  const unpushed = st?.unpushed ?? 0;
+  const remove: BranchStep = {
+    id: 'delete',
+    label: 'Delete Worktree…',
+    hint: unpushed ? `${plural(unpushed, 'commit')} on ${ws.branch} ${unpushed === 1 ? 'was' : 'were'} never pushed or merged into ${into}: deleting loses ${unpushed === 1 ? 'it' : 'them'} and the conversation. Archive keeps both.` : 'Remove the folder and its branch for good',
+    danger: true,
+  };
   const finish: BranchStep[] = [archive, { id: 'continue_after_merge', label: 'Continue After Merge…', hint: `Keep working here instead: start ${ws.branch} again from the latest ${into}, keeping the conversation; the next change gets a new PR` }, remove];
   const auto: BranchStep = { id: 'merge_auto', label: 'Merge When Ready', hint: `Beluga merges PR #${pr?.number} once its checks pass, and tells you if they fail` };
   const admin: BranchStep = { id: 'merge_admin', label: 'Merge Now, Skipping Checks', hint: 'Past its checks and reviews (needs admin rights on the repository)', danger: true };

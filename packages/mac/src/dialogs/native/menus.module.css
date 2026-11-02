@@ -5,6 +5,17 @@
   color: var(--warn);
   font-weight: 600;
 }
+/* Delete's unpushed commits, newest first (BLG-617). */
+.subjects {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--text-2);
+}
+.subjects li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .keys {
   display: flex;
   flex-wrap: wrap;

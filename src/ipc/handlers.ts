@@ -191,6 +191,7 @@ export const HANDLERS = {
   'workspaces.archive': (s, id, force) => ctl(s)?.archive(id, force),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
+  'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
   'workspaces.remove': (s, id) => ctl(s)?.remove(id),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),

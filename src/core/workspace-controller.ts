@@ -16,7 +16,7 @@ import { agentName } from '../shared/agent-label.js';
 import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
-import type { Project, Workspace } from '../workspaces/types.js';
+import type { DeletePlan, Project, Workspace } from '../workspaces/types.js';
 import { type MergeResult, git } from '../workspaces/git.js';
 import type { FoundConversation } from '../agent/runtime/claude/claude-sessions.js';
 import type { ShareService } from './shares.js';
@@ -1190,6 +1190,11 @@ export class WorkspaceController {
 
   archivePlan(id: string): Promise<ArchivePreview | undefined> {
     return this.deps.manager.archivePlan(id).catch(() => undefined);
+  }
+
+  /** What Delete would lose that Archive keeps: commits pushed nowhere (the Delete dialog warns and leads with Archive). */
+  deletePlan(id: string): Promise<DeletePlan | undefined> {
+    return this.deps.manager.deletePlan(id).catch(() => undefined);
   }
 
   /** Free space in a worktree you keep (its dependencies, builds and caches) → bytes freed. */

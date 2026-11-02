@@ -280,6 +280,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.archive` | ✓ |
 | `workspaces.restore` | ✓ |
 | `workspaces.archivePlan` | ✓ the Archive dialog says how much space it frees |
+| `workspaces.deletePlan` | ✓ the Delete dialog says how many commits were never pushed or merged, and leads with Archive (the phone's Delete step says it too) |
 | `workspaces.freeSpace` | ✓ Free Up Space on a worktree: clears its dependencies, builds and caches |
 | `workspaces.remove` | ✓ |
 | `workspaces.commit` | ✓ |

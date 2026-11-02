@@ -20,7 +20,7 @@ import { dropFolderSessions, dropSession } from '../agent/runtime/claude/claude-
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
-import type { MergeWait, Project, ProjectGroup, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { DeletePlan, MergeWait, Project, ProjectGroup, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
@@ -976,6 +976,19 @@ export class WorkspaceManager {
     const ws = this.require(id);
     if (ws.kind !== 'worktree' || ws.archived || !existsSync(ws.path)) return undefined;
     return previewOf(await planArchive(ws.path));
+  }
+
+  /**
+   * What deleting a worktree would lose that archiving keeps (BLG-617): its branch's commits that are
+   * on neither its base nor any remote. Undefined: nothing to warn about (not ours, no branch, all pushed).
+   */
+  async deletePlan(id: string): Promise<DeletePlan | undefined> {
+    const ws = this.require(id);
+    // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
+    if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
+    const into = ws.base ?? (await this.baseOf(ws.projectRoot));
+    const lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    return lost.count ? { branch: ws.branch, into, unpushed: lost.count, subjects: lost.subjects } : undefined;
   }
 
   /** Throw away a worktree's dependencies, builds and caches (it stays; they're made again by its setup). */

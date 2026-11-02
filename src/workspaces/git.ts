@@ -135,6 +135,8 @@ export interface Status {
    * there by a pull request, squashed, or merged by hand outside Beluga.
    */
   readonly landed?: true;
+  /** Commits on neither the base nor any remote (BLG-617): deleting the branch would lose them. Absent: none. */
+  readonly unpushed?: number;
 }
 
 /** Whether a branch's work is in a base, by (HEAD, base) commit: the answer never changes for the same two. */
@@ -158,13 +160,38 @@ async function landedIn(dir: string, head: string, into: string): Promise<boolea
   return landed;
 }
 
-/** Whether a branch ahead of `base` has already landed in it, or in what it tracks. */
-async function hasLanded(dir: string, base: string): Promise<boolean> {
+/** Whether a branch ahead of `base` has already landed in it, or in what it tracks. `tip`: the branch (HEAD: the checkout's). */
+async function hasLanded(dir: string, base: string, tip = 'HEAD'): Promise<boolean> {
   const sha = (ref: string): Promise<string | undefined> => tryGit(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).then((s) => s?.trim() || undefined);
-  const [head, ...intos] = await Promise.all(['HEAD', base, `${base}@{upstream}`].map(sha));
+  const [head, ...intos] = await Promise.all([tip, base, `${base}@{upstream}`].map(sha));
   if (!head) return false;
   for (const into of new Set(intos)) if (into && (await landedIn(dir, head, into))) return true;
   return false;
+}
+
+/** Commits on `tip` that are on neither `base` nor any remote-tracking branch: only this branch has them. */
+async function countUnpushed(dir: string, tip: string, base: string): Promise<number> {
+  const out = await tryGit(dir, ['rev-list', '--count', tip, '--not', base, '--remotes']);
+  return Number(out?.trim() ?? 0) || 0;
+}
+
+/** What deleting a branch would lose: its commits on neither `base` nor a remote, newest first (subjects, at most 5). */
+export interface Unpushed {
+  readonly count: number;
+  readonly subjects: readonly string[];
+}
+
+/**
+ * The commits only `branch` has (BLG-617): not in `base` and not pushed anywhere. None when its work
+ * already landed in `base` (a squash merge) or the branch is gone. Read-only git calls.
+ */
+export async function unpushedCommits(repo: string, branch: string, base: string): Promise<Unpushed> {
+  const tip = `refs/heads/${branch}`;
+  if (!branch || branch.startsWith('-') || !(await tryGit(repo, ['rev-parse', '--verify', '--quiet', `${tip}^{commit}`]))) return { count: 0, subjects: [] };
+  const count = await countUnpushed(repo, tip, base);
+  if (!count || (await hasLanded(repo, base, tip))) return { count: 0, subjects: [] };
+  const log = await tryGit(repo, ['log', '--format=%s', '-n', '5', tip, '--not', base, '--remotes']);
+  return { count, subjects: log?.split('\n').filter(Boolean) ?? [] };
 }
 
 /** Status reads run a few at a time (each is one or two git processes): a refresh of many worktrees never forks dozens at once. */
@@ -185,6 +212,7 @@ interface RefsCounts {
   readonly ahead: number;
   readonly behind: number;
   readonly landed: boolean;
+  readonly unpushed: number;
 }
 const refsCounts = new Map<string, RefsCounts>();
 /** Counted again at least this often, mark or not. */
@@ -248,8 +276,11 @@ export async function refsMark(dir: string): Promise<string | undefined> {
   return parts.join('\n');
 }
 
-/** Commits ahead of and behind `base`, and whether they landed there: git asked only when its refs moved (or every few minutes). */
-async function countAgainst(dir: string, base: string): Promise<{ ahead: number; behind: number; landed: boolean }> {
+/**
+ * Commits ahead of and behind `base`, whether they landed there, and how many are pushed nowhere:
+ * git asked only when its refs moved (or every few minutes).
+ */
+async function countAgainst(dir: string, base: string): Promise<{ ahead: number; behind: number; landed: boolean; unpushed: number }> {
   const key = `${dir}\0${base}`;
   // Marked before git counts, so a ref that moves while it counts shows as a change next time.
   const mark = await refsMark(dir).catch(() => undefined);
@@ -259,10 +290,11 @@ async function countAgainst(dir: string, base: string): Promise<{ ahead: number;
   const behind = Number(counts?.[0] ?? 0) || 0;
   const ahead = Number(counts?.[1] ?? 0) || 0;
   const landed = ahead > 0 && (await hasLanded(dir, base));
+  const unpushed = ahead > 0 && !landed ? await countUnpushed(dir, 'HEAD', base) : 0;
   if (refsCounts.size > 2000) refsCounts.clear();
-  if (mark) refsCounts.set(key, { mark, at: Date.now(), ahead, behind, landed });
+  if (mark) refsCounts.set(key, { mark, at: Date.now(), ahead, behind, landed, unpushed });
   else refsCounts.delete(key);
-  return { ahead, behind, landed };
+  return { ahead, behind, landed, unpushed };
 }
 
 async function readStatus(dir: string, base?: string): Promise<Status> {
@@ -272,8 +304,8 @@ async function readStatus(dir: string, base?: string): Promise<Status> {
   const [head = '', ...files] = out.split('\n').filter(Boolean);
   const branch = /^## (?:No commits yet on )?([^.\s]+)/.exec(head)?.[1];
   if (base) {
-    const { ahead, behind, landed } = await countAgainst(dir, base);
-    return { branch, changed: files.length, ahead, behind, ...(landed ? { landed: true as const } : {}) };
+    const { ahead, behind, landed, unpushed } = await countAgainst(dir, base);
+    return { branch, changed: files.length, ahead, behind, ...(landed ? { landed: true as const } : {}), ...(unpushed ? { unpushed } : {}) };
   }
   // "## main...origin/main [ahead 1, behind 2]": how the checkout compares to what it tracks.
   const name = /^## [^.\s]+\.\.\.(\S+)/.exec(head)?.[1];

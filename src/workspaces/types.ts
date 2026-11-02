@@ -97,6 +97,17 @@ export interface MergeWait {
   readonly deleteBranch?: boolean;
 }
 
+/** What deleting a worktree would throw away that archiving keeps (BLG-617): commits only its branch has. */
+export interface DeletePlan {
+  readonly branch: string;
+  /** What "not merged" means: its base ("main"). */
+  readonly into: string;
+  /** Commits on neither `into` nor any remote. */
+  readonly unpushed: number;
+  /** The newest of them (subjects, at most 5). */
+  readonly subjects: readonly string[];
+}
+
 /** A workspace as shown in the UI: record + live git status. */
 export interface Workspace extends WorkspaceRecord {
   readonly projectId: string;

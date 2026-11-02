@@ -245,6 +245,8 @@ export const API = {
   'workspaces.restore': args(id),
   // What archiving (or freeing space) would throw away and keep → ArchivePreview (none: not a worktree that's there).
   'workspaces.archivePlan': args(id),
+  // What deleting would lose that archiving keeps → DeletePlan (none: nothing pushed nowhere, or not a worktree of ours).
+  'workspaces.deletePlan': args(id),
   // Throw away a worktree's dependencies, builds and caches → bytes freed.
   'workspaces.freeSpace': args(id),
   'workspaces.remove': args(id),

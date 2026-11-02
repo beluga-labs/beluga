@@ -126,6 +126,8 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.archive': 'mac',
   'workspaces.restore': 'mac',
   'workspaces.archivePlan': 'mac',
+  // The phone's Delete step carries the same warning in its hint (core/branch-state.ts, from status.unpushed).
+  'workspaces.deletePlan': 'mac',
   'workspaces.freeSpace': 'mac',
   'workspaces.remove': 'mac',
   'workspaces.commit': 'mac',
