@@ -114,6 +114,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.renameField {
+  width: calc(100% - 4px);
+  min-width: 0;
+  height: 20px;
+  margin: 2px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.renameField:focus {
+  outline: none;
+}
 .trailing {
   display: inline-flex;
   align-items: center;
