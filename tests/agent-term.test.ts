@@ -403,6 +403,30 @@ describe('the agent’s terminal on a conversation', () => {
     expect(t.terms.visual('w1', n)).toContain('How login works');
   });
 
+  it('lets go of finished turns once they’re in the chat, and later turns keep their own ids (BLG-609)', async () => {
+    const t = terminals();
+    await t.terms.open('w1');
+    t.terms.sync('w1');
+    const file = t.transcript();
+    const say = (you: string, claude: string): void => {
+      const now = new Date().toISOString();
+      appendFileSync(file, `${line({ type: 'user', timestamp: now, message: { role: 'user', content: you } })}\n${line({ type: 'assistant', timestamp: now, message: { role: 'assistant', content: [{ type: 'text', text: claude }] } })}\n`);
+      t.terms.sync('w1');
+    };
+    say('one', 'first answer');
+    say('two', 'second answer');
+    say('three', 'third answer');
+    const log = t.store.getState().log.filter((l) => l.channel === 'ws:w1');
+    expect(log.map((l) => (l as { text: string }).text)).toEqual(['one', 'first answer', 'two', 'second answer', 'three', 'third answer']);
+    expect(new Set(log.map((l) => l.id)).size).toBe(6);
+    // Only the last turn is still read.
+    const live = (t.terms as unknown as { live: Map<string, { tail: { lines: string[] } }> }).live.get('w1')!;
+    expect(live.tail.lines).toHaveLength(2);
+    // Read again: nothing twice, nothing changed.
+    t.terms.sync('w1');
+    expect(t.store.getState().log.filter((l) => l.channel === 'ws:w1').map((l) => l.id)).toEqual(log.map((l) => l.id));
+  });
+
   it('opens on a message sent from the chat, which stays the chat’s own (BLG-553)', async () => {
     const t = terminals();
     expect(t.terms.canOpen('w1')).toBe(true);

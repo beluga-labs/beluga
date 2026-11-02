@@ -130,6 +130,42 @@ describe('a smart archive', () => {
     expect(sh(repo, 'for-each-ref', 'refs/klaud/')).toBe('');
   });
 
+  it('in a folder the project ignores whole, build output goes and the rest stays (BLG-612)', async () => {
+    put(path.join(wt, '.gitignore'), `${readFileSync(path.join(wt, '.gitignore'), 'utf8')}mobile/\n`);
+    put(path.join(wt, 'mobile/settings.gradle'), '');
+    put(path.join(wt, 'mobile/app/build.gradle'), 'android {}');
+    put(path.join(wt, 'mobile/app/src/Main.kt'), 'fun main() {}');
+    put(path.join(wt, 'mobile/local.properties'), 'sdk.dir=/x');
+    put(path.join(wt, 'mobile/app/build/out.bin'), 'b'.repeat(30_000));
+    put(path.join(wt, 'mobile/.gradle/cache.bin'), 'c'.repeat(30_000));
+    // A git repo of yours inside: never looked into.
+    put(path.join(wt, 'mobile/lib/.git/HEAD'), 'ref: refs/heads/main\n');
+    put(path.join(wt, 'mobile/lib/build.gradle'), '');
+    put(path.join(wt, 'mobile/lib/build/tracked.txt'), 'mine');
+    const plan = await planArchive(wt);
+    expect(plan.drop.map((d) => d.path)).toEqual(expect.arrayContaining(['mobile/app/build/', 'mobile/.gradle/']));
+    expect(plan.drop.map((d) => d.path)).not.toContain('mobile/lib/build/');
+    expect(plan.keep).toEqual(expect.arrayContaining(['mobile/app/src/', 'mobile/local.properties', 'mobile/lib/']));
+    expect(plan.remake).toContain('./gradlew build');
+
+    await archiveWorktree({ repo, dir: wt, id: 'm1', archivesDir: archives });
+    await restoreWorktree({ repo, dir: wt, id: 'm1', archivesDir: archives });
+    expect(readFileSync(path.join(wt, 'mobile/app/src/Main.kt'), 'utf8')).toBe('fun main() {}');
+    expect(readFileSync(path.join(wt, 'mobile/local.properties'), 'utf8')).toBe('sdk.dir=/x');
+    expect(readFileSync(path.join(wt, 'mobile/lib/build/tracked.txt'), 'utf8')).toBe('mine');
+    expect(existsSync(path.join(wt, 'mobile/app/build'))).toBe(false);
+    expect(existsSync(path.join(wt, 'mobile/.gradle'))).toBe(false);
+  });
+
+  it('a folder only your own ignore file hides keeps its build output too', async () => {
+    put(path.join(repo, '.git/info/exclude'), 'mine/\n');
+    put(path.join(wt, 'mine/build.gradle'), '');
+    put(path.join(wt, 'mine/build/out.bin'), 'b');
+    const plan = await planArchive(wt);
+    expect(plan.drop.map((d) => d.path)).not.toContain('mine/build/');
+    expect(plan.keep).toContain('mine/');
+  });
+
   it('a clean worktree with nothing ignored but dependencies keeps no file at all', async () => {
     rmSync(path.join(wt, '.env'));
     rmSync(path.join(wt, 'data'), { recursive: true });

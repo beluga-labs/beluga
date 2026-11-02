@@ -55,8 +55,10 @@ interface Live {
   pty: PtyProcess;
   remembered: boolean;
   /** The message from the chat it opened with (BLG-553): in the chat already, so its copy in the transcript isn't. */
-  readonly handed?: string;
+  handed?: string;
   tail?: TranscriptTail;
+  /** Transcript messages let go of (their turns are in the chat). */
+  first: number;
   timer?: NodeJS.Timeout;
 }
 
@@ -133,7 +135,7 @@ export class AgentTerminals {
       const startAt = sizeOf(existing);
       const pty = this.deps.openProgram(key, ws, { file: launch.file, args: launch.args, env: launch.env, title: agent.label }, size);
       if (!pty) throw new Error('Beluga couldn’t start a terminal here.');
-      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
+      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, first: 0, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
       this.live.set(wsId, entry);
       this.deps.store.dispatch({ type: 'agent_term', id: wsId, state: { runtime: agent.runtime, label: agent.label, since: startedAt } });
       pty.onExit(() => this.finish(wsId));
@@ -194,12 +196,18 @@ export class AgentTerminals {
     }
     const self = this.deps.self();
     // A few seconds' slack: the transcript's clock is the agent's, ours is the daemon's (the same Mac).
-    const opts = { selfId: self.id, selfName: self.name, cwd: live.cwd, key: `${live.startedAt.toString(36)}`, visual: (n: number) => this.visual(wsId, n), since: live.startedAt - 5_000 };
+    const opts = { selfId: self.id, selfName: self.name, cwd: live.cwd, key: `${live.startedAt.toString(36)}`, visual: (n: number) => this.visual(wsId, n), since: live.startedAt - 5_000, first: live.first };
     const turns = claudeTurns(live.tail.lines, opts);
     const items = withoutHanded(turns.items, live.handed);
     if (!items.length) return;
     this.deps.keepSteps?.(turns.steps);
     this.deps.store.dispatch({ type: 'log_upsert', channel: `ws:${wsId}`, items });
+    // Finished turns are in the chat now: only the one going on is read again on the next look.
+    if (turns.cut) {
+      live.tail.drop(turns.cut.lines);
+      live.first += turns.cut.messages;
+      live.handed = undefined;
+    }
   }
 
   private finish(wsId: string): void {

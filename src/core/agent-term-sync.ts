@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { claudeConfigDir, encodeProjectDir, pathVariants } from '../agent/runtime/claude/claude-sessions.js';
-import { type TranscriptMessage, transcriptToTurns } from '../agent/transcript.js';
+import { type TranscriptMessage, transcriptToTurns, typedText } from '../agent/transcript.js';
 import type { StepRecord } from '../shared/steps.js';
 import { expandVisuals } from '../shared/term-visuals.js';
 import type { LogItem } from './store.js';
@@ -34,6 +34,11 @@ export class TranscriptTail {
     readonly file: string,
     private offset: number,
   ) {}
+
+  /** Let go of the first `n` lines (turns already in the chat), so a long session isn't held and read again whole. */
+  drop(n: number): void {
+    this.lines.splice(0, n);
+  }
 
   /** Whatever was written since the last look; true when there were new lines. */
   read(): boolean {
@@ -78,6 +83,8 @@ export interface TurnsOptions {
    * the one it came from, with that one's times.
    */
   readonly since?: number;
+  /** Messages before these lines (let go of earlier): ids go on from there. */
+  readonly first?: number;
 }
 
 /** Whether a line was written before the terminal opened (and so is already in the chat). */
@@ -90,6 +97,11 @@ const before = (line: { timestamp?: unknown }, since: number | undefined): boole
 export interface Turns {
   readonly items: LogItem[];
   readonly steps: Record<string, StepRecord[]>;
+  /**
+   * Where the last turn starts (a message of yours): every turn before it is finished, so once
+   * they're in the chat, its `lines` before can go, `messages` of them.
+   */
+  readonly cut?: { readonly lines: number; readonly messages: number };
 }
 
 const timeOf = (line: { timestamp?: unknown }): number | undefined => {
@@ -111,9 +123,10 @@ function finish(turns: Turns, opts: TurnsOptions): Turns {
 /** Claude Code's lines (since the terminal opened) as the chat's turns. */
 export function claudeTurns(lines: readonly string[], opts: TurnsOptions): Turns {
   const messages: TranscriptMessage[] = [];
+  const lineOf: number[] = [];
   let start: number | undefined;
   let end: number | undefined;
-  for (const raw of lines) {
+  for (const [index, raw] of lines.entries()) {
     let l: { type?: string; message?: unknown; isSidechain?: boolean; isMeta?: boolean; timestamp?: unknown };
     try {
       l = JSON.parse(raw) as typeof l;
@@ -127,8 +140,12 @@ export function claudeTurns(lines: readonly string[], opts: TurnsOptions): Turns
       end = at;
     }
     messages.push({ type: l.type, message: l.message, parent_tool_use_id: null });
+    lineOf.push(index);
   }
   if (!messages.length) return { items: [], steps: {} };
   const now = Date.now();
-  return finish(transcriptToTurns(messages, { selfId: opts.selfId, selfName: opts.selfName, cwd: opts.cwd, start: start ?? now, end: end ?? start ?? now }), opts);
+  const turns = finish(transcriptToTurns(messages, { selfId: opts.selfId, selfName: opts.selfName, cwd: opts.cwd, start: start ?? now, end: end ?? start ?? now, first: opts.first ?? 0 }), opts);
+  let last = messages.length - 1;
+  while (last > 0 && !(messages[last]!.type === 'user' && typedText(messages[last]!.message))) last--;
+  return last > 0 ? { ...turns, cut: { lines: lineOf[last]!, messages: last } } : turns;
 }

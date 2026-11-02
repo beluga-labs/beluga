@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { type Dirent, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { folderSize } from './disk.js';
@@ -93,6 +93,51 @@ function outermost(rels: readonly string[]): string[] {
   return rels.filter((r) => !dirs.some((d) => d !== r && r.startsWith(d)));
 }
 
+/** How deep to look for build output inside a folder the project ignores whole. */
+const NESTED_DEPTH = 6;
+
+/**
+ * Folders made again inside a folder the project ignores whole (android/app/build, .gradle…):
+ * relative, ending in "/". Never inside a git repo of yours (what it tracks isn't throwaway) or a link.
+ */
+function regenUnder(dir: string, folder: string): Array<{ rel: string; rule: RegenRule }> {
+  const found: Array<{ rel: string; rule: RegenRule }> = [];
+  const walk = (rel: string, depth: number): void => {
+    if (depth > NESTED_DEPTH || existsSync(path.join(dir, rel, '.git'))) return;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(path.join(dir, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const sub = `${rel}${e.name}/`;
+      const rule = regenRule(dir, sub);
+      if (rule) found.push({ rel: sub, rule });
+      else walk(sub, depth + 1);
+    }
+  };
+  walk(folder, 0);
+  return found;
+}
+
+/** A folder as the fewest paths that leave out these folders inside it. */
+function without(dir: string, folder: string, out: ReadonlySet<string>): string[] {
+  if (![...out].some((o) => o.startsWith(folder))) return [folder];
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(path.join(dir, folder), { withFileTypes: true });
+  } catch {
+    return [folder];
+  }
+  return entries.flatMap((e) => {
+    const rel = e.isDirectory() ? `${folder}${e.name}/` : `${folder}${e.name}`;
+    if (out.has(rel)) return [];
+    return e.isDirectory() ? without(dir, rel, out) : [rel];
+  });
+}
+
 /**
  * What an archive would throw away and keep, without touching anything. Only what git lists as
  * ignored is ever thrown away, as git lists it: a folder only when git ignores all of it.
@@ -104,9 +149,16 @@ export async function planArchive(dir: string): Promise<ArchivePlan> {
     dir,
     candidates.map((c) => c.rel),
   );
-  const drop = candidates.filter((c) => theirs.has(c.rel));
-  const dropped = new Set(drop.map((d) => d.rel));
-  const keep = outermost(entries.filter((rel) => !dropped.has(rel)));
+  const kept = outermost(entries.filter((rel) => !theirs.has(rel)));
+  // A folder the project ignores whole (an Android project, a vendored app): what's made again inside it goes too.
+  const ignoredFolders = await ignoredByProject(
+    dir,
+    kept.filter((rel) => rel.endsWith('/') && !regenRule(dir, rel)),
+  );
+  const inside = [...ignoredFolders].flatMap((folder) => regenUnder(dir, folder));
+  const drop = [...candidates.filter((c) => theirs.has(c.rel)), ...inside];
+  const nestedDrops = new Set(inside.map((d) => d.rel));
+  const keep = kept.flatMap((rel) => (ignoredFolders.has(rel) ? without(dir, rel, nestedDrops) : [rel]));
   const sized = await Promise.all(drop.map(async (d) => ({ path: d.rel, rule: d.rule, bytes: (await folderSize(path.join(dir, d.rel))) ?? 0 })));
   return { drop: sized, keep, dropBytes: sized.reduce((n, d) => n + d.bytes, 0), remake: remakeSteps(sized.map((d) => d.rule)) };
 }
