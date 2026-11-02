@@ -7,21 +7,19 @@ import { BelugaProvider } from '../lib/beluga.js';
 import { apply } from '../lib/prefs.js';
 import { EASE_OUT, Rise, Words } from '../onboarding/fx.js';
 import { Mark } from '../onboarding/Mark.js';
-import { Agents } from '../onboarding/scenes/Agents.js';
-import { Archive } from '../onboarding/scenes/Archive.js';
-import { Earnings } from '../onboarding/scenes/Earnings.js';
-import { Friends } from '../onboarding/scenes/Friends.js';
-import { Parallel } from '../onboarding/scenes/Parallel.js';
-import { Sentinel } from '../onboarding/scenes/Sentinel.js';
-import { SentinelUses } from '../onboarding/scenes/SentinelUses.js';
-import { Tables } from '../onboarding/scenes/Tables.js';
 import o from '../onboarding/onboarding.module.css';
+import { AgentsStory } from './stories/AgentsStory.js';
+import { AnswersStory } from './stories/AnswersStory.js';
+import { FriendsStory } from './stories/FriendsStory.js';
+import { ParallelStory } from './stories/ParallelStory.js';
+import { SentinelStory } from './stories/SentinelStory.js';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
 /**
- * The onboarding's scenes, one at a time on a plain page, for the README's GIFs
- * (scripts/readme-scenes.mjs): `/showcase.html?scene=parallel&theme=dark&bg=%230d1117`.
+ * The README's GIFs, one at a time on a plain page (scripts/readme-scenes.mjs):
+ * `/showcase.html?scene=parallel&theme=dark&bg=%230d1117`. The welcome's banner, then a story per
+ * section (./stories): a real job told in pictures, not the app's own screens.
  * The background matches GitHub's, so the GIF looks cut out on the page. Only in development.
  */
 
@@ -46,14 +44,11 @@ function Hello() {
 
 const SCENES: Record<string, () => ReactNode> = {
   hello: () => <Hello />,
-  parallel: () => <Parallel />,
-  agents: () => <Agents />,
-  tables: () => <Tables />,
-  friends: () => <Friends />,
-  sentinel: () => <Sentinel />,
-  uses: () => <SentinelUses />,
-  earnings: () => <Earnings />,
-  archive: () => <Archive />,
+  parallel: () => <ParallelStory />,
+  agents: () => <AgentsStory />,
+  tables: () => <AnswersStory />,
+  friends: () => <FriendsStory />,
+  sentinel: () => <SentinelStory />,
 };
 
 const params = new URLSearchParams(location.search);

@@ -47,7 +47,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/parallel-dark.gif">
-    <img src="assets/scenes/parallel-light.gif" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
+    <img src="assets/scenes/parallel-light.gif" alt="One message, three jobs: fix the Safari scroll bug, add rate limits, write the release notes. Each becomes a task with its own worktree and agent, and all three move from working to a pull request to merged" width="720">
   </picture>
 </p>
 
@@ -63,7 +63,7 @@ Describe a task and Beluga makes a fresh worktree for it: its own folder, branch
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/agents-dark.gif">
-    <img src="assets/scenes/agents-light.gif" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
+    <img src="assets/scenes/agents-light.gif" alt="Asked to fix a sign-up page that breaks on phones, the agent reads the code, opens the page at phone size and finds the button running off the screen; you tell it to use your Button component, it switches, checks again and the tests pass" width="720">
   </picture>
 </p>
 
@@ -81,7 +81,7 @@ The **Scratch** tab shows what your agent makes along the way (screenshots of th
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/tables-dark.gif">
-    <img src="assets/scenes/tables-light.gif" alt="Asked which customers churned last month, the agent finds DATABASE_URL, picks Postgres, connects, queries, and the answer arrives as a live table" width="800">
+    <img src="assets/scenes/tables-light.gif" alt="Asked which customers cancelled last month and why, the agent finds the database and answers with the numbers, a chart by plan and a table of who left and why" width="720">
   </picture>
 </p>
 
@@ -109,7 +109,7 @@ Plain Markdown gets the same care: tables sort and turn into charts, JSON folds,
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/friends-dark.gif">
-    <img src="assets/scenes/friends-light.gif" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
+    <img src="assets/scenes/friends-light.gif" alt="Your Mac has no Xcode, so you ask Ada: your agent asks hers over an encrypted line, Ada clicks Allow, her agent builds the iOS app on her Mac and the build comes back to you" width="720">
   </picture>
 </p>
 
@@ -144,7 +144,7 @@ More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/sentinel-dark.gif">
-    <img src="assets/scenes/sentinel-light.gif" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
+    <img src="assets/scenes/sentinel-light.gif" alt="Every morning at 7, tell me what happened overnight: it becomes a sentinel, the night passes, at seven it looks at GitHub, Stripe and Sentry, and a morning brief is waiting" width="860">
   </picture>
 </p>
 
@@ -163,17 +163,7 @@ More: [Sentinel](docs/sentinel.md)
 
 ## Also in the app
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/earnings-dark.gif">
-    <img src="assets/scenes/earnings-light.gif" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/archive-dark.gif">
-    <img src="assets/scenes/archive-light.gif" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
-  </picture>
-</p>
-<p align="center"><sub><b>Earnings</b>: connect Stripe and each project shows what it earns, next to the work. <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
+**Earnings**: connect Stripe and each project shows what it earns, next to the work. **Archive**: the folder goes, so your disk stays light; the branch and the conversation stay.
 
 <p align="center">
   <img src="assets/mac/hero.png" alt="Beluga for Mac: a worktree with the agent's finished run in the middle, its changes and diff in the right panel, projects and friends in the sidebar" width="900">
@@ -224,7 +214,7 @@ npm run e2e                # Playwright tests against the demo
 npm run app:build          # the .app and the designed .dmg
 npm run release            # build, sign and publish a release (see docs/updates.md)
 node scripts/gifs.mjs      # re-record the README's app GIFs (vite + the demo daemon, needs ffmpeg)
-node scripts/readme-scenes.mjs  # re-record the README's scene GIFs (needs ffmpeg)
+node scripts/readme-scenes.mjs  # re-record the README's story GIFs (needs ffmpeg)
 ```
 
 ```

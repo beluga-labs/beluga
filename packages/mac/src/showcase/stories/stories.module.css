@@ -1,0 +1,655 @@
+/*
+ * The README's stories: illustrations of what people do with Beluga, not the app's own screens.
+ * Big type, soft surfaces, pastel accents (a tint behind an icon, a dot, a bar), no glow.
+ * Drawn on GitHub's own page colour (the showcase sets it), in dark and light.
+ */
+
+.stage {
+  --text: #e6edf3;
+  --dim: #8b949e;
+  --faint: #6e7681;
+  --card: #161b22;
+  --card-2: #1c2330;
+  --line: #2a3140;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px rgb(0 0 0 / 0.35);
+  --blue: #8ab4f8;
+  --mint: #7dd3a8;
+  --peach: #f5b38a;
+  --lilac: #b9a9f7;
+  --pink: #f2a7c3;
+  --butter: #f1d07a;
+  --tint: 18%;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 26px 30px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:global([data-theme='light']) .stage {
+  --text: #1f2328;
+  --dim: #59636e;
+  --faint: #818b98;
+  --card: #f6f8fa;
+  --card-2: #ffffff;
+  --line: #e1e6eb;
+  --shadow: 0 1px 2px rgb(31 35 40 / 0.06), 0 10px 28px rgb(31 35 40 / 0.08);
+  --blue: #3b78d8;
+  --mint: #1f9a62;
+  --peach: #d4703a;
+  --lilac: #7458db;
+  --pink: #c4497f;
+  --butter: #b07f0c;
+  --tint: 13%;
+}
+
+/* ---- the kit ---- */
+
+/* What you ask, as a message from you. */
+.ask {
+  align-self: flex-end;
+  max-width: 82%;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.askText {
+  background: color-mix(in srgb, var(--blue) var(--tint), var(--card));
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent);
+  border-radius: 18px 18px 6px 18px;
+  padding: 11px 16px;
+  font-size: 16.5px;
+  line-height: 1.45;
+  min-height: 1.45em;
+}
+
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: var(--blue);
+}
+
+.avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c, var(--blue));
+  background: color-mix(in srgb, var(--c, var(--blue)) var(--tint), var(--card));
+  border: 1px solid color-mix(in srgb, var(--c, var(--blue)) 30%, transparent);
+}
+
+.card {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* An icon on a soft tint of its colour. */
+.badge {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--c, var(--blue));
+  background: color-mix(in srgb, var(--c, var(--blue)) var(--tint), transparent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  color: var(--c, var(--dim));
+  background: color-mix(in srgb, var(--c, var(--dim)) var(--tint), transparent);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.dim {
+  color: var(--dim);
+}
+
+.title {
+  font-weight: 650;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ---- Work on everything at once ---- */
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 236px 1fr 118px;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 16px;
+}
+
+.laneName {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.laneName > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.road {
+  position: relative;
+  height: 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.roadFill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--c);
+  opacity: 0.85;
+  transform-origin: left;
+}
+
+.walker {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--card-2);
+  border: 2px solid var(--c);
+  color: var(--c);
+}
+
+.stops {
+  position: absolute;
+  inset: 14px 0 auto;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.summary {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+/* ---- See every agent work ---- */
+
+.agentRow {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  gap: 26px;
+  min-height: 0;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  justify-content: flex-start;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.stepYou {
+  align-self: flex-start;
+  margin-left: 40px;
+  padding: 7px 13px;
+  border-radius: 14px 14px 14px 5px;
+  font-size: 14.5px;
+  background: color-mix(in srgb, var(--blue) var(--tint), var(--card));
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent);
+}
+
+.phone {
+  align-self: center;
+  width: 176px;
+  height: 330px;
+  border-radius: 30px;
+  border: 7px solid color-mix(in srgb, var(--text) 14%, var(--card));
+  background: var(--card-2);
+  position: relative;
+  overflow: hidden;
+  padding: 30px 16px 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.notch {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 54px;
+  height: 14px;
+  margin-left: -27px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text) 14%, var(--card));
+}
+
+.sketchTitle {
+  height: 13px;
+  width: 70%;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.sketchLine {
+  height: 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.field {
+  height: 30px;
+  border-radius: 9px;
+  border: 1.5px solid var(--line);
+}
+
+.cta {
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--lilac);
+  white-space: nowrap;
+}
+
+.overflow {
+  position: absolute;
+  inset: auto -6px 74px auto;
+  width: 54px;
+  height: 52px;
+  border: 2px dashed var(--peach);
+  border-radius: 12px;
+}
+
+.phoneMark {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  translate: -50% 0;
+}
+
+/* ---- Answers you can see ---- */
+
+.answer {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.stat {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.statValue {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 22px;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  justify-content: center;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: 52px 1fr 20px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.barTrack {
+  height: 14px;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--c);
+  transform-origin: left;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  font-size: 13.5px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr 1.2fr;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.head {
+  font-size: 12px;
+  color: var(--faint);
+  padding-top: 0;
+}
+
+/* ---- Your agent, and your friends' agents ---- */
+
+.macs {
+  flex: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 120px;
+  align-items: center;
+}
+
+.mac {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.screen {
+  width: 100%;
+  height: 196px;
+  box-sizing: border-box;
+  border-radius: 14px 14px 4px 4px;
+  border: 6px solid color-mix(in srgb, var(--text) 14%, var(--card));
+  background: var(--card-2);
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow: hidden;
+  position: relative;
+}
+
+.base {
+  width: 112%;
+  height: 9px;
+  border-radius: 0 0 12px 12px;
+  margin-top: -10px;
+  background: color-mix(in srgb, var(--text) 20%, var(--card));
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+
+.say {
+  align-self: flex-end;
+  max-width: 92%;
+  padding: 8px 12px;
+  border-radius: 13px 13px 4px 13px;
+  font-size: 13.5px;
+  background: color-mix(in srgb, var(--blue) var(--tint), var(--card));
+}
+
+.mini {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.miniHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.btn {
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.btnMain {
+  border-color: transparent;
+  color: #fff;
+  background: var(--blue);
+}
+
+.wire {
+  position: absolute;
+  left: calc(50% - 60px);
+  width: 120px;
+  top: 50%;
+  height: 0;
+  border-top: 2px dashed var(--line);
+}
+
+.lock {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 14px);
+  translate: -50% 0;
+}
+
+.packet {
+  position: absolute;
+  top: calc(50% - 15px);
+  width: 30px;
+  height: 30px;
+  margin-left: -15px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: var(--card-2);
+  border: 1.5px solid var(--c);
+}
+
+.progress {
+  height: 6px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--mint);
+  transform-origin: left;
+}
+
+/* ---- Sentinel ---- */
+
+.sentinelRow {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: center;
+}
+
+.sky {
+  height: 200px;
+  border-radius: 18px;
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.skyLayer {
+  position: absolute;
+  inset: 0;
+}
+
+.clock {
+  position: relative;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.sun {
+  position: absolute;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--butter) 62%, #ffe9a8);
+}
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+}
+
+.report {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.reportLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.sentinelPill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.toggle {
+  margin-left: auto;
+  width: 30px;
+  height: 18px;
+  border-radius: 99px;
+  background: var(--mint);
+  position: relative;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+}

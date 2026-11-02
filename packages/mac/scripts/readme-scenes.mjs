@@ -1,4 +1,4 @@
-// The README's scene GIFs: the onboarding's scenes (src/showcase), one frame at a time.
+// The README's GIFs: the welcome's banner and the stories (src/showcase), one frame at a time.
 //   node scripts/readme-scenes.mjs [scene…]   → assets/scenes/<scene>-dark.gif and <scene>-light.gif
 // Needs ffmpeg. Starts its own vite; no daemon. Time is stepped by hand (Playwright's clock for
 // timers and frames, and every CSS and Web animation moved to match), so each frame is exact at any
@@ -29,15 +29,12 @@ const THEMES = { dark: '#0d1117', light: '#ffffff' };
  */
 const SCENES = {
   hello: { w: 900, h: 420, ms: 12_000 },
-  parallel: { w: 720, h: 460, loop: true, from: 13_500, ms: 13_500, fps: 20 },
-  agents: { w: 720, h: 460, loop: true, from: 8800, ms: 8800 },
-  tables: { w: 800, h: 600, ms: 8000 },
-  // One errand of three, the next one blended in.
-  friends: { w: 720, h: 460, loop: true, from: 10_100, ms: 10_100 },
-  // Two sentinels of five: Fix the build, then Failed payments.
-  sentinel: { w: 840, h: 540, loop: true, from: 7090, ms: 14_800 },
-  earnings: { w: 640, h: 420, loop: true, from: 5400, ms: 5400 },
-  archive: { w: 680, h: 360, loop: true, from: 6600, ms: 6600 },
+  // The stories loop: `from` and `ms` are one whole round (src/showcase/stories, their BEATS).
+  parallel: { w: 720, h: 450, loop: true, from: 14_400, ms: 14_400 },
+  agents: { w: 720, h: 440, loop: true, from: 13_050, ms: 13_050 },
+  tables: { w: 720, h: 520, loop: true, from: 12_100, ms: 12_100 },
+  friends: { w: 720, h: 330, loop: true, from: 12_900, ms: 12_900 },
+  sentinel: { w: 900, h: 380, loop: true, from: 11_900, ms: 11_900 },
 };
 
 /** Moves every CSS and Web animation on by `dt` (a new one starts at 0), and finishes what has run its course. */
