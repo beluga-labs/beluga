@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-    <img src="assets/banner-light.svg" alt="Beluga: your projects, your friends, and everyone's agents" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/hello-dark.gif">
+    <img src="assets/scenes/hello-light.gif" alt="Beluga: every project, every agent, all at once" width="900">
   </picture>
 </p>
 
@@ -18,16 +18,13 @@
   <sub>macOS 13+ (Apple Silicon) · Linux x64 (AppImage, .deb, .rpm) · Windows 10+ x64 · updates itself</sub>
 </p>
 
-<p align="center">
-  <img src="assets/mac/hero.png" alt="Beluga for Mac: a worktree with the agent's finished run in the middle, its changes and diff in the right panel, projects and friends in the sidebar" width="900">
-</p>
-
 ## What it does
 
-- **[A worktree per task](#a-worktree-per-task)**: say what you want and Beluga gives it its own folder, branch and agent. Run many at once.
-- **[Ask a friend's agent](#ask-a-friends-agent)**: tag a friend and your agent asks theirs to do it on their Mac, after they click Allow.
-- **[Answers you can see](#answers-you-can-see)**: charts, tables, diagrams and task cards right in the conversation.
-- **[Sentinel](#sentinel)**: your agent runs on a schedule or when something happens, and leaves a report.
+- **[Work on everything at once](#work-on-everything-at-once)**: every task gets its own worktree, branch and agent, and they all run side by side.
+- **[See every agent work](#see-every-agent-work)**: steps, sub-agents and screenshots arrive live, and you can steer mid-run.
+- **[Answers you can see](#answers-you-can-see)**: live tables, charts, diagrams and task cards right in the conversation.
+- **[Your agent, and your friends' agents](#your-agent-and-your-friends-agents)**: tag a friend and your agent asks theirs to do it on their Mac, after they click Allow.
+- **[Sentinel](#sentinel)**: work you describe once runs on a schedule or when something happens, and leaves a report.
 
 ## Install
 
@@ -45,83 +42,164 @@
 
 ---
 
-## A worktree per task
+## Work on everything at once
 
-Describe a task and Beluga makes a fresh worktree for it, named for the task, with its own agent. Your main folder stays untouched (there, your agent only reads), and every task runs at the same time.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/parallel-dark.gif">
+    <img src="assets/scenes/parallel-light.gif" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
+  </picture>
+</p>
+
+Describe a task and Beluga makes a fresh worktree for it: its own folder, branch and agent, named for the task. Your main folder stays untouched (there, your agent only reads), and every task runs at the same time, in one repository or across all of them.
 
 <p align="center">
   <img src="assets/mac/worktree-per-task.gif" alt="Asking your agent to add rate limiting in the add-auth worktree: its steps appear live, the changed files show in the right panel, and it's ready to merge" width="900">
 </p>
+<p align="center"><sub><b>A worktree per task</b>: the sidebar shows who is working, what is ready to merge and what needs you. Changes, diffs, files and terminals sit beside the chat; commit, open a pull request or merge in one click.</sub></p>
 
-- The sidebar shows which agents are working, what's ready to merge and what needs you.
-- Changes, diffs, files and terminals sit beside the chat. Commit, open a pull request or merge in one click.
-- The **Scratch** tab shows what your agent makes along the way (screenshots, test runs, logs) as it lands.
-
-## Ask a friend's agent
-
-Tag a friend, say what you need, and your agent asks **their** agent to do it **on their Mac**. They see a small pop-up, click **Allow**, and the answer comes back into your conversation. Every agent runs on its owner's Mac with its owner's subscription and logins, and Macs talk to each other directly, end-to-end encrypted, with no server in between.
+## See every agent work
 
 <p align="center">
-  <img src="assets/mac/ask-a-friend.gif" alt="Typing '@bob run the tests in bob-api' in Beluga: your agent asks bob's agent, bob's agent runs the tests on his Mac, and the result (27 passed) comes back into the conversation" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/agents-dark.gif">
+    <img src="assets/scenes/agents-light.gif" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
+  </picture>
 </p>
 
-Things you can ask:
+Steps arrive as your agent works: the files it reads, the commands it runs, the sub-agents and background tasks it starts. Say something mid-run and it changes course.
 
-| You type | What happens on their Mac |
-|---|---|
-| `@mia send me a screenshot of your desktop` | Her agent takes it; the picture lands in your chat. |
-| `@bob send me the contract PDF on your Desktop` | Beluga sends the file. |
-| `@bob run the tests in bob-api` | His agent runs them and sends back what passed and failed. |
-| `@mia make me an admin on mia/site on GitHub` | Her agent does it with her own GitHub login. |
+The **Scratch** tab shows what your agent makes along the way (screenshots of the page it just checked, test runs, logs, the JSON an API sent back) as each file lands, so you see what your agent sees, not just what it says about it. Your agent attaches the best of it to the task as proof.
 
-Your friend decides with **Allow**, **Allow Always**, **Decline** or **See more** (the full request). People they trust can skip the pop-up. Secrets like `.env` files and keys are never shared, and results come back as data your agent uses, never as instructions it obeys.
-
-More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can-do-here) · [security](docs/security.md) · [the friends network](docs/network.md)
+<p align="center">
+  <img src="assets/mac/scratch.gif" alt="Asking your agent to review the changes and screenshot the login page: three reviewer sub-agents start, and the Scratch tab fills up live with a test log that grows to 27 passed, a screenshot of the login page and the session response as JSON" width="900">
+</p>
+<p align="center"><sub><b>Scratch</b>: a test log that grows to 27 passed, a screenshot of the login page and an API response, live. The folder stays out of git.</sub></p>
 
 ## Answers you can see
 
-Ask about data and the answer comes with live charts, stat tiles and tables you can sort and search. Ask how something works and your agent draws a diagram you can click through. Ask what's left and your tasks show up as cards.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/tables-dark.gif">
+    <img src="assets/scenes/tables-light.gif" alt="Asked which customers churned last month, the agent finds DATABASE_URL, picks Postgres, connects, queries, and the answer arrives as a live table" width="800">
+  </picture>
+</p>
+
+Ask about your data and your agent finds the database, connects and runs the query; the answer is a live table you can sort, search and turn into a chart. Ask how something works and it draws a diagram. Ask what is left and your tasks show up as cards. You explore all of it without asking again.
 
 <p align="center">
   <img src="assets/mac/views.gif" alt="Asking 'show me the payments dashboard': your agent answers with stat tiles (revenue, payments, failed rate, p95), an area chart of payments per day whose legend turns series off and on, and a table of the latest orders paged straight from the source" width="900">
 </p>
+<p align="center"><sub><b>Charts, stats and tables</b>: line, area, bar, pie, scatter, gantt, heatmap, calendar. A table pages, sorts and searches by itself, straight from a file, a database, a URL or a command. <a href="docs/views.md">More</a></sub></p>
 
-More: [charts and tables](docs/views.md) · [diagrams](docs/graphs.md) · [tasks](docs/tasks-and-plans.md)
+<p align="center">
+  <img src="assets/mac/graph.gif" alt="Asking your agent to visualize how a payment flows: an interactive diagram from the web app through the Express server, Stripe and the webhook handler to the orders table, then a step-by-step walkthrough that highlights each part" width="900">
+</p>
+<p align="center"><sub><b>Diagrams</b> of how your code fits together: hover a part to see what it touches, click it for details, or let your agent walk you through it step by step. <a href="docs/graphs.md">More</a></sub></p>
+
+<p align="center">
+  <img src="assets/mac/tasks.gif" alt="Asking 'where do my tasks stand?': the answer shows live task cards with their status, then the project's task board as a list, a board with a column per status, and a graph of which task waits on which" width="900">
+</p>
+<p align="center"><sub><b>Tasks</b>: a board for every project, shared with friends. Your agent opens tasks when you ask for several things at once and moves them along as it works. A task is done when its worktree merges. <a href="docs/tasks-and-plans.md">More</a></sub></p>
+
+Plain Markdown gets the same care: tables sort and turn into charts, JSON folds, terminal output keeps its colors, math is typeset and Mermaid becomes a real diagram.
+
+## Your agent, and your friends' agents
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/friends-dark.gif">
+    <img src="assets/scenes/friends-light.gif" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
+  </picture>
+</p>
+
+Tag a friend, say what you need, and your agent asks **their** agent to do it **on their Mac**: a file only they have, an account only they can change, a page they're signed in to. They click **Allow**, the result comes back into your conversation, and your agent carries on. Every agent runs on its owner's Mac with its owner's subscription and logins, and Macs talk directly, end-to-end encrypted, with no server in between.
+
+<p align="center">
+  <img src="assets/mac/ask-a-friend.gif" alt="Typing '@bob run the tests in bob-api' in Beluga: your agent asks bob's agent, bob's agent runs the tests on his Mac, and the result (27 passed) comes back into the conversation" width="900">
+</p>
+<p align="center"><sub><b>Tag them and keep working</b>: <code>@bob run the tests in bob-api</code>, and 27 passed comes back.</sub></p>
+
+On their side, a small card slides in wherever they are. **See more** shows everything your agent sent; **Allow**, **Allow Always** or **Decline** decides. Below, mia's agent asks kay for a screenshot while kay is browsing GitHub.
+
+<p align="center">
+  <img src="assets/mac/wants-to.gif" alt="kay is browsing GitHub in Chrome when a pop-up slides in at the top right: 'mia's Claude wants to take a screenshot of your desktop and send it to me', with See more, Decline, Allow Always and Allow. See more opens the full request; Allow hands it to kay's agent." width="900">
+</p>
+<p align="center"><sub><b>The pop-up</b> your friend sees, wherever they are.</sub></p>
+
+| You type | What happens on their Mac |
+|---|---|
+| `@mia send me a screenshot of your desktop` | Her agent takes it; the picture lands in your chat. |
+| `@bob send me the contract PDF on your Desktop` | Beluga sends the file itself, checked end to end. |
+| `@bob run the tests in bob-api` | His agent runs them and sends back what passed and failed. |
+| `@mia make me an admin on mia/site on GitHub` | Her agent does it with her own GitHub login. |
+| `@bob what's on port 3000 on your Mac?` | One terminal line runs on his Mac and the output comes back. |
+
+People your friend trusts can skip the pop-up. Secrets like `.env` files and keys are never shared, and results come back as data your agent uses, never as instructions it obeys.
+
+More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can-do-here) · [security](docs/security.md) · [the friends network](docs/network.md)
 
 ## Sentinel
 
-A sentinel runs on a schedule, by hand, or when something happens (a failed CI run, a new Sentry error, a failed Stripe payment), does a few steps with your agent, and leaves a report. For example: a morning brief on your phone, or a fix and pull request whenever CI fails.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/sentinel-dark.gif">
+    <img src="assets/scenes/sentinel-light.gif" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
+  </picture>
+</p>
+
+A sentinel is work you describe once, in a sentence. It waits for its moment (seven in the morning, a failing test, a Stripe payment, your site going quiet), works through its steps with your agent, and leaves you a report. It runs on your Mac, as you, with your logins.
 
 <p align="center">
   <img src="assets/mac/sentinel.gif" alt="The Sentinel list with six watchers and their last runs; New Sentinel's eleven recipes; Nightly tests made from its recipe and turned on; Morning brief's page and Run Now; a run's report; and a fix waiting for Merge" width="900">
 </p>
+<p align="center"><sub><b>Sentinel</b>: eleven recipes to start from, every run kept with its report, and a fix waiting for your Merge.</sub></p>
 
-- Start from one of eleven recipes, or describe what you want and your agent sets it up.
-- Numbers it keeps show up as tiles on Sentinel's dashboard.
-- A new sentinel starts paused, and a merge always needs green checks and your **Merge**.
+- **When**: a schedule, by hand, after another sentinel, or an event from GitHub, Stripe, Sentry, a site that stops answering, or a webhook.
+- **Then**: ask your agent, run a script, call a service, open a pull request, merge, notify you, or ask a friend's agent.
+- **Safe by default**: a new sentinel starts paused, and a merge always needs green checks and your **Merge**, on the Mac or the phone.
 
 More: [Sentinel](docs/sentinel.md)
 
 ## Also in the app
 
-- **Activity**: every Claude Code session on your Mac and the background agents they started, live.
-- **Usage**: your plan's limits, tokens and cost per day, and disk per project.
-- **A phone app**: see what your Mac's Beluga is doing, and answer what needs you from anywhere.
-- Light and dark, ⌘K for anything, terminals with ⌘J, a menu-bar icon, and it updates itself.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/earnings-dark.gif">
+    <img src="assets/scenes/earnings-light.gif" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/archive-dark.gif">
+    <img src="assets/scenes/archive-light.gif" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
+  </picture>
+</p>
+<p align="center"><sub><b>Earnings</b>: connect Stripe and each project shows what it earns, next to the work. <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
+
+<p align="center">
+  <img src="assets/mac/hero.png" alt="Beluga for Mac: a worktree with the agent's finished run in the middle, its changes and diff in the right panel, projects and friends in the sidebar" width="900">
+</p>
+<p align="center"><sub>The conversation in the middle, the changes on the right, projects and friends on the left.</sub></p>
+
+<p align="center">
+  <img src="assets/mac/activity.png" alt="Activity: every Claude Code session and background agent on your Mac" width="900">
+</p>
+<p align="center"><sub><b>Activity</b>: every Claude Code session on your Mac and the background agents they started, live.</sub></p>
+
+<p align="center">
+  <img src="assets/mac/usage.png" alt="Usage: plan limits, tokens per day, disk per project" width="900">
+</p>
+<p align="center"><sub><b>Usage</b>: your plan's limits, tokens and cost per day, disk per project with one-click clean up.</sub></p>
+
+A phone app shows what your Mac's Beluga is doing and lets you answer what needs you from anywhere. Light and dark, ⌘K for anything, terminals with ⌘J, a menu-bar icon, and it updates itself.
 
 <details>
 <summary><b>More screenshots</b></summary>
 <br>
-<p align="center"><img src="assets/mac/activity.png" alt="Activity: every Claude Code session and background agent on your Mac" width="900"><br><sub><b>Activity</b>: every Claude Code session and the agents they started.</sub></p>
-<p align="center"><img src="assets/mac/usage.png" alt="Usage: plan limits, tokens per day, disk per project" width="900"><br><sub><b>Usage</b>: plan limits, tokens and cost per day, disk per project.</sub></p>
-<p align="center"><img src="assets/mac/graph.gif" alt="Asking your agent to visualize how a payment flows: an interactive diagram from the web app through the Express server, Stripe and the webhook handler to the orders table, then a step-by-step walkthrough that highlights each part" width="900"><br><sub><b>Diagrams</b> of how your code fits together.</sub></p>
-<p align="center"><img src="assets/mac/tasks.gif" alt="Asking 'where do my tasks stand?': the answer shows live task cards with their status, then the project's task board as a list, a board with a column per status, and a graph of which task waits on which" width="900"><br><sub><b>Tasks</b>: a board for every project, shared with friends.</sub></p>
-<p align="center"><img src="assets/mac/wants-to.gif" alt="kay is browsing GitHub in Chrome when a pop-up slides in at the top right: 'mia's Claude wants to take a screenshot of your desktop and send it to me', with See more, Decline, Allow Always and Allow." width="900"><br><sub><b>The pop-up</b> your friend sees, wherever they are.</sub></p>
-<p align="center"><img src="assets/mac/scratch.gif" alt="Asking your agent to review the changes and screenshot the login page: three reviewer sub-agents start, and the Scratch tab fills up live with a test log, a screenshot of the login page and the session response as JSON" width="900"><br><sub><b>Scratch</b>: what your agent is making, as it lands.</sub></p>
-<p align="center"><img src="assets/mac/project-home.png" alt="A project's home page" width="900"><br><sub><b>Project home</b>: describe a task and Beluga makes the worktree.</sub></p>
+<p align="center"><img src="assets/mac/project-home.png" alt="A project's home page" width="900"><br><sub><b>Project home</b>: describe a task and Beluga makes the worktree, or just ask about the code.</sub></p>
 <p align="center"><img src="assets/mac/friends.png" alt="A conversation with a friend" width="900"><br><sub><b>Friends</b>: direct, end-to-end encrypted, no server.</sub></p>
 <p align="center"><img src="assets/mac/terminal-dark.png" alt="A terminal in the right panel, dark mode" width="900"><br><sub><b>Terminals</b> beside the chat, or in a drawer with ⌘J.</sub></p>
 <p align="center"><img src="assets/mac/overview.png" alt="Overview of every worktree and chat" width="900"><br><sub><b>Overview</b>: every worktree and chat, filtered by what needs you.</sub></p>
+<p align="center"><img src="assets/mac/model.png" alt="Model and thinking picker" width="900"><br><sub><b>Model and thinking</b> per conversation, in plain words.</sub></p>
 </details>
 
 ## Agents
@@ -145,7 +223,8 @@ npm run app:dev            # the Mac app, running Beluga from this repo
 npm run e2e                # Playwright tests against the demo
 npm run app:build          # the .app and the designed .dmg
 npm run release            # build, sign and publish a release (see docs/updates.md)
-node scripts/gifs.mjs      # re-record the README's GIFs (needs ffmpeg)
+node scripts/gifs.mjs      # re-record the README's app GIFs (vite + the demo daemon, needs ffmpeg)
+node scripts/readme-scenes.mjs  # re-record the README's scene GIFs (needs ffmpeg)
 ```
 
 ```
