@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/hello-dark.gif">
-    <img src="assets/scenes/hello-light.gif" alt="Beluga: every project, every agent, all at once" width="900">
-  </picture>
+  <img src="assets/scenes/hello-dark.gif" alt="Beluga: every project, every agent, all at once" width="900">
 </p>
 
 <p align="center">
@@ -45,10 +42,7 @@
 ## Work on everything at once
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/parallel-dark.gif">
-    <img src="assets/scenes/parallel-light.gif" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
-  </picture>
+  <img src="assets/scenes/parallel-dark.gif" alt="Three repositories stacked in depth, web, api and ios, each with three worktrees whose agents move from working to a pull request to merged" width="720">
 </p>
 
 Describe a task and Beluga makes a fresh worktree for it: its own folder, branch and agent, named for the task. Your main folder stays untouched (there, your agent only reads), and every task runs at the same time, in one repository or across all of them.
@@ -61,10 +55,7 @@ Describe a task and Beluga makes a fresh worktree for it: its own folder, branch
 ## See every agent work
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/agents-dark.gif">
-    <img src="assets/scenes/agents-light.gif" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
-  </picture>
+  <img src="assets/scenes/agents-dark.gif" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
 </p>
 
 Steps arrive as your agent works: the files it reads, the commands it runs, the sub-agents and background tasks it starts. Say something mid-run and it changes course.
@@ -79,10 +70,7 @@ The **Scratch** tab shows what your agent makes along the way (screenshots of th
 ## Answers you can see
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/tables-dark.gif">
-    <img src="assets/scenes/tables-light.gif" alt="Asked which customers churned last month, the agent finds DATABASE_URL, picks Postgres, connects, queries, and the answer arrives as a live table" width="800">
-  </picture>
+  <img src="assets/scenes/tables-dark.gif" alt="Asked which customers churned last month, the agent finds the database and answers with a live table; then it is sorted by MRR, paged, filtered to the Team plan and searched, right in the chat" width="800">
 </p>
 
 Ask about your data and your agent finds the database, connects and runs the query; the answer is a live table you can sort, search and turn into a chart. Ask how something works and it draws a diagram. Ask what is left and your tasks show up as cards. You explore all of it without asking again.
@@ -107,10 +95,7 @@ Plain Markdown gets the same care: tables sort and turn into charts, JSON folds,
 ## Your agent, and your friends' agents
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/friends-dark.gif">
-    <img src="assets/scenes/friends-light.gif" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
-  </picture>
+  <img src="assets/scenes/friends-dark.gif" alt="Your agent needs something only Ada's Mac has: it asks Ada's agent over an encrypted line, Ada clicks Allow, her agent does the errand and the result comes back" width="720">
 </p>
 
 Tag a friend, say what you need, and your agent asks **their** agent to do it **on their Mac**: a file only they have, an account only they can change, a page they're signed in to. They click **Allow**, the result comes back into your conversation, and your agent carries on. Every agent runs on its owner's Mac with its owner's subscription and logins, and Macs talk directly, end-to-end encrypted, with no server in between.
@@ -142,10 +127,7 @@ More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can
 ## Sentinel
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/sentinel-dark.gif">
-    <img src="assets/scenes/sentinel-light.gif" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
-  </picture>
+  <img src="assets/scenes/sentinel-dark.gif" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
 </p>
 
 A sentinel is work you describe once, in a sentence. It waits for its moment (seven in the morning, a failing test, a Stripe payment, your site going quiet), works through its steps with your agent, and leaves you a report. It runs on your Mac, as you, with your logins.
@@ -164,14 +146,8 @@ More: [Sentinel](docs/sentinel.md)
 ## Also in the app
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/earnings-dark.gif">
-    <img src="assets/scenes/earnings-light.gif" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/scenes/archive-dark.gif">
-    <img src="assets/scenes/archive-light.gif" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
-  </picture>
+  <img src="assets/scenes/earnings-dark.gif" alt="A project's Stripe earnings this month, per repository, ticking up as a new subscription comes in" width="420">
+  <img src="assets/scenes/archive-dark.gif" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
 </p>
 <p align="center"><sub><b>Earnings</b>: connect Stripe and each project shows what it earns, next to the work. <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
 

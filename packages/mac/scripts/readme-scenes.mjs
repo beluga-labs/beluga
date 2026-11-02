@@ -1,5 +1,5 @@
 // The README's scene GIFs: the onboarding's scenes (src/showcase), one frame at a time.
-//   node scripts/readme-scenes.mjs [scene…]   → assets/scenes/<scene>-dark.gif and <scene>-light.gif
+//   node scripts/readme-scenes.mjs [scene…]   → assets/scenes/<scene>-dark.gif
 // Needs ffmpeg. Starts its own vite; no daemon. Time is stepped by hand (Playwright's clock for
 // timers and frames, and every CSS and Web animation moved to match), so each frame is exact at any
 // speed, and a scene that loops is cut at its loop and its end blends into its start.
@@ -19,8 +19,8 @@ const FPS = 25;
 const TICK = 8;
 /** How long a loop's end blends into its start (a scene's timers start a tick late, so even a whole loop drifts a little). */
 const BLEND_MS = 600;
-/** GitHub's page behind a README, so the GIF looks cut out on it. */
-const THEMES = { dark: '#0d1117', light: '#ffffff' };
+/** GitHub's dark page behind a README, so the GIF looks cut out on it. One theme: dark reads well on both. */
+const THEMES = { dark: '#0d1117' };
 
 /**
  * Each scene's frame (CSS px; drawn at 2x) and which stretch of it to keep. `loop` scenes repeat on
@@ -31,9 +31,10 @@ const SCENES = {
   hello: { w: 900, h: 420, ms: 12_000 },
   parallel: { w: 720, h: 460, loop: true, from: 13_500, ms: 13_500, fps: 20 },
   agents: { w: 720, h: 460, loop: true, from: 8800, ms: 8800 },
-  tables: { w: 800, h: 600, ms: 8000 },
+  // The answer, then a pointer sorting, paging, filtering and searching it (showcase/TablesTour).
+  tables: { w: 800, h: 680, ms: 14_500 },
   // One errand of three, the next one blended in.
-  friends: { w: 720, h: 460, loop: true, from: 10_100, ms: 10_100 },
+  friends: { w: 780, h: 470, loop: true, from: 10_100, ms: 10_100 },
   // Two sentinels of five: Fix the build, then Failed payments.
   sentinel: { w: 840, h: 540, loop: true, from: 7090, ms: 14_800 },
   earnings: { w: 640, h: 420, loop: true, from: 5400, ms: 5400 },

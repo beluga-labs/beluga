@@ -14,9 +14,9 @@ import { Friends } from '../onboarding/scenes/Friends.js';
 import { Parallel } from '../onboarding/scenes/Parallel.js';
 import { Sentinel } from '../onboarding/scenes/Sentinel.js';
 import { SentinelUses } from '../onboarding/scenes/SentinelUses.js';
-import { Tables } from '../onboarding/scenes/Tables.js';
 import o from '../onboarding/onboarding.module.css';
 import { STAGING, Staged } from './staging.js';
+import { TablesTour } from './TablesTour.js';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
@@ -50,7 +50,7 @@ const SCENES: Record<string, () => ReactNode> = {
   hello: () => <Hello />,
   parallel: () => <Parallel />,
   agents: () => <Agents />,
-  tables: () => <Tables />,
+  tables: () => <TablesTour />,
   friends: () => <Friends />,
   sentinel: () => <Sentinel />,
   uses: () => <SentinelUses />,
