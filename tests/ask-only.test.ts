@@ -14,7 +14,8 @@ import { status } from '../src/workspaces/git.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
-import { agoText, homeModel, mainLineOf } from '../packages/mac/src/views/project/home-model.js';
+import { agoText, homeModel, homeTasks, mainLineOf } from '../packages/mac/src/views/project/home-model.js';
+import type { Issue } from '../src/core/board/model.js';
 
 /** "Never change main": runs in a project's main folder are questions only (see policy.ts). */
 
@@ -252,6 +253,28 @@ describe('the project home (Mac)', () => {
     expect(at({ changed: 3, ahead: 0, behind: 0, upstream: { name: 'origin/main', ahead: 1, behind: 0 } })).toEqual({ label: '1 ahead of origin/main', tone: 'warn', dirty: '3 uncommitted changes in main' });
     expect(at({ changed: 0, ahead: 0, behind: 0 })).toEqual({ label: 'Not tracking a remote branch', tone: 'muted' });
     expect(agoText(1000, 1000 + 5 * 60_000)).toBe('5 min ago');
+  });
+
+  it('shows the latest moved open tasks of its board, how many are open, and stays away when it has none', () => {
+    const task = (key: string, over: Partial<Issue>): Issue => ({ id: key, key, projectId: 'p1', title: key, status: 'todo', updatedAt: 1, ...over }) as unknown as Issue;
+    const board = {
+      issues: [
+        task('A-1', { updatedAt: 10 }),
+        task('A-2', { updatedAt: 30, status: 'in_progress' }),
+        task('A-3', { updatedAt: 50, status: 'done' }),
+        task('A-4', { updatedAt: 40, archivedAt: 41, status: 'backlog' }),
+        task('A-5', { updatedAt: 20, status: 'in_review' }),
+        task('B-1', { updatedAt: 99, projectId: 'p2' }),
+        // On a board of its own, running in this repo: the repo's board shows it too.
+        task('X-1', { updatedAt: 5, board: 'board_team' }),
+      ],
+    };
+    const t = homeTasks(board, 'p1', 3);
+    expect(t.shown.map((i) => i.key)).toEqual(['A-2', 'A-5', 'A-1']);
+    expect(t.open).toBe(4);
+    expect(t.any).toBe(true);
+    expect(homeTasks({ issues: [task('A-3', { status: 'done' })] }, 'p1', 3)).toEqual({ shown: [], open: 0, any: true });
+    expect(homeTasks(board, 'p9', 3).any).toBe(false);
   });
 });
 

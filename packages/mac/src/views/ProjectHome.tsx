@@ -34,8 +34,12 @@ import {
   type HomeModel,
   agoText,
   homeModel,
+  homeTasks,
   lastActive,
 } from "./project/home-model.js";
+import { type Issue, STATUS_INFO } from "@beluga/core/board/model.js";
+import { StatusIcon } from "../tasks/marks.js";
+import { useTaskActions } from "../tasks/use-tasks.js";
 import { branchOptions } from "../chat/WorktreeDraft.js";
 import { useBoxSuggestions } from "../chat/BoxSuggestions.js";
 import { useAttachments } from "../chat/use-attachments.js";
@@ -69,7 +73,8 @@ import { TeamOffers } from "../team/Team.js";
  * A project's home: what you see when you click a project. Its main folder is never worked in,
  * so the big box starts work in a new worktree (or just asks a question about the project, or
  * plans big work with Claude), and below are its plans, worktrees, the questions asked in main,
- * what was put away, and (with Stripe connected) a folded row of how it's earning.
+ * the latest of its tasks and GitHub issues (each with the way to all of them), what was put away,
+ * and (with Stripe connected) a folded row of how it's earning.
  */
 export function ProjectHome({ id }: { id: string }) {
   const project = useApp((st) =>
@@ -623,6 +628,7 @@ function Lists({ model }: { model: HomeModel }) {
           ))}
         </Section>
       ) : null}
+      <HomeTasks projectId={project.id} />
       <HomePulls projectId={project.id} />
       <HomeIssues projectId={project.id} />
       <HomeActions projectId={project.id} />
@@ -692,21 +698,85 @@ function HomePulls({ projectId }: { projectId: string }) {
   );
 }
 
+/** How many tasks Project Home lists before "Show All". */
+const HOME_TASKS = 3;
+
+/**
+ * The project's open tasks on its board, the most recently moved first, each opening its page,
+ * and the way to the whole board. Nothing when the board has never had a task for this repo.
+ */
+function HomeTasks({ projectId }: { projectId: string }) {
+  const board = useApp((st) => st.board);
+  const { open, openList } = useTaskActions();
+  const tasks = useMemo(() => homeTasks(board, projectId, HOME_TASKS), [board, projectId]);
+  const isNew = useArrivals(tasks.shown.map((i) => i.id));
+  if (!tasks.any) return null;
+  return (
+    <Section
+      title="Tasks"
+      count={tasks.open}
+      hint="Open on the board, the latest moved first"
+      action={
+        <Button size="small" variant="quiet" onClick={() => openList(projectId)}>
+          Show All Tasks
+        </Button>
+      }
+    >
+      {tasks.shown.length ? (
+        tasks.shown.map((issue) => (
+          <div key={issue.id} role="listitem" className={isNew(issue.id) ? a.arrive : undefined}>
+            <TaskRow issue={issue} onOpen={() => open(issue)} />
+          </div>
+        ))
+      ) : (
+        <p className={s.none}>Nothing open. Finished tasks are on the board.</p>
+      )}
+    </Section>
+  );
+}
+
+function TaskRow({ issue, onOpen }: { issue: Issue; onOpen: () => void }) {
+  const status = STATUS_INFO[issue.status];
+  return (
+    <button
+      type="button"
+      className={s.row}
+      onClick={onOpen}
+      aria-label={`${issue.key}: ${issue.title}, ${status.label}`}
+    >
+      <span className={s.rowIcon}>
+        <StatusIcon status={issue.status} size={13} />
+      </span>
+      <span className={s.rowMain}>
+        <span className={s.rowTitle}>
+          <span className={s.rowName}>{issue.title}</span>
+          <span className={s.rowBranch}>{issue.key}</span>
+        </span>
+      </span>
+      <TonePill tone={status.tone} live={issue.status === "in_progress"}>
+        {status.label}
+      </TonePill>
+      <span className={s.rowWhen}>{agoText(issue.updatedAt)}</span>
+      <Icon name="chevronRight" size={11} className={s.rowChevron} />
+    </button>
+  );
+}
+
 /** How many GitHub issues Project Home lists before "Show All". */
-const HOME_ISSUES = 4;
+const HOME_ISSUES = 3;
 
 /**
  * The project's open GitHub issues, the most recently active first, each opening its page (where
- * Claude can investigate it, fix it or write it up as a task). Nothing when it isn't on GitHub,
- * gh isn't set up (Issues says how), or nothing is open.
+ * Claude can investigate it, fix it or write it up as a task). None open: a line saying so, with
+ * the way to the closed ones. Nothing when it isn't on GitHub or gh isn't set up (Issues says how).
  */
 function HomeIssues({ projectId }: { projectId: string }) {
   const { list } = useIssueList(projectId, "open", "");
   const { openList } = useIssueActions();
   const shown = list?.kind === "github" ? list.issues.slice(0, HOME_ISSUES) : [];
-  const late = useLateArrival(projectId, shown.length > 0);
+  const late = useLateArrival(projectId, list?.kind === "github");
   const isNew = useArrivals(shown.map((i) => i.number));
-  if (list?.kind !== "github" || !shown.length) return null;
+  if (list?.kind !== "github") return null;
   return (
     <Section
       arrive={late}
@@ -719,11 +789,15 @@ function HomeIssues({ projectId }: { projectId: string }) {
         </Button>
       }
     >
-      {shown.map((issue) => (
-        <div key={issue.number} role="listitem" className={isNew(issue.number) ? a.arrive : undefined}>
-          <IssueRow projectId={projectId} repo={list.repo} issue={issue} compact />
-        </div>
-      ))}
+      {shown.length ? (
+        shown.map((issue) => (
+          <div key={issue.number} role="listitem" className={isNew(issue.number) ? a.arrive : undefined}>
+            <IssueRow projectId={projectId} repo={list.repo} issue={issue} compact />
+          </div>
+        ))
+      ) : (
+        <p className={s.none}>No open issues on GitHub.</p>
+      )}
     </Section>
   );
 }
