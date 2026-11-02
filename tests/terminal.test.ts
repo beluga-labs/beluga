@@ -145,7 +145,8 @@ describe('TerminalSession input', () => {
     await waitText(s, 'pasted-2');
   });
 
-  it('paste() brackets the text when the program enables bracketed paste', async () => {
+  // Windows' ConPTY keeps a program's "bracketed paste on" (ESC[?2004h) to itself, so it never reaches us there.
+  it.skipIf(process.platform === 'win32')('paste() brackets the text when the program enables bracketed paste', async () => {
     const s = sh(String.raw`printf '\033[?2004h'; exec cat -v`);
     await waitFor(() => s.applicationCursor === false && s.running);
     await new Promise((r) => setTimeout(r, 200));

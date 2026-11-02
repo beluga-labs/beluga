@@ -17,8 +17,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # Windows is new (BLG-523): its failures show, but don't block a merge until it's green once.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       # The tests read files byte for byte: no CRLF from Windows' checkout.
       - run: git config --global core.autocrlf false

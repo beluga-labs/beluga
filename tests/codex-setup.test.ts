@@ -39,8 +39,8 @@ describe('Codex sessions started outside Beluga', () => {
   let home: string;
   afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-  const rollout = (originator: string, cwd: string, id: string, lines: object[]): void => {
-    const now = new Date();
+  /** `now`: when it started (its file's name); the same one writes the same file again. */
+  const rollout = (originator: string, cwd: string, id: string, lines: object[], now = new Date()): void => {
     const dir = path.join(home, 'sessions', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0'));
     mkdirSync(dir, { recursive: true });
     const ts = now.toISOString();
@@ -84,11 +84,13 @@ describe('Codex sessions started outside Beluga', () => {
     home = mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));
     const store = new Store(initialState('room'));
     const id = '019e8d83-aa52-7ad3-9070-029cd4230b2f';
-    rollout('codex_cli_rs', '/w', id, [{ type: 'event_msg', payload: { type: 'task_started' } }]);
+    // One start time for both writes: the same file grows (a slow machine would otherwise name a second one).
+    const started = new Date();
+    rollout('codex_cli_rs', '/w', id, [{ type: 'event_msg', payload: { type: 'task_started' } }], started);
     const watcher = new CodexSessionsWatcher({ home, store, pollMs: 0 });
     watcher.scan();
     expect(store.getState().claudeCode.sessions[0]?.status).toBe('working');
-    rollout('codex_cli_rs', '/w', id, [{ type: 'event_msg', payload: { type: 'task_started' } }, { type: 'event_msg', payload: { type: 'task_complete' } }]);
+    rollout('codex_cli_rs', '/w', id, [{ type: 'event_msg', payload: { type: 'task_started' } }, { type: 'event_msg', payload: { type: 'task_complete' } }], started);
     watcher.scan();
     expect(store.getState().claudeCode.sessions[0]?.status).toBe('waiting');
   });
