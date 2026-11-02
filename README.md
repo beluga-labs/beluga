@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/scenes/hello-dark.gif" alt="Beluga: every project, every agent, all at once" width="900">
+  <img src="assets/scenes/hello-dark.png" alt="Beluga: every project, every agent, all at once" width="900">
 </p>
 
 <p align="center">

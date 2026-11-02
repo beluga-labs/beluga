@@ -1,4 +1,4 @@
-// The README's scene GIFs: the onboarding's scenes (src/showcase), one frame at a time.
+// The README's header (a still) and scene GIFs: the onboarding's scenes (src/showcase), one frame at a time.
 //   node scripts/readme-scenes.mjs [scene…]   → assets/scenes/<scene>-dark.gif
 // Needs ffmpeg. Starts its own vite; no daemon. Time is stepped by hand (Playwright's clock for
 // timers and frames, and every CSS and Web animation moved to match), so each frame is exact at any
@@ -28,7 +28,8 @@ const THEMES = { dark: '#0d1117' };
  * (`ms` covers the entrance and a hold) and fade to the page at the end. `fps` for a busy one, to keep it small.
  */
 const SCENES = {
-  hello: { w: 900, h: 420, ms: 12_000 },
+  // The header: a still once everything has come in (a PNG, not a GIF).
+  hello: { w: 900, h: 360, still: 4500 },
   parallel: { w: 720, h: 460, loop: true, from: 13_500, ms: 13_500, fps: 20 },
   agents: { w: 720, h: 460, loop: true, from: 8800, ms: 8800 },
   // The answer, then a pointer sorting, paging, filtering and searching it (showcase/TablesTour).
@@ -134,6 +135,19 @@ async function exactPalette(browser, file, hex) {
   await page.close();
 }
 
+/** A still: the scene once `scene.still` ms have run, with its glow and sheen at rest (showcase `still`). */
+async function still(browser, base, name, scene, theme) {
+  const page = await browser.newPage({ viewport: { width: scene.w, height: scene.h }, deviceScaleFactor: 2, colorScheme: theme });
+  const bg = encodeURIComponent(THEMES[theme]);
+  await page.goto(`${base}showcase.html?scene=${name}&theme=${theme}&bg=${bg}&w=${scene.w}&h=${scene.h}&still`);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(scene.still);
+  const png = path.join(out, `${name}-${theme}.png`);
+  await page.screenshot({ path: png });
+  await page.close();
+  console.log(`${name} (${theme}): ${path.relative(repo, png)}`);
+}
+
 async function record(browser, base, name, scene, theme) {
   const dir = path.join(tmp, `${name}-${theme}`);
   rmSync(dir, { recursive: true, force: true });
@@ -162,7 +176,7 @@ const browser = await chromium.launch();
 try {
   for (const [name, scene] of Object.entries(SCENES)) {
     if (only.length && !only.includes(name)) continue;
-    for (const theme of Object.keys(THEMES)) await record(browser, base, name, scene, theme);
+    for (const theme of Object.keys(THEMES)) await (scene.still ? still : record)(browser, base, name, scene, theme);
   }
 } finally {
   await browser.close();

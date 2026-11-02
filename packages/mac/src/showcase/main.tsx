@@ -27,7 +27,7 @@ import '../styles/base.css';
  * The background matches GitHub's, so the GIF looks cut out on the page. Only in development.
  */
 
-/** The welcome's mark, name and promise, without its button: the README's banner. */
+/** The welcome's mark, name and promise, without its button: the README's banner (a still). */
 function Hello() {
   return (
     <div className={o.hello}>
@@ -66,6 +66,12 @@ const width = Number(params.get('w') ?? 640);
 const height = Number(params.get('h') ?? 440);
 
 apply();
+// A still (the README's header): no glow behind the mark, and the second line at rest instead of mid-sheen.
+if (params.has('still')) {
+  const style = document.createElement('style');
+  style.textContent = `[filter="url(#mark-glow)"] { display: none; } .${o.heroSoft} { animation: none; background: none; color: var(--text-3); }`;
+  document.head.append(style);
+}
 document.documentElement.dataset.theme = params.get('theme') === 'light' ? 'light' : 'dark';
 document.body.style.cssText = `margin:0;background:${params.get('bg') ?? 'transparent'}`;
 
