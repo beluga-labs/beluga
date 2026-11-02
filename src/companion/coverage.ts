@@ -117,7 +117,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.refresh': 'mac',
   'workspaces.newWorktree': 'mac',
   'workspaces.newChat': 'mac',
-  'workspaces.startChat': 'phone',
+  'workspaces.startChat': 'phone', // Includes the optional first-message plan mode.
   'workspaces.startWorktree': 'phone',
   'workspaces.branches': 'mac',
   'workspaces.fork': 'mac',
@@ -306,7 +306,7 @@ export const PHONE: Record<Method, Side> = {
   'claudeCode.outputs': 'phone',
   'claudeCode.output': 'phone',
   'claudeCode.taskOutput': 'phone',
-  'claudeCode.skills': 'mac',
+  'claudeCode.skills': 'mac', // Includes skill discovery in a draft's folder.
   'claudeCode.mcpServers': 'mac',
   'claudeCode.mcpSignIn': 'mac',
   'claudeCode.mcpSignedIn': 'mac',
@@ -406,6 +406,7 @@ export const PHONE: Record<Method, Side> = {
   // phone too (BLG-170): until its screen exists, a task made from one shows on the phone's board.
   'issues.list': 'mac',
   'issues.get': 'mac',
+  'issues.pulls': 'mac',
   'issues.investigate': 'mac',
   'issues.fix': 'mac',
   'issues.toTask': 'mac',
@@ -531,6 +532,7 @@ export const PHONE: Record<Method, Side> = {
   'sentinel.create': 'mac',
   'sentinel.update': 'mac',
   'sentinel.remove': 'mac',
+  'sentinel.runDelete': 'mac',
   'sentinel.duplicate': 'mac',
   'sentinel.stop': 'mac',
   // Claude changing a sentinel (the page's box, Describe it) is the Mac's: the phone has no editor.

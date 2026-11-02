@@ -273,6 +273,21 @@ export function mergeMessages(earlier: readonly MessageView[], latest: readonly 
   return [...earlier.filter((m) => !ids.has(m.id)), ...latest];
 }
 
+export { unreadLine, unreadSince } from '../../../../src/shared/unread.js';
+
+/** Close enough to the bottom of a log to count as there. */
+const BOTTOM_SLACK = 48;
+
+/**
+ * Whether a log keeps following the bottom after it scrolled (`before`: where it was): at the
+ * bottom it does; scrolled up, it stops; pushed by what grew under it (pictures loading), as it was.
+ */
+export function keepsFollowing(was: boolean, before: number, now: { readonly top: number; readonly height: number; readonly client: number }): boolean {
+  if (now.height - now.top - now.client < BOTTOM_SLACK) return true;
+  if (now.top < before) return false;
+  return was;
+}
+
 // ---- away when idle
 
 /** Minutes without using the Mac before your status turns to Away by itself. */
@@ -284,7 +299,42 @@ export const IDLE_AWAY_MS = 10 * 60_000;
  */
 export function idleStep(opts: { readonly presence: Presence; readonly idleMs: number; readonly autoAway: boolean; readonly threshold?: number }): 'away' | 'online' | undefined {
   const threshold = opts.threshold ?? IDLE_AWAY_MS;
-  if (!opts.autoAway && opts.presence.state === 'online' && opts.idleMs >= threshold) return 'away';
+  if (opts.presence.state === 'online' && opts.idleMs >= threshold) return 'away';
   if (opts.autoAway && opts.presence.state === 'away' && opts.idleMs < threshold) return 'online';
   return undefined;
+}
+
+/**
+ * Where the watcher remembers that it made you Away. Your status itself is kept by the core, so
+ * this has to outlive the window too: after a reload or a relaunch you still come back Online.
+ */
+export const IDLE_AWAY_KEY = 'beluga.idleAway';
+
+type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+const localStore = (): KeyStore | undefined => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Whether your Away is the watcher's doing (not one you chose). */
+export function wasIdleAway(store: KeyStore | undefined = localStore()): boolean {
+  try {
+    return store?.getItem(IDLE_AWAY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Mark Away as the watcher's (true) or yours (false: a status you picked is never undone). */
+export function rememberIdleAway(on: boolean, store: KeyStore | undefined = localStore()): void {
+  try {
+    if (on) store?.setItem(IDLE_AWAY_KEY, '1');
+    else store?.removeItem(IDLE_AWAY_KEY);
+  } catch {
+    // Storage full or blocked: the watcher just won't bring you back this time.
+  }
 }

@@ -296,6 +296,8 @@ export interface Prefs {
   readonly friendWorktrees: Settings['friendWorktrees'];
   /** Who may call your Claude into a chat (core/chat/claude.ts). */
   readonly chatClaude: Settings['chatClaude'];
+  /** Who sees your plan usage on your profile (core/gateway: it rides on your card). */
+  readonly shareUsage: Settings['shareUsage'];
   readonly shell?: string;
   /** Start the terminal's shell as a login shell. */
   readonly shellLogin: boolean;
@@ -664,6 +666,7 @@ export const DEFAULT_PREFS: Prefs = {
   hiddenButtons: [],
   friendWorktrees: 'ask',
   chatClaude: 'everyone',
+  shareUsage: 'trusted',
   shellLogin: true,
   shellArgs: [],
 };
@@ -1218,6 +1221,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'sentinel_put':
     case 'sentinel_remove':
     case 'sentinel_run':
+    case 'sentinel_runs_gone':
     case 'sentinel_ask':
     case 'sentinel_trouble':
     case 'sentinel_webhook':

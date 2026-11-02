@@ -5,8 +5,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeProjectDir } from '../../src/agent/runtime/claude/claude-sessions.js';
 import { createDemoWorkspaces } from '../../src/demo.js';
+import type { SharedFork } from '../../src/core/friend-share-store.js';
 import type { LogItem } from '../../src/core/store.js';
-import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
+import { type Crowd, SLOW, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type Mac, mac } from './helpers.js';
 
 /** BLG-312: a friend forks one of your shared worktrees to their own Mac, changes, Scratch, conversation and Claude's session with it. */
@@ -57,12 +58,18 @@ describe('forking a friend’s worktree to your Mac', () => {
     ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
     await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.copy?.state === 'ready'));
 
+    const seen: SharedFork[] = [];
+    const off = kay.store.subscribe(() => {
+      const f = kay.store.getState().forks[theirs.id];
+      if (f && f !== seen.at(-1)) seen.push(f);
+    });
     await kay.shares.fork(ata.id, theirs.id, 'my-take');
     const fork = await settle(() => {
       const f = kay.store.getState().forks[theirs.id];
       if (f?.state === 'failed') throw new Error(f.error);
       return f?.state === 'ready' ? f : undefined;
     });
+    off();
     const mine = kay.session.workspaces!.manager.find(fork.wsId!)!;
     expect(mine.branch).toBe('beluga/my-take');
     expect(mine.forkFromSession).toBe('sess-fork-1');
@@ -89,7 +96,15 @@ describe('forking a friend’s worktree to your Mac', () => {
     expect(git(theirs.path, 'status', '--porcelain')).toBe(statusBefore);
     expect(git(theirs.path, 'for-each-ref', 'refs/beluga-fork')).toBe('');
     expect(ata.store.getState().log.some((l) => l.type === 'system' && l.channel === `ws:${theirs.id}` && l.text.startsWith('kay forked this worktree'))).toBe(true);
-  }, 60_000);
+
+    // How far it got as it came over: from nothing to all of its bytes, with how many files are in it.
+    const copying = seen.filter((f) => f.state === 'copying');
+    expect(copying[0]!.received).toBe(0);
+    expect(copying[0]!.total).toBeGreaterThan(0);
+    // The two uncommitted files and Scratch's (the demo's worktree may have more of its own).
+    expect(copying[0]!.files).toBeGreaterThanOrEqual(3);
+    expect(copying.at(-1)!.received).toBe(copying[0]!.total);
+  }, 60_000 * SLOW);
 
   it('someone who only follows along can’t fork', async () => {
     net = await crowd();
@@ -102,5 +117,5 @@ describe('forking a friend’s worktree to your Mac', () => {
     ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'view' });
     await settle(() => kay.store.getState().sharedProjects[0]);
     await expect(kay.shares.fork(ata.id, ws.id)).rejects.toThrow(/Can work here/);
-  }, 30_000);
+  }, 30_000 * SLOW);
 });

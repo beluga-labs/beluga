@@ -1,10 +1,11 @@
 import { type AgentRef, CLAUDE_AGENT, defaultAgentOf } from '../../protocol.js';
+import { usagesOf } from '../../agent/usage.js';
 import { randomBytes } from 'node:crypto';
 import type { AgentBackend } from '../../agent/types.js';
 import { type NoticeEvent, presenceQuiet } from '../notify.js';
 import { type Action, type Store, peerName } from '../store.js';
 import { type TrustLevel, defaultTrust } from '../trust.js';
-import { type Capabilities, Decision, type DecisionInput, type Rule, offersFor } from './access.js';
+import { type Capabilities, Decision, type DecisionInput, type Rule, offersFor, sharesUsageWith } from './access.js';
 import { TaskBook } from './book.js';
 import type { SystemPort } from './device.js';
 import { type GatewayState, type PeerCard, type TaskFile, type TaskView, isFinal } from './model.js';
@@ -433,17 +434,19 @@ export class Gateway {
 
   /**
    * A dialogue stopped on this side (BLG-468): its turn in flight with them stops (sent: cancelled;
-   * received: halted), and their side hears so it ends there too, between turns as well.
+   * received: halted), and their side hears so it ends there too, between turns as well. They hear
+   * of the stop before the halted turn's result: read first, that result would end it there as a
+   * failed turn instead (frames to one person arrive in order, but not always in one read).
    */
   stopDialogue(peerId: string, dialogue: string, why: string): void {
     const tasks = this.book.all().filter((t) => t.peerId === peerId && t.dialogue?.id === dialogue).sort((a, b) => a.createdAt - b.createdAt);
+    const last = tasks.at(-1);
+    if (last) this.courier.send(peerId, { t: 'task_cancel', id: last.id, dialogue: { id: dialogue, why: oneLine(why, 300) }, ts: this.now() }, true);
     for (const t of tasks) {
       if (isFinal(t.state)) continue;
       if (t.direction === 'sent') this.cancel(t.id);
       else this.server.stopTask(t.id);
     }
-    const last = tasks.at(-1);
-    if (last) this.courier.send(peerId, { t: 'task_cancel', id: last.id, dialogue: { id: dialogue, why: oneLine(why, 300) }, ts: this.now() }, true);
   }
 
   private onDialogueStop(from: string, taskId: string, d: { readonly id: string; readonly why: string }): void {
@@ -1006,7 +1009,7 @@ export class Gateway {
   }
 
   private onCard(from: string, msg: PeerCardMsg): void {
-    const card: PeerCard = { trust: msg.trust, offers: msg.offers, projects: msg.projects, claude: msg.claude, at: this.now(), ...(msg.note ? { note: msg.note } : {}) };
+    const card: PeerCard = { trust: msg.trust, offers: msg.offers, projects: msg.projects, claude: msg.claude, at: this.now(), ...(msg.note ? { note: msg.note } : {}), ...(msg.usages?.length ? { usages: msg.usages } : {}) };
     this.book.putCard(from, card);
     this.deps.store.dispatch({ type: 'gw_card', peerId: from, card });
   }
@@ -1029,11 +1032,14 @@ export class Gateway {
     const note = state.gateway.note;
     const projects = this.deps.projects().slice(0, 60);
     const claude = Boolean(this.deps.agent());
+    // Your plan usage, for those you share it with (Settings › Friends; BLG-597).
+    const usages = usagesOf(state.peers.find((p) => p.peerId === self) ?? state.self).slice(0, 8);
     for (const id of people) {
       if (!this.courier.reach(id)) continue;
       const trust = this.trustFor(id);
       const offers = offersFor(this.rules.capabilities(), trust);
-      const card: PeerCardMsg = { t: 'card', trust, offers, projects: offers.includes('project') ? [...projects] : [], claude, ...(note ? { note } : {}) };
+      const shared = usages.length && sharesUsageWith(state.prefs.shareUsage, trust) ? { usages: [...usages] } : {};
+      const card: PeerCardMsg = { t: 'card', trust, offers, projects: offers.includes('project') ? [...projects] : [], claude, ...(note ? { note } : {}), ...shared };
       const key = JSON.stringify(card);
       if (this.told.get(id) === key) continue;
       if (this.courier.send(id, card, false)) this.told.set(id, key);

@@ -13,7 +13,7 @@ import type { AgentPlace } from '../agent/types.js';
 import type { AgentRef } from '../protocol.js';
 import { placeAgent } from '../shared/agent-picker.js';
 import { agentName } from '../shared/agent-label.js';
-import { transcriptOf } from './agent-switch.js';
+import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
 import type { Project, Workspace } from '../workspaces/types.js';
@@ -631,6 +631,19 @@ export class WorkspaceController {
     return ws ? (ws.agent ?? this.followedAgent(ws.id)) : undefined;
   }
 
+  /**
+   * A message as its run starts: after a quiet switch (BLG-592) the first run carries the recent
+   * conversation the new agent can't read, once (without the message itself, `requestId`'s).
+   */
+  withCarry(channel: string, message: string, requestId?: string): string {
+    const ws = this.inChannel(channel);
+    if (!ws?.carryFrom) return message;
+    this.deps.manager.setCarry(ws.id, undefined);
+    const log = this.deps.store.getState().log.filter((l) => !(requestId && l.type === 'chat' && l.request === requestId));
+    const transcript = transcriptOf(log, channel);
+    return transcript ? carriedPrompt(ws.carryFrom, transcript, message) : message;
+  }
+
   /** The runtime a workspace's conversation runs on (its pick, else yours, else the daemon's own). */
   private runtimeIn(wsId: string): string {
     const ws = this.deps.manager.find(wsId);
@@ -795,10 +808,13 @@ export class WorkspaceController {
   }
 
   /** Turn a draft into a real chat with your first message, then send it to Claude. */
-  async startChat(projectId: string, firstMessage: string, inDir?: string, opts: { terminal?: boolean } = {}): Promise<void> {
+  async startChat(projectId: string, firstMessage: string, inDir?: string, opts: { terminal?: boolean; plan?: boolean } = {}): Promise<void> {
     const title = firstMessage.replace(/\s+/g, ' ').trim().slice(0, 40);
     const ws = await this.newChat(projectId, title, inDir);
-    if (ws) this.deps.askClaude(firstMessage, `${WS_PREFIX}${ws.id}`, opts.terminal ? { terminal: true } : undefined);
+    if (!ws) return;
+    const channel = `${WS_PREFIX}${ws.id}`;
+    if (opts.plan) this.deps.store.dispatch({ type: 'plan_mode', channel, on: true });
+    this.deps.askClaude(firstMessage, channel, opts.terminal && !opts.plan ? { terminal: true } : undefined);
   }
 
   /** The branches a new worktree can start from, the project's default base first. */
@@ -1214,7 +1230,8 @@ export class WorkspaceController {
     if (back && manifest?.dropped.length) this.deps.onWorktreeRestored?.(back, manifest.remake);
   }
 
-  async remove(id: string): Promise<void> {
+  /** Delete for good. `quiet`: a sentinel clearing away a run's chat (no toast). */
+  async remove(id: string, opts: { readonly quiet?: boolean } = {}): Promise<void> {
     const agents = this.agentWorktreesOf(id);
     const ws = this.deps.manager.find(id);
     // Gone from the sidebar now; the folder, its branch and the conversation follow.
@@ -1238,7 +1255,7 @@ export class WorkspaceController {
       // Its views' rows go, and their scripts and handed-over rows unless another conversation shows them.
       forgetViews(answers, 'deleted', () => this.answersElsewhere(id));
       const also = await this.removeAgentWorktrees(agents);
-      this.deps.toast(['Deleted.', also].filter(Boolean).join(' '), 'success');
+      if (!opts.quiet) this.deps.toast(['Deleted.', also].filter(Boolean).join(' '), 'success');
       this.emit({ kind: 'removed', id });
     }
   }

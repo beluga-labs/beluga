@@ -10,6 +10,8 @@ import {
   expiryLabel,
   findInvitation,
   idleStep,
+  rememberIdleAway,
+  wasIdleAway,
   membersLine,
   mergeMessages,
   openFriendInvitation,
@@ -28,6 +30,8 @@ import {
   sortMembers,
   timeLeft,
   totalUnread,
+  unreadSince,
+  keepsFollowing,
   untilOf,
 } from '../packages/mac/src/network/net-model.js';
 
@@ -59,6 +63,29 @@ describe('conversations', () => {
     const b = msg('a', 2);
     const c = msg('a', 3);
     expect(mergeMessages([a, b], [b, c]).map((m) => m.ts)).toEqual([1, 2, 3]);
+  });
+
+  it('marks what came in since you last read: their last messages, up to where you came in (BLG-573)', () => {
+    const list = [msg('a', 1), msg('me', 2, { mine: true }), msg('a', 3), msg('b', 4), msg('me', 5, { mine: true })];
+    expect([...unreadSince(list, 2)]).toEqual(['a3', 'b4']);
+    expect([...unreadSince(list, 0)]).toEqual([]);
+    expect([...unreadSince(list, 9)]).toEqual(['a1', 'a3', 'b4']);
+    // What arrives while you're here was read as it came: the marks stay where you came in.
+    const later = [...list, msg('a', 6)];
+    expect([...unreadSince(later, 2, 'me5')]).toEqual(['a3', 'b4']);
+    expect([...unreadSince(later, 2, 'gone')]).toEqual(['b4', 'a6']);
+  });
+
+  it('keeps following the bottom until you scroll up, not when what grows under it pushes it (BLG-573)', () => {
+    const at = (top: number, height = 1000, client = 400) => ({ top, height, client });
+    expect(keepsFollowing(true, 600, at(600))).toBe(true);
+    // A picture loaded under the bottom: the log grew, scrollTop didn't move.
+    expect(keepsFollowing(true, 600, at(600, 1300))).toBe(true);
+    // You scrolled up.
+    expect(keepsFollowing(true, 600, at(500))).toBe(false);
+    expect(keepsFollowing(false, 500, at(520))).toBe(false);
+    // Back at the bottom.
+    expect(keepsFollowing(false, 500, at(580))).toBe(true);
   });
 
   it('labels days like Messages', () => {
@@ -114,6 +141,25 @@ describe('presence', () => {
     expect(idleStep({ presence: away, idleMs: 1_000, autoAway: true })).toBe('online');
     expect(idleStep({ presence: away, idleMs: 1_000, autoAway: false })).toBeUndefined();
     expect(idleStep({ presence: away, idleMs: 20 * 60_000, autoAway: true })).toBeUndefined();
+    // A mark left from before (or the core not caught up yet) never keeps an idle Online from going Away.
+    expect(idleStep({ presence: online, idleMs: 11 * 60_000, autoAway: true })).toBe('away');
+    expect(idleStep({ presence: online, idleMs: 1_000, autoAway: true })).toBeUndefined();
+  });
+
+  it('remembers an idle Away across reloads, and forgets it when you pick a status', () => {
+    const data = new Map<string, string>();
+    const store = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v), removeItem: (k: string) => void data.delete(k) };
+    expect(wasIdleAway(store)).toBe(false);
+    rememberIdleAway(true, store);
+    expect(wasIdleAway(store)).toBe(true);
+    expect(idleStep({ presence: { state: 'away' }, idleMs: 1_000, autoAway: wasIdleAway(store) })).toBe('online');
+    rememberIdleAway(false, store);
+    expect(wasIdleAway(store)).toBe(false);
+    // No storage, or storage that throws: no mark, never a crash.
+    expect(wasIdleAway(undefined)).toBe(false);
+    const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('full'); }, removeItem: () => undefined };
+    expect(() => rememberIdleAway(true, broken)).not.toThrow();
+    expect(wasIdleAway(broken)).toBe(false);
   });
 });
 

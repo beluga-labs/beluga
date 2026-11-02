@@ -198,9 +198,9 @@ const openAssistant = (state: DomainState): Conversation => {
   return assistantConversations(state).find((c) => c.channel === channel) ?? { channel, title: ASSISTANT_TITLE, mine: true };
 };
 
-/** Your Mac's chats for the phone's list (1.14): in tab order, each titled by its tab. */
+/** Your Mac's chats for the phone's list (1.14): in tab order, each titled by its tab; a sentinel run's are on its run (BLG-566). */
 function macChatSummaries(state: DomainState, waiting: ReadonlySet<string>, ctx?: ViewContext): ConvSummary[] {
-  return state.assistant.chats.slice(0, 40).flatMap((c) => summaryOf(state, { channel: c.channel, title: assistantChatTitle(c.channel, state.log, 60), mine: true }, waiting, ctx) ?? []);
+  return state.assistant.chats.filter((c) => !c.auto).slice(0, 40).flatMap((c) => summaryOf(state, { channel: c.channel, title: assistantChatTitle(c.channel, state.log, 60), mine: true }, waiting, ctx) ?? []);
 }
 
 /**
@@ -1212,7 +1212,8 @@ function sentinelRunView(s: SentinelState, sn: Sentinel, r: RunSummary, ctx?: Vi
   const step = live && isLive(r.state) ? sn.steps.find((st) => st.id === live)?.name : undefined;
   const report = r.report ? ctx?.refs.output(r.report, r.endedAt !== undefined ? { ts: r.endedAt } : {}) : undefined;
   // Its Claude's conversation (the live one first): a workspace chat or Your Mac's, the ones the phone opens.
-  const chats = r.steps.filter((x) => x.channel && /^(ws:|mac:assistant)/.test(x.channel));
+  // A chat its sentinel put away (BLG-566) isn't offered; its worktree's always is.
+  const chats = r.steps.filter((x) => x.channel && /^(ws:|mac:assistant)/.test(x.channel) && (!r.putAway || x.channel === `ws:${r.worktreeId}`));
   const chat = (chats.find((x) => x.state === 'running') ?? chats.at(-1))?.channel;
   return {
     id: clip(r.id, 200),
@@ -1366,6 +1367,7 @@ export function chatView(state: DomainState, ctx: ViewContext, topic: Topic): Ch
   const people = chatPeopleOf(state, conversation, dm, group);
   const waiting = waitingIn({ conversation, tasks: state.gateway.tasks, approvals: state.approvals });
   const note = offlineNote(people);
+  const unread = dm ? dm.unread : group?.active ? group.unread : 0;
   return {
     topic,
     name: clip(dm?.name ?? group?.name ?? 'Chat', 100),
@@ -1376,6 +1378,7 @@ export function chatView(state: DomainState, ctx: ViewContext, topic: Topic): Ch
     members: chatMembers(state, dm, group, people),
     ...(waiting.length ? { waiting: waiting.slice(0, 10).map((w) => ({ text: clip(waitingLabel(w), 300), you: w.on === 'you', ...(w.target.kind === 'task' ? { task: clip(w.target.id, 200) } : {}) })) } : {}),
     ...(note ? { note: clip(note, 200) } : {}),
+    ...(unread ? { unread } : {}),
   };
 }
 
@@ -1411,8 +1414,10 @@ export function peopleView(state: DomainState): PeopleView {
   return {
     people: state.network.friends.slice(0, 600).map((f) => {
       const peer = state.peers.find((p) => p.peerId === f.peerId);
-      const usage = usageViews(peer, defaultAgentOf(peer))[0];
       const card = state.gateway.cards[f.peerId];
+      // In your room: their room profile's; else what their card shares with you (BLG-597).
+      const inRoom = Boolean(peer?.usage || peer?.usages?.length);
+      const usage = usageViews(inRoom ? peer : card?.usages?.length ? { usages: [...card.usages] } : undefined, defaultAgentOf(peer))[0];
       const chat = chatTopic(`dm:${f.peerId}`);
       return {
         peerId: clip(f.peerId, 200),
