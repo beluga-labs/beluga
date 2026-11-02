@@ -13,6 +13,7 @@ import type { Store } from './store.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import { DEMO_AGENTS } from './demo-agents.js';
 import { belugaEnv } from './beluga-env.js';
+import { SHARE_FEATURES } from '../net/mesh/features.js';
 
 const CHECKLIST = `# Friday release
 
@@ -61,6 +62,8 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
   const where = { bootstrap: testnet.bootstrap, host: '127.0.0.1' };
   const friend = (n: string): Promise<Mesh> => Mesh.start({ identity: generateIdentity(), name: n, dir: path.join(base, n), ...where });
   const [bob, mia] = await Promise.all([friend('bob'), friend('mia')]);
+  // Their Macs say they open shared projects and worktrees, so the Share sheets can share with them.
+  for (const m of [bob, mia]) m.offer(SHARE_FEATURES, true);
   const me = await startNetwork({ store, identity: generateIdentity(), name, dir: path.join(base, 'me'), ...where });
   const meId = me.mesh.peerId;
   await me.mesh.accept((await bob.createInvite()).link);
