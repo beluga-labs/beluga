@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icon.js';
 import { Button, Empty, cx } from '../../components/ui.js';
 import { GHOST_WIDTHS } from './scratch-model.js';
 import k from './scratch.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 /**
  * The Scratch tab before it has a listing: the list and the preview drawn in outline, softly
@@ -78,7 +79,7 @@ export function ScratchEmpty({ working, off, dir, onReveal }: ScratchEmptyProps)
             ) : null}
             {onReveal ? (
               <Button icon="folder" title={dir} onClick={onReveal}>
-              Show in Finder
+              {revealLabel()}
             </Button>
             ) : null}
           </>

@@ -11,6 +11,7 @@ import { type Pending, removePending } from './attachments.js';
 import { kindLabel, sizeLabel } from './chat-model.js';
 import { useSay } from './use-net.js';
 import s from './network.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * Files in a chat: cards with the file's state on this Mac (download it, watch it come, open it,
@@ -57,7 +58,7 @@ function fileItems(f: ChatFile, state: ChatFileState | undefined, ctx: { client:
   }
   return [
     { label: 'Open', icon: 'external', onSelect: () => run(client.api.network['files.open'](f.sha)) },
-    { label: 'Show in Finder', icon: 'folder', onSelect: () => run(client.api.network['files.reveal'](f.sha)) },
+    { label: revealLabel(), icon: 'folder', onSelect: () => run(client.api.network['files.reveal'](f.sha)) },
     ...(inApp() ? [{ label: 'Save As…', icon: 'download' as const, onSelect: () => run(saveAs(client, f).then((to) => to && say(`Saved to ${to}`))) }] : []),
     { label: 'Copy Name', icon: 'copy', separate: true, onSelect: () => run(copyText(f.name), `Copied “${f.name}”`) },
     ...(state.path ? [{ label: 'Copy Path', onSelect: () => run(copyText(state.path!), 'Copied the path') }] : []),
@@ -133,7 +134,7 @@ export const FileCard = memo(function FileCard({ f, conversation, mine }: { f: C
               <Icon name="x" size={11} />
             </button>
           ) : here ? (
-            <button type="button" className={s.fileAction} aria-label={`Show ${f.name} in Finder`} onClick={() => void client.api.network['files.reveal'](f.sha).catch(fail)}>
+            <button type="button" className={s.fileAction} aria-label={revealLabel(f.name)} onClick={() => void client.api.network['files.reveal'](f.sha).catch(fail)}>
               <Icon name="folder" size={12} />
             </button>
           ) : (

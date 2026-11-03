@@ -1,3 +1,4 @@
+import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -81,7 +82,7 @@ function targetOf(href: string): LinkTarget {
     const at = rest.indexOf('/');
     return { kind: 'attachment', owner: rest.slice(0, at), file: rest.slice(at + 1), label: 'image' };
   }
-  if (href.startsWith('/') || href.startsWith('~')) return { kind: 'local', path: href, dir: href.endsWith('/') };
+  if (isAbsolutePath(href) || href.startsWith('~')) return { kind: 'local', path: href, dir: endsWithSep(href) };
   return { kind: 'href', href };
 }
 
@@ -94,7 +95,7 @@ function MdImage({ src, alt, all, local }: { src: string; alt: string; all: read
     return (
       <span className={s.imageRef} title={`${source.path} (pictures on this Mac show only in your own and your agent’s messages)`}>
         <Icon name="image" size={11} />
-        {alt || source.path.split('/').pop()}
+        {alt || baseName(source.path)}
       </span>
     );
   }

@@ -1,3 +1,5 @@
+import { baseName, fileUrlToPath, isAbsolutePath } from '../../../../src/shared/os-path.js';
+
 /**
  * Images in a chat message's Markdown (`![alt](src)`), as plain data: a file on this Mac named
  * by its path (how Claude shows a screenshot it took), a web image, or something there's no way
@@ -20,8 +22,8 @@ const decode = (s: string): string => {
 export function imageSource(src: string): ImageSource {
   const raw = src.trim();
   if (/^https:\/\//i.test(raw)) return { kind: 'remote', url: raw };
-  const path = decode(raw.replace(/^file:\/\//i, ''));
-  return path.startsWith('/') && IMAGE.test(path) ? { kind: 'local', path } : { kind: 'other' };
+  const path = fileUrlToPath(raw) ?? decode(raw);
+  return isAbsolutePath(path) && IMAGE.test(path) ? { kind: 'local', path } : { kind: 'other' };
 }
 
 /** A local image as the thumbnails and the lightbox take it (a `ChatImage`, see images.ts). */
@@ -33,7 +35,7 @@ export interface LocalImage {
   readonly local: string;
 }
 
-const fileName = (path: string): string => path.split('/').pop() || path;
+const fileName = (path: string): string => baseName(path) || path;
 
 /** One local image as the lightbox and thumbnails know it. */
 export const localImage = (path: string, alt: string): LocalImage => ({ href: `local:${path}`, owner: '', file: fileName(path), label: alt.trim() || fileName(path), local: path });

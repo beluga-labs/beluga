@@ -11,7 +11,7 @@ import { useMyAgentName } from '../../lib/agent-words.js';
 import { focusFor, openFocus, showPanelTab, forgetChangeAsk, peekChangeAsk, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
 import { setPrefs, usePrefs } from '../../lib/prefs.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { useWsBusy, whileBusy } from '../../lib/ws-busy.js';
 import { STATE, UnifiedDiff, useCommitItems, useFileItems } from '../../views/DiffView.js';
 import { type ChangeLook, ChangedFileView, canShowFile, fileLookLabel, onlyAsFile, useChangeLocation } from '../../views/ChangedFile.js';
@@ -213,7 +213,7 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
           />
         ) : null}
         {showable ? <IconButton icon="folder" label="Show in Files" onClick={showInFiles} /> : null}
-        <IconButton icon="expand" label="Open in full" keys={`${mod()}↩`} onClick={() => openFocus('diff', wsId)} />
+        <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => openFocus('diff', wsId)} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={onClose} />
       </div>
       {look === 'file' && at ? (

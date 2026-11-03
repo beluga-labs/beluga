@@ -49,7 +49,7 @@ export function PlansView() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [project]);
 
-  if (!state.enabled) return <Empty icon="flag" title="Plans need the Beluga app" detail="Open Beluga for Mac to plan big work with your agent." />;
+  if (!state.enabled) return <Empty icon="flag" title="Plans need the Beluga app" detail="Open the Beluga app to plan big work with your agent." />;
   if (!here) return <NoProjects icon="flag" detail="Plans belong to a project. Add one to plan its work here." />;
   return (
     <div className={p.list}>

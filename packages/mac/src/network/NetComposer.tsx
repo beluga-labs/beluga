@@ -9,7 +9,8 @@ import { useMyAgent } from '../lib/agent-words.js';
 import { type AgentMark, agentMark } from '@beluga/shared/agent-marks.js';
 import { handleInvite } from '../lib/invite-command.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
+import { cmdReturn, returnName } from '../lib/os-words.js';
 import { quoted } from '../chat/message-menu.js';
 import { DictationStrip, MicButton } from '../chat/Dictation.js';
 import { useDictationTarget } from '../lib/dictation.js';
@@ -198,7 +199,7 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
   };
   // Speaking instead of typing (Settings › Voice): the words come here when this is the box you're in.
   useDictationTarget(ref, submit);
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   const label = ask ? `${askLabel(ask)} · ` : '';
   return (
     <div className={c.wrap}>
@@ -288,7 +289,7 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
           ) : null}
           {text.length > MAX - 500 ? <span className={cx(s.counter, over && s.counterOver)}>{MAX - text.length}</span> : null}
           <MicButton box={ref} />
-          <Tip label={`${label}${prefs.sendWith === 'enter' ? 'Send · Shift+Return for a new line' : `Send · ${mod()}Return`}`} keys={sendKeys}>
+          <Tip label={`${label}${prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`}`} keys={sendKeys}>
             <button type="button" className={cx(c.send, canSend && c.sendReady)} onClick={submit} aria-label={ask ? `Send and ${askLabel(ask).toLowerCase()}` : 'Send'} disabled={!canSend}>
               <Icon name="send" size={14} />
             </button>

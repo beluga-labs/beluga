@@ -113,7 +113,7 @@ export function TasksView() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [project, newTask.projectId]);
 
-  if (!board.enabled) return <Empty icon="task" title="Tasks need the Beluga app" detail="Open Beluga for Mac to plan and track work here." />;
+  if (!board.enabled) return <Empty icon="task" title="Tasks need the Beluga app" detail="Open the Beluga app to plan and track work here." />;
   if (!projects.length || !here) return <NoProjects icon="task" detail="Tasks belong to a project: a folder with your code. Add one, then plan its work here." />;
 
   const none = !board.issues.some((i) => showsOn(i, here.id));

@@ -1,6 +1,7 @@
 import type { ITerminalOptions } from '@xterm/xterm';
 import type { UiPrefs } from './prefs.js';
 import { colorsFor, xtermColors } from './terminal-import-model.js';
+import { keyPlatform } from './shortcuts-model.js';
 
 export { SCROLLBACK_CHOICES } from './terminal-import-model.js';
 
@@ -9,8 +10,8 @@ export { SCROLLBACK_CHOICES } from './terminal-import-model.js';
 /** Monospace fonts worth offering; only the installed ones are listed (SF Mono and Menlo always are on a Mac). */
 export const TERMINAL_FONTS: readonly string[] = ['Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'IBM Plex Mono', 'Source Code Pro', 'Hack', 'Iosevka', 'Berkeley Mono', 'Geist Mono', 'Courier New'];
 
-/** The system's monospace (SF Mono on a Mac; web views only reach it as ui-monospace). */
-const SYSTEM = 'ui-monospace, "SF Mono", Menlo, monospace';
+/** The system's monospace (SF Mono on a Mac, where web views only reach it as ui-monospace; Cascadia Mono or Consolas on Windows; DejaVu Sans Mono on Linux). */
+const SYSTEM = 'ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace';
 
 /** The CSS font stack for a family, falling back to the system's monospace if it's missing. */
 export const fontStack = (family: string): string => (family ? `"${family.replace(/"/g, '')}", ${SYSTEM}` : SYSTEM);
@@ -45,9 +46,11 @@ export function hasFont(family: string): boolean {
 
 /** The fonts to offer: installed ones, plus the one you picked even if it's gone (so the menu shows it). */
 export function fontChoices(picked: string): Array<{ value: string; label: string }> {
-  const fonts = TERMINAL_FONTS.filter((f) => f === 'Menlo' || hasFont(f));
+  const mac = keyPlatform() === 'mac';
+  // Menlo is always on a Mac; elsewhere only what's really installed.
+  const fonts = TERMINAL_FONTS.filter((f) => (mac && f === 'Menlo') || hasFont(f));
   const extra = picked && !fonts.includes(picked) ? [{ value: picked, label: hasFont(picked) ? picked : `${picked} (not installed)` }] : [];
-  return [{ value: '', label: 'SF Mono (system)' }, ...fonts.map((f) => ({ value: f, label: f })), ...extra];
+  return [{ value: '', label: mac ? 'SF Mono (system)' : 'System monospace' }, ...fonts.map((f) => ({ value: f, label: f })), ...extra];
 }
 
 /** xterm's options for your terminal look. */

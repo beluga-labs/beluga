@@ -13,6 +13,7 @@ import { outsideLocation } from '../../layout/outside-model.js';
 import { agoText } from '../project/home-model.js';
 import { type MadeBy, type WorktreeRow, archivedText } from './worktrees-model.js';
 import s from './worktrees.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 const ARCHIVING = { saving: 'Saving…', compressing: 'Compressing…', removing: 'Removing…' } as const;
 const stop = (e: MouseEvent): void => e.stopPropagation();
@@ -127,7 +128,7 @@ export function WorktreeItem({ row, plan, ticked, onTick, act }: { row: Worktree
   const items: ActionItem[] = [
     { label: 'Open', icon: 'forward', onSelect: open },
     ...(parent ? [{ label: 'Open the Conversation That Started It', icon: 'chat' as const, onSelect: () => actions.run({ type: 'open_ws', id: parent }) }] : []),
-    { label: 'Show in Finder', icon: 'folder', onSelect: () => actions.run({ type: 'ws', id: w.id, action: 'finder' }) },
+    { label: revealLabel(), icon: 'folder', onSelect: () => actions.run({ type: 'ws', id: w.id, action: 'finder' }) },
     { label: 'Remove Build Files…', icon: 'archive', separate: true, disabled: !plan?.dropBytes, hint: plan && !plan.dropBytes ? 'None to remove' : 'node_modules, builds and caches; your work stays', onSelect: () => act.free([row]) },
     { label: 'Archive…', icon: 'archive', hint: 'Keeps your work; restore it any time', onSelect: () => act.archive([row]) },
     { label: 'Delete Permanently…', icon: 'x', danger: true, separate: true, disabled: Boolean(row.archiving), hint: row.madeBy.kind === 'beluga' ? 'The folder, its branch and the conversation' : 'The folder and the conversation; its branch stays', onSelect: () => act.remove([row]) },

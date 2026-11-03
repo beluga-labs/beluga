@@ -19,6 +19,7 @@ import { Showcase } from './Showcase.js';
 import { MAC_SCOPE, type Need, dotsOf, doesLine, durationText, filterSentinels, groupSentinels, headlineOf, iconOf, latestOf, needsOf, runDuration, rowOf, scopesOf } from './sentinel-model.js';
 import { sentinelMenu, useRunsFolder, useSentinelActions, useSentinelState, type SentinelActions } from './use-sentinel.js';
 import s from './home.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Sentinel, one page (BLG-300): what needs you, your board's numbers at a glance, and every
@@ -65,7 +66,7 @@ export function SentinelHome() {
     actions.run({ type: 'view', view: { kind: 'sentinel', ...(scope ? { projectId: scope } : {}) } });
   };
 
-  if (!state.enabled) return <Empty icon="sentinel" title="Sentinel needs the Beluga app" detail="Sentinels run on your Mac, as you: open Beluga for Mac to make one." />;
+  if (!state.enabled) return <Empty icon="sentinel" title="Sentinel needs the Beluga app" detail={`Sentinels run on ${thisComputer()}, as you: open the Beluga app to make one.`} />;
   // Nothing set up yet: the conversation is the page (BLG-590). Once your agent makes the first
   // sentinel, the page shows it and the chat moves aside, docked on the right.
   if (!any && asking) {

@@ -12,7 +12,7 @@ import { localPathOf, openWithDefaultApp } from '../../lib/files.js';
 import { focusFor, openFocus, showChange, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
 import { setPrefs, usePrefs } from '../../lib/prefs.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { STATE } from '../../views/DiffView.js';
 import { useRowItems } from '../../views/FilesView.js';
 import { type ReaderMode, hasRenderedLook, initialMode, isPdfFile } from '../../views/reader/reader-model.js';
@@ -26,6 +26,7 @@ import { ResizeHandle } from './ResizeHandle.js';
 import { type TreeRow, ancestorsOf, foundRows, treeRows } from './tree.js';
 import s from './panel.module.css';
 import k from './content-search.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
 const FileContent = lazy(() => import('../../views/reader/FileReader.js').then((m) => ({ default: m.FileContent })));
@@ -94,7 +95,7 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
         ) : null}
         {changed ? <IconButton icon="diff" label="Show Changes" onClick={() => showChange(client.store.getState(), viewer.path)} /> : null}
         {local ? <IconButton icon="external" label={isPdfFile(viewer.path) ? 'Open in Preview' : 'Open in Editor'} onClick={() => void openWithDefaultApp(client, local)} /> : null}
-        <IconButton icon="expand" label="Open in full" keys={`${mod()}↩`} onClick={() => openFocus('file', wsId)} />
+        <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => openFocus('file', wsId)} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={() => void api.files.closeViewer()} />
       </div>
       <div ref={body} className={cx(s.previewBody, s.previewFile, 'selectable')} tabIndex={0} {...{ [SCROLL_ROOT]: '' }}>
@@ -225,7 +226,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
     return [
       base[0]!,
       ...(canShowChange(row.path) ? [{ label: 'Show Changes', icon: 'diff' as const, onSelect: () => void showChange(client.store.getState(), row.path) }] : []),
-      { label: 'Open in Full', icon: 'expand', keys: `${mod()}↩`, onSelect: () => void api.files.open(at(row.path)).then(() => openFocus('file', wsId)) },
+      { label: 'Open in Full', icon: 'expand', keys: chordLabel('Cmd+Enter'), onSelect: () => void api.files.open(at(row.path)).then(() => openFocus('file', wsId)) },
       ...(local ? [{ label: 'Open With Its App', icon: 'external' as const, onSelect: () => void openWithDefaultApp(client, local) }] : []),
       ...base.slice(1),
     ];
@@ -287,7 +288,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
             <FlagToggles flags={flags} onChange={setFlags} />
           </label>
           {contents ? null : <IconButton icon="chevronUp" label="Collapse all folders" onClick={() => expand(new Set())} disabled={!expanded.size} />}
-          <IconButton icon="folder" label="Show in Finder" onClick={() => void api.workspaces.openInFinder(wsId)} />
+          <IconButton icon="folder" label={revealLabel()} onClick={() => void api.workspaces.openInFinder(wsId)} />
         </div>
         <div className={k.modeRow}>
           <Segmented

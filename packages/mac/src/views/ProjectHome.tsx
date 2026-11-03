@@ -25,7 +25,7 @@ import type { AgentRef } from "@beluga/protocol.js";
 import { sameDeep } from "../lib/stable.js";
 import { getPrefs, usePrefs } from "../lib/prefs.js";
 import { sendsToTerminal } from "../lib/convo-mode.js";
-import { mod } from "../lib/system.js";
+import { chordLabel } from "../lib/shortcuts-model.js";
 import {
   type OverviewFilter,
   readOverviewPrefs,
@@ -287,7 +287,7 @@ function HomeComposer({ project }: { project: Project }) {
     : chosen
       ? [chosen]
       : [];
-  const sendKeys = prefs.sendWith === "enter" ? "↩" : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === "enter" ? "↩" : chordLabel('Cmd+Enter');
   // "@src/…" offers the main folder's files (the new worktree starts with the same ones), "/" the commands.
   const mainId = project.workspaces.find((w) => w.kind === "main")?.id;
   const box = useBoxSuggestions({ text, setText, filesOf: mainId });

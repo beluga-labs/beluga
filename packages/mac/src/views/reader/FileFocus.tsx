@@ -20,6 +20,7 @@ import { FileContent } from './FileReader.js';
 import { pendingLine } from './reveal.js';
 import { type ReaderMode, hasRenderedLook, hasText, initialMode } from './reader-model.js';
 import r from './reader.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 /** Space, Page Up/Down, Home and End scroll the page even when nothing has the keyboard. */
 const PAGE_KEYS = new Set([' ', 'PageDown', 'PageUp', 'Home', 'End']);
@@ -182,7 +183,7 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
         <span className={r.tools}>
           {isText ? <IconButton icon={copied ? 'check' : 'copy'} label={copied ? 'Copied' : 'Copy the text'} onClick={() => copy(viewer.content)} /> : null}
           {local ? <IconButton icon="external" label="Open in Editor" onClick={() => void openWithDefaultApp(client, local)} /> : null}
-          {local ? <IconButton icon="folder" label="Show in Finder" onClick={() => void revealInFinder(client, local)} /> : null}
+          {local ? <IconButton icon="folder" label={revealLabel()} onClick={() => void revealInFinder(client, local)} /> : null}
           {!local ? <IconButton icon="download" label="Save a copy…" onClick={() => void saveFile(client, viewer)} /> : null}
         </span>
       </header>

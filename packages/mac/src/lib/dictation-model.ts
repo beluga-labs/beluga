@@ -5,6 +5,10 @@
  * writes down, and where the words go in the box.
  */
 
+import { keyPlatform } from './shortcuts-model.js';
+
+const isMacKeys = (): boolean => keyPlatform() === 'mac';
+
 /** Whisper's sample rate: what the Mac writes down from. */
 export const DICTATION_RATE = 16_000;
 /** The longest one recording runs before it's written down by itself (2 minutes). */
@@ -50,23 +54,27 @@ export function parseAccel(s: string): Accel | undefined {
 }
 
 /** The accelerator for a key press (the Settings recorder), or undefined while only modifiers are down. */
-export function accelOf(e: { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly altKey: boolean; readonly shiftKey: boolean; readonly code: string }): string | undefined {
+export function accelOf(e: { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly altKey: boolean; readonly shiftKey: boolean; readonly code: string }, onMac = isMacKeys()): string | undefined {
   if (/^(Meta|Control|Alt|Shift|OS)(Left|Right)?$/.test(e.code) || !e.code) return undefined;
-  const mods = [e.metaKey && 'CommandOrControl', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift'].filter(Boolean);
+  // Off the Mac, Ctrl is the main modifier (CommandOrControl); the Windows key isn't one.
+  const mods = (onMac ? [e.metaKey && 'CommandOrControl', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift'] : [e.ctrlKey && 'CommandOrControl', e.altKey && 'Alt', e.shiftKey && 'Shift']).filter(Boolean);
   return [...mods, keyName(e.code)].join('+');
 }
 
 /** This key press is the shortcut (the code, not the character: ⌥ changes those on a Mac). */
-export function matchesAccel(a: Accel, e: { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly altKey: boolean; readonly shiftKey: boolean; readonly code: string }): boolean {
-  return e.code === a.code && e.metaKey === a.cmd && e.ctrlKey === a.ctrl && e.altKey === a.alt && e.shiftKey === a.shift;
+export function matchesAccel(a: Accel, e: { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly altKey: boolean; readonly shiftKey: boolean; readonly code: string }, onMac = isMacKeys()): boolean {
+  // Off the Mac, CommandOrControl and Control are both Ctrl.
+  const mods = onMac ? e.metaKey === a.cmd && e.ctrlKey === a.ctrl : e.ctrlKey === (a.cmd || a.ctrl);
+  return e.code === a.code && mods && e.altKey === a.alt && e.shiftKey === a.shift;
 }
 
-/** The shortcut as a Mac shows it: ⌃⌥⇧⌘ then the key. */
-export function accelLabel(s: string): string {
+/** The shortcut as this computer shows it: ⌃⌥⇧⌘ then the key on a Mac, "Ctrl+Alt+Shift+" elsewhere. */
+export function accelLabel(s: string, onMac = isMacKeys()): string {
   const a = parseAccel(s);
   if (!a) return s;
   const key = keyName(a.code);
   const shown: Record<string, string> = { Space: 'Space', Backquote: '`', Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Backslash: '\\' };
+  if (!onMac) return [(a.cmd || a.ctrl) && 'Ctrl', a.alt && 'Alt', a.shift && 'Shift', shown[key] ?? key].filter(Boolean).join('+');
   return `${a.ctrl ? '⌃' : ''}${a.alt ? '⌥' : ''}${a.shift ? '⇧' : ''}${a.cmd ? '⌘' : ''}${shown[key] ?? key}`;
 }
 

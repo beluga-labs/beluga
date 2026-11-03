@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import { Suspense, lazy, memo, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { type ChartKind, type Column, type Row, type View, type ViewType, describeSource, parseView } from '@beluga/shared/view-spec.js';
@@ -178,7 +179,7 @@ function exportItems(view: View, data: ViewData, say: (text: string, ok: boolean
   const saveAs = (k: ExportKind): void => {
     const { text, n } = take(k);
     saveTextAs(exportFileName(view.title, k.ext), text).then(
-      (to) => to && say(`Saved ${rowsWord(n)} to ${to.split('/').pop()}`, true),
+      (to) => to && say(`Saved ${rowsWord(n)} to ${baseName(to)}`, true),
       (err: unknown) => say(`Couldn’t save it: ${err instanceof Error ? err.message : String(err)}`, false),
     );
   };

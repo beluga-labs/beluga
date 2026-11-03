@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CHIP_SOUNDS, NO_SOUND } from '../src/shared/notify-sound.js';
 import { CHIP_LABELS, chipSpec } from '../packages/mac/src/lib/sounds/chip.js';
-import { CHIP_CHOICES, MAC_CHOICES, choiceFromKey, choiceKey, filesInUse, belugaMade, renderChoice, soundFileName, soundName, soundTitle, soundsInUse } from '../packages/mac/src/lib/sounds/catalog.js';
+import { CHIP_CHOICES, MAC_CHOICES, choiceFromKey, choiceKey, filesInUse, belugaMade, familiesHere, playableHere, renderChoice, soundFileName, soundName, soundTitle, soundsInUse } from '../packages/mac/src/lib/sounds/catalog.js';
 import { generatedName, generatedSpec, randomSeed, rng } from '../packages/mac/src/lib/sounds/generated.js';
 import { LOUDNESS, PEAK, SAMPLE_RATE, midi, render } from '../packages/mac/src/lib/sounds/synth.js';
 import { encodeWav } from '../packages/mac/src/lib/sounds/wav.js';
@@ -170,5 +170,19 @@ describe('the sound catalog', () => {
   it('tunes notes to concert pitch', () => {
     expect(midi(69)).toBe(440);
     expect(midi(81)).toBeCloseTo(880, 6);
+  });
+});
+
+describe('off the Mac', () => {
+  it('plays Beluga’s chime for a Mac sound (the default is one), and leaves the rest as picked', () => {
+    expect(playableHere({ kind: 'mac', id: 'Glass' }, false)).toEqual({ kind: 'chip', id: 'chime' });
+    expect(playableHere({ kind: 'mac', id: 'Glass' }, true)).toEqual({ kind: 'mac', id: 'Glass' });
+    expect(playableHere({ kind: 'chip', id: 'coin' }, false)).toEqual({ kind: 'chip', id: 'coin' });
+    expect(playableHere({ kind: 'none' }, false)).toEqual({ kind: 'none' });
+  });
+
+  it('offers the Mac’s own sounds only on a Mac', () => {
+    expect(familiesHere(true)).toContain('mac');
+    expect(familiesHere(false)).not.toContain('mac');
   });
 });

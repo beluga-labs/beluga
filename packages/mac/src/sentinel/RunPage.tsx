@@ -22,6 +22,7 @@ import s from './sentinel.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { chordLabel, primaryKey } from '../lib/shortcuts-model.js';
 import { ASSISTANT_TITLE } from '@beluga/shared/assistant.js';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * One run: its headline, who started it and how long it took, each step with how it went (its
@@ -78,7 +79,7 @@ function Run({ detail, summary }: { detail: RunDetail; summary: RunSummary | und
     ...(chat && chatPlaceOf(chat) ? [{ label: 'Open Chat', icon: 'chat' as const, keys: chordLabel('Cmd+Enter'), onSelect: () => a.openChannel(chat) }] : []),
     ...(sentinel ? [{ label: `Open ${sentinel.name}`, icon: 'sentinel' as const, onSelect: () => a.open(sentinel.id) }] : []),
     // Its folder: trigger.json, each step's output, report.md, its documents (BLG-578).
-    { label: 'Show in Finder', icon: 'folder' as const, separate: true, onSelect: () => void a.act(() => a.api.dataReveal(run.sentinelId, run.id)) },
+    { label: revealLabel(), icon: 'folder' as const, separate: true, onSelect: () => void a.act(() => a.api.dataReveal(run.sentinelId, run.id)) },
     // What it left, deleted as you ask (BLG-577); a run still going is stopped first.
     ...(ended && ownChat ? [{ label: 'Delete Chat…', icon: 'trash' as const, danger: true, separate: true, onSelect: () => a.deleteRun(run, 'chat') }] : []),
     ...(ended ? [{ label: 'Delete Run…', icon: 'trash' as const, danger: true, ...(ownChat ? {} : { separate: true }), onSelect: () => a.deleteRun(run, 'run', back) }] : []),

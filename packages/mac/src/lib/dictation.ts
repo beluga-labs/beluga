@@ -8,6 +8,7 @@ import { getPrefs, usePrefs, type UiPrefs } from './prefs.js';
 import { joinPhrases, PhraseCutter, PHRASE_RATE, promptFrom, Resampler } from '@beluga/shared/voice-phrases.js';
 import { cleanWords, DICTATION_MAX_SECONDS, HOLD_MS, matchesAccel, parseAccel, spoken, wavFromFloats } from './dictation-model.js';
 import { isRecording } from './shortcuts.js';
+import { microphoneSettings } from './os-words.js';
 
 /**
  * Speak instead of typing (BLG-145): the microphone beside Send, and the talk shortcut (Settings ›
@@ -250,7 +251,7 @@ export async function startDictation(prefer?: HTMLTextAreaElement | null): Promi
   } catch (e) {
     stopRecording();
     const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-    set({ kind: 'off', error: denied ? 'Beluga can’t use the microphone: allow it in System Settings › Privacy & Security › Microphone' : `Couldn’t start listening: ${errorText(e)}` });
+    set({ kind: 'off', error: denied ? `Beluga can’t use the microphone: allow it in ${microphoneSettings()}` : `Couldn’t start listening: ${errorText(e)}` });
   }
 }
 

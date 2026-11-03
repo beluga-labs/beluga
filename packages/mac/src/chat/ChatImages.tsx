@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Icon } from '../components/Icon.js';
 import { Button, Kbd, Tip, cx } from '../components/ui.js';
 import { toast, useApi, useBeluga } from '../lib/beluga.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { pinchStep } from '../components/pinch-model.js';
 import { useDecoded } from '../components/use-decoded.js';
 import { type Size, type ZoomView, clampView, doubleClickScale, fitScale, fitView, isZoomed, panBy, transformOf, zoomAt } from '../components/zoom-model.js';
@@ -296,7 +296,7 @@ export function Lightbox() {
                 </Tip>
               </>
             ) : null}
-            <Tip label="Copy the image" keys={`${mod()}C`}>
+            <Tip label="Copy the image" keys={chordLabel('Cmd+C')}>
               <Button size="small" variant="quiet" icon="copy" onClick={() => void copy()}>
                 Copy
               </Button>
@@ -312,7 +312,7 @@ export function Lightbox() {
           </div>
           <Full image={image} />
           <div className={s.hint}>
-            <Kbd>esc</Kbd> close · <Kbd>{mod()}C</Kbd> copy{many ? ' · ← → more' : ''}
+            <Kbd>esc</Kbd> close · <Kbd>{chordLabel('Cmd+C')}</Kbd> copy{many ? ' · ← → more' : ''}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

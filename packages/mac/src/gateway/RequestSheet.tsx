@@ -1,3 +1,4 @@
+import { dirName } from '@beluga/shared/os-path.js';
 import { useState } from 'react';
 import { CAP_INFO, EXPIRY_INFO, type Expiry, type RequestFacts, capFor, ruleFor, ruleKindOf, ruleLabel, scopeChoices } from '@beluga/core/gateway/access.js';
 import { type TaskView, isFinal, oneLine, stateLabel, stateTone } from '@beluga/core/gateway/model.js';
@@ -28,7 +29,7 @@ export function factsOf(task: TaskView): RequestFacts {
     needs: task.needs,
     ...(task.project ? { project: task.project } : {}),
     ...(task.command ? { command: task.command } : {}),
-    ...(task.folder ? { folder: task.folder } : task.kind === 'file' && task.path ? { folder: task.path.replace(/\/[^/]*$/, '') || '/' } : task.cwd ? { folder: task.cwd } : {}),
+    ...(task.folder ? { folder: task.folder } : task.kind === 'file' && task.path ? { folder: dirName(task.path) || '/' } : task.cwd ? { folder: task.cwd } : {}),
   };
 }
 

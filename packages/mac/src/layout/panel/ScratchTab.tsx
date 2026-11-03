@@ -3,6 +3,7 @@ import type { Location } from '@beluga/core/store.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { SHOWN_SCRATCH_DIRS } from '@beluga/shared/scratch-dir.js';
 import { formatBytes } from '@beluga/shared/format.js';
+import { joinPath } from '@beluga/shared/os-path.js';
 import { Icon, type IconName } from '../../components/Icon.js';
 import { Empty, IconButton, cx } from '../../components/ui.js';
 import { ActionsDropdown } from '../../components/SpecMenu.js';
@@ -11,7 +12,7 @@ import { openWithDefaultApp, revealInFinder } from '../../lib/files.js';
 import { openFocus } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
 import { setPrefs, usePrefs } from '../../lib/prefs.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { ChangedFileView } from '../../views/ChangedFile.js';
 import { signalOf } from '../attention-model.js';
 import { ResizeHandle } from './ResizeHandle.js';
@@ -20,6 +21,7 @@ import { type ScratchEntry, type ScratchKind, type ScratchSort, atEnd, fileKind,
 import s from './panel.module.css';
 import k from './scratch.module.css';
 import { everyWhileShown } from '../../lib/window-active.js';
+import { revealLabel } from '../../lib/os-words.js';
 
 /**
  * The right panel's Scratch: what Claude saves to the workspace's `.beluga/scratch/` (or `.context/`,
@@ -168,7 +170,7 @@ function Preview({ wsId, owner, file, root, onClose }: { wsId: string; owner?: s
   const now = useNow();
   const at: Location = { owner: owner ?? selfId, share: shareNameOf(wsId), path: file.path };
   const name = file.path.split('/').pop() ?? file.path;
-  const local = `${root}/${file.path}`;
+  const local = joinPath(root, file.path);
   const body = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const { follow, onScroll, followEnd } = useFollowEnd(body, content, file.path);
@@ -183,8 +185,8 @@ function Preview({ wsId, owner, file, root, onClose }: { wsId: string; owner?: s
         <span className={s.flex} />
         {isViewable(file.path) ? null : <IconButton icon="toEnd" label="Follow the End" active={follow} onClick={followEnd} />}
         {owner ? null : <IconButton icon="external" label="Open With Its App" onClick={() => void openWithDefaultApp(client, local)} />}
-        {owner ? null : <IconButton icon="folder" label="Show in Finder" onClick={() => void revealInFinder(client, local)} />}
-        <IconButton icon="expand" label="Open in full" keys={`${mod()}↩`} onClick={() => void api.files.open(at).then(() => openFocus('file', wsId))} />
+        {owner ? null : <IconButton icon="folder" label={revealLabel()} onClick={() => void revealInFinder(client, local)} />}
+        <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => void api.files.open(at).then(() => openFocus('file', wsId))} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={onClose} />
       </div>
       <div ref={body} className={cx(s.previewBody, s.previewFile, 'selectable')} tabIndex={0} onScroll={onScroll}>
@@ -268,7 +270,7 @@ export function ScratchTab({ wsId, owner }: { wsId: string; owner?: string }) {
             >
               <IconButton icon={sort === 'viewable' ? 'eye' : 'clock'} label={sort === 'viewable' ? 'Sorted: viewable first' : 'Sorted: newest first'} />
             </ActionsDropdown>
-            {owner ? null : <IconButton icon="folder" label="Show Folder in Finder" onClick={() => void revealInFinder(client, list.dir)} />}
+            {owner ? null : <IconButton icon="folder" label={revealLabel('Folder')} onClick={() => void revealInFinder(client, list.dir)} />}
           </div>
         </div>
         {working ? <NextFileRow /> : null}

@@ -10,6 +10,8 @@ import { Group, Row, Select } from './settings-controls.js';
 import f from './fire-settings.module.css';
 import m from './menubar-settings.module.css';
 import { powerSaving } from '../lib/power.js';
+import { trayName } from '../lib/os-words.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 /** The sliders' track: the water's soft blues. */
 const WATER = ['#bfdcf7', '#7fb6ea'] as const;
@@ -80,7 +82,7 @@ export function MenuBarSettings() {
         {look.count !== 'none' && !live ? ' Nothing right now, so it’s hidden; the preview shows 3.' : ''}
       </p>
       <Group title="Start from">
-        <div className={f.presets} role="radiogroup" aria-label="Menu bar presets">
+        <div className={f.presets} role="radiogroup" aria-label={`${trayName()} presets`}>
           {MENU_BAR_PRESETS.map((p) => (
             <button key={p.id} type="button" role="radio" aria-checked={look.preset === p.id} className={cx(f.preset, look.preset === p.id && f.on)} onClick={() => set(p.look)}>
               <span className={f.presetName}>{p.name}</span>
@@ -132,7 +134,7 @@ export function MenuBarSettings() {
           <>
             <Dial label="Splash" low="A small puff" high="A big splash" value={look.splash} colors={WATER} onChange={(splash) => set({ splash })} />
             <Dial label="Speed" low="Slow" high="Quick" value={look.speed} colors={WATER} onChange={(speed) => set({ speed })} />
-            <Row label="Try it" detail="The whale up in your menu bar spouts once.">
+            <Row label="Try it" detail={`The whale ${keyPlatform() === 'mac' ? 'up in your menu bar' : `in your ${trayName().toLowerCase()}`} spouts once.`}>
               <Button
                 size="small"
                 disabled={prefs.reduceMotion}

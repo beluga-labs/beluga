@@ -10,6 +10,7 @@ import { shortcutKeys } from '../lib/shortcuts.js';
 import { mergeTargetOf } from '../lib/merge-review.js';
 import type { PlanAction } from '../lib/plan-task.js';
 import { asksBeforeWork } from '../lib/work-confirm.js';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * A workspace's toolbar, the Mac way: one prominent button for what this workspace needs next
@@ -110,7 +111,7 @@ function labelOf(b: WorkspaceButton, pr: boolean): string {
     case 'compact':
       return 'Compact…';
     case 'finder':
-      return 'Show in Finder';
+      return revealLabel();
     case 'fork':
       return 'Fork…';
     case 'archive':

@@ -30,7 +30,12 @@ export const assistantTitleFor = (kind: ComputerKind): string => (kind === 'wind
 export const ASSISTANT_TITLE = assistantTitleFor(COMPUTER);
 
 /** The computer in a sentence: "this Mac", "this PC", "this computer". */
-export const THIS_COMPUTER = COMPUTER === 'windows' ? 'this PC' : COMPUTER === 'linux' ? 'this computer' : 'this Mac';
+export const thisComputerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'this PC' : kind === 'linux' ? 'this computer' : 'this Mac');
+export const THIS_COMPUTER = thisComputerFor(COMPUTER);
+
+/** Where your files are shown (BLG-629): Finder on a Mac, File Explorer on Windows, Files on Linux. */
+export const fileManagerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'File Explorer' : kind === 'linux' ? 'Files' : 'Finder');
+export const FILE_MANAGER = fileManagerFor(COMPUTER);
 
 /** The first chat: the one conversation there was before BLG-102, keeping its channel `mac:assistant`. */
 export const FIRST_CHAT = 'main';

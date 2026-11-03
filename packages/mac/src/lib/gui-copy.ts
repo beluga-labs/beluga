@@ -1,3 +1,5 @@
+import { chordLabel, keyPlatform, primaryLabel } from './shortcuts-model.js';
+
 /**
  * The shared menus were written for a terminal: intros wrapped to fit ~100 columns, hints
  * like "Enter to change" or "type a name", /commands. Shown in this window, they read as a GUI.
@@ -34,8 +36,9 @@ export function paragraphs(lines: readonly string[]): Block[] {
 const TERMINAL_ONLY = /^(enter\b|esc$|type\b|then enter|↑↓)/i;
 const WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/add it back with \/project add/i, 'add it back any time with Add Project'],
-  [/Option\+↑ \(Alt\+↑\) anywhere/, '⌘+'],
-  [/Option\+↓ \(Alt\+↓\) anywhere/, '⌘−'],
+  // Bigger and Smaller Text as this keyboard shows them (⌘+ ⌘− on a Mac, Ctrl++ Ctrl+- elsewhere).
+  [/Option\+↑ \(Alt\+↑\) anywhere/, keyPlatform() === 'mac' ? '⌘+' : `${primaryLabel()}++`],
+  [/Option\+↓ \(Alt\+↓\) anywhere/, chordLabel('Cmd+-')],
   [/\(Settings → Workspaces\)/, '(Settings › Workspaces)'],
 ];
 

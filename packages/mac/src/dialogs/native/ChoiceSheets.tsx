@@ -9,6 +9,7 @@ import { useMyAgentName } from '../../lib/agent-words.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import type { NativeMenuProps } from './index.js';
 import { usePick } from './pick.js';
+import { revealLabel } from '../../lib/os-words.js';
 
 /**
  * The model for one conversation (or for new ones): the models of the agent it runs on, the
@@ -129,7 +130,7 @@ export function ArchivedSheet({ menu, close }: NativeMenuProps<'archived'>) {
             Read Conversation
           </button>
           <button type="button" className={f.linkButton} onClick={() => pick('a-finder')}>
-            Show Project in Finder
+            {revealLabel('Project')}
           </button>
           <button type="button" className={f.linkDanger} onClick={() => pick('a-delete')}>
             Delete…

@@ -19,6 +19,7 @@ import { useMyAgent } from '../lib/agent-words.js';
 import type { AgentRef } from '@beluga/protocol.js';
 import { WaitingLine } from './WaitingLine.js';
 import p from './plans.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /** The details pane shows what the plan did when this is picked. */
 export const FEED = 'feed';
@@ -307,7 +308,7 @@ function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
                   </Button>
                 ) : null}
                 <Button size="small" icon="folder" onClick={() => void act(() => api.showConflict(plan.id))}>
-                  Show in Finder
+                  {revealLabel()}
                 </Button>
               </div>
             </>

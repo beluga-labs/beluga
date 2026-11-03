@@ -12,6 +12,8 @@ import { ACCENTS, type Accent, type UiPrefs, getPrefs, setPrefs, usePrefs } from
 import { EASE_OUT, Rise, SPRING, Words } from './fx.js';
 import { Glass } from './Glass.js';
 import s from './onboarding.module.css';
+import { cmdReturn, notificationSettings, returnName, systemSettingsName } from '../lib/os-words.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 type Appearance = UiPrefs['appearance'];
 
@@ -197,6 +199,8 @@ export function Popups() {
   // What macOS says (checked again as you come back from System Settings).
   const { access, recheck } = useNotificationAccess();
   const state = access?.state;
+  // Where they wait once shown: Notification Center on a Mac and Windows; Linux desktops differ.
+  const kept = keyPlatform() === 'linux' ? '' : ', and stay in Notification Center';
   const ask = (): void => {
     setAsked('asking');
     void askNotificationPermission()
@@ -228,12 +232,12 @@ export function Popups() {
           label="Notifications too"
           detail={
             state === 'allowed'
-              ? 'Allowed. They reach you when popups are off, and stay in Notification Center.'
+              ? `Allowed. They reach you when popups are off${kept}.`
               : state === 'off'
-                ? 'Turned off for Beluga in System Settings › Notifications.'
+                ? `Turned off for Beluga in ${notificationSettings()}.`
                 : asked === 'done'
-                  ? 'Asked. You can change it in System Settings › Notifications.'
-                  : 'Optional. macOS asks once. They reach you when popups are off, and stay in Notification Center.'
+                  ? `Asked. You can change it in ${notificationSettings()}.`
+                  : `Optional.${keyPlatform() === 'mac' ? ' macOS asks once.' : ''} They reach you when popups are off${kept}.`
           }
         >
           {state === 'allowed' ? (
@@ -242,7 +246,7 @@ export function Popups() {
             </span>
           ) : state === 'off' ? (
             <button type="button" className={cx(s.input, s.rowButton)} onClick={() => void openNotificationSettings()}>
-              Open System Settings
+              Open {systemSettingsName()}
             </button>
           ) : (
             <button type="button" className={cx(s.input, s.rowButton)} disabled={asked !== 'no'} onClick={ask}>
@@ -311,8 +315,8 @@ export function Setup() {
             value={prefs.sendWith}
             onChange={(v) => setPrefs({ sendWith: v })}
             options={[
-              { value: 'enter', label: 'Return' },
-              { value: 'cmd-enter', label: '⌘ Return' },
+              { value: 'enter', label: returnName() },
+              { value: 'cmd-enter', label: cmdReturn(' ') },
             ]}
           />
         </SetupRow>

@@ -12,6 +12,7 @@ import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { openRequest } from './request-native.js';
 import a from './access.module.css';
 import s from './gateway.module.css';
+import { fileManager, revealLabel } from '../lib/os-words.js';
 
 /**
  * One task between Claudes, as a card: in the conversation your Claude asked from (sent →
@@ -91,7 +92,7 @@ function Shot({ task, name, path }: { task: TaskView; name: string; path: string
     };
   }, [task.id, name]);
   return (
-    <button type="button" className={a.shot} aria-label={`Screenshot ${name}: show in Finder`} title={name} onClick={() => void revealInFinder(client, path)}>
+    <button type="button" className={a.shot} aria-label={`Screenshot ${name}: show in ${fileManager()}`} title={name} onClick={() => void revealInFinder(client, path)}>
       {url ? <img src={url} alt={name} draggable={false} /> : null}
     </button>
   );
@@ -145,7 +146,7 @@ function Result({ task }: { task: TaskView }) {
               <div key={f.name} className={s.file}>
                 <Icon name="file" size={13} />
                 {f.path ? (
-                  <button type="button" onClick={() => void revealInFinder(client, f.path!)} title="Show in Finder">
+                  <button type="button" onClick={() => void revealInFinder(client, f.path!)} title={revealLabel()}>
                     {f.name}
                   </button>
                 ) : (

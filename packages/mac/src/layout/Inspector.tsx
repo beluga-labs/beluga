@@ -23,6 +23,7 @@ import { shownState } from '../network/net-model.js';
 import { openDm } from '../network/use-net.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import s from './Inspector.module.css';
+import { fileManager } from '../lib/os-words.js';
 
 function Panel({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -216,7 +217,7 @@ function WorkspaceDetails({ id }: { id: string }) {
         {ws.handedFrom ? <Field label="From">{ws.handedFrom}</Field> : null}
         <div className={s.buttons}>
           <Button size="small" icon="folder" onClick={() => void api.workspaces.openInFinder(ws.id)}>
-            Finder
+            {fileManager()}
           </Button>
           {project?.root ? (
             <Button size="small" icon="terminal" onClick={() => ui.openMenu({ kind: 'scripts', projectId: ws.projectId })}>

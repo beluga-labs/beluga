@@ -10,6 +10,7 @@ import { ago } from '../tasks/tasks-model.js';
 import { jsonFence } from './numbers-model.js';
 import { useSentinelActions } from './use-sentinel.js';
 import n from './numbers.module.css';
+import { fileManager, revealLabel } from '../lib/os-words.js';
 
 type Read = DocumentRead & { readonly bucket?: string; readonly path?: string };
 
@@ -56,7 +57,7 @@ export function DocumentSheet({ source, sentinelId, metric, column, name, close 
         Open in Default App
       </Button>
       <Button size="small" icon="folder" onClick={() => open('reveal')}>
-        Show in Finder
+        {revealLabel()}
       </Button>
     </>
   );
@@ -102,7 +103,7 @@ export function DocumentSheet({ source, sentinelId, metric, column, name, close 
                   </>
                 ) : null}
               </dl>
-              <p className={n.docNote}>{doc.tooBig ? `It’s too big to show here: open it in its app, or find it in Finder.` : `Beluga can’t show a ${kindWords(doc.name, doc.mime).replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())} here: open it in its app, or find it in Finder.`}</p>
+              <p className={n.docNote}>{doc.tooBig ? `It’s too big to show here: open it in its app, or find it in ${fileManager()}.` : `Beluga can’t show a ${kindWords(doc.name, doc.mime).replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())} here: open it in its app, or find it in ${fileManager()}.`}</p>
               <span className={n.docButtons}>{buttons}</span>
             </div>
           ))

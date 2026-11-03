@@ -1,3 +1,4 @@
+import { baseName as lastPart, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { useState } from 'react';
 import type { MyShare } from '@beluga/core/store.js';
 import { Icon } from '../../components/Icon.js';
@@ -20,8 +21,8 @@ export function presetShareWith(...peerIds: string[]): void {
   preset = peerIds;
 }
 
-const norm = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') : p);
-const baseName = (p: string): string => norm(p).split('/').pop() || p;
+const norm = (p: string): string => (p.length > 1 && !/^[A-Za-z]:[\\/]$/.test(p) ? p.replace(/[\\/]+$/, '') : p);
+const baseName = (p: string): string => lastPart(p) || p;
 /** A long path with its middle left out: "/private/var/…/beluga-demo-4y/landing". */
 const shortPath = (p: string): string => (p.length > 56 ? `${p.slice(0, 18)}…${p.slice(-36)}` : p);
 
@@ -55,9 +56,9 @@ export function ShareFolderSheet({ menu, close }: { readonly menu: Extract<MenuK
     setPath(tilde(home, p));
     setTyping(false);
   };
-  const dir = path.trim() === '~' ? home : path.trim().startsWith('~/') ? `${home}${path.trim().slice(1)}` : path.trim();
+  const dir = path.trim() === '~' ? home : /^~[\\/]/.test(path.trim()) ? `${home}${path.trim().slice(1)}` : path.trim();
   const existing = mine.find((x) => norm(x.root) === norm(dir));
-  const ready = dir.startsWith('/') && (who === 'all' || only.size > 0);
+  const ready = isAbsolutePath(dir) && (who === 'all' || only.size > 0);
   const suggestions = projects.filter((p) => p.root && !mine.some((x) => norm(x.root) === norm(p.root))).slice(0, 8);
   const nameOf = (id: string): string => people.find((p) => p.peerId === id)?.name ?? 'someone who left';
 

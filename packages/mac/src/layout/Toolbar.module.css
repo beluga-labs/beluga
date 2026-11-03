@@ -11,6 +11,10 @@
 .noSidebar {
   padding-left: 82px;
 }
+/* Linux and Windows draw their own title bar: no traffic lights to make room for. */
+:global(html:not([data-os='mac'])) .noSidebar {
+  padding-left: 18px;
+}
 .lead {
   margin-left: -6px;
 }

@@ -5,8 +5,8 @@
  */
 
 :root {
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, 'Segoe UI Variable Text', 'Segoe UI', Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', monospace;
   --text-size: 13px;
   --accent: AccentColor;
   --sidebar-w: 248px;

@@ -20,7 +20,8 @@ import { agentName, useAgentNameIn, useMyAgentName } from '../lib/agent-words.js
 import { sameDeep, sameFields } from '../lib/stable.js';
 import { getPrefs, usePrefs } from '../lib/prefs.js';
 import { sendsToTerminal } from '../lib/convo-mode.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
+import { cmdReturn, returnName } from '../lib/os-words.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
@@ -439,7 +440,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     set(current ? `${toClaude}\n${current}` : toClaude);
     ref.current?.focus();
   };
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   function accept(picked: Suggestion): void {
     if (picked.enter === 'submit') {
       ui.patch({ buffer: '', cursor: 0 });
@@ -680,7 +681,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
               </Tip>
             </div>
           ) : (
-            <Tip label={prefs.sendWith === 'enter' ? 'Send · Shift+Return for a new line' : `Send · ${mod()}Return`} keys={prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`}>
+            <Tip label={prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`} keys={prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter')}>
               <button type="button" className={cx(s.send, buffer.trim() && s.sendReady)} onClick={() => send(false)} aria-label="Send" disabled={!buffer.trim()}>
                 <Icon name="send" size={14} />
               </button>

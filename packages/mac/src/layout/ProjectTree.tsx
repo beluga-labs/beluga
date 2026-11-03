@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import { Fragment, memo, useEffect, useMemo, useRef } from 'react';
 import type { Project } from '@beluga/workspaces/types.js';
 import { worktreeOrigin } from '@beluga/workspaces/origin.js';
@@ -323,7 +324,7 @@ function HiddenProjects() {
       />
       {open
         ? hidden.map((root) => {
-            const name = root.split('/').filter(Boolean).pop() ?? root;
+            const name = baseName(root) || root;
             return (
               <Row
                 key={root}
