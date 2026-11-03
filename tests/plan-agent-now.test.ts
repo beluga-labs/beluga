@@ -26,7 +26,7 @@ const body = normalizeBody({
 const withIssues = (b: typeof body): typeof body => ({ ...b, milestones: b.milestones.map((m) => ({ ...m, tasks: m.tasks.map((t) => ({ ...t, issueId: `i-${t.id}` })) })) });
 const issue = (id: string, key: string, status: Issue['status'], worktrees: string[] = []): Issue => ({ id: `i-${id}`, key, title: id, status, worktrees, blockedBy: [], brief: {} }) as unknown as Issue;
 const board = (issues: Issue[]): BoardState => ({ enabled: true, issues, projects: {}, autoTasks: false });
-const plan = (): Plan => ({ id: 'p', projectId: 'x', home: 'ws:h', status: 'active', body: withIssues(body), autonomy: 'gated', maxParallel: 3, testsAt: 'milestone', paused: false, runs: { docs: { agent: { worktree: 'w1', at: 100, tasks: ['readme', 'guide', 'vm'] } } }, activity: [], createdAt: 0, updatedAt: 0 }) as Plan;
+const plan = (): Plan => ({ id: 'p', projectId: 'x', home: 'ws:h', status: 'active', body: withIssues(body), draftRev: 1, autonomy: 'gated', maxParallel: 3, testsAt: 'milestone', paused: false, runs: { docs: { agent: { worktree: 'w1', at: 100, tasks: ['readme', 'guide', 'vm'] } } }, activity: [], createdAt: 0, updatedAt: 0 });
 const busyIn = (channel: string, step?: string): Live => ({
   busy: (c) => c === channel,
   asking: () => false,
