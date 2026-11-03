@@ -25,6 +25,13 @@ and what the app's native bits become in a browser.
   rebinding of 127.0.0.1); `/ws`, `/join`'s POST and `/upload` need the page's own Origin; every
   answer says `nosniff`, `no-referrer` and may not be framed.
 
+## Installing it
+
+The page is an installable web app (Add to Home Screen on a phone, Install or Add to Dock on a
+computer): `packages/mac/public/manifest.webmanifest` opens it standalone with Beluga's icon
+(`public/icons/`, made from the app's own). Only the manifest and the icons are served without a
+session. There is no service worker: nothing of yours is kept offline.
+
 ## Browser sessions
 
 Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `web-join.ts`):

@@ -43,6 +43,8 @@ export interface WebServerOptions {
   readonly authorize: (req: IncomingMessage) => string | undefined;
   /** Answered first, for anyone (the join page). */
   readonly routes?: readonly WebRoute[];
+  /** Static files anyone may fetch, let in or not (what installing the page needs: its manifest and icons). */
+  readonly publicFiles?: (pathname: string) => boolean;
   /** Answered for a browser that's let in, before the static files (uploads, downloads). */
   readonly authedRoutes?: readonly WebRoute[];
   /** What a request that isn't let in gets (default: a plain 401). */
@@ -151,7 +153,8 @@ export class WebServer {
       const url = new URL(req.url ?? '/', 'http://web.invalid');
       for (const route of this.opts.routes ?? []) if (await route(req, res, url)) return;
       // Nothing of Beluga's, not even the UI's files, before a browser is let in.
-      if (!this.opts.authorize(req)) return this.opts.locked ? this.opts.locked(req, res, url) : end(res, 401, 'Not signed in');
+      const open = (req.method === 'GET' || req.method === 'HEAD') && (this.opts.publicFiles?.(url.pathname) ?? false);
+      if (!open && !this.opts.authorize(req)) return this.opts.locked ? this.opts.locked(req, res, url) : end(res, 401, 'Not signed in');
       for (const route of this.opts.authedRoutes ?? []) if (await route(req, res, url)) return;
       if (url.pathname === '/__beluga/endpoint') return json(res, 200, { web: true });
       if (req.method !== 'GET' && req.method !== 'HEAD') return end(res, 405, 'Method not allowed');

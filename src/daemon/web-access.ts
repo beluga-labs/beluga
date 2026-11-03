@@ -87,6 +87,7 @@ export class WebAccess {
       authorize: (req) => this.sessions.check(sessionCookie(req)),
       routes: [joinRoute(this.sessions, this.limiter, this.opts.log)],
       authedRoutes: this.files.routes(this.opts.log),
+      publicFiles: isPublicFile,
       locked,
       ...(this.opts.log ? { log: this.opts.log } : {}),
     });
@@ -129,6 +130,9 @@ export class WebAccess {
     this.server = undefined;
   }
 }
+
+/** What Add to Home Screen / Dock fetches without a session: the manifest and the icons, nothing else. */
+export const isPublicFile = (pathname: string): boolean => pathname === '/manifest.webmanifest' || pathname === '/favicon.ico' || /^\/icons\/[a-z0-9-]+\.png$/.test(pathname);
 
 const sameArgs = (a: WebArgs, b: WebArgs): boolean => a.host === b.host && (a.port === b.port || b.port === 0) && a.allowedHosts.join() === b.allowedHosts.join();
 
