@@ -53,9 +53,48 @@ Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `
 - **Revoking** one (`beluga web revoke <id or name>`, or Revoke in Settings › Advanced › Web
   access) forgets it and closes its sockets at once (code 4401); its page reloads into the Ask page.
 - The `web.*` API (`src/ipc/web-api.ts`): `web.link`, `web.sessions.list`, `web.sessions.revoke`,
-  `web.stop`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
+  `web.stop`, `web.public`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
   links, revokes and closing the port are the Mac app's and the command line's. The CLI is
   `src/web-cli.ts`.
+
+## Reaching it from elsewhere
+
+- **Through SSH** (`beluga connect user@host`, `src/cli/connect.ts`): run on the laptop. It asks
+  the server for a join link over ssh (`beluga web link`, starting Beluga there first when it isn't
+  running), opens `ssh -N -L 127.0.0.1:<free port>:127.0.0.1:7777 host`, and opens the browser at
+  its near end. The tunnel comes back when it drops; Ctrl+C closes it. The host goes to ssh as
+  typed, so aliases, users, ports and keys from the ssh config apply. Nothing is opened on the
+  server. Without Beluga on the laptop, `beluga web` on the server prints the plain `ssh -N -L`
+  line to paste.
+- **A public link** (`beluga web --public`, `src/daemon/reach/public.ts`): a Cloudflare quick
+  tunnel (the cloudflared the rooms and the phone relay use) to the web port. It prints the
+  `https://<name>.trycloudflare.com` address and a join link under it, and says plainly what that
+  exposes: **anyone with a join link gets in**. The address alone shows only the Ask for a link
+  page. The web port answers to that name only while the tunnel is up. Wrong join links through it
+  are limited harder (5 per visitor, by Cloudflare's `CF-Connecting-IP`, and 20 in all per 10
+  minutes; a good link always works). When cloudflared stops or its name stops answering, a new
+  tunnel opens (more slowly each time it fails) and its new address shows in `beluga status`
+  and `web.sessions.list`. It is reopened at every start until `beluga web --off`.
+- **Off**: `beluga web --off` closes the web port and the public link (`web.stop`), and they stay
+  closed across restarts.
+
+### Your own domain
+
+A quick tunnel's name changes each time. With a Cloudflare account, a named tunnel keeps one
+(`cloudflared tunnel create beluga`, then `cloudflared tunnel route dns beluga beluga.example.com`
+and `cloudflared tunnel run --url http://127.0.0.1:7777 beluga`); with a server that has a public
+address and a domain, Caddy gets the certificate itself:
+
+```caddyfile
+beluga.example.com {
+	reverse_proxy 127.0.0.1:7777
+}
+```
+
+Either way, let the web port answer to that name and take a link under it:
+`beluga web --allow-host beluga.example.com`, then open the link with `127.0.0.1:7777` replaced by
+`beluga.example.com`. The join limits there are the local port's (Caddy's requests all come from
+loopback, so they share one count): keep the proxy for yourself.
 
 ## The app's native bits in a browser
 

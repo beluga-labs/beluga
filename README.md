@@ -68,6 +68,8 @@ beluga connect you@your-server
 
 Without Beluga on the laptop, `beluga web` on the server prints the `ssh -N -L …` line to paste instead.
 
+With neither SSH nor Tailscale, `beluga web --public` on the server gives a https link that works anywhere, through a Cloudflare tunnel: anyone with a join link gets in, the address alone shows only a page that asks for one. `beluga web --off` closes it.
+
 ---
 
 ## Work on everything at once

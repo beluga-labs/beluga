@@ -14,6 +14,11 @@ export const WEB_HANDLERS = {
   'web.sessions.list': (s) => webAccessOf(s).status(),
   'web.sessions.revoke': (s, idOrName) => webAccessOf(s).revoke(idOrName),
   'web.stop': (s) => webAccessOf(s).stop(),
+  'web.public': async (s, on) => {
+    if (on) return webAccessOf(s).goPublic();
+    webAccessOf(s).stopPublic();
+    return null;
+  },
   'web.download': async (s, target) => {
     const { files } = webAccessOf(s);
     if ('path' in target) return files.offer(path.resolve(target.path.replace(/^~(?=$|[\\/])/, os.homedir())));

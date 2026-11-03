@@ -5,6 +5,7 @@ import { belugaHome } from '../core/home.js';
 import { joinRoute, locked, sessionCookie, viaHttps } from './web-join.js';
 import { type JoinLink, JoinLimiter, type WebSessionInfo, WebSessions } from './web-sessions.js';
 import { WebFiles, sweepUploads } from './web-files.js';
+import { PublicReach, type PublicReachOptions, type PublicState } from './reach/public.js';
 import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, checkBind, parseListen, webUrl } from './web.js';
 
 /**
@@ -14,7 +15,7 @@ import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, checkB
  */
 
 export const webConfigPath = (): string => path.join(belugaHome(), 'web.json');
-const WebConfig = z.object({ host: z.string().max(100), port: z.number().int().min(0).max(65535), allowedHosts: z.array(z.string().max(253)).max(20) });
+const WebConfig = z.object({ host: z.string().max(100), port: z.number().int().min(0).max(65535), allowedHosts: z.array(z.string().max(253)).max(20), public: z.boolean().optional() });
 
 export function readWebConfig(file = webConfigPath()): WebArgs | undefined {
   try {
@@ -33,10 +34,21 @@ function writeWebConfig(config: WebArgs | undefined, file = webConfigPath()): vo
   renameSync(tmp, file);
 }
 
+/** Don't open the web port (or its public link) at the next start: `beluga web --off` with no Beluga running. */
+export const forgetWebConfig = (): void => writeWebConfig(undefined);
+
 export interface WebStatus {
   readonly on: boolean;
   readonly url?: string;
   readonly sessions: readonly WebSessionInfo[];
+  /** The public link (`beluga web --public`), while it's on. */
+  readonly public?: PublicState;
+}
+
+/** A public link and a join link under it. */
+export interface PublicLink {
+  readonly url: string;
+  readonly link: JoinLink;
 }
 
 export interface WebAccessOptions {
@@ -46,6 +58,8 @@ export interface WebAccessOptions {
   readonly sessions?: WebSessions;
   /** Remember the port across restarts (off in tests). Default true. */
   readonly remember?: boolean;
+  /** How the public link opens its tunnel (tests use a fake). */
+  readonly publicReach?: PublicReachOptions;
 }
 
 export class WebAccess {
@@ -57,9 +71,13 @@ export class WebAccess {
   private args?: WebArgs;
   private url?: string;
   private opening?: Promise<string>;
+  /** The public link: a Cloudflare tunnel to the web port, while asked for. */
+  readonly public: PublicReach;
+  private publicWanted = false;
 
   constructor(private readonly opts: WebAccessOptions) {
     this.sessions = opts.sessions ?? new WebSessions({ onRevoke: (id) => this.server?.drop(id) });
+    this.public = new PublicReach({ ...(opts.log ? { log: opts.log } : {}), ...opts.publicReach });
     if (opts.remember !== false) sweepUploads();
   }
 
@@ -85,9 +103,10 @@ export class WebAccess {
       host: args.host,
       port: args.port,
       allowedHosts: args.allowedHosts,
+      extraHosts: () => (this.public.host ? [this.public.host] : []),
       ...(this.opts.root ? { root: this.opts.root } : {}),
       authorize: (req) => this.sessions.check(sessionCookie(req, viaHttps(req))),
-      routes: [joinRoute(this.sessions, this.limiter, this.opts.log)],
+      routes: [joinRoute(this.sessions, (req) => (this.public.carries(req) ? { limiter: this.public.limiter, who: PublicReach.visitor(req) } : { limiter: this.limiter, who: req.socket.remoteAddress ?? '?' }), this.opts.log)],
       authedRoutes: this.files.routes(this.opts.log),
       publicFiles: isPublicFile,
       locked,
@@ -98,9 +117,43 @@ export class WebAccess {
     this.args = { ...args, port: args.port === 0 ? at.port : args.port };
     this.url = webUrl(at.host, at.port);
     // An address that sends the session in the clear isn't opened again by itself at the next start.
-    if (this.opts.remember !== false && !args.insecureHttp) writeWebConfig({ host: this.args.host, port: this.args.port, allowedHosts: this.args.allowedHosts });
+    if (!args.insecureHttp) this.remember();
     this.opts.log?.(`web UI on ${this.url}${server.root ? '' : ' (not built)'}`);
+    // A public link follows the port it points at.
+    if (this.publicWanted) void this.public.start(this.args.port).catch((err: unknown) => this.opts.log?.(`web: public link: ${err instanceof Error ? err.message : String(err)}`));
     return this.url;
+  }
+
+  private remember(): void {
+    if (this.opts.remember === false || !this.args) return;
+    writeWebConfig({ host: this.args.host, port: this.args.port, allowedHosts: this.args.allowedHosts, ...(this.publicWanted ? { public: true } : {}) });
+  }
+
+  /**
+   * The public link (`beluga web --public`): the web port behind a Cloudflare quick tunnel, opened
+   * first when it's closed. Its https address, and a join link under it. Reopened at every start
+   * until turned off.
+   */
+  async goPublic(): Promise<PublicLink> {
+    await this.start();
+    const args = this.args!;
+    if (!args.host.startsWith('127.') && !['localhost', '0.0.0.0', '::'].includes(args.host)) throw new Error(`The public link reaches the web port at 127.0.0.1, and it listens on ${args.host}. \`beluga web --listen 127.0.0.1\` first.`);
+    this.publicWanted = true;
+    try {
+      const url = await this.public.start(args.port);
+      this.remember();
+      return { url, link: this.sessions.link(url) };
+    } catch (err) {
+      this.publicWanted = false;
+      throw err;
+    }
+  }
+
+  /** Close the public link (the web port stays as it is). */
+  stopPublic(): void {
+    this.publicWanted = false;
+    this.public.stop();
+    if (this.server) this.remember();
   }
 
   /** A one-time join link (opening the port first when it's closed). `listen` as `beluga web --listen`. */
@@ -110,7 +163,8 @@ export class WebAccess {
   }
 
   status(): WebStatus {
-    return { on: this.on, ...(this.url && this.server ? { url: this.url } : {}), sessions: this.sessions.list() };
+    const pub = this.public.state;
+    return { on: this.on, ...(this.url && this.server ? { url: this.url } : {}), sessions: this.sessions.list(), ...(pub ? { public: pub } : {}) };
   }
 
   revoke(idOrName: string): WebSessionInfo {
@@ -120,6 +174,8 @@ export class WebAccess {
   /** Close the web port and don't open it at the next start (browsers stay let in for when it's back). */
   async stop(): Promise<void> {
     await this.opening?.catch(() => undefined);
+    this.publicWanted = false;
+    this.public.stop();
     await this.server?.close();
     this.server = undefined;
     this.url = undefined;
@@ -129,6 +185,7 @@ export class WebAccess {
   /** Close the port for the daemon's stop (it opens again at the next start). */
   async close(): Promise<void> {
     await this.opening?.catch(() => undefined);
+    this.public.stop();
     await this.server?.close();
     this.server = undefined;
   }

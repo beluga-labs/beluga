@@ -40,6 +40,8 @@ export interface WebServerOptions {
   readonly root?: string;
   /** Host names besides loopback and IP addresses the page may be reached by ('*': any). */
   readonly allowedHosts?: readonly string[];
+  /** Host names allowed for now, besides those (a public tunnel's, while it's up). */
+  readonly extraHosts?: () => readonly string[];
   /** Which browser session this request is, or undefined: its socket is refused. */
   readonly authorize: (req: IncomingMessage) => string | undefined;
   /** Answered first, for anyone (the join page). */
@@ -163,10 +165,15 @@ export class WebServer {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
+  private hostAllowed(host: string | undefined): boolean {
+    const extra = this.opts.extraHosts?.() ?? [];
+    return hostAllowed(host, extra.length ? [...(this.opts.allowedHosts ?? []), ...extra] : this.opts.allowedHosts);
+  }
+
   private async request(req: IncomingMessage, res: ServerResponse): Promise<void> {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
     try {
-      if (!hostAllowed(req.headers.host, this.opts.allowedHosts)) return end(res, 421, 'Unknown host');
+      if (!this.hostAllowed(req.headers.host)) return end(res, 421, 'Unknown host');
       const url = new URL(req.url ?? '/', 'http://web.invalid');
       for (const route of this.opts.routes ?? []) if (await route(req, res, url)) return;
       // Nothing of Beluga's, not even the UI's files, before a browser is let in.
@@ -195,7 +202,7 @@ export class WebServer {
     };
     const path = (req.url ?? '').split('?')[0];
     if (path !== '/ws') return refuse(404, 'Not Found');
-    if (!hostAllowed(req.headers.host, this.opts.allowedHosts)) return refuse(421, 'Misdirected Request');
+    if (!this.hostAllowed(req.headers.host)) return refuse(421, 'Misdirected Request');
     if (!sameOrigin(header(req, 'origin'), req.headers.host)) return refuse(403, 'Forbidden');
     const session = this.opts.authorize(req);
     if (!session) return refuse(401, 'Unauthorized');
@@ -267,6 +274,8 @@ export interface WebArgs {
   readonly allowedHosts: readonly string[];
   /** Plain http on an address others can reach (`--insecure-http`): never remembered for the next start. */
   readonly insecureHttp?: boolean;
+  /** Also a public link through a Cloudflare tunnel (`--public`, reach/public.ts); remembered until turned off. */
+  readonly public?: boolean;
 }
 
 /**
@@ -301,12 +310,17 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
   let port = WEB_PORT;
   const allowedHosts: string[] = [];
   let insecureHttp = false;
+  let pub = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const [flag, inline] = arg.startsWith('--') && arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, undefined];
     if (flag === '--insecure-http') {
       insecureHttp = true;
+      continue;
+    }
+    if (flag === '--public') {
+      pub = true;
       continue;
     }
     if (flag !== '--listen' && flag !== '--allow-host') {
@@ -323,7 +337,7 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
     host = listen.host ?? host;
     port = listen.port ?? port;
   }
-  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}) }, rest };
+  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}), ...(pub ? { public: true } : {}) }, rest };
 }
 
 /** "0.0.0.0:7777", "7778", "::", "[::1]:7777", "100.64.0.1". */

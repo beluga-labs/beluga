@@ -16,6 +16,10 @@ export const WEB_API = {
   // A browser saves a file of this computer's (a path), or a shared one (fetched here first): a one-time
   // link on the web port, good for a minute. → { url: "/download/<token>", name }
   'web.download': { args: z.tuple([z.union([z.object({ path: z.string().min(1).max(4096) }), z.object({ at: z.object({ owner: z.string().max(200), share: z.string().max(200), path: z.string().max(4096) }) })])]) },
-  // Close the web port (it stays closed across restarts until a new link opens it).
+  // The public link (`beluga web --public`, daemon/reach/public.ts): on, the web port behind a Cloudflare
+  // quick tunnel (opened first when closed), reopened when cloudflared restarts and at every start until
+  // turned off. → on: { url, link: { url, expiresAt } }; off: null
+  'web.public': { args: z.tuple([z.boolean()]) },
+  // Close the web port and the public link (it stays closed across restarts until a new link opens it).
   'web.stop': { args: z.tuple([]) },
 } as const;

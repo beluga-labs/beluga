@@ -610,7 +610,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `web.link` | ✓ Settings › Advanced › Web access › New Link (a one-time join link, 10 minutes, with Copy; opens the web port first when it's closed); `beluga web` prints one |
 | `web.sessions.list` | ✓ Settings › Advanced › Web access: the browsers let in (name, let in, last seen) and whether the port is open; `beluga web sessions` |
 | `web.sessions.revoke` | ✓ a browser's Revoke in Settings › Advanced › Web access (its sockets close at once, its page locks); `beluga web revoke <id or name>` |
-| `web.stop` | ✓ Settings › Advanced › Web access › Close Port; `beluga web stop` |
+| `web.stop` | ✓ Settings › Advanced › Web access › Close Port; `beluga web stop` (and `beluga web --off`: the public link closes with it) |
+| `web.public` | `beluga web --public` (the trycloudflare address and a join link, saying what it exposes), `beluga web --off`; `beluga status` shows the current address (Settings › Advanced › Web access: BLG-659) |
 | `web.download` | ✓ in a browser the web port served: a chat file's Download, Show in Finder / Open on a file, Save on a shared file (docs/headless.md) |
 ## Sending while the agent works, and images
 

@@ -23,7 +23,7 @@ export interface StatusReport {
   /** What keeps it running from boot (`beluga service install`), if anything. */
   readonly service?: 'systemd' | 'launchd';
   /** Opening Beluga in a browser: its web port, its address and how many browsers are let in. */
-  readonly web: { readonly on: boolean; readonly url?: string; readonly sessions: number };
+  readonly web: { readonly on: boolean; readonly url?: string; readonly sessions: number; readonly public?: WebStatus['public'] };
 }
 
 export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 'companion'> & { readonly prefs?: Pick<DomainState['prefs'], 'tunnel'> }, web?: WebStatus): StatusReport {
@@ -39,7 +39,7 @@ export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 
     phones: domain.companion.devices.map((d) => ({ name: d.name, platform: d.platform, linked: d.linked, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}) })),
     ...(domain.companion.relay ? { relay: domain.companion.relay } : {}),
     ...(domain.prefs?.tunnel === 'p2p' || domain.prefs?.tunnel === 'none' ? { relayDisabled: true } : {}),
-    web: { on: web?.on ?? false, ...(web?.url ? { url: web.url } : {}), sessions: web?.sessions.length ?? 0 },
+    web: { on: web?.on ?? false, ...(web?.url ? { url: web.url } : {}), sessions: web?.sessions.length ?? 0, ...(web?.public ? { public: web.public } : {}) },
   };
 }
 
@@ -59,7 +59,8 @@ export function relayWords(r: Pick<StatusReport, 'relay' | 'relayDisabled' | 'ph
 export function webWords(w: StatusReport['web']): string {
   if (!w.on) return 'off. `beluga web` opens it and gives a link for a browser.';
   const n = w.sessions;
-  return `on${w.url ? `, at ${w.url}` : ''} (${n ? `${n} browser${n === 1 ? '' : 's'} let in` : 'no browser let in yet'}). \`beluga web\` gives a link.`;
+  const pub = !w.public ? '' : w.public.url ? `, and public at ${w.public.url}` : w.public.state === 'reopening' ? ', and its public link is reopening' : ', and its public link is opening';
+  return `on${w.url ? `, at ${w.url}` : ''}${pub} (${n ? `${n} browser${n === 1 ? '' : 's'} let in` : 'no browser let in yet'}). \`beluga web\` gives a link${w.public ? ', `beluga web --off` closes it' : ''}.`;
 }
 
 /** The report in plain words, with what to do next where something's missing. */

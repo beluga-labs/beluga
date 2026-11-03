@@ -82,8 +82,12 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | undefin
   });
 }
 
+/** Which limiter counts a request's wrong tries, and under whose name (a public tunnel's visitors get their own, stricter one). */
+export type LimitFor = (req: IncomingMessage) => { readonly limiter: JoinLimiter; readonly who: string };
+
 /** GET /join: the page; POST /join: the exchange (same origin only, rate-limited, once per link). */
-export function joinRoute(sessions: WebSessions, limiter: JoinLimiter, log?: (line: string) => void): WebRoute {
+export function joinRoute(sessions: WebSessions, limit: JoinLimiter | LimitFor, log?: (line: string) => void): WebRoute {
+  const limitFor: LimitFor = typeof limit === 'function' ? limit : (req) => ({ limiter: limit, who: req.socket.remoteAddress ?? '?' });
   return async (req, res, url) => {
     if (url.pathname !== '/join') return false;
     if (req.method === 'GET') {
@@ -104,7 +108,7 @@ export function joinRoute(sessions: WebSessions, limiter: JoinLimiter, log?: (li
       json(res, 415, { error: 'Expected JSON' });
       return true;
     }
-    const who = req.socket.remoteAddress ?? '?';
+    const { limiter, who } = limitFor(req);
     const body = await readBody(req, MAX_JOIN_BODY);
     let secret: unknown;
     try {
