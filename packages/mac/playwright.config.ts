@@ -1,4 +1,5 @@
-import { defineConfig } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { defineConfig, firefox, webkit } from '@playwright/test';
 import { homesFor, portFor, workerCount, worktreeOf } from '../../scripts/e2e-lock.mjs';
 
 // `npm run e2e` runs through scripts/e2e-lock.mjs: one Mac e2e run at a time, nothing left behind.
@@ -41,6 +42,10 @@ export default defineConfig({
     // The real served build through the daemon's web port, joined by a link (e2e/web/, BLG-652): built once first.
     { name: 'web-build', testMatch: /web\/build\.setup\.ts$/ },
     { name: 'web', testMatch: /web\/.*\.spec\.ts$/, dependencies: ['web-build'], use: { baseURL: undefined, storageState: { cookies: [], origins: [] } } },
+    // The same in Firefox and Safari's WebKit, where they're installed (`npx playwright install firefox webkit`).
+    ...(['firefox', 'webkit'] as const)
+      .filter((name) => existsSync({ firefox, webkit }[name].executablePath()))
+      .map((name) => ({ name: `web-${name}`, testMatch: /web\/.*\.spec\.ts$/, dependencies: ['web-build'], use: { browserName: name, baseURL: undefined, storageState: { cookies: [], origins: [] } } })),
   ],
   webServer: { command: `npx vite --port ${port} --strictPort`, url: `http://localhost:${port}`, reuseExistingServer: false, env: { BELUGA_HOME: process.env.KLAUD_HOME!, KLAUD_HOME: process.env.KLAUD_HOME! } },
 });

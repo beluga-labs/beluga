@@ -22,6 +22,17 @@ const settled = async (page: Page): Promise<void> => {
     localStorage.setItem('beluga.tasks.v2', JSON.stringify({ display: 'list' }));
   });
 };
+/**
+ * What the page says is wrong: console errors, uncaught errors, and CSP violations (Firefox logs
+ * those as errors; Chromium only fires the event, so it's listened for).
+ */
+const watchErrors = async (page: Page): Promise<string[]> => {
+  const errors: string[] = [];
+  page.on('console', (m) => void (m.type() === 'error' && errors.push(m.text())));
+  page.on('pageerror', (e) => void errors.push(String(e)));
+  await page.addInitScript(() => document.addEventListener('securitypolicyviolation', (e) => console.error(`CSP: ${e.violatedDirective} blocked ${e.blockedURI}`)));
+  return errors;
+};
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
 const composer = (page: Page) => page.locator('textarea:not(.xterm-helper-textarea)');
 const askPage = (page: Page) => page.getByRole('heading', { name: 'Ask for a link to open Beluga' });
@@ -34,6 +45,7 @@ test('a browser without a link gets only the Ask for a link page', async ({ page
 });
 
 test('joins by a link, chats, uses a terminal, and locks at once when revoked', async ({ page, browser }) => {
+  const errors = await watchErrors(page);
   await settled(page);
   await page.goto(web.link);
   await expect(sidebar(page)).toBeVisible({ timeout: 30_000 });
@@ -58,6 +70,13 @@ test('joins by a link, chats, uses a terminal, and locks at once when revoked', 
   await term.locator('.xterm').click();
   await page.keyboard.type('echo web-$((6*7))\n');
   await expect(term.getByText('web-42').last()).toBeVisible({ timeout: 15_000 });
+
+  // The main screens, with nothing wrong in the console since joining (BLG-672).
+  for (const screen of ['Overview', 'Work', 'Sentinel', 'Files', 'Group chat']) {
+    await sidebar(page).getByText(screen, { exact: true }).first().click();
+    await page.waitForTimeout(400);
+  }
+  expect(errors).toEqual([]);
 
   // The same link doesn't let a second browser in.
   const other = await browser.newPage();
