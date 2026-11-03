@@ -9,8 +9,15 @@ export const homeDir = (env: NodeJS.ProcessEnv = process.env): string => env.HOM
 /** "~" alone, or followed by "/" (or "\" on Windows). */
 const TILDE = /^~(?=$|[\\/])/;
 
-/** "~/x" and "~\x" with your home folder in front; any other path as it is. */
-export const expandHome = (p: string, home: string = homeDir()): string => p.replace(TILDE, () => home);
+/**
+ * "~/x" and "~\x" with your home folder in front; any other path as it is. The same file the
+ * tools then open (core/remote-work.ts expandPath): the rest is joined on, so "~\proj" is
+ * home/proj on a Mac too, never a file named "me\proj" beside it (a check and its tool must agree).
+ */
+export const expandHome = (p: string, home: string = homeDir()): string => {
+  if (p === '~') return home;
+  return TILDE.test(p) ? path.join(home, p.slice(2)) : p;
+};
 
 /** Starts with "~/" or "~\" (or is "~"). */
 export const startsAtHome = (p: string): boolean => TILDE.test(p);

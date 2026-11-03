@@ -17,6 +17,7 @@ import { jsThumbnailer, thumbnailersFor } from '../src/companion/files.js';
 import { jsShrinker, shrinkerFor, sipsShrinker } from '../src/companion/icons.js';
 import { droppedImagePaths, windowsClipboardScript } from '../src/core/attachments.js';
 import { expandHome, homeDir, isFullPath, startsAtHome } from '../src/core/home-path.js';
+import { expandPath } from '../src/core/remote-work.js';
 import { findTool, toolCommand } from '../src/workspaces/pr.js';
 import { detectSetup } from '../src/workspaces/scripts.js';
 import { pastedText } from '../src/core/clipboard.js';
@@ -73,12 +74,16 @@ describe('the terminal on Windows', () => {
 describe('paths from home and full paths, anywhere', () => {
   it('expands ~/ and ~\\ with your home, and only those', () => {
     expect(expandHome('~/a', '/Users/me')).toBe('/Users/me/a');
-    expect(expandHome('~\\Documents\\a.txt', 'C:\\Users\\me')).toBe('C:\\Users\\me\\Documents\\a.txt');
+    expect(expandHome('~\\Documents\\a.txt', 'C:\\Users\\me')).toBe(path.join('C:\\Users\\me', 'Documents\\a.txt'));
     expect(expandHome('~', 'C:\\Users\\me')).toBe('C:\\Users\\me');
     expect(expandHome('~bob/a', '/Users/me')).toBe('~bob/a');
     expect(expandHome('a/~/b', '/Users/me')).toBe('a/~/b');
     expect(startsAtHome('~\\x')).toBe(true);
     expect(startsAtHome('~x')).toBe(false);
+  });
+
+  it('lands on the same file the tools open, so a check and its tool agree', () => {
+    for (const p of ['~/proj/x', '~\\proj/x', '~']) expect(expandHome(p, '/Users/me')).toBe(expandPath(p, '/Users/me'));
   });
 
   it('finds the home folder where Windows has no $HOME', () => {
@@ -121,6 +126,9 @@ describe("Claude's tools and where they may reach", () => {
     process.env.HOME = dir;
     try {
       expect(fetch('~/app/vendor')).toBe('deny');
+      // Written "~\\app" it's the same folder to the tool that saves it: still denied.
+      expect(fetch('~\\app')).toBe('deny');
+      expect(fetch('~\\app/vendor')).toBe('deny');
       expect(fetch('~/downloads')).toBe('ask');
     } finally {
       process.env.HOME = home;

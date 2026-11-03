@@ -160,6 +160,8 @@ const psQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
  */
 export const windowsClipboardScript = (file: string): string =>
   [
+    // What it prints is read as UTF-8 (PowerShell's own default is the old code page: a copied file under "Zoë" got lost).
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
     'Add-Type -AssemblyName System.Windows.Forms',
     'Add-Type -AssemblyName System.Drawing',
     'if ([Windows.Forms.Clipboard]::ContainsFileDropList()) { $f = [Windows.Forms.Clipboard]::GetFileDropList(); if ($f.Count -eq 1) { Write-Output ("file:" + $f[0]) }; exit 0 }',

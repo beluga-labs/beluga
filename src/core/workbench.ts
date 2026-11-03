@@ -167,6 +167,9 @@ export { shellId, setupId, runId, githubId, globalShellId, isGlobalShell, global
 import { agentTermId, githubId, runId, setupId, shellId, isGlobalShell, globalShellNumber, cleanTerminalName } from '../shared/terminal-keys.js';
 import { pace, paced } from './power-saver.js';
 
+/** How soon cmd ends when it couldn't find your editor (Windows). */
+const EDITOR_MISSING_MS = 3000;
+
 /**
  * What changed about a pull request that's worth telling you. A PR showing up is only news
  * when you asked Claude for it (`asked`); otherwise it already existed and isn't.
@@ -1063,10 +1066,16 @@ export class Workbench {
     if (/\b(code|cursor|subl|zed|mate|gedit|kate)\b/.test(editor)) {
       const how = editorCommand(editor, file);
       const child = spawn(how.command, [...how.args], { stdio: 'ignore', detached: true, shell: how.shell, windowsHide: true });
-      // Through cmd (Windows) it always starts: whether the editor did is in how cmd ends.
-      if (how.shell) child.once('exit', (code) => (code === 0 ? opened() : openHere()));
-      else child.once('spawn', opened);
+      child.once('spawn', opened);
       child.once('error', openHere);
+      // Through cmd (Windows) it always starts: cmd ending at once with an error means the editor
+      // wasn't found, so the system opens it. (An editor run with --wait ends much later.)
+      if (how.shell) {
+        const started = Date.now();
+        child.once('exit', (code) => {
+          if (code !== 0 && Date.now() - started < EDITOR_MISSING_MS) (this.deps.open ?? systemOpen)(file);
+        });
+      }
       child.unref();
     } else if (process.platform === 'darwin') {
       spawn('open', ['-t', file], { stdio: 'ignore', detached: true })

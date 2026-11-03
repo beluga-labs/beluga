@@ -648,6 +648,14 @@ fn record_install(app: &AppHandle, pending: &Pending, installed: bool) {
                 version: pending.version.clone(),
                 notes: pending.notes.clone(),
             });
+        } else if i
+            .saved
+            .news
+            .as_ref()
+            .is_some_and(|n| n.version == pending.version)
+        {
+            // Said ahead of the Windows installer, which then didn't start: not true after all.
+            i.saved.news = None;
         }
         // A package that doesn't verify or install is dropped (a fresh one comes next time).
         i.saved.pending = None;
