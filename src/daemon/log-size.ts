@@ -1,4 +1,4 @@
-import { copyFileSync, fstatSync, ftruncateSync, statSync } from 'node:fs';
+import { copyFileSync, fstatSync, ftruncateSync, statSync, truncateSync } from 'node:fs';
 import path from 'node:path';
 import { LOG_LIMIT, daemonLogPath } from './files.js';
 
@@ -29,10 +29,20 @@ export function trimLog(fd: number, file = daemonLogPath(), limit = LOG_LIMIT): 
   if (!open.isFile() || open.dev !== named.dev || open.ino !== named.ino || open.size <= limit) return 'kept';
   try {
     copyFileSync(file, `${file}.1`);
+  } catch {
+    return 'cannot';
+  }
+  try {
     ftruncateSync(fd, 0);
     return 'trimmed';
   } catch {
-    // Windows: the app opened it append-only, which can't truncate. It's set aside at the next start instead.
+    // Windows: an append-only handle can't truncate, but the file can be, by name (its writers share it).
+  }
+  try {
+    truncateSync(file, 0);
+    return 'trimmed';
+  } catch {
+    // It's set aside at the next start instead (the app's log_file()).
     return 'cannot';
   }
 }

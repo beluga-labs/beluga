@@ -375,7 +375,7 @@ fn fallback_path() -> String {
 }
 
 /// Past this the log is set aside as daemon.log.1 (src/daemon/files.ts LOG_LIMIT). The daemon
-/// trims it while it runs too, except on Windows, where an append-only file can't be cut.
+/// trims it while it runs too (src/daemon/log-size.ts).
 const LOG_LIMIT: u64 = 5 * 1024 * 1024;
 
 fn log_file() -> Option<std::fs::File> {
