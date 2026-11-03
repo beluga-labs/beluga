@@ -34,6 +34,8 @@ export interface WatchOptions {
   readonly all?: boolean;
   /** Override SUMMARY_EVERY_MS (tests). */
   readonly summaryEveryMs?: number;
+  /** Every period's delays, logged or not (the black box keeps them all, in memory). */
+  readonly onPeriod?: (stats: LagStats) => void;
 }
 
 const delays = (s: LagStats): string => `p50 ${s.p50.toFixed(1)} ms, p95 ${s.p95.toFixed(1)} ms, max ${s.max.toFixed(1)} ms`;
@@ -72,6 +74,7 @@ export function watchEventLoop(log: (line: string) => void, opts: WatchOptions =
   let periods = 0;
   const timer = setInterval(() => {
     const stats = take(period);
+    if (stats) opts.onPeriod?.(stats);
     if (stats && (opts.all || isSlow(stats))) log(lagLine(stats));
     if (opts.all || ++periods < periodsPerSummary) return;
     periods = 0;

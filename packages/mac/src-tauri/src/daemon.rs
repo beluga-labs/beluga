@@ -235,7 +235,24 @@ fn reap(app: &AppHandle) -> Option<ExitStatus> {
     let mut slot = locked(&state.child);
     let status = slot.as_mut()?.try_wait().ok().flatten()?;
     *slot = None;
+    if !status.success() {
+        note_exit(&status);
+    }
     Some(status)
+}
+
+/// A daemon that died on its own (a crash, a kill), kept with the black box's incidents so a
+/// problem report says how it ended (src/core/blackbox/report.ts, BLG-673). Stopping it on
+/// purpose takes the child first, so never comes through here.
+fn note_exit(status: &ExitStatus) {
+    let dir = beluga_home().join("logs").join("incidents");
+    let at = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let note = serde_json::json!({ "kind": "exit", "at": at, "status": status.to_string() });
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join(format!("{at}-exit.json")), note.to_string());
+    }
 }
 
 fn running(app: &AppHandle) -> Option<Info> {
