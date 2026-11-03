@@ -272,7 +272,7 @@ function Appearance() {
           <Select
             label="Width"
             value={prefs.chatWidth}
-            onChange={(v) => setPrefs({ chatWidth: v })}
+            onChange={(v) => setPrefs({ chatWidth: v, chatWidthPicked: true })}
             options={[
               { value: 'narrow', label: 'Narrow' },
               { value: 'wide', label: 'Wide' },

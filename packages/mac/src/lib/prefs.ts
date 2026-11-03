@@ -23,6 +23,8 @@ export interface UiPrefs {
   readonly density: 'compact' | 'comfortable';
   /** How wide the conversation can get (characters, roughly). */
   readonly chatWidth: 'narrow' | 'wide' | 'full';
+  /** You picked chatWidth in Settings (before, Wide was saved as the default without you choosing it: BLG-697). */
+  readonly chatWidthPicked: boolean;
   /** The right panel (Changes, Files, Terminal, Info) is showing. */
   readonly inspector: boolean;
   /** How wide the right panel is (px; never more than 60% of the window). */
@@ -146,7 +148,8 @@ export const DEFAULT_PREFS: UiPrefs = {
   accent: 'system',
   textSize: 13,
   density: 'comfortable',
-  chatWidth: 'wide',
+  chatWidth: 'full',
+  chatWidthPicked: false,
   inspector: true,
   panelWidth: PANEL_DEFAULT,
   panelTabs: {},
@@ -204,11 +207,18 @@ export const DEFAULT_PREFS: UiPrefs = {
 const KEY = 'beluga.prefs.v1';
 const listeners = new Set<() => void>();
 
+/** The width you chose; a Narrow is always a choice, a Wide only once picked (it used to be the default). */
+export function chatWidthOf(saved: UiPrefs): UiPrefs['chatWidth'] {
+  const w = saved.chatWidth;
+  if (w === 'narrow' || w === 'full') return w;
+  return w === 'wide' && saved.chatWidthPicked === true ? 'wide' : 'full';
+}
+
 function load(): UiPrefs {
   try {
     // Older versions docked the terminal beside or under the chat: see migratePrefs.
     const saved = { ...DEFAULT_PREFS, ...(migratePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>) as Partial<UiPrefs>) };
-    return { ...saved, panelLayout: normalizeLayout(saved.panelLayout), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system' };
+    return { ...saved, panelLayout: normalizeLayout(saved.panelLayout), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system' };
   } catch {
     return DEFAULT_PREFS;
   }

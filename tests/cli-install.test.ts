@@ -54,6 +54,13 @@ describe.skipIf(process.platform === 'win32')('the install script', () => {
     expect(existsSync(`${server}.old`)).toBe(false);
   });
 
+  it('installs in a UTF-8 terminal too (a Mac’s sh read "$arch…" as one name and stopped)', () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-install-home-'));
+    const out = execFileSync('sh', [INSTALL], { env: { PATH: process.env.PATH, HOME: home, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', BELUGA_DOWNLOAD_URL: `file://${fakeBundle('1.0.0')}` }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    expect(out).toContain('Downloading Beluga for');
+    expect(existsSync(path.join(home, '.local/bin/beluga'))).toBe(true);
+  });
+
   it('says plainly when the download is no bundle', () => {
     const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-install-home-'));
     const junk = path.join(home, 'junk.tar.gz');
