@@ -767,11 +767,11 @@ export function stampAction<A extends Action>(action: A): A {
 }
 
 /** Someone's name: in the room, yourself, a friend, or someone in a project a friend shared with you. */
-export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects'] }, peerId: string): string =>
+export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects']; readonly remembered?: DomainState['remembered'] }, peerId: string): string =>
   state.peers.find((p) => p.peerId === peerId)?.name ??
   (state.self?.peerId === peerId
     ? state.self.name
-    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? peerId.slice(0, 6)));
+    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? state.remembered?.[peerId]?.name ?? peerId.slice(0, 6)));
 
 /** One file, wherever it is: the key `written` is kept by. */
 export const fileKey = (at: Location): string => `${at.owner}\0${at.share}\0${at.path}`;
