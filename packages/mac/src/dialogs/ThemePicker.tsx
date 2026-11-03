@@ -16,7 +16,7 @@ function ThemeCard({ theme, on, accent }: { readonly theme: AppTheme; readonly o
   const vars = { '--p-bg': k.bg, '--p-side': k.sidebar, '--p-raised': k.raised, '--p-text': k.text, '--p-text2': k.text2, '--p-text3': k.text3, '--p-accent': accent, '--p-claude': k.claude, '--p-line': theme.base === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' } as CSSProperties;
   return (
     <button type="button" role="radio" aria-checked={on} aria-label={theme.name} className={cx(t.card, on && t.cardOn)} onClick={() => pickTheme(theme.id)}>
-      <span className={t.window} style={vars} aria-hidden>
+      <span className={cx(t.window, theme.lit && t.lit)} style={vars} aria-hidden>
         <span className={t.side}>
           <i className={t.sideRow} />
           <i className={cx(t.sideRow, t.sideOn)} />

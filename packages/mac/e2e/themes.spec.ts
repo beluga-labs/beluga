@@ -20,6 +20,8 @@ test('A theme picked in Settings repaints the window and is remembered', async (
   // True black, with nothing of the window's blur behind it.
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim())).toBe('#000000');
   await expect(html).toHaveAttribute('data-transparency', 'reduce');
+  // Its surfaces edged in light, since no shadow shows on black.
+  await expect(html).toHaveAttribute('data-edges', 'lit');
   // Its own accent, taken over from the system's.
   await expect(page.getByRole('button', { name: 'OLED Black’s own' })).toHaveAttribute('aria-pressed', 'true');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/02-settings-oled.png` });

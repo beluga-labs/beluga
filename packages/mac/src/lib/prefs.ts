@@ -294,6 +294,7 @@ export function apply(p: UiPrefs = shown): void {
   themeSheet();
   root.dataset.theme = base;
   root.dataset.palette = theme.id;
+  root.dataset.edges = theme.lit ? 'lit' : 'soft';
   root.dataset.density = p.density;
   root.dataset.motion = p.reduceMotion ? 'reduce' : 'full';
   // Only a Mac's window blurs what's behind it: Linux and Windows get the solid look. A theme's own

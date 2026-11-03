@@ -31,6 +31,10 @@ export interface ThemeColors {
   readonly epic: string;
   readonly hairline?: string;
   readonly hairlineStrong?: string;
+  readonly hover?: string;
+  readonly press?: string;
+  /** Popovers and sheets: on near-black a drop shadow can't be seen, so a lit rim does its work. */
+  readonly shadowPop?: string;
 }
 
 export interface AppTheme {
@@ -46,6 +50,11 @@ export interface AppTheme {
   readonly p3?: Partial<Pick<ThemeColors, 'claude' | 'ok' | 'warn' | 'error' | 'info' | 'merged' | 'subagent' | 'worktree' | 'plan' | 'epic'>> & { readonly accent?: string };
   /** The terminal theme (lib/terminal-themes.ts) whose colours go with it, while the terminal uses Beluga's own. */
   readonly term?: string;
+  /**
+   * Near-black, where shadows vanish and surfaces fuse: the cards, the message box, sheets and
+   * buttons get a lit edge instead (a fine light rim, a faint highlight along the top; no glow).
+   */
+  readonly lit?: boolean;
   /** Beluga's Light and Dark: their tokens are tokens.css itself (the colours here are for the previews). */
   readonly builtin?: boolean;
 }
@@ -67,6 +76,7 @@ export const THEMES: readonly AppTheme[] = [
     name: 'Super Dark',
     base: 'dark',
     by: 'beluga',
+    lit: true,
     colors: c({ bg: '#111113', sunken: '#0c0c0e', sidebar: '#161618', raised: '#1c1c1f', code: '#18181b', term: '#0b0b0d', text: '#efeff1', text2: '#a4a4ab', text3: '#6d6d75', claude: '#e39a70', ok: '#6fc78b', warn: '#e8ab4f', error: '#f27d75', info: '#7fb3f3', merged: '#b79af2', subagent: '#ae97f5', worktree: '#6bcabf', plan: '#ec97c7', epic: '#a9aff8' }),
   },
   {
@@ -75,7 +85,9 @@ export const THEMES: readonly AppTheme[] = [
     base: 'dark',
     by: 'beluga',
     accent: '#3fb4ff',
-    colors: c({ bg: '#000000', sunken: '#000000', sidebar: '#000000', raised: '#0e0e10', code: '#0a0a0c', term: '#000000', text: '#f5f5f7', text2: '#a1a1a8', text3: '#6b6b72', claude: '#f0a070', ok: '#5fd88a', warn: '#f5b640', error: '#ff6b62', info: '#5eb0ff', merged: '#b98cff', subagent: '#ad8cff', worktree: '#45d6c6', plan: '#ff8acb', epic: '#9aa2ff', hairline: 'rgba(255, 255, 255, 0.09)', hairlineStrong: 'rgba(255, 255, 255, 0.16)' }),
+    lit: true,
+    // The canvas stays true black (the pixels off); what sits on it is lifted a hair, and edged in light.
+    colors: c({ bg: '#000000', sunken: '#08080a', sidebar: '#000000', raised: '#111114', code: '#0c0c0f', term: '#000000', text: '#f5f5f7', text2: '#a1a1a8', text3: '#6b6b72', claude: '#f0a070', ok: '#5fd88a', warn: '#f5b640', error: '#ff6b62', info: '#5eb0ff', merged: '#b98cff', subagent: '#ad8cff', worktree: '#45d6c6', plan: '#ff8acb', epic: '#9aa2ff', hairline: 'rgba(255, 255, 255, 0.12)', hairlineStrong: 'rgba(255, 255, 255, 0.2)', hover: 'rgba(255, 255, 255, 0.07)', press: 'rgba(255, 255, 255, 0.12)', shadowPop: '0 0 0 0.5px rgba(255, 255, 255, 0.22), inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 16px 48px rgba(0, 0, 0, 0.9)' }),
     // The colours a Mac's screen can show that sRGB can't: brighter, deeper, on true black.
     p3: {
       accent: 'color(display-p3 0.2 0.7 1)',
@@ -296,6 +308,9 @@ const TOKENS: ReadonlyArray<readonly [keyof ThemeColors, string]> = [
   ['epic', '--epic'],
   ['hairline', '--hairline'],
   ['hairlineStrong', '--hairline-strong'],
+  ['hover', '--bg-hover'],
+  ['press', '--bg-press'],
+  ['shadowPop', '--shadow-pop'],
 ];
 
 /** One theme's CSS: on its base's tokens, an opaque sidebar (no blur under a theme's own colours), its accent, and P3 where the screen has it. */
@@ -305,6 +320,8 @@ export function themeCss(t: AppTheme): string {
   const lines = TOKENS.flatMap(([k, v]) => (t.colors[k] ? [`  ${v}: ${t.colors[k]};`] : []));
   lines.push(`  --bg-sidebar: ${t.colors.sidebar};`);
   if (t.accent) lines.push(`  --theme-accent: ${t.accent};`);
+  // The highlight along a lit surface's top edge (data-edges='lit': the screens' own CSS puts it on).
+  if (t.lit) lines.push('  --rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.09);');
   const wide = t.p3 ? Object.entries(t.p3).map(([k, v]) => `    ${k === 'accent' ? '--theme-accent' : TOKENS.find(([key]) => key === k)![1]}: ${v};`) : [];
   return `${sel} {\n${lines.join('\n')}\n}\n${wide.length ? `@media (color-gamut: p3) {\n  ${sel} {\n${wide.join('\n')}\n  }\n}\n` : ''}`;
 }

@@ -40,6 +40,11 @@ describe('the window themes (BLG-696)', () => {
     expect(oled).toContain(":root[data-theme='dark'][data-palette='oled'] {");
     expect(oled).toContain('--bg: #000000;');
     expect(oled).toContain('--bg-sidebar: #000000;');
+    // On black a shadow can't show: what sits on it is lifted a hair and edged in light.
+    expect(oled).toContain('--bg-raised: #111114;');
+    expect(oled).toMatch(/--shadow-pop: 0 0 0 0\.5px rgba\(255, 255, 255, [0-9.]+\), inset/);
+    expect(oled).toContain('--rim: inset 0 0.5px 0');
+    expect(themeCss(THEMES.find((t) => t.id === 'dracula')!)).not.toContain('--rim');
     expect(oled).toContain('--theme-accent: #3fb4ff;');
     expect(oled).toMatch(/@media \(color-gamut: p3\) \{[\s\S]*--theme-accent: color\(display-p3/);
     expect(allThemesCss()).not.toContain("[data-palette='dark']");
