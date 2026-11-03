@@ -1,159 +1,284 @@
-# Beluga in a browser
+# Beluga on a server
 
-The daemon can serve the whole Beluga UI, the same React app the Mac shows, to any browser: on the
-computer it runs on, through an SSH tunnel, Tailscale or a public link. This note is how that works
-and what the app's native bits become in a browser.
+Beluga runs with no window on a computer that stays on: a Linux server, a home PC, a Mac mini.
+Your projects, worktrees and agents live there; you use them from your phone, or open the whole
+Beluga app in any browser. The README has [the short version](../README.md#run-it-on-a-server);
+this is the rest.
 
-## The web port
+## What it needs
 
-`beluga web` opens a second listener beside the token socket the Mac app and tools use
-(`src/daemon/web.ts`, `web-access.ts`):
+- **Linux or macOS**, x64 or arm64. On Linux, glibc 2.28 or later: Ubuntu 20.04, Debian 10,
+  RHEL 8 and newer.
+- **curl** (or wget) to install, and **git** for your projects (`sudo apt install git` if it's
+  missing).
+- **A Claude subscription.** Beluga downloads Claude Code itself the first time it needs it.
+- No sudo, no Node, no open port.
 
-- **Where**: `127.0.0.1:7777` by default, a fixed port so an SSH line stays the same
-  (`ssh -L 7777:127.0.0.1:7777 box`). `--listen host:port` picks another address or port;
-  `--allow-host name` adds a host name the page may be reached by (a Tailscale or tunnel name).
-  It reopens at every start of the daemon until `beluga web stop` or Settings › Advanced › Web
-  access, turned off (`~/.beluga/web.json`). An address others reach over plain http
-  (`0.0.0.0`, a LAN address) is refused unless `--insecure-http` says so; Tailscale's `100.x`
-  addresses are fine (see docs/security.md, Web access).
-- **What**: the built UI (`packages/mac`'s `vite build`: `BELUGA_WEB_ROOT`, a packaged `web/`
-  beside the engine, or the repo's `packages/mac/dist`). Hashed assets are cached for a year,
-  everything else is revalidated; text goes br or gzip. Never a dotfile, a folder listing, a path
-  out of the root, or Beluga's own files; Beluga's home is refused as a root.
-- **The socket**: `/ws` hands a browser's socket to the daemon's own accept path, the one the Mac
-  app uses, with the hello's token never read. The daemon's token never reaches the browser
-  (`/__beluga/endpoint` only says `{ web: true }`; the page then connects to its own origin).
-- **Checks**: the Host header must be a loopback name, an IP address or an allowed host (no DNS
-  rebinding of 127.0.0.1); `/ws`, `/join`'s POST and `/upload` need the page's own Origin; every
-  answer says `nosniff`, `no-referrer` and may not be framed, and the app's files come with the
-  Mac app's content security policy.
+## Install
 
-## Installing it
-
-The page is an installable web app (Add to Home Screen on a phone, Install or Add to Dock on a
-computer): `packages/mac/public/manifest.webmanifest` opens it standalone with Beluga's icon
-(`public/icons/`, made from the app's own). Only the manifest and the icons are served without a
-session. There is no service worker: nothing of yours is kept offline.
-
-## Browser sessions
-
-Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `web-join.ts`):
-
-- `beluga web` (or Settings › Advanced › Web access › New Link) gives a **join link**,
-  `http://127.0.0.1:7777/join#<128-bit secret>`: one use, 10 minutes. The secret is in the
-  fragment, so it never reaches a server log or a Referer.
-- The join page clears the fragment from the address bar at once, then trades the secret (a
-  same-origin JSON POST, rate-limited: 10 wrong tries per address and 50 in all per 10 minutes)
-  for a **session cookie**: `HttpOnly`, `SameSite=Strict`, `Path=/`, and on https `Secure` with the
-  `__Host-` prefix. Only its SHA-256 is kept, in `~/.beluga/web-sessions.json` (0600), with the
-  browser's name (browser and OS from its User-Agent), when it joined and when it was last seen. A
-  browser not seen for 90 days has to join again.
-- Without a valid cookie the web port serves only the **Ask for a link** page (and 401s), never the
-  UI's files, and refuses the socket.
-- **Revoking** one (`beluga web revoke <id or name>`, or Remove in Settings › Advanced › Web
-  access) forgets it and closes its sockets at once (code 4401); its page reloads into the Ask page.
-- The `web.*` API (`src/ipc/web-api.ts`): `web.link`, `web.sessions.list`, `web.sessions.revoke`,
-  `web.stop`, `web.public`, `web.tailscale`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
-  links, revokes and closing the port are the Mac app's and the command line's. The CLI is
-  `src/web-cli.ts`.
-
-## Reaching it from elsewhere
-
-- **Through SSH** (`beluga connect user@host`, `src/cli/connect.ts`): run on the laptop. It asks
-  the server for a join link over ssh (`beluga web link`, starting Beluga there first when it isn't
-  running), opens `ssh -N -L 127.0.0.1:<free port>:127.0.0.1:7777 host`, and opens the browser at
-  its near end. The tunnel comes back when it drops; Ctrl+C closes it. The host goes to ssh as
-  typed, so aliases, users, ports and keys from the ssh config apply. Nothing is opened on the
-  server. Without Beluga on the laptop, `beluga web` on the server prints the plain `ssh -N -L`
-  line to paste.
-- **On your tailnet** (`beluga web --tailscale`, `src/daemon/reach/tailscale.ts`): reads this
-  machine's name and login from `tailscale status --json`, then runs `tailscale serve --bg
-  --https=443 http://127.0.0.1:7777` (Serve, never Funnel: only the tailnet reaches it) and prints
-  `https://<box>.<tailnet>.ts.net` with a QR for a phone's browser. Your own Tailscale login (this
-  machine's owner, BLG-655) gets in without a join link; anyone else on the tailnet needs one; on a
-  tagged machine nobody's login is trusted. The `Tailscale-User-Login` header is believed only on
-  requests from loopback (tailscaled), under the ts.net name, while Serve is on; another local
-  account on a shared box could forge it, so on such a box use join links. Missing Tailscale, a
-  logged-out one, Serve needing an operator (`sudo tailscale set --operator=$USER`) or HTTPS
-  certificates being off each get a one-line fix. Reopened at every start until `--off`, which runs
-  `tailscale serve --https=443 off`.
-- **A public link** (`beluga web --public`, `src/daemon/reach/public.ts`): a Cloudflare quick
-  tunnel (the cloudflared the rooms and the phone relay use) to the web port. It prints the
-  `https://<name>.trycloudflare.com` address and a join link under it, and says plainly what that
-  exposes: **anyone with a join link gets in**. The address alone shows only the Ask for a link
-  page. The web port answers to that name only while the tunnel is up. Wrong join links through it
-  are limited harder (5 per visitor, by Cloudflare's `CF-Connecting-IP`, and 20 in all per 10
-  minutes; a good link always works). When cloudflared stops or its name stops answering, a new
-  tunnel opens (more slowly each time it fails) and its new address shows in `beluga status`
-  and `web.sessions.list`. It is reopened at every start until `beluga web --off`.
-- **In the Mac app**: Settings › Advanced › Web access, off by default. One switch, then Reached
-  from: This computer only, Tailscale (offered when it's installed and logged in, `web.ways`) or
-  Public link; the address, New Link with the link as a QR and Copy, and the browsers let in, each
-  with Remove.
-- **Off**: `beluga web --off` closes the web port, the public link and Tailscale Serve
-  (`web.stop`), and they stay closed across restarts.
-
-### Your own domain
-
-A quick tunnel's name changes each time. With a Cloudflare account, a named tunnel keeps one
-(`cloudflared tunnel create beluga`, then `cloudflared tunnel route dns beluga beluga.example.com`
-and `cloudflared tunnel run --url http://127.0.0.1:7777 beluga`); with a server that has a public
-address and a domain, Caddy gets the certificate itself:
-
-```caddyfile
-beluga.example.com {
-	reverse_proxy 127.0.0.1:7777
-}
+```sh
+curl -fsSL https://github.com/kayraucklnc/beluga/releases/latest/download/install.sh | sh
 ```
 
-Either way, let the web port answer to that name and take a link under it:
-`beluga web --allow-host beluga.example.com`, then open the link with `127.0.0.1:7777` replaced by
-`beluga.example.com`. The join limits there are the local port's (Caddy's requests all come from
-loopback, so they share one count): keep the proxy for yourself.
+It puts Beluga, with its own Node, in `~/.beluga/server` and links the `beluga` command into
+`~/.local/bin`. When that folder isn't on your PATH yet, it prints the line that adds it, like:
 
-## The app's native bits in a browser
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+```
 
-A page served by the web port knows it (`webServed()` in `lib/boot.ts`); one from the development
-server (vite, the e2e demo) is a plain browser and keeps its development behaviour. Every
-`inApp()` branch, and what a served page does instead:
+Run that, then open a new terminal (or `source ~/.bashrc`).
 
-| Where (`packages/mac/src/…`) | In the app | In a served browser |
-| --- | --- | --- |
-| `main.tsx`, `popup/main.tsx`: `data-app="tauri"` | the window's own look (vibrancy, title bar) | a plain page (`data-web="true"`) |
-| `lib/boot.ts` `endpoint()` | asks Tauri for the daemon's port and token | `/__beluga/endpoint` says `{ web: true }`; the socket is this origin's `/ws`, its session cookie lets it in |
-| `lib/boot.ts` `copyText` cap, `lib/copy.ts` | the app's clipboard | `navigator.clipboard` (needs https or localhost) |
-| `lib/boot.ts` `notify` cap | macOS banners with actions, the pop-up for requests | Web Notifications (asked once; needs https or localhost), clicking one goes to its chat or request; a friend's message is the in-window banner as in the app |
-| `lib/boot.ts` `openExternal`, `lib/system.ts` | the default browser | a new tab |
-| `lib/boot.ts` `raise` | brings the window forward | `window.focus()` |
-| `lib/projects.ts` `pickFolders` (Add Project › Choose Folders…, New Project › Change…, Share a Folder, `FormSheet` folders, Settings › People & access › Add Folder…) | the Open panel | Beluga's own folder picker over the server's folders (`dialogs/FolderBrowser.tsx`, `local.browse`) |
-| `lib/projects.ts` `pickImage` (a project's Change Icon…) | the Open panel | the browser's file picker; the image is uploaded and used from there |
-| `dialogs/AddProjectSheet.tsx` folder drop | folders dropped on the window are added | not offered (your computer's folders aren't the server's): "Choose a project folder where Beluga runs" with Choose Folders… |
-| `chat/use-attachments.tsx` Finder drop | files dropped on a conversation attach by their path | files dropped on the message box are uploaded (`/upload`, into `~/.beluga/uploads`) and attach by their path there; images attach as pictures as before |
-| `chat/paste-paths.ts` Paste as Plain Text | the app's clipboard | `navigator.clipboard.readText()` |
-| `network/NetComposer.tsx` paper clip | the Open panel | the browser's file picker, sent as data |
-| `network/ConversationView.tsx` drop | the app's drop event | the browser's drop event, sent as data |
-| `network/ChatFiles.tsx` Open, Show in Finder, Save As… | open, reveal, the Save panel | Download (a one-time `/download/<token>` link, `web.download`) |
-| `lib/files.ts` `revealInFinder`, `openWithDefaultApp`, `saveFile` | Finder, the default app, the Save panel | a file is downloaded; a folder's path is copied and said |
-| `lib/save-text.ts` Save As… (tables) | the Save panel | a browser download |
-| `tasks/TaskSections.tsx` Add Files, Proof › Picture or File… | the Open panel | the browser's file picker, uploaded |
-| `tasks/use-task-drop.tsx` | Finder drops on a task, its card or row | the browser's drop on the same places, uploaded |
-| `layout/Sidebar.tsx` folder drop | folders dropped on the sidebar become projects | not offered (as Add Project) |
-| `network/AddFriendSheet.tsx` paste a code | the app's clipboard | `navigator.clipboard.readText()` |
-| `network/net-native.ts` idle, your status | the Mac's idle time; the menu bar | the page's own input; nothing |
-| `lib/native.ts` tray, Dock badge, deep links, window focus, notification taps | the menu bar icon, the Dock, `beluga://` links | hidden: the page's title and in-window banners only |
-| `lib/updates.ts`, `dialogs/UpdateSettings.tsx` | checks, downloads and installs updates | hidden: the server's Beluga updates, not the page |
-| `dialogs/Settings.tsx` Menu Bar pane, Reduce transparency | the menu bar icon, vibrancy | hidden |
-| `dialogs/VoiceSettings.tsx` From any app, `lib/dictation.ts` global shortcut | a shortcut that works in any app | hidden: the shortcut works while the page has focus |
-| `lib/shortcuts.ts` menu keys | the app's menu shows your shortcuts | nothing to send (the page has no menu bar) |
-| `lib/sounds/*` | macOS sounds, installed for banners | Beluga's own sounds in the page; macOS system sounds are left out |
-| `lib/sounds/access.ts`, `lib/privacy.ts` | asks macOS about notifications, the screen, the microphone | the browser's permissions |
-| `lib/window-active.ts` | the window's focus | the page's visibility and focus |
-| `gateway/popup-bridge.ts`, `gateway/request-native.ts` | the floating request pop-up, notification buttons | requests in the window (NeedsYou and the Requests view) |
-| `gateway/AccessSettings.tsx` Add Folder… | the Open panel | Beluga's folder picker |
-| `layout/ProjectTree.tsx` Change Icon… | the Open panel | the browser's file picker, uploaded |
-| `lib/native-routes.ts` Share a Folder… | the Open panel, then who | the Share a Folder sheet with Choose… (Beluga's folder picker) |
+To install a particular release (its tag from the
+[releases page](https://github.com/kayraucklnc/beluga/releases)), or link the command into another
+folder, set these before `sh`:
 
-Uploads (`src/daemon/web-files.ts`) go to `~/.beluga/uploads/<day>/<random>/<name>` (0600 files in
-0700 folders), up to 512 MB each, only from the page's own origin and a browser that's let in.
-Downloads are one-time links, good for a minute; a friend's shared file is fetched to the server
-first and deleted once it's sent.
+```sh
+curl -fsSL https://github.com/kayraucklnc/beluga/releases/latest/download/install.sh | BELUGA_VERSION=<tag> sh
+curl -fsSL https://github.com/kayraucklnc/beluga/releases/latest/download/install.sh | BELUGA_BIN_DIR="$HOME/bin" sh
+```
+
+## Set up
+
+```sh
+beluga setup
+```
+
+Five steps, each skipped when it's done already. Stop it at any point and run it again: it picks
+up where you left off.
+
+1. **Claude**: signs Claude Code in (below).
+2. **This computer**: the name your phone shows for it.
+3. **A project**: a folder on the server, or a git URL to clone. Enter skips it.
+4. **Your phone**: a QR code to scan with the Beluga app. Enter skips it.
+5. **Keep it running**: installs the service, so Beluga starts when the computer does.
+
+For a script or cloud-init, `beluga setup --yes` takes every default and asks nothing (sign
+Claude in with `CLAUDE_CODE_OAUTH_TOKEN`, below), and `--project <folder or git URL>` adds a
+first project.
+
+### Signing Claude in on a server
+
+A server has no browser, so setup uses Claude Code's own `claude setup-token`:
+
+1. It shows a link. Open it on your laptop or phone and sign in to Claude.
+2. Claude shows a code: paste it back into the server's terminal.
+3. Claude Code prints a long token starting `sk-ant-`. Copy it, and paste it when setup asks (it
+   stays hidden).
+
+Beluga keeps the token in `~/.beluga/claude-token`, readable by you alone, and gives it only to
+the Claude Code it runs. It never prints or logs it.
+
+Already have a token (from `claude setup-token` elsewhere)? Set it and run setup, which keeps it:
+
+```sh
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-… beluga setup
+```
+
+If Claude Code on the server is already signed in the usual way, setup says so and moves on.
+
+## Keep it running
+
+Setup's last step is the same as:
+
+```sh
+beluga service install
+```
+
+- **Linux**: a systemd user service, `~/.config/systemd/user/beluga.service`. It starts again if
+  it stops by itself. To start at boot and keep running after you log out, systemd needs
+  lingering on for you; Beluga turns it on when it can, and otherwise prints the one line to
+  run: `sudo loginctl enable-linger $USER`.
+- **macOS**: a launchd agent, `~/Library/LaunchAgents/io.github.kayraucklnc.beluga.server.plist`.
+  It starts when you log in. For a Mac mini that restarts on its own, turn on automatic login in
+  System Settings › Users & Groups.
+- **A container, or no systemd**: run `beluga up --foreground` as the container's command, or
+  `beluga up`, which runs until the computer restarts.
+
+| Command | What it does |
+| --- | --- |
+| `beluga status` | whether it runs, its version, projects, phones, relay and browser access |
+| `beluga logs -f` | follow its log |
+| `beluga up` · `beluga stop` | start it, stop it (a stopped service stays stopped) |
+| `beluga service` | whether the service is installed |
+| `beluga service remove` | stop it and don't start it at boot any more |
+| `beluga project add <folder or git URL>` | add a project; a URL is cloned into your projects folder, `--into <folder>` picks another |
+| `beluga project list` · `beluga project remove <name>` | list projects, remove one (its folder stays) |
+
+## Your phone
+
+Get the Beluga phone app (Android: `Beluga-<version>.apk` on the
+[releases page](https://github.com/kayraucklnc/beluga/releases/latest)). Setup pairs one phone;
+for another, on the server:
+
+```sh
+beluga pair
+```
+
+Scan the QR code with the app (or type the code under it), then confirm on both. `beluga phones`
+lists the paired phones and removes one.
+
+The phone reaches the server directly and end to end encrypted, from any network: nothing to open
+on the server. When a network blocks a direct connection, it goes through Beluga's relay instead
+(a Cloudflare tunnel the server opens), still end to end encrypted: Cloudflare carries only
+ciphertext.
+
+## In a browser
+
+The whole Beluga app, the one the Mac shows, also opens in any browser. Beluga serves it on the
+server's own `127.0.0.1:7777`, which nothing outside the server reaches; each way in below brings
+it to you.
+
+Every browser is let in once, with a **join link**: it works one time, for 10 minutes. The browser
+then stays signed in (for 90 days after it was last used). Links are made only on the server,
+never from a browser.
+
+```sh
+beluga web link          # a new join link
+beluga web sessions      # the browsers let in
+beluga web revoke <name> # sign one out, at once
+beluga web --off         # close browser access, every way in
+```
+
+Browser access stays on across restarts until `beluga web --off`.
+
+### Through Tailscale
+
+You need Tailscale on the server and on your laptop or phone, logged in to the same tailnet. Then,
+on the server:
+
+```sh
+beluga web --tailscale
+```
+
+It prints `https://<server>.<tailnet>.ts.net` and a QR code for your phone's browser. Open it from
+any of your devices: your own Tailscale login gets straight in. Anyone else on your tailnet needs
+the join link printed under it; run `beluga web --tailscale` again for a new one. It uses
+Tailscale Serve, never Funnel: only your tailnet can reach it. On a machine tagged in Tailscale
+(owned by no one), every browser needs a join link.
+
+### Through SSH
+
+On your laptop (Linux or macOS), with the `beluga` command there too from the same install line
+(it starts nothing there):
+
+```sh
+beluga connect you@your-server
+```
+
+It asks the server for a join link over ssh (starting Beluga there if it isn't running), opens
+an SSH tunnel, and opens your browser through it. A dropped tunnel comes back by itself; Ctrl+C
+closes it. Any host from `~/.ssh/config` works, with its user, port and keys. Nothing is opened on
+the server.
+
+Without Beluga on the laptop, run `beluga web` on the server. It prints a join link and the ssh
+line to run on the laptop:
+
+```sh
+ssh -N -L 7777:127.0.0.1:7777 you@your-server
+```
+
+Leave that running and open the join link on the laptop.
+
+### A public link
+
+With neither Tailscale nor SSH, on the server:
+
+```sh
+beluga web --public
+```
+
+It opens a Cloudflare tunnel and prints a `https://….trycloudflare.com` address with a join link
+under it. That link works from anywhere, once, for 10 minutes. **Anyone with a join link gets
+in**; the address alone shows only a page that asks for one, and wrong links are limited hard.
+Keep join links to yourself, and `beluga web sessions` shows who came in. Run
+`beluga web --public` again for a new join link.
+
+The address changes when the tunnel restarts; `beluga status` shows the current one. A domain of
+your own that stays the same: [docs/web.md](web.md#your-own-domain).
+
+## Updating
+
+```sh
+beluga update
+```
+
+It runs the install line again, which replaces `~/.beluga/server` in place and starts Beluga again
+on the new version if it was running. Your projects, phones, browsers and sign-in stay. Pasting
+the install line yourself does the same.
+
+## Removing
+
+```sh
+beluga web --off
+beluga service remove
+beluga stop
+rm -rf ~/.beluga/server ~/.local/bin/beluga
+```
+
+That removes Beluga's program. Your settings, paired phones, browsers and Claude token stay in
+`~/.beluga`; to forget them too, `rm -rf ~/.beluga`. Your projects' folders are never touched.
+On the phone, remove the computer from the app.
+
+## What each way in lets through
+
+Beluga's own key to itself (the token in `~/.beluga/daemon.json`) never leaves the server: every
+phone and browser gets its own way in, which you can take back.
+
+| Way in | Who can reach it | Who gets in | Opened on the server | Take it back |
+| --- | --- | --- | --- | --- |
+| Phone | anyone, over the internet | a phone you paired, by its own key | nothing | `beluga phones` |
+| Tailscale | your tailnet only | your Tailscale login; others with a join link | nothing (Tailscale Serve) | `beluga web --off` |
+| SSH | whoever can ssh in | a browser with a join link | nothing | `beluga web revoke` |
+| Public link | anyone with the address | a browser with a join link | nothing (an outgoing tunnel) | `beluga web --off` |
+
+A browser or phone that's in can do what you can on the server: run agents, open a shell, read and
+write your files. So:
+
+- Join links are one use, 10 minutes, and their secret never reaches a server log.
+- A browser's session is a cookie scripts can't read; the server keeps only its hash, and revoking
+  it cuts the browser off at once.
+- On a server other people log in to, use join links rather than Tailscale's login check: another
+  account on the same machine could pretend to be Tailscale.
+- The Claude token stays in `~/.beluga/claude-token` (0600) and goes only to Claude Code.
+
+The details, and the review behind them: [docs/security.md](security.md#web-access).
+
+## When something doesn't work
+
+**`beluga: command not found`** right after installing: `~/.local/bin` isn't on your PATH. Run the
+`echo 'export PATH=…'` line the install printed, then open a new terminal.
+
+**The phone can't connect.** Some networks block the UDP a direct connection needs. Beluga's relay
+covers that: `beluga status` says whether the relay is ready. If it says the relay isn't
+running, `beluga logs` says why; the server needs outgoing https to Cloudflare for it. The phone
+says what it found too, under **Why?**. Pairing with the QR code works even where a typed code
+can't find the server.
+
+**Tailscale says it isn't connected**, or isn't installed: install it with
+`curl -fsSL https://tailscale.com/install.sh | sh`, log in with `sudo tailscale up`, then run
+`beluga web --tailscale` again. Beluga says the one thing to fix when:
+
+- Tailscale needs your say-so to serve as you: `sudo tailscale set --operator=$USER`, once.
+- HTTPS certificates are off for your tailnet: turn them on in the Tailscale admin console › DNS ›
+  HTTPS Certificates.
+- The machine has no name: turn on MagicDNS in the admin console › DNS.
+
+**SSH: "is port … free here?"** `beluga connect` uses port 7777 on your laptop when it's free, and
+another one when it isn't. If ssh still can't open the tunnel, choose one:
+`beluga connect you@your-server --port 7790`. For the plain ssh line, change the first `7777`:
+`ssh -N -L 7790:127.0.0.1:7777 you@your-server`, then open the join link with `7790` in place of
+`7777`.
+
+**Port 7777 is busy on the server**: run Beluga's web port on another one,
+`beluga web --listen 127.0.0.1:7778`. `beluga connect` follows it by itself.
+
+**`beluga connect` says Beluga isn't installed** on the server: install it there (the line above).
+`beluga connect` looks for it in `~/.local/bin` and on the PATH of a plain ssh command; installed
+with `BELUGA_BIN_DIR` somewhere else, put that folder on the PATH in `~/.profile`.
+
+**A public link stopped answering**: Cloudflare quick tunnels sometimes drop. Beluga opens a new
+one by itself; `beluga status` shows its new address, and `beluga web --public` gives a fresh
+join link.
+
+**Anything else**: `beluga status`, then `beluga logs -f`.
