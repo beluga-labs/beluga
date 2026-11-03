@@ -13,6 +13,9 @@ export const WEB_API = {
   'web.sessions.list': { args: z.tuple([]) },
   // Revoke a browser by id or name: its sockets close now and its cookie stops working. → the browser
   'web.sessions.revoke': { args: z.tuple([z.string().min(1).max(80)]) },
+  // A browser saves a file of this computer's (a path), or a shared one (fetched here first): a one-time
+  // link on the web port, good for a minute. → { url: "/download/<token>", name }
+  'web.download': { args: z.tuple([z.union([z.object({ path: z.string().min(1).max(4096) }), z.object({ at: z.object({ owner: z.string().max(200), share: z.string().max(200), path: z.string().max(4096) }) })])]) },
   // Close the web port (it stays closed across restarts until a new link opens it).
   'web.stop': { args: z.tuple([]) },
 } as const;

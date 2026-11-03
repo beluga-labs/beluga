@@ -14,6 +14,16 @@ export interface Endpoint {
   readonly token: string;
 }
 
+let served = false;
+/**
+ * This page came from the daemon's web port (`beluga web`): a browser, maybe on another computer.
+ * Its stand-ins for the app's native bits (docs/headless.md): a folder picker over the server's
+ * folders, uploads for what you drop or pick, downloads for what you save or show.
+ */
+export const webServed = (): boolean => served;
+/** The app's folder picker, or the browser's stand-in for it. */
+export const canPickFolders = (): boolean => inApp() || served;
+
 /** What a browser's hello carries where the token goes: the web port lets it in by its session, never a token. */
 export const WEB_HELLO_TOKEN = 'browser-session-cookie';
 
@@ -37,7 +47,11 @@ export async function endpoint(): Promise<Endpoint> {
     throw new Error('This browser is signed out of Beluga');
   }
   if (!res.ok || body.error) throw new Error(body.error ?? 'Beluga is not running');
-  if (body.web) return { url: webSocketUrl(location), token: WEB_HELLO_TOKEN };
+  if (body.web) {
+    served = true;
+    document.documentElement.dataset.web = 'true';
+    return { url: webSocketUrl(location), token: WEB_HELLO_TOKEN };
+  }
   if (!body.url || !body.token) throw new Error('Beluga is not running');
   return { url: body.url, token: body.token };
 }

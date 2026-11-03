@@ -378,6 +378,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `attachments.open` | ✓ image full size › Open (in Preview) |
 | `daemon.stop` | ✓ |
 | `local.listDirs` | ✓ |
+| `local.browse` | ✓ in a browser the web port served: the folder picker (Add Project › Choose Folders…, New Project › Change…, Share a Folder, Settings › People & access › Add Folder…; `dialogs/FolderBrowser.tsx`) |
 | `local.openFolder` | ✓ |
 | `local.statFiles` | ✓ ⌘V of file paths attaches the files (⌘⇧V keeps the words) |
 | `projects.add` | ✓ Add projects sheet, Choose Folders…, drop folders on the sidebar |
@@ -610,6 +611,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `web.sessions.list` | ✓ Settings › Advanced › Web access: the browsers let in (name, let in, last seen) and whether the port is open; `beluga web sessions` |
 | `web.sessions.revoke` | ✓ a browser's Revoke in Settings › Advanced › Web access (its sockets close at once, its page locks); `beluga web revoke <id or name>` |
 | `web.stop` | ✓ Settings › Advanced › Web access › Close Port; `beluga web stop` |
+| `web.download` | ✓ in a browser the web port served: a chat file's Download, Show in Finder / Open on a file, Save on a shared file (docs/headless.md) |
 ## Sending while the agent works, and images
 
 | What | Core | Mac |

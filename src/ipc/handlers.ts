@@ -3,7 +3,7 @@ import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
 import type { WorkspaceController } from '../core/workspace-controller.js';
 import type { Workbench } from '../core/workbench.js';
-import { listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
+import { browseDir, listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
 import { ATTACHMENT_SHARE, type FetchShared, attachmentOnDisk, chipText, expandChips, importImageFitting, mediaTypeOf, pathInfo, publishForRoom, reattach, readAttachment, registerAttachment, roomAttachmentsDir, saveImageBytes } from '../core/attachments.js';
 import { fetchBytes } from '../core/downloads.js';
 import { testDatabase } from '../core/views/sources.js';
@@ -363,6 +363,7 @@ export const HANDLERS = {
     s.store.dispatch({ type: 'dir_cache', key: localDirKey(dir), entries });
     return entries;
   },
+  'local.browse': (_s, dir) => browseDir(dir),
   'local.openFolder': (_s, dir) => openWithSystem(dir),
   'local.statFiles': (_s, paths) => paths.map(pathInfo),
   ...NETWORK_HANDLERS,

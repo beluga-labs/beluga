@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import type { Session } from '../core/session.js';
 import { webAccessOf } from '../daemon/web-access.js';
 import type { Args, Method } from './api.js';
@@ -12,4 +14,12 @@ export const WEB_HANDLERS = {
   'web.sessions.list': (s) => webAccessOf(s).status(),
   'web.sessions.revoke': (s, idOrName) => webAccessOf(s).revoke(idOrName),
   'web.stop': (s) => webAccessOf(s).stop(),
+  'web.download': async (s, target) => {
+    const { files } = webAccessOf(s);
+    if ('path' in target) return files.offer(path.resolve(target.path.replace(/^~(?=$|[\\/])/, os.homedir())));
+    const name = target.at.path.split('/').pop() || 'download';
+    const to = files.scratch(name);
+    await s.download(target.at, { to });
+    return files.offer(to, { name, temporary: true });
+  },
 } satisfies WebHandlers;

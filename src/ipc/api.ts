@@ -428,6 +428,8 @@ export const API = {
 
   // ---- this computer
   'local.listDirs': args(path),
+  // A folder of this computer for a browser's folder picker (BLG-651): where it is, its parent, its folders. → { path, parent?, home, dirs: [{ name, git }] }
+  'local.browse': args(opt(path)),
   'local.openFolder': args(path),
   // Pasted paths: is each a file, a folder, or nothing? (Read-only.) → [{ path, name, kind, size, image }]
   'local.statFiles': args(z.array(path).min(1).max(20)),

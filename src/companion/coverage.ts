@@ -238,6 +238,7 @@ export const PHONE: Record<Method, Side> = {
   'projects.newHome': 'mac',
   'projects.iconAt': 'mac',
   'local.listDirs': 'mac',
+  'local.browse': 'mac',
   'local.openFolder': 'mac',
   'local.statFiles': 'mac',
 
@@ -301,6 +302,7 @@ export const PHONE: Record<Method, Side> = {
   'web.sessions.list': 'mac',
   'web.sessions.revoke': 'mac',
   'web.stop': 'mac',
+  'web.download': 'mac',
 
   // ---- Your Mac's chats (BLG-102): since 1.14 the phone lists them, starts one and deletes one
   // (it's chatting). Which tab is open is the Mac's: the phone opens any chat without moving it.

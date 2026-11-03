@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { belugaHome } from '../core/home.js';
 import { joinRoute, locked, sessionCookie } from './web-join.js';
 import { type JoinLink, JoinLimiter, type WebSessionInfo, WebSessions } from './web-sessions.js';
+import { WebFiles } from './web-files.js';
 import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, parseListen, webUrl } from './web.js';
 
 /**
@@ -49,6 +50,8 @@ export interface WebAccessOptions {
 
 export class WebAccess {
   readonly sessions: WebSessions;
+  /** Uploads from browsers, and one-time download links to them. */
+  readonly files = new WebFiles();
   private readonly limiter = new JoinLimiter();
   private server?: WebServer;
   private args?: WebArgs;
@@ -83,6 +86,7 @@ export class WebAccess {
       ...(this.opts.root ? { root: this.opts.root } : {}),
       authorize: (req) => this.sessions.check(sessionCookie(req)),
       routes: [joinRoute(this.sessions, this.limiter, this.opts.log)],
+      authedRoutes: this.files.routes(this.opts.log),
       locked,
       ...(this.opts.log ? { log: this.opts.log } : {}),
     });
