@@ -54,11 +54,16 @@ const startHere = async (): Promise<RunningDaemon> => {
   return daemon;
 };
 
-/** The `beluga` command in a pty; then `stty -a`, to see the terminal it leaves behind. */
+/**
+ * The `beluga` command in a pty; then `stty -a`, to see the terminal it leaves behind. Ctrl+C
+ * reaches the wrapping shell too: `trap : INT` keeps it alive to pass on beluga's code, where
+ * dash (Linux's /bin/sh) would die of the signal and the pty would say 0. The command still gets
+ * SIGINT as usual (a trap with a command isn't inherited, unlike an ignored signal).
+ */
 function terminal(...args: string[]): { text: () => string; type: (s: string) => void; exited: Promise<number>; mode: () => string } {
   let out = '';
   const cli = [process.execPath, '--import', 'tsx', path.join(ROOT, 'src/cli.ts'), ...args].map((a) => `'${a}'`).join(' ');
-  const pty = ptyModule.spawn('/bin/sh', ['-c', `${cli}; code=$?; echo; echo "STTY: $(stty -a | tr '\\n' ' ')"; exit $code`], { name: 'xterm-256color', cols: 100, rows: 50, cwd: ROOT, env: { ...process.env, FORCE_COLOR: '0' } });
+  const pty = ptyModule.spawn('/bin/sh', ['-c', `trap : INT; ${cli}; code=$?; echo; echo "STTY: $(stty -a | tr '\\n' ' ')"; exit $code`], { name: 'xterm-256color', cols: 100, rows: 50, cwd: ROOT, env: { ...process.env, FORCE_COLOR: '0' } });
   pty.onData((d) => void (out += d));
   const exited = new Promise<number>((r) => pty.onExit((e) => r(e.exitCode)));
   cleanup.push(() => pty.kill());
