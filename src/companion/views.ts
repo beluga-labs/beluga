@@ -89,11 +89,12 @@ const PICTURE = /!\[([^\]\n]*)\]\((?:<([^>\n]+)>|([^)\s]+))\)/g;
 export function withPictures(prose: ProseView, refs: ViewContext['refs'], cwd?: string): ProseView {
   if (!prose.text.includes('![')) return prose;
   const text = prose.text.replace(PICTURE, (all, alt: string, angled: string | undefined, bare: string | undefined) => {
-    let p = (angled ?? bare ?? '').replace(/^file:\/\//, '').replace(/^~(?=\/)/, process.env.HOME ?? '~');
+    // file:///C:/x is C:/x on Windows; ~ is your home there too (USERPROFILE: Windows has no $HOME).
+    let p = (angled ?? bare ?? '').replace(/^file:\/\//, '').replace(/^\/(?=[A-Za-z]:[\\/])/, '').replace(/^~(?=[\\/])/, () => process.env.HOME || process.env.USERPROFILE || '~');
     try {
       p = decodeURI(p);
     } catch {}
-    const out = p.startsWith('/') ? refs.output(p, cwd ? { cwd } : {}) : undefined;
+    const out = p.startsWith('/') || /^[A-Za-z]:[\\/]|^\\\\/.test(p) ? refs.output(p, cwd ? { cwd } : {}) : undefined;
     return out?.kind === 'image' ? `![${alt}](${out.ref})` : all;
   });
   return text === prose.text ? prose : { ...prose, text };

@@ -113,20 +113,33 @@ const run = (cmd: string, args: readonly string[], cwd: string, timeoutMs = 20_0
 /** Where Homebrew puts programs: a Mac app started from the Dock gets a PATH without them. */
 export const HOMEBREW_BINS = ['/opt/homebrew/bin', '/usr/local/bin'] as const;
 
-/** The first `name` on `pathEnv` or in Homebrew's folders, as a full path (undefined: none). */
-export function findTool(name: string, pathEnv = process.env.PATH ?? '', exists: (file: string) => boolean = existsSync): string | undefined {
-  const dirs = [...pathEnv.split(':').filter(Boolean), ...HOMEBREW_BINS];
+/** How a system lists PATH's folders: ";" between them on Windows, ":" elsewhere. */
+const pathDirs = (pathEnv: string, platform: NodeJS.Platform): string[] => pathEnv.split(platform === 'win32' ? ';' : ':').filter(Boolean);
+
+/**
+ * The first `name` on `pathEnv` or in Homebrew's folders, as a full path (undefined: none). On
+ * Windows a program is found with the endings PATHEXT lists (gh.exe for "gh"), as cmd finds it.
+ */
+export function findTool(name: string, pathEnv = process.env.PATH ?? '', exists: (file: string) => boolean = existsSync, platform: NodeJS.Platform = process.platform, pathExt = process.env.PATHEXT): string | undefined {
+  const win = platform === 'win32';
+  const join = win ? path.win32.join : path.posix.join;
+  const dirs = [...pathDirs(pathEnv, platform), ...(win ? [] : HOMEBREW_BINS)];
+  const endings = win && !/\.\w+$/.test(name) ? (pathExt || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase()) : [''];
   for (const dir of [...new Set(dirs)]) {
-    const file = path.join(dir, name);
-    if (exists(file)) return file;
+    for (const ending of endings) {
+      const file = join(dir, `${name}${ending}`);
+      if (exists(file)) return file;
+    }
   }
   return undefined;
 }
 
 /** How to run `name`: by its name when it's on PATH, else its full path in Homebrew's folders (else the name, which fails with ENOENT). */
-export function toolCommand(name: string, pathEnv = process.env.PATH ?? '', exists: (file: string) => boolean = existsSync): string {
-  const found = findTool(name, pathEnv, exists);
-  return found && !pathEnv.split(':').includes(path.dirname(found)) ? found : name;
+export function toolCommand(name: string, pathEnv = process.env.PATH ?? '', exists: (file: string) => boolean = existsSync, platform: NodeJS.Platform = process.platform): string {
+  const found = findTool(name, pathEnv, exists, platform);
+  if (!found) return name;
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  return pathDirs(pathEnv, platform).includes(p.dirname(found)) ? name : found;
 }
 
 /** The GitHub CLI to run: BELUGA_GH (the Mac app's end-to-end tests point it at a stand-in), else gh on PATH or in Homebrew's folders. */

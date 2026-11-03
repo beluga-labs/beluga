@@ -37,16 +37,41 @@ const executable = (file: string): boolean => {
   }
 };
 
+/** PATH as Windows may spell it ("Path"): its variable names are the same in any letter case. */
+export const pathVar = (env: Readonly<Record<string, string | undefined>>): string => env.PATH ?? Object.entries(env).find(([k]) => k.toUpperCase() === 'PATH')?.[1] ?? '';
+
 /**
  * Where Codex is: BELUGA_CODEX_PATH, then the Codex app's own binary (self-contained), then `codex`
- * on PATH (the npm shim, which can lose its platform binary on an upgrade). Undefined: not installed.
+ * on PATH (the npm shim, which can lose its platform binary on an upgrade). On Windows, codex.exe
+ * on PATH, else npm's codex.cmd (never the extensionless shim npm puts beside it, a script for
+ * sh that Windows can't start). Undefined: not installed.
  */
-export function findCodex(env: Readonly<Record<string, string | undefined>> = process.env): string | undefined {
+export function findCodex(env: Readonly<Record<string, string | undefined>> = process.env, platform: NodeJS.Platform = process.platform, runs: (file: string) => boolean = executable): string | undefined {
   const set = env.BELUGA_CODEX_PATH;
-  if (set) return executable(set) ? set : undefined;
+  if (set) return runs(set) ? set : undefined;
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const dirs = pathVar(env).split(platform === 'win32' ? ';' : ':').filter(Boolean);
+  if (platform === 'win32') {
+    const exes = dirs.map((dir) => p.join(dir, 'codex.exe'));
+    const shims = dirs.map((dir) => p.join(dir, 'codex.cmd'));
+    return [...exes, ...shims].find(runs);
+  }
   const apps = ['/Applications/Codex.app/Contents/Resources/codex', path.join(os.homedir(), 'Applications/Codex.app/Contents/Resources/codex')];
-  const onPath = (env.PATH ?? '').split(path.delimiter).filter(Boolean).map((dir) => path.join(dir, 'codex'));
-  return [...apps, ...onPath].find(executable);
+  return [...apps, ...dirs.map((dir) => p.join(dir, 'codex'))].find(runs);
+}
+
+/** A Windows batch file (npm's codex.cmd): only cmd.exe starts one. */
+const isBatch = (file: string): boolean => /\.(cmd|bat)$/i.test(file);
+
+/**
+ * How to start `file` with `args`: as it is, or for a .cmd/.bat through cmd.exe (shell), with the
+ * file and every argument in double quotes so spaces ("C:\Program Files") and cmd's own
+ * characters (&, |, ^) stay part of them.
+ */
+export function codexCommand(file: string, args: readonly string[]): { readonly command: string; readonly args: readonly string[]; readonly shell: boolean } {
+  if (!isBatch(file)) return { command: file, args, shell: false };
+  const quote = (s: string): string => `"${s.replace(/"/g, '""')}"`;
+  return { command: [file, ...args].map(quote).join(' '), args: [], shell: true };
 }
 
 /** Say hello as Beluga: required before any other request. */
@@ -58,8 +83,9 @@ export async function handshake(rpc: CodexRpc, version = '0'): Promise<void> {
 /** Spawn `codex app-server` and shake hands. */
 export const spawnAppServer: CodexConnect = async ({ cwd, env, bin }) => {
   const command = bin ?? findCodex(env ?? process.env);
-  if (!command) throw new Error('Codex isn’t installed on this Mac. Install the Codex app or `npm i -g @openai/codex`, then try again.');
-  const child = spawn(command, ['app-server'], { cwd, env: { ...(env ?? process.env) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  if (!command) throw new Error(`Codex isn’t installed on this ${process.platform === 'darwin' ? 'Mac' : 'computer'}. Install the Codex app or \`npm i -g @openai/codex\`, then try again.`);
+  const how = codexCommand(command, ['app-server']);
+  const child = spawn(how.command, [...how.args], { cwd, env: { ...(env ?? process.env) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: how.shell });
   const lines: string[] = [];
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => keepLines(lines, chunk, STDERR_KEEP));

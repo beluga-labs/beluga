@@ -4,6 +4,7 @@
  * their own emulator (see emulator.ts) fed with the raw bytes.
  */
 import path from 'node:path';
+import { takesLoginFlag } from '../shared/shells.js';
 import { childEnv, defaultShell, spawnPty, type IPty } from './pty.js';
 
 /** Bytes kept for screens that attach later. */
@@ -14,7 +15,7 @@ export interface PtyOptions {
   readonly cwd: string;
   /** Program to run. Default: `$SHELL`, else /bin/zsh, else /bin/sh. */
   readonly shell?: string;
-  /** Arguments. Default: `['-l']` (login shell; a PTY makes it interactive). */
+  /** Arguments. Default: `['-l']` (login shell; a PTY makes it interactive), none for PowerShell and cmd. */
   readonly args?: readonly string[];
   /** Extra environment, applied over ours (TERM/COLORTERM are set already). */
   readonly env?: Record<string, string>;
@@ -89,7 +90,7 @@ export class PtyProcess {
 
   private start(opts: PtyOptions): void {
     try {
-      const pty = spawnPty({ file: this.shell, args: opts.args ?? ['-l'], cwd: opts.cwd, env: childEnv(opts.env), cols: this.cols, rows: this.rows });
+      const pty = spawnPty({ file: this.shell, args: opts.args ?? (takesLoginFlag(this.shell) ? ['-l'] : []), cwd: opts.cwd, env: childEnv(opts.env), cols: this.cols, rows: this.rows });
       this.pty = pty;
       pty.onData((d) => this.emit(d));
       pty.onExit(({ exitCode, signal }) => this.finish(signal ? { code: null, signal } : { code: exitCode }));

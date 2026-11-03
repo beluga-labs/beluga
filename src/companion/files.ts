@@ -15,7 +15,7 @@ import { COMPANION_PIECE, type OutputView } from './protocol.js';
  * project or where outputs go; never source code) and not a secret (`isSecretPath`, by the path
  * given and where it really leads). The phone never learns a path.
  *
- * Variants: `thumb` (a picture's longest side 640 px, or a video's first frame (Quick Look), JPEG, made with `sips` and cached under
+ * Variants: `thumb` (a picture's longest side 640 px, or a video's first frame (Quick Look), JPEG, made with `sips` (elsewhere than a Mac: by Beluga itself, pictures only) and cached under
  * ~/.beluga/companion/thumbs), `full` (the bytes), `text` (a text output, secrets redacted). Each
  * answer is one piece of at most COMPANION_PIECE bytes from `off`; the phone asks for the next.
  *
@@ -163,6 +163,21 @@ export const sipsThumbnailer: Thumbnailer = (src, dest) =>
     execFile('sips', ['-Z', '640', '-s', 'format', 'jpeg', src, '--out', dest], { timeout: 20_000 }, (err) => (err ? reject(new Error('Could not make a thumbnail')) : resolve()));
   });
 
+/** Windows and Linux have no sips: the picture is read and made small here (PNG, JPEG, GIF, SVG). */
+export const jsThumbnailer: Thumbnailer = async (src, dest) => {
+  const { shrinkImageFile } = await import('../image/shrink.js');
+  await shrinkImageFile(src, dest, 640, 'jpeg').catch(() => {
+    throw new Error('Could not make a thumbnail');
+  });
+};
+
+/** Quick Look is the Mac's: elsewhere a video has no poster (the phone shows its kind instead). */
+export const noPoster: Thumbnailer = () => Promise.reject(new Error('No poster for videos on this computer'));
+
+/** The thumbnailers for this system: the Mac's own tools there, Beluga's own (pictures only) elsewhere. */
+export const thumbnailersFor = (platform: NodeJS.Platform = process.platform): { readonly thumbnail: Thumbnailer; readonly poster: Thumbnailer } =>
+  platform === 'darwin' ? { thumbnail: sipsThumbnailer, poster: quickLookPoster } : { thumbnail: jsThumbnailer, poster: noPoster };
+
 /**
  * A video's poster frame, the way Finder makes it (Quick Look), then a JPEG like a picture's. Only
  * the formats Quick Look draws (MP4, M4V, MOV): it can hang on others, so it's never asked, and
@@ -222,7 +237,8 @@ export class FileServer {
     const kind = outputKind(entry.path);
     if (variant === 'thumb') {
       if (kind !== 'image' && kind !== 'video') throw new Error('Only pictures and videos have thumbnails');
-      const thumb = await this.thumb(entry.path, kind === 'video' ? (this.opts.poster ?? quickLookPoster) : (this.opts.thumbnail ?? sipsThumbnailer));
+      const here = thumbnailersFor();
+      const thumb = await this.thumb(entry.path, kind === 'video' ? (this.opts.poster ?? here.poster) : (this.opts.thumbnail ?? here.thumbnail));
       const { bytes, size } = await readPiece(thumb, off, COMPANION_PIECE);
       return { off, b64: bytes.toString('base64'), eof: off + bytes.length >= size, size, mime: 'image/jpeg' };
     }

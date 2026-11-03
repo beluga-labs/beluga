@@ -7,6 +7,12 @@ import { defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { builtInInstead } from '../shared/skills.js';
 
+/**
+ * "~/x" (or "~\\x" on Windows) from your home folder. No node:os here (the screens load this file):
+ * Windows has no $HOME, so its USERPROFILE.
+ */
+const fromHome = (p: string): string => p.replace(/^~(?=$|[\\/])/, () => process.env.HOME || process.env.USERPROFILE || '~');
+
 export interface CommandSpec {
   readonly name: string;
   readonly args?: string;
@@ -251,7 +257,7 @@ export function runCommand(session: Session, name: string, args: readonly string
       return;
     case 'share': {
       if (!arg) return session.toast('Usage: /share <folder> [rw]', 'warn');
-      session.shareFolder(arg.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'), args[1] === 'rw');
+      session.shareFolder(fromHome(arg), args[1] === 'rw');
       return;
     }
     case 'unshare':
@@ -370,7 +376,7 @@ function runWorkspaceCommand(session: Session, name: string, args: readonly stri
       session.workbench?.setScript(project.id, sub, rest.join(' '));
       return;
     }
-    const dir = rest.join(' ').replace(/^~(?=$|\/)/, process.env.HOME ?? '~');
+    const dir = fromHome(rest.join(' '));
     if (!dir || (sub !== 'add' && sub !== 'folder')) return session.toast('Usage: /project add <path>, /project folder <path>, /project setup <command> or /project run <command>', 'warn');
     void (sub === 'add' ? ctl.addProject(dir) : ctl.addFolder(dir));
     return;

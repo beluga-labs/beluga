@@ -49,10 +49,16 @@ export async function copyNative(text: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * What a paste tool printed, as the clipboard holds it: PowerShell's Get-Clipboard (Windows) ends
+ * every line with CRLF, the last one too, so that one line end goes. Other systems' tools print it as it is.
+ */
+export const pastedText = (out: string, platform: NodeJS.Platform = process.platform): string => (platform === 'win32' ? out.replace(/\r?\n$/, '') : out);
+
 export async function pasteText(): Promise<string | undefined> {
   for (const tool of PASTE[process.platform] ?? []) {
     try {
-      return await run(tool);
+      return pastedText(await run(tool));
     } catch {
       // try the next tool
     }

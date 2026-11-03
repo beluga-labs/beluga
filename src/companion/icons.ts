@@ -7,7 +7,7 @@ import { type ProjectIcon, readProjectIcon } from '../core/project-icons.js';
 /**
  * Projects' icons for the phone (BLG-45): the icon the Mac shows next to a project (yours, else the
  * one the project ships, src/core/project-icons.ts), made small (a PNG of at most ICON_PX on its
- * longest side, with `sips`) and named by its checksum. Views carry only the checksum
+ * longest side, with `sips` on a Mac and Beluga's own decoder elsewhere) and named by its checksum. Views carry only the checksum
  * (`icon`); the phone fetches an icon once with `companion.icon(sum)` and keeps it by that sum, so
  * a project whose icon didn't change is never fetched again.
  *
@@ -35,6 +35,17 @@ export const sipsShrinker: Shrinker = (src, dest, px) =>
   new Promise((resolve, reject) => {
     execFile('sips', ['-Z', String(px), '-s', 'format', 'png', src, '--out', dest], { timeout: 20_000 }, (err) => (err ? reject(new Error('Could not make the icon small')) : resolve()));
   });
+
+/** Windows and Linux have no sips: PNG and JPEG icons are made small here (others aren't sent). */
+export const jsShrinker: Shrinker = async (src, dest, px) => {
+  const { shrinkImageFile } = await import('../image/shrink.js');
+  await shrinkImageFile(src, dest, px, 'png').catch(() => {
+    throw new Error('Could not make the icon small');
+  });
+};
+
+/** The shrinker for this system: sips on a Mac, Beluga's own elsewhere. */
+export const shrinkerFor = (platform: NodeJS.Platform = process.platform): Shrinker => (platform === 'darwin' ? sipsShrinker : jsShrinker);
 
 const EXT: Readonly<Record<string, string>> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/x-icon': '.ico' };
 
@@ -107,7 +118,7 @@ export class ProjectIcons {
       png = readFileSync(dest);
     } catch {
       writeFileSync(src, bytes, { mode: 0o600 });
-      await (this.opts.shrink ?? sipsShrinker)(src, dest, ICON_PX);
+      await (this.opts.shrink ?? shrinkerFor())(src, dest, ICON_PX);
       png = readFileSync(dest);
     }
     return png.length ? iconOf('image/png', png) : undefined;

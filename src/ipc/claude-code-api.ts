@@ -9,7 +9,12 @@ import { z } from 'zod';
 const sessionId = z.string().regex(/^[0-9a-f-]{8,64}$/i);
 const agentId = z.string().regex(/^[\w-]{1,64}$/);
 const seq = z.number().int().min(0);
-const filePath = z.string().min(2).max(4096).refine((p) => p.startsWith('/') && !p.includes('\0'), 'a full path');
+/** A full path: "/…" on a Mac and Linux, "C:\…", "C:/…" or "\\server\…" on Windows. */
+const filePath = z
+  .string()
+  .min(2)
+  .max(4096)
+  .refine((p) => (p.startsWith('/') || /^[A-Za-z]:[\\/]|^\\\\/.test(p)) && !p.includes('\0'), 'a full path');
 const mcpName = z.string().min(1).max(200);
 /** Whose MCP servers (BLG-518): a runtime's id ('claude', 'codex'); unset: your agent's. */
 const mcpRuntime = z.string().regex(/^[a-z][\w-]{0,31}$/).optional();

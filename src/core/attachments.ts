@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { copyFileSync, mkdirSync, promises as fs, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { belugaHome } from './home.js';
 export { ATTACHMENT_SHARE, ATTACHMENT_SCHEME } from './attachment-share.js';
 import { ATTACHMENT_SHARE, ATTACHMENT_SCHEME } from './attachment-share.js';
@@ -126,11 +127,14 @@ const isPng = (b: Buffer): boolean => b.length > 8 && b[0] === 0x89 && b[1] === 
 /**
  * Save the image on the clipboard (if there is one) in the attachments folder. macOS: an image
  * file copied in Finder is copied over as is, else AppleScript hands over the clipboard as PNG
- * (screenshots, images copied from a browser or Preview). Linux uses wl-paste or xclip.
+ * (screenshots, images copied from a browser or Preview). Linux uses wl-paste or xclip; Windows
+ * PowerShell (an image file copied in Explorer, else the picture itself as PNG). Never throws for
+ * a missing tool or an empty clipboard: undefined.
  */
 export async function saveClipboardImage(dir = attachmentsDir()): Promise<string | undefined> {
   await fs.mkdir(dir, { recursive: true });
   if (process.platform === 'darwin') return (await copiedImageFile(dir)) ?? (await macClipboardPng(dir));
+  if (process.platform === 'win32') return windowsClipboardImage(dir);
   if (process.platform === 'linux') {
     const file = path.join(dir, `${stamp()}.png`);
     for (const [cmd, args] of [['wl-paste', ['--type', 'image/png']], ['xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o']]] as const) {
@@ -138,13 +142,51 @@ export async function saveClipboardImage(dir = attachmentsDir()): Promise<string
         const bytes = await run(cmd, args);
         if (!isPng(bytes)) continue;
         await fs.writeFile(file, bytes);
-        return file;
+        return bytes.length > MAX_ATTACHMENT_BYTES ? shrinkImage(file) : file;
       } catch {
         // try the next tool
       }
     }
   }
   return undefined;
+}
+
+/** A PowerShell string: in single quotes, its own single quotes doubled. */
+const psQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+
+/**
+ * Windows: the PowerShell that saves the clipboard's picture as a PNG at `file` and prints "image",
+ * or prints "file:" and the path of one file copied in Explorer; prints nothing when there's neither.
+ */
+export const windowsClipboardScript = (file: string): string =>
+  [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    'Add-Type -AssemblyName System.Drawing',
+    'if ([Windows.Forms.Clipboard]::ContainsFileDropList()) { $f = [Windows.Forms.Clipboard]::GetFileDropList(); if ($f.Count -eq 1) { Write-Output ("file:" + $f[0]) }; exit 0 }',
+    '$img = [Windows.Forms.Clipboard]::GetImage()',
+    'if ($img -eq $null) { exit 0 }',
+    `$img.Save(${psQuote(file)}, [System.Drawing.Imaging.ImageFormat]::Png)`,
+    "Write-Output 'image'",
+  ].join('; ');
+
+async function windowsClipboardImage(dir: string): Promise<string | undefined> {
+  const file = path.join(dir, `${stamp()}.png`);
+  let said: string;
+  try {
+    said = (await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', windowsClipboardScript(file)])).toString('utf8').trim();
+  } catch {
+    await fs.rm(file, { force: true });
+    return undefined; // no PowerShell, or it couldn't read the clipboard
+  }
+  if (said.startsWith('file:')) {
+    const copied = said.slice(5).trim();
+    if (!isFile(copied)) return undefined;
+    if (!IMAGE_EXT.test(copied)) throw new Error(`${path.basename(copied)} isn't an image (png, jpg, gif or webp)`);
+    return importImageFitting(copied, dir);
+  }
+  const size = said === 'image' && isFile(file) ? statSync(file).size : 0;
+  if (!size) return undefined;
+  return size > MAX_ATTACHMENT_BYTES ? shrinkImage(file) : file;
 }
 
 /** An image file copied in Finder (the clipboard holds its location, plus only its icon as a picture). */
@@ -188,7 +230,9 @@ async function shrinkImage(file: string): Promise<string> {
   const out = /\.png$/i.test(file) ? file.replace(/\.png$/i, '.jpg') : file.replace(/(\.\w+)?$/, '.small.jpg');
   try {
     for (const [edge, quality] of [['2000', '80'], ['1568', '60']] as const) {
-      await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', quality, '-Z', edge, file, '--out', out]);
+      // sips is the Mac's; elsewhere Beluga reads the picture itself (PNG, JPEG, GIF).
+      if (process.platform === 'darwin') await run('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', quality, '-Z', edge, file, '--out', out]);
+      else await (await import('../image/shrink.js')).shrinkImageFile(file, out, Number(edge), 'jpeg', Number(quality));
       if (statSync(out).size <= MAX_ATTACHMENT_BYTES) return out;
     }
   } finally {
@@ -211,18 +255,29 @@ const safeDecode = (s: string): string => {
   }
 };
 
-export function droppedImagePaths(text: string, exists: (p: string) => boolean = isFile): string[] | undefined {
+export function droppedImagePaths(text: string, exists: (p: string) => boolean = isFile, platform: NodeJS.Platform = process.platform, home: string = os.homedir()): string[] | undefined {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > 4000) return undefined;
   const tokens: string[] = [];
   const re = /'([^']*)'|"([^"]*)"|((?:\\.|[^\s\\])+)/g;
-  for (const m of trimmed.matchAll(re)) tokens.push(m[1] ?? m[2] ?? (m[3] ?? '').replace(/\\(.)/g, '$1'));
+  // On Windows, and in a Windows path (C:\… or \\server\…), a backslash separates folders, never escapes.
+  const plain = (t: string): boolean => platform === 'win32' || WINDOWS_PATH.test(t);
+  for (const m of trimmed.matchAll(re)) tokens.push(m[1] ?? m[2] ?? (plain(m[3] ?? '') ? (m[3] ?? '') : (m[3] ?? '').replace(/\\(.)/g, '$1')));
   if (!tokens.length) return undefined;
-  const paths = tokens.map((t) => {
-    const p = t.startsWith('file://') ? safeDecode(t.slice(7)) : t;
-    return p.replace(/^~(?=$|\/)/, os.homedir());
-  });
-  return paths.every((p) => path.isAbsolute(p) && IMAGE_EXT.test(p) && exists(p)) ? paths : undefined;
+  const isAbsolute = platform === 'win32' ? path.win32.isAbsolute : path.posix.isAbsolute;
+  const paths = tokens.map((t) => (t.startsWith('file://') ? fileUrlPath(t, platform) : t).replace(/^~(?=$|[\\/])/, () => home));
+  return paths.every((p) => isAbsolute(p) && IMAGE_EXT.test(p) && exists(p)) ? paths : undefined;
+}
+
+const WINDOWS_PATH = /^[A-Za-z]:\\|^\\\\/;
+
+/** A file:// URL's path on this system: file:///C:/x is C:\x on Windows, never /C:/x. */
+function fileUrlPath(url: string, platform: NodeJS.Platform): string {
+  try {
+    return fileURLToPath(url, { windows: platform === 'win32' });
+  } catch {
+    return safeDecode(url.slice(7)); // not a URL Node reads (file://host/… off Windows): as before
+  }
 }
 
 function isFile(p: string): boolean {

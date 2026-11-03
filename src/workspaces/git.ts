@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { PROJECT_DIR } from '../shared/scratch-dir.js';
 import { limiter } from './limit.js';
@@ -246,7 +247,8 @@ export async function refsMark(dir: string): Promise<string | undefined> {
   const { own, common } = dirs;
   if (await stat(path.join(common, 'reftable')).then(() => true, () => false)) return undefined;
   const files = [path.join(own, 'HEAD'), path.join(own, 'config.worktree'), path.join(common, 'config'), path.join(common, 'packed-refs'), path.join(common, 'shallow'), path.join(common, 'info', 'grafts')];
-  const home = process.env.HOME;
+  // Windows has no $HOME: git reads the global config from your profile folder there.
+  const home = process.env.HOME || os.homedir();
   if (home) files.push(path.join(home, '.gitconfig'), path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'git', 'config'));
   const refDirs = [...new Set([path.join(common, 'refs'), path.join(own, 'refs')])];
   const walked: string[] = [];
