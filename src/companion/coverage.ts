@@ -296,6 +296,7 @@ export const PHONE: Record<Method, Side> = {
 
   // ---- supporting Beluga: the star and coffee asks are the Mac's (they open web pages there)
   'support.answer': 'mac',
+  'diagnostics.report': 'mac',
 
   // ---- browsers on the web port (BLG-650): let in and revoked from the Mac's Settings or `beluga web`
   'web.link': 'mac',
