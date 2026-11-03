@@ -38,6 +38,9 @@ const MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const byteLength = (raw: Buffer | ArrayBuffer | Buffer[]): number => (Array.isArray(raw) ? raw.reduce((n, b) => n + b.length, 0) : raw.byteLength);
 
+/** What only the Mac app and the command line may do: managing browsers' access (BLG-653). */
+export const WEB_ADMIN: ReadonlySet<string> = new Set(['web.link', 'web.sessions.revoke', 'web.stop']);
+
 /** The default origins of the Mac app's webview. */
 export const APP_ORIGINS = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'] as const;
 
@@ -186,6 +189,8 @@ export class DaemonServer {
     };
 
     ws.on('message', (raw, isBinary) => {
+      // Closing (a revoked browser): nothing more it sends is heard, whether or not it answers the close.
+      if (ws.readyState !== ws.OPEN) return;
       if (!client && (isBinary || byteLength(raw) > MAX_HELLO_BYTES)) return ws.close(1009, 'Say hello first');
       try {
         handle(raw.toString());
@@ -206,7 +211,8 @@ export class DaemonServer {
           send({ t: 'bye', reason: `This Beluga speaks version ${IPC_VERSION} of the protocol, the screen ${frame.ipc}. Update both to the same version.` });
           return ws.close(4004, 'IPC version mismatch');
         }
-        client = this.clients.add({ kind: frame.kind, version: frame.version, ...(frame.launchDir ? { launchDir: frame.launchDir } : {}), caps: frame.caps, send });
+        // A browser from the web port is a web screen, whatever its hello says (it may not manage web access).
+        client = this.clients.add({ kind: preauthorized ? 'web' : frame.kind, version: frame.version, ...(frame.launchDir ? { launchDir: frame.launchDir } : {}), caps: frame.caps, send });
         send({ t: 'welcome', clientId: client.id, version: this.opts.version, ipc: IPC_VERSION, snapshot: this.session.store.getState(), seq: this.seq, clients: this.clients.size });
         return;
       }
@@ -331,6 +337,8 @@ export class DaemonServer {
   }
 
   private async call(client: ConnectedClient, id: string, method: string, raw: readonly unknown[]): Promise<DaemonFrame> {
+    // A browser's session can't mint, revoke or move browser sessions: a stolen cookie can't outlive its revoke.
+    if (client.kind === 'web' && WEB_ADMIN.has(method)) return { t: 'result', id, ok: false, error: 'Browsers are let in and revoked from the Mac app or `beluga web` on the computer Beluga runs on' };
     return { t: 'result', id, ...(await dispatchCall(this.session, client.id, method, raw)) };
   }
 

@@ -2,10 +2,10 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import path from 'node:path';
 import { z } from 'zod';
 import { belugaHome } from '../core/home.js';
-import { joinRoute, locked, sessionCookie } from './web-join.js';
+import { joinRoute, locked, sessionCookie, viaHttps } from './web-join.js';
 import { type JoinLink, JoinLimiter, type WebSessionInfo, WebSessions } from './web-sessions.js';
-import { WebFiles } from './web-files.js';
-import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, parseListen, webUrl } from './web.js';
+import { WebFiles, sweepUploads } from './web-files.js';
+import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, checkBind, parseListen, webUrl } from './web.js';
 
 /**
  * The daemon's web access: the web port (opened by `beluga web` or Settings, and again at every
@@ -60,6 +60,7 @@ export class WebAccess {
 
   constructor(private readonly opts: WebAccessOptions) {
     this.sessions = opts.sessions ?? new WebSessions({ onRevoke: (id) => this.server?.drop(id) });
+    if (opts.remember !== false) sweepUploads();
   }
 
   get on(): boolean {
@@ -69,13 +70,14 @@ export class WebAccess {
   /** Open the web port (or keep the one that's open, unless it's asked elsewhere); its link. */
   async start(want: Partial<WebArgs> = {}): Promise<string> {
     await this.opening?.catch(() => undefined);
-    const args: WebArgs = { host: want.host ?? this.args?.host ?? WEB_HOST, port: want.port ?? this.args?.port ?? WEB_PORT, allowedHosts: want.allowedHosts ?? this.args?.allowedHosts ?? [] };
+    const args: WebArgs = { host: want.host ?? this.args?.host ?? WEB_HOST, port: want.port ?? this.args?.port ?? WEB_PORT, allowedHosts: want.allowedHosts ?? this.args?.allowedHosts ?? [], ...(want.insecureHttp ? { insecureHttp: true } : {}) };
     if (this.server && this.url && this.args && sameArgs(this.args, args)) return this.url;
     this.opening = this.open(args);
     return this.opening;
   }
 
   private async open(args: WebArgs): Promise<string> {
+    checkBind(args);
     await this.server?.close();
     this.server = undefined;
     const server = new WebServer({
@@ -84,7 +86,7 @@ export class WebAccess {
       port: args.port,
       allowedHosts: args.allowedHosts,
       ...(this.opts.root ? { root: this.opts.root } : {}),
-      authorize: (req) => this.sessions.check(sessionCookie(req)),
+      authorize: (req) => this.sessions.check(sessionCookie(req, viaHttps(req))),
       routes: [joinRoute(this.sessions, this.limiter, this.opts.log)],
       authedRoutes: this.files.routes(this.opts.log),
       publicFiles: isPublicFile,
@@ -95,14 +97,15 @@ export class WebAccess {
     this.server = server;
     this.args = { ...args, port: args.port === 0 ? at.port : args.port };
     this.url = webUrl(at.host, at.port);
-    if (this.opts.remember !== false) writeWebConfig(this.args);
+    // An address that sends the session in the clear isn't opened again by itself at the next start.
+    if (this.opts.remember !== false && !args.insecureHttp) writeWebConfig({ host: this.args.host, port: this.args.port, allowedHosts: this.args.allowedHosts });
     this.opts.log?.(`web UI on ${this.url}${server.root ? '' : ' (not built)'}`);
     return this.url;
   }
 
   /** A one-time join link (opening the port first when it's closed). `listen` as `beluga web --listen`. */
-  async link(listen?: string, allowHosts?: readonly string[]): Promise<JoinLink> {
-    const url = await this.start({ ...(listen ? parseListen(listen) : {}), ...(allowHosts?.length ? { allowedHosts: allowHosts.map((h) => h.toLowerCase()) } : {}) });
+  async link(listen?: string, allowHosts?: readonly string[], insecureHttp?: boolean): Promise<JoinLink> {
+    const url = await this.start({ ...(listen ? parseListen(listen) : {}), ...(allowHosts?.length ? { allowedHosts: allowHosts.map((h) => h.toLowerCase()) } : {}), ...(insecureHttp ? { insecureHttp } : {}) });
     return this.sessions.link(url);
   }
 

@@ -164,7 +164,8 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   const daemon = await startDaemon(config, { ...opts, log });
   if (opts.web && opts.announce && daemon.webUrl) {
     const { url, expiresAt } = daemon.web.sessions.link(daemon.webUrl);
-    opts.announce(`Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\nMore links: beluga web link. Browsers let in: beluga web sessions.\n`);
+    const clear = opts.web.insecureHttp ? `\nCareful: --insecure-http sends this link and the browser's session over plain http on ${opts.web.host}. Anyone on that network can read them and get in.\n` : '';
+    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\nMore links: beluga web link. Browsers let in: beluga web sessions.\n`);
   }
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
   if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));

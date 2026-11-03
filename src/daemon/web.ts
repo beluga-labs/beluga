@@ -60,6 +60,16 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'cross-origin-opener-policy': 'same-origin',
 };
 
+/**
+ * The app's own policy (the Mac app's, tauri.conf.json, without Tauri's parts): only its own
+ * scripts, its own socket. On the web port a single injected script would be a shell, so it's sent
+ * with every file. The socket's origin is named too, for browsers whose 'self' doesn't cover ws:.
+ */
+export function appCsp(host: string, https: boolean): string {
+  const socket = `${https ? 'wss' : 'ws'}://${host}`;
+  return `default-src 'self'; connect-src 'self' ${socket}; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+}
+
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 export const isLoopbackAddress = (address: string | undefined): boolean => !!address && (LOOPBACK_ADDRESSES.has(address) || address.startsWith('127.'));
 
@@ -119,6 +129,8 @@ export class WebServer {
     const server = createServer((req, res) => void this.request(req, res));
     server.on('upgrade', (req, socket, head) => this.upgrade(req, socket, head));
     server.on('clientError', (_err, socket) => socket.destroy());
+    // A big upload over a slow link takes a while (Node's default gives up after 5 minutes); headers still must come in 60 s.
+    server.requestTimeout = 30 * 60_000;
     this.server = server;
     const host = this.opts.host ?? WEB_HOST;
     await new Promise<void>((resolve, reject) => {
@@ -133,7 +145,11 @@ export class WebServer {
 
   /** Close every socket of this session (it was revoked). */
   drop(session: string, reason = 'This browser was signed out'): void {
-    for (const ws of this.sockets.get(session) ?? []) ws.close(REVOKED_CLOSE, reason);
+    for (const ws of this.sockets.get(session) ?? []) {
+      // Say why, then cut it off now: a browser that never answers the close can't keep its socket.
+      ws.close(REVOKED_CLOSE, reason);
+      setTimeout(() => ws.terminate(), 250).unref();
+    }
     this.sockets.delete(session);
   }
 
@@ -161,7 +177,8 @@ export class WebServer {
       if (!this.files) return url.pathname === '/' || url.pathname === '/index.html' ? html(res, 503, NOT_BUILT) : end(res, 404, 'Not found');
       const file = this.files.serve(url.pathname, { acceptEncoding: header(req, 'accept-encoding'), ifNoneMatch: header(req, 'if-none-match') });
       if (!file) return end(res, 404, 'Not found');
-      res.writeHead(file.status, file.headers);
+      const https = req.headers['x-forwarded-proto'] === 'https';
+      res.writeHead(file.status, { ...file.headers, 'content-security-policy': appCsp(req.headers.host!, https) });
       res.end(req.method === 'HEAD' ? undefined : file.body);
     } catch (err) {
       this.opts.log?.(`web: ${req.method} ${req.url?.slice(0, 200)} failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -224,6 +241,30 @@ export interface WebArgs {
   readonly host: string;
   readonly port: number;
   readonly allowedHosts: readonly string[];
+  /** Plain http on an address others can reach (`--insecure-http`): never remembered for the next start. */
+  readonly insecureHttp?: boolean;
+}
+
+/**
+ * Whether plain http on this address keeps the join secret and the cookie off the wire: loopback,
+ * or Tailscale's own addresses (100.64.0.0/10, fd7a:115c:a1e0::/48), which WireGuard encrypts.
+ * Anything else (0.0.0.0, a LAN or public address) would send them in the clear.
+ */
+export function privateBind(host: string): boolean {
+  const h = host.toLowerCase();
+  if (h === 'localhost' || h === '::1' || h.startsWith('127.')) return true;
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (v4) return Number(v4[1]) === 100 && Number(v4[2]) >= 64 && Number(v4[2]) <= 127;
+  return h.startsWith('fd7a:115c:a1e0:');
+}
+
+/** Refuse an address that would carry the session in the clear, unless asked for in so many words. */
+export function checkBind(args: Pick<WebArgs, 'host' | 'insecureHttp' | 'allowedHosts'>): void {
+  if (args.allowedHosts.some((h) => h === '*' || !/^[a-z0-9.-]+$/.test(h))) throw new Error('--allow-host takes a host name (no wildcards)');
+  if (privateBind(args.host) || args.insecureHttp) return;
+  throw new Error(
+    `Listening on ${args.host} would send the join link and the browser's session over plain http, readable on that network. Use the loopback address with an SSH tunnel, Tailscale's address (100.x) or \`tailscale serve\`, or a https tunnel in front of 127.0.0.1. To do it anyway: --insecure-http`,
+  );
 }
 
 /**
@@ -235,10 +276,15 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
   let host = WEB_HOST;
   let port = WEB_PORT;
   const allowedHosts: string[] = [];
+  let insecureHttp = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const [flag, inline] = arg.startsWith('--') && arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, undefined];
+    if (flag === '--insecure-http') {
+      insecureHttp = true;
+      continue;
+    }
     if (flag !== '--listen' && flag !== '--allow-host') {
       rest.push(arg);
       continue;
@@ -253,7 +299,7 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
     host = listen.host ?? host;
     port = listen.port ?? port;
   }
-  return { web: { host, port, allowedHosts }, rest };
+  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}) }, rest };
 }
 
 /** "0.0.0.0:7777", "7778", "::", "[::1]:7777", "100.64.0.1". */

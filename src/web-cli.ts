@@ -10,7 +10,7 @@ import { type WebSessionInfo, WebSessions } from './daemon/web-sessions.js';
  * <id or name>` cuts one off, `web stop` closes the port.
  */
 
-export const WEB_USAGE = `beluga web [--listen host:port] [--allow-host name]   a link that lets a browser in (opens the web port, 127.0.0.1:7777)
+export const WEB_USAGE = `beluga web [--listen host:port] [--allow-host name] [--insecure-http]   a link that lets a browser in (opens the web port, 127.0.0.1:7777)
 beluga web sessions                                     the browsers let in
 beluga web revoke <id or name>                          sign a browser out now
 beluga web stop                                         close the web port`;
@@ -67,7 +67,7 @@ export async function webCommand(argv: readonly string[], out: Out = (t) => void
   if (!client) return { web, rest: daemonArgs };
   try {
     const listen = argv.some((a) => a.startsWith('--listen')) ? `${web.host.includes(':') ? `[${web.host}]` : web.host}:${web.port}` : undefined;
-    const opts = { ...(listen ? { listen } : {}), ...(web.allowedHosts.length ? { allowHosts: [...web.allowedHosts] } : {}) };
+    const opts = { ...(listen ? { listen } : {}), ...(web.allowedHosts.length ? { allowHosts: [...web.allowedHosts] } : {}), ...(web.insecureHttp ? { insecureHttp: true } : {}) };
     const { url, expiresAt } = await client.call('web.link', Object.keys(opts).length ? opts : undefined);
     out(`Open this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\n`);
   } finally {

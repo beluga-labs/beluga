@@ -10,7 +10,7 @@ const USAGE = `Beluga's engine, for the Mac app.
 
 Usage:
   cli.js daemon [--keep-alive] [demo]   run Beluga in the background for the Mac app
-  cli.js web [--listen host:port] [--allow-host name] [demo]
+  cli.js web [--listen host:port] [--allow-host name] [--insecure-http] [demo]
                                         a link that lets a browser in to Beluga's whole UI (runs Beluga here if it isn't)
   cli.js web sessions | revoke <name> | stop
                                         the browsers let in; sign one out; close the web port

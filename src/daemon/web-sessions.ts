@@ -103,10 +103,12 @@ export class WebSessions {
     const cookie = token(32);
     const { browser, os } = describeBrowser(userAgent);
     const stored: Stored = { id: randomBytes(6).toString('hex'), hash: sha256(cookie), name: this.uniqueName(`${browser} on ${os}`), browser, os, createdAt: now, lastSeenAt: now };
-    // The oldest go when there are too many.
-    const kept = [...this.sessions.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt).slice(0, MAX_SESSIONS - 1);
-    this.sessions = new Map([...kept, stored].map((s) => [s.hash, s]));
+    // The least recently seen go when there are too many (cut off like a revoke).
+    const byRecent = [...this.sessions.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+    const evicted = byRecent.slice(MAX_SESSIONS - 1);
+    this.sessions = new Map([...byRecent.slice(0, MAX_SESSIONS - 1), stored].map((s) => [s.hash, s]));
     this.save();
+    for (const gone of evicted) this.onRevoke(gone.id);
     return { cookie, session: info(stored) };
   }
 

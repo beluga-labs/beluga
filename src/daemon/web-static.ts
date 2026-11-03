@@ -44,7 +44,8 @@ const HASHED = /^assets\/.+[-.][A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;
 /** Smaller than this isn't worth the CPU. */
 const MIN_COMPRESS = 1024;
 
-export const IMMUTABLE = 'public, max-age=31536000, immutable';
+/** private: a shared cache (a tunnel's CDN) must not hand the UI to browsers that aren't let in. */
+export const IMMUTABLE = 'private, max-age=31536000, immutable';
 export const REVALIDATE = 'no-cache';
 
 export interface StaticFile {

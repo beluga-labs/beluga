@@ -191,10 +191,11 @@ describe('beluga web', () => {
     app.close();
   });
 
-  it('turns everyone away for a while after too many wrong secrets', async () => {
+  it('turns wrong secrets away for a while after too many, but a good link still works (BLG-653)', async () => {
     const { d, port, origin } = await start();
     for (let i = 0; i < 10; i++) expect((await join(port, origin, 'A'.repeat(22))).status).toBe(401);
-    expect((await join(port, origin, secretOf(d.web.sessions.link(d.webUrl!).url))).status).toBe(429);
+    expect((await join(port, origin, 'B'.repeat(22))).status).toBe(429);
+    expect((await join(port, origin, secretOf(d.web.sessions.link(d.webUrl!).url))).status).toBe(200);
   });
 
   it('remembers the port for the next start until it is stopped', async () => {

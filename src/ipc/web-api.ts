@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 export const WEB_API = {
   // A one-time join link (10 minutes, one browser), opening the web port first when it's closed. → { url, expiresAt }
-  'web.link': { args: z.tuple([z.object({ listen: z.string().max(120).optional(), allowHosts: z.array(z.string().min(1).max(253)).max(20).optional() }).optional()]) },
+  'web.link': { args: z.tuple([z.object({ listen: z.string().max(120).optional(), allowHosts: z.array(z.string().min(1).max(253)).max(20).optional(), insecureHttp: z.boolean().optional() }).optional()]) },
   // Is the port open, where, and the browsers let in. → { on, url?, sessions: [{ id, name, browser, os, createdAt, lastSeenAt }] }
   'web.sessions.list': { args: z.tuple([]) },
   // Revoke a browser by id or name: its sockets close now and its cookie stops working. → the browser

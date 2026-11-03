@@ -16,8 +16,8 @@ export const SECURE_COOKIE = `__Host-${COOKIE}`;
 const COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 const MAX_JOIN_BODY = 1024;
 
-/** The session cookie's value in a request, if it has one. */
-export function sessionCookie(req: IncomingMessage): string | undefined {
+/** The session cookie's value in a request, if it has one: on https only the __Host- one (no other port or path could have set it). */
+export function sessionCookie(req: IncomingMessage, https = false): string | undefined {
   const header = req.headers.cookie;
   if (!header) return undefined;
   const values = new Map<string, string>();
@@ -25,8 +25,11 @@ export function sessionCookie(req: IncomingMessage): string | undefined {
     const at = part.indexOf('=');
     if (at > 0) values.set(part.slice(0, at).trim(), part.slice(at + 1).trim());
   }
-  return values.get(SECURE_COOKIE) ?? values.get(COOKIE);
+  return https ? values.get(SECURE_COOKIE) : (values.get(COOKIE) ?? values.get(SECURE_COOKIE));
 }
+
+/** Whether the browser reached this over https (a TLS proxy in front says so, or the page's own Origin does). */
+export const viaHttps = (req: IncomingMessage): boolean => req.headers['x-forwarded-proto'] === 'https' || (req.headers.origin ?? '').startsWith('https:');
 
 /** The Set-Cookie for a new session: never readable by scripts, never sent from another site. */
 export function setCookie(value: string, https: boolean): string {
@@ -102,10 +105,6 @@ export function joinRoute(sessions: WebSessions, limiter: JoinLimiter, log?: (li
       return true;
     }
     const who = req.socket.remoteAddress ?? '?';
-    if (!limiter.allowed(who)) {
-      json(res, 429, { error: 'Too many tries. Wait a few minutes, then ask for a new link.' }, { 'retry-after': '600' });
-      return true;
-    }
     const body = await readBody(req, MAX_JOIN_BODY);
     let secret: unknown;
     try {
@@ -113,7 +112,13 @@ export function joinRoute(sessions: WebSessions, limiter: JoinLimiter, log?: (li
     } catch {
       secret = undefined;
     }
-    const joined = typeof secret === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(secret) ? sessions.redeem(secret, req.headers['user-agent']) : undefined;
+    const wellFormed = typeof secret === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(secret) ? secret : undefined;
+    // A good link always works (junk can't lock its owner out); only wrong ones count, and too many are refused unread.
+    const joined = wellFormed ? sessions.redeem(wellFormed, req.headers['user-agent']) : undefined;
+    if (!joined && !limiter.allowed(who)) {
+      json(res, 429, { error: 'Too many tries. Wait a few minutes, then ask for a new link.' }, { 'retry-after': '600' });
+      return true;
+    }
     if (!joined) {
       limiter.failed(who);
       json(res, 401, { error: 'This link was already used or has expired. Ask for a new one: run beluga web on the computer Beluga runs on.' });

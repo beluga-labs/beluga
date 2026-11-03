@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -19,13 +19,44 @@ export const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 export const DOWNLOAD_TTL_MS = 60_000;
 
 export const uploadsDir = (): string => path.join(belugaHome(), 'uploads');
+/** Uploads are kept this long (a chat or task may still name them), then cleared at a start. */
+export const UPLOADS_KEEP_DAYS = 30;
+
+/**
+ * Clear what's left over: copies made for downloads (none outlive the daemon) and days of uploads
+ * older than UPLOADS_KEEP_DAYS. → how many folders went.
+ */
+export function sweepUploads(now = Date.now()): number {
+  const root = uploadsDir();
+  let gone = 0;
+  let days: string[];
+  try {
+    days = readdirSync(root);
+  } catch {
+    return 0;
+  }
+  const cutoff = new Date(now - UPLOADS_KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);
+  for (const day of days) {
+    if (day === '.out' || (/^\d{4}-\d{2}-\d{2}$/.test(day) && day < cutoff)) {
+      rmSync(path.join(root, day), { recursive: true, force: true });
+      gone++;
+    }
+  }
+  return gone;
+}
+
+/** RFC 5987's filename*: percent-encoded UTF-8, ' ( ) * included. */
+const rfc5987 = (name: string): string => encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+/** Names Windows won't make a file of (CON, NUL, COM1…), whatever their extension. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i;
 
 /** A file name that is only a name: no folders, no dots in front, nothing a shell or Finder minds. */
 export function safeName(raw: string): string {
   const base = raw.split(/[\\/]/).pop() ?? '';
   // eslint-disable-next-line no-control-regex
-  const clean = base.replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '').replace(/^\.+/, '').trim().slice(0, 180);
-  return clean || 'file';
+  const clean = base.replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '').replace(/^\.+/, '').replace(/[. ]+$/, '').trim().slice(0, 180);
+  if (!clean) return 'file';
+  return WINDOWS_RESERVED.test(clean) ? `_${clean}` : clean;
 }
 
 interface Pending {
@@ -91,7 +122,7 @@ export class WebFiles {
     res.writeHead(200, {
       'content-type': 'application/octet-stream',
       'content-length': String(size),
-      'content-disposition': `attachment; filename="${pending.name.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(pending.name)}`,
+      'content-disposition': `attachment; filename="${pending.name.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${rfc5987(pending.name)}`,
       'cache-control': 'no-store',
     });
     const done = (): void => {

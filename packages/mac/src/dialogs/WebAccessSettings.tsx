@@ -1,27 +1,28 @@
-import { useCallback, useEffect, useState } from "react";
-import type { BelugaClient } from "@beluga/ipc/client.js";
-import { Icon } from "../components/Icon.js";
-import { Button } from "../components/ui.js";
-import { copyText } from "../lib/copy.js";
-import { useBeluga } from "../lib/beluga.js";
-import { ago } from "../phone/phone-model.js";
-import p from "../phone/phone.module.css";
-import { Group, Row } from "./settings-controls.js";
-import s from "./settings.module.css";
+import { useCallback, useEffect, useState } from 'react';
+import type { BelugaClient } from '@beluga/ipc/client.js';
+import { Icon } from '../components/Icon.js';
+import { Button } from '../components/ui.js';
+import { webServed } from '../lib/boot.js';
+import { copyText } from '../lib/copy.js';
+import { useBeluga } from '../lib/beluga.js';
+import { ago } from '../phone/phone-model.js';
+import p from '../phone/phone.module.css';
+import { Group, Row } from './settings-controls.js';
+import s from './settings.module.css';
 
-type WebApi = BelugaClient["api"]["web"];
-type Status = Awaited<ReturnType<WebApi["sessions.list"]>>;
-type Link = Awaited<ReturnType<WebApi["link"]>>;
+type WebApi = BelugaClient['api']['web'];
+type Status = Awaited<ReturnType<WebApi['sessions.list']>>;
+type Link = Awaited<ReturnType<WebApi['link']>>;
 
 /** How often the list refreshes while it shows (last seen moves; a browser may join). */
 const REFRESH_MS = 10_000;
-const errorText = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
  * Settings › Advanced › Web access (BLG-650): your whole Beluga in a browser, on the daemon's web
  * port. One main action, New Link (a one-time join link, 10 minutes); the browsers let in, each
- * with Revoke (cut off at once); and closing the port.
+ * with Revoke (cut off at once); and closing the port. A browser itself only sees the list: who
+ * gets in is decided from the Mac app or `beluga web` (BLG-653).
  */
 export function WebAccessSettings() {
   const { client } = useBeluga();
@@ -31,9 +32,10 @@ export function WebAccessSettings() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const manage = !webServed();
 
   const refresh = useCallback(() => {
-    client.api.web["sessions.list"]().then(
+    client.api.web['sessions.list']().then(
       (st) => {
         setStatus(st);
         setNow(Date.now());
@@ -69,37 +71,27 @@ export function WebAccessSettings() {
 
   const live = link && link.expiresAt > now ? link : undefined;
   const sessions = status?.sessions ?? [];
+  const where = status?.on ? `The whole app, at ${status.url}: here, over an SSH tunnel or Tailscale.` : 'The whole app in any browser: here, over an SSH tunnel or Tailscale.';
   return (
     <Group title="Web access">
-      <Row
-        label="Open Beluga in a browser"
-        detail={
-          status?.on
-            ? `The whole app, at ${status.url}: here, over an SSH tunnel or Tailscale. Each browser is let in once by its own link, and you can sign it out any time.`
-            : "The whole app in any browser: here, over an SSH tunnel or Tailscale. A link opens the web port and lets one browser in, once."
-        }
-      >
-        <Button
-          variant={sessions.length ? "plain" : "primary"}
-          icon="link"
-          disabled={busy}
-          onClick={() => void newLink()}
-        >
-          New Link
-        </Button>
+      <Row label="Open Beluga in a browser" detail={manage ? `${where} Each browser is let in once by its own link, and you can sign it out any time.` : `${where} Browsers are let in and signed out from the Mac app, or with beluga web on the computer Beluga runs on.`}>
+        {manage ? (
+          <Button variant={sessions.length ? 'plain' : 'primary'} icon="link" disabled={busy} onClick={() => void newLink()}>
+            New Link
+          </Button>
+        ) : (
+          <span />
+        )}
       </Row>
       {live ? (
-        <Row
-          label="Open this link in the browser"
-          detail={`Works once, until ${new Date(live.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Anyone with it can get in: send it only to yourself.`}
-        >
+        <Row label="Open this link in the browser" detail={`Works once, until ${new Date(live.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Anyone with it can get in: send it only to yourself.`}>
           <span className={s.pictureRow}>
             <code className={s.webLink} title={live.url}>
               {live.url}
             </code>
             <Button
               size="small"
-              icon={copied ? "check" : "copy"}
+              icon={copied ? 'check' : 'copy'}
               onClick={() =>
                 void copyText(live.url).then(
                   () => setCopied(true),
@@ -107,7 +99,7 @@ export function WebAccessSettings() {
                 )
               }
             >
-              {copied ? "Copied" : "Copy"}
+              {copied ? 'Copied' : 'Copy'}
             </Button>
           </span>
         </Row>
@@ -127,36 +119,23 @@ export function WebAccessSettings() {
                   <span className={p.deviceText}>
                     <span className={p.deviceName}>{b.name}</span>
                     <span className={p.dim}>
-                      Let in {ago(b.createdAt, now)} · seen{" "}
-                      {ago(b.lastSeenAt, now)}
+                      Let in {ago(b.createdAt, now)} · seen {ago(b.lastSeenAt, now)}
                     </span>
                   </span>
-                  <Button
-                    size="small"
-                    variant="quiet"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() => client.api.web["sessions.revoke"](b.id))
-                    }
-                  >
-                    Revoke
-                  </Button>
+                  {manage ? (
+                    <Button size="small" variant="quiet" disabled={busy} onClick={() => void run(() => client.api.web['sessions.revoke'](b.id))}>
+                      Revoke
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))
           )}
         </div>
       </div>
-      {status?.on ? (
-        <Row
-          label="Close the web port"
-          detail="Browsers can't reach Beluga until a new link opens it again. They stay let in for then; Revoke signs one out."
-        >
-          <Button
-            variant="quiet"
-            disabled={busy}
-            onClick={() => void run(() => client.api.web.stop())}
-          >
+      {manage && status?.on ? (
+        <Row label="Close the web port" detail="Browsers can't reach Beluga until a new link opens it again. They stay let in for then; Revoke signs one out.">
+          <Button variant="quiet" disabled={busy} onClick={() => void run(() => client.api.web.stop())}>
             Close Port
           </Button>
         </Row>

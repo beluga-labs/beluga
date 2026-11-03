@@ -13,7 +13,9 @@ and what the app's native bits become in a browser.
   (`ssh -L 7777:127.0.0.1:7777 box`). `--listen host:port` picks another address or port;
   `--allow-host name` adds a host name the page may be reached by (a Tailscale or tunnel name).
   It reopens at every start of the daemon until `beluga web stop` or Settings › Advanced › Web
-  access › Close Port (`~/.beluga/web.json`).
+  access › Close Port (`~/.beluga/web.json`). An address others reach over plain http
+  (`0.0.0.0`, a LAN address) is refused unless `--insecure-http` says so; Tailscale's `100.x`
+  addresses are fine (see docs/security.md, Web access).
 - **What**: the built UI (`packages/mac`'s `vite build`: `BELUGA_WEB_ROOT`, a packaged `web/`
   beside the engine, or the repo's `packages/mac/dist`). Hashed assets are cached for a year,
   everything else is revalidated; text goes br or gzip. Never a dotfile, a folder listing, a path
@@ -23,7 +25,8 @@ and what the app's native bits become in a browser.
   (`/__beluga/endpoint` only says `{ web: true }`; the page then connects to its own origin).
 - **Checks**: the Host header must be a loopback name, an IP address or an allowed host (no DNS
   rebinding of 127.0.0.1); `/ws`, `/join`'s POST and `/upload` need the page's own Origin; every
-  answer says `nosniff`, `no-referrer` and may not be framed.
+  answer says `nosniff`, `no-referrer` and may not be framed, and the app's files come with the
+  Mac app's content security policy.
 
 ## Installing it
 
@@ -50,7 +53,9 @@ Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `
 - **Revoking** one (`beluga web revoke <id or name>`, or Revoke in Settings › Advanced › Web
   access) forgets it and closes its sockets at once (code 4401); its page reloads into the Ask page.
 - The `web.*` API (`src/ipc/web-api.ts`): `web.link`, `web.sessions.list`, `web.sessions.revoke`,
-  `web.stop`, `web.download`. The CLI is `src/web-cli.ts`.
+  `web.stop`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
+  links, revokes and closing the port are the Mac app's and the command line's. The CLI is
+  `src/web-cli.ts`.
 
 ## The app's native bits in a browser
 
