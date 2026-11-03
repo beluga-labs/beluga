@@ -122,6 +122,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+      - name: The install script as this workflow has it (a re-run for an older tag gets its fixes)
+        run: |
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout "$GITHUB_SHA" -- scripts/install.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 24
