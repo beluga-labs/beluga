@@ -265,7 +265,9 @@ const SCENES = {
   fire: {
     // A narrow window with no sidebar or panel: the box is the whole story.
     viewport: { width: 600, height: 440 },
-    prefs: { maxFire: { where: 'max', show: 'always', style: 'pixel', fuel: 0.6, height: 0.55, thickness: 0.55, wildness: 0.5, palette: 'red', temper: true, typing: 'pixels', popDelete: true, border: true, preset: 'arcade' } },
+    // Dark, on GitHub's own dark background, so the GIF fuses with the page.
+    background: [0x0d, 0x11, 0x16],
+    prefs: { appearance: 'dark', maxFire: { where: 'max', show: 'always', style: 'pixel', fuel: 0.6, height: 0.55, thickness: 0.55, wildness: 0.5, palette: 'red', temper: true, typing: 'pixels', popDelete: true, border: true, preset: 'arcade' } },
     async run(page) {
       await openWorkspace(page, 'add-auth');
       for (const what of ['Hide the panel', 'Hide the sidebar']) {
@@ -277,11 +279,12 @@ const SCENES = {
       await page.getByRole('button', { name: 'Agent, model and effort' }).click();
       await page.getByRole('radio', { name: 'Max', exact: true }).click();
       await page.keyboard.press('Escape');
-      // Nothing above the box but its fire: the rest of the chat goes.
+      // Nothing around the box but its fire, on GitHub's background: the rest of the chat goes.
       await page.locator('main [data-fire]').first().evaluate((box) => {
         for (let el = box; el && el.tagName !== 'MAIN'; el = el.parentElement) {
           for (const other of el.parentElement?.children ?? []) if (other !== el && other.tagName !== 'CANVAS') other.style.visibility = 'hidden';
         }
+        for (let el = box.parentElement; el; el = el.parentElement) el.style.setProperty('background', '#0d1116', 'important');
       });
       await composer(page).click();
       // The box sizes itself on input: one key in and out fits it to the window it has now.
@@ -392,8 +395,13 @@ async function record(name, scene, browser) {
   const gif = path.join(out, `${name}.gif`);
   const width = Math.min(crop?.w ?? scene.viewport.width, 1100);
   const cut = crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},` : '';
+  // A background colour the GIF must hit exactly (to fuse with GitHub's page): what the video blurred near it goes back to it, undithered.
+  const bg = scene.background;
+  const near = bg && `lt(abs(r(X,Y)-${bg[0]})+abs(g(X,Y)-${bg[1]})+abs(b(X,Y)-${bg[2]}),14)`;
+  const snap = bg ? `format=rgb24,geq=r='if(${near},${bg[0]},r(X,Y))':g='if(${near},${bg[1]},g(X,Y))':b='if(${near},${bg[2]},b(X,Y))',` : '';
+  const use = bg ? 'paletteuse=dither=none' : 'paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle';
   // Trim the blank first frames, then a palette made for this scene.
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(from ?? scene.trim ?? 0.8), '-i', webm, '-vf', `${cut}fps=${scene.fps ?? 12},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${scene.colors ?? 160}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, '-loop', '0', gif]);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(from ?? scene.trim ?? 0.8), '-i', webm, '-vf', `${cut}fps=${scene.fps ?? 12},scale=${width}:-1:flags=lanczos,${snap}split[a][b];[a]palettegen=max_colors=${scene.colors ?? 160}:stats_mode=${bg ? 'full' : 'diff'}[p];[b][p]${use}`, '-loop', '0', gif]);
   console.log(`${name}: ${gif}`);
 }
 

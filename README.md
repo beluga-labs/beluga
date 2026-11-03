@@ -122,7 +122,7 @@ Plain Markdown gets the same care: tables sort and turn into charts, JSON folds,
 <p align="center">
   <picture>
     <source media="(min-width: 700px)" srcset="assets/mac/fire.gif">
-    <img src="assets/mac/fire-still.png" alt="On Max effort the message box burns with red pixel fire: pixels fly from the caret as you type, the fire flares gold when you type fast, and the words you delete burst into falling pixels" width="600">
+    <img src="assets/mac/fire-still.png" alt="On Max effort the dark message box burns with red pixel fire: pixels fly from the caret as you type, the fire flares gold when you type fast, and the words you delete burst into falling pixels" width="600">
   </picture>
 </p>
 <p align="center"><sub><b>Max effort</b> sets the message box on fire: pixels fly as you type, it flares when you rush, and what you delete bursts. Pick another fire, or have it on everywhere, in <b>Settings › Fire &amp; Confetti</b>.</sub></p>
