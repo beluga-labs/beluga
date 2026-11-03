@@ -13,6 +13,8 @@ import { watchEventLoop } from './lag.js';
 import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
+import { type WebArgs } from './web.js';
+import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
 export const LINGER_MS = 3000;
@@ -41,6 +43,10 @@ export interface DaemonOptions {
   readonly lagEveryMs?: number;
   /** Stop once this ends: the app's pipe on Windows, which has no signals (stop-on-input.ts). */
   readonly stopWithInput?: Readable;
+  /** Also serve the UI to browsers on the web port (`beluga web`, daemon/web.ts). */
+  readonly web?: Partial<WebArgs> & { readonly root?: string };
+  /** Where `beluga web` says the link (its terminal). */
+  readonly announce?: (text: string) => void;
 }
 
 export interface RunningDaemon {
@@ -48,6 +54,10 @@ export interface RunningDaemon {
   readonly server: DaemonServer;
   readonly port: number;
   readonly token: string;
+  /** Browsers: the web port (open when asked for, or when it was before) and who is let in. */
+  readonly web: WebAccess;
+  /** The web port's address, when it's open. */
+  readonly webUrl?: string;
   /** Leave the room and stop serving. Resolves once everything is closed. */
   stop(reason?: string): Promise<void>;
   /** Resolves when the daemon has stopped (by stop(), a signal, or the last screen leaving). */
@@ -66,6 +76,7 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
   const token = randomBytes(32).toString('hex');
   let server!: DaemonServer;
   let stopping: Promise<void> | undefined;
+  let web: WebAccess | undefined;
   let resolveDone!: () => void;
   let stopLag = (): void => undefined;
   const done = new Promise<void>((r) => (resolveDone = r));
@@ -76,6 +87,7 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
       clearTimeout(firstClient);
       stopLag();
       clearDaemonInfo();
+      await web?.close().catch(() => undefined);
       await server.close(reason).catch(() => undefined);
       await core.stop().catch((err: unknown) => log(`stop failed: ${errorText(err)}`));
       resolveDone();
@@ -98,6 +110,20 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
   }, { network: true });
   server = new DaemonServer({ session: core.session, token, version: opts.version, terminals: core.terminals, log, ...(opts.port ? { port: opts.port } : {}), ...(opts.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : {}) });
   const port = await server.listen();
+  web = new WebAccess({ door: server, log, ...(opts.web?.root ? { root: opts.web.root } : {}) });
+  attachWebAccess(core.session, web);
+  let webAt: string | undefined;
+  if (opts.web) {
+    webAt = await web.start(opts.web).catch(async (err: unknown) => {
+      await server.close().catch(() => undefined);
+      await core.stop().catch(() => undefined);
+      throw new Error(`The web port couldn't open: ${errorText(err)}`);
+    });
+  } else {
+    // Opened before (`beluga web`, Settings): open again, but a busy port doesn't stop Beluga.
+    const remembered = readWebConfig();
+    if (remembered) webAt = await web.start(remembered).catch((err: unknown) => void log(`web port: ${errorText(err)}`));
+  }
   writeDaemonInfo({ pid: process.pid, port, token, version: opts.version, ipc: IPC_VERSION, room: core.room, roomKey: roomKeyOf(config), startedAt: Date.now(), keepAlive: opts.keepAlive, workspaces: core.workspacesHome });
   log(`listening on 127.0.0.1:${port} for ${core.room}${opts.keepAlive ? ' (kept alive)' : ''}`);
 
@@ -126,7 +152,7 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
 
   core.start();
   stopLag = watchEventLoop(log, opts.lagEveryMs);
-  return { core, server, port, token, stop, done };
+  return { core, server, port, token, web, ...(webAt ? { webUrl: webAt } : {}), stop, done };
 }
 
 /** Run the daemon as this process: signals stop it, problems are logged and shown, never fatal. */
@@ -136,6 +162,11 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   // Unheard, each failed write was an uncaught error whose log line failed again, spinning a core (BLG-365).
   process.stderr.on('error', () => {});
   const daemon = await startDaemon(config, { ...opts, log });
+  if (opts.web && opts.announce && daemon.webUrl) {
+    const { url, expiresAt } = daemon.web.sessions.link(daemon.webUrl);
+    const clear = opts.web.insecureHttp ? `\nCareful: --insecure-http sends this link and the browser's session over plain http on ${opts.web.host}. Anyone on that network can read them and get in.\n` : '';
+    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\nMore links: beluga web link. Browsers let in: beluga web sessions.\n`);
+  }
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
   if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));
   // The Mac app's word that the Mac is about to sleep (BLG-277, src-tauri/src/power.rs): mail the
