@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -75,6 +75,21 @@ describe('beluga project', () => {
     expect(gone.text()).toContain(`Removed shop from Beluga. Its folder stays at ${dir}`);
     expect(link.projects().some((p) => p.root === dir)).toBe(false);
     expect(git(dir, 'log', '--oneline')).toContain('first');
+  });
+
+  it('adds a folder given through a symlink (/tmp on a Mac), and says so (BLG-676)', async () => {
+    const link = await daemonLink();
+    const dir = repo(path.join(tmp(), 'linked'));
+    const via = path.join(tmp(), 'shortcut');
+    symlinkSync(dir, via);
+    const io = capture();
+    expect(await addProject(link, via, io)).toBe(0);
+    expect(io.text()).toContain(`Added linked (${dir})`);
+    expect(io.errors()).not.toContain("didn't add");
+    // Removed by the same path.
+    const gone = capture();
+    expect(await removeProject(link, via, gone)).toBe(0);
+    expect(gone.text()).toContain('Removed linked');
   });
 
   it('clones a git URL first, into the folder given', async () => {

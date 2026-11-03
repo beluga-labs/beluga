@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { expandHome } from '../core/home-path.js';
 import type { Intent } from '../core/intents.js';
@@ -88,6 +88,15 @@ function until<T>(link: ProjectLink, ready: (ps: readonly Project[]) => T | unde
   });
 }
 
+/** A folder as the daemon keeps it: through its symlinks (/tmp is /private/tmp on a Mac), BLG-676. */
+const real = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
 const inside = (root: string, dir: string): boolean => root === dir || root.startsWith(dir + path.sep);
 
 export interface AddOptions {
@@ -128,6 +137,7 @@ export async function addProject(link: ProjectLink, target: string | undefined, 
       return 1;
     }
   }
+  dir = real(dir);
   const before = new Set(link.projects().map((p) => p.root));
   const problems: string[] = [];
   const off = link.onProblem((t) => problems.push(t));
@@ -175,7 +185,7 @@ export function listProjects(all: readonly Project[], io: Io): Exit {
 
 /** The project a name (any case), id or folder means; an error in plain words when none or several do. */
 export function findProject(projects: readonly Project[], which: string, cwd = process.cwd()): Project | string {
-  const abs = path.resolve(cwd, expandHome(which));
+  const abs = real(path.resolve(cwd, expandHome(which)));
   const exact = projects.find((p) => p.id === which || p.root === abs);
   if (exact) return exact;
   const named = projects.filter((p) => p.name.toLowerCase() === which.toLowerCase());
