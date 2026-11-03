@@ -24,6 +24,12 @@ export const COMMANDS = {
   pair: { usage: ['beluga pair'], summary: 'pair a phone: scan the QR code or type the code, then confirm', options: {} },
   phones: { usage: ['beluga phones', 'beluga phones remove <name>'], summary: 'list the paired phones, or remove one', options: {} },
   service: { usage: ['beluga service [install | remove]'], summary: 'keep Beluga running, from boot (systemd on Linux, launchd on a Mac)', options: {} },
+  web: {
+    usage: ['beluga web [--listen host:port] [--allow-host name] [--insecure-http]', 'beluga web sessions', 'beluga web revoke <id or name>', 'beluga web stop'],
+    summary: 'open Beluga in a browser: a link that lets one in (opens the web port, 127.0.0.1:7777), the browsers let in, signing one out, closing the port',
+    options: {},
+    passThrough: true,
+  },
   update: { usage: ['beluga update'], summary: 'update Beluga to the latest release (the server install)', options: {} },
   version: { usage: ['beluga version'], summary: 'show the version', options: {} },
   help: { usage: ['beluga help [command]'], summary: 'show this help, or one command’s', options: {} },
@@ -34,18 +40,26 @@ export const COMMANDS = {
 /** The width help is written for: the narrowest terminal people use. */
 export const HELP_WIDTH = 80;
 
-/** Words in lines of at most `width` characters, every line after the first indented by `indent`. */
-export function wrap(text: string, width: number, indent: string): string[] {
+/**
+ * Words in lines of at most `width` characters (prefix and indent included): the first line starts
+ * with `first`, every other with `indent`.
+ */
+export function wrap(text: string, width: number, indent: string, first = ''): string[] {
   const lines: string[] = [];
-  let line = '';
+  let line = first;
+  let words = 0;
   for (const word of text.split(/\s+/).filter(Boolean)) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && [...next].length > width) {
+    const next = words ? `${line} ${word}` : `${line}${word}`;
+    if (words && [...next].length > width) {
       lines.push(line);
       line = `${indent}${word}`;
-    } else line = next;
+      words = 1;
+    } else {
+      line = next;
+      words++;
+    }
   }
-  if (line) lines.push(line);
+  if (words) lines.push(line);
   return lines;
 }
 
@@ -78,8 +92,10 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
   const name = ALIASES[first] ?? first;
   if (!isCommand(name)) throw new UsageError(`There's no \`beluga ${first}\`.`);
   const spec: CommandSpec = COMMANDS[name];
-  if (spec.passThrough) return { name, flags: {}, positionals: rest };
-  if (rest.includes('--help') || rest.includes('-h')) return { name: 'help', flags: {}, positionals: [name] };
+  const help = rest.includes('--help') || rest.includes('-h');
+  // People's own pass-through commands (`web`) still answer --help; the Mac app's take it as theirs.
+  if (spec.passThrough && (spec.internal || !help)) return { name, flags: {}, positionals: rest };
+  if (help) return { name: 'help', flags: {}, positionals: [name] };
   try {
     const { values, positionals } = parseArgs({ args: rest, options: spec.options, allowPositionals: true, strict: true });
     return { name, flags: values as ParsedCommand['flags'], positionals };
@@ -107,15 +123,12 @@ export function usageText(command: CommandName): string {
 export function helpText(command?: string): string {
   if (command && isCommand(command)) {
     const spec: CommandSpec = COMMANDS[command];
-    return `${usageText(command)}\n${wrap(spec.summary, HELP_WIDTH - 2, '  ').map((l, i) => (i ? l : `  ${l}`)).join('\n')}\n`;
+    return `${usageText(command)}\n${wrap(spec.summary, HELP_WIDTH, '  ', '  ').join('\n')}\n`;
   }
   const rows = Object.entries(COMMANDS as Record<string, CommandSpec>).filter(([, c]) => !c.internal);
   const width = Math.max(...rows.map(([name]) => name.length)) + 4;
   const pad = ' '.repeat(width);
-  const list = rows.flatMap(([name, c]) => {
-    const [first = '', ...more] = wrap(c.summary, HELP_WIDTH - width, pad);
-    return [`  ${name.padEnd(width - 2)}${first}`, ...more];
-  });
+  const list = rows.flatMap(([name, c]) => wrap(c.summary, HELP_WIDTH, pad, `  ${name.padEnd(width - 2)}`));
   return ['Beluga: Claude Code across your projects, from your phone or any browser.', '', 'Usage: beluga <command>', '', ...list, '', 'How each one is typed: `beluga help <command>`.', 'Start with `beluga setup`, or `beluga up` and `beluga status`.', ''].join('\n');
 }
 

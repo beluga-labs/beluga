@@ -3,6 +3,7 @@ import type { DaemonInfo } from '../ipc/protocol.js';
 import { NOT_RUNNING, withDaemon } from './attach.js';
 import { type Exit, type Io, ago } from './io.js';
 import { tilde } from './paths.js';
+import type { WebStatus } from '../daemon/web-access.js';
 
 /** What `beluga status` reports (and prints as JSON with --json). */
 export interface StatusReport {
@@ -21,11 +22,11 @@ export interface StatusReport {
   readonly relayDisabled?: boolean;
   /** What keeps it running from boot (`beluga service install`), if anything. */
   readonly service?: 'systemd' | 'launchd';
-  /** Opening Beluga in a browser (the web milestone): off until it's set up. */
-  readonly web: 'off';
+  /** Opening Beluga in a browser: its web port, its address and how many browsers are let in. */
+  readonly web: { readonly on: boolean; readonly url?: string; readonly sessions: number };
 }
 
-export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 'companion'> & { readonly prefs?: Pick<DomainState['prefs'], 'tunnel'> }): StatusReport {
+export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 'companion'> & { readonly prefs?: Pick<DomainState['prefs'], 'tunnel'> }, web?: WebStatus): StatusReport {
   return {
     running: true,
     version: info.version,
@@ -38,7 +39,7 @@ export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 
     phones: domain.companion.devices.map((d) => ({ name: d.name, platform: d.platform, linked: d.linked, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}) })),
     ...(domain.companion.relay ? { relay: domain.companion.relay } : {}),
     ...(domain.prefs?.tunnel === 'p2p' || domain.prefs?.tunnel === 'none' ? { relayDisabled: true } : {}),
-    web: 'off',
+    web: { on: web?.on ?? false, ...(web?.url ? { url: web.url } : {}), sessions: web?.sessions.length ?? 0 },
   };
 }
 
@@ -52,6 +53,13 @@ export function relayWords(r: Pick<StatusReport, 'relay' | 'relayDisabled' | 'ph
   if (r.relay === 'starting') return 'starting';
   if (!r.phones.length) return 'starts when a phone is paired';
   return 'not running: phones connect only directly for now (`beluga logs` says why)';
+}
+
+/** Browser access in words: the web port's address and the browsers let in, or how to open it. */
+export function webWords(w: StatusReport['web']): string {
+  if (!w.on) return 'off. `beluga web` opens it and gives a link for a browser.';
+  const n = w.sessions;
+  return `on${w.url ? `, at ${w.url}` : ''} (${n ? `${n} browser${n === 1 ? '' : 's'} let in` : 'no browser let in yet'}). \`beluga web\` gives a link.`;
 }
 
 /** The report in plain words, with what to do next where something's missing. */
@@ -73,13 +81,13 @@ export function describe(r: StatusReport, now = Date.now()): string {
   }
   lines.push(`Phone relay: ${relayWords(r)}`);
   lines.push(r.service ? `Keeps running: yes (${r.service === 'systemd' ? 'a systemd user service' : 'a launchd agent'})` : 'Keeps running: only until this computer restarts. `beluga service install` starts it at boot.');
-  lines.push('Browser access: off');
+  lines.push(`Browser access: ${webWords(r.web)}`);
   return `${lines.join('\n')}\n`;
 }
 
 /** `beluga status`: running or not, version, projects, phones, browser access. */
 export async function status(flags: { json?: boolean }, io: Io): Promise<Exit> {
-  const found = (await withDaemon(async (client, info) => report(info, client.store.getDomain()))) ?? { running: false, projects: [], phones: [], web: 'off' as const };
+  const found = (await withDaemon(async (client, info) => report(info, client.store.getDomain(), await client.call('web.sessions.list').catch(() => undefined)))) ?? { running: false, projects: [], phones: [], web: { on: false, sessions: 0 } };
   const { serviceEnv, serviceInstalled } = await import('./service.js');
   const env = serviceEnv();
   const r: StatusReport = serviceInstalled(env) ? { ...found, service: env.platform === 'linux' ? 'systemd' : 'launchd' } : found;

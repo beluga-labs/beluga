@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { COMMANDS, HELP_WIDTH, UsageError, countFlag, helpText, parseCommand, wrap } from '../src/cli/args.js';
 import type { Io } from '../src/cli/io.js';
 import { lastLines, logs } from '../src/cli/logs.js';
+import { daemonArgs } from '../src/cli/daemon.js';
 import { main } from '../src/cli/main.js';
 import { tilde } from '../src/cli/paths.js';
-import { type StatusReport, describe as describeStatus, relayWords, report, status } from '../src/cli/status.js';
+import { type StatusReport, describe as describeStatus, relayWords, report, status, webWords } from '../src/cli/status.js';
+import { builtUi } from './web-helpers.js';
 import { stop } from '../src/cli/stop.js';
 import { up } from '../src/cli/up.js';
 import { parseConfig } from '../src/config.js';
@@ -97,6 +99,12 @@ describe('reading what was typed', () => {
     expect(wrap('a b c d e f', 5, '  ')).toEqual(['a b c', '  d e', '  f']);
   });
 
+  it('`beluga daemon` still takes the web port’s options (BLG-680)', () => {
+    expect(daemonArgs(['--keep-alive', 'demo'])).toEqual({ rest: ['demo'], keepAlive: true });
+    expect(daemonArgs(['--keep-alive', '--listen', '127.0.0.1:7790', '--allow-host', 'box.tail.ts.net', 'demo'])).toEqual({ rest: ['demo'], keepAlive: true, web: { host: '127.0.0.1', port: 7790, allowedHosts: ['box.tail.ts.net'] } });
+    expect(daemonArgs(['--insecure-http', '--listen=0.0.0.0:7777']).web).toMatchObject({ host: '0.0.0.0', insecureHttp: true });
+  });
+
   it('answers a mistake with exit 2 and where to look', async () => {
     const io = capture();
     expect(await main(['nope'], io)).toBe(2);
@@ -169,7 +177,7 @@ describe('beluga status', () => {
     expect(io.text()).toContain('Browser access: off');
     const json = capture();
     await status({ json: true }, json);
-    expect(JSON.parse(json.text())).toMatchObject({ running: true, version: '9.9.9', port: d.port, keptAlive: true, web: 'off' });
+    expect(JSON.parse(json.text())).toMatchObject({ running: true, version: '9.9.9', port: d.port, keptAlive: true, web: { on: false, sessions: 0 } });
     // It detached again: only the daemon's own count is left.
     await waitFor(() => d.server.clients.size === 0);
   });
@@ -187,6 +195,40 @@ describe('beluga status', () => {
     expect(describeStatus({ ...report(info, { projects: [], companion: { devices: [], relay: 'off' } }) })).toContain('Phone relay: starts when a phone is paired');
   });
 
+  it('shows the real browser access: the web port, its address and the browsers let in (BLG-680)', async () => {
+    const d = await startDaemon(parseConfig(['--no-agent', '--tunnel', 'none', '--name', 'kay']), { version: '9.9.9', keepAlive: true, web: { port: 0, root: builtUi() } });
+    running.push(d);
+    const sessions = d.web.sessions;
+    sessions.redeem(new URL(sessions.link(d.webUrl!).url).hash.replace(/^#/, ''), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15');
+    const io = capture();
+    expect(await status({}, io)).toBe(0);
+    expect(io.text()).toContain(`Browser access: on, at ${d.webUrl} (1 browser let in). \`beluga web\` gives a link.`);
+    const json = capture();
+    await status({ json: true }, json);
+    expect(JSON.parse(json.text()).web).toEqual({ on: true, url: d.webUrl, sessions: 1 });
+    expect(webWords({ on: false, sessions: 0 })).toContain('`beluga web` opens it');
+    expect(webWords({ on: true, url: 'http://127.0.0.1:7777', sessions: 0 })).toContain('no browser let in yet');
+  });
+
+  it('`beluga web` asks the running Beluga for a link, and `web stop` closes its port', async () => {
+    const d = await startDaemon(parseConfig(['--no-agent', '--tunnel', 'none', '--name', 'kay']), { version: '9.9.9', keepAlive: true, web: { port: 0, root: builtUi() } });
+    running.push(d);
+    const io = capture();
+    expect(await main(['web'], io)).toBe(0);
+    expect(io.text()).toContain(`${d.webUrl}/join#`);
+    const list = capture();
+    expect(await main(['web', 'sessions'], list)).toBe(0);
+    expect(list.text()).toMatch(/No browsers are let in|Safari on macOS {2,}joined/);
+    const wrong = capture();
+    expect(await main(['web', 'revoke'], wrong)).toBe(1);
+    expect(wrong.errors()).toContain('Which browser?');
+    const help = capture();
+    expect(await main(['web', '--help'], help)).toBe(0);
+    expect(help.text()).toContain('beluga web revoke <id or name>');
+    expect(await main(['web', 'stop'], capture())).toBe(0);
+    expect(d.web.on).toBe(false);
+  });
+
   it('lists projects and phones in plain words', () => {
     const now = 10_000_000;
     const r: StatusReport = {
@@ -199,7 +241,7 @@ describe('beluga status', () => {
       projects: [{ name: 'beluga', root: path.join(os.homedir(), 'beluga') }, { name: 'site', root: '/srv/site', problem: 'not a git repository' }],
       phones: [{ name: 'Pixel', platform: 'android', linked: true }, { name: 'iPhone', platform: 'ios', linked: false, lastSeen: now - 2 * 86_400_000 }],
       relay: 'ready',
-      web: 'off',
+      web: { on: false, sessions: 0 },
     };
     const text = describeStatus(r, now);
     expect(text).toContain('Beluga 2.1.0 is running (pid 42, up 3 hours)');

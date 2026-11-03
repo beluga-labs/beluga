@@ -57,6 +57,7 @@ The first line installs Beluga in `~/.beluga/server` (Node included, no sudo) an
 | `beluga logs -f` | follow its log |
 | `beluga up` · `beluga stop` | start it, stop it |
 | `beluga service install` | start it at boot (systemd or launchd) |
+| `beluga web` · `beluga web sessions` | open Beluga in a browser: a link that lets one in; the browsers let in |
 | `beluga update` | the latest version, in place |
 
 ---

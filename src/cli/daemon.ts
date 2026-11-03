@@ -5,6 +5,7 @@ import { installedVersion } from '../core/version.js';
 import { openDaemonLog } from '../daemon/files.js';
 import { type DaemonOptions, runDaemon } from '../daemon/main.js';
 import { APP_ORIGINS } from '../daemon/server.js';
+import { type WebArgs, splitWebArgs } from '../daemon/web.js';
 import { useClaudeToken } from './claude.js';
 
 /** The daemon's options from the environment: the Mac app's origins, and the test and perf knobs. */
@@ -24,9 +25,16 @@ export function daemonOptions(keepAlive: boolean): DaemonOptions {
 
 /** `beluga daemon [--keep-alive] [demo]`: what the Mac app starts (src-tauri/src/daemon.rs), and `beluga up` in the background. */
 export async function daemon(args: readonly string[]): Promise<void> {
-  const rest = args.filter((a) => a !== '--keep-alive');
+  const { rest, keepAlive, web } = daemonArgs(args);
   useClaudeToken();
-  await runDaemon(parseConfig(rest), daemonOptions(args.includes('--keep-alive')));
+  await runDaemon(parseConfig(rest), { ...daemonOptions(keepAlive), ...(web ? { web } : {}) });
+}
+
+/** `daemon`'s line: --keep-alive, the web port's options (`--listen`, `--allow-host`, `--insecure-http`: they open it, as `beluga web` does), and the room's own. */
+export function daemonArgs(args: readonly string[]): { rest: string[]; keepAlive: boolean; web?: WebArgs } {
+  const asked = args.some((a) => /^--(listen|allow-host|insecure-http)(=|$)/.test(a));
+  const { web, rest } = splitWebArgs(args.filter((a) => a !== '--keep-alive'));
+  return { rest, keepAlive: args.includes('--keep-alive'), ...(asked ? { web } : {}) };
 }
 
 /**
