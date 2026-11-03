@@ -16,6 +16,9 @@ import { APP_VERSION, webServed } from '../lib/boot.js';
 import { revealInFinder } from '../lib/files.js';
 import { type SettingsPane, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { ACCENTS, type Accent, setPrefs, useChosenPrefs, usePrefs } from '../lib/prefs.js';
+import { themeFor } from '../lib/themes.js';
+import { useDocTheme } from '../components/markdown/use-doc-theme.js';
+import { ThemeGroups } from './ThemePicker.js';
 import { EnvironmentSettings } from './EnvironmentSettings.js';
 import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
@@ -216,10 +219,12 @@ function Appearance() {
   const lowPower = useApp((st) => st.prefs.lowPower ?? 'off');
   const saving = useApp((st) => st.powerSaving);
   const savingNote = saving ? 'Off while Low Power mode saves power.' : undefined;
+  const theme = themeFor(useDocTheme(), prefs);
+  const themeAccent = theme.accent !== undefined;
   return (
     <>
       <Group>
-        <Row label="Appearance">
+        <Row label="Appearance" {...(prefs.appearance === 'system' ? { detail: `Your light theme by day and your dark theme at night, as ${yourComputer()} switches.` } : {})}>
           <Select
             label="Appearance"
             value={prefs.appearance}
@@ -231,14 +236,15 @@ function Appearance() {
             ]}
           />
         </Row>
-        <Row label="Accent" detail={`Selection, focus and buttons. “System” follows ${yourComputer()}.`}>
+        <Row label="Accent" detail={`Selection, focus and buttons. “System” follows ${yourComputer()}${themeAccent ? `; the one beside it is ${theme.name}’s own` : ''}.`}>
           <div className={s.swatches}>
-            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
-              <button key={a} type="button" aria-label={a} aria-pressed={prefs.accent === a} className={cx(s.swatch, prefs.accent === a && s.swatchOn)} style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }} onClick={() => setPrefs({ accent: a })} />
+            {(Object.keys(ACCENTS) as Accent[]).filter((a) => a !== 'theme' || themeAccent || prefs.accent === 'theme').map((a) => (
+              <button key={a} type="button" aria-label={a === 'theme' ? `${theme.name}’s own` : a} {...(a === 'theme' ? { title: `${theme.name}’s own` } : {})} aria-pressed={prefs.accent === a} className={cx(s.swatch, prefs.accent === a && s.swatchOn)} style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }} onClick={() => setPrefs({ accent: a })} />
             ))}
           </div>
         </Row>
       </Group>
+      <ThemeGroups />
       <Group title="Low Power">
         <Row
           label="Low Power mode"
