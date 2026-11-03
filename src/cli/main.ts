@@ -41,6 +41,10 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       if (sub === 'remove') return attached(io, (client) => removeProject(projectLinkOf(client), rest.join(' ') || undefined, io));
       throw new UsageError(`\`beluga project\` can add, list or remove; there's no \`${sub}\`.`, 'project');
     }
+    case 'update': {
+      const { update } = await import('./update.js');
+      return update(io);
+    }
     case 'pair':
       return pairHere(io);
     case 'phones': {

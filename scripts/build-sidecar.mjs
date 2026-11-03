@@ -2,8 +2,9 @@
 // Everything the desktop app needs to run Beluga by itself (no Node or Beluga installed):
 //   packages/mac/src-tauri/resources/daemon/   Beluga compiled (dist/) + its production node_modules
 //   packages/mac/src-tauri/binaries/node-<target>   an official Node binary (pinned below; beluga-node-<target> on Linux)
-// Usage: node scripts/build-sidecar.mjs [--os darwin|linux|win32] [--arch arm64|x64]
-// (both default to this computer's; native modules come prebuilt for the one asked for)
+// Usage: node scripts/build-sidecar.mjs [--os darwin|linux|win32] [--arch arm64|x64] [--out <dir>] [--node-out <file>]
+// (os and arch default to this computer's; native modules come prebuilt for the one asked for;
+// --out and --node-out put the engine and Node elsewhere: scripts/build-server.mjs's bundle)
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -33,7 +34,7 @@ const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: 'inherit'
 
 // 1. Beluga itself.
 run('npm', ['run', 'build'], { cwd: root });
-const out = path.join(tauri, 'resources/daemon');
+const out = path.resolve(flag('--out', path.join(tauri, 'resources/daemon')));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(path.join(root, 'dist'), path.join(out, 'dist'), { recursive: true });
@@ -91,7 +92,7 @@ if (existsSync(helper)) chmodSync(helper, 0o755);
 
 // 3. Node.
 // On Linux it's beluga-node: the .deb and .rpm put it in /usr/bin, where a distro's own node lives.
-const bin = path.join(tauri, 'binaries', `${platform === 'linux' ? 'beluga-node' : 'node'}-${triple}${exe}`);
+const bin = path.resolve(flag('--node-out', path.join(tauri, 'binaries', `${platform === 'linux' ? 'beluga-node' : 'node'}-${triple}${exe}`)));
 mkdirSync(path.dirname(bin), { recursive: true });
 rmSync(bin, { force: true });
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'klaud-node-'));

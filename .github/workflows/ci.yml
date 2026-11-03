@@ -30,3 +30,32 @@ jobs:
         working-directory: packages/mac
       - run: npm run typecheck
       - run: npm test
+
+  # The server install (scripts/build-server.mjs, scripts/install.sh): built, installed as people
+  # install it (no sudo, into ~/.beluga/server), started, asked how it is and stopped.
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm ci
+        working-directory: packages/mac
+      - run: node scripts/build-server.mjs --os linux --arch x64 --out server-out
+      - name: Install it as the one-line install does
+        run: BELUGA_DOWNLOAD_URL="file://$PWD/server-out/beluga-server-linux-x64.tar.gz" sh server-out/install.sh
+      - name: beluga up, status, project add, stop
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          beluga version
+          beluga up
+          beluga status
+          beluga project add "$GITHUB_WORKSPACE"
+          beluga project list
+          beluga stop
+          if beluga status; then echo 'still running after beluga stop'; exit 1; fi
+      - name: The daemon's log
+        if: failure()
+        run: cat ~/.beluga/logs/daemon.log || true
