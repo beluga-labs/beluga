@@ -129,6 +129,7 @@ pub fn blockers(i: &IdleInputs) -> Vec<Blocker> {
 
 /// One line of `ps -A -o pid=,ppid=,pgid=,tpgid=`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(windows, allow(dead_code))]
 pub struct Proc {
     pub pid: u32,
     pub ppid: u32,
@@ -137,6 +138,7 @@ pub struct Proc {
     pub tpgid: i64,
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 pub fn parse_ps(text: &str) -> Vec<Proc> {
     text.lines()
         .filter_map(|line| {
@@ -154,6 +156,7 @@ pub fn parse_ps(text: &str) -> Vec<Proc> {
 /// Beluga's terminals running a program: each terminal's shell is a child of the daemon with
 /// its own terminal, and while something runs in it (a build, a dev server, vim) the
 /// terminal's foreground group is that program's, not the shell's.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn busy_terminals(procs: &[Proc], daemon_pid: u32) -> usize {
     procs
         .iter()
