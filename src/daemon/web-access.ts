@@ -6,6 +6,7 @@ import { joinRoute, locked, sessionCookie, viaHttps } from './web-join.js';
 import { type JoinLink, JoinLimiter, type WebSessionInfo, WebSessions } from './web-sessions.js';
 import { WebFiles, sweepUploads } from './web-files.js';
 import { PublicReach, type PublicReachOptions, type PublicState } from './reach/public.js';
+import { TailscaleReach, type TailscaleReachOptions, type TailscaleState } from './reach/tailscale.js';
 import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, checkBind, parseListen, webUrl } from './web.js';
 
 /**
@@ -15,7 +16,7 @@ import { type WebArgs, WEB_HOST, WEB_PORT, type WebSocketDoor, WebServer, checkB
  */
 
 export const webConfigPath = (): string => path.join(belugaHome(), 'web.json');
-const WebConfig = z.object({ host: z.string().max(100), port: z.number().int().min(0).max(65535), allowedHosts: z.array(z.string().max(253)).max(20), public: z.boolean().optional() });
+const WebConfig = z.object({ host: z.string().max(100), port: z.number().int().min(0).max(65535), allowedHosts: z.array(z.string().max(253)).max(20), public: z.boolean().optional(), tailscale: z.boolean().optional() });
 
 export function readWebConfig(file = webConfigPath()): WebArgs | undefined {
   try {
@@ -43,6 +44,13 @@ export interface WebStatus {
   readonly sessions: readonly WebSessionInfo[];
   /** The public link (`beluga web --public`), while it's on. */
   readonly public?: PublicState;
+  /** On the tailnet (`beluga web --tailscale`), while Serve is on. */
+  readonly tailscale?: TailscaleState;
+}
+
+/** The tailnet address, its trusted login, and a join link under it for anyone else. */
+export interface TailscaleLink extends TailscaleState {
+  readonly link: JoinLink;
 }
 
 /** A public link and a join link under it. */
@@ -60,6 +68,8 @@ export interface WebAccessOptions {
   readonly remember?: boolean;
   /** How the public link opens its tunnel (tests use a fake). */
   readonly publicReach?: PublicReachOptions;
+  /** How Tailscale is asked (tests use a fake binary). */
+  readonly tailscaleReach?: TailscaleReachOptions;
 }
 
 export class WebAccess {
@@ -74,10 +84,14 @@ export class WebAccess {
   /** The public link: a Cloudflare tunnel to the web port, while asked for. */
   readonly public: PublicReach;
   private publicWanted = false;
+  /** Tailscale Serve in front of the web port, while asked for. */
+  readonly tailscale: TailscaleReach;
+  private tailscaleWanted = false;
 
   constructor(private readonly opts: WebAccessOptions) {
     this.sessions = opts.sessions ?? new WebSessions({ onRevoke: (id) => this.server?.drop(id) });
     this.public = new PublicReach({ ...(opts.log ? { log: opts.log } : {}), ...opts.publicReach });
+    this.tailscale = new TailscaleReach({ ...(opts.log ? { log: opts.log } : {}), ...opts.tailscaleReach });
     if (opts.remember !== false) sweepUploads();
   }
 
@@ -103,9 +117,10 @@ export class WebAccess {
       host: args.host,
       port: args.port,
       allowedHosts: args.allowedHosts,
-      extraHosts: () => (this.public.host ? [this.public.host] : []),
+      extraHosts: () => [this.public.host, this.tailscale.host].filter((h): h is string => !!h),
       ...(this.opts.root ? { root: this.opts.root } : {}),
-      authorize: (req) => this.sessions.check(sessionCookie(req, viaHttps(req))),
+      // A browser let in, or (BLG-655) your own Tailscale login as Serve vouches for it.
+      authorize: (req) => this.sessions.check(sessionCookie(req, viaHttps(req))) ?? tailscaleSession(this.tailscale.trusted(req)),
       routes: [joinRoute(this.sessions, (req) => (this.public.carries(req) ? { limiter: this.public.limiter, who: PublicReach.visitor(req) } : { limiter: this.limiter, who: req.socket.remoteAddress ?? '?' }), this.opts.log)],
       authedRoutes: this.files.routes(this.opts.log),
       publicFiles: isPublicFile,
@@ -121,12 +136,40 @@ export class WebAccess {
     this.opts.log?.(`web UI on ${this.url}${server.root ? '' : ' (not built)'}`);
     // A public link follows the port it points at.
     if (this.publicWanted) void this.public.start(this.args.port).catch((err: unknown) => this.opts.log?.(`web: public link: ${err instanceof Error ? err.message : String(err)}`));
+    if (this.tailscaleWanted) void this.tailscale.start(this.args.port).catch((err: unknown) => this.opts.log?.(`web: tailscale: ${err instanceof Error ? err.message : String(err)}`));
     return this.url;
   }
 
   private remember(): void {
     if (this.opts.remember === false || !this.args) return;
-    writeWebConfig({ host: this.args.host, port: this.args.port, allowedHosts: this.args.allowedHosts, ...(this.publicWanted ? { public: true } : {}) });
+    writeWebConfig({ host: this.args.host, port: this.args.port, allowedHosts: this.args.allowedHosts, ...(this.publicWanted ? { public: true } : {}), ...(this.tailscaleWanted ? { tailscale: true } : {}) });
+  }
+
+  /** The web port's address must be reachable at 127.0.0.1, where a tunnel or Serve sends what comes in. */
+  private loopbackPort(what: string): number {
+    const args = this.args!;
+    if (!args.host.startsWith('127.') && !['localhost', '0.0.0.0', '::'].includes(args.host)) throw new Error(`${what} reaches the web port at 127.0.0.1, and it listens on ${args.host}. \`beluga web --listen 127.0.0.1\` first.`);
+    return args.port;
+  }
+
+  /**
+   * On the tailnet (`beluga web --tailscale`): Tailscale Serve in front of the web port (opened
+   * first when it's closed), at https://<box>.<tailnet>.ts.net. Reopened at every start until off.
+   */
+  async goTailscale(): Promise<TailscaleLink> {
+    await this.start();
+    const port = this.loopbackPort('Tailscale Serve');
+    const state = await this.tailscale.start(port);
+    this.tailscaleWanted = true;
+    this.remember();
+    return { ...state, link: this.sessions.link(state.url) };
+  }
+
+  /** Stop serving on the tailnet (the web port stays as it is). */
+  async stopTailscale(): Promise<void> {
+    this.tailscaleWanted = false;
+    await this.tailscale.stop();
+    if (this.server) this.remember();
   }
 
   /**
@@ -136,11 +179,10 @@ export class WebAccess {
    */
   async goPublic(): Promise<PublicLink> {
     await this.start();
-    const args = this.args!;
-    if (!args.host.startsWith('127.') && !['localhost', '0.0.0.0', '::'].includes(args.host)) throw new Error(`The public link reaches the web port at 127.0.0.1, and it listens on ${args.host}. \`beluga web --listen 127.0.0.1\` first.`);
+    const port = this.loopbackPort('The public link');
     this.publicWanted = true;
     try {
-      const url = await this.public.start(args.port);
+      const url = await this.public.start(port);
       this.remember();
       return { url, link: this.sessions.link(url) };
     } catch (err) {
@@ -164,7 +206,8 @@ export class WebAccess {
 
   status(): WebStatus {
     const pub = this.public.state;
-    return { on: this.on, ...(this.url && this.server ? { url: this.url } : {}), sessions: this.sessions.list(), ...(pub ? { public: pub } : {}) };
+    const tailnet = this.tailscale.state;
+    return { on: this.on, ...(this.url && this.server ? { url: this.url } : {}), sessions: this.sessions.list(), ...(pub ? { public: pub } : {}), ...(tailnet ? { tailscale: tailnet } : {}) };
   }
 
   revoke(idOrName: string): WebSessionInfo {
@@ -176,6 +219,7 @@ export class WebAccess {
     await this.opening?.catch(() => undefined);
     this.publicWanted = false;
     this.public.stop();
+    if (this.tailscaleWanted || this.tailscale.state) await this.stopTailscale();
     await this.server?.close();
     this.server = undefined;
     this.url = undefined;
@@ -193,6 +237,9 @@ export class WebAccess {
 
 /** What Add to Home Screen / Dock fetches without a session: the manifest and the icons, nothing else. */
 export const isPublicFile = (pathname: string): boolean => pathname === '/manifest.webmanifest' || pathname === '/favicon.ico' || /^\/icons\/[a-z0-9-]+\.png$/.test(pathname);
+
+/** The socket's name for a browser your Tailscale login vouches for (not a stored session: nothing to revoke but Serve). */
+const tailscaleSession = (login: string | undefined): string | undefined => (login ? `tailscale:${login}` : undefined);
 
 const sameArgs = (a: WebArgs, b: WebArgs): boolean => a.host === b.host && (a.port === b.port || b.port === 0) && a.allowedHosts.join() === b.allowedHosts.join();
 

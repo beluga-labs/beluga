@@ -276,6 +276,8 @@ export interface WebArgs {
   readonly insecureHttp?: boolean;
   /** Also a public link through a Cloudflare tunnel (`--public`, reach/public.ts); remembered until turned off. */
   readonly public?: boolean;
+  /** Also on the tailnet through Tailscale Serve (`--tailscale`, reach/tailscale.ts); remembered until turned off. */
+  readonly tailscale?: boolean;
 }
 
 /**
@@ -311,6 +313,7 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
   const allowedHosts: string[] = [];
   let insecureHttp = false;
   let pub = false;
+  let tailnet = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -321,6 +324,10 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
     }
     if (flag === '--public') {
       pub = true;
+      continue;
+    }
+    if (flag === '--tailscale') {
+      tailnet = true;
       continue;
     }
     if (flag !== '--listen' && flag !== '--allow-host') {
@@ -337,7 +344,7 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
     host = listen.host ?? host;
     port = listen.port ?? port;
   }
-  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}), ...(pub ? { public: true } : {}) }, rest };
+  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}), ...(pub ? { public: true } : {}), ...(tailnet ? { tailscale: true } : {}) }, rest };
 }
 
 /** "0.0.0.0:7777", "7778", "::", "[::1]:7777", "100.64.0.1". */

@@ -20,6 +20,10 @@ export const WEB_API = {
   // quick tunnel (opened first when closed), reopened when cloudflared restarts and at every start until
   // turned off. → on: { url, link: { url, expiresAt } }; off: null
   'web.public': { args: z.tuple([z.boolean()]) },
+  // On the tailnet (`beluga web --tailscale`, daemon/reach/tailscale.ts): Tailscale Serve (never Funnel) in front
+  // of the web port, at https://<box>.<tailnet>.ts.net; this machine's own login gets in without a link (BLG-655).
+  // Reopened at every start until off. → on: { url, login?, link: { url, expiresAt } }; off: null
+  'web.tailscale': { args: z.tuple([z.boolean()]) },
   // Close the web port and the public link (it stays closed across restarts until a new link opens it).
   'web.stop': { args: z.tuple([]) },
 } as const;

@@ -87,7 +87,7 @@ paths) got a 401 or 404; foreign, missing and `null` Origins and rebinding Host 
 | 1 | A revoked browser's socket kept being heard until it answered the close (up to 30 s); sessions pushed out at 100 kept their sockets | medium | frames on a closing socket are dropped, the socket is terminated, pushed-out sessions are revoked (`tests/web-security.test.ts`) |
 | 2 | `--listen 0.0.0.0` sent the join secret and the cookie over plain http, and was reopened at every start | high | non-loopback, non-Tailscale addresses are refused without `--insecure-http`, which is said and never remembered |
 | 3 | The served app had no content security policy (one injected script would be a shell) | medium | the Mac app's policy on every file: `script-src 'self'`, `connect-src` its own socket, `object-src 'none'` |
-| 4 | A browser could make join links, revoke others, rebind the port, or allow every Host | medium | `web.link`, `web.sessions.revoke`, `web.stop`, `web.public` are refused to `web` screens; `--allow-host` takes no wildcard |
+| 4 | A browser could make join links, revoke others, rebind the port, or allow every Host | medium | `web.link`, `web.sessions.revoke`, `web.stop`, `web.public`, `web.tailscale` are refused to `web` screens; `--allow-host` takes no wildcard |
 | 5 | Cookies ignore ports: another server on 127.0.0.1 gets the cookie | low | accepted on http (that server is already on your computer, and the Origin checks stop it driving Beluga); on https only the `__Host-` cookie is taken |
 | 6 | Junk join attempts could lock the owner's good link out | low | a good link is tried first; only wrong ones count |
 | 7 | Hashed bundles were `public` for a year (a tunnel's CDN could serve them unauthenticated) | low | `private` |

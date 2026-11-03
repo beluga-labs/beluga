@@ -3,8 +3,10 @@ import { SocketClient, type SocketLike } from './ipc/socket-client.js';
 import { runningDaemon } from './daemon/files.js';
 import { type WebArgs, splitWebArgs, sshWords } from './daemon/web.js';
 import { type WebSessionInfo, WebSessions } from './daemon/web-sessions.js';
-import { forgetWebConfig } from './daemon/web-access.js';
+import { forgetWebConfig, readWebConfig } from './daemon/web-access.js';
 import { publicWords } from './daemon/reach/public.js';
+import { TailscaleReach, tailscaleWords } from './daemon/reach/tailscale.js';
+import { qrLines } from './cli/qr.js';
 
 /**
  * `beluga web …`: `web` gives a join link from the Beluga that's running (opening its web port),
@@ -14,7 +16,8 @@ import { publicWords } from './daemon/reach/public.js';
 
 export const WEB_USAGE = `beluga web [--listen host:port] [--allow-host name] [--insecure-http]   a link that lets a browser in (opens the web port, 127.0.0.1:7777)
 beluga web --public                                     a https link that works anywhere (a Cloudflare tunnel); anyone with a join link gets in
-beluga web --off                                        browser access off: the web port and the public link
+beluga web --tailscale                                  https on your tailnet (Tailscale Serve); your own login gets in
+beluga web --off                                        browser access off: the web port, the public link, Tailscale Serve
 beluga web link                                         another link from the Beluga that runs
 beluga web sessions                                     the browsers let in
 beluga web revoke <id or name>                          sign a browser out now
@@ -71,6 +74,8 @@ export async function webCommand(argv: readonly string[], out: Out = (t) => void
     if (argv.length > 1) throw new Error('`beluga web --off` takes nothing else.');
     const client = await attach();
     if (!client) {
+      // Serve outlives Beluga (it's tailscaled's): stop it here too.
+      if (readWebConfig()?.tailscale) await new TailscaleReach().stop();
       forgetWebConfig();
       return void out('Beluga isn’t running. Browser access stays off when it starts.\n');
     }
@@ -79,7 +84,7 @@ export async function webCommand(argv: readonly string[], out: Out = (t) => void
     } finally {
       client.close();
     }
-    return void out('Browser access is off: the web port and any public link are closed. `beluga web` opens it again.\n');
+    return void out('Browser access is off: the web port, any public link and Tailscale Serve are closed. `beluga web` opens it again.\n');
   }
   const link = sub === 'link';
   const { web, rest: daemonArgs } = splitWebArgs(link ? rest : argv);
@@ -90,8 +95,14 @@ export async function webCommand(argv: readonly string[], out: Out = (t) => void
   try {
     const listen = argv.some((a) => a.startsWith('--listen')) ? `${web.host.includes(':') ? `[${web.host}]` : web.host}:${web.port}` : undefined;
     const opts = { ...(listen ? { listen } : {}), ...(web.allowedHosts.length ? { allowHosts: [...web.allowedHosts] } : {}), ...(web.insecureHttp ? { insecureHttp: true } : {}) };
+    if ((web.public || web.tailscale) && Object.keys(opts).length) await client.call('web.link', opts);
+    if (web.tailscale) {
+      const t = await client.call('web.tailscale', true);
+      if (!t) throw new Error('Tailscale gave no address.');
+      out(tailscaleWords(t, process.stdout.isTTY ? qrLines(t.url) : []));
+      if (!web.public) return undefined;
+    }
     if (web.public) {
-      if (Object.keys(opts).length) await client.call('web.link', opts);
       out('Opening a public link through Cloudflare…\n');
       const pub = await client.call('web.public', true);
       if (!pub) throw new Error('No public link came back.');
