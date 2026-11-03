@@ -419,7 +419,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
           ) : (
             <PlanOutline view={view} keys={keys} selected={picked} onSelect={setPicked} startable={startable} />
           )}
-          {picked ? <PlanDetails view={view} picked={picked} canStart={startable.has(picked)} onClose={() => setPicked(undefined)} /> : null}
+          {picked ? <PlanDetails view={view} picked={picked} canStart={startable.has(picked)} onPick={setPicked} onClose={() => setPicked(undefined)} /> : null}
         </div>
         {/* Hidden, not gone: what you typed, where you'd scrolled and a send to retry are there when it's back. */}
         {plan.home ? (
