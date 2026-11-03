@@ -1,17 +1,15 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type { GhPull, PullsList } from '@beluga/core/issues/model.js';
-import { Icon } from '../../components/Icon.js';
+import { Icon, type IconName } from '../../components/Icon.js';
 import { type ActionItem, ActionsContext, ActionsDropdown } from '../../components/SpecMenu.js';
 import { Button, IconButton, Tip, cx } from '../../components/ui.js';
 import { useActions } from '../../lib/actions.js';
 import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { copyText } from '../../lib/copy.js';
 import { keepSeen, lastSeen } from '../../lib/last-seen.js';
-import { TonePill } from '../../plans/marks.js';
-import type { Tone } from '../../plans/plans-model.js';
 import { ago } from '../../tasks/tasks-model.js';
-import { agoWords } from '../../issues/issues-model.js';
 import s from '../../issues/issues.module.css';
+import pr from './pull-row.module.css';
 
 /** A project's open pull requests on GitHub (anyone's), for its home: read through the core, kept a little while. */
 
@@ -40,22 +38,40 @@ export function usePullList(projectId: string): PullsList | undefined {
   return got?.id === projectId ? got.list : lastSeen<PullsList>(`pulls:${projectId}`);
 }
 
-const CHECKS: Record<Exclude<GhPull['checks'], 'none'>, { readonly label: string; readonly tone: Tone }> = {
-  passing: { label: 'Checks pass', tone: 'ok' },
-  failing: { label: 'Checks fail', tone: 'error' },
-  pending: { label: 'Checks running', tone: 'claude' },
+/** Checks and review as one small mark each (words in the tooltip): the row stays a title and a line. */
+const CHECKS: Record<Exclude<GhPull['checks'], 'none'>, Mark> = {
+  passing: { label: 'Checks pass', icon: 'check', tone: 'ok' },
+  failing: { label: 'Checks fail', icon: 'x', tone: 'error' },
+  pending: { label: 'Checks running', icon: 'clock', tone: 'claude' },
 };
 
-const REVIEW: Record<NonNullable<GhPull['review']>, string> = {
-  APPROVED: 'Approved',
-  CHANGES_REQUESTED: 'Changes requested',
-  REVIEW_REQUIRED: 'Review required',
+/** "Review required" is where every pull request starts: no mark. */
+const REVIEW: Partial<Record<NonNullable<GhPull['review']>, Mark>> = {
+  APPROVED: { label: 'Approved', icon: 'review', tone: 'ok' },
+  CHANGES_REQUESTED: { label: 'Changes requested', icon: 'review', tone: 'warn' },
 };
+
+interface Mark {
+  readonly label: string;
+  readonly icon: IconName;
+  readonly tone: 'ok' | 'error' | 'warn' | 'claude';
+}
+
+function MarkIcon({ mark }: { mark: Mark }) {
+  return (
+    <Tip label={mark.label}>
+      <span className={cx(pr.mark, pr[`mark_${mark.tone}`])} role="img" aria-label={mark.label}>
+        <Icon name={mark.icon} size={13} />
+      </span>
+    </Tip>
+  );
+}
 
 /**
- * One open pull request: its title, number, author and branch, Draft, review and checks, when.
- * One on a branch of the project's worktrees opens that worktree; any other opens on GitHub, and
- * its Open in Worktree (BLG-633) checks its branch out in a new worktree that opens.
+ * One open pull request: its title, then its number, author and branch (Draft first when it is
+ * one); marks for its review and checks, and when it last moved. One on a branch of the project's
+ * worktrees opens that worktree; any other opens on GitHub, and its Open in Worktree (BLG-633),
+ * there in place of the marks while you're on the row, checks its branch out in a new worktree.
  */
 export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: string; pull: GhPull }) {
   const actions = useActions();
@@ -73,12 +89,13 @@ export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: s
     { label: 'Copy Link', icon: 'copy', onSelect: () => void copyText(pull.url).then(() => toast(client, `Copied the link to #${pull.number}`, 'success')) },
   ];
   const checks = pull.checks === 'none' ? undefined : CHECKS[pull.checks];
+  const review = pull.draft || !pull.review ? undefined : REVIEW[pull.review];
   return (
     <ActionsContext items={menu}>
       <div
         role="listitem"
         tabIndex={0}
-        className={cx(s.row, s.rowCompact)}
+        className={cx(s.row, s.rowCompact, !ws && pr.canCheckOut)}
         onClick={open}
         onKeyDown={(e) => e.key === 'Enter' && open()}
         aria-label={`#${pull.number} ${pull.title}${pull.draft ? ', draft' : ''}${ws ? ', in a worktree' : ''}`}
@@ -92,32 +109,34 @@ export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: s
             <span className={s.rowTitle}>{pull.title}</span>
           </span>
           <span className={s.rowSub}>
-            #{pull.number} · {pull.author ? `${pull.author} · ` : ''}
-            {pull.branch ? `${pull.branch} · ` : ''}opened {agoWords(pull.createdAt)}
+            {pull.draft ? 'Draft · ' : ''}#{pull.number}
+            {pull.author ? ` · ${pull.author}` : ''}
+            {pull.branch ? ` · ${pull.branch}` : ''}
           </span>
         </span>
-        {ws ? (
-          <Tip label="You have a worktree on this branch: a click opens it">
-            <span className={s.comments}>
-              <Icon name="branch" size={12} />
-            </span>
-          </Tip>
-        ) : (
-          <span className={s.rowAct} onClick={(e) => e.stopPropagation()}>
-            <Tip label={pull.fork ? 'Check it out from the fork in a new worktree (pushing there won’t change it)' : `Check out ${pull.branch} in a new worktree: pushing there updates the pull request`}>
-              <Button size="small" variant="quiet" icon="branch" onClick={checkOut} aria-label={`Open #${pull.number} in a worktree`}>
-                Open in Worktree
-              </Button>
-            </Tip>
+        <span className={pr.tail}>
+          <span className={pr.info}>
+            {ws ? (
+              <Tip label="You have a worktree on this branch: a click opens it">
+                <span className={cx(pr.mark, pr.mark_branch)} role="img" aria-label="In a worktree">
+                  <Icon name="branch" size={13} />
+                </span>
+              </Tip>
+            ) : null}
+            {review ? <MarkIcon mark={review} /> : null}
+            {checks ? <MarkIcon mark={checks} /> : null}
+            <span className={pr.when}>{ago(pull.updatedAt)}</span>
           </span>
-        )}
-        {pull.draft ? <TonePill tone="muted">Draft</TonePill> : pull.review ? <TonePill tone={pull.review === 'APPROVED' ? 'ok' : pull.review === 'CHANGES_REQUESTED' ? 'warn' : 'neutral'}>{REVIEW[pull.review]}</TonePill> : null}
-        {checks ? (
-          <TonePill tone={checks.tone} live={pull.checks === 'pending'}>
-            {checks.label}
-          </TonePill>
-        ) : null}
-        <span className={s.when}>{ago(pull.updatedAt)}</span>
+          {ws ? null : (
+            <span className={pr.act} onClick={(e) => e.stopPropagation()}>
+              <Tip label={pull.fork ? 'Check it out from the fork in a new worktree (pushing there won’t change it)' : `Check out ${pull.branch} in a new worktree: pushing there updates the pull request`}>
+                <Button size="small" variant="quiet" icon="branch" onClick={checkOut} aria-label={`Open #${pull.number} in a worktree`}>
+                  Open in Worktree
+                </Button>
+              </Tip>
+            </span>
+          )}
+        </span>
         <span className={s.rowMore} onClick={(e) => e.stopPropagation()}>
           <ActionsDropdown items={menu()}>
             <IconButton icon="more" label={`What to do with #${pull.number}`} />
