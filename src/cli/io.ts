@@ -11,8 +11,8 @@ export const stdio: Io = {
   err: (text) => void process.stderr.write(text),
 };
 
-/** An exit code: 0 done, 1 it couldn't be done, 2 it was typed wrong. */
-export type Exit = 0 | 1 | 2;
+/** An exit code: 0 done, 1 it couldn't be done, 2 it was typed wrong, 130 stopped with Ctrl+C. */
+export type Exit = 0 | 1 | 2 | 130;
 
 export const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 

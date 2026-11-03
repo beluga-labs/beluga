@@ -1,5 +1,6 @@
 import { COMMANDS, type ParsedCommand, UsageError, countFlag, helpText, parseCommand } from './args.js';
 import { type Exit, type Io, stdio } from './io.js';
+import type { SocketClient } from '../ipc/socket-client.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { installedVersion } from '../core/version.js';
 
@@ -31,6 +32,14 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       process.once('SIGINT', () => ctrlC.abort());
       return logs({ follow: cmd.flags.follow === true, lines: countFlag(cmd.flags.lines, 'lines', DEFAULT_LINES, 'logs'), signal: ctrlC.signal }, io);
     }
+    case 'pair':
+      return pairHere(io);
+    case 'phones': {
+      const [sub, ...rest] = cmd.positionals;
+      if (sub !== undefined && sub !== 'remove' && sub !== 'list') throw new UsageError(`\`beluga phones\` lists them; \`beluga phones remove <name>\` removes one.`, 'phones');
+      const { listPhones, phoneBookOf, removePhone } = await import('./phones.js');
+      return attached(io, async (client) => (sub === 'remove' ? removePhone(phoneBookOf(client), rest.join(' ') || undefined, io) : listPhones(client.store.getDomain().companion.devices, io)));
+    }
     case 'daemon': {
       const { daemon } = await import('./daemon.js');
       await daemon(cmd.positionals);
@@ -45,6 +54,43 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       await serveStdio(cmd.positionals[0], url, token);
       return 0;
     }
+  }
+}
+
+/** Run against the running daemon (loaded only for the commands that attach), or say it isn't running. */
+async function attached(io: Io, use: (client: SocketClient) => Promise<Exit>): Promise<Exit> {
+  const { NOT_RUNNING, withDaemon } = await import('./attach.js');
+  const done = await withDaemon(use);
+  if (done !== undefined) return done;
+  io.err(NOT_RUNNING);
+  return 1;
+}
+
+/** Ask a question on this terminal; Ctrl+C there aborts. */
+function asker(ctrlC: AbortController): (question: string) => Promise<string> {
+  return async (question) => {
+    const { createInterface } = await import('node:readline/promises');
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    rl.on('SIGINT', () => ctrlC.abort());
+    ctrlC.signal.addEventListener('abort', () => rl.close(), { once: true });
+    try {
+      return await rl.question(question, { signal: ctrlC.signal });
+    } finally {
+      rl.close();
+    }
+  };
+}
+
+/** `beluga pair` against the running daemon, on this terminal. */
+async function pairHere(io: Io): Promise<Exit> {
+  const { pair, pairLinkOf } = await import('./pair.js');
+  const ctrlC = new AbortController();
+  const onSigint = (): void => ctrlC.abort();
+  process.on('SIGINT', onSigint);
+  try {
+    return await attached(io, (client) => pair(pairLinkOf(client), io, { ask: asker(ctrlC), signal: ctrlC.signal, tty: Boolean(process.stdout.isTTY), columns: process.stdout.columns ?? 80 }));
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 }
 

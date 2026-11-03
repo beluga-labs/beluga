@@ -18,6 +18,8 @@ export const COMMANDS = {
   status: { usage: 'beluga status [--json]', summary: "whether Beluga is running, its version, projects and phones", options: { json: { type: 'boolean' } } },
   stop: { usage: 'beluga stop', summary: 'stop Beluga', options: {} },
   logs: { usage: 'beluga logs [-f] [-n <lines>]', summary: "show Beluga's log (-f: keep showing new lines)", options: { follow: { type: 'boolean', short: 'f' }, lines: { type: 'string', short: 'n' } } },
+  pair: { usage: 'beluga pair', summary: 'pair a phone: scan the QR code or type the code, then confirm', options: {} },
+  phones: { usage: 'beluga phones [remove <name>]', summary: 'list the paired phones, or remove one', options: {} },
   version: { usage: 'beluga version', summary: 'show the version', options: {} },
   help: { usage: 'beluga help [command]', summary: 'show this help', options: {} },
   daemon: { usage: 'beluga daemon [--keep-alive] [demo]', summary: "run Beluga's engine for the Mac app", options: {}, internal: true, passThrough: true },
