@@ -29,7 +29,7 @@ import { BRANCH, FEED, PlanDetails } from './PlanDetails.js';
 import { PlanOutline } from './PlanOutline.js';
 import { CHAT_DEFAULT, DEFAULT_PLAN_LAYOUT, type Display, PLAN_LAYOUT_KEY, type PlanLayout, chatOpen, clampChatWidth, readPlanLayout, setChatOpen } from './plan-layout.js';
 import { barColumns, changeWords, headline, nextWords, prWords, shipAction, titleOf } from './plans-model.js';
-import { useConversationLoaded, usePlanActions, usePlanStep, usePlanView, usePlans } from './use-plans.js';
+import { useCheckerChat, useConversationLoaded, usePlanActions, usePlanStep, usePlanView, usePlans } from './use-plans.js';
 import p from './plans.module.css';
 import { TeamReviews, usePlanTeamItems } from '../team/SharedPlans.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
@@ -167,6 +167,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   }, [showChat]);
   const next = view.next;
   const words = nextWords(next);
+  const checker = useCheckerChat(next.kind === 'checking' ? next.milestone : undefined);
   const line = headline(view);
   // Claude is writing the first plan: one placeholder and one line say so, nothing else.
   const drafting = !plan.body && !body?.milestones.length;
@@ -226,6 +227,9 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
         if (c?.stuck) return { label: `Ask ${who} Again`, icon: agentMark(mine), run: askAgain };
         return { label: c ? `${who} Is Fixing the Conflict` : 'Merging…', busy: true };
       }
+      case 'checking':
+        // Its checker's conversation (off the sidebar, folded into the plan); the head Claude's own check: the plan's chat.
+        return { label: 'Watch the Check', icon: 'eye', run: checker ? () => openWorktree(checker) : () => showChat(true) };
       case 'failed':
         return { label: 'Not Yet…', run: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: next.milestone.milestone.id }) };
       case 'ship': {

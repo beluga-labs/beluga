@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Plan, PlansState } from '@beluga/core/plans/model.js';
-import { type PlanView, liveFrom, planView } from '@beluga/core/plans/progress.js';
+import { type MilestoneView, type PlanView, liveFrom, planView } from '@beluga/core/plans/progress.js';
+import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { useActions } from '../lib/actions.js';
 import { onWindowActive, windowActive } from '../lib/window-active.js';
@@ -23,6 +24,15 @@ export function usePlanView(plan: Plan | undefined): PlanView | undefined {
     made.current = { from, view };
     return view;
   }, sameDeep);
+}
+
+/**
+ * The conversation checking a milestone (its own Claude, folded into the plan so the sidebar never
+ * shows it): its workspace id while it's there, archived ones too (a passed milestone's check is kept).
+ */
+export function useCheckerChat(m: MilestoneView | undefined): string | undefined {
+  const id = m?.run.checker;
+  return useApp((s) => (id && findWorkspace(s.projects, id) ? id : undefined));
 }
 
 // One clock for every card that shows how long a step has run: it ticks each second only while one
