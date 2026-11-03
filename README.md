@@ -45,7 +45,7 @@ Beluga also runs with no window, on a computer that stays on: a Linux server, a 
 
 ### Install and set up
 
-On the server (Linux or macOS, x64 or arm64; no sudo, Node comes with it):
+On the server (Linux or macOS, x64 or arm64, with git; no sudo, Node comes with it):
 
 ```sh
 curl -fsSL https://github.com/kayraucklnc/beluga/releases/latest/download/install.sh | sh

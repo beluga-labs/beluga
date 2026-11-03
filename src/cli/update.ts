@@ -9,6 +9,14 @@ export const INSTALL_URL = 'https://github.com/kayraucklnc/beluga/releases/lates
 export const INSTALL_LINE = `curl -fsSL ${INSTALL_URL} | sh`;
 
 /**
+ * What `beluga update` runs: the install script fetched whole first, so a download that fails (a
+ * 404, no network) fails the update instead of piping nothing into a `sh` that then "succeeds".
+ */
+export function updateScript(url = INSTALL_URL): string {
+  return `s=$(curl -fsSL '${url}' 2>/dev/null || wget -qO- '${url}' 2>/dev/null) && [ -n "$s" ] || { echo "Couldn't download ${url}" >&2; exit 1; }; printf '%s\\n' "$s" | sh`;
+}
+
+/**
  * `beluga update`: the install script again, which replaces ~/.beluga/server in place and restarts
  * Beluga if it was running. Only for the server install; the Mac app updates itself.
  */
@@ -19,7 +27,7 @@ export async function update(io: Io, opts: { serverRoot?: string; run?: (script:
     return 1;
   }
   const run = opts.run ?? ((script: string) => new Promise<number>((resolve) => spawn('sh', ['-c', script], { stdio: 'inherit' }).on('close', (code) => resolve(code ?? 1)).on('error', () => resolve(1))));
-  const code = await run(`(curl -fsSL ${INSTALL_URL} || wget -qO- ${INSTALL_URL}) | sh`);
+  const code = await run(updateScript());
   if (code === 0) return 0;
   io.err(`The update didn't finish (exit ${code}). Beluga is as it was; try again, or run: ${INSTALL_LINE}\n`);
   return 1;

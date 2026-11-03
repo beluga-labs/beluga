@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, constants as zlib, gzipSync } from 'node:zlib';
+import { belugaEnv } from '../core/beluga-env.js';
 import { belugaHome } from '../core/home.js';
 
 /**
@@ -56,10 +57,13 @@ export interface StaticFile {
 
 type Encoding = 'br' | 'gzip' | 'identity';
 
-/** Where the built UI is: BELUGA_WEB_ROOT, a packaged build's web/ beside the engine, or the repo's packages/mac/dist. */
-export function defaultWebRoot(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidates = [env.BELUGA_WEB_ROOT, path.resolve(here, '../web'), path.resolve(here, '../../packages/mac/dist')];
+/**
+ * Where the built UI is: BELUGA_WEB_ROOT, the server install's web/ (scripts/build-server.mjs, its
+ * root from the launcher), a packaged build's web/ beside the engine, or the repo's packages/mac/dist.
+ */
+export function defaultWebRoot(env: NodeJS.ProcessEnv = process.env, here = path.dirname(fileURLToPath(import.meta.url))): string | undefined {
+  const server = belugaEnv('SERVER_ROOT', env);
+  const candidates = [env.BELUGA_WEB_ROOT, server && path.join(server, 'web'), path.resolve(here, '../web'), path.resolve(here, '../../packages/mac/dist')];
   return candidates.find((dir): dir is string => !!dir && existsSync(path.join(dir, 'index.html')));
 }
 

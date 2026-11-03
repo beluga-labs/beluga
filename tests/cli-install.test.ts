@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Io } from '../src/cli/io.js';
-import { INSTALL_LINE, update } from '../src/cli/update.js';
+import { INSTALL_LINE, update, updateScript } from '../src/cli/update.js';
 
 const INSTALL = path.resolve('scripts/install.sh');
 const LAUNCHER = path.resolve('scripts/server-launcher.sh');
@@ -77,6 +77,24 @@ describe('beluga update', () => {
     const failed = capture();
     expect(await update(failed, { serverRoot: '/x', run: async () => 1 })).toBe(1);
     expect(failed.errors()).toContain(INSTALL_LINE);
+  });
+
+  it.skipIf(process.platform === 'win32')('fails when the install script can’t be downloaded, and runs it whole when it can', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-update-'));
+    const sh = (script: string): { code: number; out: string; err: string } => {
+      try {
+        return { code: 0, out: execFileSync('sh', ['-c', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), err: '' };
+      } catch (e) {
+        const x = e as { status: number; stdout: string; stderr: string };
+        return { code: x.status, out: x.stdout, err: x.stderr };
+      }
+    };
+    const missing = sh(updateScript(`file://${dir}/no-such-install.sh`));
+    expect(missing.code).toBe(1);
+    expect(missing.err).toContain("Couldn't download");
+    writeFileSync(path.join(dir, 'install.sh'), 'echo first line\necho installed\n');
+    const ok = sh(updateScript(`file://${dir}/install.sh`));
+    expect(ok).toEqual({ code: 0, out: 'first line\ninstalled\n', err: '' });
   });
 
   it('leaves the desktop app and a source copy to their own updates', async () => {
