@@ -76,7 +76,7 @@ The gateway already uses the word "tasks" in code, so this feature's code says *
   - **Plan First** (Claude Code's plan mode): before the agent asks you to approve its plan, it calls `task_define` with the task the plan is for — a title, the goal *in its own words* (never your message pasted in), context, acceptance criteria, decisions, open questions, an estimate and a priority. It goes on the board only when you approve the plan (`planTask` in `agent/runner.ts`); a plan the agent asks you to approve without one goes back to it once. Approved in a main folder's chat, the task waits and the worktree the conversation continues in does it.
   - **Plan with Tasks** (Plans, below): every task of an approved plan.
   - A fork stays on the same task, as does a worktree started *from* a task (Start).
-  - Tasks › ⋯ › Open a Task for Every New Worktree brings back a task per worktree (off by default; saved as `worktreeTasks`). Its brief is the agent's to write.
+  - Tasks › ⋯ › Agent Opens a Task for Worktree Work (off by default; saved as `worktreeTasks`): a new worktree still opens no task by itself, but its agent decides. When the work will ship (a fix, a feature, a pull request), it opens the worktree's task with `task_define` before starting; a question or a look around gets none. That task is **private** (only you see it until Share with Team) and **assigned to you**, and the agent says it opened it and that it's private.
 - **The task follows the work:**
 
   | When | Status |
