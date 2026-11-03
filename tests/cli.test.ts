@@ -2,12 +2,12 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { UsageError, countFlag, helpText, parseCommand } from '../src/cli/args.js';
+import { COMMANDS, HELP_WIDTH, UsageError, countFlag, helpText, parseCommand, wrap } from '../src/cli/args.js';
 import type { Io } from '../src/cli/io.js';
 import { lastLines, logs } from '../src/cli/logs.js';
 import { main } from '../src/cli/main.js';
 import { tilde } from '../src/cli/paths.js';
-import { type StatusReport, describe as describeStatus, status } from '../src/cli/status.js';
+import { type StatusReport, describe as describeStatus, relayWords, report, status } from '../src/cli/status.js';
 import { stop } from '../src/cli/stop.js';
 import { up } from '../src/cli/up.js';
 import { parseConfig } from '../src/config.js';
@@ -73,10 +73,28 @@ describe('reading what was typed', () => {
 
   it("lists people's commands, not the Mac app's", () => {
     const help = helpText();
-    for (const c of ['beluga up', 'beluga status', 'beluga stop', 'beluga logs']) expect(help).toContain(c);
+    for (const c of ['setup', 'up', 'status', 'stop', 'logs', 'project', 'pair']) expect(help).toMatch(new RegExp(`^  ${c} +\\S`, 'm'));
     expect(help).not.toContain('mcp-serve');
-    expect(help).not.toContain('beluga daemon');
-    expect(helpText('logs')).toMatch(/^beluga logs \[-f\]/);
+    expect(help).not.toContain('daemon');
+    expect(helpText('logs')).toMatch(/^Usage:\n {2}beluga logs \[-f\]/);
+  });
+
+  it('fits every help and usage line in 80 columns (BLG-677)', async () => {
+    const widest = (text: string): number => Math.max(...text.split('\n').map((l) => [...l].length));
+    expect(widest(helpText())).toBeLessThanOrEqual(HELP_WIDTH);
+    for (const [name, spec] of Object.entries(COMMANDS)) {
+      expect({ name, width: widest(helpText(name)) <= HELP_WIDTH }).toEqual({ name, width: true });
+      // The Mac app's own commands take --help as theirs: never run here.
+      if ('passThrough' in spec) continue;
+      const io = capture();
+      await main([name, '--help'], io);
+      expect(widest(io.text() + io.errors())).toBeLessThanOrEqual(HELP_WIDTH);
+    }
+    const wrong = capture();
+    await main(['project', '--nope'], wrong);
+    expect(widest(wrong.errors())).toBeLessThanOrEqual(HELP_WIDTH);
+    expect(wrong.errors()).toContain('  beluga project remove <name>');
+    expect(wrap('a b c d e f', 5, '  ')).toEqual(['a b c', '  d e', '  f']);
   });
 
   it('answers a mistake with exit 2 and where to look', async () => {
@@ -85,7 +103,7 @@ describe('reading what was typed', () => {
     expect(io.errors()).toContain('`beluga help`');
     const usage = capture();
     expect(await main(['logs', '-n', 'x'], usage)).toBe(2);
-    expect(usage.errors()).toContain('Usage: beluga logs');
+    expect(usage.errors()).toContain('Usage:\n  beluga logs');
     const version = capture();
     expect(await main(['version'], version)).toBe(0);
     expect(version.text()).toMatch(/^Beluga \d/);
@@ -154,6 +172,19 @@ describe('beluga status', () => {
     expect(JSON.parse(json.text())).toMatchObject({ running: true, version: '9.9.9', port: d.port, keptAlive: true, web: 'off' });
     // It detached again: only the daemon's own count is left.
     await waitFor(() => d.server.clients.size === 0);
+  });
+
+  it('says the relay starts with the first phone, not that it is off (BLG-677)', () => {
+    expect(relayWords({ relay: 'off', phones: [] })).toBe('starts when a phone is paired');
+    expect(relayWords({ phones: [] })).toBe('starts when a phone is paired');
+    const phone = [{ name: 'Pixel', platform: 'android', linked: true }];
+    expect(relayWords({ relay: 'starting', phones: phone })).toBe('starting');
+    expect(relayWords({ relay: 'ready', phones: phone })).toMatch(/^ready/);
+    expect(relayWords({ relay: 'off', phones: phone })).toMatch(/not running.*beluga logs/);
+    const info = { pid: 2, port: 4000, token: 'x'.repeat(32), version: '1', ipc: 1, room: 'r', roomKey: 'host', startedAt: 1 };
+    const direct = report(info, { projects: [], companion: { devices: [] }, prefs: { tunnel: 'p2p' } });
+    expect(relayWords(direct)).toMatch(/direct connections only/);
+    expect(describeStatus({ ...report(info, { projects: [], companion: { devices: [], relay: 'off' } }) })).toContain('Phone relay: starts when a phone is paired');
   });
 
   it('lists projects and phones in plain words', () => {

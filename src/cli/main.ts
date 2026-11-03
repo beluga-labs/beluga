@@ -1,4 +1,4 @@
-import { COMMANDS, type ParsedCommand, UsageError, countFlag, helpText, parseCommand } from './args.js';
+import { type ParsedCommand, UsageError, countFlag, helpText, parseCommand, usageText, wrap, HELP_WIDTH } from './args.js';
 import { type Exit, type Io, stdio } from './io.js';
 import type { SocketClient } from '../ipc/socket-client.js';
 import { belugaEnv } from '../core/beluga-env.js';
@@ -134,7 +134,7 @@ export async function main(argv: readonly string[], io: Io = stdio): Promise<Exi
     return await run(parseCommand(argv), io);
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
-    io.err(`${err.message}\n${err.command ? `Usage: ${COMMANDS[err.command].usage}\n` : '`beluga help` lists what it can do.\n'}`);
+    io.err(`${wrap(err.message, HELP_WIDTH, '').join('\n')}\n${err.command ? usageText(err.command) : '`beluga help` lists what it can do.\n'}`);
     return 2;
   }
 }

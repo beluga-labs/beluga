@@ -17,13 +17,15 @@ export interface StatusReport {
   readonly phones: ReadonlyArray<{ readonly name: string; readonly platform: string; readonly linked: boolean; readonly lastSeen?: number }>;
   /** The relay phones reach this computer through when a direct link can't be made. */
   readonly relay?: 'ready' | 'starting' | 'off';
+  /** Remote access is set to direct only (or this network only): no relay at all. */
+  readonly relayDisabled?: boolean;
   /** What keeps it running from boot (`beluga service install`), if anything. */
   readonly service?: 'systemd' | 'launchd';
   /** Opening Beluga in a browser (the web milestone): off until it's set up. */
   readonly web: 'off';
 }
 
-export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 'companion'>): StatusReport {
+export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 'companion'> & { readonly prefs?: Pick<DomainState['prefs'], 'tunnel'> }): StatusReport {
   return {
     running: true,
     version: info.version,
@@ -35,8 +37,21 @@ export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 
     projects: domain.projects.filter((p) => p.root).map((p) => ({ name: p.name, root: p.root, ...(p.error ? { problem: p.error } : {}) })),
     phones: domain.companion.devices.map((d) => ({ name: d.name, platform: d.platform, linked: d.linked, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}) })),
     ...(domain.companion.relay ? { relay: domain.companion.relay } : {}),
+    ...(domain.prefs?.tunnel === 'p2p' || domain.prefs?.tunnel === 'none' ? { relayDisabled: true } : {}),
     web: 'off',
   };
+}
+
+/**
+ * The relay in words: it runs only while a phone is paired (or a pairing is open), so with none
+ * it isn't "off", it hasn't started yet.
+ */
+export function relayWords(r: Pick<StatusReport, 'relay' | 'relayDisabled' | 'phones'>): string {
+  if (r.relayDisabled) return 'off: Remote access is set to direct connections only';
+  if (r.relay === 'ready') return 'ready, for when a phone can’t connect directly';
+  if (r.relay === 'starting') return 'starting';
+  if (!r.phones.length) return 'starts when a phone is paired';
+  return 'not running: phones connect only directly for now (`beluga logs` says why)';
 }
 
 /** The report in plain words, with what to do next where something's missing. */
@@ -56,7 +71,7 @@ export function describe(r: StatusReport, now = Date.now()): string {
     lines.push(`Phones (${r.phones.length}):`);
     for (const p of r.phones) lines.push(`  ${p.name} (${p.platform}), ${p.linked ? 'linked now' : p.lastSeen ? `last seen ${ago(now - p.lastSeen)} ago` : 'not seen yet'}`);
   }
-  if (r.relay) lines.push(`Phone relay: ${r.relay === 'ready' ? 'ready' : r.relay === 'starting' ? 'starting' : 'off (phones reach this computer only directly)'}`);
+  lines.push(`Phone relay: ${relayWords(r)}`);
   lines.push(r.service ? `Keeps running: yes (${r.service === 'systemd' ? 'a systemd user service' : 'a launchd agent'})` : 'Keeps running: only until this computer restarts. `beluga service install` starts it at boot.');
   lines.push('Browser access: off');
   return `${lines.join('\n')}\n`;

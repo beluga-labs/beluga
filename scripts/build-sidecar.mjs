@@ -42,7 +42,9 @@ copyFileSync(path.join(root, 'package.json'), path.join(out, 'package.json'));
 copyFileSync(path.join(root, 'package-lock.json'), path.join(out, 'package-lock.json'));
 
 // 2. Its production dependencies, installed for this architecture (prebuilt native modules).
-run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', `--cpu=${arch}`, `--os=${platform}`], { cwd: out, env: { ...process.env, npm_config_arch: arch } });
+// Linux builds are for glibc (Ubuntu, Debian, Fedora): said outright, so a build made on a Mac (whose
+// npm knows no libc) doesn't skip the glibc-only packages, such as @resvg/resvg-js-linux-arm64-gnu.
+run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', `--cpu=${arch}`, `--os=${platform}`, ...(platform === 'linux' ? ['--libc=glibc'] : [])], { cwd: out, env: { ...process.env, npm_config_arch: arch } });
 // Claude Code's binary (239 MB, half the app) isn't bundled: the app downloads this exact package on
 // first launch and checks it against the integrity pinned here (src/agent/claude-code.ts, BLG-384).
 {
