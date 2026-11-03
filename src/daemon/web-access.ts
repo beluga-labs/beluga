@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { belugaEnv } from '../core/beluga-env.js';
 import { belugaHome } from '../core/home.js';
 import { joinRoute, locked, sessionCookie, viaHttps } from './web-join.js';
 import { type JoinLink, JoinLimiter, type WebSessionInfo, WebSessions } from './web-sessions.js';
@@ -33,6 +34,13 @@ function writeWebConfig(config: WebArgs | undefined, file = webConfigPath()): vo
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
   renameSync(tmp, file);
+}
+
+/** The web port's number unless asked otherwise: BELUGA_WEB_PORT (the Mac app's end-to-end tests run many, on 0), else 7777. */
+function defaultPort(): number {
+  const raw = belugaEnv('WEB_PORT');
+  const n = Number(raw);
+  return raw && /^\d+$/.test(raw) && n <= 65535 ? n : WEB_PORT;
 }
 
 /** Don't open the web port (or its public link) at the next start: `beluga web --off` with no Beluga running. */
@@ -102,7 +110,7 @@ export class WebAccess {
   /** Open the web port (or keep the one that's open, unless it's asked elsewhere); its link. */
   async start(want: Partial<WebArgs> = {}): Promise<string> {
     await this.opening?.catch(() => undefined);
-    const args: WebArgs = { host: want.host ?? this.args?.host ?? WEB_HOST, port: want.port ?? this.args?.port ?? WEB_PORT, allowedHosts: want.allowedHosts ?? this.args?.allowedHosts ?? [], ...(want.insecureHttp ? { insecureHttp: true } : {}) };
+    const args: WebArgs = { host: want.host ?? this.args?.host ?? WEB_HOST, port: want.port ?? this.args?.port ?? defaultPort(), allowedHosts: want.allowedHosts ?? this.args?.allowedHosts ?? [], ...(want.insecureHttp ? { insecureHttp: true } : {}) };
     if (this.server && this.url && this.args && sameArgs(this.args, args)) return this.url;
     this.opening = this.open(args);
     return this.opening;
@@ -199,9 +207,18 @@ export class WebAccess {
   }
 
   /** A one-time join link (opening the port first when it's closed). `listen` as `beluga web --listen`. */
-  async link(listen?: string, allowHosts?: readonly string[], insecureHttp?: boolean): Promise<JoinLink> {
+  async link(listen?: string, allowHosts?: readonly string[], insecureHttp?: boolean, via: 'local' | 'tailscale' | 'public' = 'local'): Promise<JoinLink> {
     const url = await this.start({ ...(listen ? parseListen(listen) : {}), ...(allowHosts?.length ? { allowedHosts: allowHosts.map((h) => h.toLowerCase()) } : {}), ...(insecureHttp ? { insecureHttp } : {}) });
-    return this.sessions.link(url);
+    if (via === 'local') return this.sessions.link(url);
+    const base = via === 'tailscale' ? this.tailscale.state?.url : this.public.state?.url;
+    if (!base) throw new Error(via === 'tailscale' ? 'Beluga isn’t on your tailnet now.' : 'The public link isn’t up now.');
+    return this.sessions.link(base);
+  }
+
+  /** The ways in this computer offers besides its own: Tailscale, when it's installed and logged in. */
+  async ways(): Promise<{ tailscale?: { name: string } }> {
+    const self = await this.tailscale.self().catch((err: unknown) => void this.opts.log?.(`web: no Tailscale to offer: ${err instanceof Error ? err.message : String(err)}`));
+    return self ? { tailscale: { name: self.name } } : {};
   }
 
   status(): WebStatus {

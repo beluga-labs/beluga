@@ -607,12 +607,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `git.mergePreview` | ✓ the toolbar's Merge into main: where it goes, the commits and files, and checks (conflicts, uncommitted work, the main folder's branch) before you confirm |
 | `git.filters` | ✓ History's Branch and Author pop-ups |
 | `git.worktreeAt` | ✓ a commit in History › Start a Worktree Here |
-| `web.link` | ✓ Settings › Advanced › Web access › New Link (a one-time join link, 10 minutes, with Copy; opens the web port first when it's closed); `beluga web` prints one |
+| `web.link` | ✓ Settings › Advanced › Web access: turning on Open Beluga in a browser, and New Link (a one-time join link, 10 minutes, as a QR with Copy, under the address picked in Reached from; opens the web port first when it's closed); `beluga web` prints one |
 | `web.sessions.list` | ✓ Settings › Advanced › Web access: the browsers let in (name, let in, last seen) and whether the port is open; `beluga web sessions` |
-| `web.sessions.revoke` | ✓ a browser's Revoke in Settings › Advanced › Web access (its sockets close at once, its page locks); `beluga web revoke <id or name>` |
-| `web.stop` | ✓ Settings › Advanced › Web access › Close Port; `beluga web stop` (and `beluga web --off`: the public link closes with it) |
-| `web.tailscale` | `beluga web --tailscale` (the ts.net address with a QR, who gets in, a join link for others), `beluga web --off`; `beluga status` shows it (Settings › Advanced › Web access: BLG-659) |
-| `web.public` | `beluga web --public` (the trycloudflare address and a join link, saying what it exposes), `beluga web --off`; `beluga status` shows the current address (Settings › Advanced › Web access: BLG-659) |
+| `web.sessions.revoke` | ✓ a browser's Remove in Settings › Advanced › Web access (its sockets close at once, its page locks); `beluga web revoke <id or name>` |
+| `web.stop` | ✓ Settings › Advanced › Web access: turning Open Beluga in a browser off; `beluga web stop` (and `beluga web --off`: the public link closes with it) |
+| `web.ways` | ✓ Settings › Advanced › Web access: Tailscale is offered under Reached from only when it's installed and logged in |
+| `web.tailscale` | ✓ Settings › Advanced › Web access › Reached from › Tailscale (the ts.net address, whose login gets in, a join link under it); `beluga web --tailscale` (with a QR), `beluga web --off`; `beluga status` shows it |
+| `web.public` | ✓ Settings › Advanced › Web access › Reached from › Public link (what it exposes, its current address, refreshed while shown, so a new one after a cloudflared restart appears); `beluga web --public`, `beluga web --off`; `beluga status` shows the current address |
 | `web.download` | ✓ in a browser the web port served: a chat file's Download, Show in Finder / Open on a file, Save on a shared file (docs/headless.md) |
 ## Sending while the agent works, and images
 

@@ -10,7 +10,8 @@ type WebMethod = Extract<Method, `web.${string}`>;
 type WebHandlers = { readonly [M in WebMethod]: (s: Session, ...args: Args<M>) => unknown };
 
 export const WEB_HANDLERS = {
-  'web.link': (s, opts) => webAccessOf(s).link(opts?.listen, opts?.allowHosts, opts?.insecureHttp),
+  'web.link': (s, opts) => webAccessOf(s).link(opts?.listen, opts?.allowHosts, opts?.insecureHttp, opts?.via),
+  'web.ways': (s) => webAccessOf(s).ways(),
   'web.sessions.list': (s) => webAccessOf(s).status(),
   'web.sessions.revoke': (s, idOrName) => webAccessOf(s).revoke(idOrName),
   'web.stop': (s) => webAccessOf(s).stop(),

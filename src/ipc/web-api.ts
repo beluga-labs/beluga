@@ -8,7 +8,10 @@ import { z } from 'zod';
 
 export const WEB_API = {
   // A one-time join link (10 minutes, one browser), opening the web port first when it's closed. → { url, expiresAt }
-  'web.link': { args: z.tuple([z.object({ listen: z.string().max(120).optional(), allowHosts: z.array(z.string().min(1).max(253)).max(20).optional(), insecureHttp: z.boolean().optional() }).optional()]) },
+  // `via`: under the tailnet's or the public link's address instead of the web port's own.
+  'web.link': { args: z.tuple([z.object({ listen: z.string().max(120).optional(), allowHosts: z.array(z.string().min(1).max(253)).max(20).optional(), insecureHttp: z.boolean().optional(), via: z.enum(['local', 'tailscale', 'public']).optional() }).optional()]) },
+  // The ways in this computer offers besides its own: Tailscale when it's installed and logged in. → { tailscale?: { name } }
+  'web.ways': { args: z.tuple([]) },
   // Is the port open, where, and the browsers let in. → { on, url?, sessions: [{ id, name, browser, os, createdAt, lastSeenAt }] }
   'web.sessions.list': { args: z.tuple([]) },
   // Revoke a browser by id or name: its sockets close now and its cookie stops working. → the browser

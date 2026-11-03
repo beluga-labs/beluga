@@ -13,7 +13,7 @@ and what the app's native bits become in a browser.
   (`ssh -L 7777:127.0.0.1:7777 box`). `--listen host:port` picks another address or port;
   `--allow-host name` adds a host name the page may be reached by (a Tailscale or tunnel name).
   It reopens at every start of the daemon until `beluga web stop` or Settings › Advanced › Web
-  access › Close Port (`~/.beluga/web.json`). An address others reach over plain http
+  access, turned off (`~/.beluga/web.json`). An address others reach over plain http
   (`0.0.0.0`, a LAN address) is refused unless `--insecure-http` says so; Tailscale's `100.x`
   addresses are fine (see docs/security.md, Web access).
 - **What**: the built UI (`packages/mac`'s `vite build`: `BELUGA_WEB_ROOT`, a packaged `web/`
@@ -50,7 +50,7 @@ Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `
   browser not seen for 90 days has to join again.
 - Without a valid cookie the web port serves only the **Ask for a link** page (and 401s), never the
   UI's files, and refuses the socket.
-- **Revoking** one (`beluga web revoke <id or name>`, or Revoke in Settings › Advanced › Web
+- **Revoking** one (`beluga web revoke <id or name>`, or Remove in Settings › Advanced › Web
   access) forgets it and closes its sockets at once (code 4401); its page reloads into the Ask page.
 - The `web.*` API (`src/ipc/web-api.ts`): `web.link`, `web.sessions.list`, `web.sessions.revoke`,
   `web.stop`, `web.public`, `web.tailscale`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
@@ -86,6 +86,10 @@ Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `
   minutes; a good link always works). When cloudflared stops or its name stops answering, a new
   tunnel opens (more slowly each time it fails) and its new address shows in `beluga status`
   and `web.sessions.list`. It is reopened at every start until `beluga web --off`.
+- **In the Mac app**: Settings › Advanced › Web access, off by default. One switch, then Reached
+  from: This computer only, Tailscale (offered when it's installed and logged in, `web.ways`) or
+  Public link; the address, New Link with the link as a QR and Copy, and the browsers let in, each
+  with Remove.
 - **Off**: `beluga web --off` closes the web port, the public link and Tailscale Serve
   (`web.stop`), and they stay closed across restarts.
 
