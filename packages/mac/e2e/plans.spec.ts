@@ -78,6 +78,43 @@ test('the demo’s plan: milestones as a living graph, a task’s details, the o
   await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
 });
 
+test('a milestone’s checker, off the sidebar, opens from its details and its ••• menu (BLG-634)', async ({ page }, info) => {
+  await page.goto('/');
+  await sidebar(page).getByRole('button', { name: 'Card checkout for launch', exact: true }).click();
+  await expect(main(page).locator('[data-ready="true"]')).toBeVisible({ timeout: 20_000 });
+  // Its checker's chat is folded into the plan: never a row of its own in the sidebar.
+  await expect(sidebar(page).getByText('Check: Test-mode foundations')).toHaveCount(0);
+  // Passed, it's folded: unfolded first, then its criteria open its details.
+  const fold = main(page).getByRole('button', { name: 'Fold Test-mode foundations' });
+  if (!(await fold.isVisible())) await main(page).locator('[data-criteria="foundations"]').click();
+  await expect(fold).toBeVisible();
+  await main(page).locator('[data-criteria="foundations"]').click();
+  const details = page.getByRole('complementary', { name: 'Details' });
+  const open = details.getByRole('button', { name: 'Open the Check' });
+  await expect(open).toBeVisible();
+  const shot = info.outputPath('open-the-check.png');
+  await details.screenshot({ path: shot });
+  await info.attach('open the check', { path: shot, contentType: 'image/png' });
+  await open.click();
+  await expect(main(page)).toContainText('Both pass criteria hold', { timeout: 15_000 });
+  const chat = info.outputPath('checker-chat.png');
+  await page.screenshot({ path: chat });
+  await info.attach('the checker’s chat', { path: chat, contentType: 'image/png' });
+  // Its gate's state on the canvas opens it too.
+  await page.goto('/');
+  await sidebar(page).getByRole('button', { name: 'Card checkout for launch', exact: true }).click();
+  await main(page).locator('[data-criteria="foundations"]').getByRole('button', { name: 'Passed: Open the Check' }).click();
+  await expect(main(page)).toContainText('Both pass criteria hold', { timeout: 15_000 });
+  // The outline's ••• menu has it too.
+  await page.goto('/');
+  await sidebar(page).getByRole('button', { name: 'Card checkout for launch', exact: true }).click();
+  await main(page).getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: 'List' }).click();
+  await page.getByRole('button', { name: 'Test-mode foundations Options' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open the Check' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await main(page).getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: 'Canvas' }).click();
+});
+
 test('opening a passed milestone opens its box in the same frame: never an open header in a folded box', async ({ page }, info) => {
   await page.goto('/');
   await sidebar(page).getByRole('button', { name: 'Card checkout for launch', exact: true }).click();
@@ -382,7 +419,7 @@ test('a new plan: Claude drafts it in its own conversation, nothing is on the bo
   await openWork(page, 'Tasks');
   await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^All/ }).click();
   // The plan is an epic in Tasks (its milestones under it, their tasks under them), all tucked away until opened out.
-  await page.getByRole('button', { name: 'Show All' }).click();
+  await page.getByRole('button', { name: 'Show All', exact: true }).click();
   await expect(page.getByRole('grid', { name: 'Tasks' })).toContainText('Data model and migration');
 });
 

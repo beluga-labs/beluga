@@ -12,7 +12,7 @@ import { useSharpZoom } from '../components/graph/sharp-zoom.js';
 import { breath, turn, useLive } from '../lib/live-motion.js';
 import { MILESTONE_STATE, type MilestoneJoin, type PlanGraphShape, TASK_STATE, changeMarks, gateId, graphShape, groupId, lockWords, milestoneJoin, milestoneLink, startingMilestones, taskNodeId, taskWords } from './plans-model.js';
 import { COMPACT_STATES, FOLDS_KEY, type Folds, MILESTONE, type MilestoneFrame, PLAN_GAPS, arrowHead, isFolded, labelAt, milestoneAnchors, milestoneFrame, milestoneRoute, placeMilestones, readFolds, taskSize, withFold } from './plan-layout.js';
-import { useClock } from './use-plans.js';
+import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { LockMark, TaskChatMark, TaskStateIcon } from './marks.js';
 import p from './plans.module.css';
 import c from './PlanCanvas.module.css';
@@ -650,6 +650,9 @@ const GateNode = memo(function GateNode({ data }: NodeProps<Node<GateData, 'gate
     (m.state === 'gate' || checking) && !data.folded,
   );
   const state = m.state === 'merging' ? 'passed' : m.state;
+  // Its checker's conversation, one click from its state (“Checking…”); the rest of the gate still opens its details.
+  const checker = useCheckerChat(m);
+  const { openWorktree } = usePlanActions();
   return (
     <div
       ref={gate}
@@ -666,7 +669,21 @@ const GateNode = memo(function GateNode({ data }: NodeProps<Node<GateData, 'gate
         </span>
         <span className={c.gateTitle}>Pass criteria</span>
         {criteria.length ? <span className={c.gateCount}>{criteria.length}</span> : null}
-        <span className={c.gateState}>{label}</span>
+        {checker ? (
+          <button
+            type="button"
+            className={cx(c.gateState, c.gateWatch, 'nodrag', 'nopan')}
+            title={checking ? 'Watch the check' : 'Open the check'}
+            aria-label={`${label}: ${checking ? 'Watch the Check' : 'Open the Check'}`}
+            onClick={(e) => (e.stopPropagation(), openWorktree(checker))}
+          >
+            <Icon name="eye" size={11} />
+            {label}
+            <TaskChatMark worktree={checker} />
+          </button>
+        ) : (
+          <span className={c.gateState}>{label}</span>
+        )}
       </div>
       {criteria.length ? (
         <ul className={c.gateList}>
