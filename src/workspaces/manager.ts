@@ -18,6 +18,7 @@ import { deleteFolderInBackground, removeWorktreeKeepingBranch, sweepSetAside } 
 import { moveToTrash } from './trash.js';
 import { dropFolderSessions, dropSession } from '../agent/runtime/claude/claude-sessions.js';
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
+import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/opencode/sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
 import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
@@ -1141,11 +1142,16 @@ export class WorkspaceManager {
     if (ws.archived) await dropArchive(ws.projectRoot, this.store.archivesDir, id).catch(() => undefined);
     if (scratch) rmSync(ws.path, { recursive: true, force: true });
     if (ours) {
-      // Claude Code's (your own Claude and local models alike) and Codex's, whichever agent ran there.
+      // Claude Code's (your own Claude and local models alike), Codex's and OpenCode's, whichever agent ran there.
       for (const dir of new Set([sessionsDir, path.resolve(ws.path)])) await dropFolderSessions(dir).catch(() => 0);
       await dropCodexSessions({ dir: sessionsDir }).catch(() => 0);
+      if (ws.sessionRuntime === 'opencode') {
+        if (ws.sessionId) await dropOpenCodeSession(ws.sessionId).catch(() => false);
+        await dropOpenCodeFolder(sessionsDir, ws.kind === 'worktree' ? ws.projectRoot : sessionsDir).catch(() => 0);
+      }
     } else if (ws.kind === 'chat' && this.ownSession(ws)) {
       if (ws.sessionRuntime === 'codex') await dropCodexSessions({ threadId: ws.sessionId! }).catch(() => 0);
+      else if (ws.sessionRuntime === 'opencode') await dropOpenCodeSession(ws.sessionId!).catch(() => false);
       else await dropSession(sessionsDir, ws.sessionId!).catch(() => undefined);
     }
     this.records = this.records.filter((r) => r.id !== id);

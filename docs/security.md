@@ -40,3 +40,14 @@ Claude Code asks Beluga before every step it takes, so the rules above are check
 | A friend's task | Full trust | write the run's folders | read | off | denied by the sandbox | not possible | off |
 | A guest | invited into one project | refused | | | | | |
 <!-- /codex-trust-table -->
+
+## OpenCode runs
+
+OpenCode asks before each step it takes, the way Claude Code does, once Beluga has told it to. For each run Beluga gives OpenCode settings that make every one of its permissions "ask", yours and each of its agents' (a "deny" of yours stays a deny). So every step comes to Beluga first and is checked by the same rules as Claude's, one step at a time.
+
+- `.env` files, keys and credential stores are turned down unless you say yes, as on Claude. Reads, edits, commands and searches outside the run's folders ask you or are refused, as on Claude.
+- A project's main folder stays read only, and a plan while it's being made edits nothing (OpenCode's own plan agent, and Beluga turns its edits down too).
+- Beluga's own tools (the room, the board) check each call where they run, as on Codex.
+- Beluga always answers "allow once" or "reject", never "always", so nothing it allows is kept in OpenCode.
+- Friends' tasks and guests don't run on OpenCode. Your OpenCode plugins, and in newer OpenCode the rules you saved with "Always allow" in its own app, can answer a step before Beluga is asked, and OpenCode has no sandbox to fall back on. A friend's task goes to Claude (or Codex) instead, and their card says why. Guests are turned away, with the reason on the Invite People sheet.
+- Quick side calls on OpenCode (answering in a chat, naming a worktree) and side questions (/btw) run without your plugins. Every tool still asks, and Beluga allows only the ones the call was given: none for a side question.

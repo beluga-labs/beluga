@@ -11,7 +11,7 @@ import { Avatar, Button, Dot, cx } from '../components/ui.js';
 import { runtimeMark } from '@beluga/shared/agent-marks.js';
 import type { RuntimeState } from '@beluga/shared/agent-runtimes.js';
 import { CopyCommand, LOCAL_MODELS_ID, useAgents } from '../onboarding/AgentsStep.js';
-import { FIX_LABEL } from '../onboarding/agent-setup.js';
+import { fixLabel } from '../onboarding/agent-setup.js';
 import { APP_VERSION } from '../lib/boot.js';
 import { revealInFinder } from '../lib/files.js';
 import { type SettingsPane, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
@@ -313,7 +313,7 @@ function AgentsGroup({ mine }: { mine: string }) {
               {row.fix === 'install' ? (
                 <>
                   {' '}
-                  <CopyCommand className={s.agentCommand} />
+                  <CopyCommand className={s.agentCommand} runtime={row.id} />
                 </>
               ) : null}
             </div>
@@ -323,7 +323,7 @@ function AgentsGroup({ mine }: { mine: string }) {
             {row.words}
             {row.fix ? (
               <Button size="small" onClick={() => act(row)}>
-                {FIX_LABEL[row.fix]}
+                {fixLabel(row)}
               </Button>
             ) : null}
           </div>
