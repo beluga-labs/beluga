@@ -4,6 +4,7 @@ import { Icon } from '../components/Icon.js';
 import { Button } from '../components/ui.js';
 import { webServed } from '../lib/boot.js';
 import { copyText } from '../lib/copy.js';
+import { useClock } from '../lib/window-active.js';
 import { useBeluga } from '../lib/beluga.js';
 import { ago } from '../phone/phone-model.js';
 import p from '../phone/phone.module.css';
@@ -44,11 +45,9 @@ export function WebAccessSettings() {
     );
   }, [client]);
 
-  useEffect(() => {
-    refresh();
-    const timer = setInterval(refresh, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+  // Every REFRESH_MS while you're looking (the clock rests while the window is hidden), and at once when you look back.
+  const tick = useClock(true, REFRESH_MS);
+  useEffect(() => refresh(), [refresh, tick]);
 
   const run = async (work: () => Promise<unknown>): Promise<void> => {
     setBusy(true);
