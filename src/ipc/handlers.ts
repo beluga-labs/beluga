@@ -27,6 +27,7 @@ import { BOARD_HANDLERS } from './board-handlers.js';
 import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
+import { plansOf } from '../core/plans/registry.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
@@ -257,7 +258,11 @@ export const HANDLERS = {
   'workbench.openCode': (s, id, file, line) => bench(s)?.openCode(id, file, line),
   'workbench.excerpt': (s, id, file, from, to) => bench(s)?.excerpt(id, file, from, to),
   'workbench.cancelMergeWhenReady': (s, id) => bench(s)?.cancelMergeWhenReady(id),
-  'workbench.refreshPrs': (s, only, recheckGh) => (typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh)),
+  'workbench.refreshPrs': (s, only, recheckGh) => {
+    // Back to the window: the plans' pull requests are looked at too, as the worktrees' are.
+    if (typeof only === 'object' && only.reason === 'focus') void plansOf(s)?.pilot.pollPrs('focus').catch(() => undefined);
+    return typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh);
+  },
   'workbench.editPrPrompt': (s) => bench(s)?.editPrPrompt(),
   'workbench.resetPrPrompt': (s) => bench(s)?.resetPrPrompt(),
   'workbench.measureDisk': (s) => bench(s)?.measureDisk(),

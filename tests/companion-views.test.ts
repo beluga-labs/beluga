@@ -362,6 +362,7 @@ describe('the views of a known Mac', () => {
     expect(w1.agent?.groups.map((g) => [g.runtime, g.available])).toEqual([
       ['claude', true],
       ['codex', false],
+      ['opencode', false],
       ['local', false],
     ]);
     expect(w1.agent?.groups[1]?.why).toMatch(/Codex/);

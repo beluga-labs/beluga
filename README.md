@@ -327,7 +327,7 @@ A phone app shows what your Mac's Beluga is doing and lets you answer what needs
 
 ## Agents
 
-Your agent is Claude Code, signed in with your own subscription. It can also run on your own models (Ollama, or any Anthropic-compatible address): see [local models](docs/local-models.md). Codex is on the way.
+Your agent is Claude Code, signed in with your own subscription. It can also run on your own models (Ollama, or any Anthropic-compatible address): see [local models](docs/local-models.md). Or make it [OpenCode](docs/opencode.md), on the models you've set up in it. Codex is on the way.
 
 ## How it works
 
