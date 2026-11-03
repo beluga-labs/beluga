@@ -261,34 +261,53 @@ const SCENES = {
       await page.waitForTimeout(2400);
     },
   },
-  /** Max effort sets the message box on fire: confetti flies as you type, it flares orange when you rush, and deleting pops into pixels. */
+  /** Max effort sets the message box on fire, in Arcade's pixels: they fly as you type, it flares when you rush, and what you delete bursts. Just the box, cropped. */
   fire: {
-    viewport: { width: 1100, height: 640 },
-    // Fire is all moving colour: fewer frames keep it under GitHub's 10 MB.
-    fps: 10,
+    // A narrow window with no sidebar or panel: the box is the whole story.
+    viewport: { width: 600, height: 440 },
+    prefs: { maxFire: { where: 'max', show: 'always', style: 'pixel', fuel: 0.6, height: 0.55, thickness: 0.55, wildness: 0.5, palette: 'red', temper: true, typing: 'pixels', popDelete: true, border: true, preset: 'arcade' } },
     async run(page) {
       await openWorkspace(page, 'add-auth');
-      // The chat has the window: all eyes on the box.
-      const panel = page.getByRole('button', { name: 'Hide the panel' });
-      if (await panel.isVisible().catch(() => false)) await panel.click();
+      for (const what of ['Hide the panel', 'Hide the sidebar']) {
+        await page.keyboard.press('Meta+K');
+        await page.keyboard.type(what, { delay: 10 });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(400);
+      }
       await page.getByRole('button', { name: 'Agent, model and effort' }).click();
-      await page.waitForTimeout(700);
       await page.getByRole('radio', { name: 'Max', exact: true }).click();
-      await page.waitForTimeout(500);
       await page.keyboard.press('Escape');
+      // Nothing above the box but its fire: the rest of the chat goes.
+      await page.locator('main [data-fire]').first().evaluate((box) => {
+        for (let el = box; el && el.tagName !== 'MAIN'; el = el.parentElement) {
+          for (const other of el.parentElement?.children ?? []) if (other !== el && other.tagName !== 'CANVAS') other.style.visibility = 'hidden';
+        }
+      });
       await composer(page).click();
-      await page.waitForTimeout(1600);
-      await page.keyboard.type('Rewrite the checkout ', { delay: 85 });
-      // Rushing: it loses its temper and burns orange.
-      await page.keyboard.type('so it never drops a payment, ever, even when Stripe is slow', { delay: 18 });
+      // The box sizes itself on input: one key in and out fits it to the window it has now.
+      await page.keyboard.press('a');
+      await page.keyboard.press('Backspace');
+      // The GIF starts here, with the box already alight.
+      await page.waitForTimeout(1800);
+      const from = await page.evaluate(() => performance.now() / 1000);
       await page.waitForTimeout(1400);
+      await page.keyboard.type('Make checkout ', { delay: 90 });
+      // Rushing: it loses its temper and flares.
+      await page.keyboard.type('never drop a payment, ever, not even once', { delay: 16 });
+      await page.waitForTimeout(1300);
       // What you take back pops into pixels.
-      for (let i = 0; i < ', ever'.length + ', even when Stripe is slow'.length; i++) await page.keyboard.press('Backspace', { delay: 40 });
+      for (let i = 0; i < ', ever, not even once'.length; i++) await page.keyboard.press('Backspace', { delay: 45 });
       await page.waitForTimeout(700);
-      await page.keyboard.type(', even on a slow day', { delay: 70 });
-      await page.waitForTimeout(1500);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(3500);
+      await page.keyboard.type(', even on a slow day', { delay: 75 });
+      await page.waitForTimeout(1600);
+      // All of it at once: one big burst, and the box is empty again for the loop.
+      await page.keyboard.press('Meta+A');
+      await page.keyboard.press('Backspace');
+      await page.waitForTimeout(2400);
+      const box = await page.locator('main [data-fire]').first().boundingBox();
+      const top = Math.max(0, Math.round(box.y - 150));
+      const left = Math.max(0, Math.round(box.x - 24));
+      return { from, crop: { x: left, y: top, w: Math.min(600 - left, Math.round(box.width + 48)), h: Math.min(440 - top, Math.round(box.y + box.height + 14 - top)) } };
     },
   },
   /** The Scratch tab: what Claude and its sub-agents save while they work (screenshots, test logs, JSON), live. */
@@ -356,20 +375,25 @@ async function record(name, scene, browser) {
   mkdirSync(dir, { recursive: true });
   const context = await browser.newContext({ viewport: scene.viewport, colorScheme: 'light', recordVideo: { dir, size: scene.viewport } });
   // Past the first-run welcome.
-  await context.addInitScript(() => localStorage.setItem('beluga.onboarding.v1', JSON.stringify({ version: 'gifs', at: 0, how: 'finished' })));
+  await context.addInitScript((prefs) => {
+    localStorage.setItem('beluga.onboarding.v1', JSON.stringify({ version: 'gifs', at: 0, how: 'finished' }));
+    if (prefs) localStorage.setItem('beluga.prefs.v1', JSON.stringify(prefs));
+  }, scene.prefs);
   const page = await context.newPage();
   await page.goto(`${url}${scene.path ?? '/'}`);
   if (!scene.path) await side(page).waitFor();
   await page.waitForTimeout(600);
-  await scene.run(page, context);
+  // A scene can say where its GIF starts (seconds into the page) and crop to one part of the window.
+  const { from, crop } = (await scene.run(page, context)) ?? {};
   const video = await page.video()?.path();
   await context.close();
   const webm = path.join(dir, 'scene.webm');
   renameSync(video ?? path.join(dir, readdirSync(dir).find((f) => f.endsWith('.webm'))), webm);
   const gif = path.join(out, `${name}.gif`);
-  const width = Math.min(scene.viewport.width, 1100);
+  const width = Math.min(crop?.w ?? scene.viewport.width, 1100);
+  const cut = crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},` : '';
   // Trim the blank first frames, then a palette made for this scene.
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(scene.trim ?? 0.8), '-i', webm, '-vf', `fps=${scene.fps ?? 12},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${scene.colors ?? 160}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, '-loop', '0', gif]);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(from ?? scene.trim ?? 0.8), '-i', webm, '-vf', `${cut}fps=${scene.fps ?? 12},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${scene.colors ?? 160}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, '-loop', '0', gif]);
   console.log(`${name}: ${gif}`);
 }
 
