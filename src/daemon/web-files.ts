@@ -7,7 +7,7 @@ import { belugaHome } from '../core/home.js';
 import { type WebRoute, json, sameOrigin } from './web.js';
 
 /**
- * Files between a browser and the computer Beluga runs on (docs/headless.md): what you drop or
+ * Files between a browser and the computer Beluga runs on (docs/web.md): what you drop or
  * pick in the browser is uploaded into ~/.beluga/uploads (the chat and tasks then use its path
  * there, as they would a file on the Mac), and what you save or "show" comes down as a download
  * through a one-time link. Both only for a browser that's let in (these routes run after its

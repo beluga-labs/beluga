@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Browsers on the web port (daemon/web-access.ts, docs/headless.md): a join link for a new one,
+ * Browsers on the web port (daemon/web-access.ts, docs/web.md): a join link for a new one,
  * the ones let in, revoking one (it's cut off at once), closing the port. Settings › Advanced ›
  * Web access and `beluga web` use them. Browser-safe: zod only.
  */

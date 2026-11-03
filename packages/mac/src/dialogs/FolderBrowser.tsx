@@ -7,7 +7,7 @@ import s from './sheet.module.css';
 import f from './folder-browser.module.css';
 
 /**
- * A browser's folder picker (BLG-651, docs/headless.md): the browser can't see the folders of
+ * A browser's folder picker (BLG-651, docs/web.md): the browser can't see the folders of
  * the computer Beluga runs on, so this sheet walks them through `local.browse`. Where the app
  * shows the Open panel (Add Project, Share a Folder, a folder friends' agents may use), a page
  * served by the web port asks `browseFolder()` instead, and gets the folder you chose.

@@ -44,7 +44,7 @@ Claude Code asks Beluga before every step it takes, so the rules above are check
 ## Web access
 
 `beluga web` serves the whole Beluga UI to browsers on a port of its own (see
-[docs/headless.md](headless.md)). A browser there can do everything you can: run agents, open a
+[docs/web.md](web.md)). A browser there can do everything you can: run agents, open a
 shell, read and write your files. So the web port is treated as the most sensitive way in.
 
 - **The daemon's token never leaves the computer.** The Mac app and tools use a loopback socket
@@ -69,6 +69,19 @@ shell, read and write your files. So the web port is treated as the most sensiti
   can't, so a stolen cookie can't mint itself a new session before you revoke it.
 - **Nothing before a session.** Without one the port answers with the Ask for a link page and
   refuses the socket; only the web app's manifest and icons are public.
+- **Your Tailscale login, and only on your tailnet.** `beluga web --tailscale` uses Tailscale
+  Serve, never Funnel. The machine owner's Tailscale login gets a session without a join link; the
+  `Tailscale-User-Login` header that says so is believed only from loopback (tailscaled), under the
+  `ts.net` name, while Serve is on. Another account on the same machine could forge it, so on a
+  shared server use join links. A tagged machine trusts nobody's login.
+- **A public link is guarded by its join links.** `beluga web --public` puts the port behind a
+  Cloudflare quick tunnel: anyone with the address reaches the Ask for a link page, and anyone
+  with a join link gets in. Wrong links through it are cut off harder (5 per visitor, 20 in all
+  per 10 minutes). `beluga web --off` closes it, and it stays closed across restarts.
+- **On a server, Claude's token stays put.** `beluga setup` keeps the `claude setup-token` token
+  in `~/.beluga/claude-token` (0600) and hands it only to the Claude Code it runs; it is never
+  printed, logged or sent to a phone or browser. How to run Beluga on a server, and what each way
+  in lets through: [docs/headless.md](headless.md).
 - **Only Beluga's own page.** The socket, the join exchange and uploads need the page's own
   Origin, so another website you visit can't drive Beluga through your browser; the Host must be a
   loopback name, an IP address or one you allowed (`--allow-host`, never a wildcard), so a website

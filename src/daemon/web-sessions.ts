@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { belugaHome } from '../core/home.js';
 
 /**
- * Browsers let into the web port (docs/headless.md): each is a device of yours, like a phone.
+ * Browsers let into the web port (docs/web.md): each is a device of yours, like a phone.
  * A one-time join link (`/join#<128-bit secret>`, 10 minutes, one use) is traded for a session
  * cookie; only the cookie's hash is kept, in ~/.beluga/web-sessions.json (0600), with what it
  * is (browser, OS), when it joined and when it was last seen. Revoking one forgets it at once.

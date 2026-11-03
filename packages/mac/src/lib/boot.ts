@@ -17,7 +17,7 @@ export interface Endpoint {
 let served = false;
 /**
  * This page came from the daemon's web port (`beluga web`): a browser, maybe on another computer.
- * Its stand-ins for the app's native bits (docs/headless.md): a folder picker over the server's
+ * Its stand-ins for the app's native bits (docs/web.md): a folder picker over the server's
  * folders, uploads for what you drop or pick, downloads for what you save or show.
  */
 export const webServed = (): boolean => served;

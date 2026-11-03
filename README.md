@@ -72,7 +72,7 @@ beluga web revoke <name>
 
 #### Phone
 
-`beluga setup` already paired one. For another phone, run this on the server and scan the QR code with the Beluga app (or type the code under it):
+`beluga setup` already paired one. For another phone, get the app (Android: `Beluga-<version>.apk` from the [latest release](https://github.com/kayraucklnc/beluga/releases/latest)), run this on the server and scan the QR code (or type the code under it):
 
 ```sh
 beluga pair
@@ -88,7 +88,7 @@ With Tailscale on the server and on your laptop or phone, logged in to the same 
 beluga web --tailscale
 ```
 
-It prints `https://<server>.<tailnet>.ts.net` and a QR code for your phone's browser. Your own Tailscale login gets straight in; anyone else on your tailnet needs a join link (`beluga web link`). Only your tailnet can reach it.
+It prints `https://<server>.<tailnet>.ts.net` and a QR code for your phone's browser. Your own Tailscale login gets straight in; anyone else on your tailnet needs the join link printed under it. Only your tailnet can reach it.
 
 #### SSH
 
