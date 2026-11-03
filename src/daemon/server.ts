@@ -120,6 +120,7 @@ export class DaemonServer {
     const wss = this.wss;
     if (!wss) return;
     for (const ws of wss.clients) ws.close(1001, reason);
+    this.wss = undefined;
     await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 
@@ -152,7 +153,16 @@ export class DaemonServer {
     });
   }
 
-  private accept(ws: WebSocket): void {
+  /**
+   * A browser's socket from the web port (daemon/web.ts), already let in by its session: it
+   * goes through the same accept path, but its hello's token is never read.
+   */
+  adopt(ws: WebSocket): void {
+    if (!this.wss) return ws.close(1013, 'Beluga is starting');
+    this.accept(ws, true);
+  }
+
+  private accept(ws: WebSocket, preauthorized = false): void {
     let client: ConnectedClient | undefined;
     const attached = new Map<string, () => void>();
     const send = (frame: DaemonFrame): void => {
@@ -191,7 +201,7 @@ export class DaemonServer {
       if (!client) {
         if (frame.t !== 'hello') return;
         clearTimeout(helloTimer);
-        if (!this.tokenOk(frame.token)) return ws.close(4003, 'Wrong token');
+        if (!preauthorized && !this.tokenOk(frame.token)) return ws.close(4003, 'Wrong token');
         if (frame.ipc !== IPC_VERSION) {
           send({ t: 'bye', reason: `This Beluga speaks version ${IPC_VERSION} of the protocol, the screen ${frame.ipc}. Update both to the same version.` });
           return ws.close(4004, 'IPC version mismatch');

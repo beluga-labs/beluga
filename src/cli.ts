@@ -10,6 +10,8 @@ const USAGE = `Beluga's engine, for the Mac app.
 
 Usage:
   cli.js daemon [--keep-alive] [demo]   run Beluga in the background for the Mac app
+  cli.js web [--listen host:port] [--allow-host name] [demo]
+                                        run Beluga with its whole UI in a browser (127.0.0.1:7777)
   cli.js mcp-serve <suite>              one suite of Beluga's tools over stdio, for a run (BELUGA_TOOLS_URL, BELUGA_TOOLS_TOKEN)
   cli.js --version                      show the version
 `;
@@ -29,17 +31,19 @@ async function main(): Promise<void> {
     await serveStdio(args[1], url, token);
     return;
   }
-  if (args[0] !== 'daemon') {
+  if (args[0] !== 'daemon' && args[0] !== 'web') {
     process.stdout.write(USAGE);
     process.exitCode = args[0] === '--help' || args[0] === '-h' || args[0] === undefined ? 0 : 1;
     return;
   }
-  const rest = args.slice(1).filter((a) => a !== '--keep-alive');
+  const { splitWebArgs } = await import('./daemon/web.js');
+  const { web, rest: daemonArgs } = args[0] === 'web' ? splitWebArgs(args.slice(1)) : { web: undefined, rest: args.slice(1) };
+  const rest = daemonArgs.filter((a) => a !== '--keep-alive');
   // The Mac app's web view; BELUGA_ALLOW_ORIGINS adds more (its dev server while developing).
   const extra = (belugaEnv('ALLOW_ORIGINS') ?? '').split(',').map((o) => o.trim()).filter(Boolean);
   // BELUGA_LAG_EVERY_MS: log the event-loop delay more often than every 30 s (scripts/perf-lag.mjs).
   const lagEveryMs = Number(belugaEnv('LAG_EVERY_MS')) || undefined;
-  await runDaemon(parseConfig(rest), { version: installedVersion(), keepAlive: args.includes('--keep-alive') || belugaEnv('KEEP_ALIVE') === '1', allowedOrigins: [...APP_ORIGINS, ...extra], ...(lagEveryMs ? { lagEveryMs } : {}), ...(belugaEnv('STOP_ON_INPUT_END') === '1' ? { stopWithInput: process.stdin } : {}) });
+  await runDaemon(parseConfig(rest), { version: installedVersion(), keepAlive: !!web || args.includes('--keep-alive') || belugaEnv('KEEP_ALIVE') === '1', ...(web ? { web } : {}), allowedOrigins: [...APP_ORIGINS, ...extra], ...(lagEveryMs ? { lagEveryMs } : {}), ...(belugaEnv('STOP_ON_INPUT_END') === '1' ? { stopWithInput: process.stdin } : {}) });
 }
 
 main().catch((err: unknown) => {
