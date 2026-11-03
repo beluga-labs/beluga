@@ -536,6 +536,8 @@ test('the board: a held card opens the columns the scope hides, and drops in one
   await page.mouse.up();
   await expect(backlog).toHaveCount(0);
   await expect(board).not.toContainText(title);
+  // Folded away, the board is back where it was.
+  await expect.poll(async () => Math.round((await readyCol.boundingBox())!.x)).toBe(Math.round(before.x));
   await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^Backlog/ }).click();
   await expect(board).toContainText(title);
   await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
