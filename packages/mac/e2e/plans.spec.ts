@@ -121,7 +121,7 @@ test('a milestone itself opens its details: its tasks in its agent’s order, ea
   await expect(main(page).locator('[data-ready="true"]')).toBeVisible({ timeout: 20_000 });
   const box = main(page).locator('.react-flow__node-milestone').filter({ hasText: 'Safe payments' });
   // Its header (not a card, not its gate) is the milestone.
-  await box.locator('[data-milestone="safe-payments"]').click({ position: { x: 24, y: 70 } });
+  await box.getByText('Safe payments', { exact: true }).click();
   const details = page.getByRole('complementary', { name: 'Details' });
   await expect(details).toContainText('Safe payments');
   const tasks = details.getByRole('region', { name: 'Its tasks' });
