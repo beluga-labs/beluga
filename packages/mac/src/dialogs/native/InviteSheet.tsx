@@ -13,6 +13,7 @@ import type { NativeMenuProps } from './index.js';
 import { Check, Choice, Field, Section, Sheet, Tag, useFlash } from './parts.js';
 import s from './sharing.module.css';
 import v from './invite.module.css';
+import { thisComputer } from '../../lib/os-words.js';
 
 const sentence = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
@@ -163,7 +164,7 @@ function HowTheyJoin({ knock }: { knock: boolean }) {
       </li>
       <li>
         <span className={v.stepIcon}><Icon name={knock ? 'hand' : 'check'} size={13} /></span>
-        <span>{knock ? <><strong>They knock</strong> and you let them in from the card in your chat.</> : <><strong>They come straight in.</strong> Secrets like .env files and keys never leave this Mac.</>}</span>
+        <span>{knock ? <><strong>They knock</strong> and you let them in from the card in your chat.</> : <><strong>They come straight in.</strong> Secrets like .env files and keys never leave {thisComputer()}.</>}</span>
       </li>
     </ol>
   );

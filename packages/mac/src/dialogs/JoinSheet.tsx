@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Button } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
 import s from './sheet.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /** Someone sent you a beluga:// link: join their room (and leave the one you're in)? */
 export function JoinSheet({ invite, onJoin, onCancel }: { invite: string; onJoin: () => void; onCancel: () => void }) {
@@ -23,7 +24,7 @@ export function JoinSheet({ invite, onJoin, onCancel }: { invite: string; onJoin
             <Dialog.Title className={s.title}>Join {host === 'a friend' ? 'their room' : `the room at ${host}`}?</Dialog.Title>
           </div>
           <div className={s.intro}>
-            <p>You'll leave {room}{others > 0 ? ` and the ${others} ${others === 1 ? 'person' : 'people'} in it` : ''}. Your projects, chats and worktrees stay on this Mac.</p>
+            <p>You'll leave {room}{others > 0 ? ` and the ${others} ${others === 1 ? 'person' : 'people'} in it` : ''}. Your projects, chats and worktrees stay on {thisComputer()}.</p>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '8px 16px 16px' }}>
             <Button variant="quiet" onClick={onCancel}>

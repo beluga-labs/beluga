@@ -561,6 +561,53 @@ fn idle_for() -> f64 {
 }
 
 /// Beluga's terminals running a program right now (`None`: couldn't tell).
+#[cfg(windows)]
+async fn terminal_programs(daemon_pid: u32) -> Option<usize> {
+    let procs = tauri::async_runtime::spawn_blocking(windows_processes)
+        .await
+        .ok()??;
+    Some(update_rules::busy_terminals_windows(&procs, daemon_pid))
+}
+
+/// Every process on this PC, from a ToolHelp snapshot (`None`: couldn't take one).
+#[cfg(windows)]
+fn windows_processes() -> Option<Vec<update_rules::WinProc>> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    // SAFETY: a snapshot handle we open and close here, and an entry of the size the calls are
+    // told; a failed call just ends the walk.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE || snap.is_null() {
+            return None;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut procs = Vec::new();
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            procs.push(update_rules::WinProc {
+                pid: entry.th32ProcessID,
+                ppid: entry.th32ParentProcessID,
+                exe: String::from_utf16_lossy(&entry.szExeFile[..len]),
+            });
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+        Some(procs)
+    }
+}
+
+/// Beluga's terminals running a program right now (`None`: couldn't tell).
+#[cfg(unix)]
 async fn terminal_programs(daemon_pid: u32) -> Option<usize> {
     let out = tauri::async_runtime::spawn_blocking(|| {
         Command::new("/bin/ps")

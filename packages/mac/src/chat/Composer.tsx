@@ -21,7 +21,7 @@ import { sameDeep, sameFields } from '../lib/stable.js';
 import { getPrefs, usePrefs } from '../lib/prefs.js';
 import { sendsToTerminal } from '../lib/convo-mode.js';
 import { chordLabel } from '../lib/shortcuts-model.js';
-import { cmdReturn, returnName } from '../lib/os-words.js';
+import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
@@ -87,7 +87,7 @@ function placeholderOf(state: AppState, ui: { pending?: { kind: string; projectI
   }
   if (v.kind === 'draft_worktree') return `What should ${agent} work on in the new worktree?`;
   if (v.kind === 'search') return 'Search every conversation';
-  if (v.kind === 'assistant') return 'Ask your Mac anything';
+  if (v.kind === 'assistant') return `Ask ${yourComputer()} anything`;
   if (v.kind === 'sentinel_chat') return 'Ask for a dashboard, a watcher or a pipeline: “chart my signups”, “tell me when my site is down”…';
   if (v.kind === 'workspace') {
     const ws = state.projects.flatMap((x) => x.workspaces).find((w) => w.id === v.id);
@@ -118,13 +118,13 @@ function RunOnChip({ wsId, ownerName, value, onChange }: { wsId: string; ownerNa
     <ActionsDropdown
       align="start"
       items={[
-        { label: `${ownerName}’s Mac`, hint: 'Their agent, in their worktree', icon: 'people', checked: value === 'owner', onSelect: () => pick('owner') },
-        { label: 'This Mac', hint: 'Your agent, in your copy, on the same branch', icon: 'laptop', checked: value === 'here', onSelect: () => pick('here') },
+        { label: `${ownerName}’s computer`, hint: 'Their agent, in their worktree', icon: 'people', checked: value === 'owner', onSelect: () => pick('owner') },
+        { label: upFirst(thisComputer()), hint: 'Your agent, in your copy, on the same branch', icon: 'laptop', checked: value === 'here', onSelect: () => pick('here') },
       ]}
     >
-      <button type="button" className={cx(s.chip, value === 'here' && s.chipOn)} aria-label={`Runs on ${value === 'here' ? 'this Mac' : `${ownerName}’s Mac`}`}>
+      <button type="button" className={cx(s.chip, value === 'here' && s.chipOn)} aria-label={`Runs on ${value === 'here' ? thisComputer() : `${ownerName}’s computer`}`}>
         <Icon name={value === 'here' ? 'laptop' : 'people'} size={12} />
-        {value === 'here' ? 'This Mac' : `${ownerName}’s Mac`}
+        {value === 'here' ? upFirst(thisComputer()) : `${ownerName}’s computer`}
         <Icon name="chevronDown" size={9} />
       </button>
     </ActionsDropdown>

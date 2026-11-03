@@ -174,7 +174,24 @@ fn system_idle_seconds() -> Option<f64> {
         let secs = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
         secs.is_finite().then_some(secs)
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the last input anywhere in this session, against the time since it started (both
+    // wrap after 49 days, together). SAFETY: a struct of the size the call is told, and a pure query.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if unsafe { GetLastInputInfo(&mut info) } == 0 {
+            return None;
+        }
+        let ms = unsafe { GetTickCount() }.wrapping_sub(info.dwTime);
+        Some(f64::from(ms) / 1000.0)
+    }
+    // Linux: X11 and Wayland each keep it to themselves; nothing reliable to ask.
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         None
     }

@@ -19,8 +19,20 @@ export const revealLabel = (what?: string, p: KeyPlatform = keyPlatform()): stri
 /** The item that opens a folder there: "Open in Finder", "Open in File Explorer", "Open Folder". */
 export const openFolderLabel = (p: KeyPlatform = keyPlatform()): string => (p === 'linux' ? 'Open Folder' : `Open in ${fileManager(p)}`);
 
+/** A phrase at the start of a sentence: "This Mac", "Your PC". */
+export const upFirst = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
+
 /** The computer in a sentence: "this Mac", "this PC", "this computer". */
 export const thisComputer = (p: KeyPlatform = keyPlatform()): string => thisComputerFor(p);
+
+/** The computer's own word, for "my Mac" or "the PC": Mac, PC, computer. */
+export const computerWord = (p: KeyPlatform = keyPlatform()): string => (p === 'mac' ? 'Mac' : p === 'windows' ? 'PC' : 'computer');
+
+/** Yours in a sentence: "your Mac", "your PC", "your computer". */
+export const yourComputer = (p: KeyPlatform = keyPlatform()): string => `your ${computerWord(p)}`;
+
+/** The same in a Title Case label ("Delete from This Computer…"): Mac, PC, Computer. */
+export const computerTitle = (p: KeyPlatform = keyPlatform()): string => upFirst(computerWord(p));
 
 /** The system's settings app: System Settings on a Mac, Settings elsewhere. */
 export const systemSettingsName = (p: KeyPlatform = keyPlatform()): string => (p === 'mac' ? 'System Settings' : 'Settings');

@@ -75,7 +75,7 @@ export function useConversationHeader(id: string): HeaderParts {
     ];
     return {
       title: (
-        <span className={s.titleRow} title={f.via === 'relay' && f.online ? 'Through another member’s Mac' : undefined}>
+        <span className={s.titleRow} title={f.via === 'relay' && f.online ? 'Through another member’s computer' : undefined}>
           <Icon name="person" size={15} />
           <span className={s.titleName}>{f.name}</span>
           <PeoplePills id={id} />

@@ -43,6 +43,7 @@ import { agentForChoice } from '../../../../src/ui/agent-choice.js';
 import type { IconName } from '../components/Icon.js';
 import { ago } from '../tasks/tasks-model.js';
 import { ASSISTANT_TITLE } from '../../../../src/shared/assistant.js';
+import { computerTitle, computerWord } from '../lib/os-words.js';
 
 /**
  * Sentinel's window, its plain parts (docs/sentinel.md §3): the list's rows and groups, the
@@ -768,7 +769,7 @@ export const PAUSE_AFTER_CHOICES: readonly number[] = [0, 1, 2, 3, 5, 10];
 export const perDayLabel = (n: number | undefined): string => (!n ? 'No limit' : n === 1 ? 'Once a day' : `${n} a day`);
 export const pauseAfterLabel = (n: number): string => (n === 0 ? 'Never' : n === 1 ? '1 failure' : `${n} failures in a row`);
 
-export const NOTIFY_LABEL: Readonly<Record<Sentinel['notify'], string>> = { mac: 'On the Mac', phone: 'On your phone', both: 'Mac and phone', off: 'Off' };
+export const NOTIFY_LABEL: Readonly<Record<Sentinel['notify'], string>> = { mac: `On the ${computerWord()}`, phone: 'On your phone', both: `${computerTitle()} and phone`, off: 'Off' };
 
 /** The model the Claude steps share ('' for Claude Code's default, undefined when they differ or there are none). */
 export function sharedModel(steps: readonly Step[]): string | undefined {

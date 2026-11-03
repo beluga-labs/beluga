@@ -1,7 +1,7 @@
 import { Resvg } from '@resvg/resvg-js';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MENU_BAR, MENU_BAR_PRESETS, menuBarLookOf, menuBarPresetOf, spoutStep, trayTitle } from '../packages/mac/src/menubar/menubar-look.js';
-import { ICON_H, ICON_W, frameCount, spoutFrames, spoutSvg } from '../packages/mac/src/menubar/spout.js';
+import { ICON_H, ICON_W, TRAY_INK_OFF_MAC, frameCount, spoutFrames, spoutSvg } from '../packages/mac/src/menubar/spout.js';
 
 const counts = { new: 3, waiting: 1, working: 2, room: 4, friends: 0 };
 
@@ -61,5 +61,13 @@ describe('the spout', () => {
         for (let x = 0; x < ICON_W; x++) expect(a.at(x, 0), `splash ${splash}, t ${t.toFixed(2)}, top x ${x}`).toBe(0);
       }
     }
+  });
+});
+
+describe('the tray whale off the Mac', () => {
+  it('is drawn in blue, readable on light and dark bars (the Mac tints its black template)', () => {
+    const [first] = spoutFrames(DEFAULT_MENU_BAR, undefined, TRAY_INK_OFF_MAC);
+    expect(first).toContain(`fill="${TRAY_INK_OFF_MAC}"`);
+    expect(spoutFrames(DEFAULT_MENU_BAR)[0]).toContain('fill="#000"');
   });
 });

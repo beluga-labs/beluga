@@ -161,9 +161,78 @@ pub fn busy_terminals(procs: &[Proc], daemon_pid: u32) -> usize {
         .count()
 }
 
+/// A process on Windows: who started it and which program it is.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+pub struct WinProc {
+    pub pid: u32,
+    pub ppid: u32,
+    /// "pwsh.exe", as Windows names it.
+    pub exe: String,
+}
+
+/// Shells Beluga's terminals run on Windows.
+const WINDOWS_SHELLS: [&str; 8] = [
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "bash.exe",
+    "sh.exe",
+    "zsh.exe",
+    "fish.exe",
+    "nu.exe",
+];
+
+/// What the console itself runs beside a shell: not a program you started.
+const CONSOLE_HOSTS: [&str; 2] = ["conhost.exe", "openconsole.exe"];
+
+/// Beluga's terminals running a program on Windows, which has no terminal process groups: a
+/// shell the daemon started with something of its own running under it (a build, a dev server).
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+pub fn busy_terminals_windows(procs: &[WinProc], daemon_pid: u32) -> usize {
+    let is = |exe: &str, list: &[&str]| list.iter().any(|n| exe.eq_ignore_ascii_case(n));
+    procs
+        .iter()
+        .filter(|p| p.ppid == daemon_pid && is(&p.exe, &WINDOWS_SHELLS))
+        .filter(|shell| {
+            procs
+                .iter()
+                .any(|c| c.ppid == shell.pid && !is(&c.exe, &CONSOLE_HOSTS))
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn win(pid: u32, ppid: u32, exe: &str) -> WinProc {
+        WinProc {
+            pid,
+            ppid,
+            exe: exe.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_windows_terminal_is_busy_while_its_shell_runs_something() {
+        let procs = [
+            win(10, 1, "node.exe"),
+            // An idle PowerShell (only its console host under it).
+            win(20, 10, "powershell.exe"),
+            win(21, 20, "conhost.exe"),
+            // Git Bash running a dev server.
+            win(30, 10, "bash.exe"),
+            win(31, 30, "node.exe"),
+            // Claude, started by the daemon, isn't a terminal.
+            win(40, 10, "claude.exe"),
+            win(41, 40, "git.exe"),
+            // Someone else's shell.
+            win(50, 99, "cmd.exe"),
+            win(51, 50, "ping.exe"),
+        ];
+        assert_eq!(busy_terminals_windows(&procs, 10), 1);
+        assert_eq!(busy_terminals_windows(&procs, 77), 0);
+    }
 
     const NOW: u64 = 1_800_000_000_000;
 

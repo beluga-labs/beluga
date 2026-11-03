@@ -235,7 +235,7 @@ function mentionSuggestions(buffer: string, ctx: SuggestContext): Suggestion[] {
     // Each friend twice: their Claude ("@claude:ata", asked on their Mac) and the person ("@ata", told you mentioned them).
     ...(ctx.friends ?? [])
       .filter((f) => friendMention(f.name).length > 1 && !ctx.peers.some((p) => p.agent && p.peerId !== ctx.selfId && p.name.toLowerCase() === f.name.toLowerCase()))
-      .map((f) => ({ label: `@claude:${friendMention(f.name).slice(1)}`, hint: `ask ${f.name}'s agent, on their Mac${f.online ? '' : ' (offline: it goes when they’re back)'}`, kind: 'claude' as const, name: friendMention(f.name) })),
+      .map((f) => ({ label: `@claude:${friendMention(f.name).slice(1)}`, hint: `ask ${f.name}'s agent, on their computer${f.online ? '' : ' (offline: it goes when they’re back)'}`, kind: 'claude' as const, name: friendMention(f.name) })),
     ...(ctx.friends ?? [])
       .filter((f) => friendMention(f.name).length > 1)
       .map((f) => ({ label: friendMention(f.name), hint: `${f.name}, the person: they're told you mentioned them`, kind: 'person' as const })),

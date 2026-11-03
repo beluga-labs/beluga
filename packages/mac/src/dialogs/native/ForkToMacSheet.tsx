@@ -11,6 +11,7 @@ import { useApi, useApp } from '../../lib/beluga.js';
 import { openSheet } from '../../lib/sheets.js';
 import s from './fork-to-mac.module.css';
 import m from './menus.module.css';
+import { computerTitle, thisComputer } from '../../lib/os-words.js';
 
 /** The folder and branch name Beluga makes from a name (as the core's `slug` does). */
 const slug = (name: string): string =>
@@ -47,7 +48,7 @@ export function ForkToMacSheet({ owner, wsId, close }: { owner: string; wsId: st
   if (!ws) return null;
   return (
     <FormSheet
-      title={`Fork “${ws.name}” to This Mac`}
+      title={`Fork “${ws.name}” to This ${computerTitle()}`}
       icon="laptop"
       intro={`A worktree of your own that starts where ${ownerName}’s is now, with your agent. ${ownerName}’s goes on as it is.`}
       submitLabel="Fork"
@@ -121,7 +122,7 @@ function ForkProgress({ fork }: { fork: SharedFork }) {
 }
 
 /**
- * In a friend's worktree you work in (shared over the network), in its header: Fork to My Mac,
+ * In a friend's worktree you work in (shared over the network), in its header: Fork to My {computerTitle()},
  * how far a fork got (waiting for their Mac, copying), and Open My Fork once it's made.
  */
 export function ForkToMacButton({ owner, wsId }: { owner: string; wsId: string }) {
@@ -144,17 +145,17 @@ export function ForkToMacButton({ owner, wsId }: { owner: string; wsId: string }
   if (fork?.state === 'copying') return <ForkProgress fork={fork} />;
   if (fork?.state === 'asking') {
     return (
-      <Tip label={online ? `${ownerName}’s Mac is packing it` : 'It goes as soon as their Mac is back'}>
+      <Tip label={online ? `${ownerName}’s computer is packing it` : 'It goes as soon as their computer is back'}>
         <Button variant="quiet" icon="laptop" disabled aria-busy="true">
-          {online ? 'Packing…' : `Waiting for ${ownerName}’s Mac…`}
+          {online ? 'Packing…' : `Waiting for ${ownerName}’s computer…`}
         </Button>
       </Tip>
     );
   }
   return (
-    <Tip label={fork?.state === 'failed' ? `Last time: ${fork.error ?? 'it didn’t work'}. Try again` : 'Your own copy of this worktree on this Mac: its changes, Scratch and conversation'}>
+    <Tip label={fork?.state === 'failed' ? `Last time: ${fork.error ?? 'it didn’t work'}. Try again` : `Your own copy of this worktree on ${thisComputer()}: its changes, Scratch and conversation`}>
       <Button variant="quiet" icon="laptop" onClick={() => openSheet({ kind: 'fork_to_mac', owner, wsId })}>
-        Fork to My Mac
+        Fork to My {computerTitle()}
       </Button>
     </Tip>
   );

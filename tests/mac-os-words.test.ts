@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cmdReturn, dockName, fileManager, microphoneSettings, notificationSettings, openFolderLabel, osName, returnName, revealLabel, systemSettingsName, thisComputer, trayName } from '../packages/mac/src/lib/os-words.js';
+import { cmdReturn, computerTitle, computerWord, dockName, fileManager, microphoneSettings, notificationSettings, openFolderLabel, osName, returnName, revealLabel, systemSettingsName, thisComputer, trayName, upFirst, yourComputer } from '../packages/mac/src/lib/os-words.js';
 import { setKeyPlatform, shortcutDef } from '../packages/mac/src/lib/shortcuts-model.js';
 import { fileManagerFor, thisComputerFor } from '../src/shared/assistant.js';
 import { tabKey } from '../src/ui/workspace-models.js';
@@ -19,6 +19,10 @@ describe('words for the computer the app runs on', () => {
 
   it('names the computer, its settings and where the whale sits', () => {
     expect([thisComputer('mac'), thisComputer('windows'), thisComputer('linux')]).toEqual(['this Mac', 'this PC', 'this computer']);
+    expect([yourComputer('mac'), yourComputer('windows'), yourComputer('linux')]).toEqual(['your Mac', 'your PC', 'your computer']);
+    expect([computerWord('mac'), computerWord('windows'), computerWord('linux')]).toEqual(['Mac', 'PC', 'computer']);
+    expect([computerTitle('mac'), computerTitle('windows'), computerTitle('linux')]).toEqual(['Mac', 'PC', 'Computer']);
+    expect([upFirst(thisComputer('mac')), upFirst(yourComputer('linux'))]).toEqual(['This Mac', 'Your computer']);
     expect([systemSettingsName('mac'), systemSettingsName('windows'), systemSettingsName('linux')]).toEqual(['System Settings', 'Settings', 'Settings']);
     expect([osName('mac'), osName('windows'), osName('linux')]).toEqual(['macOS', 'Windows', 'Linux']);
     expect([trayName('mac'), trayName('windows'), trayName('linux')]).toEqual(['Menu Bar', 'System Tray', 'System Tray']);
@@ -39,6 +43,7 @@ describe('words for the computer the app runs on', () => {
     setKeyPlatform('windows');
     expect(revealLabel()).toBe('Show in File Explorer');
     expect(thisComputer()).toBe('this PC');
+    expect(yourComputer()).toBe('your PC');
     expect(cmdReturn()).toBe('Ctrl+Enter');
     setKeyPlatform('linux');
     expect(fileManager()).toBe('Files');

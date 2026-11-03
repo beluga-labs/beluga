@@ -1,5 +1,6 @@
 // Relative, not @beluga: tests at the repo's root import this file too.
 import type { RuntimeChoice, RuntimeState } from '../../../../src/shared/agent-runtimes.js';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Your agents, found (BLG-507): each runtime Beluga knows with where it stands on this Mac (ready,
@@ -55,8 +56,8 @@ const DETAIL: Readonly<Record<string, Partial<Record<RuntimeState, string>> & { 
     missing: 'Install the Codex app, or in Terminal:',
   },
   local: {
-    ready: 'A model of your own: Ollama on this Mac, or an endpoint you added. Free.',
-    no_endpoint: 'Ollama on this Mac, or any endpoint you add. Free, on your own models.',
+    ready: `A model of your own: Ollama on ${thisComputer()}, or an endpoint you added. Free.`,
+    no_endpoint: `Ollama on ${thisComputer()}, or any endpoint you add. Free, on your own models.`,
   },
 };
 

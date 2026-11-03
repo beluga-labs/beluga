@@ -10,6 +10,7 @@ import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
 import s from './settings.module.css';
 import { chordLabel, keyPlatform } from '../lib/shortcuts-model.js';
+import { thisComputer, yourComputer } from '../lib/os-words.js';
 
 /**
  * Settings › Voice (BLG-146): speaking instead of typing. Which model writes it down (the one
@@ -102,7 +103,7 @@ export function VoiceSettings() {
             label={VOICE_MODELS[m.model].label}
             detail={
               m.ready
-                ? `On this Mac · ${voiceSize(m.bytes)}${m.model === using ? ' · in use' : ''}`
+                ? `On ${thisComputer()} · ${voiceSize(m.bytes)}${m.model === using ? ' · in use' : ''}`
                 : m.progress !== undefined
                   ? `Getting it · ${Math.round(m.progress * 100)}% of ${voiceSize(m.bytes)}`
                   : (m.error ?? `${voiceSize(m.bytes)}, once. It comes by itself the first time you speak${m.model === using ? '' : ' with it'}.`)
@@ -154,7 +155,7 @@ export function VoiceSettings() {
           <Switch label="Send right away" on={prefs.voiceSend} onChange={(v) => setPrefs({ voiceSend: v })} />
         </Row>
       </Group>
-      <p className={s.note}>What you say is written down on this Mac, on its GPU, and the recording is deleted at once. Nothing leaves your Mac. Your phone uses the same models when it’s set to On your Mac.</p>
+      <p className={s.note}>What you say is written down on {thisComputer()}, on its GPU, and the recording is deleted at once. Nothing leaves {yourComputer()}. Your phone uses the same models when it’s set to On your Mac.</p>
     </>
   );
 }

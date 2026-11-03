@@ -9,6 +9,7 @@ import { toast, useApi, useBeluga } from '../../lib/beluga.js';
 import { Card, Meter } from './parts.js';
 import { ago, resetsAt } from './usage-model.js';
 import s from './usage.module.css';
+import { thisComputer } from '../../lib/os-words.js';
 
 function WindowMeter({ w, now }: { w: CardWindow; now: number }) {
   return (
@@ -96,7 +97,7 @@ function ProviderBox({ card, now }: { card: ProviderCard; now: number }) {
       }
     >
       {!card.signedIn ? (
-        <p className={s.quiet}>Not signed in. Sign in to {card.agent.label} on this Mac to use it.</p>
+        <p className={s.quiet}>Not signed in. Sign in to {card.agent.label} on {thisComputer()} to use it.</p>
       ) : card.shape === 'quota' ? (
         <div className={s.windows}>
           {card.windows.map((w) => (

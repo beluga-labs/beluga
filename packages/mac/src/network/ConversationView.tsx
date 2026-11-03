@@ -29,6 +29,7 @@ import { agentBadge, useMyAgent } from '../lib/agent-words.js';
 import { agentMark } from '@beluga/shared/agent-marks.js';
 import { PersonButton } from './PersonProfile.js';
 import s from './network.module.css';
+import { computerTitle, thisComputer, yourComputer } from '../lib/os-words.js';
 
 /** Messages the shared state keeps per conversation; with that many, there may be earlier ones. */
 const KEPT = 200;
@@ -243,14 +244,14 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
                   {agentBadge(m.claude.agent)}
                 </span>
               ) : null}
-              {m.claude ? <span className={s.claudeTag}>on {m.mine ? 'your' : `${m.name}’s`} Mac</span> : null}
+              {m.claude ? <span className={s.claudeTag}>on {m.mine ? yourComputer() : `${m.name}’s computer`}</span> : null}
               {prefs.timestamps ? <span className={s.runTime}>{time(m.ts)}</span> : null}
             </div>
           ) : null}
           {locked ? (
             <div className={s.locked}>
               <Icon name="lock" size={12} />
-              Can’t be read on this Mac
+              Can’t be read on {thisComputer()}
             </div>
           ) : (
             <>
@@ -278,7 +279,7 @@ function TaskRow({ task, me }: { task: TaskView; me?: { name: string; peerId: st
   const owner = sent ? (me?.peerId ?? 'me') : task.peerId;
   const ownerName = sent ? (me?.name ?? 'You') : task.peerName;
   const label = agent ? (sent ? 'Your agent' : `${task.peerName}’s agent`) : sent ? 'You' : task.peerName;
-  const asked = sent ? `asked ${targetLabel(task)}` : `asked ${task.kind === 'ask' ? 'your agent' : 'your Mac'}`;
+  const asked = sent ? `asked ${targetLabel(task)}` : `asked ${task.kind === 'ask' ? 'your agent' : yourComputer()}`;
   return (
     <div className={cx(s.row, s.rowClaude)} data-task-row={task.id}>
       <div className={s.side}>
@@ -322,7 +323,7 @@ function RequestOffer({ m }: { m: MessageView }) {
   const request = m.claude?.request;
   if (!request) return null;
   if (task) return <TaskCard task={task} inChat />;
-  if (taskId) return <div className={s.asked}>Sent as a request to {m.name}’s Mac</div>;
+  if (taskId) return <div className={s.asked}>Sent as a request to {m.name}’s computer</div>;
   const send = (): void => {
     setSending(true);
     void client.api.gateway
@@ -338,7 +339,7 @@ function RequestOffer({ m }: { m: MessageView }) {
         {request.ask}
       </span>
       <Button size="small" variant="primary" disabled={sending} onClick={send}>
-        {sending ? 'Sending…' : `Ask on ${m.name}’s Mac`}
+        {sending ? 'Sending…' : `Ask on ${m.name}’s computer`}
       </Button>
     </div>
   );
@@ -384,7 +385,7 @@ function Intro({ friend, group }: { friend?: FriendView; group?: GroupView }) {
         <div className={s.introLine}>{presenceLine(friend)}</div>
         <div className={s.introPrivacy}>
           <Icon name="lock" size={12} />
-          End-to-end encrypted, straight to {friend.name}’s Mac
+          End-to-end encrypted, straight to {friend.name}’s computer
         </div>
       </div>
     );
@@ -397,10 +398,10 @@ function Intro({ friend, group }: { friend?: FriendView; group?: GroupView }) {
       <div className={s.introLine}>{isMain(net, group) ? `Your main channel: all your friends, and everyone you add later · ${membersLine(group.members)}` : membersLine(group.members)}</div>
       <div className={s.introPrivacy}>
         <Icon name="lock" size={12} />
-        End-to-end encrypted, kept on each member’s Mac
+        End-to-end encrypted, kept on each member’s computer
       </div>
       <div className={s.introHint}>
-        Drop files here to share them straight from your Mac. Your agent answers only when you ask: type <b>@claude</b> (whichever agent you run), or click <b>Ask: your agent</b> under the message box.
+        Drop files here to share them straight from {yourComputer()}. Your agent answers only when you ask: type <b>@claude</b> (whichever agent you run), or click <b>Ask: your agent</b> under the message box.
       </div>
       {group.admin && group.active ? (
         <div className={s.introActions}>
@@ -611,7 +612,7 @@ function Conversation({ id }: { id: string }) {
     );
   }
   if (!target || (!friend && !group)) {
-    return <Empty icon="people" title={target?.kind === 'group' ? 'This channel isn’t here any more' : 'Not a friend any more'} detail="Its messages stay on this Mac, but you can’t write here." />;
+    return <Empty icon="people" title={target?.kind === 'group' ? 'This channel isn’t here any more' : 'Not a friend any more'} detail={`Its messages stay on ${thisComputer()}, but you can’t write here.`} />;
   }
 
   const loadEarlier = async (): Promise<void> => {
@@ -681,7 +682,7 @@ function Conversation({ id }: { id: string }) {
             <Icon name="lock" size={13} />
             <span>You’re no longer in {group.name}. Its messages stay here, read-only.</span>
             <Button size="small" onClick={() => openNet({ kind: 'delete_group', groupId: group.id })}>
-              Delete from This Mac…
+              Delete from This {computerTitle()}…
             </Button>
           </div>
         </div>

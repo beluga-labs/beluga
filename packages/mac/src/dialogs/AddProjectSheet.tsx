@@ -9,6 +9,7 @@ import { inApp } from '../lib/boot.js';
 import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { pickFolders } from '../lib/projects.js';
 import s from './add-project.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 interface Found {
   readonly path: string;
@@ -155,8 +156,8 @@ export function AddProjectSheet() {
               </div>
 
               <div className={s.listHead}>
-                <span>On this Mac</span>
-                <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label="Filter projects on this Mac" />
+                <span>On {thisComputer()}</span>
+                <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label={`Filter projects on ${thisComputer()}`} />
               </div>
               <div className={s.list} role="list">
                 {found === undefined ? (

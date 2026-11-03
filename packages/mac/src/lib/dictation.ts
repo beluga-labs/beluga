@@ -8,7 +8,7 @@ import { getPrefs, usePrefs, type UiPrefs } from './prefs.js';
 import { joinPhrases, PhraseCutter, PHRASE_RATE, promptFrom, Resampler } from '@beluga/shared/voice-phrases.js';
 import { cleanWords, DICTATION_MAX_SECONDS, HOLD_MS, matchesAccel, parseAccel, spoken, wavFromFloats } from './dictation-model.js';
 import { isRecording } from './shortcuts.js';
-import { microphoneSettings } from './os-words.js';
+import { microphoneSettings, thisComputer } from './os-words.js';
 
 /**
  * Speak instead of typing (BLG-145): the microphone beside Send, and the talk shortcut (Settings ›
@@ -306,7 +306,7 @@ export const clearDictationError = (): void => {
 
 /** The bar's words for the model coming. */
 export const gettingLine = (s: Extract<DictationState, { kind: 'getting' }>): string =>
-  s.progress > 0 ? `Getting ${VOICE_MODELS[s.model].label} on this Mac · ${Math.round(s.progress * 100)}% of ${voiceSize(VOICE_MODELS[s.model].files.mac?.bytes ?? 0)}, once` : 'Getting ready…';
+  s.progress > 0 ? `Getting ${VOICE_MODELS[s.model].label} on ${thisComputer()} · ${Math.round(s.progress * 100)}% of ${voiceSize(VOICE_MODELS[s.model].files.mac?.bytes ?? 0)}, once` : 'Getting ready…';
 
 /* ---------- The shortcut ---------- */
 

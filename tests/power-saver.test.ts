@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PowerSaver, SAVING_SLOWER, pace, paced, savingNow } from '../src/core/power-saver.js';
-import { lowPowerOn, onBattery } from '../src/core/power-source.js';
+import { ON_MAINS, type RunText, WINDOWS_BATTERY_ARGS, WINDOWS_TIMEOUT_MS, lowPowerOn, onBattery, readPowerSource, windowsOnBattery, windowsPowerReader } from '../src/core/power-source.js';
 import { Store, initialState } from '../src/core/store.js';
 
 const flush = () => new Promise((r) => setImmediate(r));
@@ -70,5 +70,85 @@ describe('Low Power mode (BLG-621)', () => {
     expect(runs).toBe(3);
     expect(pace(15_000, true)).toBe(60_000);
     expect(pace(15_000, false)).toBe(15_000);
+  });
+});
+
+describe('Windows on battery (BLG-636)', () => {
+  const runner = (...outs: (string | undefined | Error)[]) => {
+    const calls: { file: string; args: readonly string[]; timeoutMs: number }[] = [];
+    const run: RunText = async (file, args, timeoutMs) => {
+      calls.push({ file, args, timeoutMs });
+      const out = outs.length > 1 ? outs.shift() : outs[0];
+      if (out instanceof Error) throw out;
+      return out;
+    };
+    return { run, calls };
+  };
+
+  it('reads Win32_Battery’s BatteryStatus: discharging, low or critical is on battery', () => {
+    expect(windowsOnBattery('1\r\n')).toBe(true);
+    expect(windowsOnBattery('4')).toBe(true);
+    expect(windowsOnBattery('5')).toBe(true);
+    expect(windowsOnBattery('2\r\n')).toBe(false);
+    expect(windowsOnBattery('3')).toBe(false);
+    expect(windowsOnBattery('6')).toBe(false);
+    expect(windowsOnBattery('11')).toBe(false);
+    expect(windowsOnBattery('2\r\n1\r\n')).toBe(true);
+    expect(windowsOnBattery('')).toBe(false);
+  });
+
+  it('asks PowerShell with a short timeout and says what the battery does', async () => {
+    const { run, calls } = runner('1\r\n', '2\r\n');
+    const read = windowsPowerReader(run);
+    expect(await read()).toEqual({ battery: true, lowPower: false });
+    expect(await read()).toEqual({ battery: false, lowPower: false });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual({ file: 'powershell.exe', args: WINDOWS_BATTERY_ARGS, timeoutMs: WINDOWS_TIMEOUT_MS });
+    expect(WINDOWS_TIMEOUT_MS).toBeLessThanOrEqual(3_000);
+    expect(calls[0]?.args).toContain('-NonInteractive');
+  });
+
+  it('is on mains when PowerShell fails, is slow or throws, and asks again next time', async () => {
+    const { run, calls } = runner(undefined, new Error('spawn powershell.exe ENOENT'), '1');
+    const read = windowsPowerReader(run);
+    expect(await read()).toEqual(ON_MAINS);
+    expect(await read()).toEqual(ON_MAINS);
+    expect(await read()).toEqual({ battery: true, lowPower: false });
+    expect(calls).toHaveLength(3);
+  });
+
+  it('remembers a desktop (no battery) and never asks again', async () => {
+    const { run, calls } = runner('\r\n');
+    const read = windowsPowerReader(run);
+    expect(await read()).toEqual(ON_MAINS);
+    expect(await read()).toEqual(ON_MAINS);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('shares one look between callers that ask at once', async () => {
+    let finish: (out: string) => void = () => {};
+    let runs = 0;
+    const read = windowsPowerReader(() => {
+      runs++;
+      return new Promise((resolve) => (finish = resolve));
+    });
+    const both = Promise.all([read(), read()]);
+    finish('1');
+    expect(await both).toEqual([
+      { battery: true, lowPower: false },
+      { battery: true, lowPower: false },
+    ]);
+    expect(runs).toBe(1);
+  });
+
+  it('readPowerSource uses the Windows reader only on win32', async () => {
+    let asked = 0;
+    const windows = async () => {
+      asked++;
+      return { battery: true, lowPower: false };
+    };
+    expect(await readPowerSource('win32', windows)).toEqual({ battery: true, lowPower: false });
+    expect(await readPowerSource('freebsd', windows)).toEqual(ON_MAINS);
+    expect(asked).toBe(1);
   });
 });

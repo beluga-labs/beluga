@@ -277,7 +277,7 @@ export function Toolbar() {
           <span className={s.meta}>
             {`${owner}'s ${w?.project ?? 'project'} ·`}
             <Icon name={agentMark(w?.agent)} size={11} />
-            {`${agentLabel(w?.agent, owner, false, { model: true })} on their Mac · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
+            {`${agentLabel(w?.agent, owner, false, { model: true })} on their computer · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
           </span>
         }
         center={

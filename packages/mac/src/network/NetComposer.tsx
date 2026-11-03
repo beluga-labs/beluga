@@ -10,7 +10,7 @@ import { type AgentMark, agentMark } from '@beluga/shared/agent-marks.js';
 import { handleInvite } from '../lib/invite-command.js';
 import { usePrefs } from '../lib/prefs.js';
 import { chordLabel } from '../lib/shortcuts-model.js';
-import { cmdReturn, returnName } from '../lib/os-words.js';
+import { cmdReturn, returnName, yourComputer } from '../lib/os-words.js';
 import { quoted } from '../chat/message-menu.js';
 import { DictationStrip, MicButton } from '../chat/Dictation.js';
 import { useDictationTarget } from '../lib/dictation.js';
@@ -89,9 +89,9 @@ function AskButton({ ask, setAsk, people, me }: { ask: Ask | undefined; setAsk: 
   );
   if (!people.length) return toggle;
   const items: ActionItem[] = [
-    { label: 'Your Agent', icon: myMark, checked: mine, hint: 'It answers here, from your Mac', onSelect: () => setAsk({ kind: 'me' }) },
-    { label: people.length === 1 ? 'Both Agents' : 'Everyone’s Agent', icon: 'people', checked: ask?.kind === 'all', hint: 'Each answers from their own Mac', onSelect: () => setAsk({ kind: 'all' }) },
-    ...people.map((p, i) => ({ label: `${p.name}’s Agent`, separate: i === 0, checked: ask?.kind === 'person' && ask.peerId === p.peerId, hint: `From ${p.name}’s Mac`, onSelect: () => setAsk({ kind: 'person', peerId: p.peerId, name: p.name }) })),
+    { label: 'Your Agent', icon: myMark, checked: mine, hint: `It answers here, from ${yourComputer()}`, onSelect: () => setAsk({ kind: 'me' }) },
+    { label: people.length === 1 ? 'Both Agents' : 'Everyone’s Agent', icon: 'people', checked: ask?.kind === 'all', hint: 'Each answers from their own computer', onSelect: () => setAsk({ kind: 'all' }) },
+    ...people.map((p, i) => ({ label: `${p.name}’s Agent`, separate: i === 0, checked: ask?.kind === 'person' && ask.peerId === p.peerId, hint: `From ${p.name}’s computer`, onSelect: () => setAsk({ kind: 'person', peerId: p.peerId, name: p.name }) })),
     ...(ask ? [{ label: 'Don’t Ask an Agent', separate: true, onSelect: () => setAsk(undefined) }] : []),
   ];
   return (

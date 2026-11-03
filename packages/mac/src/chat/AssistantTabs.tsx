@@ -9,6 +9,7 @@ import { sameDeep } from '../lib/stable.js';
 import { signalOf } from '../layout/attention-model.js';
 import { SignalMark } from '../layout/signal-marks.js';
 import s from './assistant-tabs.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Your Mac's chats as tabs (BLG-102, core/assistant): several conversations at once, one open.
@@ -68,7 +69,7 @@ function confirmDelete(title: string, last: boolean, run: () => void): void {
   openSheet({
     kind: 'confirm',
     title: `Delete “${title}”?`,
-    message: `Its messages go from this Mac and your phone for good, and your agent forgets the conversation. Files it made stay in ${ASSISTANT_TITLE}’s folder.${last ? ' A fresh chat takes its place.' : ''}`,
+    message: `Its messages go from ${thisComputer()} and your phone for good, and your agent forgets the conversation. Files it made stay in ${ASSISTANT_TITLE}’s folder.${last ? ' A fresh chat takes its place.' : ''}`,
     confirm: 'Delete Chat',
     destructive: true,
     run,

@@ -8,6 +8,7 @@ import { Select } from '../settings-controls.js';
 import { Section, Sheet, Tag } from './parts.js';
 import { ACCESS, type Access, SharePicker } from './SharePicker.js';
 import s from './sharing.module.css';
+import { thisComputer } from '../../lib/os-words.js';
 
 /**
  * Share with…: a project with friends over the network. Nobody hosts: it shows in each friend's
@@ -77,7 +78,7 @@ export function ShareProjectSheet({ projectId, close }: { readonly projectId: st
           {friends.length ? null : <div className={s.empty}>Not shared with anyone yet.</div>}
         </div>
       </Section>
-      <p className={s.hint}>Your agent does the work, on this Mac. Risky steps still ask you, unless you fully trust the person asking.</p>
+      <p className={s.hint}>Your agent does the work, on {thisComputer()}. Risky steps still ask you, unless you fully trust the person asking.</p>
     </Sheet>
   );
 }

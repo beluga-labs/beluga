@@ -142,7 +142,7 @@ function Delivery({ request, channel }: { request: string; channel: string }) {
   return (
     <div className={s.steerWaiting} data-delivery={state} role="status">
       <Icon name={state === 'waiting' ? 'clock' : 'check'} size={11} />
-      <span>{state === 'waiting' ? `Waiting for ${owner}'s Mac · it goes when it's back` : 'Delivered'}</span>
+      <span>{state === 'waiting' ? `Waiting for ${owner}'s computer · it goes when it's back` : 'Delivered'}</span>
     </div>
   );
 }

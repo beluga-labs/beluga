@@ -190,7 +190,8 @@ fn outdated(running: Option<&str>, keep_alive: bool, bundled: Option<&str>) -> b
 }
 
 /// The process that started `pid` (1 once that one is gone), if it can be told. Windows doesn't
-/// hand orphans to a first process, so a daemon there is never taken for one left behind.
+/// hand orphans to a first process, but there a daemon stops by itself once the app that started
+/// it is gone (its input closes: stop-on-input.ts), so none is left behind.
 #[cfg(windows)]
 fn parent_of(_pid: u32) -> Option<u32> {
     None
@@ -204,7 +205,19 @@ fn parent_of(pid: u32) -> Option<u32> {
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    let parent: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    // A Linux desktop hands orphans to your session's systemd (a "subreaper"), not to process 1.
+    #[cfg(target_os = "linux")]
+    if adopted(std::fs::read_to_string(format!("/proc/{parent}/comm")).ok().as_deref()) {
+        return Some(1);
+    }
+    Some(parent)
+}
+
+/// Whether a process by this name only adopts orphans (systemd, for your session or the system).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn adopted(comm: Option<&str>) -> bool {
+    comm.is_some_and(|c| c.trim() == "systemd")
 }
 
 /// Whether a running daemon was left behind by a Mac app that's gone (it crashed, was force
@@ -709,6 +722,10 @@ mod tests {
         assert!(!orphaned(true, None));
         // A daemon started by hand stays, even under launchd.
         assert!(!orphaned(false, Some(1)));
+        // Linux: your session's systemd takes orphans in.
+        assert!(adopted(Some("systemd\n")));
+        assert!(!adopted(Some("beluga\n")));
+        assert!(!adopted(None));
     }
 
     #[cfg(unix)]

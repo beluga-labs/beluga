@@ -13,6 +13,7 @@ import { brandText } from '../lib/brand.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { openExternal } from '../lib/system.js';
 import s from './stripe.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Connect Stripe to a project and see what it earned: a key field (masked, paste-aware, live
@@ -56,7 +57,7 @@ function ConnectForm({ project, projects, onProject, replacing, onBack }: { proj
       icon="coin"
       intro={
         <p>
-          See {project.name}’s earnings beside it in the sidebar, and how it’s doing lately on its home. Beluga looks for new payments every few minutes; the key stays on this Mac.
+          See {project.name}’s earnings beside it in the sidebar, and how it’s doing lately on its home. Beluga looks for new payments every few minutes; the key stays on {thisComputer()}.
         </p>
       }
       submitLabel="Connect"

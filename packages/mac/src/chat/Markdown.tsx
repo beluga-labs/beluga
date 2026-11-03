@@ -37,6 +37,7 @@ import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
 import { goToCode } from '../lib/go-to-code.js';
 import s from './chat.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 
 function Code({ code, lang }: { code: string; lang?: string }) {
@@ -93,7 +94,7 @@ function MdImage({ src, alt, all, local }: { src: string; alt: string; all: read
   // Someone else's message never makes this Mac read its own files (a path to your screenshot, say).
   if (source.kind === 'local' && !local) {
     return (
-      <span className={s.imageRef} title={`${source.path} (pictures on this Mac show only in your own and your agent’s messages)`}>
+      <span className={s.imageRef} title={`${source.path} (pictures on ${thisComputer()} show only in your own and your agent’s messages)`}>
         <Icon name="image" size={11} />
         {alt || baseName(source.path)}
       </span>

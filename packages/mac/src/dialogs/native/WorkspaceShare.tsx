@@ -14,6 +14,7 @@ import type { NativeMenuProps } from './index.js';
 import { Choice, Section, Sheet, Tag } from './parts.js';
 import { ACCESS, type Access, SharePicker } from './SharePicker.js';
 import s from './sharing.module.css';
+import { thisComputer } from '../../lib/os-words.js';
 
 /**
  * Share a workspace with just this one worktree's people (BLG-340): pick a friend and what they can
@@ -91,7 +92,7 @@ export function WorkspaceShareSheet({ menu, close }: NativeMenuProps<'ws_share'>
               <Avatar name={self.name} id={self.peerId} size={24} />
               <div className={s.itemText}>
                 <span className={s.itemTitle}>{self.name} (you)</span>
-                <span className={s.itemDetail}>Your agent does the work here, on this Mac</span>
+                <span className={s.itemDetail}>Your agent does the work here, on {thisComputer()}</span>
               </div>
               <Tag>Owner</Tag>
             </div>

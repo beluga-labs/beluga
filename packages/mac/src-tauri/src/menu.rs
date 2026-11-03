@@ -514,13 +514,33 @@ pub fn tray_menu<R: Runtime>(
     Ok(menu)
 }
 
+/// The whale's colour off the Mac (src/menubar/spout.ts TRAY_INK_OFF_MAC): Windows and Linux
+/// bars don't tint a template, and they're light or dark, so a soft blue that reads on both.
+const TRAY_INK_OFF_MAC: [u8; 3] = [0x5b, 0x9b, 0xd5];
+
+/// The tray's whale at rest: black for the Mac's template (macOS tints it), blue elsewhere.
+pub fn tray_picture() -> tauri::Result<tauri::image::Image<'static>> {
+    let black = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    if cfg!(target_os = "macos") {
+        return Ok(black.to_owned());
+    }
+    let [r, g, b] = TRAY_INK_OFF_MAC;
+    let rgba = black
+        .rgba()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|px| [r, g, b, px[3]])
+        .collect::<Vec<u8>>();
+    Ok(tauri::image::Image::new_owned(rgba, black.width(), black.height()))
+}
+
 /// The icon in the menu bar: open Beluga, or quit it (leaving the room).
 pub fn tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = tray_menu(app, None, &[])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     TrayIconBuilder::with_id("beluga")
-        .icon(icon)
-        .icon_as_template(true)
+        .icon(tray_picture()?)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Beluga")
         .menu(&menu)
         .show_menu_on_left_click(true)

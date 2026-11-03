@@ -11,6 +11,7 @@ import { backLine, whereLine } from './popup-model.js';
 import { closeRequest, useRequestSheet } from './request-native.js';
 import { openFriendCard } from '../network/use-net.js';
 import s from './access.module.css';
+import { yourComputer } from '../lib/os-words.js';
 
 /**
  * A friend's request, in full: who, what, what it needs, where it would run, what comes back.
@@ -115,7 +116,7 @@ function Body({ task }: { task: TaskView }) {
   );
   return (
     <Sheet
-      title={task.secret ? `${who} wants ${task.secret.label}` : task.kind === 'run' ? `${who} wants to run a command on your Mac` : task.kind === 'file' ? `${who} wants a file from your Mac` : `${who} wants your agent to do something`}
+      title={task.secret ? `${who} wants ${task.secret.label}` : task.kind === 'run' ? `${who} wants to run a command on ${yourComputer()}` : task.kind === 'file' ? `${who} wants a file from ${yourComputer()}` : `${who} wants your agent to do something`}
       subtitle={waiting && task.secret ? 'This is a secret. You’re asked each time: if you allow it, Beluga sends this one file, and their agent is told you approved it.' : waiting ? (task.by === 'agent' ? `${task.peerName} asked their agent, and it asks yours.` : `${task.peerName} asks you directly.`) : stateLabel(task)}
       badge={<Avatar name={task.peerName} id={task.peerId} claude={task.by === 'agent'} size={32} />}
       close={closeRequest}

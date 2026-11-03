@@ -10,7 +10,7 @@ import { shortcutKeys } from '../lib/shortcuts.js';
 import { mergeTargetOf } from '../lib/merge-review.js';
 import type { PlanAction } from '../lib/plan-task.js';
 import { asksBeforeWork } from '../lib/work-confirm.js';
-import { revealLabel } from '../lib/os-words.js';
+import { revealLabel, thisComputer } from '../lib/os-words.js';
 
 /**
  * A workspace's toolbar, the Mac way: one prominent button for what this workspace needs next
@@ -182,7 +182,7 @@ function pickPrimary(state: AppState, ws: Workspace, all: readonly ToolAction[])
   const merge = by('merge');
   if (merge) {
     const into = mergeTargetOf(state, ws);
-    return { ...merge, label: `Merge Locally into ${into}`, hint: `Shows what would merge into ${into} on this Mac and checks it first; nothing changes until you confirm` };
+    return { ...merge, label: `Merge Locally into ${into}`, hint: `Shows what would merge into ${into} on ${thisComputer()} and checks it first; nothing changes until you confirm` };
   }
   const run = all.find((x) => x.action === 'run' || x.action === 'stop_run');
   return run;

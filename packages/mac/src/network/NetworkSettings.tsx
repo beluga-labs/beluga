@@ -4,6 +4,7 @@ import { useApp, useBeluga } from '../lib/beluga.js';
 import { Group, Row, Select, Switch } from '../dialogs/settings-controls.js';
 import { openNet } from './net-sheets.js';
 import { errorText, quietly, useNetwork } from './use-net.js';
+import { upFirst, yourComputer } from '../lib/os-words.js';
 
 /** Settings › People & access: talking with friends directly (the Beluga network), on or off. */
 export function NetworkSettings() {
@@ -36,9 +37,9 @@ export function NetworkSettings() {
           ) : busy ? (
             'Turning it on…'
           ) : net.enabled ? (
-            `Your Mac connects straight to your friends’ Macs, end-to-end encrypted. ${friends} friend${friends === 1 ? '' : 's'}, ${groups} channel${groups === 1 ? '' : 's'}.`
+            `${upFirst(yourComputer())} connects straight to your friends’ computers, end-to-end encrypted. ${friends} friend${friends === 1 ? '' : 's'}, ${groups} channel${groups === 1 ? '' : 's'}.`
           ) : (
-            'Messages, channels and files go from Mac to Mac, end-to-end encrypted. No server, no account.'
+            'Messages, channels and files go from computer to computer, end-to-end encrypted. No server, no account.'
           )
         }
       >

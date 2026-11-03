@@ -12,7 +12,7 @@ import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { openRequest } from './request-native.js';
 import a from './access.module.css';
 import s from './gateway.module.css';
-import { fileManager, revealLabel } from '../lib/os-words.js';
+import { fileManager, revealLabel, yourComputer } from '../lib/os-words.js';
 
 /**
  * One task between Claudes, as a card: in the conversation your Claude asked from (sent →
@@ -273,7 +273,7 @@ function Confirm({ task }: { task: TaskView }) {
   return (
     <>
       {editing ? <textarea className={s.edit} aria-label="What to ask" value={text} onChange={(e) => setText(e.target.value)} autoFocus /> : <div className={`${s.ask} selectable`}>{task.ask}</div>}
-      <div className={s.hint}>Your agent wants to send this, so it asks you first. Always lets it ask {task.peerName} without checking from now on (it doesn’t change what they may do on your Mac).</div>
+      <div className={s.hint}>Your agent wants to send this, so it asks you first. Always lets it ask {task.peerName} without checking from now on (it doesn’t change what they may do on {yourComputer()}).</div>
       <div className={s.actions}>
         <Button variant="primary" onClick={() => call('send it', api.gateway.confirm(task.id, true, editing && text.trim() !== task.ask ? text : undefined))}>
           Ask {task.peerName}

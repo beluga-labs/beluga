@@ -26,6 +26,7 @@ import { offerSent } from '../../network/net-model.js';
 import { befriend, openFriendCard } from '../../network/use-net.js';
 import m from '../../components/SpecMenu.module.css';
 import p from './person.module.css';
+import { thisComputer } from '../../lib/os-words.js';
 
 interface CardProps {
   readonly peer: PeerInfo;
@@ -239,7 +240,7 @@ export function RoomPeerCard({ peer, menu, close, confirm, onRun }: CardProps & 
             pick('person-share');
           }}
         />
-        {peer.projects?.length ? <Row icon="branch" label={`Start a Worktree on ${peer.name}’s Mac…`} onClick={() => pick('person-remote-ws')} /> : null}
+        {peer.projects?.length ? <Row icon="branch" label={`Start a Worktree on ${peer.name}’s Computer…`} onClick={() => pick('person-remote-ws')} /> : null}
         {host ? (
           <Row
             icon="x"
@@ -387,7 +388,7 @@ export function AccountCard({ peer, menu, close, confirm }: CardProps & { menu: 
             ui.patch({ settings: 'general' });
           }}
         />
-        {host ? null : <Row icon="x" danger label="Leave the Room…" onClick={() => confirm({ title: `Leave ${room}?`, message: 'Beluga closes and you leave the room. Your projects and chats stay on this Mac.', confirm: 'Leave', run: () => pick('leave-room') })} />}
+        {host ? null : <Row icon="x" danger label="Leave the Room…" onClick={() => confirm({ title: `Leave ${room}?`, message: `Beluga closes and you leave the room. Your projects and chats stay on ${thisComputer()}.`, confirm: 'Leave', run: () => pick('leave-room') })} />}
       </div>
     </>
   );

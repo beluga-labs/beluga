@@ -4,6 +4,7 @@ import { Button, Dot } from '../components/ui.js';
 import { useApi } from '../lib/beluga.js';
 import { Group, Row } from './settings-controls.js';
 import s from './settings.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 interface Draft {
   readonly id?: string;
@@ -21,7 +22,7 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message.
 
 function statusOf(e: EndpointView): { tone: 'ok' | 'warn' | 'error' | 'muted'; words: string } {
   if (e.reachable === undefined) return { tone: 'muted', words: 'Not looked at yet' };
-  if (!e.reachable) return { tone: 'error', words: e.builtIn ? 'Not running on this Mac' : 'Not answering' };
+  if (!e.reachable) return { tone: 'error', words: e.builtIn ? `Not running on ${thisComputer()}` : 'Not answering' };
   const models = modelsOfEndpoint(e);
   return models.length ? { tone: 'ok', words: `${models.length} model${models.length === 1 ? '' : 's'}: ${models.slice(0, 3).join(', ')}${models.length > 3 ? '…' : ''}` } : { tone: 'warn', words: 'Answering, no models yet' };
 }
@@ -123,7 +124,7 @@ export function LocalModelsSettings() {
 
   return (
     <Group title="Local models">
-      <Row label="Run on your own models" detail="Ollama on this Mac, or any Anthropic-compatible address (LiteLLM, a company proxy). Same tools and features; how good the answers are depends on the model. Pick one under Other agents in the box you type in.">
+      <Row label="Run on your own models" detail={`Ollama on ${thisComputer()}, or any Anthropic-compatible address (LiteLLM, a company proxy). Same tools and features; how good the answers are depends on the model. Pick one under Other agents in the box you type in.`}>
         <Button variant="quiet" icon="refresh" disabled={busy} onClick={() => void run(() => api.env.checkEndpoints())}>
           Check Again
         </Button>
@@ -146,7 +147,7 @@ export function LocalModelsSettings() {
           const status = statusOf(e);
           if (draft?.id === e.id && !e.builtIn) return <div key={e.id}>{form}</div>;
           return (
-            <Row key={e.id} label={e.builtIn ? 'Ollama on this Mac' : e.label} detail={e.builtIn && !e.reachable ? 'Install it from ollama.com, start it with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, and pull a model (ollama pull qwen3-coder).' : `${e.baseUrl}${e.hasKey ? ' · key saved' : ''} · ${status.words}`}>
+            <Row key={e.id} label={e.builtIn ? `Ollama on ${thisComputer()}` : e.label} detail={e.builtIn && !e.reachable ? 'Install it from ollama.com, start it with OLLAMA_CONTEXT_LENGTH=32768 ollama serve, and pull a model (ollama pull qwen3-coder).' : `${e.baseUrl}${e.hasKey ? ' · key saved' : ''} · ${status.words}`}>
               <Dot tone={status.tone} />
               <Button size="small" variant="quiet" disabled={busy} onClick={() => edit(e)}>
                 {e.builtIn ? 'Set Up…' : 'Edit…'}

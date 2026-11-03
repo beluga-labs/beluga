@@ -40,7 +40,7 @@ export function RunCommandSheet({ peer, close }: { peer: PeerInfo; close: () => 
   };
   return (
     <Sheet
-      title={`Run a Command on ${peer.name}’s Mac`}
+      title={`Run a Command on ${peer.name}’s Computer`}
       subtitle={level === 'full' ? 'It runs right away. The output shows in the chat.' : `${peer.name} approves it first. The output shows in the chat.`}
       icon="terminal"
       close={close}
