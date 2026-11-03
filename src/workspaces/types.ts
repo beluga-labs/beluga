@@ -32,11 +32,26 @@ export interface UsageDay {
 
 export type WorkspaceKind = 'main' | 'worktree' | 'chat';
 
+/** What checking a pull request out in a worktree needs to know about it (BLG-633). */
+export interface PullHead {
+  readonly number: number;
+  /** Its head branch (headRefName). */
+  readonly branch: string;
+  /** For the worktree's name. */
+  readonly title?: string;
+  /** The branch it merges into: the worktree is compared with it. */
+  readonly base?: string;
+  /** Its branch is on a fork: fetched from GitHub's pull ref. */
+  readonly fork?: boolean;
+}
+
 /** What we remember about a workspace between runs. */
 export interface WorkspaceRecord {
   readonly id: string;
   readonly projectRoot: string;
   readonly name: string;
+  /** The user set this name. Automatic titles must preserve it. */
+  readonly nameSetByUser?: boolean;
   readonly path: string;
   readonly kind: WorkspaceKind;
   readonly branch?: string;

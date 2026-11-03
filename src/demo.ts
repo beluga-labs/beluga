@@ -6,7 +6,7 @@ import { createMockBackend } from './agent/mock.js';
 import { seedMockContext } from './agent/mock-context.js';
 import { ATTACHMENT_SCHEME, ATTACHMENT_SHARE, formatBytes } from './core/attachments.js';
 import { DEMO_DOCS, DEMO_LANDING_SVG, DEMO_PAYMENTS_TS, DEMO_PLANS_JSON, DEMO_SERVER_WITH_AUTH } from './demo-docs.js';
-import { seedLandingHistory } from './demo-history.js';
+import { seedBobPulls, seedLandingHistory } from './demo-history.js';
 import { demoScreenshot } from './demo-image.js';
 import { demoPdf } from './demo-pdf.js';
 import { type ShellRunner, runShell } from './core/peer-run.js';
@@ -234,6 +234,7 @@ function demoRepo(base: string, name: string, files: Record<string, string>): st
 export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
   const base = mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-projects-'));
   demoRepo(base, 'bob-api', BOB_FILES);
+  seedBobPulls(path.join(base, 'remotes', 'bob-api.git'), base);
   const landingDir = demoRepo(base, 'landing', YOUR_FILES);
   // History with several people and merged branches, and a teammate's push you haven't pulled yet.
   seedLandingHistory(landingDir, path.join(base, 'remotes', 'landing.git'), base);

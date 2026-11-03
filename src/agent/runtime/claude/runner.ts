@@ -20,6 +20,7 @@ import { sideCalls } from '../../side-calls.js';
 import { claudeComplete } from './complete.js';
 import { askBtw } from './btw.js';
 import { claudeTerminal } from './terminal.js';
+import { claudeLaunch } from './launch-args.js';
 import { ViewShelf } from '../../view-tools.js';
 import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
@@ -209,6 +210,8 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         const build = (prompt: string): PromptContent => imageContent(buildPrompt({ ...msg, prompt }), linkedImages(msg.prompt));
         return own && mayBeCommand(msg.prompt) ? expandCommand(msg.prompt, cwd, home).then(build) : build(msg.prompt);
       };
+      // Your `claude` flags (Settings › Agents): how it asks, in the SDK's words; the rest as they are.
+      const launch = claudeLaunch(input.launchArgs?.claude ?? [], { plan: Boolean(input.plan), autoEdit });
       const options: Options = {
         cwd,
         additionalDirectories: [...extraDirs, ...(fixup ? [fixup] : [])],
@@ -216,7 +219,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         ...(place?.forkSession && place.resume ? { forkSession: true } : {}),
         abortController,
         ...(input.maxTurns ? { maxTurns: input.maxTurns } : {}),
-        permissionMode: input.plan ? 'plan' : autoEdit ? 'acceptEdits' : 'default',
+        permissionMode: launch.permissionMode,
+        ...(launch.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {}),
+        ...(Object.keys(launch.extraArgs).length ? { extraArgs: launch.extraArgs } : {}),
         // Your own MCP servers first, so a name of Beluga's always means Beluga's.
         mcpServers: { ...(input.ownerMcp && !input.guest ? ownerMcpServers(cwd, { ...process.env, ...input.env }) : {}), ...sdkServers(runToolSuites(input, bridge, shelf, cwd)) },
         // The hook runs before Claude Code's own permission logic, even for commands it would
@@ -299,7 +304,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         if (answer.kind === 'plan' && answer.approve) {
           input.planTask?.approved();
           // Approved: leave plan mode so Claude can do the work.
-          await q.setPermissionMode(autoEdit ? 'acceptEdits' : 'default').catch(() => undefined);
+          await q.setPermissionMode(claudeLaunch(input.launchArgs?.claude ?? [], { plan: false, autoEdit }).permissionMode).catch(() => undefined);
           return { behavior: 'allow' as const, updatedInput: toolInput };
         }
         const feedback = answer.kind === 'plan' && answer.feedback ? `The user wants changes to the plan: ${answer.feedback}` : 'The user did not approve the plan yet. Ask what they would like to change.';

@@ -8,6 +8,19 @@ export const MAX_FILE_BYTES = 512 * 1024;
 /** Downloads are sent in chunks small enough to fit comfortably in one frame. */
 export const CHUNK_BYTES = 256 * 1024;
 export const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+/** The longest workspace name `ws_invite` and `ws_handoff` carry. A name you give may be longer. */
+export const WS_NAME_MAX = 80;
+
+/** A workspace name cut to what `ws_invite` and `ws_handoff` carry, without splitting a character. */
+export function wsWireName(name: string): string {
+  if (name.length <= WS_NAME_MAX) return name;
+  let out = '';
+  for (const ch of name) {
+    if (out.length + ch.length > WS_NAME_MAX) break;
+    out += ch;
+  }
+  return out;
+}
 
 const shortStr = z.string().min(1).max(256);
 const relPath = z.string().max(4096);
@@ -312,7 +325,7 @@ export type GuestCan = z.infer<typeof GuestCan>;
 export const WsInviteBody = z.object({
   kind: z.literal('ws_invite'),
   /** `agent`: the owner's agent that runs there (their pick for it, or their default; an older Mac leaves it out: Claude). */
-  ws: z.object({ id: z.string().regex(/^[\w:.-]{1,80}$/), name: z.string().max(80), project: z.string().max(80), branch: z.string().max(200).optional(), agent: AgentRef.optional() }),
+  ws: z.object({ id: z.string().regex(/^[\w:.-]{1,80}$/), name: z.string().max(WS_NAME_MAX), project: z.string().max(80), branch: z.string().max(200).optional(), agent: AgentRef.optional() }),
   role: WsRole,
   /** Set for people invited by link: watch, prompt or edit (for showing what they can do). */
   can: GuestCan.optional(),
@@ -344,7 +357,7 @@ export const WsRequestResultBody = z.object({ kind: z.literal('ws_request_result
 export const WsHandoffBody = z.object({
   kind: z.literal('ws_handoff'),
   hid: shortStr,
-  ws: z.object({ name: z.string().max(80), project: z.string().max(80), branch: z.string().max(200), base: z.string().max(200) }),
+  ws: z.object({ name: z.string().max(WS_NAME_MAX), project: z.string().max(80), branch: z.string().max(200), base: z.string().max(200) }),
   /** The project's origin URL, to find the same repository on the other computer. */
   remote: z.string().max(500),
   note: z.string().max(MAX_TEXT),

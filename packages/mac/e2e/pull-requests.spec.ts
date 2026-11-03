@@ -32,8 +32,9 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   const teammate = section.locator('[data-pull="51"]');
   await expect(teammate).toContainText('sam-r');
   await expect(teammate).toContainText('fix/plus-in-email');
-  await expect(teammate).toContainText('Approved');
-  await expect(teammate).toContainText('Checks pass');
+  // Review and checks are a mark each (their words on hover), not pills.
+  await expect(teammate.getByRole('img', { name: 'Approved' })).toBeVisible();
+  await expect(teammate.getByRole('img', { name: 'Checks pass' })).toBeVisible();
   await expect(section.locator('[data-pull="49"]')).toContainText('Draft');
   await expect(section.getByRole('button', { name: 'Show All on GitHub' })).toBeVisible();
   await section.scrollIntoViewIfNeeded();
@@ -42,4 +43,29 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   await rows.first().click();
   await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeHidden();
   await expect(page.getByText('webhook-retries').first()).toBeVisible();
+});
+
+test('Open in Worktree checks a teammate’s pull request out in a new worktree, and opens it', async ({ page }) => {
+  await openHome(page);
+  const section = main(page).getByRole('region', { name: 'Pull Requests' });
+  const teammate = section.locator('[data-pull="51"]');
+  // The one already in a worktree has no button: a click opens it.
+  await expect(section.locator('[data-pull="52"]').getByRole('button', { name: /in a worktree/ })).toHaveCount(0);
+  await teammate.scrollIntoViewIfNeeded();
+  await teammate.hover();
+  const button = teammate.getByRole('button', { name: 'Open #51 in a worktree' });
+  await expect(button).toBeVisible();
+  // It takes the marks' place on the row: its words fit, nothing squeezed.
+  expect(await button.evaluate((b) => b.scrollWidth <= b.clientWidth)).toBe(true);
+  await expect(teammate).toContainText('Open in Worktree');
+  // Its fade-in done, for the screenshot.
+  await page.waitForTimeout(200);
+  await shot(page, '02-open-in-worktree.png');
+  await button.click();
+  await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeHidden();
+  await expect(page.getByText(/Pull request #51 “Decode emails safely in the user lookup”, checked out on fix\/plus-in-email/)).toBeVisible({ timeout: 15_000 });
+  await shot(page, '03-pull-request-worktree.png');
+  // Back home, its row now opens that worktree.
+  await openHome(page);
+  await expect(main(page).getByRole('region', { name: 'Pull Requests' }).locator('[data-pull="51"]')).toHaveAttribute('aria-label', /in a worktree/);
 });

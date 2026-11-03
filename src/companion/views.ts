@@ -832,6 +832,13 @@ export function plansView(state: DomainState): PlansView {
   };
 }
 
+/** A milestone's checker conversation (1.39), while its workspace is there (archived ones too: the check is kept). */
+function checkerOfMilestone(state: DomainState, checker: string | undefined): { readonly checker?: Topic } {
+  if (!checker || !state.projects.some((p) => p.workspaces.some((w) => w.id === checker))) return {};
+  const topic = convTopic(`ws:${checker}`);
+  return topic ? { checker: topic } : {};
+}
+
 export function planPageView(state: DomainState, id: string): PlanView | undefined {
   const plan = state.plans.plans.find((p) => p.id === id);
   if (!plan) return undefined;
@@ -869,6 +876,7 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
       }),
       ...(m.dependsOn.length ? { dependsOn: m.dependsOn.slice(0, 20).map((d) => clip(d, 200)) } : {}),
       ...(m.autonomy !== plan.autonomy ? { autonomy: m.autonomy } : {}),
+      ...checkerOfMilestone(state, m.run.checker),
     })),
     autonomy: plan.autonomy,
     ...(plan.paused ? { paused: true } : {}),

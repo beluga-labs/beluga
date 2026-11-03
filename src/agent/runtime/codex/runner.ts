@@ -222,7 +222,8 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
          * it's opened, never by a turn, so the work isn't done under the plan's read-only one.
          */
         const open = async (planning: boolean, resume: string | undefined): Promise<string> => {
-          const link = await connect({ cwd, env: { ...process.env, ...input.env }, ...(opts.codexPath ? { bin: opts.codexPath } : {}) });
+          // Your `codex` flags (Settings › Agents) on your own runs; Beluga still sets each turn's sandbox.
+          const link = await connect({ cwd, env: { ...process.env, ...input.env }, ...(opts.codexPath ? { bin: opts.codexPath } : {}), ...(input.launchArgs?.codex?.length ? { args: input.launchArgs.codex } : {}) });
           conn = link;
           const { rpc } = link;
           input.onProcess?.(link.proc);

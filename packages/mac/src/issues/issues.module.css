@@ -156,7 +156,6 @@
 .rowMore:has([data-state='open']) {
   opacity: 1;
 }
-
 /* ---------- An issue's page ---------- */
 
 .pageTitle {

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Check, ChevronDown, ChevronRight, Gauge, Hand, Monitor, Rocket, User } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronRight, Eye, Gauge, Hand, Monitor, Rocket, User } from 'lucide-react-native';
 import { Options } from '../../components/Options';
 import { AgentMarkIcon, markIcon, runtimeMark } from '../../components/AgentMark';
 import { AgentChoiceSheet, agentOfRow } from '../../components/AgentPicker';
@@ -313,6 +313,20 @@ function Milestone({ m, last, i, draft, titles, after, picked }: { m: PlanView['
                 );
               })}
             </Card>
+            {m.checker ? (
+              // Its checker (a Claude of its own, off the Mac's sidebar): watched live, or read once it said (1.39).
+              <Press scaleTo={0.98} onPress={() => router.push(convHref(m.checker!))}>
+                <Card r={16}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12 }}>
+                    <Eye color={toneInk('lavender')} size={15} />
+                    <T v="callout" style={{ flex: 1 }}>
+                      {m.state === 'checking' ? 'Watch the check' : 'Open the check'}
+                    </T>
+                    <ChevronRight color={color.text3} size={15} />
+                  </View>
+                </Card>
+              </Press>
+            ) : null}
           </Animated.View>
         ) : null}
       </View>

@@ -3,7 +3,7 @@ import { promises as fs, rmSync } from 'node:fs';
 import os from 'node:os';
 import { tilde } from './paths.js';
 import path from 'node:path';
-import { type BodyInput, type BodyOf, type HandoffReason, defaultAgentOf, MAX_DOWNLOAD_BYTES } from '../protocol.js';
+import { type BodyInput, type BodyOf, type HandoffReason, defaultAgentOf, MAX_DOWNLOAD_BYTES, wsWireName } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { git } from '../workspaces/git.js';
 import { cannotTake } from '../net/mesh/features.js';
@@ -489,7 +489,7 @@ export class RemoteWork {
       .map((l) => (l.type === 'chat' ? { from: l.name, text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent } : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true }));
     this.handoffs.set(hid, { wsId, to: peerId, project: project?.name ?? '', remote, share: bundle?.share });
     const sent = this.deps.send(
-      { kind: 'ws_handoff', hid, ws: { name: ws.name, project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
+      { kind: 'ws_handoff', hid, ws: { name: wsWireName(ws.name), project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
       { to: peerId },
     );
     if (!sent) {

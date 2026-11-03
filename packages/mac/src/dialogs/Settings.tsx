@@ -21,6 +21,7 @@ import { ContextSettings } from './ContextSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
+import { LaunchFlagsSettings } from './LaunchFlagsSettings.js';
 import { LocalModelsSettings } from './LocalModelsSettings.js';
 import { EarningsSettings } from './EarningsSettings.js';
 import { NotificationSettings } from './NotificationSettings.js';
@@ -375,6 +376,7 @@ function AgentPane() {
         </Row>
       </Group>
       <AgentsGroup mine={runtime} />
+      <LaunchFlagsSettings />
       <McpSettings />
       <div id={LOCAL_MODELS_ID}>
         <LocalModelsSettings />

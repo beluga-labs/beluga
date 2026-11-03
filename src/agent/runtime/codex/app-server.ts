@@ -20,6 +20,8 @@ export interface ConnectOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Codex's own executable; unset: findCodex(). */
   readonly bin?: string;
+  /** Your own `codex` flags (Settings › Agents › Launch flags), on your own runs only. */
+  readonly args?: readonly string[];
 }
 
 /** How a Codex run reaches its app-server: spawn it (tests hand a scripted one instead). */
@@ -80,11 +82,14 @@ export async function handshake(rpc: CodexRpc, version = '0'): Promise<void> {
   rpc.notify('initialized');
 }
 
+/** `codex app-server`'s arguments: your flags first, where codex reads its global options (`-c key=value`). */
+export const appServerArgs = (extra: readonly string[] = []): string[] => [...extra, 'app-server'];
+
 /** Spawn `codex app-server` and shake hands. */
-export const spawnAppServer: CodexConnect = async ({ cwd, env, bin }) => {
+export const spawnAppServer: CodexConnect = async ({ cwd, env, bin, args }) => {
   const command = bin ?? findCodex(env ?? process.env);
   if (!command) throw new Error(`Codex isn’t installed on this ${process.platform === 'darwin' ? 'Mac' : 'computer'}. Install the Codex app or \`npm i -g @openai/codex\`, then try again.`);
-  const how = codexCommand(command, ['app-server']);
+  const how = codexCommand(command, appServerArgs(args));
   const child = spawn(how.command, [...how.args], { cwd, env: { ...(env ?? process.env) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: how.shell });
   const lines: string[] = [];
   child.stderr.setEncoding('utf8');

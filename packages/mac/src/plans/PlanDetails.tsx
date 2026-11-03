@@ -12,7 +12,7 @@ import { type FlowStep, MILESTONE_STATE, branchFlow, taskWords } from './plans-m
 import { TaskChatMark, TaskStateIcon, TonePill } from './marks.js';
 import { openDecision } from './plan-ask-model.js';
 import { PlanFeed } from './PlanFeed.js';
-import { useClock, usePlanActions } from './use-plans.js';
+import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { useMyAgent } from '../lib/agent-words.js';
@@ -279,9 +279,17 @@ function GateHead({ m }: { m: MilestoneView }) {
 }
 
 function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
-  const { api, act } = usePlanActions();
+  const { api, act, openWorktree } = usePlanActions();
   const check = m.run.check;
   const yours = plan.body && !plan.draft && (m.state === 'gate' || m.state === 'checking' || m.state === 'failed');
+  // Its checker's conversation (folded into the plan, off the sidebar): watched live, or read once it said.
+  const checker = useCheckerChat(m);
+  const openChecker = checker ? (
+    <Button size="small" icon="eye" variant={m.state === 'checking' ? 'plain' : 'quiet'} onClick={() => openWorktree(checker)}>
+      {m.state === 'checking' ? 'Watch the Check' : 'Open the Check'}
+      <TaskChatMark worktree={checker} />
+    </Button>
+  ) : null;
   const conflict = m.merging?.conflict;
   const failed = m.run.mergeFailed;
   return (
@@ -337,7 +345,10 @@ function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
               Check Again
             </Button>
           ) : null}
+          {openChecker}
         </div>
+      ) : openChecker ? (
+        <div className={p.detailsActions}>{openChecker}</div>
       ) : null}
       {m.milestone.goal ? (
         <section className={p.detailsSection}>

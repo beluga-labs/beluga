@@ -20,7 +20,7 @@ import { dropFolderSessions, dropSession } from '../agent/runtime/claude/claude-
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
-import type { DeletePlan, MergeWait, Project, ProjectGroup, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
@@ -37,6 +37,16 @@ export const slug = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'workspace';
+
+/** A pull request's worktree name: pr-<n> and the first whole words of its title ("pr-51-decode-emails-safely"). */
+export function pullName(pull: { readonly number: number; readonly title?: string | undefined }): string {
+  let name = `pr-${pull.number}`;
+  for (const word of pull.title ? slug(pull.title).split('-') : []) {
+    if (name.length + word.length + 1 > 28) break;
+    name += `-${word}`;
+  }
+  return name;
+}
 
 /**
  * Canonical path: resolves symlinks (macOS /var → /private/var) and, via the native call,
@@ -782,6 +792,54 @@ export class WorkspaceManager {
   }
 
   /**
+   * A worktree on a pull request's own branch (BLG-633). One from this repository gets its
+   * branch, fetched from origin and tracking it, so a push there updates the pull request (a
+   * local branch of that name is used as it is, moved up to origin's when it can be); one from a
+   * fork gets its branch's name (pr-<n> when that's taken here) from GitHub's pull ref, which
+   * `git pull` keeps current. Named pr-<n> and the first words of its title.
+   * It's compared with the branch the pull request merges into.
+   */
+  async createPullWorktree(projectId: string, pull: PullHead, opts: { readonly id?: string } = {}): Promise<Workspace> {
+    const project = this.repoProject(projectId);
+    const root = project.root;
+    if (!(await g.hasRemote(root))) throw new WorkspaceError('This project has no origin to fetch the pull request from');
+    await g.tryGit(root, ['fetch', 'origin', '--prune']);
+    const s = pullName(pull);
+    const dir = this.freeDir(project, s);
+    let branch: string;
+    if (!pull.fork && pull.branch) {
+      branch = pull.branch;
+      if (!(await g.isCommit(root, `refs/remotes/origin/${branch}`))) throw new WorkspaceError(`${branch} isn’t on origin (it may have been deleted, or the fetch failed)`);
+      if (await g.isCommit(root, `refs/heads/${branch}`)) {
+        const out = (await g.listWorktrees(root)).find((w) => w.branch === branch);
+        if (out) throw new WorkspaceError(`${branch} is already checked out in ${out.path}`);
+        await g.git(root, ['worktree', 'add', dir, branch]);
+        // Your own commits on it stay; otherwise it catches up with the pull request.
+        await g.tryGit(dir, ['merge', '--ff-only', `origin/${branch}`]);
+      } else {
+        await g.git(root, ['worktree', 'add', '--track', '-b', branch, dir, `origin/${branch}`]);
+      }
+    } else {
+      const named = pull.branch && !pull.branch.startsWith('-') && !(await g.isCommit(root, `refs/heads/${pull.branch}`));
+      branch = named ? pull.branch : await this.freeBranch(root, `pr-${pull.number}`);
+      await g.git(root, ['fetch', 'origin', `+refs/pull/${pull.number}/head:refs/heads/${branch}`]).catch((err: unknown) => {
+        throw new WorkspaceError(`Couldn’t fetch pull request #${pull.number} from origin: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      await g.git(root, ['worktree', 'add', dir, branch]);
+      // `git pull` there brings the pull request's new commits.
+      await g.git(root, ['config', `branch.${branch}.remote`, 'origin']);
+      await g.git(root, ['config', `branch.${branch}.merge`, `refs/pull/${pull.number}/head`]);
+    }
+    await g.excludeProjectDir(dir);
+    await copyEnvFiles(root, dir);
+    const base = pull.base && (await g.isCommit(root, `refs/remotes/origin/${pull.base}`)) ? `origin/${pull.base}` : project.base;
+    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: root, name: s, path: dir, kind: 'worktree', branch, base, createdAt: Date.now(), envSnapshot: await envSnapshot(dir) };
+    this.saveRecord(record);
+    const status = await g.status(dir, base).catch(() => undefined);
+    return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
+  }
+
+  /**
    * A workspace just made, listed at once: no re-scan of every project on the way to its first
    * message (that took seconds with many projects, BLG-531). The next full refresh lists it as it
    * finds it; one that began before it was made keeps it here until then.
@@ -1266,8 +1324,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { sessionId: undefined, forkFromSession: undefined, sessionRuntime: undefined });
   }
 
-  rename(id: string, name: string): void {
-    this.patchRecord(id, { name: name.trim().slice(0, 40) || this.require(id).name });
+  rename(id: string, name: string, opts: { readonly automatic?: boolean } = {}): void {
+    const ws = this.require(id);
+    if (opts.automatic && ws.nameSetByUser) return;
+    const clean = opts.automatic ? name.trim().slice(0, 40) || ws.name : name.trim();
+    if (!clean || clean.length > 200) throw new WorkspaceError('A workspace name must contain 1 to 200 characters');
+    this.patchRecord(id, { name: clean, ...(opts.automatic ? {} : { nameSetByUser: true }) });
   }
 
   /**

@@ -305,6 +305,9 @@ export interface Prefs {
   readonly shellLogin: boolean;
   /** Extra arguments for the terminal's shell. */
   readonly shellArgs: readonly string[];
+  /** Your own flags for `claude` and `codex`, on your own runs (shared/agent-args.ts). */
+  readonly claudeArgs: readonly string[];
+  readonly codexArgs: readonly string[];
   /** The currency every earnings total is shown in (lowercase ISO code; undefined: the one most was earned in). */
   readonly earningsCurrency?: string;
 }
@@ -675,6 +678,8 @@ export const DEFAULT_PREFS: Prefs = {
   shareUsage: 'trusted',
   shellLogin: true,
   shellArgs: [],
+  claudeArgs: [],
+  codexArgs: [],
 };
 
 /** The preference fields out of saved settings. */

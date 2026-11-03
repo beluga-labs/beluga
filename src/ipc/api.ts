@@ -5,6 +5,7 @@ import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
+import { type ArgsRuntime, MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH, agentArgsProblem } from '../shared/agent-args.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
 import { SUPPORT_API } from './support-api.js';
@@ -55,6 +56,16 @@ export const Location = z.object({ owner: id, share: z.string().min(1).max(200),
 const FriendShare = z.object({ peerId: id, projectId: opt(id), workspaceId: opt(id), role: WsRole }).refine((x) => x.projectId || x.workspaceId, 'Say which project or worktree');
 const FriendUnshare = z.object({ peerId: id, projectId: opt(id), workspaceId: opt(id) }).refine((x) => x.projectId || x.workspaceId, 'Say which project or worktree');
 
+/** Your flags for one agent's command line, refused when Beluga sets one of them itself (shared/agent-args.ts). */
+const agentArgs = (runtime: ArgsRuntime) =>
+  z
+    .array(z.string().max(MAX_AGENT_ARG_LENGTH))
+    .max(MAX_AGENT_ARGS)
+    .superRefine((args, ctx) => {
+      const problem = agentArgsProblem(runtime, args);
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    });
+
 /** A settings change (no defaults: only the keys you send change). */
 export const PrefsPatch = z
   .object({
@@ -87,6 +98,8 @@ export const PrefsPatch = z
     shell: z.string().max(200).optional(),
     shellLogin: bool,
     shellArgs: z.array(z.string().max(200)).max(20),
+    claudeArgs: agentArgs('claude'),
+    codexArgs: agentArgs('codex'),
     earningsCurrency: z.string().regex(/^[a-z]{3}$/).nullable().optional(),
   })
   .partial();
@@ -230,6 +243,8 @@ export const API = {
   // Load a workspace's saved conversation without going there (the Mac Overview's read-only look at an archived one).
   'workspaces.load': args(id),
   'workspaces.refresh': args(),
+  // Set the display name. Keep the branch and folder names.
+  'workspaces.rename': args(id, z.string().trim().min(1).max(200)),
   'workspaces.newWorktree': args(id, z.string().max(200), opt(z.object({ base: opt(z.string().min(1).max(250)), agent: opt(AgentRef) }))),
   'workspaces.newChat': args(id, z.string().max(200), opt(path)),
   // `terminal`: you see it as its agent's terminal, so that opens on the message (BLG-553).

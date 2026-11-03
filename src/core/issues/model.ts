@@ -71,6 +71,10 @@ export interface GhPull {
   readonly author?: string;
   /** The branch it would merge (headRefName): a worktree on it is where it's worked on. */
   readonly branch: string;
+  /** The branch it would merge into (baseRefName). */
+  readonly base?: string;
+  /** Its branch is on a fork (isCrossRepository): it's fetched from GitHub's pull ref, not origin's branches. */
+  readonly fork?: boolean;
   readonly draft: boolean;
   /** Its latest commit's checks, in one word. */
   readonly checks: 'passing' | 'failing' | 'pending' | 'none';

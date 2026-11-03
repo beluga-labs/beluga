@@ -4,7 +4,7 @@ import type { Store } from '../store.js';
 import type { GitHubRepo } from '../../workspaces/github.js';
 import type { Workspace } from '../../workspaces/types.js';
 import type { IssueSource } from './gh.js';
-import { type GhIssueFull, type IssuesList, type IssuesQuery, type PullsList, boardLabels, repoSlug, taskForIssue } from './model.js';
+import { type GhIssueFull, type GhPull, type IssuesList, type IssuesQuery, type PullsList, boardLabels, repoSlug, taskForIssue } from './model.js';
 import { teammateOn } from '../team/model.js';
 import { fixAfterInvestigationPrompt, fixPrompt, investigatePrompt, issueAsRequest, issueBrief } from './prompts.js';
 
@@ -117,6 +117,17 @@ export class GitHubIssues {
     }
     this.pullLists.set(projectId, { at: this.now(), list });
     return list;
+  }
+
+  /** One open pull request, from what was read a moment ago (else GitHub is asked again). */
+  async pull(projectId: string, number: number): Promise<GhPull> {
+    const find = (list: PullsList): GhPull | undefined => (list.kind === 'github' ? list.pulls.find((p) => p.number === number) : undefined);
+    const found = find(await this.pulls(projectId)) ?? find(await this.pulls(projectId, true));
+    if (found) return found;
+    const list = await this.pulls(projectId);
+    if (list.kind === 'no_gh') throw new Error('Connect GitHub first: install gh and sign in (brew install gh, then gh auth login)');
+    if (list.kind === 'error') throw new Error(list.message);
+    throw new Error(`#${number} isn’t an open pull request here anymore`);
   }
 
   /** One issue in full (its comments too), and the repository it's in. */
