@@ -127,7 +127,8 @@ describe('teammates never online together', () => {
     await settle(() => ata.person.friend(kay.id)?.online === false);
     ata.board.update(t.id, { title: 'Said just before quitting' }, personOf(ata));
     ata.team.courier.flush();
-    expect(mb.boxes.get(kay.id)).toBeUndefined();
+    // Nothing mailed yet (kay's box may be there, empty: kay looked in it while online).
+    expect((mb.boxes.get(kay.id) as unknown as { items: Map<string, unknown> } | undefined)?.items.size ?? 0).toBe(0);
     // Quitting Beluga (the daemon calls leaveNetwork before it stops anything).
     await ata.person.mesh.leaving();
     await ata.stop();

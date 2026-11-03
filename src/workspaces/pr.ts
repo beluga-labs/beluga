@@ -138,8 +138,11 @@ export function findTool(name: string, pathEnv = process.env.PATH ?? '', exists:
 export function toolCommand(name: string, pathEnv = process.env.PATH ?? '', exists: (file: string) => boolean = existsSync, platform: NodeJS.Platform = process.platform): string {
   const found = findTool(name, pathEnv, exists, platform);
   if (!found) return name;
-  const p = platform === 'win32' ? path.win32 : path.posix;
-  return pathDirs(pathEnv, platform).includes(p.dirname(found)) ? name : found;
+  const win = platform === 'win32';
+  // Windows writes PATH's folders with a trailing "\\" or in any letter case: the same folder.
+  const same = (dir: string): string => (win ? dir.replace(/[\\/]+$/, '').toLowerCase() : dir);
+  const dir = same((win ? path.win32 : path.posix).dirname(found));
+  return pathDirs(pathEnv, platform).some((d) => same(d) === dir) ? name : found;
 }
 
 /** The GitHub CLI to run: BELUGA_GH (the Mac app's end-to-end tests point it at a stand-in), else gh on PATH or in Homebrew's folders. */

@@ -73,7 +73,7 @@ describe('the terminal on Windows', () => {
 
 describe('paths from home and full paths, anywhere', () => {
   it('expands ~/ and ~\\ with your home, and only those', () => {
-    expect(expandHome('~/a', '/Users/me')).toBe('/Users/me/a');
+    expect(expandHome('~/a', '/Users/me')).toBe(path.join('/Users/me', 'a'));
     expect(expandHome('~\\Documents\\a.txt', 'C:\\Users\\me')).toBe(path.join('C:\\Users\\me', 'Documents\\a.txt'));
     expect(expandHome('~', 'C:\\Users\\me')).toBe('C:\\Users\\me');
     expect(expandHome('~bob/a', '/Users/me')).toBe('~bob/a');
@@ -274,6 +274,8 @@ describe('tools found on Windows', () => {
     expect(findTool('gh', PATH, only('C:\\Program Files\\GitHub CLI\\gh.exe'), 'win32', '.COM;.EXE;.BAT;.CMD')).toBe('C:\\Program Files\\GitHub CLI\\gh.exe');
     expect(findTool('brew', PATH, only('/opt/homebrew/bin/brew'), 'win32', '.EXE')).toBeUndefined();
     expect(toolCommand('gh', PATH, only('C:\\Program Files\\GitHub CLI\\gh.exe'), 'win32')).toBe('gh');
+    // PATH's folder written with a trailing backslash, in another case: still on PATH.
+    expect(toolCommand('gh', 'C:\\program files\\github cli\\;C:\\Windows', only('C:\\Program Files\\GitHub CLI\\gh.exe'), 'win32')).toBe('gh');
     expect(findTool('gh', '/usr/bin:/bin', only('/opt/homebrew/bin/gh'), 'darwin')).toBe('/opt/homebrew/bin/gh');
   });
 

@@ -123,7 +123,7 @@ export interface PolicyContext {
  */
 export const insideFolder = (root: string, target: string, platform: NodeJS.Platform = process.platform): boolean => {
   const win = platform === 'win32';
-  const sep = win ? '\\' : path.sep;
+  const sep = win ? '\\' : '/';
   const r = win ? root.toLowerCase() : root;
   const t = win ? target.toLowerCase() : target;
   return t === r || t.startsWith(r + sep);

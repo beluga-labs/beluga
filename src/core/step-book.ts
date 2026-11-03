@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { type StepPage, type StepRecord, sizeOf, summaryOf } from '../shared/steps.js';
 
@@ -45,6 +45,9 @@ interface Run {
 }
 
 const fileName = (key: string): string => `${createHash('sha1').update(key).digest('hex')}.json`;
+
+/** A write that wasn't kept, gone (Windows' virus scanner can hold a new file a moment: tried again). */
+const dropTmp = (tmp: string): Promise<void> => rm(tmp, { force: true, maxRetries: 5, retryDelay: 50 }).catch(() => undefined);
 
 export class StepBook {
   private readonly runs = new Map<string, Run>();
@@ -215,13 +218,13 @@ export class StepBook {
     void writeFile(tmp, text, { mode: 0o600 })
       .then(() => {
         // Written in full meanwhile (the run ended): that one is newer, and stays.
-        if ((run.saved ?? -1) >= version) return void unlink(tmp).catch(() => undefined);
+        if ((run.saved ?? -1) >= version) return void dropTmp(tmp);
         // Renamed here, on the daemon's thread, so it can never land after a newer full write.
         renameSync(tmp, file);
         run.saved = version;
         this.pruneSoon();
       })
-      .catch(() => void unlink(tmp).catch(() => undefined))
+      .catch(() => void dropTmp(tmp))
       .finally(() => {
         run.writing = false;
         if (run.again) {

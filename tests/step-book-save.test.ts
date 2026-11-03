@@ -60,6 +60,8 @@ describe('saving a run’s steps (BLG-407)', () => {
     expect(saved(dir).steps.map((s) => s.id)).toEqual(['a', 'b', 'c']);
     for (let i = 0; i < 200; i++) await tick();
     expect(saved(dir).steps.map((s) => s.id)).toEqual(['a', 'b', 'c']);
+    // The write in flight is let go: its file goes (a moment later on Windows, whose scanner can hold it).
+    await until(() => !readdirSync(dir).some((f) => f.endsWith('.tmp')));
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
     expect(new StepBook(dir).page('k').steps).toHaveLength(3);
   });
