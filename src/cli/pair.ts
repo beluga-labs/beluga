@@ -198,7 +198,8 @@ export async function pair(link: PairLink, io: Io, opts: PairOptions): Promise<E
   io.out(`“${event.name}” wants to pair.\nCheck that the phone shows these same four pictures: ${event.fingerprint}\n`);
   const grace = opts.awayGraceMs ?? AWAY_GRACE_MS;
   const watch = stillWaiting(link, opts.signal, event.fingerprint, (w) => io.out(`\nThe phone connected again, with new pictures: check that “${w.name}” shows ${w.fingerprint}\nPair? [y/N] `), grace);
-  const said = await Promise.race([opts.ask('Pair? [y/N] '), watch.gone]);
+  // A question that ends without an answer (Ctrl+C) is a no, said as Ctrl+C: the phone is told no.
+  const said: string | typeof GONE | typeof ABORTED = await Promise.race([opts.ask('Pair? [y/N] ').catch((): typeof ABORTED => ABORTED), watch.gone]);
   watch.stop();
   if (said === GONE) {
     // Closed cleanly, so the next `beluga pair` starts from nothing.
@@ -206,7 +207,7 @@ export async function pair(link: PairLink, io: Io, opts: PairOptions): Promise<E
     io.err('\nThe phone stopped waiting (or the code expired). Run `beluga pair` again.\n');
     return 1;
   }
-  if (said === ABORTED || !/^y(es)?$/i.test(said.trim())) {
+  if (typeof said !== 'string' || !/^y(es)?$/i.test(said.trim())) {
     await link.cancel().catch(() => undefined);
     io.err(said === ABORTED ? '\nPairing cancelled. Nothing was paired.\n' : 'Not paired: the phone is told no.\n');
     return said === ABORTED ? 130 : 1;

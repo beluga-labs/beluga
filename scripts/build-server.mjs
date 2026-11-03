@@ -45,7 +45,8 @@ writeFileSync(path.join(top, 'VERSION'), `${version}\n`);
 mkdirSync(out, { recursive: true });
 const tarball = path.join(out, `beluga-server-${platform}-${arch}.tar.gz`);
 rmSync(tarball, { force: true });
-run('tar', ['-czf', tarball, '-C', stage, 'beluga']);
+// No macOS metadata in it (GNU tar on the server would warn about each file's extended attributes).
+run('tar', ['-czf', tarball, '-C', stage, 'beluga'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 copyFileSync(path.join(root, 'scripts/install.sh'), path.join(out, 'install.sh'));
 rmSync(stage, { recursive: true, force: true });
 if (!existsSync(tarball)) throw new Error('No tarball was made');

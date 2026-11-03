@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeCodeOf } from '../core/claude-code/launch.js';
+import { belugaEnv } from '../core/beluga-env.js';
 import { belugaHome } from '../core/home.js';
 import { loadSettings } from '../core/settings.js';
 import type { Session } from '../core/session.js';
@@ -150,6 +151,17 @@ function macName(): string {
   return named;
 }
 
+/**
+ * BELUGA_DHT_BOOTSTRAP="127.0.0.1:49737,…": the phones' network is a local testnet (tests that run
+ * the daemon whole, such as `beluga pair` in a terminal); unset, the public one.
+ */
+export function dhtFromEnv(env: NodeJS.ProcessEnv = process.env): { dht?: { bootstrap: { host: string; port: number }[]; host: string } } {
+  const raw = belugaEnv('DHT_BOOTSTRAP', env);
+  if (!raw) return {};
+  const bootstrap = raw.split(',').map((a) => /^\s*([\w.-]+):(\d+)\s*$/.exec(a)).filter((m): m is RegExpExecArray => Boolean(m)).map((m) => ({ host: m[1]!, port: Number(m[2]) }));
+  return bootstrap.length ? { dht: { bootstrap, host: '127.0.0.1' } } : {};
+}
+
 export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const dir = opts.demo ? mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-companion-')) : belugaHome();
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
@@ -161,6 +173,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     devices,
     call: (clientId, method, args) => dispatchCall(opts.session, clientId, method, args),
     macName,
+    ...dhtFromEnv(),
     version: installedVersion(),
     thumbsDir: path.join(dir, 'companion', 'thumbs'),
     macrosFile: path.join(dir, 'phone-macros.json'),

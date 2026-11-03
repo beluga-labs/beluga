@@ -125,18 +125,28 @@ async function phoneStep(link: SetupLink, deps: SetupDeps, opts: SetupOptions, i
   }
   io.out('Install Beluga on your phone, then pair it with this code. Press Enter to skip and pair later.\n\n');
   const skip = new AbortController();
+  const stopped = new AbortController();
   const listening = new AbortController();
   void deps.untilEnter(listening.signal).then(() => skip.abort(), () => undefined);
+  // Ctrl+C while waiting for the phone: the pairing closes, and setup stops (as at any question).
+  const onCtrlC = (): void => (stopped.abort(), skip.abort());
+  process.once('SIGINT', onCtrlC);
   // Pair? needs the keyboard: Enter stops meaning "skip" once the phone has dialed in.
   const ask = (q: string): Promise<string> => {
     listening.abort();
-    return deps.prompt.ask(q);
+    process.off('SIGINT', onCtrlC);
+    return deps.prompt.ask(q).catch((err: unknown) => {
+      stopped.abort();
+      throw err;
+    });
   };
   try {
     const code = await pair(link.pair, io, { ask, signal: skip.signal, tty: deps.tty, ...(deps.columns ? { columns: deps.columns } : {}) });
+    if (stopped.signal.aborted) throw new Cancelled();
     return code === 0 ? undefined : 'pair your phone: `beluga pair`';
   } finally {
     listening.abort();
+    process.off('SIGINT', onCtrlC);
   }
 }
 

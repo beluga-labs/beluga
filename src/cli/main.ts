@@ -104,18 +104,12 @@ async function attached(io: Io, use: (client: SocketClient) => Promise<Exit>): P
   return 1;
 }
 
-/** Ask a question on this terminal; Ctrl+C there aborts. */
+/** Ask a question on this terminal (no readline, BLG-681); Ctrl+C aborts. */
 function asker(ctrlC: AbortController): (question: string) => Promise<string> {
   return async (question) => {
-    const { createInterface } = await import('node:readline/promises');
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    rl.on('SIGINT', () => ctrlC.abort());
-    ctrlC.signal.addEventListener('abort', () => rl.close(), { once: true });
-    try {
-      return await rl.question(question, { signal: ctrlC.signal });
-    } finally {
-      rl.close();
-    }
+    const { readLine } = await import('./prompt.js');
+    // Aborted (Ctrl+C), the question never answers: pair() hears it through the signal.
+    return readLine(question, { signal: ctrlC.signal }).catch(() => new Promise<string>(() => undefined));
   };
 }
 

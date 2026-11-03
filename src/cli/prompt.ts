@@ -1,5 +1,3 @@
-import { Writable } from 'node:stream';
-
 /** Questions on a terminal. Each resolves with what was typed (trimmed); Ctrl+C rejects. */
 export interface Prompter {
   /** A line; Enter alone takes `fallback`. */
@@ -24,33 +22,70 @@ export function yesNo(answer: string, fallback: boolean): boolean {
   return fallback;
 }
 
+type Input = NodeJS.ReadableStream & { readonly isTTY?: boolean; setRawMode?: (on: boolean) => unknown };
+
+/** What was typed after the last line read (typed ahead): the next question starts with it. */
+let ahead = '';
+
+/**
+ * One line from the terminal, without readline (BLG-681). In a terminal readline switches to raw
+ * mode, a tcsetattr that waits for the terminal to take all pending output, and redraws the line
+ * with blocking writes: a terminal that's slow to read (ssh -tt) then holds Beluga's whole event loop,
+ * the daemon's link and the keys typed included. Here the terminal stays as it is (it echoes and
+ * edits the line itself) and Ctrl+C is the signal it sends. Only a hidden line turns echo off (raw
+ * mode, for a token's paste), and back on whatever happens.
+ */
+export function readLine(question: string, opts: { signal?: AbortSignal; hidden?: boolean; input?: Input; output?: NodeJS.WritableStream } = {}): Promise<string> {
+  const input = opts.input ?? (process.stdin as Input);
+  const output = opts.output ?? process.stderr;
+  const raw = Boolean(opts.hidden && input.isTTY && input.setRawMode);
+  return new Promise((resolve, reject) => {
+    if (opts.signal?.aborted) return reject(new Cancelled());
+    output.write(question);
+    let typed = ahead;
+    ahead = '';
+    const finish = (fn: () => void): void => {
+      input.off('data', onData);
+      opts.signal?.removeEventListener('abort', onAbort);
+      process.off('SIGINT', onAbort);
+      if (raw) input.setRawMode!(false);
+      input.pause();
+      fn();
+    };
+    const onAbort = (): void => finish(() => reject(new Cancelled()));
+    const take = (): boolean => {
+      const end = typed.search(/[\r\n]/);
+      if (end < 0) return false;
+      const line = typed.slice(0, end);
+      ahead = typed.slice(end + 1).replace(/^\n/, '');
+      if (raw) output.write('\n');
+      finish(() => resolve(line.trim()));
+      return true;
+    };
+    const onData = (chunk: Buffer | string): void => {
+      for (const ch of String(chunk)) {
+        // Raw mode: the keys the terminal would have handled.
+        if (raw && ch === '\u0003') return onAbort();
+        if (raw && (ch === '\u007f' || ch === '\b')) {
+          typed = typed.slice(0, -1);
+          continue;
+        }
+        typed += ch;
+      }
+      take();
+    };
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    process.once('SIGINT', onAbort);
+    if (raw) input.setRawMode!(true);
+    if (take()) return;
+    input.on('data', onData);
+    input.resume();
+  });
+}
+
 /** The prompter on this process's terminal: questions on stderr, so piped output stays clean. */
-export function terminalPrompter(input: NodeJS.ReadableStream = process.stdin, output: NodeJS.WritableStream = process.stderr): Prompter {
-  const line = async (question: string, hidden: boolean): Promise<string> => {
-    const { createInterface } = await import('node:readline/promises');
-    let muted = false;
-    // Hidden: the question shows, what's typed after it doesn't.
-    const sink = new Writable({
-      write(chunk, _enc, done) {
-        if (!muted) output.write(chunk);
-        done();
-      },
-    });
-    const rl = createInterface({ input, output: sink, terminal: Boolean((input as { isTTY?: boolean }).isTTY) });
-    const ctrlC = new AbortController();
-    rl.on('SIGINT', () => ctrlC.abort());
-    try {
-      const pending = rl.question(question, { signal: ctrlC.signal });
-      muted = hidden;
-      const answer = await pending;
-      if (hidden) output.write('\n');
-      return answer.trim();
-    } catch {
-      throw new Cancelled();
-    } finally {
-      rl.close();
-    }
-  };
+export function terminalPrompter(input?: Input, output?: NodeJS.WritableStream): Prompter {
+  const line = (question: string, hidden: boolean): Promise<string> => readLine(question, { hidden, ...(input ? { input } : {}), ...(output ? { output } : {}) });
   return {
     ask: async (q, fallback) => (await line(fallback ? `${q} [${fallback}] ` : `${q} `, false)) || (fallback ?? ''),
     confirm: async (q, fallback) => yesNo(await line(`${q} ${fallback ? '[Y/n]' : '[y/N]'} `, false), fallback),
