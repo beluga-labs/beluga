@@ -405,6 +405,14 @@ describe('the views of a known Mac', () => {
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.icon).toBe(ICON);
   });
 
+  it('work lists a project with no conversations yet (one just added), last, and never Chats (BLG-675)', () => {
+    const added = { ...state, projects: [...state.projects, { id: 'p9', name: 'notes', root: '/srv/notes', base: 'main', workspaces: [] }, { id: 'chats', name: 'Chats', root: '', base: '', workspaces: [] }] } as DomainState;
+    const work = WorkView.parse(viewOf(added, ctx, 'work'));
+    expect(work.projects.at(-1)).toEqual({ id: 'p9', name: 'notes', conversations: [] });
+    expect(work.projects.find((p) => p.id === 'p1')?.conversations.length).toBeGreaterThan(0);
+    expect(work.projects.some((p) => p.id === 'chats' || p.name === 'Chats')).toBe(false);
+  });
+
   it('tasks: by project and status, and one task’s page with its brief, ticks and activity', () => {
     const tasks = TasksView.parse(viewOf(state, ctx, 'tasks'));
     expect(tasks.projects.map((p) => [p.id, p.icon, p.groups.map((g) => [g.status, g.tasks.map((t) => t.key)])])).toEqual([
