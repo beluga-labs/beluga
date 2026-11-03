@@ -261,6 +261,36 @@ const SCENES = {
       await page.waitForTimeout(2400);
     },
   },
+  /** Max effort sets the message box on fire: confetti flies as you type, it flares orange when you rush, and deleting pops into pixels. */
+  fire: {
+    viewport: { width: 1100, height: 640 },
+    // Fire is all moving colour: fewer frames keep it under GitHub's 10 MB.
+    fps: 10,
+    async run(page) {
+      await openWorkspace(page, 'add-auth');
+      // The chat has the window: all eyes on the box.
+      const panel = page.getByRole('button', { name: 'Hide the panel' });
+      if (await panel.isVisible().catch(() => false)) await panel.click();
+      await page.getByRole('button', { name: 'Agent, model and effort' }).click();
+      await page.waitForTimeout(700);
+      await page.getByRole('radio', { name: 'Max', exact: true }).click();
+      await page.waitForTimeout(500);
+      await page.keyboard.press('Escape');
+      await composer(page).click();
+      await page.waitForTimeout(1600);
+      await page.keyboard.type('Rewrite the checkout ', { delay: 85 });
+      // Rushing: it loses its temper and burns orange.
+      await page.keyboard.type('so it never drops a payment, ever, even when Stripe is slow', { delay: 18 });
+      await page.waitForTimeout(1400);
+      // What you take back pops into pixels.
+      for (let i = 0; i < ', ever'.length + ', even when Stripe is slow'.length; i++) await page.keyboard.press('Backspace', { delay: 40 });
+      await page.waitForTimeout(700);
+      await page.keyboard.type(', even on a slow day', { delay: 70 });
+      await page.waitForTimeout(1500);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(3500);
+    },
+  },
   /** The Scratch tab: what Claude and its sub-agents save while they work (screenshots, test logs, JSON), live. */
   scratch: {
     viewport: { width: 1280, height: 800 },
