@@ -43,3 +43,23 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeHidden();
   await expect(page.getByText('webhook-retries').first()).toBeVisible();
 });
+
+test('Open in Worktree checks a teammate’s pull request out in a new worktree, and opens it', async ({ page }) => {
+  await openHome(page);
+  const section = main(page).getByRole('region', { name: 'Pull Requests' });
+  const teammate = section.locator('[data-pull="51"]');
+  // The one already in a worktree has no button: a click opens it.
+  await expect(section.locator('[data-pull="52"]').getByRole('button', { name: /in a worktree/ })).toHaveCount(0);
+  await teammate.scrollIntoViewIfNeeded();
+  await teammate.hover();
+  const button = teammate.getByRole('button', { name: 'Open #51 in a worktree' });
+  await expect(button).toBeVisible();
+  await shot(page, '02-open-in-worktree.png');
+  await button.click();
+  await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeHidden();
+  await expect(page.getByText(/Pull request #51 “Decode emails safely in the user lookup”, checked out on fix\/plus-in-email/)).toBeVisible({ timeout: 15_000 });
+  await shot(page, '03-pull-request-worktree.png');
+  // Back home, its row now opens that worktree.
+  await openHome(page);
+  await expect(main(page).getByRole('region', { name: 'Pull Requests' }).locator('[data-pull="51"]')).toHaveAttribute('aria-label', /in a worktree/);
+});

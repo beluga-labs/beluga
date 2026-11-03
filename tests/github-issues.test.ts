@@ -122,6 +122,10 @@ describe('reading issues from gh', () => {
     expect(out.pulls.map((p) => [p.number, p.checks])).toEqual([[1, 'passing'], [2, 'failing'], [3, 'pending'], [4, 'none']]);
     expect(out.pulls[0]).toEqual({ number: 1, title: 'PR 1', url: 'https://github.com/acme/bob-api/pull/1', author: 'sam', branch: 'fix/1', draft: false, checks: 'passing', createdAt: Date.parse('2026-10-20T10:00:00Z'), updatedAt: Date.parse('2026-10-21T10:00:00Z') });
     expect(out.pulls[1]).toMatchObject({ draft: true, review: 'CHANGES_REQUESTED' });
+    // Where it merges, and whether its branch is on a fork (it's then fetched from GitHub's pull ref).
+    const fork = parseGraphPulls(JSON.stringify({ data: { repository: { pullRequests: { nodes: [pr(5, { baseRefName: 'main', isCrossRepository: true })] } } } })).pulls[0];
+    expect(fork).toMatchObject({ base: 'main', fork: true });
+    expect(out.pulls[0]).not.toHaveProperty('fork');
     expect(out.pulls[3]).toMatchObject({ title: 'Pull request #4' });
     expect(out.pulls[3]).not.toHaveProperty('author');
     expect(() => parseGraphPulls(JSON.stringify({ data: { repository: null }, errors: [{ message: 'Could not resolve to a Repository' }] }))).toThrow(/Could not resolve/);

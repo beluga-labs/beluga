@@ -156,6 +156,16 @@
 .rowMore:has([data-state='open']) {
   opacity: 1;
 }
+/* A row's one action (a pull request's Open in Worktree): there when you're on the row. */
+.rowAct {
+  flex: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.row:hover .rowAct,
+.row:focus-within .rowAct {
+  opacity: 1;
+}
 
 /* ---------- An issue's page ---------- */
 

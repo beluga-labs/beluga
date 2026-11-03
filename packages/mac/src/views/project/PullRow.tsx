@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { GhPull, PullsList } from '@beluga/core/issues/model.js';
 import { Icon } from '../../components/Icon.js';
 import { type ActionItem, ActionsContext, ActionsDropdown } from '../../components/SpecMenu.js';
-import { IconButton, Tip, cx } from '../../components/ui.js';
+import { Button, IconButton, Tip, cx } from '../../components/ui.js';
 import { useActions } from '../../lib/actions.js';
 import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { copyText } from '../../lib/copy.js';
@@ -54,17 +54,22 @@ const REVIEW: Record<NonNullable<GhPull['review']>, string> = {
 
 /**
  * One open pull request: its title, number, author and branch, Draft, review and checks, when.
- * One on a branch of the project's worktrees opens that worktree; any other opens on GitHub.
+ * One on a branch of the project's worktrees opens that worktree; any other opens on GitHub, and
+ * its Open in Worktree (BLG-633) checks its branch out in a new worktree that opens.
  */
 export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: string; pull: GhPull }) {
   const actions = useActions();
+  const api = useApi();
   const { client } = useBeluga();
   const ws = useApp((st) => st.projects.find((p) => p.id === projectId)?.workspaces.find((w) => w.kind === 'worktree' && !w.archived && w.branch === pull.branch)?.id);
   const onGitHub = (): void => actions.openLink({ kind: 'url', url: pull.url });
   const open = (): void => (ws ? actions.run({ type: 'open_ws', id: ws }) : onGitHub());
+  // Its worktree's page opens at once while git fetches the branch; a failure says why in a toast.
+  const checkOut = (): void =>
+    void api.issues.openPull(projectId, pull.number).catch((err: unknown) => toast(client, `Couldn’t open #${pull.number} in a worktree: ${err instanceof Error ? err.message : String(err)}`, 'error'));
   const menu = (): ActionItem[] => [
-    ...(ws ? [{ label: 'Open the Worktree', icon: 'branch' as const, onSelect: open }] : []),
-    { label: 'Open on GitHub', icon: 'external', separate: Boolean(ws), onSelect: onGitHub },
+    ws ? { label: 'Open the Worktree', icon: 'branch', onSelect: open } : { label: 'Open in Worktree', icon: 'branch', onSelect: checkOut },
+    { label: 'Open on GitHub', icon: 'external', separate: true, onSelect: onGitHub },
     { label: 'Copy Link', icon: 'copy', onSelect: () => void copyText(pull.url).then(() => toast(client, `Copied the link to #${pull.number}`, 'success')) },
   ];
   const checks = pull.checks === 'none' ? undefined : CHECKS[pull.checks];
@@ -97,7 +102,15 @@ export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: s
               <Icon name="branch" size={12} />
             </span>
           </Tip>
-        ) : null}
+        ) : (
+          <span className={s.rowAct} onClick={(e) => e.stopPropagation()}>
+            <Tip label={pull.fork ? 'Check it out from the fork in a new worktree (pushing there won’t change it)' : `Check out ${pull.branch} in a new worktree: pushing there updates the pull request`}>
+              <Button size="small" variant="quiet" icon="branch" onClick={checkOut} aria-label={`Open #${pull.number} in a worktree`}>
+                Open in Worktree
+              </Button>
+            </Tip>
+          </span>
+        )}
         {pull.draft ? <TonePill tone="muted">Draft</TonePill> : pull.review ? <TonePill tone={pull.review === 'APPROVED' ? 'ok' : pull.review === 'CHANGES_REQUESTED' ? 'warn' : 'neutral'}>{REVIEW[pull.review]}</TonePill> : null}
         {checks ? (
           <TonePill tone={checks.tone} live={pull.checks === 'pending'}>

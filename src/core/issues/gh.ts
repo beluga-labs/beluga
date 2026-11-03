@@ -132,7 +132,7 @@ export function parseGraphIssues(json: string): { readonly issues: GhIssue[]; re
 export const PULLS_PAGE = 50;
 
 /** A repository's open pull requests, newest activity first, with their latest commit's checks. */
-export const PULLS_QUERY = `query($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { pullRequests(first: ${PULLS_PAGE}, states: [OPEN], orderBy: { field: UPDATED_AT, direction: DESC }) { totalCount nodes { number title url isDraft headRefName createdAt updatedAt reviewDecision author { login } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }`;
+export const PULLS_QUERY = `query($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { pullRequests(first: ${PULLS_PAGE}, states: [OPEN], orderBy: { field: UPDATED_AT, direction: DESC }) { totalCount nodes { number title url isDraft headRefName baseRefName isCrossRepository createdAt updatedAt reviewDecision author { login } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }`;
 
 const CHECKS: Record<string, GhPull['checks']> = { SUCCESS: 'passing', FAILURE: 'failing', ERROR: 'failing', PENDING: 'pending', EXPECTED: 'pending' };
 const REVIEWS = new Set(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']);
@@ -152,6 +152,8 @@ export function parseGraphPull(raw: unknown): GhPull | undefined {
     url: r.url,
     ...(author ? { author } : {}),
     branch: typeof r.headRefName === 'string' ? r.headRefName : '',
+    ...(typeof r.baseRefName === 'string' && r.baseRefName ? { base: r.baseRefName } : {}),
+    ...(r.isCrossRepository === true ? { fork: true } : {}),
     draft: r.isDraft === true,
     checks: (typeof rollup === 'string' && CHECKS[rollup]) || 'none',
     ...(review ? { review } : {}),

@@ -409,6 +409,7 @@ export const PHONE: Record<Method, Side> = {
   'issues.list': 'mac',
   'issues.get': 'mac',
   'issues.pulls': 'mac',
+  'issues.openPull': 'mac',
   'issues.investigate': 'mac',
   'issues.fix': 'mac',
   'issues.toTask': 'mac',

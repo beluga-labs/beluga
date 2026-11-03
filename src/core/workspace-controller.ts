@@ -16,7 +16,7 @@ import { agentName } from '../shared/agent-label.js';
 import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
-import type { DeletePlan, Project, Workspace } from '../workspaces/types.js';
+import type { DeletePlan, Project, PullHead, Workspace } from '../workspaces/types.js';
 import { type MergeResult, git } from '../workspaces/git.js';
 import type { FoundConversation } from '../agent/runtime/claude/claude-sessions.js';
 import type { ShareService } from './shares.js';
@@ -167,6 +167,8 @@ export class WorkspaceController {
   private readonly archiving = new Map<string, Promise<boolean>>();
   /** Conversations moving to a new worktree now, by id: the sheet doesn't wait, so a second Continue joins the first. */
   private readonly moving = new Map<string, Promise<Workspace | undefined>>();
+  /** Pull requests being checked out in a worktree, by project and number (openPull). */
+  private readonly pulling = new Map<string, Promise<Workspace | undefined>>();
 
   /** Hear about worktrees opening, merging, going and coming back. */
   onWorktree(listener: (event: WorktreeEvent) => void): () => void {
@@ -782,6 +784,53 @@ export class WorkspaceController {
     } else if (shown) {
       this.deps.intend({ type: 'close_tab', id });
     }
+    return ws;
+  }
+
+  /**
+   * A pull request in a worktree (BLG-633): the worktree already on its branch opens; otherwise
+   * one is made on it (its row and page show at once, as for any new worktree) and opens, with a
+   * line saying what it is. No agent starts: you look, run it, or ask. A second click while it's
+   * made is the same one.
+   */
+  openPull(projectId: string, pull: PullHead): Promise<Workspace | undefined> {
+    const key = `${projectId}#${pull.number}`;
+    const running = this.pulling.get(key);
+    if (running) return running;
+    const job = this.openPullNow(projectId, pull).finally(() => this.pulling.delete(key));
+    this.pulling.set(key, job);
+    return job;
+  }
+
+  private async openPullNow(projectId: string, pull: PullHead): Promise<Workspace | undefined> {
+    const project = this.deps.manager.list.find((p) => p.id === projectId && p.root);
+    if (!project) {
+      this.deps.toast('That project is gone', 'warn');
+      return undefined;
+    }
+    const mine = (branch: string): boolean => branch === pull.branch || (Boolean(pull.fork) && branch === `pr-${pull.number}`);
+    const there = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && w.branch && mine(w.branch));
+    if (there) {
+      this.open(there.id);
+      return there;
+    }
+    const id = this.deps.manager.newWorktreeId();
+    this.ahead.making.set(id, pendingWorktree({ id, project, name: `pr-${pull.number}`, ...(pull.base ? { base: `origin/${pull.base}` } : {}) }));
+    this.publish();
+    this.deps.intend({ type: 'navigate', view: { kind: 'workspace', id, tab: 'chat' } });
+    const ws = await this.act(`Couldn't open #${pull.number} in a worktree`, () => this.deps.manager.createPullWorktree(projectId, pull, { id }), undefined, { later: true });
+    const shown = this.ahead.making.delete(id);
+    this.publish();
+    if (!ws) {
+      if (shown) this.deps.intend({ type: 'close_tab', id });
+      return undefined;
+    }
+    const pushes = pull.fork ? 'It’s from a fork, so pushing here doesn’t change it; git pull brings its new commits.' : 'Pushing here updates the pull request.';
+    this.deps.store.dispatch({ type: 'system', channel: `${WS_PREFIX}${ws.id}`, text: `Pull request #${pull.number}${pull.title ? ` “${pull.title}”` : ''}, checked out on ${ws.branch}. ${pushes}` });
+    this.deps.toast(`#${pull.number} is checked out in ${ws.name}`, 'success');
+    if (shown) this.ensureLoaded(ws.id);
+    else this.open(ws.id);
+    this.created(ws);
     return ws;
   }
 
