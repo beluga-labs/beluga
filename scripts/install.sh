@@ -50,7 +50,7 @@ main() {
   tmp=$(mktemp -d "$home_dir/.install.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT INT TERM
 
-  say "Downloading Beluga for $os-$arch…"
+  say "Downloading Beluga for ${os}-${arch}…"
   if command -v curl >/dev/null 2>&1; then
     curl -fL --progress-bar -o "$tmp/$file" "$url" || fail "couldn't download $url"
   elif command -v wget >/dev/null 2>&1; then

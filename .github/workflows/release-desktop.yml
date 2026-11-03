@@ -166,7 +166,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # Only the desktop builds: the server's files (each with its own install.sh) are server-publish's.
       - uses: actions/download-artifact@v4
         with:
+          pattern: beluga-*
           path: artifacts
       - run: node scripts/release-desktop.mjs publish --tag "$TAG" --dir artifacts
