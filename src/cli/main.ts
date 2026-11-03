@@ -32,6 +32,15 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       process.once('SIGINT', () => ctrlC.abort());
       return logs({ follow: cmd.flags.follow === true, lines: countFlag(cmd.flags.lines, 'lines', DEFAULT_LINES, 'logs'), signal: ctrlC.signal }, io);
     }
+    case 'project': {
+      const [sub = 'list', ...rest] = cmd.positionals;
+      const { addProject, listProjects, projectLinkOf, removeProject } = await import('./project.js');
+      const into = typeof cmd.flags.into === 'string' ? cmd.flags.into : undefined;
+      if (sub === 'list') return attached(io, async (client) => listProjects(client.store.getDomain().projects, io));
+      if (sub === 'add') return attached(io, (client) => addProject(projectLinkOf(client), rest.join(' ') || undefined, io, into ? { into } : {}));
+      if (sub === 'remove') return attached(io, (client) => removeProject(projectLinkOf(client), rest.join(' ') || undefined, io));
+      throw new UsageError(`\`beluga project\` can add, list or remove; there's no \`${sub}\`.`, 'project');
+    }
     case 'pair':
       return pairHere(io);
     case 'phones': {

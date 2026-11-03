@@ -30,7 +30,7 @@ export function report(info: DaemonInfo, domain: Pick<DomainState, 'projects' | 
     startedAt: info.startedAt,
     keptAlive: info.keepAlive ?? false,
     room: info.room,
-    projects: domain.projects.map((p) => ({ name: p.name, root: p.root, ...(p.error ? { problem: p.error } : {}) })),
+    projects: domain.projects.filter((p) => p.root).map((p) => ({ name: p.name, root: p.root, ...(p.error ? { problem: p.error } : {}) })),
     phones: domain.companion.devices.map((d) => ({ name: d.name, platform: d.platform, linked: d.linked, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}) })),
     ...(domain.companion.relay ? { relay: domain.companion.relay } : {}),
     web: 'off',
