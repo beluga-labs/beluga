@@ -14,13 +14,12 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       io.out(`Beluga ${installedVersion()}\n`);
       return 0;
     case 'up': {
-      const { up, startInBackground } = await import('./up.js');
-      const { foreground } = await import('./daemon.js');
-      const { serviceEnv, serviceInstalled, startService } = await import('./service.js');
-      const env = serviceEnv();
-      // With a service installed, it starts under systemd or launchd, which keep it running.
-      const start = serviceInstalled(env) ? async () => (await startService(env)) ?? new Promise<string>(() => undefined) : startInBackground;
-      return up({ foreground: cmd.flags.foreground === true }, io, { start, foreground });
+      const { up } = await import('./up.js');
+      return up({ foreground: cmd.flags.foreground === true }, io, await upDeps());
+    }
+    case 'setup': {
+      const { setupHere } = await import('./setup-here.js');
+      return setupHere({ yes: cmd.flags.yes === true, ...(typeof cmd.flags.project === 'string' ? { project: cmd.flags.project } : {}) }, io);
     }
     case 'service': {
       const [sub = 'status'] = cmd.positionals;
@@ -80,6 +79,16 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       return 0;
     }
   }
+}
+
+/** How `beluga up` starts Beluga: under systemd or launchd when a service is installed (they keep it running), else in the background. */
+export async function upDeps(): Promise<import('./up.js').UpDeps> {
+  const { startInBackground } = await import('./up.js');
+  const { foreground } = await import('./daemon.js');
+  const { serviceEnv, serviceInstalled, startService } = await import('./service.js');
+  const env = serviceEnv();
+  const start = serviceInstalled(env) ? async () => (await startService(env)) ?? new Promise<string>(() => undefined) : startInBackground;
+  return { start, foreground };
 }
 
 /** Run against the running daemon (loaded only for the commands that attach), or say it isn't running. */

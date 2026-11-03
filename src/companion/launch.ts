@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { claudeCodeOf } from '../core/claude-code/launch.js';
 import { belugaHome } from '../core/home.js';
+import { loadSettings } from '../core/settings.js';
 import type { Session } from '../core/session.js';
 import type { Store } from '../core/store.js';
 import { installedVersion } from '../core/version.js';
@@ -134,9 +135,11 @@ export interface CompanionLaunch {
   readonly terminals?: import('../terminal/pty-host.js').TerminalManager;
 }
 
-/** The Mac's name as people know it ("Kayra’s MacBook Pro"): its Sharing name, else its host name. */
+/** The Mac's name as people know it ("Kayra’s MacBook Pro"): the one set in `beluga setup`, its Sharing name, else its host name. */
 let named: string | undefined;
 function macName(): string {
+  if (named) return named;
+  named = loadSettings().computerName;
   if (named) return named;
   try {
     if (process.platform === 'darwin') named = execFileSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2_000 }).trim() || undefined;

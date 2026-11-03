@@ -5,6 +5,7 @@ import { installedVersion } from '../core/version.js';
 import { openDaemonLog } from '../daemon/files.js';
 import { type DaemonOptions, runDaemon } from '../daemon/main.js';
 import { APP_ORIGINS } from '../daemon/server.js';
+import { useClaudeToken } from './claude.js';
 
 /** The daemon's options from the environment: the Mac app's origins, and the test and perf knobs. */
 export function daemonOptions(keepAlive: boolean): DaemonOptions {
@@ -21,9 +22,10 @@ export function daemonOptions(keepAlive: boolean): DaemonOptions {
   };
 }
 
-/** `beluga daemon [--keep-alive] [demo]`: what the Mac app starts (src-tauri/src/daemon.rs). */
+/** `beluga daemon [--keep-alive] [demo]`: what the Mac app starts (src-tauri/src/daemon.rs), and `beluga up` in the background. */
 export async function daemon(args: readonly string[]): Promise<void> {
   const rest = args.filter((a) => a !== '--keep-alive');
+  useClaudeToken();
   await runDaemon(parseConfig(rest), daemonOptions(args.includes('--keep-alive')));
 }
 
@@ -32,6 +34,7 @@ export async function daemon(args: readonly string[]): Promise<void> {
  * Its lines go to this terminal and to daemon.log, so `beluga logs` reads them either way.
  */
 export async function foreground(): Promise<void> {
+  useClaudeToken();
   const fd = openDaemonLog();
   const log = (line: string): void => {
     const text = `${new Date().toISOString()} ${line}\n`;
