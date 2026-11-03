@@ -90,8 +90,8 @@ function useIconItems(p: Project): readonly ActionItem[] {
   ];
 }
 
-/** The Overview, narrowed to a project's archived work. */
-function showArchivedOf(run: (a: UiAction) => void, projectId: string): void {
+/** The Overview, narrowed to a project's archived work (or the archived chats). */
+export function showArchivedOf(run: (a: UiAction) => void, projectId: string): void {
   setOverviewView({ filter: 'archived', project: projectId });
   run({ type: 'view', view: { kind: 'overview' } });
 }
