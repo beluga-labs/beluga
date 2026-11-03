@@ -16,7 +16,19 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
     case 'up': {
       const { up, startInBackground } = await import('./up.js');
       const { foreground } = await import('./daemon.js');
-      return up({ foreground: cmd.flags.foreground === true }, io, { start: startInBackground, foreground });
+      const { serviceEnv, serviceInstalled, startService } = await import('./service.js');
+      const env = serviceEnv();
+      // With a service installed, it starts under systemd or launchd, which keep it running.
+      const start = serviceInstalled(env) ? async () => (await startService(env)) ?? new Promise<string>(() => undefined) : startInBackground;
+      return up({ foreground: cmd.flags.foreground === true }, io, { start, foreground });
+    }
+    case 'service': {
+      const [sub = 'status'] = cmd.positionals;
+      const { installService, removeService, serviceEnv, serviceStatus } = await import('./service.js');
+      if (sub === 'install') return installService(serviceEnv(), io);
+      if (sub === 'remove' || sub === 'uninstall') return removeService(serviceEnv(), io);
+      if (sub === 'status') return serviceStatus(serviceEnv(), io);
+      throw new UsageError(`\`beluga service\` can install or remove; there's no \`${sub}\`.`, 'service');
     }
     case 'status': {
       const { status } = await import('./status.js');

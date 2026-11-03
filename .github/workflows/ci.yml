@@ -56,6 +56,20 @@ jobs:
           beluga project list
           beluga stop
           if beluga status; then echo 'still running after beluga stop'; exit 1; fi
+      - name: beluga service install and remove (a systemd user service, kept after logout)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          sudo loginctl enable-linger "$USER"
+          XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export XDG_RUNTIME_DIR
+          for _ in $(seq 40); do [ -S "$XDG_RUNTIME_DIR/bus" ] && break; sleep 0.5; done
+          beluga service install
+          for _ in $(seq 60); do beluga status >/dev/null && break; sleep 1; done
+          beluga status
+          systemctl --user is-active beluga.service
+          beluga service remove
+          sleep 2
+          if beluga status; then echo 'still running after beluga service remove'; exit 1; fi
       - name: The daemon's log
         if: failure()
         run: cat ~/.beluga/logs/daemon.log || true

@@ -21,6 +21,7 @@ export const COMMANDS = {
   project: { usage: 'beluga project add <folder or git URL> [--into <folder>] | list | remove <name>', summary: 'add a project (a git URL is cloned first), list them, or remove one', options: { into: { type: 'string' } } },
   pair: { usage: 'beluga pair', summary: 'pair a phone: scan the QR code or type the code, then confirm', options: {} },
   phones: { usage: 'beluga phones [remove <name>]', summary: 'list the paired phones, or remove one', options: {} },
+  service: { usage: 'beluga service [install | remove]', summary: 'keep Beluga running, from boot (systemd on Linux, launchd on a Mac)', options: {} },
   update: { usage: 'beluga update', summary: 'update Beluga to the latest release (the server install)', options: {} },
   version: { usage: 'beluga version', summary: 'show the version', options: {} },
   help: { usage: 'beluga help [command]', summary: 'show this help', options: {} },

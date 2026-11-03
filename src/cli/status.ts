@@ -17,6 +17,8 @@ export interface StatusReport {
   readonly phones: ReadonlyArray<{ readonly name: string; readonly platform: string; readonly linked: boolean; readonly lastSeen?: number }>;
   /** The relay phones reach this computer through when a direct link can't be made. */
   readonly relay?: 'ready' | 'starting' | 'off';
+  /** What keeps it running from boot (`beluga service install`), if anything. */
+  readonly service?: 'systemd' | 'launchd';
   /** Opening Beluga in a browser (the web milestone): off until it's set up. */
   readonly web: 'off';
 }
@@ -55,13 +57,17 @@ export function describe(r: StatusReport, now = Date.now()): string {
     for (const p of r.phones) lines.push(`  ${p.name} (${p.platform}), ${p.linked ? 'linked now' : p.lastSeen ? `last seen ${ago(now - p.lastSeen)} ago` : 'not seen yet'}`);
   }
   if (r.relay) lines.push(`Phone relay: ${r.relay === 'ready' ? 'ready' : r.relay === 'starting' ? 'starting' : 'off (phones reach this computer only directly)'}`);
+  lines.push(r.service ? `Keeps running: yes (${r.service === 'systemd' ? 'a systemd user service' : 'a launchd agent'})` : 'Keeps running: only until this computer restarts. `beluga service install` starts it at boot.');
   lines.push('Browser access: off');
   return `${lines.join('\n')}\n`;
 }
 
 /** `beluga status`: running or not, version, projects, phones, browser access. */
 export async function status(flags: { json?: boolean }, io: Io): Promise<Exit> {
-  const r = (await withDaemon(async (client, info) => report(info, client.store.getDomain()))) ?? { running: false, projects: [], phones: [], web: 'off' as const };
+  const found = (await withDaemon(async (client, info) => report(info, client.store.getDomain()))) ?? { running: false, projects: [], phones: [], web: 'off' as const };
+  const { serviceEnv, serviceInstalled } = await import('./service.js');
+  const env = serviceEnv();
+  const r: StatusReport = serviceInstalled(env) ? { ...found, service: env.platform === 'linux' ? 'systemd' : 'launchd' } : found;
   io.out(flags.json ? `${JSON.stringify(r, null, 2)}\n` : describe(r));
   return r.running ? 0 : 1;
 }
