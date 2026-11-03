@@ -302,6 +302,9 @@ export const PHONE: Record<Method, Side> = {
   'web.sessions.list': 'mac',
   'web.sessions.revoke': 'mac',
   'web.stop': 'mac',
+  'web.public': 'mac',
+  'web.tailscale': 'mac',
+  'web.ways': 'mac',
   'web.download': 'mac',
 
   // ---- Your Mac's chats (BLG-102): since 1.14 the phone lists them, starts one and deletes one

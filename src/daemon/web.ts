@@ -1,5 +1,6 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 import { type AddressInfo, isIP } from 'node:net';
+import { hostname, userInfo } from 'node:os';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { MAX_FRAME_BYTES } from './server.js';
@@ -39,6 +40,8 @@ export interface WebServerOptions {
   readonly root?: string;
   /** Host names besides loopback and IP addresses the page may be reached by ('*': any). */
   readonly allowedHosts?: readonly string[];
+  /** Host names allowed for now, besides those (a public tunnel's, while it's up). */
+  readonly extraHosts?: () => readonly string[];
   /** Which browser session this request is, or undefined: its socket is refused. */
   readonly authorize: (req: IncomingMessage) => string | undefined;
   /** Answered first, for anyone (the join page). */
@@ -162,10 +165,15 @@ export class WebServer {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
+  private hostAllowed(host: string | undefined): boolean {
+    const extra = this.opts.extraHosts?.() ?? [];
+    return hostAllowed(host, extra.length ? [...(this.opts.allowedHosts ?? []), ...extra] : this.opts.allowedHosts);
+  }
+
   private async request(req: IncomingMessage, res: ServerResponse): Promise<void> {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
     try {
-      if (!hostAllowed(req.headers.host, this.opts.allowedHosts)) return end(res, 421, 'Unknown host');
+      if (!this.hostAllowed(req.headers.host)) return end(res, 421, 'Unknown host');
       const url = new URL(req.url ?? '/', 'http://web.invalid');
       for (const route of this.opts.routes ?? []) if (await route(req, res, url)) return;
       // Nothing of Beluga's, not even the UI's files, before a browser is let in.
@@ -194,7 +202,7 @@ export class WebServer {
     };
     const path = (req.url ?? '').split('?')[0];
     if (path !== '/ws') return refuse(404, 'Not Found');
-    if (!hostAllowed(req.headers.host, this.opts.allowedHosts)) return refuse(421, 'Misdirected Request');
+    if (!this.hostAllowed(req.headers.host)) return refuse(421, 'Misdirected Request');
     if (!sameOrigin(header(req, 'origin'), req.headers.host)) return refuse(403, 'Forbidden');
     const session = this.opts.authorize(req);
     if (!session) return refuse(401, 'Unauthorized');
@@ -237,12 +245,39 @@ export function webUrl(host: string, port: number): string {
   return `http://${name}:${port}`;
 }
 
+/** Who to ssh in as, here: "kay@box". */
+function thisLogin(): string {
+  let user = process.env.USER ?? process.env.LOGNAME ?? 'you';
+  try {
+    user = userInfo().username;
+  } catch {
+    // No passwd entry (some containers): the environment's word will do.
+  }
+  return `${user}@${hostname()}`;
+}
+
+/**
+ * For a web port on loopback: how another computer reaches it through SSH, to copy and paste
+ * (`beluga connect`, or the plain ssh line for a computer without Beluga). '' for any other address.
+ */
+export function sshWords(base: string, login: string = thisLogin()): string {
+  const url = new URL(base);
+  const name = url.hostname.replace(/^\[|\]$/g, '');
+  if (name !== 'localhost' && !isLoopbackAddress(name)) return '';
+  const port = url.port || '80';
+  return `From another computer, through SSH (no port to open here):\n  beluga connect ${login}\nWithout Beluga there, run this on it, then open the link above:\n  ssh -N -L ${port}:${url.hostname}:${port} ${login}\n`;
+}
+
 export interface WebArgs {
   readonly host: string;
   readonly port: number;
   readonly allowedHosts: readonly string[];
   /** Plain http on an address others can reach (`--insecure-http`): never remembered for the next start. */
   readonly insecureHttp?: boolean;
+  /** Also a public link through a Cloudflare tunnel (`--public`, reach/public.ts); remembered until turned off. */
+  readonly public?: boolean;
+  /** Also on the tailnet through Tailscale Serve (`--tailscale`, reach/tailscale.ts); remembered until turned off. */
+  readonly tailscale?: boolean;
 }
 
 /**
@@ -277,12 +312,22 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
   let port = WEB_PORT;
   const allowedHosts: string[] = [];
   let insecureHttp = false;
+  let pub = false;
+  let tailnet = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const [flag, inline] = arg.startsWith('--') && arg.includes('=') ? [arg.slice(0, arg.indexOf('=')), arg.slice(arg.indexOf('=') + 1)] : [arg, undefined];
     if (flag === '--insecure-http') {
       insecureHttp = true;
+      continue;
+    }
+    if (flag === '--public') {
+      pub = true;
+      continue;
+    }
+    if (flag === '--tailscale') {
+      tailnet = true;
       continue;
     }
     if (flag !== '--listen' && flag !== '--allow-host') {
@@ -299,7 +344,7 @@ export function splitWebArgs(argv: readonly string[]): { web: WebArgs; rest: str
     host = listen.host ?? host;
     port = listen.port ?? port;
   }
-  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}) }, rest };
+  return { web: { host, port, allowedHosts, ...(insecureHttp ? { insecureHttp } : {}), ...(pub ? { public: true } : {}), ...(tailnet ? { tailscale: true } : {}) }, rest };
 }
 
 /** "0.0.0.0:7777", "7778", "::", "[::1]:7777", "100.64.0.1". */

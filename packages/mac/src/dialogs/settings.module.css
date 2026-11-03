@@ -233,6 +233,33 @@
   white-space: nowrap;
   user-select: all;
 }
+/* The join link as a QR, for a phone's browser, beside the link and its Copy. */
+.webQr {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px 12px;
+}
+.webQr > svg {
+  flex: none;
+  padding: 6px;
+  border-radius: 10px;
+  background: #fff;
+}
+.webQrText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+.webBusy {
+  padding: 6px 14px;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
 /* Settings › Claude › Local models: one endpoint's form (LocalModelsSettings.tsx). */
 .endpointForm {
   display: flex;

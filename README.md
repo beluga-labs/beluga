@@ -60,6 +60,18 @@ The first line installs Beluga in `~/.beluga/server` (Node included, no sudo) an
 | `beluga web` · `beluga web sessions` | open Beluga in a browser: a link that lets one in; the browsers let in |
 | `beluga update` | the latest version, in place |
 
+To open the server's Beluga in your laptop's browser through SSH, with no port opened on the server, run this on the laptop (any host from `~/.ssh/config` works; Ctrl+C closes it):
+
+```sh
+beluga connect you@your-server
+```
+
+Without Beluga on the laptop, `beluga web` on the server prints the `ssh -N -L …` line to paste instead.
+
+On Tailscale, `beluga web --tailscale` on the server gives `https://<box>.<tailnet>.ts.net` (with a QR for your phone's browser): your own Tailscale login gets in without a link, others on your tailnet need one.
+
+With neither SSH nor Tailscale, `beluga web --public` on the server gives a https link that works anywhere, through a Cloudflare tunnel: anyone with a join link gets in, the address alone shows only a page that asks for one. `beluga web --off` closes it.
+
 ---
 
 ## Work on everything at once

@@ -56,6 +56,8 @@ export async function run(cmd: ParsedCommand, io: Io): Promise<Exit> {
       const { web } = await import('./web.js');
       return web(cmd.positionals, io);
     }
+    case 'connect':
+      return connectHere(cmd, io);
     case 'update': {
       const { update } = await import('./update.js');
       return update(io);
@@ -121,6 +123,24 @@ async function pairHere(io: Io): Promise<Exit> {
   process.on('SIGINT', onSigint);
   try {
     return await attached(io, (client) => pair(pairLinkOf(client), io, { ask: asker(ctrlC), signal: ctrlC.signal, tty: Boolean(process.stdout.isTTY), columns: process.stdout.columns ?? 80 }));
+  } finally {
+    process.off('SIGINT', onSigint);
+  }
+}
+
+/** `beluga connect user@host` on this terminal, until Ctrl+C. */
+async function connectHere(cmd: ParsedCommand, io: Io): Promise<Exit> {
+  const [host, ...extra] = cmd.positionals;
+  if (!host || extra.length) throw new UsageError('`beluga connect` takes one host: user@host, or a Host from ~/.ssh/config.', 'connect');
+  const port = cmd.flags.port === undefined ? undefined : countFlag(cmd.flags.port, 'port', 0, 'connect');
+  if (port !== undefined && (port < 1 || port > 65535)) throw new UsageError('--port takes a port, like --port 7778.', 'connect');
+  const { connect } = await import('./connect.js');
+  const { systemOpen } = await import('../core/os-open.js');
+  const ctrlC = new AbortController();
+  const onSigint = (): void => ctrlC.abort();
+  process.on('SIGINT', onSigint);
+  try {
+    return await connect({ host, open: cmd.flags['no-open'] !== true, ...(port !== undefined ? { port } : {}) }, io, { ssh: belugaEnv('SSH') ?? 'ssh', openUrl: systemOpen, signal: ctrlC.signal });
   } finally {
     process.off('SIGINT', onSigint);
   }

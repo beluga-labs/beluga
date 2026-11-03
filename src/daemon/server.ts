@@ -39,7 +39,7 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message 
 const byteLength = (raw: Buffer | ArrayBuffer | Buffer[]): number => (Array.isArray(raw) ? raw.reduce((n, b) => n + b.length, 0) : raw.byteLength);
 
 /** What only the Mac app and the command line may do: managing browsers' access (BLG-653). */
-export const WEB_ADMIN: ReadonlySet<string> = new Set(['web.link', 'web.sessions.revoke', 'web.stop']);
+export const WEB_ADMIN: ReadonlySet<string> = new Set(['web.link', 'web.sessions.revoke', 'web.stop', 'web.public', 'web.tailscale']);
 
 /** The default origins of the Mac app's webview. */
 export const APP_ORIGINS = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'] as const;

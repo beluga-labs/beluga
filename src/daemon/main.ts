@@ -13,8 +13,10 @@ import { watchEventLoop } from './lag.js';
 import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
-import { type WebArgs } from './web.js';
+import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
+import { publicWords } from './reach/public.js';
+import { tailscaleWords } from './reach/tailscale.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
 export const LINGER_MS = 3000;
@@ -47,6 +49,8 @@ export interface DaemonOptions {
   readonly web?: Partial<WebArgs> & { readonly root?: string };
   /** Where `beluga web` says the link (its terminal). */
   readonly announce?: (text: string) => void;
+  /** A QR code of a link as lines for that terminal (none when it isn't one): the tailnet address for a phone. */
+  readonly announceQr?: (text: string) => readonly string[];
 }
 
 export interface RunningDaemon {
@@ -123,6 +127,9 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
     // Opened before (`beluga web`, Settings): open again, but a busy port doesn't stop Beluga.
     const remembered = readWebConfig();
     if (remembered) webAt = await web.start(remembered).catch((err: unknown) => void log(`web port: ${errorText(err)}`));
+    // The public link too, when it was on: in the background, Cloudflare takes a while.
+    if (remembered?.public && webAt) void web.goPublic().catch((err: unknown) => log(`web: public link: ${errorText(err)}`));
+    if (remembered?.tailscale && webAt) void web.goTailscale().catch((err: unknown) => log(`web: tailscale: ${errorText(err)}`));
   }
   writeDaemonInfo({ pid: process.pid, port, token, version: opts.version, ipc: IPC_VERSION, room: core.room, roomKey: roomKeyOf(config), startedAt: Date.now(), keepAlive: opts.keepAlive, workspaces: core.workspacesHome });
   log(`listening on 127.0.0.1:${port} for ${core.room}${opts.keepAlive ? ' (kept alive)' : ''}`);
@@ -165,7 +172,20 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   if (opts.web && opts.announce && daemon.webUrl) {
     const { url, expiresAt } = daemon.web.sessions.link(daemon.webUrl);
     const clear = opts.web.insecureHttp ? `\nCareful: --insecure-http sends this link and the browser's session over plain http on ${opts.web.host}. Anyone on that network can read them and get in.\n` : '';
-    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\nMore links: beluga web link. Browsers let in: beluga web sessions.\n`);
+    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\n${sshWords(daemon.webUrl)}More links: beluga web link. Browsers let in: beluga web sessions.\n`);
+    if (opts.web.tailscale) {
+      await daemon.web
+        .goTailscale()
+        .then((t) => opts.announce?.(`\n${tailscaleWords(t, opts.announceQr?.(t.url))}`))
+        .catch((err: unknown) => opts.announce?.(`Not on the tailnet: ${errorText(err)}\n`));
+    }
+    if (opts.web.public) {
+      opts.announce('\nOpening a public link through Cloudflare…\n');
+      await daemon.web
+        .goPublic()
+        .then((pub) => opts.announce?.(`\n${publicWords(pub)}`))
+        .catch((err: unknown) => opts.announce?.(`No public link: ${errorText(err)}\n`));
+    }
   }
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
   if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));

@@ -13,7 +13,7 @@ and what the app's native bits become in a browser.
   (`ssh -L 7777:127.0.0.1:7777 box`). `--listen host:port` picks another address or port;
   `--allow-host name` adds a host name the page may be reached by (a Tailscale or tunnel name).
   It reopens at every start of the daemon until `beluga web stop` or Settings › Advanced › Web
-  access › Close Port (`~/.beluga/web.json`). An address others reach over plain http
+  access, turned off (`~/.beluga/web.json`). An address others reach over plain http
   (`0.0.0.0`, a LAN address) is refused unless `--insecure-http` says so; Tailscale's `100.x`
   addresses are fine (see docs/security.md, Web access).
 - **What**: the built UI (`packages/mac`'s `vite build`: `BELUGA_WEB_ROOT`, a packaged `web/`
@@ -50,12 +50,66 @@ Each browser is a device of yours, like a phone (`src/daemon/web-sessions.ts`, `
   browser not seen for 90 days has to join again.
 - Without a valid cookie the web port serves only the **Ask for a link** page (and 401s), never the
   UI's files, and refuses the socket.
-- **Revoking** one (`beluga web revoke <id or name>`, or Revoke in Settings › Advanced › Web
+- **Revoking** one (`beluga web revoke <id or name>`, or Remove in Settings › Advanced › Web
   access) forgets it and closes its sockets at once (code 4401); its page reloads into the Ask page.
 - The `web.*` API (`src/ipc/web-api.ts`): `web.link`, `web.sessions.list`, `web.sessions.revoke`,
-  `web.stop`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
+  `web.stop`, `web.public`, `web.tailscale`, `web.download`. A browser is a `web` screen: it may list browsers and download, but
   links, revokes and closing the port are the Mac app's and the command line's. The CLI is
   `src/web-cli.ts`.
+
+## Reaching it from elsewhere
+
+- **Through SSH** (`beluga connect user@host`, `src/cli/connect.ts`): run on the laptop. It asks
+  the server for a join link over ssh (`beluga web link`, starting Beluga there first when it isn't
+  running), opens `ssh -N -L 127.0.0.1:<free port>:127.0.0.1:7777 host`, and opens the browser at
+  its near end. The tunnel comes back when it drops; Ctrl+C closes it. The host goes to ssh as
+  typed, so aliases, users, ports and keys from the ssh config apply. Nothing is opened on the
+  server. Without Beluga on the laptop, `beluga web` on the server prints the plain `ssh -N -L`
+  line to paste.
+- **On your tailnet** (`beluga web --tailscale`, `src/daemon/reach/tailscale.ts`): reads this
+  machine's name and login from `tailscale status --json`, then runs `tailscale serve --bg
+  --https=443 http://127.0.0.1:7777` (Serve, never Funnel: only the tailnet reaches it) and prints
+  `https://<box>.<tailnet>.ts.net` with a QR for a phone's browser. Your own Tailscale login (this
+  machine's owner, BLG-655) gets in without a join link; anyone else on the tailnet needs one; on a
+  tagged machine nobody's login is trusted. The `Tailscale-User-Login` header is believed only on
+  requests from loopback (tailscaled), under the ts.net name, while Serve is on; another local
+  account on a shared box could forge it, so on such a box use join links. Missing Tailscale, a
+  logged-out one, Serve needing an operator (`sudo tailscale set --operator=$USER`) or HTTPS
+  certificates being off each get a one-line fix. Reopened at every start until `--off`, which runs
+  `tailscale serve --https=443 off`.
+- **A public link** (`beluga web --public`, `src/daemon/reach/public.ts`): a Cloudflare quick
+  tunnel (the cloudflared the rooms and the phone relay use) to the web port. It prints the
+  `https://<name>.trycloudflare.com` address and a join link under it, and says plainly what that
+  exposes: **anyone with a join link gets in**. The address alone shows only the Ask for a link
+  page. The web port answers to that name only while the tunnel is up. Wrong join links through it
+  are limited harder (5 per visitor, by Cloudflare's `CF-Connecting-IP`, and 20 in all per 10
+  minutes; a good link always works). When cloudflared stops or its name stops answering, a new
+  tunnel opens (more slowly each time it fails) and its new address shows in `beluga status`
+  and `web.sessions.list`. It is reopened at every start until `beluga web --off`.
+- **In the Mac app**: Settings › Advanced › Web access, off by default. One switch, then Reached
+  from: This computer only, Tailscale (offered when it's installed and logged in, `web.ways`) or
+  Public link; the address, New Link with the link as a QR and Copy, and the browsers let in, each
+  with Remove.
+- **Off**: `beluga web --off` closes the web port, the public link and Tailscale Serve
+  (`web.stop`), and they stay closed across restarts.
+
+### Your own domain
+
+A quick tunnel's name changes each time. With a Cloudflare account, a named tunnel keeps one
+(`cloudflared tunnel create beluga`, then `cloudflared tunnel route dns beluga beluga.example.com`
+and `cloudflared tunnel run --url http://127.0.0.1:7777 beluga`); with a server that has a public
+address and a domain, Caddy gets the certificate itself:
+
+```caddyfile
+beluga.example.com {
+	reverse_proxy 127.0.0.1:7777
+}
+```
+
+Either way, let the web port answer to that name and take a link under it:
+`beluga web --allow-host beluga.example.com`, then open the link with `127.0.0.1:7777` replaced by
+`beluga.example.com`. The join limits there are the local port's (Caddy's requests all come from
+loopback, so they share one count): keep the proxy for yourself.
 
 ## The app's native bits in a browser
 
