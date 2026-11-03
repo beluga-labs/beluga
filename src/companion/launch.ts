@@ -14,7 +14,7 @@ import { assistantOf } from '../core/assistant/registry.js';
 import { ASSISTANT_CHANNEL, isAssistant } from '../shared/assistant.js';
 import { DeviceBook } from './devices.js';
 import { CompanionHost } from './host.js';
-import { macIdleMs } from './push.js';
+import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
@@ -173,7 +173,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       return sn.documentBytes(d.sentinelId, d.metric, d.column, d.value);
     },
     watching: (channels, linked) => outputs.watch(channels, linked),
-    idleMs: macIdleMs,
+    idleMs: idleWhenWatched(() => opts.session.attention.screens),
     ...(opts.terminals ? { terminals: opts.terminals } : {}),
     // The relay through Cloudflare, unless Remote access is set to direct only (or the network only),
     // or it's the demo (nothing leaves the computer).
