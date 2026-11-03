@@ -27,6 +27,7 @@ import { EarningsSettings } from './EarningsSettings.js';
 import { NotificationSettings } from './NotificationSettings.js';
 import { VoiceSettings } from './VoiceSettings.js';
 import { KeyboardSettings } from './KeyboardSettings.js';
+import { WebAccessSettings } from './WebAccessSettings.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
 import { MaintainerChip } from './SupportSheets.js';
 import s from './settings.module.css';
@@ -58,6 +59,7 @@ const PANES: ReadonlyArray<{ id: SettingsPane; label: string; icon: IconName }> 
   { id: 'phone', label: 'Phone', icon: 'phone' },
   { id: 'voice', label: 'Voice', icon: 'mic' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command' },
+  { id: 'advanced', label: 'Advanced', icon: 'wrench' },
   { id: 'about', label: 'About', icon: 'globe' },
 ];
 
@@ -631,6 +633,7 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   phone: PhoneSettings,
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
+  advanced: WebAccessSettings,
   about: About,
 };
 

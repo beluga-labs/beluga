@@ -9,6 +9,7 @@ import { type ArgsRuntime, MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH, agentArgsProble
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
 import { SUPPORT_API } from './support-api.js';
+import { WEB_API } from './web-api.js';
 import { CLAUDE_CODE_API } from './claude-code-api.js';
 import { STEPS_API } from './steps-api.js';
 import { GATEWAY_API } from './gateway-api.js';
@@ -470,6 +471,8 @@ export const API = {
   ...TERMINAL_IMPORT_API,
   // ---- the agent's own terminal on a conversation, and its visuals (agent-term-api.ts)
   ...AGENT_TERM_API,
+  // ---- browsers on the web port: join links, the ones let in, revoking (web-api.ts)
+  ...WEB_API,
 } as const;
 
 export type Api = typeof API;

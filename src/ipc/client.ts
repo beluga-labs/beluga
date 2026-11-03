@@ -62,7 +62,8 @@ export interface BelugaClient {
   close(): void;
 }
 
-export type ClientKind = 'mac' | 'test';
+/** The Mac app (or a browser showing it), a command run once (`beluga web`), or a test. */
+export type ClientKind = 'mac' | 'cli' | 'test';
 
 type Group<M> = M extends `${infer G}.${string}` ? G : never;
 type NameIn<M, G extends string> = M extends `${G}.${infer N}` ? N : never;

@@ -220,6 +220,19 @@
   align-items: center;
   gap: 8px;
 }
+/* Settings › Advanced › Web access: a join link, shown whole on hover, copied with its button. */
+.webLink {
+  overflow: hidden;
+  max-width: 260px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
 /* Settings › Claude › Local models: one endpoint's form (LocalModelsSettings.tsx). */
 .endpointForm {
   display: flex;

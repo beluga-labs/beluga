@@ -41,8 +41,10 @@ export interface WebServerOptions {
   readonly allowedHosts?: readonly string[];
   /** Which browser session this request is, or undefined: its socket is refused. */
   readonly authorize: (req: IncomingMessage) => string | undefined;
-  /** Answered before the static files. */
+  /** Answered first, for anyone (the join page). */
   readonly routes?: readonly WebRoute[];
+  /** What a request that isn't let in gets (default: a plain 401). */
+  readonly locked?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
   readonly log?: (line: string) => void;
 }
 
@@ -146,6 +148,8 @@ export class WebServer {
       if (!hostAllowed(req.headers.host, this.opts.allowedHosts)) return end(res, 421, 'Unknown host');
       const url = new URL(req.url ?? '/', 'http://web.invalid');
       for (const route of this.opts.routes ?? []) if (await route(req, res, url)) return;
+      // Nothing of Beluga's, not even the UI's files, before a browser is let in.
+      if (!this.opts.authorize(req)) return this.opts.locked ? this.opts.locked(req, res, url) : end(res, 401, 'Not signed in');
       if (url.pathname === '/__beluga/endpoint') return json(res, 200, { web: true });
       if (req.method !== 'GET' && req.method !== 'HEAD') return end(res, 405, 'Method not allowed');
       if (!this.files) return url.pathname === '/' || url.pathname === '/index.html' ? html(res, 503, NOT_BUILT) : end(res, 404, 'Not found');
@@ -202,6 +206,12 @@ export function json(res: ServerResponse, status: number, body: unknown, headers
 export function html(res: ServerResponse, status: number, body: string, headers: Record<string, string> = {}): void {
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...headers });
   res.end(body);
+}
+
+/** The link to the web port: an address that listens everywhere is reached here at 127.0.0.1. */
+export function webUrl(host: string, port: number): string {
+  const name = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host.includes(':') ? `[${host}]` : host;
+  return `http://${name}:${port}`;
 }
 
 export interface WebArgs {

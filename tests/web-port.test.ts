@@ -1,68 +1,17 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { request } from 'node:http';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { parseConfig } from '../src/config.js';
 import { belugaHome } from '../src/core/home.js';
-import { clearDaemonInfo, daemonInfoPath, releaseLock } from '../src/daemon/files.js';
-import { type RunningDaemon, startDaemon, webUrl } from '../src/daemon/main.js';
-import { REVOKED_CLOSE, WEB_HELLO_TOKEN, WebServer, hostAllowed, parseListen, sameOrigin, splitWebArgs } from '../src/daemon/web.js';
+import { REVOKED_CLOSE, WebServer, hostAllowed, parseListen, sameOrigin, splitWebArgs, webUrl } from '../src/daemon/web.js';
 import { IMMUTABLE, REVALIDATE, StaticFiles, pickEncoding, resolveInRoot } from '../src/daemon/web-static.js';
-import { IPC_VERSION } from '../src/ipc/protocol.js';
-import { SocketClient, type SocketLike } from '../src/ipc/socket-client.js';
-
-const BIG_JS = `export const hello = ${JSON.stringify('beluga '.repeat(400))};\n`;
-
-/** A built UI: index, a hashed bundle, an icon, and things that must never be served. */
-function builtUi(): string {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'beluga-web-root-'));
-  mkdirSync(path.join(root, 'assets'));
-  writeFileSync(path.join(root, 'index.html'), `<!doctype html><title>Beluga</title>${'<!-- pad -->'.repeat(200)}`);
-  writeFileSync(path.join(root, 'assets', 'index-Ab12Cd34.js'), BIG_JS);
-  writeFileSync(path.join(root, 'icon.png'), Buffer.alloc(2048, 7));
-  writeFileSync(path.join(root, '.env'), 'SECRET=1');
-  writeFileSync(path.join(root, 'daemon.json'), '{"token":"leaked"}');
-  return root;
-}
-
-interface Reply {
-  status: number;
-  headers: Record<string, string | string[] | undefined>;
-  body: Buffer;
-}
-
-function get(port: number, urlPath: string, headers: Record<string, string> = {}, method = 'GET'): Promise<Reply> {
-  return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port, path: urlPath, method, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-}
-
-/** Open a socket on the web port; resolves with the HTTP status it was refused with, or 101. */
-function upgrade(port: number, headers: Record<string, string>, urlPath = '/ws'): Promise<{ status: number; ws?: WebSocket }> {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}${urlPath}`, { headers });
-    ws.once('open', () => resolve({ status: 101, ws }));
-    ws.once('unexpected-response', (_req, res) => resolve({ status: res.statusCode ?? 0 }));
-    ws.once('error', () => resolve({ status: 0 }));
-  });
-}
+import { BIG_JS, builtUi, get, upgrade } from './web-helpers.js';
 
 const servers: WebServer[] = [];
-const daemons: RunningDaemon[] = [];
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
-  for (const d of daemons.splice(0)) await d.stop();
-  clearDaemonInfo();
-  releaseLock();
 });
 
 async function webOnly(opts: Partial<ConstructorParameters<typeof WebServer>[0]> = {}): Promise<{ server: WebServer; port: number; adopted: WebSocket[] }> {
@@ -170,6 +119,9 @@ describe('who the web port answers', () => {
   it('refuses the socket to a browser it has not let in', async () => {
     const { port } = await webOnly({ authorize: () => undefined });
     expect((await upgrade(port, { origin: `http://127.0.0.1:${port}` })).status).toBe(401);
+    // Nor its files.
+    expect((await get(port, '/')).status).toBe(401);
+    expect((await get(port, '/assets/index-Ab12Cd34.js')).status).toBe(401);
   });
 
   it("cuts a session's sockets off at once when it's dropped", async () => {
@@ -183,50 +135,6 @@ describe('who the web port answers', () => {
     expect(await closed).toBe(REVOKED_CLOSE);
     expect(b.ws?.readyState).toBe(WebSocket.OPEN);
     b.ws?.close();
-  });
-});
-
-describe('beluga web', () => {
-  const config = () => parseConfig(['--no-agent', '--tunnel', 'none', '--name', 'kay']);
-  const start = async (): Promise<RunningDaemon & { web: NonNullable<RunningDaemon['web']> }> => {
-    const d = await startDaemon(config(), { version: '1.0.0', keepAlive: true, web: { port: 0, root: builtUi() } });
-    daemons.push(d);
-    if (!d.web) throw new Error('no web port');
-    return d as RunningDaemon & { web: NonNullable<RunningDaemon['web']> };
-  };
-  const portOf = (url: string): number => Number(new URL(url).port);
-  const browser = (port: number, origin = `http://127.0.0.1:${port}`) => (url: string): SocketLike => new WebSocket(url, { headers: { origin } }) as unknown as SocketLike;
-
-  it('lets a browser in through the same accept path without ever showing it the token', async () => {
-    const d = await start();
-    const port = portOf(d.web.url);
-    expect(port).not.toBe(d.port);
-    const screen = await SocketClient.connect({ url: `ws://127.0.0.1:${port}/ws`, token: WEB_HELLO_TOKEN, kind: 'mac', version: '1.0.0', connect: browser(port) });
-    expect(screen.store.getState().room).toBe(d.core.room);
-    expect(screen.clients).toBe(1);
-    screen.close();
-  });
-
-  it("serves nothing of daemon.json, and the token socket isn't reachable through it", async () => {
-    const d = await start();
-    const port = portOf(d.web.url);
-    const token = JSON.parse(readFileSync(daemonInfoPath(), 'utf8')).token as string;
-    expect(token).toBe(d.token);
-    for (const p of ['/', '/index.html', '/__beluga/endpoint', '/daemon.json', '/../daemon.json', '/%2e%2e/daemon.json', `/${path.basename(belugaHome())}/daemon.json`, '/assets/index-Ab12Cd34.js']) {
-      const res = await get(port, p, { 'accept-encoding': 'identity' });
-      expect(res.body.toString(), p).not.toContain(token);
-    }
-    expect(JSON.parse((await get(port, '/__beluga/endpoint')).body.toString())).toEqual({ web: true });
-    // The token itself doesn't open the web port's socket: only a session does.
-    expect((await upgrade(port, {})).status).toBe(403);
-    // The token socket stays as it was: a browser's placeholder token doesn't open it.
-    await expect(SocketClient.connect({ url: `ws://127.0.0.1:${d.port}`, token: WEB_HELLO_TOKEN, kind: 'mac', version: '1.0.0', timeoutMs: 2000 })).rejects.toThrow();
-    const app = await SocketClient.connect({ url: `ws://127.0.0.1:${d.port}`, token: d.token, kind: 'test', version: '1.0.0' });
-    expect(app.clients).toBe(1);
-    app.close();
-    // Nor does the token socket answer HTTP for the UI.
-    expect((await get(d.port, '/index.html').catch(() => ({ status: 0 }))).status).not.toBe(200);
-    expect(IPC_VERSION).toBeGreaterThan(0);
   });
 });
 

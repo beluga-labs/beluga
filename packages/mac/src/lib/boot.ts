@@ -30,7 +30,12 @@ export async function endpoint(): Promise<Endpoint> {
     return invoke<Endpoint>('daemon_endpoint');
   }
   const res = await fetch('/__beluga/endpoint', { cache: 'no-store' });
-  const body = (await res.json()) as Partial<Endpoint> & { error?: string; web?: boolean };
+  const body = (await res.json()) as Partial<Endpoint> & { error?: string; web?: boolean; signedOut?: boolean };
+  // This browser was revoked (or never let in): the page itself becomes the Ask for a link page.
+  if (res.status === 401 && body.signedOut) {
+    location.reload();
+    throw new Error('This browser is signed out of Beluga');
+  }
   if (!res.ok || body.error) throw new Error(body.error ?? 'Beluga is not running');
   if (body.web) return { url: webSocketUrl(location), token: WEB_HELLO_TOKEN };
   if (!body.url || !body.token) throw new Error('Beluga is not running');
