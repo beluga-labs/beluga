@@ -33,6 +33,8 @@ export interface PairOptions {
   readonly tty: boolean;
   /** Its width; the QR code is left out when it doesn't fit. */
   readonly columns?: number;
+  /** How long the phone may be away before it counts as gone (AWAY_GRACE_MS). */
+  readonly awayGraceMs?: number;
   /** How long to wait for the phone to show up in the list once approved. */
   readonly pairedWaitMs?: number;
 }
@@ -72,20 +74,69 @@ function next(link: PairLink, signal: AbortSignal | undefined, tick?: () => void
 const GONE = Symbol('gone');
 const ABORTED = Symbol('aborted');
 
-/** While Pair? is asked: resolves if the phone stops waiting (it gave up, the code expired) or on Ctrl+C. */
-function stillWaiting(link: PairLink, signal: AbortSignal | undefined): Promise<typeof GONE | typeof ABORTED> {
-  return new Promise((resolve) => {
-    const finish = (why: typeof GONE | typeof ABORTED): void => {
+/**
+ * How long the phone may be away from the pairing before it counts as gone: its link can drop
+ * and come back (it retries with the same keys, or another way wins), BLG-674.
+ */
+export const AWAY_GRACE_MS = 5_000;
+
+/**
+ * While Pair? is asked: resolves if the phone is gone (the pairing closed, or nobody has waited
+ * for AWAY_GRACE_MS) or on Ctrl+C. A phone that comes back with other pictures has them said.
+ */
+function stillWaiting(link: PairLink, signal: AbortSignal | undefined, shown: string, said: (w: Waiting) => void, graceMs: number): { gone: Promise<typeof GONE | typeof ABORTED>; stop: () => void } {
+  let stop = (): void => undefined;
+  const gone = new Promise<typeof GONE | typeof ABORTED>((resolve) => {
+    let fingerprint = shown;
+    let away: NodeJS.Timeout | undefined;
+    const finish = (why?: typeof GONE | typeof ABORTED): void => {
+      clearTimeout(away);
       off();
       signal?.removeEventListener('abort', onAbort);
-      resolve(why);
+      if (why) resolve(why);
     };
+    stop = () => finish();
     const onAbort = (): void => finish(ABORTED);
-    const off = link.onChange(() => {
-      if (!link.companion().pairing?.waiting) finish(GONE);
-    });
+    const check = (): void => {
+      const p = link.companion().pairing;
+      if (!p) return finish(GONE);
+      if (!p.waiting) {
+        away ??= setTimeout(() => finish(GONE), graceMs);
+        return;
+      }
+      clearTimeout(away);
+      away = undefined;
+      if (p.waiting.fingerprint !== fingerprint) {
+        fingerprint = p.waiting.fingerprint;
+        said(p.waiting);
+      }
+    };
+    const off = link.onChange(check);
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) finish(ABORTED);
+  });
+  return { gone, stop };
+}
+
+type Waiting = { readonly name: string; readonly fingerprint: string };
+
+/** A phone waiting now, or one that comes back within the grace (its link dropping for a moment). */
+function waitingSoon(link: PairLink, ms: number): Promise<Waiting | undefined> {
+  return new Promise((resolve) => {
+    const now = (): Waiting | undefined | null => {
+      const p = link.companion().pairing;
+      return !p ? null : p.waiting;
+    };
+    const first = now();
+    if (first !== undefined) return resolve(first ?? undefined);
+    const timer = setTimeout(() => (off(), resolve(undefined)), ms);
+    const off = link.onChange(() => {
+      const w = now();
+      if (w === undefined) return;
+      clearTimeout(timer);
+      off();
+      resolve(w ?? undefined);
+    });
   });
 }
 
@@ -145,8 +196,13 @@ export async function pair(link: PairLink, io: Io, opts: PairOptions): Promise<E
     return 1;
   }
   io.out(`“${event.name}” wants to pair.\nCheck that the phone shows these same four pictures: ${event.fingerprint}\n`);
-  const said = await Promise.race([opts.ask('Pair? [y/N] '), stillWaiting(link, opts.signal)]);
+  const grace = opts.awayGraceMs ?? AWAY_GRACE_MS;
+  const watch = stillWaiting(link, opts.signal, event.fingerprint, (w) => io.out(`\nThe phone connected again, with new pictures: check that “${w.name}” shows ${w.fingerprint}\nPair? [y/N] `), grace);
+  const said = await Promise.race([opts.ask('Pair? [y/N] '), watch.gone]);
+  watch.stop();
   if (said === GONE) {
+    // Closed cleanly, so the next `beluga pair` starts from nothing.
+    await link.cancel().catch(() => undefined);
     io.err('\nThe phone stopped waiting (or the code expired). Run `beluga pair` again.\n');
     return 1;
   }
@@ -154,6 +210,12 @@ export async function pair(link: PairLink, io: Io, opts: PairOptions): Promise<E
     await link.cancel().catch(() => undefined);
     io.err(said === ABORTED ? '\nPairing cancelled. Nothing was paired.\n' : 'Not paired: the phone is told no.\n');
     return said === ABORTED ? 130 : 1;
+  }
+  // Yes, while the phone's link is between two tries: pair it once it's back.
+  if (!(await waitingSoon(link, grace))) {
+    await link.cancel().catch(() => undefined);
+    io.err('The phone stopped waiting (or the code expired). Run `beluga pair` again.\n');
+    return 1;
   }
   try {
     await link.approve();

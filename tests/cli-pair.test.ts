@@ -179,6 +179,77 @@ describe('beluga pair', () => {
   }, 30_000);
 });
 
+describe('a phone whose link drops while Pair? is asked (BLG-674)', () => {
+  /** A daemon whose waiting phone the test moves around. */
+  function scriptedLink() {
+    const store = new Store(initialState('room'));
+    const info = { link: 'beluga://device#abcdefghijklmnopqrstuvwxyz012345', code: 'K7QM-4XPA-R2TD', expiresAt: Date.now() + 600_000 };
+    const set = (pairing?: object, devices: DeviceView[] = []): void => store.dispatch({ type: 'companion', companion: { devices, ...(pairing ? { pairing } : {}) } as never });
+    const calls: string[] = [];
+    const link: PairLink = {
+      start: async () => (set(info), info),
+      approve: async () => {
+        calls.push('approve');
+        set(undefined, [{ id: 'aaaaaaaaaaaaaaaa', name: 'Pixel 9', platform: 'android', pairedAt: Date.now(), linked: false, push: false } as DeviceView]);
+      },
+      cancel: async () => void (calls.push('cancel'), set(undefined)),
+      companion: () => store.getState().companion,
+      onChange: (l) => store.subscribe(l),
+    };
+    const waits = (fingerprint: string): void => set({ ...info, waiting: { name: 'Pixel 9', fingerprint } });
+    const away = (): void => set(info);
+    return { link, waits, away, calls };
+  }
+
+  it('keeps asking while it comes back, says its new pictures, and y pairs', async () => {
+    const { link, waits, away, calls } = scriptedLink();
+    const io = capture();
+    let answer!: (a: string) => void;
+    const pairing = pair(link, io, { tty: false, awayGraceMs: 1000, ask: () => new Promise((r) => (answer = r)) });
+    await new Promise((r) => setTimeout(r, 20));
+    waits('🐙 🌵 🎈 🦊');
+    await waitFor(() => answer, 2000);
+    // The losing way closes and the phone tries again: a moment with nobody waiting, then new pictures.
+    away();
+    await new Promise((r) => setTimeout(r, 300));
+    waits('🐳 🍋 🚲 🌙');
+    await waitFor(() => io.text().includes('new pictures'), 2000);
+    expect(io.text()).toContain('“Pixel 9” shows 🐳 🍋 🚲 🌙');
+    answer('y');
+    expect(await pairing).toBe(0);
+    expect(calls).toEqual(['approve']);
+    expect(io.text()).toContain('Paired with Pixel 9');
+  });
+
+  it('a yes while the phone is between two tries pairs it once it’s back', async () => {
+    const { link, waits, away, calls } = scriptedLink();
+    let answer!: (a: string) => void;
+    const pairing = pair(link, capture(), { tty: false, awayGraceMs: 1000, ask: () => new Promise((r) => (answer = r)) });
+    await new Promise((r) => setTimeout(r, 20));
+    waits('🐙 🌵 🎈 🦊');
+    await waitFor(() => answer, 2000);
+    away();
+    answer('y');
+    await new Promise((r) => setTimeout(r, 200));
+    waits('🐙 🌵 🎈 🦊');
+    expect(await pairing).toBe(0);
+    expect(calls).toEqual(['approve']);
+  });
+
+  it('gives up only once nobody has waited for the whole grace, and closes the pairing', async () => {
+    const { link, waits, away, calls } = scriptedLink();
+    const io = capture();
+    const pairing = pair(link, io, { tty: false, awayGraceMs: 300, ask: () => new Promise(() => undefined) });
+    await new Promise((r) => setTimeout(r, 20));
+    waits('🐙 🌵 🎈 🦊');
+    await new Promise((r) => setTimeout(r, 50));
+    away();
+    expect(await pairing).toBe(1);
+    expect(io.errors()).toContain('The phone stopped waiting');
+    expect(calls).toEqual(['cancel']);
+  });
+});
+
 describe('the QR code in a terminal', () => {
   const link = deviceLink('A'.repeat(43), 'https://some-long-words-here-and-there.trycloudflare.com');
 
