@@ -357,13 +357,21 @@ fn fallback_path() -> String {
         .unwrap_or_else(|_| "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin".into())
 }
 
+/// Past this the log is set aside as daemon.log.1 (src/daemon/files.ts LOG_LIMIT). The daemon
+/// trims it while it runs too, except on Windows, where an append-only file can't be cut.
+const LOG_LIMIT: u64 = 5 * 1024 * 1024;
+
 fn log_file() -> Option<std::fs::File> {
     let dir = beluga_home().join("logs");
     std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("daemon.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_LIMIT) {
+        let _ = std::fs::rename(&path, dir.join("daemon.log.1"));
+    }
     std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("daemon.log"))
+        .open(path)
         .ok()
 }
 

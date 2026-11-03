@@ -10,6 +10,7 @@ import { IPC_VERSION } from '../ipc/protocol.js';
 import { type Core, buildCore } from './core.js';
 import { clearDaemonInfo, writeDaemonInfo } from './files.js';
 import { watchEventLoop } from './lag.js';
+import { keepLogSmall } from './log-size.js';
 import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
@@ -37,8 +38,10 @@ export interface DaemonOptions {
   /** Override LINGER_MS / FIRST_CLIENT_MS (tests). */
   readonly lingerMs?: number;
   readonly firstClientMs?: number;
-  /** How often the event-loop delay is logged (default 30 s, see lag.ts). */
+  /** Log the event-loop delay every this often, slow or not (scripts/perf-lag.mjs); otherwise only slow periods and hourly (lag.ts). */
   readonly lagEveryMs?: number;
+  /** What writes daemon.log, kept small while it runs (log-size.ts): stderr unless said otherwise. */
+  readonly logFd?: number;
   /** Stop once this ends: the app's pipe on Windows, which has no signals (stop-on-input.ts). */
   readonly stopWithInput?: Readable;
 }
@@ -125,7 +128,7 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
   });
 
   core.start();
-  stopLag = watchEventLoop(log, opts.lagEveryMs);
+  stopLag = watchEventLoop(log, opts.lagEveryMs ? { everyMs: opts.lagEveryMs, all: true } : {});
   return { core, server, port, token, stop, done };
 }
 
@@ -136,6 +139,7 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   // Unheard, each failed write was an uncaught error whose log line failed again, spinning a core (BLG-365).
   process.stderr.on('error', () => {});
   const daemon = await startDaemon(config, { ...opts, log });
+  keepLogSmall(opts.logFd ?? 2, log);
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
   if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));
   // The Mac app's word that the Mac is about to sleep (BLG-277, src-tauri/src/power.rs): mail the
