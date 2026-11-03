@@ -17,7 +17,6 @@ import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 import { publicWords } from './reach/public.js';
 import { tailscaleWords } from './reach/tailscale.js';
-import { qrLines } from '../cli/qr.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
 export const LINGER_MS = 3000;
@@ -50,6 +49,8 @@ export interface DaemonOptions {
   readonly web?: Partial<WebArgs> & { readonly root?: string };
   /** Where `beluga web` says the link (its terminal). */
   readonly announce?: (text: string) => void;
+  /** A QR code of a link as lines for that terminal (none when it isn't one): the tailnet address for a phone. */
+  readonly announceQr?: (text: string) => readonly string[];
 }
 
 export interface RunningDaemon {
@@ -175,7 +176,7 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
     if (opts.web.tailscale) {
       await daemon.web
         .goTailscale()
-        .then((t) => opts.announce?.(`\n${tailscaleWords(t, process.stdout.isTTY ? qrLines(t.url) : [])}`))
+        .then((t) => opts.announce?.(`\n${tailscaleWords(t, opts.announceQr?.(t.url))}`))
         .catch((err: unknown) => opts.announce?.(`Not on the tailnet: ${errorText(err)}\n`));
     }
     if (opts.web.public) {

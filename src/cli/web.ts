@@ -1,6 +1,7 @@
 import { parseConfig } from '../config.js';
 import { runDaemon } from '../daemon/main.js';
 import { webCommand } from '../web-cli.js';
+import { qrLines } from './qr.js';
 import { useClaudeToken } from './claude.js';
 import { daemonOptions } from './daemon.js';
 import { type Exit, type Io, errorText } from './io.js';
@@ -20,6 +21,6 @@ export async function web(argv: readonly string[], io: Io): Promise<Exit> {
   }
   if (!served) return 0;
   useClaudeToken();
-  await runDaemon(parseConfig(served.rest), { ...daemonOptions(true), web: served.web, announce: io.out });
+  await runDaemon(parseConfig(served.rest), { ...daemonOptions(true), web: served.web, announce: io.out, ...(process.stdout.isTTY ? { announceQr: qrLines } : {}) });
   return 0;
 }
