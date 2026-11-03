@@ -1,5 +1,6 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 import { type AddressInfo, isIP } from 'node:net';
+import { hostname, userInfo } from 'node:os';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { MAX_FRAME_BYTES } from './server.js';
@@ -235,6 +236,29 @@ export function html(res: ServerResponse, status: number, body: string, headers:
 export function webUrl(host: string, port: number): string {
   const name = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host.includes(':') ? `[${host}]` : host;
   return `http://${name}:${port}`;
+}
+
+/** Who to ssh in as, here: "kay@box". */
+function thisLogin(): string {
+  let user = process.env.USER ?? process.env.LOGNAME ?? 'you';
+  try {
+    user = userInfo().username;
+  } catch {
+    // No passwd entry (some containers): the environment's word will do.
+  }
+  return `${user}@${hostname()}`;
+}
+
+/**
+ * For a web port on loopback: how another computer reaches it through SSH, to copy and paste
+ * (`beluga connect`, or the plain ssh line for a computer without Beluga). '' for any other address.
+ */
+export function sshWords(base: string, login: string = thisLogin()): string {
+  const url = new URL(base);
+  const name = url.hostname.replace(/^\[|\]$/g, '');
+  if (name !== 'localhost' && !isLoopbackAddress(name)) return '';
+  const port = url.port || '80';
+  return `From another computer, through SSH (no port to open here):\n  beluga connect ${login}\nWithout Beluga there, run this on it, then open the link above:\n  ssh -N -L ${port}:${url.hostname}:${port} ${login}\n`;
 }
 
 export interface WebArgs {

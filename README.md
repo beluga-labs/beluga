@@ -60,6 +60,14 @@ The first line installs Beluga in `~/.beluga/server` (Node included, no sudo) an
 | `beluga web` · `beluga web sessions` | open Beluga in a browser: a link that lets one in; the browsers let in |
 | `beluga update` | the latest version, in place |
 
+To open the server's Beluga in your laptop's browser through SSH, with no port opened on the server, run this on the laptop (any host from `~/.ssh/config` works; Ctrl+C closes it):
+
+```sh
+beluga connect you@your-server
+```
+
+Without Beluga on the laptop, `beluga web` on the server prints the `ssh -N -L …` line to paste instead.
+
 ---
 
 ## Work on everything at once

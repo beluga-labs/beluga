@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { SocketClient, type SocketLike } from './ipc/socket-client.js';
 import { runningDaemon } from './daemon/files.js';
-import { type WebArgs, splitWebArgs } from './daemon/web.js';
+import { type WebArgs, splitWebArgs, sshWords } from './daemon/web.js';
 import { type WebSessionInfo, WebSessions } from './daemon/web-sessions.js';
 
 /**
@@ -11,6 +11,7 @@ import { type WebSessionInfo, WebSessions } from './daemon/web-sessions.js';
  */
 
 export const WEB_USAGE = `beluga web [--listen host:port] [--allow-host name] [--insecure-http]   a link that lets a browser in (opens the web port, 127.0.0.1:7777)
+beluga web link                                         another link from the Beluga that runs
 beluga web sessions                                     the browsers let in
 beluga web revoke <id or name>                          sign a browser out now
 beluga web stop                                         close the web port`;
@@ -62,14 +63,17 @@ export async function webCommand(argv: readonly string[], out: Out = (t) => void
     }
     return undefined;
   }
-  const { web, rest: daemonArgs } = splitWebArgs(sub === 'link' ? rest : argv);
+  const link = sub === 'link';
+  const { web, rest: daemonArgs } = splitWebArgs(link ? rest : argv);
   const client = await attach();
+  // `web link` only asks: run over ssh (`beluga connect`), it must never keep a Beluga in that session.
+  if (!client && link) throw new Error('Beluga isn’t running here. `beluga up` starts it.');
   if (!client) return { web, rest: daemonArgs };
   try {
     const listen = argv.some((a) => a.startsWith('--listen')) ? `${web.host.includes(':') ? `[${web.host}]` : web.host}:${web.port}` : undefined;
     const opts = { ...(listen ? { listen } : {}), ...(web.allowedHosts.length ? { allowHosts: [...web.allowedHosts] } : {}), ...(web.insecureHttp ? { insecureHttp: true } : {}) };
     const { url, expiresAt } = await client.call('web.link', Object.keys(opts).length ? opts : undefined);
-    out(`Open this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\n`);
+    out(`Open this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\n${link ? '' : sshWords(new URL(url).origin)}`);
   } finally {
     client.close();
   }

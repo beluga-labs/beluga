@@ -13,7 +13,7 @@ import { watchEventLoop } from './lag.js';
 import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
-import { type WebArgs } from './web.js';
+import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
@@ -165,7 +165,7 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   if (opts.web && opts.announce && daemon.webUrl) {
     const { url, expiresAt } = daemon.web.sessions.link(daemon.webUrl);
     const clear = opts.web.insecureHttp ? `\nCareful: --insecure-http sends this link and the browser's session over plain http on ${opts.web.host}. Anyone on that network can read them and get in.\n` : '';
-    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\nMore links: beluga web link. Browsers let in: beluga web sessions.\n`);
+    opts.announce(`${clear}Beluga's web UI is on ${daemon.webUrl}\nOpen this link in your browser to let it in (once, until ${new Date(expiresAt).toLocaleTimeString()}):\n\n  ${url}\n\n${sshWords(daemon.webUrl)}More links: beluga web link. Browsers let in: beluga web sessions.\n`);
   }
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
   if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));

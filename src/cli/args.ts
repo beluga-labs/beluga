@@ -25,10 +25,15 @@ export const COMMANDS = {
   phones: { usage: ['beluga phones', 'beluga phones remove <name>'], summary: 'list the paired phones, or remove one', options: {} },
   service: { usage: ['beluga service [install | remove]'], summary: 'keep Beluga running, from boot (systemd on Linux, launchd on a Mac)', options: {} },
   web: {
-    usage: ['beluga web [--listen host:port] [--allow-host name] [--insecure-http]', 'beluga web sessions', 'beluga web revoke <id or name>', 'beluga web stop'],
+    usage: ['beluga web [--listen host:port] [--allow-host name] [--insecure-http]', 'beluga web link', 'beluga web sessions', 'beluga web revoke <id or name>', 'beluga web stop'],
     summary: 'open Beluga in a browser: a link that lets one in (opens the web port, 127.0.0.1:7777), the browsers let in, signing one out, closing the port',
     options: {},
     passThrough: true,
+  },
+  connect: {
+    usage: ['beluga connect <user@host> [--port <port>] [--no-open]'],
+    summary: "open a server's Beluga in this computer's browser through SSH (a host from ~/.ssh/config works); nothing to open on the server. Ctrl+C closes it",
+    options: { port: { type: 'string', short: 'p' }, 'no-open': { type: 'boolean' } },
   },
   update: { usage: ['beluga update'], summary: 'update Beluga to the latest release (the server install)', options: {} },
   version: { usage: ['beluga version'], summary: 'show the version', options: {} },
