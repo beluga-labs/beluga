@@ -107,8 +107,9 @@ fn ensure<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         let w = window.clone();
         let _ = app.run_on_main_thread(move || float_over_everything(&w));
     }
+    // Windows and Linux give every new window the app's menu bar: not this small card.
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = window.remove_menu();
     Ok(())
 }
 

@@ -9,6 +9,15 @@ use tauri::menu::{
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+/// "Show in Finder", as each system names its file manager.
+const REVEAL_LABEL: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else if cfg!(windows) {
+    "Show in File Explorer"
+} else {
+    "Show in Folder"
+};
+
 fn item<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
@@ -294,7 +303,7 @@ fn workspace_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Submenu<R>> {
                 Some("Shift+CmdOrCtrl+R"),
             )?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, "ws-finder", "Show in Finder", None)?,
+            &item(app, "ws-finder", REVEAL_LABEL, None)?,
             &item(app, "ws-fork", "Fork…", None)?,
             &item(app, "ws-archive", "Archive…", Some("Ctrl+CmdOrCtrl+A"))?,
         ],

@@ -10,6 +10,8 @@ import { IPC_VERSION } from '../ipc/protocol.js';
 import { type Core, buildCore } from './core.js';
 import { clearDaemonInfo, writeDaemonInfo } from './files.js';
 import { watchEventLoop } from './lag.js';
+import type { Readable } from 'node:stream';
+import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
@@ -37,6 +39,8 @@ export interface DaemonOptions {
   readonly firstClientMs?: number;
   /** How often the event-loop delay is logged (default 30 s, see lag.ts). */
   readonly lagEveryMs?: number;
+  /** Stop once this ends: the app's pipe on Windows, which has no signals (stop-on-input.ts). */
+  readonly stopWithInput?: Readable;
 }
 
 export interface RunningDaemon {
@@ -133,6 +137,7 @@ export async function runDaemon(config: Config, opts: DaemonOptions): Promise<vo
   process.stderr.on('error', () => {});
   const daemon = await startDaemon(config, { ...opts, log });
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => void daemon.stop(`Got ${signal}`));
+  if (opts.stopWithInput) stopWhenInputEnds(opts.stopWithInput, (why) => void daemon.stop(why));
   // The Mac app's word that the Mac is about to sleep (BLG-277, src-tauri/src/power.rs): mail the
   // outboxes, then say so in a file the app waits for before it lets the Mac sleep.
   // Windows has no SIGUSR2 (listening for it throws there); its app has no sleep hook yet.

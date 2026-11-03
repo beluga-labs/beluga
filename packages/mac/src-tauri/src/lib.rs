@@ -69,9 +69,16 @@ fn take_pending_links(state: tauri::State<'_, AppState>) -> Vec<String> {
 /// makes the blur solid by itself.
 #[cfg(target_os = "macos")]
 fn window_vibrancy(window: &tauri::WebviewWindow, on: bool) {
-    use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+    use window_vibrancy::{
+        apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+    };
     if on {
-        let _ = apply_vibrancy(window, NSVisualEffectMaterial::Sidebar, Some(NSVisualEffectState::FollowsWindowActiveState), None);
+        let _ = apply_vibrancy(
+            window,
+            NSVisualEffectMaterial::Sidebar,
+            Some(NSVisualEffectState::FollowsWindowActiveState),
+            None,
+        );
     } else {
         let _ = clear_vibrancy(window);
     }
@@ -352,6 +359,18 @@ pub fn run() {
                     let _ = links.emit("deep-link", url.to_string());
                 }
             });
+            // On Windows and Linux a link that starts Beluga comes as an argument, read before the
+            // handler above was there: keep it for the window too. An AppImage registers itself.
+            #[cfg(not(target_os = "macos"))]
+            {
+                if std::env::var_os("APPIMAGE").is_some() {
+                    let _ = app.deep_link().register_all();
+                }
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let state = app.state::<AppState>();
+                    daemon::locked(&state.pending_links).extend(urls.iter().map(|u| u.to_string()));
+                }
+            }
             // Start Beluga's daemon right away, so the window has something to show.
             tauri::async_runtime::spawn(async move {
                 let _ = daemon::ensure(&handle, &[]).await;

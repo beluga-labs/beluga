@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   const extra = (belugaEnv('ALLOW_ORIGINS') ?? '').split(',').map((o) => o.trim()).filter(Boolean);
   // BELUGA_LAG_EVERY_MS: log the event-loop delay more often than every 30 s (scripts/perf-lag.mjs).
   const lagEveryMs = Number(belugaEnv('LAG_EVERY_MS')) || undefined;
-  await runDaemon(parseConfig(rest), { version: installedVersion(), keepAlive: args.includes('--keep-alive') || belugaEnv('KEEP_ALIVE') === '1', allowedOrigins: [...APP_ORIGINS, ...extra], ...(lagEveryMs ? { lagEveryMs } : {}) });
+  await runDaemon(parseConfig(rest), { version: installedVersion(), keepAlive: args.includes('--keep-alive') || belugaEnv('KEEP_ALIVE') === '1', allowedOrigins: [...APP_ORIGINS, ...extra], ...(lagEveryMs ? { lagEveryMs } : {}), ...(belugaEnv('STOP_ON_INPUT_END') === '1' ? { stopWithInput: process.stdin } : {}) });
 }
 
 main().catch((err: unknown) => {

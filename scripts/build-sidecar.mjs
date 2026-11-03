@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Everything the desktop app needs to run Beluga by itself (no Node or Beluga installed):
 //   packages/mac/src-tauri/resources/daemon/   Beluga compiled (dist/) + its production node_modules
-//   packages/mac/src-tauri/binaries/node-<target>   an official Node binary (pinned below)
+//   packages/mac/src-tauri/binaries/node-<target>   an official Node binary (pinned below; beluga-node-<target> on Linux)
 // Usage: node scripts/build-sidecar.mjs [--os darwin|linux|win32] [--arch arm64|x64]
 // (both default to this computer's; native modules come prebuilt for the one asked for)
 import { execFileSync } from 'node:child_process';
@@ -90,7 +90,8 @@ const helper = path.join(out, `node_modules/@lydell/node-pty-${platform}-${arch}
 if (existsSync(helper)) chmodSync(helper, 0o755);
 
 // 3. Node.
-const bin = path.join(tauri, 'binaries', `node-${triple}${exe}`);
+// On Linux it's beluga-node: the .deb and .rpm put it in /usr/bin, where a distro's own node lives.
+const bin = path.join(tauri, 'binaries', `${platform === 'linux' ? 'beluga-node' : 'node'}-${triple}${exe}`);
 mkdirSync(path.dirname(bin), { recursive: true });
 rmSync(bin, { force: true });
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'klaud-node-'));

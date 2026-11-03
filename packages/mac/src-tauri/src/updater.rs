@@ -626,11 +626,24 @@ fn ready_update(app: &AppHandle) -> Option<(Update, Pending)> {
 }
 
 /// Verify and put the new app in place of this one. The running app carries on from memory.
+///
+/// On Windows the installer takes over and this process ends inside `install`, so what a
+/// finished install leaves behind ("what's new", no download waiting) is saved first, and put
+/// back if the installer doesn't start.
 fn install_files(app: &AppHandle, update: &Update, pending: &Pending) -> Result<(), String> {
     let bytes = std::fs::read(&pending.file).map_err(|e| e.to_string())?;
+    if cfg!(windows) {
+        record_install(app, pending, true);
+    }
     let result = update.install(bytes).map_err(|e| e.to_string());
+    record_install(app, pending, result.is_ok());
+    result
+}
+
+/// What an install leaves saved: the news when it went in, and never the same download again.
+fn record_install(app: &AppHandle, pending: &Pending, installed: bool) {
     let mut saved = with(app, |i| {
-        if result.is_ok() {
+        if installed {
             i.saved.news = Some(News {
                 version: pending.version.clone(),
                 notes: pending.notes.clone(),
@@ -642,17 +655,20 @@ fn install_files(app: &AppHandle, update: &Update, pending: &Pending) -> Result<
         i.saved.clone()
     });
     forget_download(Some(pending));
-    if result.is_err() {
+    if !installed {
         saved.news = None;
     }
     save(app, &saved);
-    result
 }
 
 /// Install now and open the new Beluga (`background`: without its window, not taking focus).
 async fn install_and_relaunch(app: &AppHandle, background: bool) -> Result<(), String> {
     let (update, pending) = ready_update(app).ok_or("No update is ready.")?;
     change(app, |i| i.phase = Phase::Installing);
+    // Windows can't replace the bundled node.exe while the daemon runs it, and the installer
+    // ends this process before quitting would stop it: stop it first.
+    #[cfg(windows)]
+    crate::daemon::stop_for_update(app).await;
     let handle = app.clone();
     let result =
         tauri::async_runtime::spawn_blocking(move || install_files(&handle, &update, &pending))
