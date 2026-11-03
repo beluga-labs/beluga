@@ -7,8 +7,10 @@
 
 /* ---------- Palette (both themes) ---------- */
 
+/* .palette: for a graph drawn outside a block or its full view (a board's What Waits on What). */
 .block,
-.full {
+.full,
+.palette {
   --graph-bg: var(--bg-sunken);
   --graph-card: var(--bg-raised);
   --graph-ring: rgba(0, 0, 0, 0.11);
@@ -25,7 +27,8 @@
   --graph-teal: #0e8a86;
 }
 :global(:root[data-theme='dark']) .block,
-:global(:root[data-theme='dark']) .full {
+:global(:root[data-theme='dark']) .full,
+:global(:root[data-theme='dark']) .palette {
   --graph-bg: #161618;
   --graph-card: #232326;
   --graph-ring: rgba(255, 255, 255, 0.09);

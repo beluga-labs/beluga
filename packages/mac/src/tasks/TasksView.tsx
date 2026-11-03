@@ -15,6 +15,7 @@ import { BoardMark, RepoStack, ShowingBoardProvider, useDeleteBoard } from './bo
 import { useTaskFileDrop } from './use-task-drop.js';
 import { revealSubTasks, setTasksPrefs, useBoard, useSelfId, useSolo, useTaskActions, useTasksPrefs } from './use-tasks.js';
 import t from './tasks.module.css';
+import g from '../components/graph/graph.module.css';
 import { TeamOffers } from '../team/Team.js';
 import { NoProjects } from '../work/NoProjects.js';
 import { isShortcut } from '../lib/shortcuts.js';
@@ -275,7 +276,7 @@ export function TasksView() {
         ) : display === 'graph' && !graph ? (
           <Empty icon="graph" title="Nothing waits on anything here" detail="Mark what blocks what, or add sub-tasks, on a task’s page: they show up here as a graph." />
         ) : display === 'graph' && graph ? (
-          <div className={t.graph}>
+          <div className={cx(t.graph, g.palette)}>
             <Suspense fallback={<div className={t.graphNote}>Laying out…</div>}>
               <FlowGraph key={`${project}:${prefs.scope}:${who}:${worktree}:${picked.join(',')}`} graph={graph} mode="full" localImages={false} openLabel="Open Task" onOpen={(id) => open({ id })} live pack startAt={going} />
             </Suspense>
