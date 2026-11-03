@@ -21,7 +21,7 @@ import { sentinelGraph } from '../core/sentinel/workflow.js';
 import { widgetSnapshot } from '../core/sentinel/widgets.js';
 import { COMPARE, changeText, deltaOf, formatMetric } from '../core/sentinel/metrics.js';
 import type { Workspace } from '../workspaces/types.js';
-import { type PlanView as PlanProgress, planView } from '../core/plans/progress.js';
+import { type MilestoneView, type PlanView as PlanProgress, agentNowWords, liveFrom, planView } from '../core/plans/progress.js';
 import { shortVersion } from '../net/mesh/features.js';
 import type { MessageView, PersonView } from '../net/mesh/views.js';
 import { chatPeople, claudePill, offlineNote, waitingIn, waitingLabel } from '../core/chat-people.js';
@@ -832,6 +832,14 @@ export function plansView(state: DomainState): PlansView {
   };
 }
 
+/** What a milestone's agent is doing right now (1.40), and its conversation: nothing while it isn't at work. */
+function agentNowOf(m: MilestoneView): { readonly agentNow?: { text: string; asking?: true; topic?: Topic } } {
+  const w = agentNowWords(m, 0);
+  if (!w || !m.agent) return {};
+  const topic = convTopic(`ws:${m.agent.worktree}`);
+  return { agentNow: { text: clip(w.sub && !w.onCard ? `${w.label} · ${w.sub}` : w.label, 300), ...(w.asking ? { asking: true as const } : {}), ...(topic ? { topic } : {}) } };
+}
+
 /** A milestone's checker conversation (1.39), while its workspace is there (archived ones too: the check is kept). */
 function checkerOfMilestone(state: DomainState, checker: string | undefined): { readonly checker?: Topic } {
   if (!checker || !state.projects.some((p) => p.workspaces.some((w) => w.id === checker))) return {};
@@ -842,7 +850,8 @@ function checkerOfMilestone(state: DomainState, checker: string | undefined): { 
 export function planPageView(state: DomainState, id: string): PlanView | undefined {
   const plan = state.plans.plans.find((p) => p.id === id);
   if (!plan) return undefined;
-  const progress = progressOf(state, plan);
+  // Live (who's at work in each worktree): a running task says so, and so does each milestone's agent.
+  const progress = planView(plan, state.board, liveFrom(state));
   const home = convTopic(plan.home);
   const goal = (plan.body ?? plan.draft)?.goal;
   const topic = planTopic(plan.id);
@@ -877,6 +886,7 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
       ...(m.dependsOn.length ? { dependsOn: m.dependsOn.slice(0, 20).map((d) => clip(d, 200)) } : {}),
       ...(m.autonomy !== plan.autonomy ? { autonomy: m.autonomy } : {}),
       ...checkerOfMilestone(state, m.run.checker),
+      ...agentNowOf(m),
     })),
     autonomy: plan.autonomy,
     ...(plan.paused ? { paused: true } : {}),
