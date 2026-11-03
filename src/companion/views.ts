@@ -639,6 +639,12 @@ export function workView(state: DomainState, ctx?: ViewContext): WorkView {
     entry.conversations.push(s);
     byProject.set(key, entry);
   }
+  // Every project of yours, even one with nothing in it yet (one just added on a server): the Ask
+  // sheet starts the first worktree there. Not Chats, which is no project (BLG-675).
+  for (const p of state.projects) {
+    if (!p.root || byProject.has(p.id)) continue;
+    byProject.set(p.id, { id: clip(p.id, 200), name: clip(p.name, 200), conversations: [], ...iconOf(ctx, p.id) });
+  }
   const lastOf = (p: { conversations: ConvSummary[] }): number => Math.max(0, ...p.conversations.map((c) => c.lastAt ?? 0));
   return {
     projects: [...byProject.values()]

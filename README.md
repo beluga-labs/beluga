@@ -38,6 +38,28 @@
 3. Sign in to [Claude Code](https://claude.com/claude-code) (`claude`, then `/login`) if you haven't. Beluga brings everything else.
 4. To work with friends: **Friends › Turn On**, then **Add a Friend** and send them the code.
 
+### On a server
+
+Beluga also runs with no window: on a Linux server, a home PC or a Mac mini. You use it from your phone.
+
+```sh
+curl -fsSL https://github.com/kayraucklnc/beluga/releases/latest/download/install.sh | sh
+beluga setup
+```
+
+The first line installs Beluga in `~/.beluga/server` (Node included, no sudo) and adds the `beluga` command. `beluga setup` asks a few questions: it signs Claude in, names the computer, adds a first project, pairs your phone with a QR code, and keeps Beluga running from boot. Then:
+
+| Command | What it does |
+| --- | --- |
+| `beluga status` | whether it runs, its projects and phones |
+| `beluga project add <folder or git URL>` | add a project (a URL is cloned first) |
+| `beluga pair` · `beluga phones` | pair another phone, list or remove them |
+| `beluga logs -f` | follow its log |
+| `beluga up` · `beluga stop` | start it, stop it |
+| `beluga service install` | start it at boot (systemd or launchd) |
+| `beluga web` · `beluga web sessions` | open Beluga in a browser: a link that lets one in; the browsers let in |
+| `beluga update` | the latest version, in place |
+
 ---
 
 ## Work on everything at once
