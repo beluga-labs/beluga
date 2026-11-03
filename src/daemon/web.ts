@@ -261,7 +261,8 @@ export function parseListen(value: string): { host?: string; port?: number } {
   const v = value.trim();
   const portOf = (p: string): number => {
     const n = Number(p);
-    if (!/^\d+$/.test(p) || n < 1 || n > 65535) throw new Error(`"${p}" isn't a port`);
+    // 0: any free port (the link says which).
+    if (!/^\d+$/.test(p) || n > 65535) throw new Error(`"${p}" isn't a port`);
     return n;
   };
   if (/^\d+$/.test(v)) return { port: portOf(v) };
