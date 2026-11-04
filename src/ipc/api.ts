@@ -29,6 +29,7 @@ import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
 import { VOICE_API } from './voice-api.js';
+import { CALLS_API } from './calls-api.js';
 import { TERMINAL_IMPORT_API } from './terminal-import-api.js';
 import { AGENT_TERM_API } from './agent-term-api.js';
 import { HANDOFF_MODES } from '../shared/agent-handoff.js';
@@ -477,6 +478,8 @@ export const API = {
   ...ASSISTANT_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)
   ...VOICE_API,
+  // ---- calls in a conversation with friends: voice, screen sharing (calls-api.ts)
+  ...CALLS_API,
   // ---- bringing another terminal's look into Beluga's (terminal-import-api.ts)
   ...TERMINAL_IMPORT_API,
   // ---- the agent's own terminal on a conversation, and its visuals (agent-term-api.ts)

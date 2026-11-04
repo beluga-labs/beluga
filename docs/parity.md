@@ -267,6 +267,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `voice.models` | Settings › Voice: the models on this Mac, here or coming |
 | `voice.prepare` | Settings › Voice › Get now |
 | `voice.transcribe` | The composer's microphone beside Send, and the talk shortcut (Settings › Voice) |
+| `calls.start` | A DM's or channel's header › the phone button: rings everyone in it (BLG-706) |
+| `calls.join` | The incoming call card's Join, the floating card's Join, the call strip's Join on a call going on; the phone's Needs you › Answer on Mac |
+| `calls.leave` | The call strip's red Leave, the sidebar's call pill and the floating card's Leave |
+| `calls.decline` | The incoming call card's and the floating card's Decline; the phone's Needs you › Decline |
+| `calls.set` | The call strip's Mute and Share buttons (and the window says it's still in the call every few seconds) |
+| `calls.signal` | – sent by the call's window on its own: WebRTC setup for the others' windows |
+| `calls.list` | – the shared state's `network.calls` is what screens show; this answers the CLI and tests |
 | `terminalImport.detect` | Settings › Terminal › Import from… (Ghostty, iTerm2, Terminal, Alacritty, kitty, WezTerm, Warp), and the welcome's “Coming from another terminal?” step |
 | `workspaces.open` | ✓ |
 | `workspaces.load` | Overview › Archived › Read Conversation (read-only, stays in the Overview) |

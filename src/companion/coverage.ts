@@ -534,6 +534,15 @@ export const PHONE: Record<Method, Side> = {
   'voice.models': 'mac',
   'voice.prepare': 'mac',
   'voice.transcribe': 'mac',
+  // Calls (BLG-706): the Mac's window makes the sound. The phone answers one on your Mac, declines
+  // it, or hangs up; starting one, muting, sharing and the WebRTC setup are the Mac's.
+  'calls.start': 'mac',
+  'calls.join': 'phone',
+  'calls.leave': 'phone',
+  'calls.decline': 'phone',
+  'calls.set': 'mac',
+  'calls.signal': 'mac',
+  'calls.list': 'mac',
   // Settings › Terminal › Import from…, and the welcome's terminal step: Mac settings only.
   'terminalImport.detect': 'mac',
   // The agent's own terminal in a conversation (BLG-534) opens on the Mac, and its visuals open

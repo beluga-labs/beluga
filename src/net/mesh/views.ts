@@ -6,6 +6,7 @@
 
 import type { AgentRef } from '../../protocol.js';
 import type { Reaction } from '../../shared/reactions.js';
+import type { CallsView } from '../../shared/calls.js';
 
 export type PresenceState = 'online' | 'away' | 'dnd' | 'offline';
 
@@ -236,6 +237,8 @@ export interface NetworkState extends NetworkSummary {
   readonly main?: string;
   /** Friend requests with people in your room, both ways (BLG-202). */
   readonly offers?: readonly FriendOfferView[];
+  /** Calls going on (or ringing) in your conversations, by conversation (BLG-706). */
+  readonly calls?: CallsView;
 }
 
 export const dmConversation = (peerId: string): string => `dm:${peerId}`;

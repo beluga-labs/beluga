@@ -1,0 +1,144 @@
+/**
+ * Calls in a conversation (BLG-706): what screens see of one, and the rules every Mac in it follows
+ * the same way, so nobody has to coordinate. Browser-safe: no imports.
+ *
+ * The daemon rings, keeps who's in, and passes WebRTC setup between Macs over the friends' Noise
+ * links (core/calls). The Mac's window makes the media: voice to everyone in the call (a mesh), a
+ * screen share through a fan-out tree (`shareTree`) once there are more viewers than the sharer
+ * should feed alone.
+ */
+
+/** Someone in a call, as screens show them. */
+export interface CallPersonView {
+  readonly peerId: string;
+  readonly name: string;
+  readonly me?: true;
+  readonly muted: boolean;
+  /** Sharing their screen now. */
+  readonly sharing: boolean;
+  readonly joinedAt: number;
+}
+
+/** A conversation's call. `mine`: whether you're in it, it's ringing for you, or you're not in it. */
+export interface CallView {
+  readonly id: string;
+  readonly conversation: string;
+  readonly startedBy: string;
+  readonly startedAt: number;
+  /** Who's in it now (you too, when you are), in the order they joined. */
+  readonly people: readonly CallPersonView[];
+  readonly mine: 'in' | 'ringing' | 'out';
+  /** Who rang you (while it rings). */
+  readonly ringBy?: string;
+  /** Since when it rings for you; it stops ringing after `RING_MS`. */
+  readonly ringSince?: number;
+  /** The demo's network: the others make no sound, so the window plays their side itself. */
+  readonly demo?: true;
+}
+
+/** The calls in your conversations, by conversation id (`dm:…` / `group:…`). */
+export type CallsView = Readonly<Record<string, CallView>>;
+
+/** How long a call rings before it counts as missed. */
+export const RING_MS = 45_000;
+/** Each Mac in a call says it's still there this often… */
+export const HEARTBEAT_MS = 10_000;
+/** …and is taken out of the roster when nothing came from it for this long. */
+export const GONE_MS = 32_000;
+
+/** The biggest WebRTC setup message (an offer with many candidates stays far below it). */
+export const SIGNAL_MAX = 64 * 1024;
+
+/** How many viewers the sharer feeds directly; everyone after them is fed by a viewer. */
+export const SHARE_FANOUT = 3;
+/** How many viewers each viewer passes the share on to, at most. */
+export const RELAY_FANOUT = 2;
+
+/**
+ * Who feeds whom with a screen share: `viewers` in the order they joined (every Mac knows the same
+ * order, so they all draw the same tree). The first `SHARE_FANOUT` get it from the sharer; viewer
+ * k after them from viewer ⌊(k − SHARE_FANOUT) / RELAY_FANOUT⌋, so a share to 15 people costs the
+ * sharer 3 streams and nobody more than 2 more. → each viewer's source (the sharer or a viewer).
+ */
+export function shareTree(sharer: string, viewers: readonly string[]): ReadonlyMap<string, string> {
+  const tree = new Map<string, string>();
+  viewers.forEach((v, i) => tree.set(v, i < SHARE_FANOUT ? sharer : viewers[Math.floor((i - SHARE_FANOUT) / RELAY_FANOUT)]!));
+  return tree;
+}
+
+/** Whom `peerId` sends the share on to (their children in `shareTree`). */
+export function shareChildren(tree: ReadonlyMap<string, string>, peerId: string): string[] {
+  return [...tree].filter(([, from]) => from === peerId).map(([to]) => to);
+}
+
+/** The person sharing in a call (the one who started sharing last wins the stage), if anyone. */
+export function sharerOf(call: Pick<CallView, 'people'>): CallPersonView | undefined {
+  return call.people.filter((p) => p.sharing).at(-1);
+}
+
+/** Of two calls one conversation ended up with (two people pressed Call at once), the one everyone keeps. */
+export const keeps = (a: string, b: string): string => (a < b ? a : b);
+
+/** "4:05", "1:02:09": how long a call has been going. */
+export function callLength(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * What goes between the windows in a call, on the WebRTC data channel (strokes and pointers never
+ * touch the daemon). Points are fractions of the shared picture (0…1), so they land in the same
+ * place on any size of screen.
+ */
+export type StageMessage =
+  /** A laser pointer where `by` points now (`x` < 0: they stopped). */
+  | { readonly k: 'laser'; readonly by: string; readonly x: number; readonly y: number }
+  /** A stroke of ink being drawn: its points so far (sent again as it grows), in `color`. */
+  | { readonly k: 'ink'; readonly by: string; readonly id: string; readonly color: string; readonly pts: readonly number[]; readonly done?: boolean }
+  /** Take every stroke away. */
+  | { readonly k: 'clear'; readonly by: string }
+  /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
+  | { readonly k: 'asked'; readonly by: string; readonly ask: string; readonly box?: readonly [number, number, number, number] };
+
+/** Ink fades this long after it's done. */
+export const INK_FADE_MS = 4_000;
+
+/** Parse a data channel message; undefined for anything malformed (it comes from another Mac). */
+export function parseStage(text: string): StageMessage | undefined {
+  let m: unknown;
+  try {
+    m = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!m || typeof m !== 'object') return undefined;
+  const o = m as Record<string, unknown>;
+  const by = typeof o['by'] === 'string' && o['by'].length <= 64 ? o['by'] : undefined;
+  if (!by) return undefined;
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  switch (o['k']) {
+    case 'laser':
+      return num(o['x']) && num(o['y']) ? { k: 'laser', by, x: o['x'], y: o['y'] } : undefined;
+    case 'ink': {
+      const pts = o['pts'];
+      const color = o['color'];
+      const id = o['id'];
+      if (!Array.isArray(pts) || pts.length > 4000 || !pts.every(num) || typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color) || typeof id !== 'string' || id.length > 40) return undefined;
+      return { k: 'ink', by, id, color, pts, ...(o['done'] === true ? { done: true } : {}) };
+    }
+    case 'clear':
+      return { k: 'clear', by };
+    case 'asked': {
+      const box = o['box'];
+      const ask = o['ask'];
+      if (typeof ask !== 'string' || ask.length > 80) return undefined;
+      const okBox = Array.isArray(box) && box.length === 4 && box.every(num);
+      return { k: 'asked', by, ask, ...(okBox ? { box: box as unknown as [number, number, number, number] } : {}) };
+    }
+    default:
+      return undefined;
+  }
+}
