@@ -316,6 +316,8 @@ export const PHONE: Record<Method, Side> = {
   'assistant.newChat': 'phone',
   'assistant.openChat': 'mac',
   'assistant.deleteChat': 'phone',
+  // Its scratch folder as the Mac's Scratch tab shows it (the phone has it already, as Your Mac's outputs).
+  'assistant.scratch': 'mac',
 
   // ---- Claude Code's sessions: what its agents made (outputs, background logs), not their steps' code
   'claudeCode.steps': 'mac',
