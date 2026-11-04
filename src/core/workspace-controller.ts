@@ -35,6 +35,8 @@ import { nothingAhead, pendingWorktree, withAhead } from './optimistic.js';
 export interface AddResult {
   readonly project?: { readonly id: string; readonly name: string };
   readonly found?: number;
+  /** The folder is there but isn't a git project: it can be made one (projects.initGit). */
+  readonly canInit?: boolean;
   readonly error?: string;
 }
 

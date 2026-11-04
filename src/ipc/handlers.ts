@@ -11,7 +11,7 @@ import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome } from '../workspaces/new-project.js';
+import { createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
 import { projectId } from '../workspaces/manager.js';
 import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
@@ -354,10 +354,14 @@ export const HANDLERS = {
     const abs = expandHome(dir);
     if (isMainCheckout(abs)) return (await ctl(s)?.addProject(abs)) ?? {};
     if (findProjects([abs]).length) return (await ctl(s)?.addFolder(abs)) ?? {};
-    const error = existsSync(abs) ? `${path.basename(abs)} isn't a git project, and has none inside` : `${abs} isn't there`;
+    const plain = existsSync(abs);
+    const error = plain ? `${path.basename(abs)} isn't a git project yet` : `${abs} isn't there`;
     s.toast(error, 'warn');
-    return { error };
+    // A plain folder: the Add projects sheet offers to set up git there (projects.initGit).
+    return plain ? { error, canInit: true } : { error };
   },
+  // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
+  'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
   // Every repo found (the sheet shows the newest, and its Filter searches them all).
