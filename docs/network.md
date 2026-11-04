@@ -372,7 +372,11 @@ Code: `src/core/gateway/` (protocol, the gateway, the receiving side, files), `s
   sent to one person. Requests, results and cancels wait in `~/.beluga/tasks/outbox.json` until
   acknowledged (resent every 20 s while reachable, 7 days at most); updates and cards are only
   sent to someone reachable now. Over the network only friends are heard; a result is only taken
-  from the person the task went to, and only once.
+  from the person the task went to, and only once. A request to a friend whose Mac is off waits for
+  them for those 7 days; the ack adds "Reached <name>'s Mac" to its steps, and only from then does
+  a day without word fail it (not in the 10 minutes after either Mac wakes, starts or links again,
+  so a waiting result arrives first). A request that ends on your Mac without their answer leaves
+  nothing in the outbox, and your Claude's conversation hears it like a result (BLG-705).
 - **Receiving**: your rules and capability settings decide (see *Approvals and rules* below):
   declined (with the reason), let in at once (you trust them, or a rule of yours covers it), or you
   are asked. It runs in the project it names (if there is one) or a scratch folder
