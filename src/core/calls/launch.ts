@@ -4,7 +4,8 @@ import { belugaHome } from '../home.js';
 import { watchNetwork } from '../network.js';
 import type { Session } from '../session.js';
 import type { Store } from '../store.js';
-import type { CallView, CallsView } from '../../shared/calls.js';
+import { type CallView, type CallsView, type MissedCallView, missedCallText } from '../../shared/calls.js';
+import { MissedCalls } from './missed.js';
 import { CallNotes } from './notes.js';
 import { type NotesSource, callNotesTools, notesHint } from './notes-tools.js';
 import type { CallNotesTools } from '../../agent/types.js';
@@ -86,14 +87,19 @@ export interface CallsHost {
   readonly demo: boolean;
 }
 
+/** Where a call rang, in a notification's words ("in #design"); none for a DM. */
+function ringPlace(store: Store, conversation: string): string | undefined {
+  if (conversation === ROOM_CONVERSATION) return 'in the room';
+  const group = conversation.startsWith('group:') ? store.getState().network.groups.find((g) => g.id === conversation.slice(6)) : undefined;
+  return group ? `in #${group.name}` : undefined;
+}
+
 /** Where a ring's notification opens, and what it says. */
 function ringNotice(store: Store, call: CallView): { title: string; body: string } {
   const st = store.getState();
   const named = (id: string | undefined): string | undefined => (id ? (st.network.friends.find((f) => f.peerId === id)?.name ?? st.peers.find((p) => p.peerId === id)?.name ?? call.people.find((p) => p.peerId === id)?.name) : undefined);
   const by = named(call.ringBy) ?? 'Someone';
-  if (call.conversation === ROOM_CONVERSATION) return { title: `${by} is calling`, body: 'in the room' };
-  const group = call.conversation.startsWith('group:') ? st.network.groups.find((g) => g.id === call.conversation.slice(6)) : undefined;
-  return { title: `${by} is calling`, body: group ? `in #${group.name}` : 'Answer in Beluga' };
+  return { title: `${by} is calling`, body: ringPlace(store, call.conversation) ?? 'Answer in Beluga' };
 }
 
 export function launchCalls(host: CallsHost): () => void {
@@ -104,6 +110,11 @@ export function launchCalls(host: CallsHost): () => void {
     const view = { ...parts.friends, ...parts.room };
     store.dispatch({ type: 'net_calls', calls: host.demo ? Object.fromEntries(Object.entries(view).map(([k, c]) => [k, { ...c, demo: true as const }])) : view });
   };
+  const missed = new MissedCalls({
+    file: host.demo ? null : path.join(belugaHome(), 'missed-calls.json'),
+    publish: (view) => store.dispatch({ type: 'net_missed_calls', missed: view }),
+  });
+  store.dispatch({ type: 'net_missed_calls', missed: missed.views() });
   const common = {
     signal: (to: string | undefined, s: { conversation: string; call: string; from: string; data: string }) => session.intents.emit({ type: 'call_signal', ...s }, to),
     ring: (call: CallView, on: boolean) => {
@@ -113,6 +124,11 @@ export function launchCalls(host: CallsHost): () => void {
     },
     toast: (text: string) => session.intents.emit({ type: 'toast', text, level: 'info' }, undefined),
     client: currentClient,
+    // It stopped ringing before you answered: kept in its conversation, and in the inbox for when you're back.
+    missed: (call: MissedCallView) => {
+      missed.add(call);
+      session.notifier.notify({ kind: 'people', tag: 'message', title: missedCallText(call), body: ringPlace(store, call.conversation) ?? 'Call back from your chat', channel: call.conversation, key: `missed:${call.id}` });
+    },
   };
   const notes = new CallNotes({
     dir: host.demo ? null : path.join(belugaHome(), 'call-notes'),

@@ -60,6 +60,22 @@ export function useCallPlace(conversation: string | undefined): string {
   });
 }
 
+/**
+ * Why nobody in a conversation can be called now (they're all offline), or undefined when someone
+ * can: the Call button waits until then, as the daemon would refuse it anyway.
+ */
+export function useCallUnreachable(conversation: string): string | undefined {
+  return useApp((st) => {
+    if (conversation === 'room') return st.status === 'connected' && st.peers.some((p) => p.peerId !== st.selfId && !p.guest) ? undefined : 'Nobody else is in the room';
+    if (conversation.startsWith('dm:')) {
+      const f = st.network.friends.find((x) => x.peerId === conversation.slice(3));
+      return f?.online ? undefined : `${f?.name ?? 'They'} can’t be reached right now`;
+    }
+    const g = st.network.groups.find((x) => x.id === conversation.slice(6));
+    return g?.members.some((m) => !m.self && m.online) ? undefined : 'Nobody here can be reached right now';
+  });
+}
+
 /** Whether the screen shows this conversation now. */
 export function useShowing(conversation: string | undefined): boolean {
   return useApp((st) => (conversation === 'room' ? st.view.kind === 'room' : st.view.kind === 'conversation' && st.view.id === conversation));

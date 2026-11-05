@@ -46,6 +46,25 @@ export interface CallView {
 /** The calls in your conversations, by conversation id (`dm:…` / `group:…`). */
 export type CallsView = Readonly<Record<string, CallView>>;
 
+/** A call that rang for you and stopped before you answered or declined it: "Ann tried calling you at 14:05". */
+export interface MissedCallView {
+  readonly id: string;
+  readonly conversation: string;
+  /** Who rang (their peer id), and their name. */
+  readonly by: string;
+  readonly name: string;
+  /** When it started ringing here. */
+  readonly at: number;
+}
+
+/** "Ann tried calling you at 14:05" (with the day too when it wasn't today). */
+export function missedCallText(m: Pick<MissedCallView, 'name' | 'at'>, now = Date.now()): string {
+  const when = new Date(m.at);
+  const time = when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = when.toDateString() === new Date(now).toDateString();
+  return `${m.name} tried calling you at ${time}${today ? '' : ` on ${when.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}`}`;
+}
+
 /** How long a call rings before it counts as missed. */
 export const RING_MS = 45_000;
 /** Each Mac in a call says it's still there this often… */

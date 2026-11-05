@@ -6,7 +6,7 @@
 
 import type { AgentRef } from '../../protocol.js';
 import type { Reaction } from '../../shared/reactions.js';
-import type { CallNotesView, CallsView } from '../../shared/calls.js';
+import type { CallNotesView, CallsView, MissedCallView } from '../../shared/calls.js';
 
 export type PresenceState = 'online' | 'away' | 'dnd' | 'offline';
 
@@ -241,6 +241,8 @@ export interface NetworkState extends NetworkSummary {
   readonly calls?: CallsView;
   /** Notes of the calls in your conversations (BLG-715), by conversation, oldest first. */
   readonly callNotes?: Readonly<Record<string, readonly CallNotesView[]>>;
+  /** Calls that rang for you and stopped before you answered, by conversation, oldest first. */
+  readonly missedCalls?: Readonly<Record<string, readonly MissedCallView[]>>;
 }
 
 export const dmConversation = (peerId: string): string => `dm:${peerId}`;

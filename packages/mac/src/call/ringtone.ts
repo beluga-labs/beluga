@@ -5,8 +5,9 @@ import { midi, render, type Note, type SoundSpec } from '../lib/sounds/synth.js'
  * Beluga's call sounds (BLG-706), made by the notification synthesizer so they sound like the rest
  * of Beluga. The ringtone is continuous and still unmistakably a call: a soft electric piano holds
  * each jazz chord (Dmaj9, Bm9, Em9, A13) so there's never a gap, and over it bright rolled "rings",
- * struck like a bell, land on a steady pulse twice a chord. The caller hears the held chords alone,
- * softer. Joining and leaving are short, crisp bells: three notes up, two notes down.
+ * struck like a bell, land on a steady pulse twice a chord. The caller hears it ring at the others':
+ * a bright double ring, then a moment of quiet, the way a phone rings at the other end, moving
+ * through the same chords. Joining and leaving are short, crisp bells: three notes up, two notes down.
  */
 
 /** A bright electric piano: a strong bell on the attack, gone quickly. */
@@ -50,14 +51,33 @@ export const RING: SoundSpec = {
 };
 export const RING_EVERY_S = CHORDS.length * CHORD_S;
 
-/** What the caller hears while it rings at the others': the held chords alone, softer. */
+/** A short plucked note, quick to speak: the ringback's rings. */
+const pluck = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.08, decay: 4, fm: { ratio: 2, index: 1.8, fade: 5 } });
+
+/** One ringback ring: the chord rattled up fast twice, like a bell's hammer, a sparkle on top. */
+function burst(at: number, chord: readonly number[]): Note[] {
+  return [0, 0.11].flatMap((d, k) => [
+    ...chord.map((n, i) => pluck(at + d + i * 0.012, n, 0.32, k === 0 ? 0.2 : 0.17)),
+    vibes(at + d + 0.05, chord.at(-1)! + 12, 0.35, k === 0 ? 0.16 : 0.12),
+  ]);
+}
+
+/** Ring-ring, then a wait: one turn per chord. */
+const RINGBACK_S = 2.2;
+const RING_GAP_S = 0.42;
+
+/**
+ * What the caller hears while it rings at the others: a quick, bright ring-ring, then a moment of
+ * quiet, again and again, moving through the ringtone's chords. Rings and pauses say "it's ringing
+ * at their end, any second now", the way a phone does, not music on hold.
+ */
 export const RINGBACK: SoundSpec = {
-  notes: CHORDS.flatMap((chord, i) => bed(i * CHORD_S, chord, 0.2)),
-  lowpass: 4200,
-  reverb: { mix: 0.22, time: 1 },
-  maxLength: CHORDS.length * CHORD_S + 0.9,
+  notes: CHORDS.flatMap((chord, i) => [...burst(i * RINGBACK_S, chord), ...burst(i * RINGBACK_S + RING_GAP_S, chord)]),
+  lowpass: 8200,
+  reverb: { mix: 0.14, time: 0.7 },
+  maxLength: CHORDS.length * RINGBACK_S + 0.6,
 };
-export const RINGBACK_EVERY_S = CHORDS.length * CHORD_S;
+export const RINGBACK_EVERY_S = CHORDS.length * RINGBACK_S;
 
 /** A short, crisp bell for coming and going. */
 const chime = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.08, decay: 5, fm: { ratio: 2, index: 1.4, fade: 8 } });
@@ -86,6 +106,15 @@ function bufferOf(spec: SoundSpec, volume: number): AudioBuffer | undefined {
   buffer.copyToChannel(samples, 0);
   buffers.set(spec, buffer);
   return buffer;
+}
+
+/**
+ * Wake the window's sound from a click (Call, Join, or any first click in the window): WebKit keeps
+ * a sound started without one silent, so the ringback and the ringtone would never be heard.
+ */
+export function wakeSound(): void {
+  const c = context();
+  if (c && c.state !== 'running') void c.resume().catch(() => undefined);
 }
 
 /** Play a call sound once. */

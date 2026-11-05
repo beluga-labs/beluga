@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Mesh } from '../../net/mesh/mesh.js';
 import { dmConversation, groupConversation } from '../../net/mesh/views.js';
-import { type CallPersonView, type CallView, type CallsView, GONE_MS, HEARTBEAT_MS, RING_MS, SIGNAL_MAX, keeps } from '../../shared/calls.js';
+import { type CallPersonView, type CallView, type CallsView, GONE_MS, HEARTBEAT_MS, type MissedCallView, RING_MS, SIGNAL_MAX, keeps } from '../../shared/calls.js';
 
 /**
  * Calls in your conversations with friends (BLG-706). The daemon doesn't carry any media: it rings,
@@ -129,6 +129,8 @@ export interface CallHost {
   readonly headless?: boolean;
   /** Someone's notes of a call you were in (core/calls/notes.ts keeps them). */
   readonly notes?: (from: string, call: PastCall, phrases: NotePhrases) => void;
+  /** A call rang for you and stopped before you answered or declined it (core/calls/missed.ts keeps it). */
+  readonly missed?: (call: MissedCallView) => void;
 }
 
 /** A call you were in: who else was, at any point (kept a while after it ends, for its notes). */
@@ -174,7 +176,7 @@ export class CallService {
 
   // ---- what screens ask
 
-  /** Call everyone in a conversation (or join the call it has). */
+  /** Call everyone in a conversation (or join the call it has). Nobody it can reach now: no call. */
   start(conversation: string): CallView {
     this.needConversation(conversation);
     const existing = this.calls.get(conversation);
@@ -182,8 +184,8 @@ export class CallService {
     const now = this.now();
     const call: Call = { id: randomBytes(8).toString('hex'), conversation, startedBy: this.host.links.peerId, startedAt: now, people: new Map() };
     call.me = { muted: false, sharing: false, joinedAt: now, kept: now, ...this.screenNow() };
+    if (!this.broadcast(call, { k: 'ring', call: call.id, at: now, state: this.mineState(call) })) throw new Error(this.unreachable(conversation));
     this.calls.set(conversation, call);
-    this.broadcast(call, { k: 'ring', call: call.id, at: now, state: this.mineState(call) });
     this.publish();
     return this.view(call);
   }
@@ -357,8 +359,7 @@ export class CallService {
         changed = true;
       }
       if (call.ringing && now - call.ringing.since > RING_MS) {
-        call.ringing = undefined;
-        this.host.ring(this.view(call), false);
+        this.missedRing(call);
         changed = true;
       }
       if (call.me) this.sayHere(call);
@@ -436,12 +437,28 @@ export class CallService {
     return { id: f.call, conversation, startedBy: f.k === 'ring' ? from : f.startedBy, startedAt: f.k === 'ring' ? f.at : f.startedAt, people: new Map([[from, { ...f.state, seen: now }]]) };
   }
 
-  /** A call with nobody left in it (you not either) is over. */
+  /** A call with nobody left in it (you not either) is over: still ringing for you, you missed it. */
   private endIfEmpty(call: Call): boolean {
     if (call.people.size || call.me) return false;
-    if (call.ringing) this.host.ring(this.view(call), false);
+    if (call.ringing) this.missedRing(call);
     this.calls.delete(call.conversation);
     return true;
+  }
+
+  /** It stops ringing without you answering or saying not now: "Ann tried calling you". */
+  private missedRing(call: Call): void {
+    const ring = call.ringing;
+    if (!ring) return;
+    call.ringing = undefined;
+    this.host.ring(this.view(call), false);
+    this.host.missed?.({ id: call.id, conversation: call.conversation, by: ring.by, name: this.host.links.nameFor(ring.by), at: ring.since });
+  }
+
+  /** Why a call can't start: nobody it would ring is linked now. */
+  private unreachable(conversation: string): string {
+    const people = this.host.links.peopleIn(conversation);
+    if (conversation.startsWith('dm:') && people.length === 1) return `${this.host.links.nameFor(people[0]!)} can’t be reached right now`;
+    return people.length ? 'Nobody here can be reached right now' : 'There’s nobody here to call';
   }
 
   /** People who left a conversation (or a friend you removed) are out of its call. */
@@ -487,8 +504,11 @@ export class CallService {
     this.broadcast(call, { k: 'here', call: call.id, startedBy: call.startedBy, startedAt: call.startedAt, state: this.mineState(call) });
   }
 
-  private broadcast(call: Call, frame: CallFrame): void {
-    for (const peerId of this.host.links.peopleIn(call.conversation)) this.send(peerId, call, frame);
+  /** → how many it reached. */
+  private broadcast(call: Call, frame: CallFrame): number {
+    let reached = 0;
+    for (const peerId of this.host.links.peopleIn(call.conversation)) if (this.send(peerId, call, frame)) reached++;
+    return reached;
   }
 
   private send(peerId: string, call: Call, frame: CallFrame): boolean {

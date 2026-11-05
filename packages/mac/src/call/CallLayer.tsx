@@ -5,7 +5,7 @@ import { cx } from '../components/ui.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { CallAvatar } from './CallAvatar.js';
 import { CallControls, namesOf } from './CallStrip.js';
-import { JOINED, LEFT, RING, RINGBACK, RINGBACK_EVERY_S, RING_EVERY_S, loop, playOnce } from './ringtone.js';
+import { JOINED, LEFT, RING, RINGBACK, RINGBACK_EVERY_S, RING_EVERY_S, loop, playOnce, wakeSound } from './ringtone.js';
 import { callLength } from '@beluga/shared/calls.js';
 import { openCall, useCallEngine, useCallLive, useCallPlace, useMyCall, useRinging, useSecond, useShowing } from './use-call.js';
 import { syncFloat } from './float.js';
@@ -92,11 +92,22 @@ export function CallLayer() {
   const quiet = useApp((st) => st.network.self?.presence.state === 'dnd');
   const live = useCallLive();
 
+  // The window's sound wakes on your first click or key, so a ring that comes later is heard.
+  useEffect(() => {
+    const wake = (): void => wakeSound();
+    window.addEventListener('pointerdown', wake, { capture: true });
+    window.addEventListener('keydown', wake, { capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', wake, { capture: true });
+      window.removeEventListener('keydown', wake, { capture: true });
+    };
+  }, []);
+
   // The ringtone, while anything rings for you (and you're not already in a call).
   const ringsNow = ringing.length > 0 && !mine && !quiet;
   useEffect(() => (ringsNow ? loop(RING, RING_EVERY_S) : undefined), [ringsNow]);
 
-  // The caller's soft bell while nobody has picked up yet.
+  // The caller hears it ring at the others' while nobody has picked up yet.
   const waiting = Boolean(mine && mine.people.length === 1 && mine.startedBy === mine.people[0]?.peerId);
   useEffect(() => (waiting ? loop(RINGBACK, RINGBACK_EVERY_S, 0.6) : undefined), [waiting]);
 

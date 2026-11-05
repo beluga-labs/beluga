@@ -21,7 +21,8 @@ import r from './reactions.module.css';
 import { ChatTabs } from './ChatTabs.js';
 import { CallRoom } from '../call/CallRoom.js';
 import { NotesBox } from '../call/NotesBox.js';
-import type { CallNotesView } from '@beluga/shared/calls.js';
+import { MissedCall } from '../call/MissedCall.js';
+import type { CallNotesView, MissedCallView } from '@beluga/shared/calls.js';
 import { addBlobs, addPaths } from './attachments.js';
 import { type RunPlace, askedLine, authorLabel, channelName, channelWorld, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
 import { conversationOf, dayLabel, keepsFollowing, membersLine, mergeMessages, presenceLine, sameDay, shownState, unreadLine, unreadSince } from './net-model.js';
@@ -616,6 +617,9 @@ function Conversation({ id }: { id: string }) {
   // Calls' notes (BLG-715) sit in the timeline where each call ended.
   const callNotes = useApp((st) => st.network.callNotes?.[id]);
   const notesBefore = (ts: number, after: number | undefined): readonly CallNotesView[] => (callNotes ?? []).filter((n) => n.endedAt <= ts && (after === undefined || n.endedAt > after));
+  // Calls you missed sit where they rang.
+  const missedCalls = useApp((st) => st.network.missedCalls?.[id]);
+  const missedBefore = (ts: number, after: number | undefined): readonly MissedCallView[] => (missedCalls ?? []).filter((m) => m.at <= ts && (after === undefined || m.at > after));
   const { people: here, waiting } = useChatPeople(id);
 
   if (!net.enabled) {
@@ -683,6 +687,9 @@ function Conversation({ id }: { id: string }) {
               {notesBefore(m.ts, prev?.ts).map((n) => (
                 <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
               ))}
+              {missedBefore(m.ts, prev?.ts).map((x) => (
+                <MissedCall key={`missed-${x.id}`} missed={x} />
+              ))}
               {newDay ? <div className={s.day}>{dayLabel(m.ts)}</div> : null}
               {m.id === firstUnread ? <div className={s.unreadLine}>{unreadLine(unread.size)}</div> : null}
               <div className={cx(unread.has(m.id) && s.unread, m.id === lastUnread && s.unreadEnd)}>{m.task ? offered.has(m.task.id) ? null : <TaskMessage id={m.task.id} plain={plain} {...(me ? { me } : {})} /> : plain}</div>
@@ -693,6 +700,11 @@ function Conversation({ id }: { id: string }) {
           .filter((n) => !messages.length || n.endedAt > messages[messages.length - 1]!.ts)
           .map((n) => (
             <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
+          ))}
+        {(missedCalls ?? [])
+          .filter((x) => !messages.length || x.at > messages[messages.length - 1]!.ts)
+          .map((x) => (
+            <MissedCall key={`missed-${x.id}`} missed={x} />
           ))}
         {asking.filter((t) => !offered.has(t.id)).map((t) => (
           <TaskRow key={t.id} task={t} {...(me ? { me } : {})} />

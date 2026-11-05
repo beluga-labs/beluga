@@ -363,6 +363,15 @@ conversation, and it's the same chat.
   10 s), `bye`, `decline`, and `sig`, WebRTC setup for one person's window (64 KB at most). Nobody
   runs a call: each Mac keeps the roster from what it hears and drops whoever was quiet for 32 s.
   Two people pressing Call at once end up in the same call (the lower id wins on every Mac).
+- **Only someone who can answer.** A call whose `ring` would reach nobody (everyone offline, so no
+  link to send it on) doesn't start, and the Call button says so before you press it. The caller
+  hears it ring at the others' (a bright ring-ring, then a moment of quiet, as a phone does) until
+  someone joins; the window wakes
+  its sound on that click, since WebKit keeps sound started without one silent.
+- **Missed calls.** A ring that stops before you answered or said Not Now (nobody picked up in
+  45 s, or the caller hung up) leaves "Ann tried calling you at 14:05" where it rang in the
+  conversation, with Call Back, and in the inbox (core/calls/missed.ts, kept in
+  `~/.beluga/missed-calls.json` for a month, so it's still there when you open Beluga again).
 - **Media goes Mac to Mac.** The window makes the call with WebRTC (packages/mac/src/call): Opus
   voice with echo cancellation and noise suppression to everyone in it (a mesh), DTLS-SRTP
   encrypted. Public STUN only finds each Mac's address; there's no TURN yet, so two networks that
@@ -429,7 +438,8 @@ conversation, and it's the same chat.
   its streams is the camera and which the screen. Faces show as a band under the strip, or a
   filmstrip over a shared screen. Face to Face puts the call over the whole window, like FaceTime:
   one other person fills it, a group is a collage, and you're a picture you drag to any corner.
-- **Notes** (BLG-715, BLG-718). Nobody records anyone else: each Mac records only its own
+- **Notes** (BLG-715, BLG-718). Only once someone else is in the call: a call nobody picked up is
+  never written down and leaves no notes. Nobody records anyone else: each Mac records only its own
   microphone (the call's echo-cancelled stream), cut at its pauses into phrases, keeping no sound
   once a phrase is written down. Each phrase is written down by whichever Mac in the call will
   finish it soonest (shared/scribe-plan.ts): every few seconds each Mac says whether it has a voice

@@ -8,7 +8,7 @@ import type { AudioDevices } from './engine.js';
 import { VOICE_MODELS, type VoiceModelId } from '@beluga/shared/voice-models.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { CallAvatar } from './CallAvatar.js';
-import { useCallEngine, useCallLive, useConversationCall, useSecond } from './use-call.js';
+import { useCallEngine, useCallLive, useCallUnreachable, useConversationCall, useSecond } from './use-call.js';
 import c from './call.module.css';
 
 /** "bob", "bob and mia", "bob, mia and 2 more". */
@@ -248,12 +248,16 @@ export function CallButton({ id, label }: { id: string; label: string }) {
   const { client } = useBeluga();
   const engine = useCallEngine();
   const call = useConversationCall(id);
+  const unreachable = useCallUnreachable(id);
   if (call) return null;
-  const start = (): void =>
+  const start = (): void => {
+    // Nobody to ring: it says why rather than calling into nothing (it stays focusable, so its tip shows).
+    if (unreachable) return void client.store.dispatch({ type: 'toast', text: unreachable, level: 'info' });
     void engine.start(id).catch((err: unknown) => client.store.dispatch({ type: 'toast', text: `Couldn’t start the call: ${err instanceof Error ? err.message : String(err)}`, level: 'error' }));
+  };
   return (
-    <Tip label={`Call ${label}`}>
-      <button type="button" className={c.callButton} aria-label={`Call ${label}`} onClick={start}>
+    <Tip label={unreachable ?? `Call ${label}`}>
+      <button type="button" className={c.callButton} aria-label={`Call ${label}`} aria-disabled={unreachable ? true : undefined} onClick={start}>
         <Icon name="call" size={15} />
       </button>
     </Tip>

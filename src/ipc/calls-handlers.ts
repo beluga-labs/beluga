@@ -18,6 +18,8 @@ export const CALLS_HANDLERS = {
     const calls = callsWithPast(s, id);
     const call = calls?.pastCall(id);
     if (!calls || !call) throw new Error('That call isn’t one you were in');
+    // Nobody else ever joined: the call never started, so it has no notes.
+    if (![...call.people].some((p) => p !== calls.selfId)) return 0;
     callNotesOf(s)?.mine(calls.selfId, call, phrases);
     return calls.sendNotes(id, phrases);
   },

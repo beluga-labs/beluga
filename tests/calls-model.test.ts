@@ -1,11 +1,15 @@
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NO_INK, applyInk, hasInk, sketchBox, strokeAlpha, tidyInk } from '../packages/mac/src/call/ink.js';
-import { JOINED, LEFT, RING, RING_EVERY_S } from '../packages/mac/src/call/ringtone.js';
+import { JOINED, LEFT, RING, RINGBACK, RINGBACK_EVERY_S, RING_EVERY_S } from '../packages/mac/src/call/ringtone.js';
+import { MissedCalls } from '../src/core/calls/missed.js';
 import { render } from '../packages/mac/src/lib/sounds/synth.js';
 import { needsYou } from '../src/companion/needs-you.js';
 import { NeedsYou } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
-import { callLength, keeps, parseStage, shareChildren, shareTree, shareTreeBy, sharerOf } from '../src/shared/calls.js';
+import { callLength, keeps, missedCallText, parseStage, shareChildren, shareTree, shareTreeBy, sharerOf } from '../src/shared/calls.js';
 
 describe('the share tree (BLG-706)', () => {
   it('the sharer feeds three viewers; each viewer passes it on to at most two', () => {
@@ -161,6 +165,26 @@ describe('the ringtone (BLG-706)', () => {
     expect(two.every((v) => Math.abs(v) < 1)).toBe(true);
   });
 
+  it('the caller hears ring-ring, then quiet: four times a turn, never a held tone', () => {
+    const rate = 22_050;
+    const turn = render(RINGBACK, 0.7, rate);
+    const step = Math.round(RINGBACK_EVERY_S * rate);
+    const win = Math.round(rate / 40);
+    const levels: number[] = [];
+    for (let at = 0; at + win < step; at += win) {
+      let sum = 0;
+      for (let i = at; i < at + win; i++) sum += (turn[i] ?? 0) ** 2;
+      levels.push(Math.sqrt(sum / win));
+    }
+    const loud = Math.max(...levels);
+    // Loud stretches (each ring of a pair) and quiet ones between the pairs.
+    const shape = levels.map((v) => (v > loud * 0.35 ? '#' : v < loud * 0.08 ? '_' : '.')).join('');
+    const quiets = shape.match(/_{8,}/g) ?? [];
+    expect(quiets.length).toBeGreaterThanOrEqual(3);
+    expect(shape.match(/#+/g)?.length).toBeGreaterThanOrEqual(8);
+    expect(turn.every((v) => Math.abs(v) < 1)).toBe(true);
+  });
+
   it('joining rises and leaving falls, both short', () => {
     const pitch = (spec: typeof JOINED): number[] => spec.notes.map((n) => n.freq);
     const up = pitch(JOINED);
@@ -213,5 +237,47 @@ describe('agents look call notes up instead of reading them in the prompt (BLG-7
     const chat = callNotesTools(src, 'group:a');
     expect(chat.search('secret')).toMatch(/Nothing said matches/);
     expect(() => chat.read('bbbb000000000002')).toThrow(/No call/);
+  });
+});
+
+describe('calls you missed', () => {
+  const at = new Date(2026, 10, 5, 14, 5).getTime();
+  const one = { id: '0123456789abcdef', conversation: `dm:${'b'.repeat(32)}`, by: 'b'.repeat(32), name: 'Ann', at };
+
+  it('say who tried calling you and when (and the day, when it wasn’t today)', () => {
+    expect(missedCallText(one, at + 60_000)).toMatch(/^Ann tried calling you at \d{1,2}[:.]05/);
+    expect(missedCallText(one, at + 60_000)).not.toMatch(/ on /);
+    expect(missedCallText(one, at + 3 * 24 * 60 * 60_000)).toMatch(/ on /);
+  });
+
+  it('are kept on disk, once each, only for you, the latest of each conversation', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'missed-'));
+    const file = path.join(dir, 'missed-calls.json');
+    try {
+      let seen: Record<string, readonly unknown[]> = {};
+      const store = new MissedCalls({ file, now: () => at, publish: (v) => (seen = v) });
+      store.add(one);
+      store.add(one);
+      expect(seen[one.conversation]).toHaveLength(1);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      for (let i = 0; i < 25; i++) store.add({ ...one, id: i.toString(16).padStart(16, '0'), at: at - 1000 + i });
+      // After a restart they're still there.
+      const again = new MissedCalls({ file, now: () => at, publish: () => undefined });
+      const kept = again.views()[one.conversation]!;
+      expect(kept).toHaveLength(20);
+      expect(kept.at(-1)).toEqual(one);
+      // A month later they're gone.
+      expect(new MissedCalls({ file, now: () => at + 31 * 24 * 60 * 60_000, publish: () => undefined }).views()).toEqual({});
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reach the screens through the shared state, and outlast the network going off', () => {
+    const s = new Store(initialState('room'));
+    s.dispatch({ type: 'net_missed_calls', missed: { [one.conversation]: [one] } });
+    expect(s.getState().network.missedCalls?.[one.conversation]).toEqual([one]);
+    s.dispatch({ type: 'net_off' });
+    expect(s.getState().network.missedCalls?.[one.conversation]).toEqual([one]);
   });
 });

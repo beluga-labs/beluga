@@ -6,6 +6,7 @@ import { Levels } from './levels.js';
 import { type CameraSize, type LineState, Peer } from './peer.js';
 import { demoCamera, demoPointer, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
+import { wakeSound } from './ringtone.js';
 import { type NotePhrase, Scribe, type Words, demoPhrases, scribeModels } from './scribe.js';
 import { type ScribeStatus, bestModel, pickScribe } from '@beluga/shared/scribe-plan.js';
 import type { LanguageCount } from '@beluga/shared/call-language.js';
@@ -87,6 +88,8 @@ export class CallEngine {
   private readonly clipsOut = new Map<string, (words: Words | undefined) => void>();
   private readonly clipsIn = new Map<string, { parts: string[]; seconds: number; lang?: string }>();
   private stopScribeTalk: (() => void) | undefined;
+  /** The call whose notes have begun: only once someone else is in it (a call nobody picked up has none). */
+  private notesFor: string | undefined;
   /** The demo's friends whose made-up voices are playing. */
   private readonly demoVoices = new Set<string>();
   /** A demo friend pointing at the shared screen (as the network would bring it: a few times a second). */
@@ -180,12 +183,15 @@ export class CallEngine {
 
   /** Start a call here, leaving any other one first. */
   async start(conversation: string): Promise<void> {
+    // Still inside the click: the sound wakes now, so the ringback is heard.
+    wakeSound();
     await this.leaveOthers(conversation);
     void this.openMic();
     await this.client.api.calls.start(conversation).catch((err: unknown) => this.failed(err));
   }
 
   async join(conversation: string): Promise<void> {
+    wakeSound();
     await this.leaveOthers(conversation);
     void this.openMic();
     await this.client.api.calls.join(conversation).catch((err: unknown) => this.failed(err));
@@ -492,9 +498,18 @@ export class CallEngine {
     if (this.view?.id !== call.id) return;
     if (mic) this.levels.watch(this.me, mic);
     this.reconcile();
-    // Notes: your own words, written down by whichever Mac in the call is soonest (BLG-718).
-    if (call.demo) this.patch({ notes: 'on' });
-    else await this.startScribe(call, mic);
+  }
+
+  /**
+   * Notes begin once someone else is in the call: your own words, written down by whichever Mac in
+   * it is soonest (BLG-718). While it only rings, nothing is written down.
+   */
+  private async beginNotes(call: CallView): Promise<void> {
+    if (this.notesFor === call.id || !call.people.some((p) => !p.me)) return;
+    this.notesFor = call.id;
+    if (call.demo) return this.patch({ notes: 'on' });
+    const mic = await this.openMic();
+    if (this.view?.id === call.id) await this.startScribe(call, mic);
   }
 
   /** The call is over for you: what you said goes to the others who were in it (an empty part says you're done). */
@@ -515,6 +530,7 @@ export class CallEngine {
 
   private end(): void {
     if (this.view) this.sendNotes(this.view);
+    this.notesFor = undefined;
     this.stopBeat?.();
     this.stopStats?.();
     this.stopBeat = this.stopStats = undefined;
@@ -564,6 +580,7 @@ export class CallEngine {
   private reconcile(): void {
     const call = this.view;
     if (!call) return;
+    void this.beginNotes(call);
     this.applyMute(call);
     const me = this.me;
     const others = call.people.filter((p) => !p.me);

@@ -303,6 +303,50 @@
 .callButton:focus-visible {
   outline: 2px solid var(--accent);
 }
+.callButton[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+.callButton[aria-disabled='true']:hover {
+  background: none;
+  color: var(--text-2);
+}
+
+/* ---- a call you missed, in its conversation */
+
+.missed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: var(--chat-max);
+  margin: 10px auto;
+  padding: 0 24px;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+.missedIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--call) 18%, transparent);
+  color: var(--call-ink);
+}
+.missedBack {
+  all: unset;
+  cursor: pointer;
+  color: var(--call-ink);
+  font-weight: 600;
+}
+.missedBack:hover {
+  text-decoration: underline;
+}
+.missedBack:focus-visible {
+  outline: 2px solid var(--accent);
+  border-radius: 4px;
+}
 
 /* ---- someone rings you */
 
