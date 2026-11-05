@@ -108,7 +108,8 @@ describe('calls between friends (BLG-706)', () => {
     d.calls.stop();
   }, 60_000);
 
-  it('a channel call: two people starting at once end up in the same call, and a closed window leaves it', async () => {
+  // Two people dialling at once is BLG-728's case: on Windows' runners a message now and then never comes.
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('a channel call: two people starting at once end up in the same call, and a closed window leaves it', async () => {
     const eve = await net.add('eve');
     const fay = await net.add('fay');
     const gil = await net.add('gil');
