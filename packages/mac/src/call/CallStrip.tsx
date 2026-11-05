@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react';
 import type { CallPersonView, CallView } from '@beluga/shared/calls.js';
 import { callLength, sharerOf } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { Tip, cx } from '../components/ui.js';
+import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
+import type { AudioDevices } from './engine.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { CallAvatar } from './CallAvatar.js';
 import { useCallEngine, useCallLive, useConversationCall, useSecond } from './use-call.js';
@@ -53,6 +56,7 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
           <Icon name={muted ? 'micOff' : 'mic'} size={15} />
         </button>
       </Tip>
+      {compact ? null : <DevicesButton />}
       {compact ? null : <NotesButton />}
       {compact ? null : (
         <Tip label={camera ? 'Turn Camera Off' : 'Turn Camera On'}>
@@ -75,6 +79,52 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
         </button>
       </Tip>
     </span>
+  );
+}
+
+/**
+ * Which microphone you speak into and which speaker you hear them on (BLG-737), beside Mute.
+ * Picked during a call, it switches at once; Beluga remembers it for the next one.
+ */
+function DevicesButton() {
+  const engine = useCallEngine();
+  const [devices, setDevices] = useState<AudioDevices | undefined>();
+  useEffect(() => {
+    let alive = true;
+    const load = (): void => void engine.devices().then((d) => alive && setDevices(d));
+    load();
+    // Headphones plugged in, a USB microphone taken out: the list follows.
+    navigator.mediaDevices?.addEventListener?.('devicechange', load);
+    return () => {
+      alive = false;
+      navigator.mediaDevices?.removeEventListener?.('devicechange', load);
+    };
+  }, [engine]);
+  const reload = (): void => void engine.devices().then(setDevices);
+  const choices = (list: AudioDevices['mics'], current: string | undefined, pick: (id: string | undefined) => void): ActionItem[] => [
+    { label: 'Same as macOS', checked: !current || !list.some((d) => d.id === current), onSelect: () => pick(undefined) },
+    ...list.map((d, i) => ({ label: d.label, checked: d.id === current, ...(i === 0 ? { separate: true } : {}), onSelect: () => pick(d.id) })),
+  ];
+  const items: ActionItem[] = [
+    { label: 'Microphone', icon: 'mic', submenu: choices(devices?.mics ?? [], devices?.mic, (id) => void engine.pickMic(id).then(reload)), onSelect: () => undefined },
+    devices?.canPickSpeaker === false
+      ? { label: 'Speaker', icon: 'speaker', hint: 'As set in macOS (Control Center › Sound)', disabled: true, onSelect: () => undefined }
+      : {
+          label: 'Speaker',
+          icon: 'speaker',
+          submenu: choices(devices?.speakers ?? [], devices?.speaker, (id) => {
+            engine.pickSpeaker(id);
+            reload();
+          }),
+          onSelect: () => undefined,
+        },
+  ];
+  return (
+    <ActionsDropdown items={items} align="start">
+      <button type="button" className={cx(c.control, c.controlMore)} aria-label="Microphone and Speaker" onPointerDown={reload}>
+        <Icon name="chevronDown" size={12} />
+      </button>
+    </ActionsDropdown>
   );
 }
 

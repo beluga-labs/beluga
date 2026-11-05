@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
@@ -9,11 +9,35 @@ import { PopClock, popsNow } from './chat-pops.js';
 import { PopList } from './PopList.js';
 import s from './chatpops.module.css';
 
-/** A line to answer in, under the messages: it goes in the same chat. */
-function Reply({ conversation, place, dark }: { conversation: string; place: string; dark?: boolean }) {
+/** The reply line steps aside after this long without the pointer moving (unless there's something to answer). */
+const REPLY_IDLE_MS = 2_500;
+
+/** True while the pointer has moved in the window within the last `ms`. */
+function usePointerAwake(ms: number): boolean {
+  const [awake, setAwake] = useState(true);
+  useEffect(() => {
+    let timer = setTimeout(() => setAwake(false), ms);
+    const wake = (): void => {
+      setAwake(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setAwake(false), ms);
+    };
+    window.addEventListener('pointermove', wake);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointermove', wake);
+    };
+  }, [ms]);
+  return awake;
+}
+
+/** A line to answer in, under the messages: it goes in the same chat. Shown while there's something to answer, you type, or the pointer moves. */
+function Reply({ conversation, place, dark, wanted }: { conversation: string; place: string; dark?: boolean; wanted: boolean }) {
   const { client } = useBeluga();
   const actions = useActions();
   const [text, setText] = useState('');
+  const [focused, setFocused] = useState(false);
+  const shown = wanted || focused || text.length > 0;
   const send = (): void => {
     const words = text.trim();
     if (!words) return;
@@ -26,7 +50,7 @@ function Reply({ conversation, place, dark }: { conversation: string; place: str
   };
   return (
     <form
-      className={cx(s.reply, dark && s.dark)}
+      className={cx(s.reply, dark && s.dark, !shown && s.replyAway)}
       onSubmit={(e) => {
         e.preventDefault();
         send();
@@ -35,6 +59,9 @@ function Reply({ conversation, place, dark }: { conversation: string; place: str
       <Icon name="chat" size={13} className={s.replyMark} />
       <input
         value={text}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        tabIndex={shown ? 0 : -1}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           // Esc drops what you typed first; empty, it goes on to leave full screen.
@@ -67,10 +94,11 @@ export function CallChatPops({ conversation, place, dark, className }: { convers
   clock.current ??= new PopClock(all);
   const now = Date.now();
   const pops = popsNow(clock.current.stamp(all, now), now);
+  const awake = usePointerAwake(REPLY_IDLE_MS);
   return (
     <div className={cx(s.chat, className)} role="complementary" aria-label="The chat">
       <PopList pops={pops} now={now} dark={dark} />
-      <Reply conversation={conversation} place={place} dark={dark} />
+      <Reply conversation={conversation} place={place} dark={dark} wanted={awake || pops.length > 0} />
     </div>
   );
 }

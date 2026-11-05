@@ -91,8 +91,12 @@ describe('drawing on a shared screen is sketching (BLG-717)', () => {
   it('a sketch stays while it’s fresh and fades by itself, all together', () => {
     let ink = applyInk(NO_INK, stroke('a', 's1'), 0);
     ink = applyInk(ink, stroke('a', 's2'), 2_000);
-    expect(strokeAlpha(ink.strokes[0]!, 8_000, ink.strokes)).toBe(1);
-    expect(hasInk(tidyInk(ink, 2_000 + 9_000))).toBe(false);
+    // Whole a few seconds after the last stroke (the first is older, and stays with it), then dissolving, then gone.
+    expect(strokeAlpha(ink.strokes[0]!, 2_000 + 3_000, ink.strokes)).toBe(1);
+    const fading = strokeAlpha(ink.strokes[0]!, 2_000 + 4_000, ink.strokes);
+    expect(fading).toBeGreaterThan(0);
+    expect(fading).toBeLessThan(1);
+    expect(hasInk(tidyInk(ink, 2_000 + 5_000))).toBe(false);
     // Its Mac left mid-stroke: no end comes, and it still goes.
     const stuck = applyInk(NO_INK, stroke('b', 'x', false), 0);
     expect(hasInk(tidyInk(tidyInk(stuck, 9_000), 9_000 + 9_000))).toBe(false);

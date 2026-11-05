@@ -93,6 +93,7 @@ export interface ScribeHooks {
 export class Scribe {
   private ctx: AudioContext | undefined;
   private node: ScriptProcessorNode | undefined;
+  private source: MediaStreamAudioSourceNode | undefined;
   private readonly ring = new Float32Array(PHRASE_RATE * KEEP_SECONDS);
   private heard = 0;
   private cutter = new PhraseCutter(TUNING);
@@ -140,7 +141,7 @@ export class Scribe {
     this.stops.push(repeat(readLoad, LOAD_MS));
     if (!mic) return;
     const ctx = (this.ctx = new AudioContext());
-    const source = ctx.createMediaStreamSource(mic);
+    const source = (this.source = ctx.createMediaStreamSource(mic));
     const node = (this.node = ctx.createScriptProcessor(4096, 1, 1));
     const resample = new Resampler(ctx.sampleRate);
     node.onaudioprocess = (e) => {
@@ -153,6 +154,14 @@ export class Scribe {
     source.connect(node);
     // A processor only runs connected; nothing is heard from it (it writes no output).
     node.connect(ctx.destination);
+  }
+
+  /** Another microphone, picked mid-call (BLG-737): your words are heard from it from now on. */
+  listen(mic: MediaStream): void {
+    if (!this.ctx || !this.node || this.stopped) return;
+    this.source?.disconnect();
+    this.source = this.ctx.createMediaStreamSource(mic);
+    this.source.connect(this.node);
   }
 
   /** Another Mac's phrase to write down here and send back (it decided this Mac was soonest). */

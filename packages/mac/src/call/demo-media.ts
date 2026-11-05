@@ -152,3 +152,9 @@ export function demoCamera(name: string): MediaStream {
   }
   return stream;
 }
+
+/** Where a demo friend points on a shared screen at `ms`: a slow, wandering loop, as a person reads along (BLG-733). */
+export function demoPointer(ms: number): readonly [number, number] {
+  const t = ms / 1000;
+  return [0.5 + 0.28 * Math.sin(t * 0.7) + 0.05 * Math.sin(t * 2.3), 0.45 + 0.2 * Math.sin(t * 0.9 + 1) + 0.04 * Math.cos(t * 3.1)];
+}

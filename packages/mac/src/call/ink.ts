@@ -45,6 +45,8 @@ export interface Ink {
   readonly lasers: Readonly<Record<string, Laser>>;
   readonly marks: readonly Mark[];
   readonly pings: readonly Ping[];
+  /** Whose sketch stays up whatever its age (yours, while you ask about it). */
+  readonly hold?: string;
 }
 
 export const NO_INK: Ink = { strokes: [], lasers: {}, marks: [], pings: [] };
@@ -60,9 +62,9 @@ const MAX_MARKS = 12;
  * a pause and the old sketch makes way for the new one; left alone, a sketch fades by itself.
  */
 export const WRITE_GAP_MS = 2_500;
-/** A sketch stays this long after its last stroke, then fades over `SKETCH_FADE_MS`. */
-export const SKETCH_HOLD_MS = 7_000;
-const SKETCH_FADE_MS = 1_500;
+/** A sketch stays this long after its last stroke, then dissolves over `SKETCH_FADE_MS` (BLG-734). */
+export const SKETCH_HOLD_MS = 3_500;
+export const SKETCH_FADE_MS = 1_200;
 
 /** A laser nobody moved for this long goes. */
 const LASER_MS = 2_500;
@@ -119,11 +121,45 @@ export function sketchAlpha(last: number, drawing: boolean, now: number): number
   return Math.max(0, 1 - (age - SKETCH_HOLD_MS) / SKETCH_FADE_MS);
 }
 
-/** How visible a stroke is now: as its sketch is. */
-export function strokeAlpha(s: Stroke, now: number, strokes: readonly Stroke[] = [s]): number {
+/** How visible a stroke is now: as its sketch is (whole while `hold` is whose it is). */
+export function strokeAlpha(s: Stroke, now: number, strokes: readonly Stroke[] = [s], hold?: string): number {
+  if (hold === s.by) return 1;
   const mine = strokes.filter((x) => x.by === s.by);
   const drawing = mine.some((x) => x.doneAt === undefined && now - x.at <= STALE_MS);
   return sketchAlpha(lastActive(mine, s.by) ?? s.at, drawing, now);
+}
+
+/** Keep `by`'s sketch up whatever its age (while they ask about it). */
+export const holdSketch = (ink: Ink, by: string): Ink => ({ ...ink, hold: by });
+
+/** Let a held sketch go: it stays a moment more from `now`, then dissolves like any other. */
+export function releaseSketch(ink: Ink, now: number): Ink {
+  const by = ink.hold;
+  if (by === undefined) return ink;
+  const { hold: _hold, ...rest } = ink;
+  return { ...rest, strokes: ink.strokes.map((s) => (s.by === by ? { ...s, at: now, doneAt: now } : s)) };
+}
+
+/**
+ * A box from one corner to the other, as the points of a stroke (BLG-735): a few along each side,
+ * close to the corners, so the smoothing in `draw` only softens them a little. Sent as ink, it
+ * shows on every Beluga, fades with the sketch it's part of, and Ask covers it like any stroke.
+ */
+export function boxPoints(x0: number, y0: number, x1: number, y1: number): number[] {
+  const corners: ReadonlyArray<readonly [number, number]> = [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+  ];
+  const pts: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = corners[i]!;
+    const [bx, by] = corners[(i + 1) % 4]!;
+    for (const t of [0, 0.04, 0.5, 0.96]) pts.push(ax + (bx - ax) * t, ay + (by - ay) * t);
+  }
+  pts.push(x0, y0, x0 + (x1 - x0) * 0.04, y0);
+  return pts;
 }
 
 /** The part of the picture someone's sketch covers (fractions), with a little room around it. */
@@ -154,12 +190,12 @@ export const markGone = (m: Mark, now: number): boolean => !m.keep && now - m.at
 /** What's left once faded strokes, marks and ripples and still lasers are gone. */
 export function tidyInk(ink: Ink, now: number): Ink {
   const ended = ink.strokes.map((s) => (s.doneAt === undefined && now - s.at > STALE_MS ? { ...s, doneAt: now } : s));
-  const strokes = ended.filter((s) => strokeAlpha(s, now, ended) > 0);
+  const strokes = ended.filter((s) => strokeAlpha(s, now, ended, ink.hold) > 0);
   const lasers = Object.fromEntries(Object.entries(ink.lasers).filter(([, l]) => now - l.at < LASER_MS));
   const marks = ink.marks.filter((m) => !markGone(m, now));
   const pings = ink.pings.filter((p) => now - p.at < PING_MS);
   const same = strokes.length === ink.strokes.length && strokes.every((s, i) => s === ink.strokes[i]) && Object.keys(lasers).length === Object.keys(ink.lasers).length && marks.length === ink.marks.length && pings.length === ink.pings.length;
-  return same ? ink : { strokes, lasers, marks, pings };
+  return same ? ink : { strokes, lasers, marks, pings, ...(ink.hold !== undefined ? { hold: ink.hold } : {}) };
 }
 
 /** Anything that changes as time passes (so the drawing loop runs). Kept marks alone don't. */
@@ -181,11 +217,12 @@ export function draw(g: CanvasRenderingContext2D, ink: Ink, box: { x: number; y:
   g.lineJoin = 'round';
   const at = (fx: number, fy: number): [number, number] => [(box.x + fx * box.w) * scale, (box.y + fy * box.h) * scale];
   for (const s of ink.strokes) {
-    const alpha = strokeAlpha(s, now, ink.strokes);
+    const alpha = strokeAlpha(s, now, ink.strokes, ink.hold);
     if (alpha <= 0 || s.pts.length < 2) continue;
+    // Dissolving: it thins as it fades, rather than just going pale.
     g.globalAlpha = alpha * 0.92;
     g.strokeStyle = s.color;
-    g.lineWidth = 4 * scale;
+    g.lineWidth = 4 * scale * (0.55 + 0.45 * alpha);
     g.beginPath();
     const [x0, y0] = at(s.pts[0]!, s.pts[1]!);
     g.moveTo(x0, y0);
@@ -235,19 +272,27 @@ export function draw(g: CanvasRenderingContext2D, ink: Ink, box: { x: number; y:
   }
   for (const [by, l] of Object.entries(ink.lasers)) {
     const [x, y] = at(l.x, l.y);
-    const color = colorOf(by);
-    g.globalAlpha = 0.22;
-    g.fillStyle = color;
-    g.beginPath();
-    g.arc(x, y, 13 * scale, 0, Math.PI * 2);
-    g.fill();
-    g.globalAlpha = 1;
-    g.beginPath();
-    g.arc(x, y, 5 * scale, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = 1.5 * scale;
-    g.stroke();
+    drawPointer(g, x, y, colorOf(by), scale);
   }
   g.globalAlpha = 1;
+}
+
+/** The arrow of a pointer, tip at 0,0, 20 units tall (the same shape the stage draws, call/Pointers.tsx). */
+export const POINTER_PATH = 'M1 1 L1 17.5 L5.6 13.4 L8.6 20 L11.6 18.7 L8.7 12.2 L14.8 12.2 Z';
+
+/** Someone's pointer: an arrow in their colour, outlined in white, its tip at `x`, `y`. */
+export function drawPointer(g: CanvasRenderingContext2D, x: number, y: number, color: string, scale = 1, alpha = 1): void {
+  if (alpha <= 0) return;
+  const path = new Path2D(POINTER_PATH);
+  g.save();
+  g.translate(x - scale, y - scale);
+  g.scale(scale, scale);
+  g.globalAlpha = alpha;
+  g.lineJoin = 'round';
+  g.fillStyle = color;
+  g.fill(path);
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 1.5;
+  g.stroke(path);
+  g.restore();
 }

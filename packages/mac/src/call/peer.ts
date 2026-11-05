@@ -59,6 +59,9 @@ function preferH264(t: RTCRtpTransceiver): void {
 export class Peer {
   readonly pc: RTCPeerConnection;
   private readonly stage: RTCDataChannel;
+  private readonly pointers: RTCDataChannel;
+  /** They said (in `streams`) their Beluga has the pointers channel: yours go on it. */
+  pointersOk = false;
   private making = false;
   private ignoring = false;
   /** The screen and the camera this line sends: a sender once there's been something to send, and what's wanted now. */
@@ -78,7 +81,11 @@ export class Peer {
     // Reliable and in order: a stroke's end, Clear and an ask must arrive (they're tiny).
     this.stage = this.pc.createDataChannel('stage', { negotiated: true, id: 0 });
     this.stage.onmessage = (e) => typeof e.data === 'string' && e.data.length <= 64_000 && host.onStage(e.data);
-    this.stage.onopen = () => this.stage.send(JSON.stringify({ k: 'streams', by: host.me, cam: this.slots.cam.stream.id, screen: this.slots.screen.stream.id }));
+    this.stage.onopen = () => this.stage.send(JSON.stringify({ k: 'streams', by: host.me, cam: this.slots.cam.stream.id, screen: this.slots.screen.stream.id, pointers: true }));
+    // Pointers (BLG-733): many a second, where only the newest counts, so never in order and never
+    // sent twice (a late one would only hold the next ones up). Used once they say they have it.
+    this.pointers = this.pc.createDataChannel('pointers', { negotiated: true, id: 1, ordered: false, maxRetransmits: 0 });
+    this.pointers.onmessage = (e) => typeof e.data === 'string' && e.data.length <= 512 && host.onStage(e.data);
     // Voice both ways from the start, even before your microphone opens (it's put in when it does).
     const stream = new MediaStream(mic ? [mic] : []);
     this.voice = this.pc.addTransceiver(mic ?? 'audio', { direction: 'sendrecv', streams: [stream] }).sender;
@@ -205,6 +212,12 @@ export class Peer {
   /** Something for the stage (ink, the laser): dropped while the channel isn't open yet. */
   sendStage(text: string): void {
     if (this.stage.readyState === 'open') this.stage.send(text);
+  }
+
+  /** Where your pointer is: on the fast channel when they have it (skipped while it's backed up), else the stage's. */
+  sendPointer(text: string): void {
+    if (!this.pointersOk) return this.sendStage(text);
+    if (this.pointers.readyState === 'open' && this.pointers.bufferedAmount < 8_192) this.pointers.send(text);
   }
 
   /** How long a round trip to them takes (ms), and how much this line can send now (kbit/s, WebRTC's own estimate), if known. */

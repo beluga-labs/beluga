@@ -105,6 +105,8 @@ test('sharing a screen puts it on the stage beside the chat; the chat in full sc
   await page.mouse.up();
   await expect(stage.getByRole('button', { name: 'Clear the Drawing' })).toBeVisible();
   await shot(page, '04-sketch');
+  // The others' pointers: an arrow in their colour, with their picture and name (BLG-733).
+  await expect(stage.locator('svg path[d^="M1 1"]').first()).toBeAttached();
   // Ask about what you drew: the pill beside your sketch.
   await stage.getByRole('button', { name: /^Ask / }).click();
   const ask = stage.getByRole('textbox', { name: /^Ask / });
@@ -114,6 +116,21 @@ test('sharing a screen puts it on the stage beside the chat; the chat in full sc
   await expect(stage.getByRole('complementary', { name: 'Your agent about the screen' })).toBeVisible();
   await expect(page.getByRole('log', { name: 'Channel launch' })).toContainText('Is the discount applied in the right order?');
   await shot(page, '06-ask-card');
+  // A box: the Box tool (or Shift as you drag) marks one, for everyone (BLG-735).
+  await stage.getByRole('radio', { name: 'Box' }).click();
+  await expect(stage.getByRole('radio', { name: 'Box' })).toHaveAttribute('aria-checked', 'true');
+  await page.mouse.move(...at(0.55, 0.3));
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(...at(0.55 + i * 0.03, 0.3 + i * 0.04));
+  await page.mouse.up();
+  await expect(stage.getByRole('button', { name: /^Ask / })).toBeVisible();
+  await shot(page, '06b-box');
+  await stage.getByRole('radio', { name: 'Draw' }).click();
+  // Which microphone and speaker, beside Mute (BLG-737).
+  await strip(page).getByRole('button', { name: 'Microphone and Speaker' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Microphone' })).toBeVisible();
+  await shot(page, '06c-devices');
+  await page.keyboard.press('Escape');
   // Smooth for motion, and the whole display.
   // How the screen is sent is the sharer's, tucked behind •••.
   await stage.getByRole('button', { name: 'How Your Screen Is Sent' }).click();

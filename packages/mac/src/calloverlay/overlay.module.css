@@ -30,3 +30,9 @@
   bottom: 28px;
   width: 360px;
 }
+/* A few pixels of a colour nothing else uses, top left, while Beluga checks it isn't in the capture (BLG-736). */
+.probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+}

@@ -6,14 +6,17 @@ import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { useApp } from '../lib/beluga.js';
 import { useMyAgentName } from '../lib/agent-words.js';
 import { AskBox, AskCard, type Region } from './AskClaude.js';
-import { type Ink, MAX_POINTS, NO_INK, applyInk, draw, hasInk, pictureBox, sketchBox, tidyInk } from './ink.js';
+import { type Ink, MAX_POINTS, NO_INK, applyInk, boxPoints, draw, hasInk, holdSketch, pictureBox, releaseSketch, sketchBox, tidyInk } from './ink.js';
+import { Pointers } from './Pointers.js';
 import { CallChatPops } from './ChatPops.js';
 import { CameraStrip } from './Cameras.js';
 import { useCallEngine, useCallLive, useCallPlace } from './use-call.js';
 import c from './call.module.css';
 
-/** How often your pointer and a growing stroke are sent (the data channel takes far more; the eye doesn't). */
+/** How often a growing stroke is sent (the data channel takes far more; the eye doesn't). */
 const SEND_MS = 33;
+/** How often your pointer is sent: every frame of a 60 Hz display, so it glides on the others' screens. */
+const POINTER_MS = 15;
 /** Full screen: the bar steps aside after this long without the pointer moving. */
 const BAR_IDLE_MS = 2_500;
 /** Moving less than this (a fraction of the picture) between press and release is a click, not a drag. */
@@ -25,14 +28,20 @@ interface Press {
   readonly x: number;
   readonly y: number;
   moved: boolean;
+  /** Drawing a box (the Box tool, or Shift held as you pressed). */
+  readonly box: boolean;
 }
+
+/** What dragging does: draw freely, or mark a box. */
+type Tool = 'draw' | 'box';
 
 /**
  * A shared screen in the call (BLG-706, BLG-717), beside the same chat. Nothing to pick: your
  * pointer shows for everyone as you move, a click sends a ripple there, and dragging draws. What
  * you draw in one go (strokes a moment apart: a word, a circle and an arrow) is one sketch, seen by
  * everyone, the person sharing too (on their own screen). Draw again after a pause and the old
- * sketch makes way; left alone, it fades. Beside your sketch, Ask your agent about it: the part it
+ * sketch makes way; left alone, it dissolves. The Box tool (or Shift) marks a box instead (BLG-735).
+ * Everyone's pointer shows as an arrow with their picture, gliding (BLG-733). Beside your sketch, Ask your agent about it: the part it
  * covers, with the ink on it, goes in the chat as a picture. Full Screen gives the picture the
  * whole display; the chat beside it is covered then, so what the others write pops up on the
  * right, with a line to answer in. Esc comes back.
@@ -50,6 +59,7 @@ export function Stage({ call }: { call: CallView }) {
   inkRef.current = ink;
   const [size, setSize] = useState({ w: 0, h: 0, vw: 0, vh: 0 });
   const [asking, setAsking] = useState<Region | undefined>();
+  const [tool, setTool] = useState<Tool>('draw');
   const press = useRef<Press | undefined>(undefined);
   const stroke = useRef<{ id: string; pts: number[]; sent: number } | undefined>(undefined);
   const lastSent = useRef(0);
@@ -82,8 +92,18 @@ export function Stage({ call }: { call: CallView }) {
     return () => ro.disconnect();
   }, []);
 
-  // Everyone's pointers, marks and ink, as they come.
-  useEffect(() => engine.onStage((m) => setInk((i) => applyInk(i, m, performance.now()))), [engine]);
+  // Everyone's marks and ink, as they come (pointers glide on their own layer, Pointers.tsx).
+  useEffect(() => engine.onStage((m) => m.k !== 'laser' && setInk((i) => applyInk(i, m, performance.now()))), [engine]);
+
+  // Asking about your sketch keeps it up (and the picture sent has it); done, it dissolves as usual.
+  const ask = (r: Region): void => {
+    setInk((i) => holdSketch(i, me));
+    setAsking(r);
+  };
+  const unask = (): void => {
+    setInk((i) => releaseSketch(i, performance.now()));
+    setAsking(undefined);
+  };
 
   const box = useMemo(() => pictureBox(size.w, size.h, size.vw, size.vh), [size]);
 
@@ -129,7 +149,7 @@ export function Stage({ call }: { call: CallView }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
-      if (asking) setAsking(undefined);
+      if (asking) unask();
       else if (live.theater) void engine.setTheater(false);
     };
     window.addEventListener('keydown', onKey);
@@ -147,8 +167,8 @@ export function Stage({ call }: { call: CallView }) {
     if (e.button !== 0) return;
     const [x, y] = fraction(e);
     e.currentTarget.setPointerCapture(e.pointerId);
-    setAsking(undefined);
-    press.current = { x, y, moved: false };
+    if (asking || inkRef.current.hold) unask();
+    press.current = { x, y, moved: false, box: tool === 'box' || e.shiftKey };
     stroke.current = { id: `${me.slice(0, 6)}-${Date.now().toString(36)}`, pts: [x, y], sent: 0 };
   };
   const onMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
@@ -157,16 +177,17 @@ export function Stage({ call }: { call: CallView }) {
     const p = press.current;
     if (!p) {
       // Just moving: your pointer, for everyone.
-      if (now - lastSent.current > SEND_MS) {
+      if (now - lastSent.current > POINTER_MS) {
         lastSent.current = now;
-        engine.stageSend({ k: 'laser', by: me, x, y });
+        engine.pointerSend({ k: 'laser', by: me, x, y });
       }
       return;
     }
     if (!p.moved && Math.hypot(x - p.x, y - p.y) > CLICK) p.moved = true;
     const s = stroke.current;
     if (!p.moved || !s) return;
-    if (s.pts.length < MAX_POINTS) s.pts.push(x, y);
+    if (p.box) s.pts = boxPoints(p.x, p.y, x, y);
+    else if (s.pts.length < MAX_POINTS) s.pts.push(x, y);
     if (now - s.sent > SEND_MS) {
       s.sent = now;
       engine.stageSend({ k: 'ink', by: me, id: s.id, color, pts: [...s.pts] });
@@ -179,6 +200,10 @@ export function Stage({ call }: { call: CallView }) {
     stroke.current = undefined;
     if (!p || !s) return;
     if (p.moved) {
+      if (p.box) {
+        const [x, y] = fraction(e);
+        s.pts = boxPoints(p.x, p.y, x, y);
+      }
       engine.stageSend({ k: 'ink', by: me, id: s.id, color, pts: s.pts, done: true });
       return;
     }
@@ -187,7 +212,7 @@ export function Stage({ call }: { call: CallView }) {
     engine.stageSend({ k: 'ping', by: me, x, y });
   };
   const onLeave = (): void => {
-    if (!press.current) engine.stageSend({ k: 'laser', by: me, x: -1, y: -1 });
+    if (!press.current) engine.pointerSend({ k: 'laser', by: me, x: -1, y: -1 });
   };
 
   const styleOf = (r: Region): CSSProperties => ({ left: box.x + r.x * box.w, top: box.y + r.y * box.h, width: r.w * box.w, height: r.h * box.h });
@@ -201,11 +226,21 @@ export function Stage({ call }: { call: CallView }) {
       <div ref={frame} className={c.stageFrame} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave}>
         <video ref={video} className={c.stageVideo} autoPlay playsInline muted />
         <canvas ref={canvas} className={c.stageInk} style={{ width: size.w, height: size.h }} aria-hidden="true" />
-        {sketch && !asking && !press.current ? <AskPill at={styleOf(sketch)} frame={size} agent={agent} ask={() => setAsking(sketch)} /> : null}
+        <Pointers people={call.people} me={me} box={box} />
+        {sketch && !asking && !press.current ? (
+          <AskPill
+            at={styleOf(sketch)}
+            frame={size}
+            agent={agent}
+            ask={() => ask(sketch)}
+            // Pointing at Ask keeps the sketch up: it doesn't dissolve while you reach for it.
+            hold={(on) => setInk((i) => (on ? holdSketch(i, me) : releaseSketch(i, performance.now())))}
+          />
+        ) : null}
         {asking ? (
           <>
             <div className={cx(c.region, c.regionChosen)} style={styleOf(asking)} aria-hidden="true" />
-            <AskBox call={call} region={asking} anchor={styleOf(asking)} video={video.current} ink={ink} sharer={sharer?.me ? 'your' : `${sharer?.name ?? 'their'}’s`} done={() => setAsking(undefined)} />
+            <AskBox call={call} region={asking} anchor={styleOf(asking)} video={video.current} ink={ink} sharer={sharer?.me ? 'your' : `${sharer?.name ?? 'their'}’s`} done={unask} />
           </>
         ) : null}
         <CameraStrip call={call} floating />
@@ -227,7 +262,19 @@ export function Stage({ call }: { call: CallView }) {
           <Icon name="screenShare" size={13} />
           <span>{sharer?.me ? 'You’re sharing' : `${sharer?.name ?? 'Someone'}’s screen`}</span>
         </span>
-        <span className={c.stageHint}>Draw to point something out · it clears when you draw again</span>
+        <span className={c.toolGroup} role="radiogroup" aria-label="Drag to">
+          <Tip label="Draw">
+            <button type="button" role="radio" aria-checked={tool === 'draw'} aria-label="Draw" className={cx(c.tool, tool === 'draw' && c.toolOn)} onClick={() => setTool('draw')}>
+              <Icon name="pencil" size={14} />
+            </button>
+          </Tip>
+          <Tip label="Box" keys="⇧">
+            <button type="button" role="radio" aria-checked={tool === 'box'} aria-label="Box" className={cx(c.tool, tool === 'box' && c.toolOn)} onClick={() => setTool('box')}>
+              <Icon name="square" size={14} />
+            </button>
+          </Tip>
+        </span>
+        <span className={c.stageHint}>{tool === 'box' ? 'Drag a box around something · everyone sees it' : 'Draw to point something out · ⇧ for a box'}</span>
         {anyInk ? (
           <Tip label="Clear the Drawing">
             <button type="button" className={c.tool} aria-label="Clear the Drawing" onClick={() => engine.stageSend({ k: 'clear', by: me })}>
@@ -261,12 +308,12 @@ export function Stage({ call }: { call: CallView }) {
 }
 
 /** Beside your sketch while it's up: ask your agent about the part it covers. */
-function AskPill({ at, frame, agent, ask }: { at: CSSProperties; frame: { w: number; h: number }; agent: string; ask: () => void }) {
+function AskPill({ at, frame, agent, ask, hold }: { at: CSSProperties; frame: { w: number; h: number }; agent: string; ask: () => void; hold: (on: boolean) => void }) {
   const right = Number(at.left ?? 0) + Number(at.width ?? 0);
   const top = Number(at.top ?? 0);
   const style: CSSProperties = { left: Math.min(Math.max(8, right + 8), frame.w - 150), top: Math.min(Math.max(8, top - 6), frame.h - 40) };
   return (
-    <button type="button" className={c.askPill} style={style} onPointerDown={(e) => e.stopPropagation()} onClick={ask}>
+    <button type="button" className={c.askPill} style={style} onPointerDown={(e) => e.stopPropagation()} onPointerEnter={() => hold(true)} onPointerLeave={() => hold(false)} onClick={ask}>
       <Icon name="sparkles" size={12} />
       Ask {agent}
     </button>

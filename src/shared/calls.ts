@@ -126,7 +126,7 @@ export function callLength(ms: number): string {
  * place on any size of screen.
  */
 export type StageMessage =
-  /** A laser pointer where `by` points now (`x` < 0: they stopped). */
+  /** Where `by`'s pointer is now (`x` < 0: they stopped); sent many times a second, on the pointers channel when there is one. */
   | { readonly k: 'laser'; readonly by: string; readonly x: number; readonly y: number }
   /** A stroke of ink being drawn: its points so far (sent again as it grows), in `color`. */
   | { readonly k: 'ink'; readonly by: string; readonly id: string; readonly color: string; readonly pts: readonly number[]; readonly done?: boolean }
@@ -148,7 +148,7 @@ export type StageMessage =
   /** The words of a phrase another Mac sent here to write down (empty: it couldn't). */
   | { readonly k: 'clip-text'; readonly by: string; readonly id: string; readonly text: string }
   /** Which of a window's streams is its camera and which its screen (WebRTC only says a stream's id). */
-  | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string }
+  | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string; readonly pointers?: boolean }
   /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
   | { readonly k: 'asked'; readonly by: string; readonly ask: string; readonly box?: readonly [number, number, number, number] };
 
@@ -221,7 +221,7 @@ export function parseStage(text: string): StageMessage | undefined {
       return typeof o['id'] === 'string' && o['id'].length <= 40 && typeof o['text'] === 'string' && o['text'].length <= 8_000 ? { k: 'clip-text', by, id: o['id'], text: o['text'] } : undefined;
     case 'streams': {
       const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
-      return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}) };
+      return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}), ...(o['pointers'] === true ? { pointers: true } : {}) };
     }
     case 'asked': {
       const box = o['box'];
