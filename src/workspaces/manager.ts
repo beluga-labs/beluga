@@ -22,6 +22,7 @@ import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/openco
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
 import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, RenameResult, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { ForkOf } from './github.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
@@ -123,6 +124,8 @@ export class WorkspaceManager {
   private readonly folderRefreshes = new Map<string, Promise<boolean>>();
   /** Fetching state per project root (in flight, the last failure), shown with the default branch. */
   private fetchState = new Map<string, Pick<ProjectSync, 'fetching' | 'fetchError'>>();
+  /** What each project's origin was forked from (by root), as gh last said. */
+  private forks = new Map<string, ForkOf>();
   /** A remote's default branch learned while fetching, for repos without origin/HEAD (by root). */
   private remoteDefaults = new Map<string, string>();
 
@@ -566,7 +569,8 @@ export class WorkspaceManager {
         const branch = w.kind === 'worktree' || w.kind === 'main' ? (trees.find((t) => real(t.path) === real(w.path))?.branch ?? now.branch) : now.branch;
         return { ...now, ...(branch ? { branch } : {}), base: now.base ?? base, projectId: id, external: false, ...(w.askOnly ? { askOnly: true } : {}), ...(w.status ? { status: w.status } : {}) };
       };
-      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}) };
+      const fork = this.forks.get(root);
+      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}), ...(fork ? { fork } : {}) };
     } catch (err) {
       return { id, name, root, base: 'HEAD', workspaces: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -675,6 +679,19 @@ export class WorkspaceManager {
   async defaultBranchName(projectId: string): Promise<string> {
     const base = await this.baseOf(this.repoProject(projectId).root);
     return base.replace(/^origin\//, '');
+  }
+
+  /** Record what a project's origin was forked from (undefined: not a fork), shown right away. */
+  setFork(projectId: string, fork: ForkOf | undefined): void {
+    const project = this.projects.find((p) => p.id === projectId && p.root);
+    if (!project) return;
+    if (fork) this.forks.set(project.root, fork);
+    else this.forks.delete(project.root);
+    this.projects = this.projects.map((p) => {
+      if (p !== project) return p;
+      const { fork: _f, ...rest } = p;
+      return fork ? { ...rest, fork } : rest;
+    });
   }
 
   /** Mark a project as fetching (or record how its last fetch went), shown right away. */

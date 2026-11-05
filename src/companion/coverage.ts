@@ -462,6 +462,8 @@ export const PHONE: Record<Method, Side> = {
   'git.moveAndUpdate': 'mac',
   'git.switchToDefault': 'mac',
   'git.askClaude': 'mac',
+  'git.syncFork': 'mac',
+  'git.syncForkWithClaude': 'mac',
   'git.github': 'mac',
   'git.githubRepo': 'mac',
   'git.log': 'mac',

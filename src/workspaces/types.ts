@@ -1,6 +1,7 @@
 import type { AgentRef } from '../protocol.js';
 import type { Effort } from '../shared/settings-schema.js';
 import type { Status } from './git.js';
+import type { ForkOf } from './github.js';
 import type { DefaultBranch, FetchProblem } from './sync.js';
 import type { ProjectScripts, ResolvedScripts } from './scripts.js';
 
@@ -156,6 +157,8 @@ export interface Project {
   readonly scripts?: ResolvedScripts;
   /** The default branch (main or master) against its remote, and fetching it (see sync.ts). */
   readonly sync?: ProjectSync;
+  /** Origin is a GitHub fork: the original repository, and how far behind it the fork is (learned with gh after a fetch). */
+  readonly fork?: ForkOf;
 }
 
 /** How a project's default branch stands, plus Beluga's fetching of it. */
