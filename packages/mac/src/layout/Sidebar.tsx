@@ -33,6 +33,7 @@ import { UpdatePill } from '../components/UpdatePill.js';
 import s from './Sidebar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { CallPill } from '../call/CallLayer.js';
+import { AppMenu } from './AppMenu.js';
 
 /**
  * The sidebar's top: three places, always. The rest are a click away without a row of their
@@ -110,7 +111,14 @@ export function Sidebar() {
   return (
     <nav ref={drop.ref} className={cx(s.sidebar, drop.over && s.dropping)} aria-label="Sidebar">
       <div className={s.titlebar} data-tauri-drag-region>
-        <span className={s.trafficSpace} data-tauri-drag-region />
+        {/* The traffic lights' place; in a browser, which has no menu bar, the menu bar's button (Settings and the rest). */}
+        {inApp() ? (
+          <span className={s.trafficSpace} data-tauri-drag-region />
+        ) : (
+          <span className={s.appMenu}>
+            <AppMenu />
+          </span>
+        )}
         <UsageButton />
         <IconButton icon="sidebar" label="Hide sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: false })} />
       </div>

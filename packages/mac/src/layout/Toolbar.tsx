@@ -34,6 +34,7 @@ import s from './Toolbar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { sentinelSubtitle } from '../sentinel/sentinel-model.js';
 import { CallButton } from '../call/CallStrip.js';
+import { AppMenu } from './AppMenu.js';
 
 /** Room the title keeps, and the window buttons on the right (search, bell, panel). */
 const TITLE_MIN = 210;
@@ -75,6 +76,8 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
     <header ref={headerRef} className={cx(s.toolbar, !prefs.sidebar && s.noSidebar)} data-tauri-drag-region>
       {prefs.sidebar ? null : (
         <span className={s.lead}>
+          {/* The sidebar's menu-bar button (a browser's), beside it while the sidebar is hidden. */}
+          <AppMenu />
           <IconButton icon="sidebar" label="Show sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: true })} />
         </span>
       )}
