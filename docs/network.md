@@ -379,11 +379,25 @@ conversation, and it's the same chat.
 - **One window makes your side.** The Mac screen that started or joined it (or the first to say
   so after you answered from the phone) gets the setup and says it's still there every few
   seconds. If it goes quiet for 32 s, you leave the call.
-- **Pointing, without tools.** On a shared screen your pointer shows for everyone as you move, a
-  click sends a ripple, and dragging marks a box: as you let go, Show Everyone (it fades), Keep
-  Marked (it stays until cleared) and Ask your agent open right at it. ⌥-drag draws. The sharer
-  picks Sharp (text: full resolution, fewer frames) or Smooth (motion: every frame); the relays
-  pass it on the same way. Full Screen gives the picture the whole display.
+- **Pointing, without tools** (BLG-717). On a shared screen your pointer shows for everyone as you
+  move, a click sends a ripple, and dragging draws. Strokes a moment apart are one sketch (a word,
+  a circle and an arrow); drawing again after a pause clears your old sketch, and left alone it
+  fades by itself. Beside your sketch, Ask your agent sends the part it covers, ink and all, to the
+  chat. The sharer picks Sharp (text) or Smooth (motion) behind •••; Full Screen gives the picture
+  the whole display.
+- **The sharer sees it too.** While you share a whole screen and look at another app, a
+  click-through window covers that screen (src-tauri/src/call_overlay.rs): the others' sketches,
+  pointers and clicks where they made them, and captions bottom right. It asks macOS to leave it
+  out of captures (`NSWindowSharingNone`). Sharing one window, only the captions show (its place
+  on screen isn't known).
+- **Captions.** Each Mac's own words, as soon as they're written down (the notes' phrases), go to
+  the others on the data channel and pop up bottom right for a few seconds: over the stage, the
+  face view, and the sharer's overlay.
+- **Calls of 5–10.** Each Mac measures what it can send (WebRTC's own estimate per line) and says so
+  with `here`; the share tree puts the best uploads closest to the sharer, each feeding as many as
+  its upload carries (one to five), and weak connections only watch (`shareTreeBy`). Each window
+  says how big it shows each camera (face to face or a small collage: big; a tile: small; not on
+  screen: none), and each sender splits its upload by that, sending nothing to whoever doesn't look.
 - **Cameras** (BLG-714). Each camera goes to everyone in the call, smaller as it grows (full size
   for two, about a third of the bitrate past four). A line says once on the data channel which of
   its streams is the camera and which the screen. Faces show as a band under the strip, or a

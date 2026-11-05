@@ -83,34 +83,17 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   const frame = stage.locator('video').first().locator('..');
   const b = (await frame.boundingBox())!;
   const at = (fx: number, fy: number): [number, number] => [b.x + b.width * fx, b.y + b.height * fy];
-  // ⌥-drag draws, no tool to pick first.
-  await page.keyboard.down('Alt');
+  // Drag draws, no tool to pick; everyone sees it.
   await page.mouse.move(...at(0.3, 0.35));
   await page.mouse.down();
   for (let i = 0; i <= 12; i++) await page.mouse.move(...at(0.3 + i * 0.02, 0.35 + Math.sin(i / 2) * 0.03));
   await page.mouse.up();
-  await page.keyboard.up('Alt');
-  await expect(stage.getByRole('button', { name: 'Clear Marks and Ink' })).toBeVisible();
-  // A drag marks a box; as you let go its three choices open right there.
-  await page.mouse.move(...at(0.12, 0.42));
-  await page.mouse.down();
-  await page.mouse.move(...at(0.62, 0.5), { steps: 6 });
-  await page.mouse.up();
-  const menu = stage.getByRole('menu', { name: 'Marked part' });
-  await expect(menu).toBeVisible();
-  await shot(page, '04-mark-menu');
-  await menu.getByRole('menuitem', { name: 'Keep Marked' }).click();
-  await expect(menu).toHaveCount(0);
-  await shot(page, '05-kept-mark');
-  // One click anywhere clears what you marked and drew.
-  await page.mouse.click(...at(0.85, 0.85));
-  await expect(stage.getByRole('button', { name: 'Clear Marks and Ink' })).toHaveCount(0);
-  // Mark again and ask your agent about it: one more step, the question, in place.
-  await page.mouse.move(...at(0.1, 0.2));
-  await page.mouse.down();
-  await page.mouse.move(...at(0.7, 0.55), { steps: 6 });
-  await page.mouse.up();
-  await menu.getByRole('menuitem', { name: /^Ask / }).click();
+  await expect(stage.getByRole('button', { name: 'Clear the Drawing' })).toBeVisible();
+  // What people say pops up bottom right as they say it.
+  await expect(stage.getByRole('list', { name: 'What people are saying' })).toBeVisible({ timeout: 10_000 });
+  await shot(page, '04-sketch-and-captions');
+  // Ask about what you drew: the pill beside your sketch.
+  await stage.getByRole('button', { name: /^Ask / }).click();
   const ask = stage.getByRole('textbox', { name: /^Ask / });
   await expect(ask).toBeVisible();
   await ask.fill('Is the discount applied in the right order?');

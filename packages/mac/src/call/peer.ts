@@ -1,4 +1,7 @@
 import type { ShareMode } from '@beluga/shared/calls.js';
+import { type CameraSize, cameraEncoding } from './camera-size.js';
+
+export type { CameraSize };
 
 /**
  * One person's line in a call (BLG-706): a WebRTC connection between your window and theirs, set
@@ -22,13 +25,6 @@ const SCREEN: Record<ShareMode, { readonly maxBitrate: number; readonly maxFrame
   sharp: { maxBitrate: 3_500_000, maxFramerate: 24, degradation: 'maintain-resolution' },
   smooth: { maxBitrate: 4_500_000, maxFramerate: 60, degradation: 'maintain-framerate' },
 };
-
-/** A camera, smaller as the call grows (everyone sends theirs to everyone). */
-export function cameraEncoding(people: number): { readonly maxBitrate: number; readonly scaleResolutionDownBy: number } {
-  if (people <= 2) return { maxBitrate: 1_500_000, scaleResolutionDownBy: 1 };
-  if (people <= 4) return { maxBitrate: 700_000, scaleResolutionDownBy: 1.5 };
-  return { maxBitrate: 320_000, scaleResolutionDownBy: 2.5 };
-}
 
 type Slot = 'screen' | 'cam';
 
@@ -175,9 +171,9 @@ export class Peer {
     return this.setSlot('screen', track, { maxBitrate: m.maxBitrate, maxFramerate: m.maxFramerate }, m.degradation);
   }
 
-  /** Your camera for this person (or none), sized for a call of `people`. */
-  setCamera(track: MediaStreamTrack | undefined, people: number): Promise<void> {
-    return this.setSlot('cam', track, { ...cameraEncoding(people), maxFramerate: 30 }, 'balanced');
+  /** Your camera for this person (or none), as big as they show it, within `budget` kbit/s. */
+  setCamera(track: MediaStreamTrack | undefined, size: CameraSize, budget?: number): Promise<void> {
+    return this.setSlot('cam', track, { ...cameraEncoding(size, budget), maxFramerate: size === 'big' ? 30 : 20 }, 'balanced');
   }
 
   private setSlot(slot: Slot, track: MediaStreamTrack | undefined, encoding: RTCRtpEncodingParameters, degradation: RTCDegradationPreference): Promise<void> {
@@ -211,14 +207,17 @@ export class Peer {
     if (this.stage.readyState === 'open') this.stage.send(text);
   }
 
-  /** How long a round trip to them takes, if known (ms). */
-  async rtt(): Promise<number | undefined> {
+  /** How long a round trip to them takes (ms), and how much this line can send now (kbit/s, WebRTC's own estimate), if known. */
+  async health(): Promise<{ readonly rtt?: number; readonly send?: number }> {
     const stats = await this.pc.getStats().catch(() => undefined);
     let rtt: number | undefined;
-    stats?.forEach((r: { type?: string; state?: string; nominated?: boolean; currentRoundTripTime?: number }) => {
-      if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.nominated && r.currentRoundTripTime !== undefined) rtt = Math.round(r.currentRoundTripTime * 1000);
+    let send: number | undefined;
+    stats?.forEach((r: { type?: string; state?: string; nominated?: boolean; currentRoundTripTime?: number; availableOutgoingBitrate?: number }) => {
+      if (r.type !== 'candidate-pair' || r.state !== 'succeeded' || !r.nominated) return;
+      if (r.currentRoundTripTime !== undefined) rtt = Math.round(r.currentRoundTripTime * 1000);
+      if (r.availableOutgoingBitrate !== undefined) send = Math.round(r.availableOutgoingBitrate / 1000);
     });
-    return rtt;
+    return { ...(rtt !== undefined ? { rtt } : {}), ...(send !== undefined ? { send } : {}) };
   }
 
   close(): void {

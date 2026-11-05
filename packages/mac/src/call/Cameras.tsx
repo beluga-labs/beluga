@@ -4,6 +4,7 @@ import { callLength } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Tip, cx } from '../components/ui.js';
 import { CallControls } from './CallStrip.js';
+import { Captions } from './Captions.js';
 import { useCallEngine, useCallLive, useCallPlace, useSecond } from './use-call.js';
 import c from './call.module.css';
 
@@ -170,6 +171,7 @@ export function FaceView({ call }: { call: CallView }) {
           {myCam ? <Picture stream={myCam} mirrored className={c.faceVideo} /> : <Avatar name="You" id={me.peerId} size={48} />}
         </div>
       ) : null}
+      <Captions call={call} dark className={c.faceCaptions} />
       <footer className={c.faceBar}>
         <CallControls call={call} />
         <button type="button" className={c.faceBack} onClick={() => engine.setFaces(false)}>

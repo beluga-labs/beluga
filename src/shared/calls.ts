@@ -18,6 +18,8 @@ export interface CallPersonView {
   readonly sharing: boolean;
   /** Their camera is on (BLG-714). */
   readonly camera?: boolean;
+  /** About how much they can send (kbit/s, their own measure, BLG-717): the share relays through the best. */
+  readonly uplink?: number;
   readonly joinedAt: number;
 }
 
@@ -68,6 +70,34 @@ export function shareTree(sharer: string, viewers: readonly string[]): ReadonlyM
   return tree;
 }
 
+/** What one screen share takes (kbit/s), to count how many someone can pass on. */
+export const SHARE_KBPS = 2_500;
+/** Most viewers anyone feeds directly, however good their connection. */
+const MOST_FED = 5;
+
+/**
+ * The share tree for a call of any size (BLG-717): the best uploads closest to the sharer. Viewers
+ * go in order of how much they can send (each Mac says it; ties by when they joined, so every Mac
+ * draws the same tree), and each feeds as many as its upload carries (one at least, five at
+ * most), the sharer first. Someone on a weak connection only watches.
+ */
+export function shareTreeBy(sharer: { readonly peerId: string; readonly uplink?: number }, viewers: ReadonlyArray<{ readonly peerId: string; readonly uplink?: number; readonly joinedAt: number }>): ReadonlyMap<string, string> {
+  const fanout = (uplink: number | undefined, fallback: number): number => (uplink === undefined ? fallback : Math.max(1, Math.min(MOST_FED, Math.floor((uplink * 0.8) / SHARE_KBPS))));
+  const order = [...viewers].sort((a, b) => (b.uplink ?? 0) - (a.uplink ?? 0) || a.joinedAt - b.joinedAt || (a.peerId < b.peerId ? -1 : 1));
+  const tree = new Map<string, string>();
+  // Feeders in order, each with the room it has left.
+  const feeders: Array<{ id: string; left: number }> = [{ id: sharer.peerId, left: fanout(sharer.uplink, SHARE_FANOUT) }];
+  let at = 0;
+  for (const v of order) {
+    while (at < feeders.length && feeders[at]!.left <= 0) at++;
+    const f = feeders[Math.min(at, feeders.length - 1)]!;
+    tree.set(v.peerId, f.id);
+    f.left--;
+    feeders.push({ id: v.peerId, left: fanout(v.uplink, RELAY_FANOUT) });
+  }
+  return tree;
+}
+
 /** Whom `peerId` sends the share on to (their children in `shareTree`). */
 export function shareChildren(tree: ReadonlyMap<string, string>, peerId: string): string[] {
   return [...tree].filter(([, from]) => from === peerId).map(([to]) => to);
@@ -109,6 +139,10 @@ export type StageMessage =
   | { readonly k: 'unmark'; readonly by: string; readonly id: string }
   /** How the sharer sends their screen: sharp for text, smooth for motion (relays pass it on the same way). */
   | { readonly k: 'mode'; readonly by: string; readonly mode: ShareMode }
+  /** Something someone said, just written down on their Mac (BLG-717): a caption that pops up and dissolves. */
+  | { readonly k: 'said'; readonly by: string; readonly text: string; readonly at: number }
+  /** Whose cameras this window shows big (the rest small; `visible` false: none on screen), so senders size each one for it. */
+  | { readonly k: 'view'; readonly by: string; readonly big: readonly string[]; readonly visible: boolean }
   /** Which of a window's streams is its camera and which its screen (WebRTC only says a stream's id). */
   | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string }
   /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
@@ -119,6 +153,9 @@ export type Box = readonly [number, number, number, number];
 
 /** Sharp: every pixel of text, fewer frames. Smooth: every frame, fewer pixels when the network is tight. */
 export type ShareMode = 'sharp' | 'smooth';
+
+/** How long a caption (something just said) stays on screen before it's gone (BLG-717). */
+export const CAPTION_MS = 7_000;
 
 /** Ink fades this long after it's done. */
 export const INK_FADE_MS = 4_000;
@@ -160,6 +197,15 @@ export function parseStage(text: string): StageMessage | undefined {
       return typeof o['id'] === 'string' && o['id'].length <= 40 ? { k: 'unmark', by, id: o['id'] } : undefined;
     case 'mode':
       return o['mode'] === 'sharp' || o['mode'] === 'smooth' ? { k: 'mode', by, mode: o['mode'] } : undefined;
+    case 'said': {
+      const text = o['text'];
+      return typeof text === 'string' && text.length > 0 && text.length <= 600 && num(o['at']) ? { k: 'said', by, text, at: o['at'] } : undefined;
+    }
+    case 'view': {
+      const big = o['big'];
+      if (!Array.isArray(big) || big.length > 32 || !big.every((b) => typeof b === 'string' && b.length <= 200)) return undefined;
+      return { k: 'view', by, big: big as string[], visible: o['visible'] !== false };
+    }
     case 'streams': {
       const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
       return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}) };

@@ -20,7 +20,7 @@ export const CALLS_API = {
   // Not now: it stops ringing, and whoever rang hears it.
   'calls.decline': { args: z.tuple([conversation]) },
   // Mute, share or turn your camera on (the window also says this every few seconds, so the daemon knows it's still making the call) → CallView.
-  'calls.set': { args: z.tuple([conversation, z.object({ muted: z.boolean().optional(), sharing: z.boolean().optional(), camera: z.boolean().optional() }).strict()]) },
+  'calls.set': { args: z.tuple([conversation, z.object({ muted: z.boolean().optional(), sharing: z.boolean().optional(), camera: z.boolean().optional(), uplink: z.number().int().min(0).max(10_000_000).optional() }).strict()]) },
   // WebRTC setup for someone's window in the call (an offer, answer or candidate, as JSON) → whether it went.
   'calls.signal': { args: z.tuple([conversation, peerId, z.string().min(1).max(SIGNAL_MAX)]) },
   // Your own words in a call you were in (written down on this Mac, BLG-715): kept here and sent to the

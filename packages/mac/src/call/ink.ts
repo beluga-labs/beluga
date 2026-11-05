@@ -54,6 +54,16 @@ export const PING_MS = 1_100;
 /** Marks kept at once. */
 const MAX_MARKS = 12;
 
+/**
+ * Drawing is sketching (BLG-717): strokes one person makes within a moment of each other are one
+ * sketch (a word written, a circle and an arrow), and it stays while they go on. Start again after
+ * a pause and the old sketch makes way for the new one; left alone, a sketch fades by itself.
+ */
+export const WRITE_GAP_MS = 2_500;
+/** A sketch stays this long after its last stroke, then fades over `SKETCH_FADE_MS`. */
+export const SKETCH_HOLD_MS = 7_000;
+const SKETCH_FADE_MS = 1_500;
+
 /** A laser nobody moved for this long goes. */
 const LASER_MS = 2_500;
 /** A stroke that stopped growing this long ago without being finished (its Mac left) fades anyway. */
@@ -72,7 +82,11 @@ export function applyInk(ink: Ink, m: StageMessage, now: number): Ink {
     }
     case 'ink': {
       const stroke: Stroke = { id: m.id, by: m.by, color: m.color, pts: m.pts, at: now, ...(m.done ? { doneAt: now } : {}) };
-      const rest = ink.strokes.filter((s) => !(s.id === m.id && s.by === m.by));
+      const isNew = !ink.strokes.some((s) => s.id === m.id && s.by === m.by);
+      // A new stroke after a pause starts a new sketch: theirs before it makes way.
+      const last = lastActive(ink.strokes, m.by);
+      const fresh = isNew && last !== undefined && now - last > WRITE_GAP_MS;
+      const rest = ink.strokes.filter((s) => !(s.id === m.id && s.by === m.by) && !(fresh && s.by === m.by));
       return { ...ink, strokes: [...rest, stroke].slice(-MAX_STROKES) };
     }
     case 'clear':
@@ -90,13 +104,48 @@ export function applyInk(ink: Ink, m: StageMessage, now: number): Ink {
   }
 }
 
-/** How visible a stroke is now (1 while drawn and just after, down to 0 when it's gone). */
-export function strokeAlpha(s: Stroke, now: number): number {
-  if (s.doneAt === undefined) return 1;
-  const age = now - s.doneAt;
-  const hold = INK_FADE_MS * 0.6;
-  if (age <= hold) return 1;
-  return Math.max(0, 1 - (age - hold) / (INK_FADE_MS - hold));
+/** When someone last drew (the end of their last stroke, or now while one is being drawn), if they have a sketch up. */
+export function lastActive(strokes: readonly Stroke[], by: string): number | undefined {
+  let last: number | undefined;
+  for (const s of strokes) if (s.by === by) last = Math.max(last ?? 0, s.doneAt ?? s.at);
+  return last;
+}
+
+/** How visible someone's sketch is now: whole while they draw and a while after, then fading to 0. */
+export function sketchAlpha(last: number, drawing: boolean, now: number): number {
+  if (drawing) return 1;
+  const age = now - last;
+  if (age <= SKETCH_HOLD_MS) return 1;
+  return Math.max(0, 1 - (age - SKETCH_HOLD_MS) / SKETCH_FADE_MS);
+}
+
+/** How visible a stroke is now: as its sketch is. */
+export function strokeAlpha(s: Stroke, now: number, strokes: readonly Stroke[] = [s]): number {
+  const mine = strokes.filter((x) => x.by === s.by);
+  const drawing = mine.some((x) => x.doneAt === undefined && now - x.at <= STALE_MS);
+  return sketchAlpha(lastActive(mine, s.by) ?? s.at, drawing, now);
+}
+
+/** The part of the picture someone's sketch covers (fractions), with a little room around it. */
+export function sketchBox(strokes: readonly Stroke[], by: string): readonly [number, number, number, number] | undefined {
+  let x0 = 1;
+  let y0 = 1;
+  let x1 = 0;
+  let y1 = 0;
+  for (const s of strokes) {
+    if (s.by !== by) continue;
+    for (let i = 0; i + 1 < s.pts.length; i += 2) {
+      x0 = Math.min(x0, s.pts[i]!);
+      x1 = Math.max(x1, s.pts[i]!);
+      y0 = Math.min(y0, s.pts[i + 1]!);
+      y1 = Math.max(y1, s.pts[i + 1]!);
+    }
+  }
+  if (x1 < x0) return undefined;
+  const pad = 0.04;
+  const x = Math.max(0, x0 - pad);
+  const y = Math.max(0, y0 - pad);
+  return [x, y, Math.min(1, x1 + pad) - x, Math.min(1, y1 + pad) - y];
 }
 
 /** A mark that wasn't kept fades like ink; a kept one stays. */
@@ -104,7 +153,8 @@ export const markGone = (m: Mark, now: number): boolean => !m.keep && now - m.at
 
 /** What's left once faded strokes, marks and ripples and still lasers are gone. */
 export function tidyInk(ink: Ink, now: number): Ink {
-  const strokes = ink.strokes.map((s) => (s.doneAt === undefined && now - s.at > STALE_MS ? { ...s, doneAt: now } : s)).filter((s) => strokeAlpha(s, now) > 0);
+  const ended = ink.strokes.map((s) => (s.doneAt === undefined && now - s.at > STALE_MS ? { ...s, doneAt: now } : s));
+  const strokes = ended.filter((s) => strokeAlpha(s, now, ended) > 0);
   const lasers = Object.fromEntries(Object.entries(ink.lasers).filter(([, l]) => now - l.at < LASER_MS));
   const marks = ink.marks.filter((m) => !markGone(m, now));
   const pings = ink.pings.filter((p) => now - p.at < PING_MS);
@@ -131,7 +181,7 @@ export function draw(g: CanvasRenderingContext2D, ink: Ink, box: { x: number; y:
   g.lineJoin = 'round';
   const at = (fx: number, fy: number): [number, number] => [(box.x + fx * box.w) * scale, (box.y + fy * box.h) * scale];
   for (const s of ink.strokes) {
-    const alpha = strokeAlpha(s, now);
+    const alpha = strokeAlpha(s, now, ink.strokes);
     if (alpha <= 0 || s.pts.length < 2) continue;
     g.globalAlpha = alpha * 0.92;
     g.strokeStyle = s.color;

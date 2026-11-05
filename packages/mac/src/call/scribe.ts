@@ -45,7 +45,11 @@ export class Scribe {
   private startedAt = 0;
   private stopped = false;
 
-  constructor(private readonly client: SocketClient) {}
+  /** `onSaid`: each phrase as soon as it's written down (the others see it as a caption). */
+  constructor(
+    private readonly client: SocketClient,
+    private readonly onSaid?: (text: string) => void,
+  ) {}
 
   start(mic: MediaStream): void {
     this.startedAt = Date.now();
@@ -97,7 +101,10 @@ export class Scribe {
         const prompt = promptFrom(joinPhrases(this.phrases.slice(-4).map((x) => x.text)));
         const r = (await this.client.api.voice.transcribe(btoa(bin), { model: voiceModelOf(p), language: p.voiceLanguage, ...(prompt ? { prompt } : {}) })) as TranscriptView;
         const text = cleanWords(r.text);
-        if (text) this.phrases.push({ at, text });
+        if (text) {
+          this.phrases.push({ at, text });
+          this.onSaid?.(text);
+        }
       } catch {
         // A phrase that couldn't be written down is left out; the rest go on.
       }

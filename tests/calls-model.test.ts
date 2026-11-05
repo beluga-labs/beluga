@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { NO_INK, applyInk, hasInk, strokeAlpha, tidyInk } from '../packages/mac/src/call/ink.js';
+import { NO_INK, applyInk, hasInk, sketchBox, strokeAlpha, tidyInk } from '../packages/mac/src/call/ink.js';
 import { JOINED, LEFT, RING, RING_EVERY_S } from '../packages/mac/src/call/ringtone.js';
 import { render } from '../packages/mac/src/lib/sounds/synth.js';
 import { needsYou } from '../src/companion/needs-you.js';
 import { NeedsYou } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
-import { callLength, keeps, parseStage, shareChildren, shareTree, sharerOf } from '../src/shared/calls.js';
+import { callLength, keeps, parseStage, shareChildren, shareTree, shareTreeBy, sharerOf } from '../src/shared/calls.js';
 
 describe('the share tree (BLG-706)', () => {
   it('the sharer feeds three viewers; each viewer passes it on to at most two', () => {
@@ -76,21 +76,61 @@ describe('a call ringing for you reaches the phone (BLG-706)', () => {
   });
 });
 
-describe('ink on a shared screen (BLG-706)', () => {
-  it('a stroke grows, fades once done, and fades anyway if its end never comes', () => {
-    let ink = applyInk(NO_INK, { k: 'ink', by: 'a', id: 's1', color: '#a3c9f7', pts: [0.1, 0.1, 0.2, 0.2] }, 0);
-    ink = applyInk(ink, { k: 'ink', by: 'a', id: 's1', color: '#a3c9f7', pts: [0.1, 0.1, 0.2, 0.2, 0.3, 0.3], done: true }, 100);
-    expect(ink.strokes).toHaveLength(1);
-    expect(strokeAlpha(ink.strokes[0]!, 100)).toBe(1);
-    expect(hasInk(tidyInk(ink, 100 + 5_000))).toBe(false);
+describe('drawing on a shared screen is sketching (BLG-717)', () => {
+  const stroke = (by: string, id: string, done = true) => ({ k: 'ink' as const, by, id, color: '#a3c9f7', pts: [0.1, 0.1, 0.2, 0.2], ...(done ? { done: true } : {}) });
+
+  it('strokes a moment apart are one sketch; drawing again after a pause clears the old one', () => {
+    let ink = applyInk(NO_INK, stroke('a', 's1'), 0);
+    ink = applyInk(ink, stroke('a', 's2'), 1_500); // writing a word: kept together
+    expect(ink.strokes.map((s) => s.id)).toEqual(['s1', 's2']);
+    ink = applyInk(ink, stroke('b', 't1'), 1_600); // someone else's never clears yours
+    ink = applyInk(ink, stroke('a', 's3'), 6_000); // a pause, then a new sketch
+    expect(ink.strokes.map((s) => s.id)).toEqual(['t1', 's3']);
+  });
+
+  it('a sketch stays while it’s fresh and fades by itself, all together', () => {
+    let ink = applyInk(NO_INK, stroke('a', 's1'), 0);
+    ink = applyInk(ink, stroke('a', 's2'), 2_000);
+    expect(strokeAlpha(ink.strokes[0]!, 8_000, ink.strokes)).toBe(1);
+    expect(hasInk(tidyInk(ink, 2_000 + 9_000))).toBe(false);
     // Its Mac left mid-stroke: no end comes, and it still goes.
-    const stuck = applyInk(NO_INK, { k: 'ink', by: 'b', id: 's2', color: '#a3c9f7', pts: [0.5, 0.5, 0.6, 0.6] }, 0);
-    expect(hasInk(tidyInk(stuck, 7_000))).toBe(true);
-    expect(hasInk(tidyInk(tidyInk(stuck, 9_000), 9_000 + 5_000))).toBe(false);
-    // A laser goes when nobody moves it; Clear takes the strokes.
+    const stuck = applyInk(NO_INK, stroke('b', 'x', false), 0);
+    expect(hasInk(tidyInk(tidyInk(stuck, 9_000), 9_000 + 9_000))).toBe(false);
+  });
+
+  it('Ask covers the sketch, with a little room; Clear takes it all', () => {
+    const ink = applyInk(NO_INK, { k: 'ink', by: 'a', id: 's', color: '#a3c9f7', pts: [0.2, 0.3, 0.5, 0.6], done: true }, 0);
+    const [x, y, w, h] = sketchBox(ink.strokes, 'a')!;
+    expect(x).toBeCloseTo(0.16);
+    expect(y).toBeCloseTo(0.26);
+    expect(w).toBeCloseTo(0.38);
+    expect(h).toBeCloseTo(0.38);
+    expect(sketchBox(ink.strokes, 'b')).toBeUndefined();
     const lit = applyInk(ink, { k: 'laser', by: 'c', x: 0.5, y: 0.5 }, 0);
     expect(Object.keys(tidyInk(lit, 1_000).lasers)).toEqual(['c']);
     expect(applyInk(lit, { k: 'clear', by: 'a' }, 0).strokes).toEqual([]);
+  });
+});
+
+describe('calls of 5–10 people (BLG-717)', () => {
+  it('the share relays through the best uploads, each feeding as many as it can carry', () => {
+    const v = (peerId: string, uplink: number | undefined, joinedAt: number) => ({ peerId, ...(uplink !== undefined ? { uplink } : {}), joinedAt });
+    // The sharer can carry two; ann has a great line, bo a weak one (watches only).
+    const tree = shareTreeBy({ peerId: 's', uplink: 7_000 }, [v('bo', 900, 1), v('ann', 20_000, 2), v('cy', 8_000, 3), v('di', 5_000, 4), v('ed', 3_000, 5), v('fi', 3_000, 6), v('gu', undefined, 7)]);
+    expect(shareChildren(tree, 's')).toEqual(['ann', 'cy']);
+    expect(shareChildren(tree, 'ann')).toEqual(['di', 'ed', 'fi', 'bo', 'gu']);
+    expect(shareChildren(tree, 'bo')).toEqual([]);
+    expect(tree.size).toBe(7);
+    // Every Mac draws the same tree: it only depends on what everyone said.
+    expect([...shareTreeBy({ peerId: 's', uplink: 7_000 }, [v('cy', 8_000, 3), v('ann', 20_000, 2), v('bo', 900, 1), v('gu', undefined, 7), v('fi', 3_000, 6), v('ed', 3_000, 5), v('di', 5_000, 4)])]).toEqual([...tree]);
+  });
+
+  it('a camera goes as big as its viewer shows it, within the upload it gets; nothing when unseen', async () => {
+    const { cameraEncoding } = await import('../packages/mac/src/call/camera-size.js');
+    expect(cameraEncoding('big')).toMatchObject({ maxBitrate: 1_800_000, scaleResolutionDownBy: 1, active: true });
+    expect(cameraEncoding('big', 500)).toMatchObject({ maxBitrate: 500_000, scaleResolutionDownBy: 2 });
+    expect(cameraEncoding('small')).toMatchObject({ maxBitrate: 350_000, scaleResolutionDownBy: 2 });
+    expect(cameraEncoding('none').active).toBe(false);
   });
 });
 

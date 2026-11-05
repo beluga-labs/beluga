@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { cx } from '../components/ui.js';
 import { CallStrip } from './CallStrip.js';
 import { Stage } from './Stage.js';
@@ -6,7 +6,7 @@ import { CameraStrip, FaceView } from './Cameras.js';
 import { NotesBox, NotesReaderFor } from './NotesBox.js';
 import { useCallPlace } from './use-call.js';
 import { useApp } from '../lib/beluga.js';
-import { useCallLive, useConversationCall } from './use-call.js';
+import { useCallEngine, useCallLive, useConversationCall } from './use-call.js';
 import c from './call.module.css';
 
 /**
@@ -21,6 +21,18 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
   // The room's chat has no timeline of its own for them: its latest call's notes sit on top, folded.
   const roomNotes = useApp((st) => (id === 'room' ? st.network.callNotes?.room?.at(-1) : undefined));
   const place = useCallPlace(id);
+  const engine = useCallEngine();
+  // Tell the others how you show their cameras (BLG-717), so each sends you its picture at that
+  // size: face to face one person, or a collage of four or fewer, big; the band or filmstrip small.
+  const mineHere = call?.mine === 'in' && live.conversation === id;
+  const others = call?.people.filter((p) => !p.me && p.camera).map((p) => p.peerId) ?? [];
+  const big = mineHere && live.faces && others.length <= 4 ? others : [];
+  const bigKey = big.join(',');
+  useEffect(() => {
+    if (!mineHere) return;
+    engine.setCameraView(bigKey ? bigKey.split(',') : [], true);
+    return () => engine.setCameraView([], false);
+  }, [engine, mineHere, bigKey]);
   return (
     <div className={c.room}>
       {call ? <CallStrip id={id} /> : null}

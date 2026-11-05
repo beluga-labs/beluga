@@ -10,6 +10,7 @@ mod export;
 mod focus;
 mod menu;
 mod call_float;
+mod call_overlay;
 mod popup;
 #[cfg(target_os = "macos")]
 mod power;
@@ -275,7 +276,7 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state)
                 // The request pop-up places itself (and is never restored visible).
-                .with_denylist(&[popup::LABEL, call_float::LABEL])
+                .with_denylist(&[popup::LABEL, call_float::LABEL, call_overlay::LABEL])
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -284,6 +285,7 @@ pub fn run() {
         .manage(requests::TrayState::default())
         .manage(popup::PopupState::default())
         .manage(call_float::CallFloatState::default())
+        .manage(call_overlay::CallOverlayState::default())
         .manage(AppState {
             lock: tokio::sync::Mutex::new(()),
             child: Mutex::new(None),
@@ -309,6 +311,8 @@ pub fn run() {
             call_float::set_call_float,
             call_float::call_float_state,
             call_float::call_float_action,
+            call_overlay::set_call_overlay,
+            call_overlay::call_overlay_state,
             system_idle_seconds,
             take_pending_links,
             focus_window,

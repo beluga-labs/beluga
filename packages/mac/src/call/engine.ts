@@ -1,10 +1,10 @@
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { Intent } from '@beluga/core/intents.js';
-import { type CallView, type ShareMode, type StageMessage, HEARTBEAT_MS, parseStage, shareChildren, shareTree, sharerOf } from '@beluga/shared/calls.js';
+import { type CallView, type ShareMode, type StageMessage, CAPTION_MS, HEARTBEAT_MS, SHARE_KBPS, parseStage, shareChildren, shareTreeBy, sharerOf } from '@beluga/shared/calls.js';
 import { inApp } from '../lib/boot.js';
 import { Levels } from './levels.js';
-import { type LineState, Peer } from './peer.js';
-import { demoCamera, demoScreen, demoVoice } from './demo-media.js';
+import { type CameraSize, type LineState, Peer } from './peer.js';
+import { DEMO_SAID, demoCamera, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
 import { type NotePhrase, Scribe, demoPhrases, scribeReady } from './scribe.js';
 
@@ -41,11 +41,25 @@ export interface CallLive {
   readonly theater: boolean;
   /** Face to face: cameras over the whole window (theirs big, yours in a corner; a group as a collage). */
   readonly faces: boolean;
+  /** What people just said (their own Macs wrote it down), newest last: captions that pop up and dissolve. */
+  readonly captions: readonly Caption[];
   /** Your words are being written down for the call's notes (`off`: you paused it; `none`: no voice model here). */
   readonly notes: 'on' | 'off' | 'none';
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none' };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none', captions: [] };
+
+/** A line someone said, as a caption. */
+export interface Caption {
+  readonly id: string;
+  readonly by: string;
+  readonly text: string;
+  readonly at: number;
+}
+
+/** Captions shown at once (each stays `CAPTION_MS`). */
+const CAPTIONS_KEPT = 4;
+export { CAPTION_MS };
 
 /** A picture from someone: its track, and whether frames are coming. */
 interface Incoming {
@@ -67,6 +81,14 @@ export class CallEngine {
   private readonly kinds = new Map<string, { readonly cam?: string; readonly screen?: string }>();
   /** Your camera, while it's on. */
   private cam: MediaStream | undefined;
+  /** How each person shows your camera (they say so), and how you show theirs. */
+  private readonly viewsOf = new Map<string, { readonly big: ReadonlySet<string>; readonly visible: boolean }>();
+  private myView: { big: readonly string[]; visible: boolean } = { big: [], visible: false };
+  /** What this Mac can send, by WebRTC's estimates (kbit/s), as last told to the others. */
+  private uplink: number | undefined;
+  private uplinkSaid: number | undefined;
+  /** The demo's friends' captions, while a demo call goes on. */
+  private stopDemoSaid: (() => void) | undefined;
   /** Writing down your words for the call's notes (BLG-715), and what was written before a pause. */
   private scribe: Scribe | undefined;
   private written: NotePhrase[] = [];
@@ -197,6 +219,18 @@ export class CallEngine {
     }
   }
 
+  /** A line someone said: a caption for a few seconds (the newest few at once). */
+  private caption(by: string, text: string): void {
+    const at = Date.now();
+    const captions = [...this.live.captions.filter((c) => at - c.at < CAPTION_MS), { id: `${by}-${at}`, by, text, at }].slice(-CAPTIONS_KEPT);
+    this.patch({ captions });
+  }
+
+  /** Your words as they're written down go to the others as captions (never to yourself). */
+  private said = (text: string): void => {
+    this.stageSend({ k: 'said', by: this.me, text: text.slice(0, 600), at: Date.now() });
+  };
+
   /** Your words in the call's notes, or not (what you said so far stays in). */
   async notes(on: boolean): Promise<void> {
     if (!this.view || this.live.notes === 'none') return;
@@ -208,7 +242,7 @@ export class CallEngine {
       return;
     }
     if (this.mic && !this.view.demo) {
-      this.scribe = new Scribe(this.client);
+      this.scribe = new Scribe(this.client, this.said);
       this.scribe.start(this.mic);
     }
     this.patch({ notes: 'on' });
@@ -217,6 +251,11 @@ export class CallEngine {
   /** Face to face over the whole window, or back to the chat. */
   setFaces(on: boolean): void {
     this.patch({ faces: on });
+  }
+
+  /** The screen you share now, if you share one (the overlay covers it, call/overlay.ts). */
+  sharedTrack(): MediaStreamTrack | undefined {
+    return this.screen?.getVideoTracks()[0];
   }
 
   /** Your camera on or off (macOS asks the first time). */
@@ -332,7 +371,7 @@ export class CallEngine {
     // Notes: your own words, on this Mac, when a voice model is here (it never downloads one for a call).
     if (call.demo) this.patch({ notes: 'on' });
     else if (mic && (await scribeReady(this.client)) && this.view?.id === call.id) {
-      this.scribe = new Scribe(this.client);
+      this.scribe = new Scribe(this.client, this.said);
       this.scribe.start(mic);
       this.patch({ notes: 'on' });
     }
@@ -367,6 +406,12 @@ export class CallEngine {
     this.audio.clear();
     this.incoming.clear();
     this.kinds.clear();
+    this.viewsOf.clear();
+    this.stopDemoSaid?.();
+    this.stopDemoSaid = undefined;
+    this.sharingTo = new Set();
+    this.myView = { big: [], visible: false };
+    this.uplink = this.uplinkSaid = undefined;
     this.demoVoices.clear();
     this.cam?.getTracks().forEach((t) => t.stop());
     this.cam = undefined;
@@ -420,16 +465,43 @@ export class CallEngine {
       if (this.live.stage) this.patch({ stage: undefined });
       return;
     }
-    const viewers = call.people.filter((p) => p.peerId !== sharer.peerId).map((p) => p.peerId);
-    const tree = shareTree(sharer.peerId, viewers);
+    // The best uploads closest to the sharer (each Mac says what it can send), so a call of ten stays sharp.
+    const viewers = call.people.filter((p) => p.peerId !== sharer.peerId);
+    const tree = shareTreeBy(sharer, viewers);
+    this.sharingTo = new Set(shareChildren(tree, me));
     const outgoing = sharer.me ? this.screen?.getVideoTracks()[0] : this.picture(tree.get(me) ?? '', 'screen');
-    const children = new Set(shareChildren(tree, me));
+    const children = this.sharingTo;
     for (const [id, peer] of this.peers) void peer.setVideo(children.has(id) ? outgoing : undefined, this.live.mode);
     const stream = sharer.me ? this.screen : outgoing ? new MediaStream([outgoing]) : undefined;
     const was = this.live.stage;
     if (!stream) {
       if (was) this.patch({ stage: undefined });
     } else if (was?.by !== sharer.peerId || was.stream.getVideoTracks()[0] !== stream.getVideoTracks()[0]) this.patch({ stage: { by: sharer.peerId, stream } });
+  }
+
+  /** How this person shows your camera, as they last said (small until they say). */
+  private sizeFor(peerId: string): CameraSize {
+    const v = this.viewsOf.get(peerId);
+    if (!v) return 'small';
+    if (!v.visible) return 'none';
+    return v.big.has(this.me) ? 'big' : 'small';
+  }
+
+  /** Whether you pass the screen share on to this person now. */
+  private passesShareTo(peerId: string): boolean {
+    return this.sharingTo.has(peerId);
+  }
+  private sharingTo = new Set<string>();
+
+  /**
+   * Whose cameras you show big and whether you show any (the face view, the band, the filmstrip
+   * say): everyone sends you theirs at that size, nothing for what you don't see.
+   */
+  setCameraView(big: readonly string[], visible: boolean): void {
+    const same = visible === this.myView.visible && big.length === this.myView.big.length && big.every((b, i) => b === this.myView.big[i]);
+    if (same) return;
+    this.myView = { big: [...big], visible };
+    this.stageSend({ k: 'view', by: this.me, big, visible });
   }
 
   /** Someone's camera or the screen they send, while frames come. */
@@ -442,7 +514,18 @@ export class CallEngine {
   /** Your camera to everyone (smaller as the call grows), and everyone's cameras to draw. */
   private reconcileCameras(call: CallView, people: number): void {
     const mine = call.people.find((p) => p.me)?.camera ? this.cam?.getVideoTracks()[0] : undefined;
-    for (const peer of this.peers.values()) void peer.setCamera(mine, people);
+    // Each person gets your camera as big as they show it; your upload is split by what's asked
+    // (a big picture counts four small ones), after the screen you share or pass on.
+    const sizes = new Map<string, CameraSize>([...this.peers.keys()].map((id) => [id, this.sizeFor(id)]));
+    const weight = [...sizes.values()].reduce((n, s) => n + (s === 'big' ? 4 : s === 'small' ? 1 : 0), 0);
+    const sharing = this.screen || [...this.peers.keys()].some((id) => this.passesShareTo(id)) ? SHARE_KBPS : 0;
+    const room = this.uplink !== undefined ? Math.max(300, this.uplink * 0.75 - sharing) : undefined;
+    for (const [id, peer] of this.peers) {
+      const size = sizes.get(id)!;
+      const share = room !== undefined && weight ? (room * (size === 'big' ? 4 : 1)) / weight : undefined;
+      void peer.setCamera(mine, size, share);
+    }
+    void people;
     const cameras: Record<string, MediaStream> = {};
     for (const p of call.people) {
       if (!p.camera) continue;
@@ -481,6 +564,11 @@ export class CallEngine {
             this.kinds.set(peerId, { ...(m.cam ? { cam: m.cam } : {}), ...(m.screen ? { screen: m.screen } : {}) });
             return this.reconcile();
           }
+          if (m.k === 'view') {
+            this.viewsOf.set(peerId, { big: new Set(m.big), visible: m.visible });
+            return this.reconcile();
+          }
+          if (m.k === 'said') return this.caption(peerId, m.text);
           if (m.k === 'mode') {
             // Only the sharer's word counts; the relays follow it too.
             if (this.view && sharerOf(this.view)?.peerId === peerId) this.patch({ mode: m.mode });
@@ -491,8 +579,9 @@ export class CallEngine {
         },
         onState: (state) => {
           this.patch({ lines: { ...this.live.lines, [peerId]: { ...this.live.lines[peerId], state } } });
-          // Someone who just joined hears how your screen is sent.
+          // Someone who just joined hears how your screen is sent, and how you show their camera.
           if (state === 'connected' && this.screen) this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'mode', by: this.me, mode: this.live.mode }));
+          if (state === 'connected') this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'view', by: this.me, big: this.myView.big, visible: this.myView.visible }));
         },
       },
       mic,
@@ -533,19 +622,41 @@ export class CallEngine {
   }
 
   private async measure(): Promise<void> {
-    const entries = await Promise.all([...this.peers].map(async ([id, p]) => [id, await p.rtt()] as const));
+    const entries = await Promise.all([...this.peers].map(async ([id, p]) => [id, await p.health()] as const));
     let changed = false;
     const lines = { ...this.live.lines };
-    for (const [id, rtt] of entries) {
-      if (rtt === undefined || lines[id]?.rtt === rtt) continue;
-      lines[id] = { state: lines[id]?.state ?? 'connected', rtt };
+    let best: number | undefined;
+    for (const [id, h] of entries) {
+      if (h.send !== undefined) best = Math.max(best ?? 0, h.send);
+      if (h.rtt === undefined || lines[id]?.rtt === h.rtt) continue;
+      lines[id] = { state: lines[id]?.state ?? 'connected', rtt: h.rtt };
       changed = true;
     }
     if (changed) this.patch({ lines });
+    // What you can send (the best line's estimate, smoothed), told to the others when it moves by a fifth.
+    if (best !== undefined) {
+      this.uplink = this.uplink === undefined ? best : Math.round(this.uplink * 0.7 + best * 0.3);
+      const said = this.uplinkSaid;
+      const c = this.live.conversation;
+      if (c && (said === undefined || Math.abs(this.uplink - said) > said * 0.2)) {
+        this.uplinkSaid = this.uplink;
+        void this.client.api.calls.set(c, { uplink: this.uplink }).catch(() => undefined);
+      }
+      this.reconcile();
+    }
   }
 
   /** The demo's friends make no sound of their own: their voices and screens are played here. */
   private reconcileDemo(call: CallView): void {
+    if (!this.stopDemoSaid) {
+      let turn = 0;
+      this.stopDemoSaid = repeat(() => {
+        const others = this.view?.people.filter((p) => !p.me) ?? [];
+        const [who, text] = DEMO_SAID[turn++ % DEMO_SAID.length]!;
+        const by = others[who % Math.max(1, others.length)];
+        if (by) this.caption(by.peerId, text);
+      }, 4_200);
+    }
     const lines: Record<string, { state: LineState; rtt?: number }> = {};
     for (const p of call.people.filter((x) => !x.me)) {
       lines[p.peerId] = { state: 'connected', rtt: 18 + (p.peerId.charCodeAt(0) % 20) };

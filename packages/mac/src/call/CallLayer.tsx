@@ -9,6 +9,7 @@ import { JOINED, LEFT, RING, RINGBACK, RINGBACK_EVERY_S, RING_EVERY_S, loop, pla
 import { callLength } from '@beluga/shared/calls.js';
 import { openCall, useCallEngine, useCallLive, useCallPlace, useMyCall, useRinging, useSecond, useShowing } from './use-call.js';
 import { syncFloat } from './float.js';
+import { startOverlay } from './overlay.js';
 import c from './call.module.css';
 
 /** Someone rings you: a card at the top of the window, wherever you are in Beluga. */
@@ -124,6 +125,15 @@ export function CallLayer() {
 
   // The floating card over other apps (src-tauri/src/call_float.rs).
   useEffect(() => syncFloat(client, engine, mine, ringing, live.speaking), [client, engine, mine, ringing, live.speaking]);
+
+  // What the others point at, over your own screen while you share it and look elsewhere (call/overlay.ts).
+  const inCall = mine?.id;
+  useEffect(() => {
+    if (!inCall) return;
+    const names = (id: string): string => client.store.getState().network.calls?.[mine.conversation]?.people.find((p) => p.peerId === id)?.name ?? 'Someone';
+    return startOverlay(engine, () => client.store.getState().network.self?.peerId ?? '', names);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inCall, engine, client]);
 
   const shown = ringing.filter((r) => r.conversation !== mine?.conversation).slice(0, 2);
   if (!shown.length) return null;
