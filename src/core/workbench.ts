@@ -14,7 +14,9 @@ import type { Workspace } from '../workspaces/types.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
 import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
-import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, unpushedCommits } from '../workspaces/pr.js';
+import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
+import { prTargetOf } from '../workspaces/github.js';
+import { prOnOriginal } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from '../agent/setup-fixer.js';
@@ -210,7 +212,7 @@ export interface GitHubOutcome {
 }
 
 /** What to do again once a fix worked: Create PR (as a draft), Merge into its base, or nothing (say it's fixed). */
-export type GitRetry = 'pr' | 'pr_draft' | 'merge_base' | 'none';
+export type GitRetry = 'pr' | 'pr_draft' | 'pr_original' | 'merge_base' | 'none';
 
 /** How long a terminal step (installing gh, logging in) may take before Beluga stops waiting for it. */
 const GITHUB_STEP_MS = 15 * 60_000;
@@ -227,6 +229,8 @@ async function inPool(tasks: ReadonlyArray<() => Promise<void>>, limit: number):
 }
 
 const samePr = (a: PullRequest | undefined, b: PullRequest | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** "https://github.com/kay/app/pull/12" → "https://github.com/kay/app": which repository a PR is on. */
+const repoOfPr = (url: string): string => url.replace(/\/pull\/\d+.*$/, '').toLowerCase();
 
 /** All an error said (a push's whole output, not just its line). */
 const rawOf = (err: unknown): string => (err && typeof err === 'object' && 'raw' in err && typeof err.raw === 'string' ? err.raw : err instanceof Error ? err.message : String(err));
@@ -380,7 +384,10 @@ export class Workbench {
     const prompt = buildPrPrompt({ branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', projectPrompt: project?.scripts?.prPrompt, extra });
     if (!this.deps.store.getState().prs[ws.id]) this.prAsked.add(ws.id);
     this.deps.controller.open(ws.id);
-    this.deps.askClaude(prompt, `ws:${ws.id}`);
+    const ask = (): void => this.deps.askClaude(prompt, `ws:${ws.id}`);
+    // Its last PR went to a fork's original: this one goes to the fork, as the menu says (before the run reads where gh points).
+    if (prTargetOf(ws.path, ws.branch)) void setPrTarget(ws.path, ws.branch, undefined).catch(() => undefined).finally(ask);
+    else ask();
     this.deps.toast(`${this.agent()} is preparing the pull request…`);
   }
 
@@ -388,7 +395,7 @@ export class Workbench {
    * Create PR, straight away and without Claude: commits anything left (as the branch's name),
    * pushes, and opens a pull request titled from the commits (`gh pr create`).
    */
-  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean } = {}): Promise<GitHubOutcome> {
+  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean; readonly original?: boolean } = {}): Promise<GitHubOutcome> {
     const fail = (message: string): { ok: false; message: string } => {
       this.deps.toast(message, 'error');
       return { ok: false, message };
@@ -402,11 +409,14 @@ export class Workbench {
       if (state !== 'ok') return this.troubleOr(ws, new Error(state === 'missing' ? 'The GitHub CLI (gh) isn’t installed' : 'The GitHub CLI isn’t logged in: gh auth login'), 'GitHub didn’t open the pull request');
       this.deps.store.dispatch({ type: 'gh', ok: true });
     }
+    // Create PR on the original (BLG-727): into the repository the project's origin was forked from.
+    const fork = opts.original ? this.manager.list.find((p) => p.id === ws.projectId)?.fork : undefined;
+    if (opts.original && !fork) return fail('This project’s origin isn’t a fork on GitHub, so there’s no original to open it on');
     if (this.creatingPr.has(id)) return { ok: false, message: 'The pull request is already being opened' };
     this.creatingPr.add(id);
     const branch = ws.branch;
     try {
-      this.deps.toast(`Opening a pull request for ${branch}…`);
+      this.deps.toast(`Opening a pull request for ${branch}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}…`);
       try {
         if ((ws.status?.changed ?? 0) > 0) await this.manager.commitAll(id, titleOfBranch(branch));
       } catch (err) {
@@ -417,7 +427,7 @@ export class Workbench {
       const text = prFromCommits(branch, subjects);
       let pr: PullRequest;
       try {
-        pr = await (this.deps.createPr ?? createPr)(ws.path, { base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}) });
+        pr = await (this.deps.createPr ?? createPr)(ws.path, { base: fork?.branch ?? base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}), ...(fork ? { to: fork } : {}) });
       } catch (err) {
         return this.troubleOr(ws, err, 'GitHub didn’t open the pull request');
       }
@@ -425,7 +435,7 @@ export class Workbench {
       this.pushedAt.set(id, this.now());
       this.deps.store.dispatch({ type: 'pr', id, pr });
       void this.deps.controller.refresh();
-      const message = `Opened PR #${pr.number}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
+      const message = `Opened PR #${pr.number}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
       this.deps.toast(message, 'success');
       return { ok: true, message };
     } finally {
@@ -514,7 +524,7 @@ export class Workbench {
     const draft = retry === 'pr_draft';
     const again = (https = false): Promise<GitHubOutcome> => {
       if (retry === 'merge_base') return this.mergeToBase(id, https ? { https: true } : {});
-      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(https ? { https: true } : {}) });
+      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(retry === 'pr_original' ? { original: true } : {}), ...(https ? { https: true } : {}) });
       const message = 'GitHub is set up: try it again';
       this.deps.toast(message, 'success');
       return Promise.resolve({ ok: true, message });
@@ -617,7 +627,7 @@ export class Workbench {
     return { ok: true, message };
   }
 
-  /** The branch a worktree's PRs go into ("main"). */
+  /** The branch a worktree's PRs go into ("main"): its base on origin (a PR on a fork's original says its own in createPr). */
   private prBase(ws: Workspace): string {
     const project = this.manager.list.find((p) => p.id === ws.projectId);
     const base = (ws.base ?? project?.base ?? 'origin/main').replace(/^origin\//, '');
@@ -630,7 +640,8 @@ export class Workbench {
     const pr = this.deps.store.getState().prs[id];
     if (!ws || !pr) return;
     this.deps.controller.open(id);
-    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws)), `ws:${id}`);
+    const fork = prOnOriginal(this.manager.list.find((p) => p.id === ws.projectId)?.fork, pr);
+    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws), fork ? { url: fork.url, branch: fork.branch } : undefined), `ws:${id}`);
     this.deps.toast(`${this.agent()} is resolving PR #${pr.number}’s conflicts…`);
   }
 
@@ -1010,7 +1021,10 @@ export class Workbench {
     for (const ws of list) byProject.set(ws.projectId, [...(byProject.get(ws.projectId) ?? []), ws]);
     const later: Workspace[] = [];
     const tasks: Array<() => Promise<void>> = [];
-    for (const group of byProject.values()) {
+    for (const all of byProject.values()) {
+      // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch));
+      tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
         continue;
@@ -1037,7 +1051,9 @@ export class Workbench {
   /** gh's answer for a worktree's branch: keep it, and tell you what changed. */
   private gotPr(ws: Workspace, found: PullRequest | undefined, quiet: boolean): void {
     // A PR you carried on after (Continue After Merge) is done: the branch waits for its next one.
-    const pr = found && ws.prDone !== undefined && found.number <= ws.prDone ? undefined : found;
+    // Numbers only compare within one repository (a fork's and its original's both have a #5).
+    const sameRepo = !ws.prShipped?.url || !found || repoOfPr(ws.prShipped.url) === repoOfPr(found.url);
+    const pr = found && ws.prDone !== undefined && sameRepo && found.number <= ws.prDone ? undefined : found;
     const before = this.deps.store.getState().prs[ws.id];
     if (!samePr(before, pr)) this.deps.store.dispatch({ type: 'pr', id: ws.id, pr });
     void this.settleMergeWait(ws, pr);

@@ -5,7 +5,7 @@ import type { PrCheck, PullRequest } from '../core/work-store.js';
 import { belugaHome } from './store.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { type GitSetup, httpsRemoteOf } from '../shared/git-trouble.js';
-import { ghRepoEnv, gitCommonDir } from './github.js';
+import { type GitHubRepo, PR_TARGET_KEY, ghRepoEnv, gitCommonDir, originRepo, originRepoEnv, prTargetOf, repoSlug } from './github.js';
 export { describePr } from '../shared/format.js';
 
 /**
@@ -82,11 +82,16 @@ export function buildPrPrompt(ctx: PrContext, template = customPrPrompt() ?? DEF
 }
 
 /** Ask Claude to fix the failing checks on a PR. */
-/** GitHub says the PR conflicts with its base: Claude brings the base in, resolves, and pushes. */
-export const resolvePrConflictsPrompt = (pr: PullRequest, base: string): string =>
+/**
+ * GitHub says the PR conflicts with its base: Claude brings the base in, resolves, and pushes. A PR
+ * on a fork's original (`original`) conflicts with the original's branch, fetched from there.
+ */
+export const resolvePrConflictsPrompt = (pr: PullRequest, base: string, original?: { readonly url: string; readonly branch: string }): string =>
   [
-    `Pull request #${pr.number} (${pr.url}) has merge conflicts with ${base}, so GitHub can't merge it. Resolve them on this branch:`,
-    `1. Commit anything uncommitted first. Then \`git fetch origin\` and \`git merge origin/${base}\` (a merge, not a rebase: never rewrite what's pushed).`,
+    `Pull request #${pr.number} (${pr.url}) has merge conflicts with ${original ? `${original.url.replace(/^https:\/\/[^/]+\//, '')}'s ${original.branch}` : base}, so GitHub can't merge it. Resolve them on this branch:`,
+    original
+      ? `1. Commit anything uncommitted first. Then \`git fetch ${original.url}.git ${original.branch}\` (no new remote) and \`git merge FETCH_HEAD\` (a merge, not a rebase: never rewrite what's pushed).`
+      : `1. Commit anything uncommitted first. Then \`git fetch origin\` and \`git merge origin/${base}\` (a merge, not a rebase: never rewrite what's pushed).`,
     "2. For each conflicted file, read both sides and the commits behind them, and keep both intents; don't just pick one side. Remove every conflict marker.",
     '3. Run the typecheck and the tests that cover what changed, and fix what the merge broke.',
     `4. Commit the merge and \`git push\` (never force-push). Then say in a few lines which files conflicted and how you resolved each.`,
@@ -436,7 +441,7 @@ export class PushError extends Error {
 
 /** The head commit of the branch's last pull request, if it was merged (gh's newest PR for the branch). */
 async function mergedHead(dir: string, head: string): Promise<string | undefined> {
-  const out = await runGh(['pr', 'view', head, '--json', 'state,headRefOid'], dir, 20_000).catch(() => undefined);
+  const out = await runGh(['pr', 'view', prHead(dir, head), '--json', 'state,headRefOid'], dir, 20_000).catch(() => undefined);
   if (!out) return undefined;
   try {
     const pr = JSON.parse(out) as { state?: string; headRefOid?: string };
@@ -458,11 +463,30 @@ export function pushWhy(stderr: string): string {
   return (line ?? 'git push failed').replace(/^!\s*/, '').slice(0, 300);
 }
 
+/**
+ * How gh names a branch's pull request: the branch, or "owner:branch" when it went to a fork's
+ * original (a PR from another repository is only found by its owner too).
+ */
+export function prHead(dir: string, branch: string): string {
+  const origin = prTargetOf(dir, branch) ? originRepo(dir) : undefined;
+  return origin ? `${origin.owner}:${branch}` : branch;
+}
+
+/**
+ * Send the branch's pull request to `to` (a fork's original) from now on, or back to origin
+ * (undefined): kept in the branch's git config, where every gh call about it looks (ghRepoEnv).
+ */
+export async function setPrTarget(dir: string, branch: string, to: Pick<GitHubRepo, 'host' | 'owner' | 'repo'> | undefined): Promise<void> {
+  const key = `branch.${branch}.${PR_TARGET_KEY}`;
+  if (to) await run('git', ['config', '--local', key, repoSlug(to)], dir, 5000);
+  else if (prTargetOf(dir, branch)) await run('git', ['config', '--local', '--unset-all', key], dir, 5000);
+}
+
 /** The pull request for a branch, if there is one. Throws when gh couldn't tell (offline, rate limit…). */
 export async function findPr(dir: string, branch: string): Promise<PullRequest | undefined> {
   if (!(await hasGh())) return undefined;
   try {
-    return parsePr(await runGh(['pr', 'view', branch, '--json', PR_FIELDS], dir, 20_000));
+    return parsePr(await runGh(['pr', 'view', prHead(dir, branch), '--json', PR_FIELDS], dir, 20_000));
   } catch (err) {
     if (err instanceof Error && /no pull requests? found/i.test(err.message)) return undefined;
     throw err;
@@ -475,7 +499,8 @@ export async function findPr(dir: string, branch: string): Promise<PullRequest |
  */
 export async function listPrs(dir: string): Promise<{ prs: Map<string, PullRequest>; full: boolean }> {
   if (!(await hasGh())) return { prs: new Map(), full: false };
-  const out = await runGh(['pr', 'list', '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', `${PR_FIELDS},headRefName`], dir, 30_000);
+  // Origin's, whatever the branch checked out in `dir` sends its own PR to (a PR on the original is looked up by itself).
+  const out = await run(gh(), ['pr', 'list', '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', `${PR_FIELDS},headRefName`], dir, 30_000, originRepoEnv(dir));
   const prs = parsePrList(out);
   if (!prs) throw new Error('gh pr list gave something unexpected');
   // A full page may have left out an older PR: those branches are looked up one by one.
@@ -608,15 +633,21 @@ export async function unpushedCommits(dir: string, branch: string, remote = 'ori
   }
 }
 
-/** Push `head` and open a pull request for it into `base` (a plan's branch → main) → the pull request. */
-export async function createPr(dir: string, pr: { readonly base: string; readonly head: string; readonly title: string; readonly body: string; readonly draft?: boolean; readonly https?: boolean }): Promise<PullRequest> {
+/**
+ * Push `head` and open a pull request for it into `base` (a plan's branch → main) → the pull
+ * request. `to`: into a fork's original instead (pushed to the fork, opened there as owner:branch);
+ * without it the branch's PR goes to origin again.
+ */
+export async function createPr(dir: string, pr: { readonly base: string; readonly head: string; readonly title: string; readonly body: string; readonly draft?: boolean; readonly https?: boolean; readonly to?: Pick<GitHubRepo, 'host' | 'owner' | 'repo'> }): Promise<PullRequest> {
   const state = await ghState();
   if (state === 'missing') throw new Error('The GitHub CLI (gh) isn’t installed');
   if (state === 'logged_out') throw new Error('The GitHub CLI isn’t logged in: gh auth login');
+  if (pr.to && !originRepo(dir)) throw new Error('origin isn’t on GitHub, so there’s no fork to open it from');
   await pushForPr(dir, pr.head, pr.https ? { https: true } : {});
+  await setPrTarget(dir, pr.head, pr.to);
   const existing = await findPr(dir, pr.head).catch(() => undefined);
   if (existing?.state === 'OPEN') return existing;
-  await runGh(['pr', 'create', '--base', pr.base, '--head', pr.head, '--title', pr.title, '--body', pr.body, ...(pr.draft ? ['--draft'] : [])], dir, 60_000);
+  await runGh(['pr', 'create', '--base', pr.base, '--head', prHead(dir, pr.head), '--title', pr.title, '--body', pr.body, ...(pr.draft ? ['--draft'] : [])], dir, 60_000);
   const made = await findPr(dir, pr.head);
   if (!made) throw new Error('GitHub didn’t show the new pull request');
   return made;
