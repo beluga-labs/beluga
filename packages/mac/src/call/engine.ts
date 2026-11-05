@@ -6,6 +6,7 @@ import { Levels } from './levels.js';
 import { type LineState, Peer } from './peer.js';
 import { demoCamera, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
+import { type NotePhrase, Scribe, demoPhrases, scribeReady } from './scribe.js';
 
 /**
  * Your side of a call, made in this window (BLG-706). The daemon says who's in the call
@@ -38,9 +39,11 @@ export interface CallLive {
   readonly mode: ShareMode;
   /** The stage fills the whole display. */
   readonly theater: boolean;
+  /** Your words are being written down for the call's notes (`off`: you paused it; `none`: no voice model here). */
+  readonly notes: 'on' | 'off' | 'none';
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, notes: 'none' };
 
 /** A picture from someone: its track, and whether frames are coming. */
 interface Incoming {
@@ -62,6 +65,9 @@ export class CallEngine {
   private readonly kinds = new Map<string, { readonly cam?: string; readonly screen?: string }>();
   /** Your camera, while it's on. */
   private cam: MediaStream | undefined;
+  /** Writing down your words for the call's notes (BLG-715), and what was written before a pause. */
+  private scribe: Scribe | undefined;
+  private written: NotePhrase[] = [];
   /** The demo's friends whose made-up voices are playing. */
   private readonly demoVoices = new Set<string>();
   private mic: MediaStream | undefined;
@@ -189,6 +195,23 @@ export class CallEngine {
     }
   }
 
+  /** Your words in the call's notes, or not (what you said so far stays in). */
+  async notes(on: boolean): Promise<void> {
+    if (!this.view || this.live.notes === 'none') return;
+    if (!on) {
+      const s = this.scribe;
+      this.scribe = undefined;
+      this.patch({ notes: 'off' });
+      if (s) this.written = [...this.written, ...(await s.finish())];
+      return;
+    }
+    if (this.mic && !this.view.demo) {
+      this.scribe = new Scribe(this.client);
+      this.scribe.start(this.mic);
+    }
+    this.patch({ notes: 'on' });
+  }
+
   /** Your camera on or off (macOS asks the first time). */
   async camera(on: boolean): Promise<void> {
     const c = this.live.conversation;
@@ -299,9 +322,32 @@ export class CallEngine {
     if (this.view?.id !== call.id) return;
     if (mic) this.levels.watch(this.me, mic);
     this.reconcile();
+    // Notes: your own words, on this Mac, when a voice model is here (it never downloads one for a call).
+    if (call.demo) this.patch({ notes: 'on' });
+    else if (mic && (await scribeReady(this.client)) && this.view?.id === call.id) {
+      this.scribe = new Scribe(this.client);
+      this.scribe.start(mic);
+      this.patch({ notes: 'on' });
+    }
+  }
+
+  /** The call is over for you: what you said goes to the others who were in it (an empty part says you're done). */
+  private sendNotes(call: CallView): void {
+    const scribe = this.scribe;
+    const before = this.written;
+    const demo = call.demo && this.live.notes === 'on';
+    const kept = this.live.notes !== 'none';
+    this.scribe = undefined;
+    this.written = [];
+    if (!kept) return;
+    void (async () => {
+      const said = demo ? demoPhrases(call.startedAt) : [...before, ...((await scribe?.finish()) ?? [])];
+      await this.client.api.calls.notes(call.id, said.slice(0, 3_000)).catch(() => undefined);
+    })();
   }
 
   private end(): void {
+    if (this.view) this.sendNotes(this.view);
     this.stopBeat?.();
     this.stopStats?.();
     this.stopBeat = this.stopStats = undefined;

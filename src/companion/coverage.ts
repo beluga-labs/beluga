@@ -543,6 +543,9 @@ export const PHONE: Record<Method, Side> = {
   'calls.set': 'mac',
   'calls.signal': 'mac',
   'calls.list': 'mac',
+  // Call notes (BLG-715): written down by the Mac's window, kept and read on the Mac.
+  'calls.notes': 'mac',
+  'calls.forgetNotes': 'mac',
   // Settings › Terminal › Import from…, and the welcome's terminal step: Mac settings only.
   'terminalImport.detect': 'mac',
   // The agent's own terminal in a conversation (BLG-534) opens on the Mac, and its visuals open

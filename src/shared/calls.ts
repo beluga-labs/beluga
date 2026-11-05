@@ -175,3 +175,25 @@ export function parseStage(text: string): StageMessage | undefined {
       return undefined;
   }
 }
+
+/** One thing said in a call, in its notes (BLG-715). */
+export interface NotesLine {
+  /** Who said it (their peer id), and their name. */
+  readonly by: string;
+  readonly name: string;
+  readonly at: number;
+  readonly text: string;
+}
+
+/** A call's notes: everyone's words merged in the order they were said; `sent` says whose words are in. */
+export interface CallNotesView {
+  readonly id: string;
+  readonly conversation: string;
+  readonly startedAt: number;
+  readonly endedAt: number;
+  readonly people: ReadonlyArray<{ readonly peerId: string; readonly name: string; readonly sent: boolean }>;
+  readonly lines: readonly NotesLine[];
+}
+
+/** The most notes text an agent reads from a conversation's calls (the latest of it). */
+export const NOTES_KEPT = 40_000;

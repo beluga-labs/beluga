@@ -20,6 +20,8 @@ import { ReactButton, ReactionChips, useNetReact } from './Reactions.js';
 import r from './reactions.module.css';
 import { ChatTabs } from './ChatTabs.js';
 import { CallRoom } from '../call/CallRoom.js';
+import { NotesBox } from '../call/NotesBox.js';
+import type { CallNotesView } from '@beluga/shared/calls.js';
 import { addBlobs, addPaths } from './attachments.js';
 import { type RunPlace, askedLine, authorLabel, channelName, channelWorld, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
 import { conversationOf, dayLabel, keepsFollowing, membersLine, mergeMessages, presenceLine, sameDay, shownState, unreadLine, unreadSince } from './net-model.js';
@@ -611,6 +613,9 @@ function Conversation({ id }: { id: string }) {
   const tasks = useApp((st) => st.gateway.tasks);
   const asking = useMemo(() => tasks.filter((t) => t.direction === 'sent' && t.conversation === id && t.chat !== id && !isFinal(t.state)), [tasks, id]);
   const places = useMemo(() => runPlaces(messages), [messages]);
+  // Calls' notes (BLG-715) sit in the timeline where each call ended.
+  const callNotes = useApp((st) => st.network.callNotes?.[id]);
+  const notesBefore = (ts: number, after: number | undefined): readonly CallNotesView[] => (callNotes ?? []).filter((n) => n.endedAt <= ts && (after === undefined || n.endedAt > after));
   const { people: here, waiting } = useChatPeople(id);
 
   if (!net.enabled) {
@@ -675,12 +680,20 @@ function Conversation({ id }: { id: string }) {
           const plain = <Message m={m} place={place} dm={target.kind === 'dm'} last={m.id === lastMine} resend={resend} nameOf={nameOf} world={world} offer={Boolean(m.claude?.request && !m.mine && mineIds.has(m.claude.for))} {...(me ? { me } : {})} />;
           return (
             <div key={m.id}>
+              {notesBefore(m.ts, prev?.ts).map((n) => (
+                <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
+              ))}
               {newDay ? <div className={s.day}>{dayLabel(m.ts)}</div> : null}
               {m.id === firstUnread ? <div className={s.unreadLine}>{unreadLine(unread.size)}</div> : null}
               <div className={cx(unread.has(m.id) && s.unread, m.id === lastUnread && s.unreadEnd)}>{m.task ? offered.has(m.task.id) ? null : <TaskMessage id={m.task.id} plain={plain} {...(me ? { me } : {})} /> : plain}</div>
             </div>
           );
         })}
+        {(callNotes ?? [])
+          .filter((n) => !messages.length || n.endedAt > messages[messages.length - 1]!.ts)
+          .map((n) => (
+            <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
+          ))}
         {asking.filter((t) => !offered.has(t.id)).map((t) => (
           <TaskRow key={t.id} task={t} {...(me ? { me } : {})} />
         ))}

@@ -273,6 +273,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `calls.decline` | The incoming call card's and the floating card's Decline; the phone's Needs you › Decline |
 | `calls.set` | The call strip's Mute and Share buttons (and the window says it's still in the call every few seconds) |
 | `calls.signal` | – sent by the call's window on its own: WebRTC setup for the others' windows |
+| `calls.notes` | – sent by the call's window as you leave: your own words, written down on this Mac, for the others who were in it (BLG-715) |
+| `calls.forgetNotes` | A call's notes box in the chat › ••• › Forget These Notes |
 | `calls.list` | – the shared state's `network.calls` is what screens show; this answers the CLI and tests |
 | `terminalImport.detect` | Settings › Terminal › Import from… (Ghostty, iTerm2, Terminal, Alacritty, kitty, WezTerm, Warp), and the welcome's “Coming from another terminal?” step |
 | `workspaces.open` | ✓ |

@@ -3,6 +3,9 @@ import { watchNetwork } from '../network.js';
 import type { Session } from '../session.js';
 import type { Store } from '../store.js';
 import type { CallView } from '../../shared/calls.js';
+import path from 'node:path';
+import { belugaHome } from '../home.js';
+import { CallNotes } from './notes.js';
 import { CallService } from './service.js';
 
 /**
@@ -12,6 +15,10 @@ import { CallService } from './service.js';
  */
 
 const services = new WeakMap<object, CallService>();
+const notebooks = new WeakMap<object, CallNotes>();
+
+/** This session's call notes (BLG-715), while the network is on. */
+export const callNotesOf = (session: object): CallNotes | undefined => notebooks.get(session);
 
 /** This session's calls, or a clear error while the network is off. */
 export function callsOf(session: object): CallService {
@@ -40,9 +47,20 @@ export function launchCalls(host: CallsHost): () => void {
   const off = watchNetwork(session, (service) => {
     current?.stop();
     services.delete(session);
+    notebooks.delete(session);
     current = undefined;
     if (!service) return;
+    const mesh = service.mesh;
+    const notes = new CallNotes({
+      dir: host.demo ? null : path.join(belugaHome(), 'call-notes'),
+      me: () => mesh.peerId,
+      nameOf: (peerId) => mesh.nameFor(peerId),
+      publish: (view) => store.dispatch({ type: 'net_call_notes', notes: view }),
+    });
+    notebooks.set(session, notes);
+    store.dispatch({ type: 'net_call_notes', notes: notes.views() });
     const calls = new CallService({
+      notes: (from, call, phrases) => notes.theirs(from, call, phrases),
       mesh: service.mesh,
       publish: (view) => store.dispatch({ type: 'net_calls', calls: host.demo ? Object.fromEntries(Object.entries(view).map(([k, c]) => [k, { ...c, demo: true as const }])) : view }),
       signal: (to, s) => session.intents.emit({ type: 'call_signal', ...s }, to),
@@ -61,5 +79,6 @@ export function launchCalls(host: CallsHost): () => void {
     off();
     current?.stop();
     services.delete(session);
+    notebooks.delete(session);
   };
 }

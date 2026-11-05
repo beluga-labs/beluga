@@ -53,6 +53,7 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
           <Icon name={muted ? 'micOff' : 'mic'} size={15} />
         </button>
       </Tip>
+      {compact ? null : <NotesButton />}
       {compact ? null : (
         <Tip label={camera ? 'Turn Camera Off' : 'Turn Camera On'}>
           <button type="button" className={cx(c.control, camera && c.controlOn)} aria-pressed={camera} aria-label={camera ? 'Turn Camera Off' : 'Turn Camera On'} onClick={() => void engine.camera(!camera)}>
@@ -73,6 +74,21 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
         </button>
       </Tip>
     </span>
+  );
+}
+
+/** Your words in the call's notes: on, paused, or not possible here (no voice model). */
+function NotesButton() {
+  const engine = useCallEngine();
+  const live = useCallLive();
+  const on = live.notes === 'on';
+  const label = live.notes === 'none' ? 'Notes need a voice model (Settings › Voice)' : on ? 'Your words go in the call’s notes, written down on this Mac. Click to pause' : 'Notes paused: what you say now stays out';
+  return (
+    <Tip label={label}>
+      <button type="button" className={cx(c.control, on && c.controlOn)} aria-pressed={on} aria-label={on ? 'Pause Notes' : 'Resume Notes'} disabled={live.notes === 'none'} onClick={() => void engine.notes(!on)}>
+        <Icon name="book" size={15} />
+      </button>
+    </Tip>
   );
 }
 

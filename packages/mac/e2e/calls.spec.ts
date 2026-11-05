@@ -119,15 +119,27 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   await expect(stage).toHaveCount(0);
   await strip(page).getByRole('button', { name: 'Leave Call' }).click();
   await expect(strip(page)).toHaveCount(0, { timeout: 10_000 });
+  // The notes: each Mac's own words (the demo's are made up), one box in the chat, folded.
+  const notes = page.getByRole('region', { name: 'Call notes' }).last();
+  await expect(notes).toBeVisible({ timeout: 15_000 });
+  await expect(notes).not.toContainText('waiting for', { timeout: 15_000 });
+  await notes.getByRole('button', { name: /^Call notes/ }).click();
+  await expect(notes).toContainText('tax runs after the discount');
+  await expect(notes).toContainText('I’ll review the fix this afternoon');
+  await shot(page, '08-notes');
+  // Talking about it with your agent is a chat of your own, not in the channel.
+  await notes.getByRole('button', { name: 'Talk About It' }).click();
+  await expect(page.getByText('These are the notes of a call I was in').first()).toBeVisible({ timeout: 15_000 });
+  await shot(page, '09-notes-chat');
 });
 
 test('someone rings you: the card wherever you are, Join opens the call in its chat', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_SCENE !== 'call', 'needs BELUGA_DEMO_SCENE=call (bob rings you in #launch)');
   const card = page.getByRole('alertdialog', { name: 'bob is calling' });
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await shot(page, '08-incoming');
+  await shot(page, '10-incoming');
   await card.getByRole('button', { name: 'Join' }).click();
   await expect(strip(page).getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
-  await shot(page, '09-joined');
+  await shot(page, '11-joined');
 });

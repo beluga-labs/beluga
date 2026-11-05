@@ -17,6 +17,10 @@ import { type CallPersonView, type CallView, type CallsView, GONE_MS, HEARTBEAT_
 
 const callId = z.string().regex(/^[0-9a-f]{16}$/);
 const groupId = z.string().regex(/^[0-9a-f]{32}$/);
+/** One person's words in a call: each phrase with when it was said. */
+export const NotePhrases = z.array(z.object({ at: z.number().int().min(0), text: z.string().min(1).max(2_000) })).max(3_000);
+export type NotePhrases = z.infer<typeof NotePhrases>;
+
 const State = z.object({ muted: z.boolean(), sharing: z.boolean(), joinedAt: z.number().int().min(0), camera: z.boolean().optional() });
 
 /** What one Mac says to another about a call (the `p` of a `call` link frame). `g`: the group; none for your DMs. */
@@ -26,6 +30,8 @@ export const CallFrame = z.discriminatedUnion('k', [
   z.object({ k: z.literal('bye'), call: callId, g: groupId.optional() }),
   z.object({ k: z.literal('decline'), call: callId, g: groupId.optional() }),
   z.object({ k: z.literal('sig'), call: callId, g: groupId.optional(), d: z.string().max(SIGNAL_MAX) }),
+  /** What someone said in a call, written down on their own Mac (BLG-715): sent to the others who were in it, as they leave. */
+  z.object({ k: z.literal('notes'), call: callId, g: groupId.optional(), startedAt: z.number().int().min(0), phrases: NotePhrases }),
 ]);
 export type CallFrame = z.infer<typeof CallFrame>;
 
@@ -76,13 +82,28 @@ export interface CallHost {
   readonly manual?: boolean;
   /** No window makes this Mac's side of a call (the demo's friends): it never goes quiet. */
   readonly headless?: boolean;
+  /** Someone's notes of a call you were in (core/calls/notes.ts keeps them). */
+  readonly notes?: (from: string, call: PastCall, phrases: NotePhrases) => void;
 }
+
+/** A call you were in: who else was, at any point (kept a while after it ends, for its notes). */
+export interface PastCall {
+  readonly id: string;
+  readonly conversation: string;
+  readonly startedAt: number;
+  readonly people: ReadonlySet<string>;
+  readonly lastSeen: number;
+}
+
+/** How long a call you were in is remembered after it ends (its notes may still come). */
+const PAST_MS = 12 * 60 * 60_000;
 
 export class CallService {
   private readonly calls = new Map<string, Call>();
   private readonly timer: NodeJS.Timeout | undefined;
   private readonly offs: Array<() => void> = [];
   private readonly frames = new Map<string, { second: number; count: number }>();
+  private readonly past = new Map<string, PastCall>();
 
   constructor(private readonly host: CallHost) {
     const onCall = (from: string, p: unknown): void => this.receive(from, p);
@@ -195,6 +216,7 @@ export class CallService {
     const parsed = CallFrame.safeParse(raw);
     if (!parsed.success) return;
     const now = this.now();
+    if (parsed.data.k === 'notes') return this.receiveNotes(from, parsed.data);
     if (this.flooding(from, now)) return;
     const f = parsed.data.k === 'ring' || parsed.data.k === 'here' ? { ...parsed.data, state: { ...parsed.data.state, joinedAt: Math.min(parsed.data.state.joinedAt, now + CLOCK_SLACK_MS) } } : parsed.data;
     const conversation = f.g ? groupConversation(f.g) : dmConversation(from);
@@ -301,7 +323,44 @@ export class CallService {
     if (changed) this.publish();
   }
 
+  /** A call you were in (now or within the last hours), with everyone who was in it too. */
+  pastCall(id: string): PastCall | undefined {
+    return this.past.get(id);
+  }
+
+  /** Your notes of a call you were in go to everyone else who was (they're linked now, or they miss them). */
+  sendNotes(id: string, phrases: NotePhrases): number {
+    const call = this.past.get(id);
+    if (!call) throw new Error('That call isn’t one you were in');
+    const g = call.conversation.startsWith('group:') ? call.conversation.slice(6) : undefined;
+    let sent = 0;
+    for (const peerId of call.people) {
+      if (peerId === this.host.mesh.peerId || !this.host.mesh.shares(call.conversation, peerId)) continue;
+      if (this.host.mesh.sendCall(peerId, { k: 'notes', call: id, startedAt: call.startedAt, phrases, ...(g ? { g } : {}) })) sent++;
+    }
+    return sent;
+  }
+
+  private receiveNotes(from: string, f: Extract<CallFrame, { k: 'notes' }>): void {
+    const call = this.past.get(f.call);
+    const conversation = f.g ? groupConversation(f.g) : dmConversation(from);
+    // Only from someone who was in a call you were in, in the conversation it was in.
+    if (!call || call.conversation !== conversation || !call.people.has(from) || !this.host.mesh.shares(conversation, from)) return;
+    this.host.notes?.(from, call, f.phrases);
+  }
+
   // ---- inside
+
+  /** Remember who's been in the calls you're in (for their notes), and forget old ones. */
+  private remember(now: number): void {
+    for (const call of this.calls.values()) {
+      if (!call.me) continue;
+      const was = this.past.get(call.id);
+      const people = new Set([...(was?.people ?? []), this.host.mesh.peerId, ...call.people.keys()]);
+      this.past.set(call.id, { id: call.id, conversation: call.conversation, startedAt: call.startedAt, people, lastSeen: now });
+    }
+    for (const [id, c] of this.past) if (now - c.lastSeen > PAST_MS) this.past.delete(id);
+  }
 
   /** Everyone else left: so do you, and the call is over. */
   private lastOneOut(call: Call): boolean {
@@ -415,6 +474,7 @@ export class CallService {
   }
 
   private publish(): void {
+    this.remember(this.now());
     this.host.publish(this.list());
   }
 }

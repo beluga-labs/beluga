@@ -929,3 +929,6 @@
   color: var(--text);
   background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
 }
+.control:disabled {
+  opacity: 0.4;
+}

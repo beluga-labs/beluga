@@ -22,6 +22,11 @@ export const CALLS_API = {
   'calls.set': { args: z.tuple([conversation, z.object({ muted: z.boolean().optional(), sharing: z.boolean().optional(), camera: z.boolean().optional() }).strict()]) },
   // WebRTC setup for someone's window in the call (an offer, answer or candidate, as JSON) → whether it went.
   'calls.signal': { args: z.tuple([conversation, peerId, z.string().min(1).max(SIGNAL_MAX)]) },
+  // Your own words in a call you were in (written down on this Mac, BLG-715): kept here and sent to the
+  // others who were in it → how many it reached now.
+  'calls.notes': { args: z.tuple([z.string().regex(/^[0-9a-f]{16}$/), z.array(z.object({ at: z.number().int().min(0), text: z.string().min(1).max(2_000) })).max(3_000)]) },
+  // Forget a call's notes on this Mac (the others keep theirs).
+  'calls.forgetNotes': { args: z.tuple([z.string().regex(/^[0-9a-f]{16}$/)]) },
   // The calls in your conversations → CallsView.
   'calls.list': { args: z.tuple([]) },
 } as const;

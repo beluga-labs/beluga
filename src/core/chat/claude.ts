@@ -66,6 +66,8 @@ export interface ChatClaudeOptions {
   readonly onLive?: (conversation: string, id: string, state: 'thinking' | 'idle', agent: AgentRef) => void;
   /** Something you should know (your Claude couldn't answer). */
   readonly onProblem?: (conversation: string, text: string) => void;
+  /** The notes of this conversation's latest calls (BLG-715), for an agent asked here to read. */
+  readonly notes?: (conversation: string) => string | undefined;
   /** Words as this Mac reads them (a team task by its own key: core/team/mentions.ts). */
   readonly localize?: (text: string) => string;
   /** Where answered asks are remembered. */
@@ -276,6 +278,7 @@ export class ChatClaude {
         asker,
         files,
         since: at >= 0 ? sinceLines(all.slice(at + 1), owner) : [],
+        ...(this.opts.notes?.(m.conversation) ? { notes: this.opts.notes(m.conversation)! } : {}),
         ...(earlier ? { earlier: true } : {}),
       }),
       images,

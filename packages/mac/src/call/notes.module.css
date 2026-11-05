@@ -1,0 +1,146 @@
+/* A call's notes in the chat (BLG-715): a quiet card set apart from messages, folded to one line. */
+
+.box {
+  margin: 10px auto;
+  max-width: 640px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--call) 7%, var(--bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--call) 20%, transparent);
+  overflow: hidden;
+  animation: arrive 260ms var(--ease-out);
+}
+@keyframes arrive {
+  from {
+    transform: translateY(4px);
+    opacity: 0;
+  }
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 6px;
+}
+.toggle {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 10px;
+}
+.toggle:hover {
+  background: color-mix(in srgb, var(--call) 8%, transparent);
+}
+.toggle:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--call) 22%, var(--bg));
+  color: var(--call-ink);
+  flex: none;
+}
+.title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.title strong {
+  font-weight: 600;
+  font-size: 13px;
+}
+.title span {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chevron {
+  color: var(--text-3);
+  flex: none;
+  transition: transform var(--dur) var(--ease-out);
+}
+.open .chevron {
+  transform: rotate(180deg);
+}
+.talk {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--claude);
+  background: color-mix(in srgb, var(--claude) 12%, var(--bg));
+  transition:
+    background var(--dur-fast),
+    transform var(--dur-fast);
+}
+.talk:hover {
+  background: color-mix(in srgb, var(--claude) 19%, var(--bg));
+}
+.talk:active {
+  transform: scale(0.97);
+}
+.talk:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lines {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px 14px 50px;
+  max-height: 360px;
+  overflow-y: auto;
+  animation: unfold 240ms var(--ease-out);
+}
+@keyframes unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  padding: 6px 0;
+}
+.line + .line {
+  border-top: 1px solid var(--hairline);
+}
+.who {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.at {
+  justify-self: end;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.line p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.empty {
+  color: var(--text-3);
+  font-size: 12.5px;
+  padding: 6px 0;
+}
