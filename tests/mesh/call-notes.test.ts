@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CallNotes } from '../../src/core/calls/notes.js';
+import { callNotesTools } from '../../src/core/calls/notes-tools.js';
 import { CallService, meshLinks } from '../../src/core/calls/service.js';
 import type { CallNotesView } from '../../src/shared/calls.js';
 import { groupConversation } from '../../src/net/mesh/views.js';
@@ -53,7 +54,7 @@ describe('call notes (BLG-715)', () => {
       ['You', 'Shall we ship today?'],
       ['bo', 'Yes, after the tax fix.'],
     ]);
-    expect(a.notes.textFor(conv)).toMatch(/\[0:05\] bo: Yes, after the tax fix\./);
+    expect(callNotesTools({ views: () => a.notes.views(), placeOf: () => '#standup' }).read(call.id)).toMatch(/\[0:05\] bo: Yes, after the tax fix\./);
     // cy wasn't in the call: nothing was sent to them, and notes they're sent anyway are refused.
     expect(c.seen()[conv]).toBeUndefined();
     c.calls.receive(ann.identity.peerId, { k: 'notes', call: call.id, g: group.id, startedAt: t, phrases: [{ at: t, text: 'sneaky' }] });

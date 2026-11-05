@@ -66,12 +66,50 @@ export function NotesBox({ notes }: { notes: CallNotesView; place: string }) {
   );
 }
 
+/**
+ * A call's notes named in a message (`call:<id>`, what Talk About It and agents write): a chip with
+ * where and how long; a click opens the notes beside their chat.
+ */
+export function CallNotesChip({ id }: { id: string }) {
+  const { client } = useBeluga();
+  // Two plain picks (the store's own objects), so nothing new is made on each read.
+  const conversation = useApp((st) => Object.entries(st.network.callNotes ?? {}).find(([, list]) => list.some((x) => x.id === id))?.[0]);
+  const notes = useApp((st) => (conversation ? st.network.callNotes?.[conversation]?.find((x) => x.id === id) : undefined));
+  const found = conversation && notes ? { conversation, notes } : undefined;
+  const place = useApp((st) => {
+    const c = found?.conversation;
+    if (!c) return '';
+    if (c === 'room') return 'the room';
+    if (c.startsWith('dm:')) return st.network.friends.find((f) => f.peerId === c.slice(3))?.name ?? 'a friend';
+    return `#${st.network.groups.find((g) => g.id === c.slice(6))?.name ?? 'channel'}`;
+  });
+  if (!found) {
+    return (
+      <span className={cx(c.inlineChip, c.inlineGone)} title="These notes aren’t on this Mac">
+        <Icon name="book" size={11} />
+        Call notes
+      </span>
+    );
+  }
+  const open = (): void => {
+    if (found.conversation === 'room') client.store.dispatch({ type: 'view', view: { kind: 'room' } });
+    else client.store.dispatch({ type: 'view', view: { kind: 'conversation', id: found.conversation } });
+    setOpen(found.notes.id);
+  };
+  return (
+    <button type="button" className={c.inlineChip} onClick={open} title="Open the notes beside their chat">
+      <Icon name="book" size={11} />
+      Call in {place} · {dayOf(found.notes.startedAt)} · {lengthOf(found.notes)}
+    </button>
+  );
+}
+
 /** The reader for a conversation's open notes, if any (CallRoom puts it beside the chat). */
 export function NotesReaderFor({ conversation, place }: { conversation: string; place: string }) {
   const id = useOpenNotes();
   const notes = useApp((st) => (id ? st.network.callNotes?.[conversation]?.find((n) => n.id === id) : undefined));
-  // Another conversation: its reader closes.
-  useEffect(() => () => setOpen(undefined), [conversation]);
+  // Open notes show only beside their own conversation: elsewhere this draws nothing, and coming
+  // back finds them still open (a chip in another chat may open them before going there).
   return notes ? <NotesReader notes={notes} place={place} /> : null;
 }
 
@@ -159,8 +197,10 @@ function NotesReader({ notes, place }: { notes: CallNotesView; place: string }) 
   const seenFrom = all[seen.from] ? (all[seen.from]!.at - notes.startedAt) / span : 0;
   const seenTo = all[seen.to] ? (all[seen.to]!.until - notes.startedAt) / span : 0;
   const talk = (): void => {
-    const prompt = `${notesMarkdown(notes, place)}\n\n---\nThese are the notes of a call I was in (each person's own words, written down by speech recognition, so expect small mistakes). Just between us: start with a short summary of what was decided, who's doing what, and what's still open. Then I'll ask you about it.`;
-    void client.api.workspaces.startChat('chats', prompt.slice(0, 63_000)).catch((err: unknown) => client.store.dispatch({ type: 'toast', text: `Couldn’t open the chat: ${err instanceof Error ? err.message : String(err)}`, level: 'error' }));
+    // A chip, never the transcript: the agent looks up what it needs with its call notes tools.
+    // Its first words name the chat (Call in #launch · Nov 5); the chip says which call.
+    const prompt = `Call in ${place} · ${dayOf(notes.startedAt)}: let’s talk about it. \`call:${notes.id}\`, with ${peopleWords(notes.people)}. Look up what was said with your call notes tools. Start with a short summary: what was decided, who’s doing what, and what’s still open.`;
+    void client.api.workspaces.startChat('chats', prompt).catch((err: unknown) => client.store.dispatch({ type: 'toast', text: `Couldn’t open the chat: ${err instanceof Error ? err.message : String(err)}`, level: 'error' }));
   };
   const items: ActionItem[] = [
     { label: `Talk About It with ${agent}`, icon: 'sparkles', hint: 'A chat of your own, that only you see', onSelect: talk },

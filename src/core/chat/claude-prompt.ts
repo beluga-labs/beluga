@@ -50,6 +50,8 @@ export interface ChatAnswerRequest {
   readonly signal: AbortSignal;
   /** Earlier messages of this conversation only (read_earlier), when there are more than the prompt shows. */
   readonly earlier?: (opts: EarlierAsk) => EarlierPage;
+  /** This conversation's call notes, to look up (BLG-715): never in the prompt itself. */
+  readonly notes?: import('../../agent/types.js').CallNotesTools;
 }
 
 export interface EarlierAsk {
@@ -99,7 +101,7 @@ export const speaker = (m: Pick<MessageView, 'name' | 'mine' | 'claude'>, owner:
 };
 
 /** Text from the chat or a file can't open or close the prompt's own sections (<chat>, <message>, <file>). */
-export const fence = (text: string): string => text.replace(/<(\/?)(chat|message|file|call-notes)\b/gi, '‹$1$2');
+export const fence = (text: string): string => text.replace(/<(\/?)(chat|message|file)\b/gi, '‹$1$2');
 
 function line(m: MessageView, owner: string): string {
   const files = m.files?.length ? ` [attached: ${m.files.map((f) => `${f.name} (${sizeLabel(f.size)})`).join(', ')}]` : '';
@@ -241,10 +243,10 @@ export interface PromptFile {
   readonly missing?: string;
 }
 
-export function userPrompt(opts: { history: readonly string[]; ask: MessageView; asker: string; files: readonly PromptFile[]; since: readonly string[]; earlier?: boolean; notes?: string }): string {
+export function userPrompt(opts: { history: readonly string[]; ask: MessageView; asker: string; files: readonly PromptFile[]; since: readonly string[]; earlier?: boolean; notesHint?: string }): string {
   const parts: string[] = [];
-  // Calls in this chat (BLG-715): each person's own words, written down on their own Mac.
-  if (opts.notes) parts.push(`Notes of the latest calls in this chat (each person's words, written down by speech recognition, so expect small mistakes; context only):\n<call-notes>\n${fence(opts.notes)}\n</call-notes>`);
+  // Calls in this chat (BLG-715): that they exist and how to look, never what was said.
+  if (opts.notesHint) parts.push(opts.notesHint);
   if (opts.history.length) parts.push(`The chat so far (${opts.earlier ? 'its latest messages; ' : ''}context only):\n<chat>\n${opts.history.join('\n')}\n</chat>`);
   if (opts.earlier)
     parts.push(

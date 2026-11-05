@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { type CallNotesView, type NotesLine, NOTES_KEPT } from '../../shared/calls.js';
+import type { CallNotesView, NotesLine } from '../../shared/calls.js';
 import { NotePhrases, type PastCall } from './service.js';
 
 /**
@@ -66,14 +66,6 @@ export class CallNotes {
     this.publish();
   }
 
-  /** The latest notes of a conversation's calls, for an agent asked there: who said what, in order. */
-  textFor(conversation: string, max = NOTES_KEPT): string | undefined {
-    const views = this.views()[conversation]?.slice(-3);
-    if (!views?.length) return undefined;
-    const text = views.map((v) => notesText(v)).join('\n\n');
-    return text.length > max ? `…${text.slice(-max)}` : text;
-  }
-
   views(): Record<string, CallNotesView[]> {
     const by: Record<string, CallNotesView[]> = {};
     for (const c of [...this.calls.values()].sort((a, b) => a.endedAt - b.endedAt)) (by[c.conversation] ??= []).push(this.view(c));
@@ -105,15 +97,4 @@ export class CallNotes {
   private publish(): void {
     this.host.publish(this.views());
   }
-}
-
-/** Notes as plain lines for an agent: "[3:05] bob: …". */
-export function notesText(v: CallNotesView): string {
-  const minutes = Math.max(1, Math.round((v.endedAt - v.startedAt) / 60_000));
-  const head = `Call on ${new Date(v.startedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC, about ${minutes} min, with ${v.people.map((p) => p.name).join(', ')}:`;
-  const clock = (at: number): string => {
-    const s = Math.max(0, Math.round((at - v.startedAt) / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  };
-  return [head, ...v.lines.map((l) => `[${clock(l.at)}] ${l.name}: ${l.text}`)].join('\n');
 }

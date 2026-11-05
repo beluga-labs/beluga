@@ -151,7 +151,11 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   // Talking about it with your agent is a chat of your own, from •••.
   await reader.getByRole('button', { name: 'More for these notes' }).click();
   await page.getByRole('menuitem', { name: /^Talk About It/ }).click();
-  await expect(page.getByText('These are the notes of a call I was in').first()).toBeVisible({ timeout: 15_000 });
+  // The chat says which call with a chip, never the transcript: the agent looks it up with its tools.
+  await expect(page.getByText('Look up what was said with your call notes tools').first()).toBeVisible({ timeout: 15_000 });
+  const callChip = page.getByRole('button', { name: /^Call in #launch/ }).first();
+  await expect(callChip).toBeVisible();
+  await expect(page.getByText('tax runs after the discount')).toHaveCount(0);
   await shot(page, '09-notes-chat');
 });
 

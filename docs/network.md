@@ -396,8 +396,13 @@ conversation, and it's the same chat.
   (`~/.beluga/call-notes/<call>.json`), a one-line chip in the chat however long the call was. It
   opens in a reader beside the chat, made for long calls: your words on the right and everyone
   else's on the left, search (⌘F), one person's words only, and the call's timeline to jump along.
-  Its ••• › Talk About It opens a chat with your own agent about the call that only you see; agents asked in the chat read the
-  latest notes as context. Notes need a voice model (Settings › Voice): a call never downloads one.
+  Notes never go into a prompt: agents look them up with tools (server `beluga_calls`, and inside a
+  chat answer `beluga_chat`): `call_notes_list`, `call_notes_search` (where something was said: the
+  call, the time into it, who, the words around) and `call_notes_read` (a page of a call, from a time
+  or a turn). Your own runs reach every call you were in; an answer in a chat only that chat's
+  calls, and its prompt only says they exist. Its ••• › Talk About It opens a chat with your own
+  agent that only you see, its message a `call:<id>` chip (it opens the notes), never the
+  transcript. Notes need a voice model (Settings › Voice): a call never downloads one.
 - **Rooms** (BLG-716). The same calls in a room's chat: `call` bodies sent through the hub to one
   person at a time (never kept for latecomers), everyone connected and not a guest is in it, and
   the media still goes Mac to Mac. Its latest notes sit folded on top of the room's chat.

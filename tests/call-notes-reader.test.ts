@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clockOf, findTurns, lengthOf, marks, minuteMarks, timeline, turns, wordCount } from '../packages/mac/src/call/notes-model.js';
+import { clockOf, findTurns, lengthOf, marks, minuteMarks, timeline, turns, wordCount } from '../src/shared/call-notes.js';
 
 const line = (by: string, s: number, text: string) => ({ by, name: by, at: s * 1000, text });
 

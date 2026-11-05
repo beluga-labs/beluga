@@ -6,6 +6,8 @@ import type { Session } from '../session.js';
 import type { Store } from '../store.js';
 import type { CallView, CallsView } from '../../shared/calls.js';
 import { CallNotes } from './notes.js';
+import { type NotesSource, callNotesTools, notesHint } from './notes-tools.js';
+import type { CallNotesTools } from '../../agent/types.js';
 import { ROOM_CONVERSATION, roomLinks } from './room.js';
 import { type CallLinks, CallService, meshLinks } from './service.js';
 
@@ -28,6 +30,29 @@ const sessions = new WeakMap<object, Calls>();
 
 /** This session's call notes (BLG-715). */
 export const callNotesOf = (session: object): CallNotes | undefined => sessions.get(session)?.notes;
+
+/** Where a conversation is, in words an agent reads. */
+function placeOf(store: Store, conversation: string): string {
+  const st = store.getState();
+  if (conversation === ROOM_CONVERSATION) return 'the room';
+  if (conversation.startsWith('dm:')) return `a DM with ${st.network.friends.find((f) => f.peerId === conversation.slice(3))?.name ?? 'a friend'}`;
+  return `#${st.network.groups.find((g) => g.id === conversation.slice(6))?.name ?? 'a channel'}`;
+}
+
+const sources = new WeakMap<object, NotesSource>();
+
+/** Every call's notes as tools, for your own runs (BLG-715). */
+export function callNotesToolsOf(session: object): CallNotesTools | undefined {
+  const src = sources.get(session);
+  return src ? callNotesTools(src) : undefined;
+}
+
+/** One conversation's calls as tools, and what an agent asked there is told about them; undefined when it has none. */
+export function chatNotesOf(session: object, conversation: string): { readonly hint: string; readonly tools: CallNotesTools } | undefined {
+  const src = sources.get(session);
+  const hint = src && notesHint(src, conversation);
+  return src && hint ? { hint, tools: callNotesTools(src, conversation) } : undefined;
+}
 
 /** A call frame that came through the room (session.ts hands it over). */
 export function receiveRoomCall(session: object, from: string, payload: unknown): void {
@@ -96,6 +121,7 @@ export function launchCalls(host: CallsHost): () => void {
     publish: (view) => store.dispatch({ type: 'net_call_notes', notes: view }),
   });
   store.dispatch({ type: 'net_call_notes', notes: notes.views() });
+  sources.set(session, { views: () => notes.views(), placeOf: (c) => placeOf(store, c) });
   const room = roomLinks({ store, send: (to, p) => session.send({ kind: 'call', p }, { to }) });
   const roomCalls = new CallService({
     ...common,
@@ -132,5 +158,6 @@ export function launchCalls(host: CallsHost): () => void {
     roomCalls.stop();
     room.stop();
     sessions.delete(session);
+    sources.delete(session);
   };
 }

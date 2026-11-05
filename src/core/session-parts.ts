@@ -29,6 +29,7 @@ import { companionOf } from '../companion/registry.js';
 import { stopTestProcesses } from '../workspaces/test-procs.js';
 import { AgentTerminals } from './agent-term.js';
 import { claudeHome } from './claude-code/launch.js';
+import { callNotesToolsOf } from './calls/launch.js';
 
 /** Everything a session is made of, wired to each other and to the session. */
 export interface SessionParts {
@@ -223,6 +224,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       // "Your Mac"'s chats, and your own asks in friends' chats (BLG-207): both work in its folder.
       assistant: (channel, from) => assistantOf(session)?.forRun(channel, from) ?? assistantOf(session)?.forChat(channel, from),
       phone: (scratchDir) => companionOf(session)?.control.toolsFor(scratchDir),
+      callNotes: () => callNotesToolsOf(session),
       phoneUse: () => companionOf(session)?.control.useLevel() ?? 'off',
       setup: (channel) => workbench?.setupForRun(channel.slice(3)),
       terminalDriving: (channel) => agentTerms?.driving(channel) ?? false,
