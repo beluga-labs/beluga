@@ -14,6 +14,8 @@ import c from './call.module.css';
 
 /** How often your pointer and a growing stroke are sent (the data channel takes far more; the eye doesn't). */
 const SEND_MS = 33;
+/** Full screen: the bar steps aside after this long without the pointer moving. */
+const BAR_IDLE_MS = 2_500;
 /** Moving less than this (a fraction of the picture) between press and release is a click, not a drag. */
 const CLICK = 0.012;
 
@@ -107,6 +109,22 @@ export function Stage({ call }: { call: CallView }) {
     return () => cancelAnimationFrame(raf);
   }, [ink, box, size.w, size.h]);
 
+  // Full screen: the bar goes once you just look, and comes back as the pointer moves or rests on it.
+  const [barAway, setBarAway] = useState(false);
+  const idle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onBar = useRef(false);
+  const wake = (): void => {
+    setBarAway(false);
+    clearTimeout(idle.current);
+    if (live.theater && !onBar.current) idle.current = setTimeout(() => setBarAway(true), BAR_IDLE_MS);
+  };
+  const wakeRef = useRef(wake);
+  wakeRef.current = wake;
+  useEffect(() => {
+    wakeRef.current();
+    return () => clearTimeout(idle.current);
+  }, [live.theater]);
+
   // Esc drops a half-asked question first, then leaves full screen.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -179,7 +197,7 @@ export function Stage({ call }: { call: CallView }) {
   const anyInk = ink.strokes.length > 0;
 
   return (
-    <section className={cx(c.stage, live.theater && c.theater)} aria-label={sharer?.me ? 'Your shared screen' : `${sharer?.name ?? 'Their'}’s screen`}>
+    <section className={cx(c.stage, live.theater && c.theater, live.theater && barAway && c.theaterIdle)} onPointerMove={wake} aria-label={sharer?.me ? 'Your shared screen' : `${sharer?.name ?? 'Their'}’s screen`}>
       <div ref={frame} className={c.stageFrame} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave}>
         <video ref={video} className={c.stageVideo} autoPlay playsInline muted />
         <canvas ref={canvas} className={c.stageInk} style={{ width: size.w, height: size.h }} aria-hidden="true" />
@@ -192,7 +210,19 @@ export function Stage({ call }: { call: CallView }) {
         ) : null}
         <CameraStrip call={call} floating />
       </div>
-      <div className={c.stageBar} role="toolbar" aria-label="The shared screen">
+      <div
+        className={cx(c.stageBar, live.theater && barAway && c.barAway)}
+        role="toolbar"
+        aria-label="The shared screen"
+        onPointerEnter={() => {
+          onBar.current = true;
+          wake();
+        }}
+        onPointerLeave={() => {
+          onBar.current = false;
+          wake();
+        }}
+      >
         <span className={c.stageWho}>
           <Icon name="screenShare" size={13} />
           <span>{sharer?.me ? 'You’re sharing' : `${sharer?.name ?? 'Someone'}’s screen`}</span>

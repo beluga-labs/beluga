@@ -42,7 +42,8 @@ const act = (action: FloatAction, conversation: string): void =>
 
 /**
  * The call while Beluga is behind other apps (BLG-706): who's talking, how long, mute and leave.
- * While you share your screen, it says so and has Stop. Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga.
+ * While you share your screen, it says so, has Stop, and tucks away for that share (the frame
+ * around your screen stays). Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga.
  */
 export function CallFloat() {
   const state = useFloatState();
@@ -107,6 +108,12 @@ export function CallFloat() {
       <button type="button" className={s.decline} aria-label="Leave Call" onClick={() => act('leave', state.conversation)}>
         <Icon name="callEnd" size={16} />
       </button>
+      {state.youShare ? (
+        // Out of the way for the rest of this share: the frame around your screen still says it's on show.
+        <button type="button" className={s.tuck} aria-label="Hide While Sharing" title="Hide while you share (the frame stays)" onClick={() => act('hide', state.conversation)}>
+          <Icon name="chevronUp" size={13} />
+        </button>
+      ) : null}
     </div>
   );
 }

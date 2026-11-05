@@ -1,7 +1,8 @@
 //! The floating call card (BLG-706): while Beluga isn't the app you're in, the call you're in (or
 //! one ringing for you) floats over everything, small, at the top of the screen: who's talking,
-//! mute and leave, or join and decline. While you share, it says so and stops it. Back in Beluga
-//! it goes away; the call lives in its chat.
+//! mute and leave, or join and decline. While you share, it says so and stops it, and you can hide
+//! it for that share (the frame around your screen stays). Back in Beluga it goes away; the call
+//! lives in its chat.
 //!
 //! The window decides what the card shows (it hands over the whole state, or none to hide it);
 //! this side only owns the floating window, and passes its buttons back to the window.
@@ -14,7 +15,7 @@ use tauri::{
 };
 
 pub const LABEL: &str = "call-float";
-const WIDTH: f64 = 360.0;
+const WIDTH: f64 = 392.0;
 const HEIGHT: f64 = 64.0;
 const MENU_BAR: f64 = 30.0;
 const MARGIN: f64 = 10.0;
@@ -127,7 +128,7 @@ pub fn call_float_action(
 ) -> Result<(), String> {
     if !matches!(
         action.as_str(),
-        "mute" | "unmute" | "leave" | "join" | "decline" | "open" | "stop-sharing"
+        "mute" | "unmute" | "leave" | "join" | "decline" | "open" | "stop-sharing" | "hide"
     ) {
         return Err(format!("Unknown action {action}"));
     }

@@ -15,17 +15,29 @@ import { type FloatAction, type FloatState, floatState } from './float-model.js'
 let focused = typeof document === 'undefined' ? true : document.hasFocus();
 let latest: FloatState | null = null;
 let wired = false;
+let engineOf: CallEngine | undefined;
+/** You hid the card while sharing: only the frame around your screen shows until that share ends (its track). */
+let hiddenFor: string | undefined;
+
+/** What the card shows now: nothing while Beluga is in front, or while you hid it for this share. */
+function shown(): FloatState | null {
+  if (focused) return null;
+  const track = engineOf?.sharedTrack()?.id;
+  if (latest?.kind === 'in' && latest.youShare && track && track === hiddenFor) return null;
+  return latest;
+}
 
 async function send(): Promise<void> {
   if (!inApp()) return;
   const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('set_call_float', { state: focused ? null : latest }).catch(() => undefined);
+  await invoke('set_call_float', { state: shown() }).catch(() => undefined);
 }
 
 /** Hear the card's buttons, and Beluga coming forward or going behind (once per window). */
 async function wire(client: SocketClient, engine: CallEngine): Promise<void> {
   if (wired || !inApp()) return;
   wired = true;
+  engineOf = engine;
   window.addEventListener('focus', () => {
     focused = true;
     void send();
@@ -40,6 +52,10 @@ async function wire(client: SocketClient, engine: CallEngine): Promise<void> {
     if (action === 'mute' || action === 'unmute') void engine.mute(action === 'mute');
     if (action === 'leave') void engine.leave();
     if (action === 'stop-sharing') void engine.stopSharing();
+    if (action === 'hide') {
+      hiddenFor = engine.sharedTrack()?.id;
+      void send();
+    }
     if (action === 'decline') void client.api.calls.decline(conversation).catch(() => undefined);
     if (action === 'join') void engine.join(conversation).catch(() => undefined);
     if (action === 'join' || action === 'open') openCall(client, conversation);

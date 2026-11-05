@@ -389,14 +389,19 @@ conversation, and it's the same chat.
   others write from then on pops up on the right, dissolves once there was time to read it, and a
   line under it answers in the same chat (call/ChatPops.tsx). Messages that were already there
   never pop up; timing counts from when each message reached this Mac, not its sender's clock.
+- **What can be shared.** Share opens macOS's own picker (WebKit's ScreenCaptureKit picker): one
+  window, or one whole display, any of them with several monitors. A whole app (all its windows)
+  isn't something WebKit's capture offers.
 - **The sharer.** Sharing, you're likely looking at another app, not Beluga. While you are, the
-  floating card says you're sharing, in the call's colour, with Stop; a click-through window
+  floating card says you're sharing, in the call's colour, with Stop, and tucks away for the rest
+  of that share (˄), leaving only the frame; a click-through window
   covers the shared screen (src-tauri/src/call_overlay.rs) with a soft frame around it, the
   others' sketches, pointers and clicks where they made them, and what they write in the chat
   bottom right. Both ask macOS to leave them out of captures (`NSWindowSharingNone`), so the
   others don't see them. Sharing one window, the frame and the ink stay off (its place on screen
   isn't known); the chat still pops up. In Beluga, the strip, the stage and the sidebar's pill say
-  you're sharing, and the pill can stop it.
+  you're sharing, and the pill can stop it. In full screen the stage's bar floats over the
+  bottom and steps aside after a couple of seconds without the pointer moving.
 - **Calls of 5–10.** Each Mac measures what it can send (WebRTC's own estimate per line) and says so
   with `here`; the share tree puts the best uploads closest to the sharer, each feeding as many as
   its upload carries (one to five), and weak connections only watch (`shareTreeBy`). Each window

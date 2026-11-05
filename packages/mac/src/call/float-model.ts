@@ -16,9 +16,9 @@ export type FloatState =
   | { readonly kind: 'in'; readonly conversation: string; readonly place: string; readonly startedAt: number; readonly muted: boolean; readonly people: readonly FloatPerson[]; readonly sharing?: string; readonly youShare?: boolean }
   | { readonly kind: 'ringing'; readonly conversation: string; readonly place: string; readonly by: FloatPerson; readonly group: boolean };
 
-export type FloatAction = 'mute' | 'unmute' | 'leave' | 'join' | 'decline' | 'open' | 'stop-sharing';
+export type FloatAction = 'mute' | 'unmute' | 'leave' | 'join' | 'decline' | 'open' | 'stop-sharing' | 'hide';
 
-export const FLOAT_ACTIONS: readonly FloatAction[] = ['mute', 'unmute', 'leave', 'join', 'decline', 'open', 'stop-sharing'];
+export const FLOAT_ACTIONS: readonly FloatAction[] = ['mute', 'unmute', 'leave', 'join', 'decline', 'open', 'stop-sharing', 'hide'];
 
 /** The call you're in wins; else the oldest one ringing; else nothing (the card hides). */
 export function floatState(mine: CallView | undefined, ringing: readonly CallView[], speaking: ReadonlySet<string>, placeOf: (conversation: string) => string): FloatState | null {

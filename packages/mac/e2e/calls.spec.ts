@@ -120,7 +120,13 @@ test('sharing a screen puts it on the stage beside the chat; the chat in full sc
   await page.getByRole('menuitem', { name: /^Smooth/ }).click();
   await stage.getByRole('button', { name: 'Full Screen' }).click();
   await expect(stage.getByRole('button', { name: 'Exit Full Screen' })).toBeVisible();
+  // Just looking, the bar steps aside; the pointer brings it back.
+  const bar = stage.getByRole('toolbar', { name: 'The shared screen' });
+  await page.mouse.move(b.x + 40, b.y + 40);
+  await expect(bar).toHaveCSS('opacity', '0', { timeout: 6_000 });
   await shot(page, '07-full-screen');
+  await page.mouse.move(b.x + 60, b.y + 60);
+  await expect(bar).toHaveCSS('opacity', '1');
   await page.keyboard.press('Escape');
   await expect(stage.getByRole('button', { name: 'Full Screen' })).toBeVisible();
   await stage.getByRole('button', { name: 'Stop Sharing' }).click();

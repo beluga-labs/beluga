@@ -878,6 +878,35 @@
   border-radius: 0;
   box-shadow: none;
 }
+/* Full screen: the bar floats over the bottom and steps aside while you just look. */
+.theater .stageBar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 4;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 28px);
+  padding: 6px 8px 6px 14px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
+  box-shadow: var(--shadow-pop);
+  transition:
+    opacity 260ms var(--ease-out),
+    transform 260ms var(--ease-out);
+}
+.theater .barAway {
+  opacity: 0;
+  transform: translate(-50%, 10px);
+  pointer-events: none;
+}
+.theater .stageRail {
+  bottom: 24px;
+}
+.theaterIdle,
+.theaterIdle .stageFrame {
+  cursor: none;
+}
 
 /* ---- cameras (BLG-714): a band of faces, or a filmstrip over the shared screen */
 

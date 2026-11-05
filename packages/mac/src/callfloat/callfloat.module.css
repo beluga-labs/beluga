@@ -69,6 +69,24 @@
 .stop:active {
   transform: scale(0.96);
 }
+.tuck {
+  all: unset;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -2px;
+  border-radius: 50%;
+  flex: none;
+  color: var(--text-3);
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.tuck:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 @keyframes arrive {
   from {
     transform: translateY(-10px) scale(0.97);
