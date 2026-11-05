@@ -88,6 +88,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
           if (host.runningIn(channel)) host.stopRun(channel);
           await host.idle(channel);
         },
+        endRuns: (channel, why) => host.endIn(channel, why),
         forgetContext: (channel) => host.forgetContext(channel),
         findConversation: opts.findConversation
           ? async (dir, o) => {

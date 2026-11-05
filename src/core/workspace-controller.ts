@@ -59,6 +59,8 @@ export interface ControllerDeps {
   readonly showAsk?: (prompt: string, channel: string) => string;
   /** Stop your Claude in a conversation, resolving once nothing runs there (editing a message cuts it there). */
   readonly stopHere?: (channel: string) => Promise<void>;
+  /** A worktree is going: end your Claude's run and queue in its conversation, quietly, resolving once nothing runs there. */
+  readonly endRuns?: (channel: string, why: string) => Promise<void>;
   /** A conversation went back to an earlier point: forget how full its context was. */
   readonly forgetContext?: (channel: string) => void;
   /** Compact a conversation's context in your Claude's queue (falls back to asking Claude for /compact). */
@@ -97,6 +99,8 @@ const WS_PREFIX = 'ws:';
 /** What Claude starts with in a worktree you continued into without saying what to do. */
 export const CONTINUE_PROMPT = 'We moved here from the main folder so you can make changes. Go ahead with what we discussed.';
 const CONTINUE_WAIT_MS = 60_000;
+/** How long deleting or archiving waits for the Claude working there to stop before it goes on anyway. */
+const END_RUNS_WAIT_MS = 10_000;
 
 /** How a conversation goes on in a new worktree (see continueInWorktree). */
 export interface ContinueOptions {
@@ -203,6 +207,18 @@ export class WorkspaceController {
         // A listener's problem is its own.
       }
     }
+  }
+
+  /**
+   * Before a worktree's folder goes: the Claude working there stops and its queue empties (it
+   * would go on in a folder that's gone, and its card land in a conversation that's gone).
+   */
+  private async endRunsIn(id: string, why: string): Promise<void> {
+    if (!this.deps.endRuns) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<void>((resolve) => (timer = setTimeout(resolve, END_RUNS_WAIT_MS)));
+    await Promise.race([this.deps.endRuns(`${WS_PREFIX}${id}`, why).catch(() => undefined), late]);
+    clearTimeout(timer);
   }
 
   private emit(event: WorktreeEvent): void {
@@ -1148,6 +1164,7 @@ export class WorkspaceController {
     const phase = (p?: ArchivePhase): void => void this.deps.store.dispatch({ type: 'archiving', id, ...(p ? { phase: p } : {}) });
     let manifest: ArchiveManifest | undefined;
     const answers = this.answersIn(id);
+    await this.endRunsIn(id, 'Stopped: its worktree was archived');
     const done = await this.inLane(ws?.projectRoot || ws?.path || id, () =>
       this.act(
         "Couldn't archive",
@@ -1302,6 +1319,7 @@ export class WorkspaceController {
     this.going(id);
     const settle = ws && ws.kind !== 'main' ? this.leaveNow(id, 'delete') : () => undefined;
     const answers = this.answersIn(id);
+    await this.endRunsIn(id, 'Stopped: its worktree was deleted');
     const done = await this.inLane(ws?.projectRoot || ws?.path || id, () =>
       this.act(
         "Couldn't delete",

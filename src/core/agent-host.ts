@@ -582,6 +582,28 @@ export class AgentHost {
   }
 
   /**
+   * A conversation's worktree is going (deleted or archived): everything your Claude has there
+   * ends, quietly, whoever asked for it. Its run stops (its approvals denied, its questions
+   * skipped) and what waits there is dropped, saying `why`. Resolves once nothing runs there, so
+   * no card lands in a conversation that's gone and no Claude works in a folder that's gone.
+   */
+  endIn(channel: string, why: string): Promise<void> {
+    const lane = this.lanes.get(channel);
+    if (!lane || (!lane.current && !lane.waiting.length)) return Promise.resolve();
+    for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
+    this.deps.questions.cancelChannel(channel);
+    const dropped = lane.waiting;
+    lane.waiting = [];
+    for (const { from, body, compact } of dropped) if (!compact) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    if (lane.current) {
+      lane.interruptedBy = 'beluga';
+      lane.interruptNote = why;
+      lane.current.abort();
+    }
+    return this.idle(channel);
+  }
+
+  /**
    * Stop your Claude in one conversation only. Its current run there stops (whoever asked for
    * it), and that run's waiting tool approvals are denied and its questions skipped. Your own
    * messages still waiting there come out of the queue: their prompts are returned in queue order
