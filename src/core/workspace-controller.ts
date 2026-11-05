@@ -157,6 +157,8 @@ export class WorkspaceController {
   private readonly worktreeListeners = new Set<(event: WorktreeEvent) => void>();
   private readonly goingListeners = new Set<(ws: Workspace) => void>();
   private readonly loaded = new Set<string>();
+  /** Conversations of worktrees deleted here: their agent's last words, echoed back late, don't land (deletedChannel). */
+  private readonly deleted = new Set<string>();
   private reviewToken = 0;
   /** Saves the loaded conversations that changed (see history-saver.ts). */
   private readonly saver: HistorySaver;
@@ -184,6 +186,15 @@ export class WorkspaceController {
   private readonly pulling = new Map<string, Promise<Workspace | undefined>>();
 
   /** Hear about worktrees opening, merging, going and coming back. */
+  /**
+   * A worktree deleted here: nothing more goes in its conversation. Its stopped run's last event
+   * comes back through the room hub, and on a slow computer that's after the conversation was
+   * cleared (Windows' runners showed it).
+   */
+  deletedChannel(channel: string): boolean {
+    return this.deleted.has(channel);
+  }
+
   onWorktree(listener: (event: WorktreeEvent) => void): () => void {
     this.worktreeListeners.add(listener);
     return () => void this.worktreeListeners.delete(listener);
@@ -233,6 +244,7 @@ export class WorkspaceController {
 
   /** A worktree opened: the workbench (setup) and the listeners hear of it. */
   private created(ws: Workspace, extra: { from?: string; about?: string } = {}): void {
+    this.deleted.delete(`${WS_PREFIX}${ws.id}`);
     this.deps.onWorktreeCreated?.(ws);
     this.emit({ kind: 'created', ws, ...extra });
   }
@@ -1336,6 +1348,7 @@ export class WorkspaceController {
       this.loaded.delete(`${WS_PREFIX}${id}`);
       // Its conversation went with it on disk; the copy loaded here goes too, or search still finds it.
       this.deps.store.dispatch({ type: 'history', channel: `${WS_PREFIX}${id}`, items: [] });
+      this.deleted.add(`${WS_PREFIX}${id}`);
       this.deps.intend({ type: 'close_tab', id });
       // Its views' rows go, and their scripts and handed-over rows unless another conversation shows them.
       forgetViews(answers, 'deleted', () => this.answersElsewhere(id));
