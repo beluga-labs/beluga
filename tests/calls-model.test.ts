@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NO_INK, applyInk, hasInk, strokeAlpha, tidyInk } from '../packages/mac/src/call/ink.js';
-import { RING, RING_EVERY_S } from '../packages/mac/src/call/ringtone.js';
+import { JOINED, LEFT, RING, RING_EVERY_S } from '../packages/mac/src/call/ringtone.js';
 import { render } from '../packages/mac/src/lib/sounds/synth.js';
 import { needsYou } from '../src/companion/needs-you.js';
 import { NeedsYou } from '../src/companion/protocol.js';
@@ -95,23 +95,31 @@ describe('ink on a shared screen (BLG-706)', () => {
 });
 
 describe('the ringtone (BLG-706)', () => {
-  it('is one continuous loop: no pause between turns, and nothing clips', () => {
+  it('rings like a phone: ring-ring, a clear pause, ring-ring; nothing clips', () => {
     const rate = 22_050;
     const turn = render(RING, 0.8, rate);
-    const step = Math.round(RING_EVERY_S * rate);
-    // It runs longer than one turn: its tail plays under the start of the next.
-    expect(turn.length).toBeGreaterThan(step);
-    const two = new Float32Array(step + turn.length);
-    for (const at of [0, step]) turn.forEach((v, i) => (two[at + i]! += v));
     const win = rate / 10;
     const levels: number[] = [];
-    for (let at = win * 3; at + win < step * 2; at += win) {
+    for (let at = 0; at + win <= Math.round(RING_EVERY_S * rate); at += win) {
       let sum = 0;
-      for (let i = at; i < at + win; i++) sum += two[i]! ** 2;
+      for (let i = at; i < at + win; i++) sum += (turn[i] ?? 0) ** 2;
       levels.push(Math.sqrt(sum / win));
     }
-    expect(Math.min(...levels)).toBeGreaterThan(Math.max(...levels) * 0.15);
-    expect(two.every((v) => Math.abs(v) < 1)).toBe(true);
+    const loud = Math.max(...levels);
+    const shape = levels.map((v) => (v > loud * 0.35 ? '#' : v > loud * 0.08 ? '+' : '.')).join('');
+    // Four rings in two pairs, each pair followed by a pause of over a second: it can't pass for music.
+    expect(shape.match(/#+/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(shape.match(/\.{12,}/g)?.length).toBe(2);
+    expect(turn.every((v) => Math.abs(v) < 1)).toBe(true);
+  });
+
+  it('joining rises and leaving falls, both short', () => {
+    const pitch = (spec: typeof JOINED): number[] => spec.notes.map((n) => n.freq);
+    const up = pitch(JOINED);
+    const down = pitch(LEFT);
+    expect(up.every((f, i) => i === 0 || f > up[i - 1]!)).toBe(true);
+    expect(down.every((f, i) => i === 0 || f < down[i - 1]!)).toBe(true);
+    expect(Math.max(JOINED.maxLength, LEFT.maxLength)).toBeLessThan(1);
   });
 });
 

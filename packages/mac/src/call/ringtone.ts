@@ -3,69 +3,67 @@ import { midi, render, type Note, type SoundSpec } from '../lib/sounds/synth.js'
 
 /**
  * Beluga's call sounds (BLG-706), made by the notification synthesizer so they sound like the rest
- * of Beluga. The ringtone is a slow jazz loop, calm rather than urgent: a soft electric piano (an
- * FM "Rhodes") rolling through Dmaj9, Bm9, Em9 and A13, a round bass under it, and a quiet
- * vibraphone line on top. It plays continuously (each loop's tail runs into the next one) until
- * you answer. The caller hears the same chords, softer and without the tune. Joining and leaving
- * are two electric piano notes, up and down.
+ * of Beluga. The ringtone keeps its jazz (Dmaj9, Bm9, Em9, A13) but rings like a phone: two quick,
+ * bright rolled chords, "ring-ring", each struck three times like a bell, then a clear pause, so it
+ * can't be mistaken for music playing somewhere. The caller hears one soft chord now and then.
+ * Joining and leaving are short, crisp bells: three notes up, two notes down.
  */
 
-/** One chord's length (seconds): about 64 beats a minute, two beats a chord. */
-const BAR = 2.4;
+/** A bright electric piano: a strong bell on the attack, gone quickly. */
+const bell = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.003, release: 0.18, decay: 3.2, fm: { ratio: 1, index: 2.4, fade: 4 } });
+/** A vibraphone on top: clear, with a metal ring. */
+const vibes = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.25, decay: 2.4, fm: { ratio: 4, index: 1, fade: 6 } });
+/** A soft electric piano for the caller's side. */
+const soft = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.012, release: 0.5, decay: 1.2, fm: { ratio: 1, index: 1.2, fade: 3 } });
 
-/** The electric piano: a bell on the attack that settles into a warm, slowly fading tone. */
-const keys = (at: number, note: number, dur: number, gain = 0.32): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.012, release: 0.7, decay: 0.45, fm: { ratio: 1, index: 1.5, fade: 2.6 } });
-/** The bass: round, under everything. */
-const bass = (at: number, note: number, dur: number, gain = 0.5): Note => ({ at, dur, freq: midi(note), wave: 'sine', gain, attack: 0.02, release: 0.35, decay: 0.5 });
-/** The vibraphone: a clear tone with a soft metal ring (a high, gentle FM ratio). */
-const vibes = (at: number, note: number, dur: number, gain = 0.26): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.006, release: 0.5, decay: 1.1, fm: { ratio: 4, index: 0.55, fade: 5 } });
-
-/** A chord rolled gently from the bottom up, held into the next one so nothing ever stops. */
-const roll = (at: number, notes: readonly number[], gain?: number): Note[] => notes.map((n, i) => keys(at + i * 0.035, n, BAR + 0.9, gain));
-
-/** I – vi – ii – V in D, rootless voicings that move by a step or two (MIDI notes). */
-const CHORDS: ReadonlyArray<{ readonly root: number; readonly fifth: number; readonly voicing: readonly number[] }> = [
-  { root: 50, fifth: 57, voicing: [54, 57, 61, 64] }, // Dmaj9
-  { root: 47, fifth: 54, voicing: [57, 61, 62, 66] }, // Bm9
-  { root: 40, fifth: 47, voicing: [55, 59, 62, 66] }, // Em9
-  { root: 45, fifth: 52, voicing: [55, 59, 61, 66] }, // A13
+/** The four chords, voiced high and bright (MIDI notes, bottom to top). */
+const CHORDS: ReadonlyArray<readonly number[]> = [
+  [66, 69, 73, 76, 81], // Dmaj9
+  [69, 73, 74, 78, 81], // Bm9
+  [67, 71, 74, 78, 83], // Em9
+  [67, 71, 73, 78, 81], // A13
 ];
 
-/** The tune over it: where each note falls in its chord, and its pitch; the last leads back to D. */
-const TUNE: ReadonlyArray<readonly [chord: number, beat: number, note: number, dur: number]> = [
-  [0, 0.15, 78, 1.6],
-  [1, 0.15, 76, 0.9],
-  [1, 1.1, 74, 1.4],
-  [2, 0.15, 78, 0.9],
-  [2, 1.1, 76, 1.4],
-  [3, 0.15, 73, 0.9],
-  [3, 1.1, 71, 0.6],
-  [3, 1.7, 73, 0.9],
-];
-
-function loopNotes(withTune: boolean, gain: number): Note[] {
-  const chords = CHORDS.flatMap((c, i) => {
-    const at = i * BAR;
-    // A walking feel: the root on one, the fifth on three.
-    return [...roll(at, c.voicing, 0.3 * gain), bass(at, c.root, BAR * 0.55, 0.5 * gain), bass(at + BAR / 2, c.fifth, BAR * 0.5, 0.38 * gain)];
-  });
-  const tune = withTune ? TUNE.map(([chord, beat, note, dur]) => vibes(chord * BAR + beat * (BAR / 2), note, dur + 0.6, 0.26 * gain)) : [];
-  return [...chords, ...tune];
+/** One ring: the chord rolled up fast, its top three notes struck again twice, a vibraphone on the top note. */
+function ring(at: number, chord: readonly number[]): Note[] {
+  const top = chord.slice(-3);
+  return [
+    ...chord.map((n, i) => bell(at + i * 0.018, n, 0.75, 0.2)),
+    ...[0.14, 0.28].flatMap((d) => top.map((n) => bell(at + d, n, 0.4, 0.15))),
+    vibes(at + 0.09, chord.at(-1)! + 12, 0.9, 0.22),
+  ];
 }
 
-/** The ringtone: one turn of the loop, with the tail that runs into the next turn. */
-export const RING: SoundSpec = { notes: loopNotes(true, 1), lowpass: 5200, reverb: { mix: 0.3, time: 1.6 }, maxLength: CHORDS.length * BAR + 1.6 };
-/** The loop starts again this often: exactly its length, so it never pauses. */
-export const RING_EVERY_S = CHORDS.length * BAR;
+/** "Ring-ring", then a pause: the shape a call has everywhere. */
+const RING_PAIR_S = 3.6;
+/** The second ring of a pair, after the first. */
+const RING_GAP_S = 0.85;
 
-/** What the caller hears while it rings at the others': the same chords, quieter, no tune. */
-export const RINGBACK: SoundSpec = { notes: loopNotes(false, 0.7), lowpass: 3800, reverb: { mix: 0.3, time: 1.6 }, maxLength: CHORDS.length * BAR + 1.6 };
-export const RINGBACK_EVERY_S = CHORDS.length * BAR;
+/** The ringtone: two pairs (all four chords), then it starts again. */
+export const RING: SoundSpec = {
+  notes: [0, 1].flatMap((pair) => [...ring(pair * RING_PAIR_S, CHORDS[pair * 2]!), ...ring(pair * RING_PAIR_S + RING_GAP_S, CHORDS[pair * 2 + 1]!)]),
+  lowpass: 7600,
+  reverb: { mix: 0.16, time: 0.9 },
+  maxLength: 2 * RING_PAIR_S + 0.6,
+};
+export const RING_EVERY_S = 2 * RING_PAIR_S;
 
-/** Someone joined (or you did): up a major sixth, on the electric piano. */
-export const JOINED: SoundSpec = { notes: [keys(0, 69, 0.6, 0.5), keys(0.11, 78, 0.9, 0.55)], lowpass: 6000, reverb: { mix: 0.25, time: 1 }, maxLength: 1.3 };
-/** Someone left: down a fourth. */
-export const LEFT: SoundSpec = { notes: [keys(0, 74, 0.6, 0.5), keys(0.12, 69, 0.9, 0.45)], lowpass: 4500, reverb: { mix: 0.25, time: 1 }, maxLength: 1.3 };
+/** What the caller hears while it rings at the others': one soft chord each time it rings there. */
+export const RINGBACK: SoundSpec = {
+  notes: [0, 1].flatMap((pair) => CHORDS[pair * 2]!.slice(0, 4).map((n, i) => soft(pair * RING_PAIR_S + i * 0.03, n - 12, 1.4, 0.22))),
+  lowpass: 4200,
+  reverb: { mix: 0.2, time: 1 },
+  maxLength: 2 * RING_PAIR_S + 0.6,
+};
+export const RINGBACK_EVERY_S = 2 * RING_PAIR_S;
+
+/** A short, crisp bell for coming and going. */
+const chime = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.08, decay: 5, fm: { ratio: 2, index: 1.4, fade: 8 } });
+
+/** Someone joined (or you did): three quick notes up, D F♯ A. */
+export const JOINED: SoundSpec = { notes: [chime(0, 74, 0.16, 0.5), chime(0.07, 78, 0.16, 0.55), chime(0.14, 81, 0.42, 0.65)], lowpass: 9000, reverb: { mix: 0.1, time: 0.5 }, maxLength: 0.75 };
+/** Someone left: two notes down, A to D, a little darker. */
+export const LEFT: SoundSpec = { notes: [chime(0, 81, 0.16, 0.55), chime(0.1, 74, 0.45, 0.5)], lowpass: 6000, reverb: { mix: 0.1, time: 0.5 }, maxLength: 0.75 };
 
 let ctx: AudioContext | undefined;
 const buffers = new Map<SoundSpec, AudioBuffer>();
@@ -107,9 +105,9 @@ export function loop(spec: SoundSpec, every: number, volume = 0.8): () => void {
   if (!c || !buffer) return () => undefined;
   void c.resume().catch(() => undefined);
   const gain = c.createGain();
-  // It comes in softly rather than starting at full volume.
+  // A short swell in, so the first ring doesn't startle.
   gain.gain.setValueAtTime(0, c.currentTime);
-  gain.gain.linearRampToValueAtTime(1, c.currentTime + 0.8);
+  gain.gain.linearRampToValueAtTime(1, c.currentTime + 0.15);
   gain.connect(c.destination);
   const sources: AudioBufferSourceNode[] = [];
   let next = c.currentTime + 0.05;
@@ -128,7 +126,7 @@ export function loop(spec: SoundSpec, every: number, volume = 0.8): () => void {
   const stopSchedule = repeat(schedule, (every * 1000) / 2);
   return () => {
     stopSchedule();
-    // It fades out (answering mid-phrase shouldn't cut the music off).
+    // A quick fade, so answering mid-ring doesn't click.
     gain.gain.cancelScheduledValues(c.currentTime);
     gain.gain.setTargetAtTime(0, c.currentTime, 0.12);
     setTimeout(() => {
