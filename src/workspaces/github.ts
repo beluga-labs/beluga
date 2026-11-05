@@ -63,6 +63,58 @@ export function ghHosts(file = path.join(process.env.GH_CONFIG_DIR ?? path.join(
   }
 }
 
+const readText = (file: string): string | undefined => {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The git folder a checkout shares its config and refs from: `.git`, or for a linked worktree
+ * (whose `.git` is a file pointing at its own git dir) that dir's `commondir`.
+ */
+export function gitCommonDir(dir: string): string {
+  const link = readText(path.join(dir, '.git'))?.match(/^gitdir:\s*(.+)$/m)?.[1]?.trim();
+  const gitDir = link ? path.resolve(dir, link) : path.join(dir, '.git');
+  const common = readText(path.join(gitDir, 'commondir'))?.trim();
+  return common ? path.resolve(gitDir, common) : gitDir;
+}
+
+/** A remote's URL in a git config file's text (`[remote "origin"]` … `url = …`). */
+export function remoteUrlIn(config: string, remote = 'origin'): string | undefined {
+  let inside = false;
+  for (const raw of config.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('[')) {
+      inside = new RegExp(`^\\[remote\\s+"${remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]$`).test(line);
+      continue;
+    }
+    const url = inside ? /^url\s*=\s*(.+)$/.exec(line)?.[1]?.trim() : undefined;
+    if (url) return url.replace(/^"(.*)"$/, '$1');
+  }
+  return undefined;
+}
+
+/** Where origin is on GitHub for the checkout in `dir`, read from its git config (no git run, no network). */
+export function originRepo(dir: string, knownHosts: readonly string[] = ghHosts()): GitHubRepo | undefined {
+  const config = readText(path.join(gitCommonDir(dir), 'config'));
+  const url = config ? remoteUrlIn(config) : undefined;
+  return url ? parseGitHubRemote(url, knownHosts) : undefined;
+}
+
+/**
+ * GH_REPO for gh run in `dir`: origin's repository. Without it, gh picks a remote itself, and in a
+ * fork that's the original (an `upstream` remote ranks first, and `gh repo fork` saves it as the
+ * default), so pull requests would be opened, read and merged there instead of on your fork. Origin
+ * is what Beluga pushes to and merges into everywhere else. Empty when origin isn't on GitHub.
+ */
+export function ghRepoEnv(dir: string | undefined, knownHosts?: readonly string[]): Record<string, string> {
+  const repo = dir ? originRepo(dir, knownHosts) : undefined;
+  return repo ? { GH_REPO: `${repo.host}/${repo.owner}/${repo.repo}` } : {};
+}
+
 export const commitUrl = (repo: GitHubRepo, hash: string): string => `${repo.url}/commit/${hash}`;
 
 export type Visibility = 'public' | 'private' | 'internal';

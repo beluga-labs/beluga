@@ -5,6 +5,7 @@ import type { PrCheck, PullRequest } from '../core/work-store.js';
 import { belugaHome } from './store.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { type GitSetup, httpsRemoteOf } from '../shared/git-trouble.js';
+import { ghRepoEnv, gitCommonDir } from './github.js';
 export { describePr } from '../shared/format.js';
 
 /**
@@ -105,9 +106,9 @@ export const fixChecksPrompt = (pr: PullRequest): string =>
 // Never wait on a username prompt nobody can answer (the daemon has no terminal): fail and say so.
 const QUIET_ENV = { GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' };
 
-const run = (cmd: string, args: readonly string[], cwd: string, timeoutMs = 20_000): Promise<string> =>
+const run = (cmd: string, args: readonly string[], cwd: string, timeoutMs = 20_000, extraEnv: Readonly<Record<string, string>> = {}): Promise<string> =>
   new Promise((resolve, reject) => {
-    execFile(cmd, [...args], { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...QUIET_ENV } }, (err, stdout, stderr) => (err ? reject(new Error((stderr || err.message).trim())) : resolve(stdout)));
+    execFile(cmd, [...args], { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...extraEnv, ...QUIET_ENV } }, (err, stdout, stderr) => (err ? reject(new Error((stderr || err.message).trim())) : resolve(stdout)));
   });
 
 /** Where Homebrew puts programs: a Mac app started from the Dock gets a PATH without them. */
@@ -148,8 +149,8 @@ export function toolCommand(name: string, pathEnv = process.env.PATH ?? '', exis
 /** The GitHub CLI to run: BELUGA_GH (the Mac app's end-to-end tests point it at a stand-in), else gh on PATH or in Homebrew's folders. */
 const gh = (): string => belugaEnv('GH') || toolCommand('gh');
 
-/** Run the GitHub CLI in `dir` → what it printed. Throws gh's error. */
-export const runGh = (args: readonly string[], dir: string, timeoutMs = 30_000): Promise<string> => run(gh(), args, dir, timeoutMs);
+/** Run the GitHub CLI in `dir`, on origin's repository (a fork's own, not the original: see ghRepoEnv) → what it printed. Throws gh's error. */
+export const runGh = (args: readonly string[], dir: string, timeoutMs = 30_000): Promise<string> => run(gh(), args, dir, timeoutMs, ghRepoEnv(dir));
 
 export type GhState = 'ok' | 'logged_out' | 'missing';
 let ghReady: Promise<GhState> | undefined;
@@ -435,7 +436,7 @@ export class PushError extends Error {
 
 /** The head commit of the branch's last pull request, if it was merged (gh's newest PR for the branch). */
 async function mergedHead(dir: string, head: string): Promise<string | undefined> {
-  const out = await run(gh(), ['pr', 'view', head, '--json', 'state,headRefOid'], dir).catch(() => undefined);
+  const out = await runGh(['pr', 'view', head, '--json', 'state,headRefOid'], dir, 20_000).catch(() => undefined);
   if (!out) return undefined;
   try {
     const pr = JSON.parse(out) as { state?: string; headRefOid?: string };
@@ -461,7 +462,7 @@ export function pushWhy(stderr: string): string {
 export async function findPr(dir: string, branch: string): Promise<PullRequest | undefined> {
   if (!(await hasGh())) return undefined;
   try {
-    return parsePr(await run(gh(), ['pr', 'view', branch, '--json', PR_FIELDS], dir));
+    return parsePr(await runGh(['pr', 'view', branch, '--json', PR_FIELDS], dir, 20_000));
   } catch (err) {
     if (err instanceof Error && /no pull requests? found/i.test(err.message)) return undefined;
     throw err;
@@ -474,7 +475,7 @@ export async function findPr(dir: string, branch: string): Promise<PullRequest |
  */
 export async function listPrs(dir: string): Promise<{ prs: Map<string, PullRequest>; full: boolean }> {
   if (!(await hasGh())) return { prs: new Map(), full: false };
-  const out = await run(gh(), ['pr', 'list', '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', `${PR_FIELDS},headRefName`], dir, 30_000);
+  const out = await runGh(['pr', 'list', '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', `${PR_FIELDS},headRefName`], dir, 30_000);
   const prs = parsePrList(out);
   if (!prs) throw new Error('gh pr list gave something unexpected');
   // A full page may have left out an older PR: those branches are looked up one by one.
@@ -519,7 +520,7 @@ export function explainMergeError(error: string, method: MergeMethod = 'squash')
 
 /** Merge a pull request on GitHub (`gh pr merge`), or ask GitHub to once its requirements pass (`auto`), or now past them (`admin`). Throws gh's error. */
 export async function mergePr(dir: string, number: number, opts: MergeOptions): Promise<void> {
-  await run(gh(), mergeArgs(number, opts), dir, 60_000);
+  await runGh(mergeArgs(number, opts), dir, 60_000);
 }
 
 /** `gh pr merge`'s arguments. */
@@ -529,7 +530,7 @@ export function mergeArgs(number: number, opts: MergeOptions): string[] {
 
 /** Turn off GitHub's auto-merge on a pull request (`gh pr merge --disable-auto`). Throws gh's error. */
 export async function disableAutoMerge(dir: string, number: number): Promise<void> {
-  await run(gh(), ['pr', 'merge', String(number), '--disable-auto'], dir, 60_000);
+  await runGh(['pr', 'merge', String(number), '--disable-auto'], dir, 60_000);
 }
 
 /** A PR's one-click steps on GitHub: merge its base in (`gh pr update-branch`), or mark a draft ready for review. */
@@ -537,7 +538,7 @@ export type PrStepKind = 'update_branch' | 'ready';
 
 /** Take one of those steps. Throws gh's error. */
 export async function prStep(dir: string, number: number, step: PrStepKind): Promise<void> {
-  await run(gh(), step === 'ready' ? ['pr', 'ready', String(number)] : ['pr', 'update-branch', String(number)], dir, 60_000);
+  await runGh(step === 'ready' ? ['pr', 'ready', String(number)] : ['pr', 'update-branch', String(number)], dir, 60_000);
 }
 
 /**
@@ -561,11 +562,7 @@ export function remoteRef(dir: string, branch: string, remote = 'origin'): strin
       return undefined;
     }
   };
-  // A linked worktree's `.git` is a file pointing at its git dir, whose `commondir` leads to the shared refs.
-  const link = read(path.join(dir, '.git'))?.match(/^gitdir:\s*(.+)$/m)?.[1];
-  const gitDir = link ? path.resolve(dir, link) : path.join(dir, '.git');
-  const commonDir = read(path.join(gitDir, 'commondir'));
-  const common = commonDir ? path.resolve(gitDir, commonDir) : gitDir;
+  const common = gitCommonDir(dir);
   const name = `refs/remotes/${remote}/${branch}`;
   const loose = read(path.join(common, ...name.split('/')));
   if (loose) return loose;
@@ -619,7 +616,7 @@ export async function createPr(dir: string, pr: { readonly base: string; readonl
   await pushForPr(dir, pr.head, pr.https ? { https: true } : {});
   const existing = await findPr(dir, pr.head).catch(() => undefined);
   if (existing?.state === 'OPEN') return existing;
-  await run(gh(), ['pr', 'create', '--base', pr.base, '--head', pr.head, '--title', pr.title, '--body', pr.body, ...(pr.draft ? ['--draft'] : [])], dir, 60_000);
+  await runGh(['pr', 'create', '--base', pr.base, '--head', pr.head, '--title', pr.title, '--body', pr.body, ...(pr.draft ? ['--draft'] : [])], dir, 60_000);
   const made = await findPr(dir, pr.head);
   if (!made) throw new Error('GitHub didn’t show the new pull request');
   return made;

@@ -27,6 +27,7 @@ import { plansOf } from './plans/registry.js';
 import { assistantOf } from './assistant/registry.js';
 import { companionOf } from '../companion/registry.js';
 import { stopTestProcesses } from '../workspaces/test-procs.js';
+import { ghRepoEnv } from '../workspaces/github.js';
 import { AgentTerminals } from './agent-term.js';
 import { claudeHome } from './claude-code/launch.js';
 import { callNotesToolsOf } from './calls/launch.js';
@@ -210,7 +211,8 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       approvalTimeoutMs: () => session.approvalTimeoutMs,
       refreshUsage: () => session.refreshUsage(),
       canEditIn: (peerId, channel) => invites.canEditIn(peerId, channel),
-      envFor: (channel, dir) => env.envFor(channel.startsWith('ws:') ? { workspaceId: channel.slice(3), dir } : { dir }, { claude: true }),
+      // Claude's gh works on origin's repository, as Beluga does: a fork's own, not the original (yours win when set).
+      envFor: (channel, dir) => ({ ...ghRepoEnv(dir), ...env.envFor(channel.startsWith('ws:') ? { workspaceId: channel.slice(3), dir } : { dir }, { claude: true }) }),
       dotenvAccess: env.dotenvAccess,
       stopTests: (dir) => stopTestProcesses(dir),
       nameTask: (prompt) => session.nameTask(prompt),
