@@ -73,7 +73,7 @@ describe('beluga project', () => {
 
     const gone = capture();
     expect(await removeProject(link, 'SHOP', gone)).toBe(0);
-    expect(gone.text()).toContain(`Removed shop from Beluga. Its folder stays at ${dir}`);
+    expect(gone.text()).toContain(`Removed shop from Beluga. Its folder stays at ${tilde(dir)}`);
     expect(link.projects().some((p) => p.root === dir)).toBe(false);
     expect(git(dir, 'log', '--oneline')).toContain('first');
   });
@@ -154,6 +154,8 @@ describe('reading what was given', () => {
     expect(cloneName('https://github.com/kayraucklnc/beluga.git')).toBe('beluga');
     expect(cloneName('git@github.com:kayraucklnc/site')).toBe('site');
     expect(cloneName('https://github.com/a/b/')).toBe('b');
+    // A Windows folder in a file:// URL (BLG-728).
+    expect(cloneName('file://C:\\Users\\me\\tool.git')).toBe('tool');
   });
 
   it('finds a project by name, id or folder', () => {
