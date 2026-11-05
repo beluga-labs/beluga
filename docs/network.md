@@ -379,8 +379,8 @@ conversation, and it's the same chat.
 - **One window makes your side.** The Mac screen that started or joined it (or the first to say
   so after you answered from the phone) gets the setup and says it's still there every few
   seconds. If it goes quiet for 32 s, you leave the call.
-- **Pointing, without tools** (BLG-717). On a shared screen your pointer shows for everyone as you
-  move, a click sends a ripple, and dragging draws. Strokes a moment apart are one sketch (a word,
+- **Pointing, without tools** (BLG-717). On a shared screen a click sends a ripple everyone sees,
+  and dragging draws; your pointer shows only once you choose to (below). Strokes a moment apart are one sketch (a word,
   a circle and an arrow); drawing again after a pause clears your old sketch, and left alone it
   dissolves a few seconds later by itself. The Box tool (or Shift as you drag) marks a box instead;
   it goes as a stroke along its sides, so it fades and can be asked about like any sketch. Beside
@@ -388,8 +388,10 @@ conversation, and it's the same chat.
   while you type the question. The sharer picks Sharp (text) or Smooth (motion) behind •••; Full
   Screen gives the picture the whole display. Nothing is written over the shared screen while the
   chat shows beside it.
-- **Everyone's pointer** (BLG-733). Each person's pointer shows for the others as an arrow in their
-  colour with their picture and name. It's sent 60 times a second on a second data channel,
+- **Everyone's pointer** (BLG-733). Off until you turn on Show My Pointer in the stage's bar (each
+  share starts with it off). Then your pointer shows for the others as an arrow in your colour with
+  your picture and name, and you see the same mark under your own mouse in place of the usual
+  arrow, so it looks the same on both ends. It's sent 60 times a second on a second data channel,
   unordered and never resent (only the newest spot counts), once the other Mac says it has one
   (`pointers` in `streams`); older Macs get it on the stage channel. Each screen glides it to its
   last spot on a critically damped spring (call/glide.ts), so it moves smoothly however the

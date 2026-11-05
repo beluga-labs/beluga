@@ -7,7 +7,7 @@ import { useApp } from '../lib/beluga.js';
 import { useMyAgentName } from '../lib/agent-words.js';
 import { AskBox, AskCard, type Region } from './AskClaude.js';
 import { type Ink, MAX_POINTS, NO_INK, applyInk, boxPoints, draw, hasInk, holdSketch, pictureBox, releaseSketch, sketchBox, tidyInk } from './ink.js';
-import { Pointers } from './Pointers.js';
+import { PointerMark, Pointers } from './Pointers.js';
 import { CallChatPops } from './ChatPops.js';
 import { CameraStrip } from './Cameras.js';
 import { useCallEngine, useCallLive, useCallPlace } from './use-call.js';
@@ -41,7 +41,8 @@ type Tool = 'draw' | 'box';
  * you draw in one go (strokes a moment apart: a word, a circle and an arrow) is one sketch, seen by
  * everyone, the person sharing too (on their own screen). Draw again after a pause and the old
  * sketch makes way; left alone, it dissolves. The Box tool (or Shift) marks a box instead (BLG-735).
- * Everyone's pointer shows as an arrow with their picture, gliding (BLG-733). Beside your sketch, Ask your agent about it: the part it
+ * Show My Pointer (off until you turn it on) shows your pointer to everyone as an arrow with your
+ * picture and name, gliding on their screens; you see the same mark under your own mouse (BLG-733). Beside your sketch, Ask your agent about it: the part it
  * covers, with the ink on it, goes in the chat as a picture. Full Screen gives the picture the
  * whole display; the chat beside it is covered then, so what the others write pops up on the
  * right, with a line to answer in. Esc comes back.
@@ -60,6 +61,10 @@ export function Stage({ call }: { call: CallView }) {
   const [size, setSize] = useState({ w: 0, h: 0, vw: 0, vh: 0 });
   const [asking, setAsking] = useState<Region | undefined>();
   const [tool, setTool] = useState<Tool>('draw');
+  /** Your pointer goes to everyone only while this is on (it starts off, each share). */
+  const [showMine, setShowMine] = useState(false);
+  /** Your own mark, moved straight under your mouse (no React on each move). */
+  const mineMark = useRef<HTMLDivElement | null>(null);
   const press = useRef<Press | undefined>(undefined);
   const stroke = useRef<{ id: string; pts: number[]; sent: number } | undefined>(undefined);
   const lastSent = useRef(0);
@@ -171,13 +176,21 @@ export function Stage({ call }: { call: CallView }) {
     press.current = { x, y, moved: false, box: tool === 'box' || e.shiftKey };
     stroke.current = { id: `${me.slice(0, 6)}-${Date.now().toString(36)}`, pts: [x, y], sent: 0 };
   };
+  const placeMine = (e: ReactPointerEvent): void => {
+    const el = mineMark.current;
+    if (!el) return;
+    const r = frame.current!.getBoundingClientRect();
+    el.style.transform = `translate3d(${e.clientX - r.left}px, ${e.clientY - r.top}px, 0)`;
+    el.style.opacity = '1';
+  };
   const onMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
     const [x, y] = fraction(e);
     const now = performance.now();
+    if (showMine) placeMine(e);
     const p = press.current;
     if (!p) {
-      // Just moving: your pointer, for everyone.
-      if (now - lastSent.current > POINTER_MS) {
+      // Just moving: your pointer, for everyone, if you chose to show it.
+      if (showMine && now - lastSent.current > POINTER_MS) {
         lastSent.current = now;
         engine.pointerSend({ k: 'laser', by: me, x, y });
       }
@@ -212,7 +225,8 @@ export function Stage({ call }: { call: CallView }) {
     engine.stageSend({ k: 'ping', by: me, x, y });
   };
   const onLeave = (): void => {
-    if (!press.current) engine.pointerSend({ k: 'laser', by: me, x: -1, y: -1 });
+    if (mineMark.current) mineMark.current.style.opacity = '0';
+    if (!press.current && showMine) engine.pointerSend({ k: 'laser', by: me, x: -1, y: -1 });
   };
 
   const styleOf = (r: Region): CSSProperties => ({ left: box.x + r.x * box.w, top: box.y + r.y * box.h, width: r.w * box.w, height: r.h * box.h });
@@ -223,10 +237,16 @@ export function Stage({ call }: { call: CallView }) {
 
   return (
     <section className={cx(c.stage, live.theater && c.theater, live.theater && barAway && c.theaterIdle)} onPointerMove={wake} aria-label={sharer?.me ? 'Your shared screen' : `${sharer?.name ?? 'Their'}’s screen`}>
-      <div ref={frame} className={c.stageFrame} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave}>
+      <div ref={frame} className={cx(c.stageFrame, showMine && c.stageOwnPointer)} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave}>
         <video ref={video} className={c.stageVideo} autoPlay playsInline muted />
         <canvas ref={canvas} className={c.stageInk} style={{ width: size.w, height: size.h }} aria-hidden="true" />
         <Pointers people={call.people} me={me} box={box} />
+        {/* Yours, as the others see it, right under your mouse (it stands in for the arrow there). */}
+        {showMine ? (
+          <div className={c.pointers} aria-hidden="true">
+            <PointerMark by={me} name={call.people.find((p) => p.me)?.name ?? 'You'} style={{ opacity: 0 }} nodeRef={(el) => (mineMark.current = el)} />
+          </div>
+        ) : null}
         {sketch && !asking && !press.current ? (
           <AskPill
             at={styleOf(sketch)}
@@ -274,6 +294,20 @@ export function Stage({ call }: { call: CallView }) {
             </button>
           </Tip>
         </span>
+        <Tip label={showMine ? 'Stop Showing My Pointer' : 'Show My Pointer to Everyone'}>
+          <button
+            type="button"
+            className={cx(c.tool, showMine && c.toolOn)}
+            aria-pressed={showMine}
+            aria-label="Show My Pointer"
+            onClick={() => {
+              if (showMine) engine.pointerSend({ k: 'laser', by: me, x: -1, y: -1 });
+              setShowMine(!showMine);
+            }}
+          >
+            <Icon name="pointer" size={14} />
+          </button>
+        </Tip>
         <span className={c.stageHint}>{tool === 'box' ? 'Drag a box around something · everyone sees it' : 'Draw to point something out · ⇧ for a box'}</span>
         {anyInk ? (
           <Tip label="Clear the Drawing">

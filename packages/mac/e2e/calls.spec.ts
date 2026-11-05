@@ -126,6 +126,16 @@ test('sharing a screen puts it on the stage beside the chat; the chat in full sc
   await expect(stage.getByRole('button', { name: /^Ask / })).toBeVisible();
   await shot(page, '06b-box');
   await stage.getByRole('radio', { name: 'Draw' }).click();
+  // Your pointer is yours to show: off until you turn it on; then you see the same mark the others do.
+  const showMine = stage.getByRole('button', { name: 'Show My Pointer' });
+  await expect(showMine).toHaveAttribute('aria-pressed', 'false');
+  await showMine.click();
+  await expect(showMine).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(...at(0.4, 0.5));
+  await page.mouse.move(...at(0.42, 0.52));
+  await expect(stage.getByText('kayrauckilinc').or(stage.locator('[class*="pointerTag"]')).first()).toBeVisible();
+  await shot(page, '06d-my-pointer');
+  await showMine.click();
   // Which microphone and speaker, beside Mute (BLG-737).
   await strip(page).getByRole('button', { name: 'Microphone and Speaker' }).click();
   await expect(page.getByRole('menuitem', { name: 'Microphone' })).toBeVisible();

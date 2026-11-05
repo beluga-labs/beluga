@@ -1256,3 +1256,9 @@
   box-shadow: 0 0 0 1.5px #ffffff;
   border-radius: 50%;
 }
+/* Showing your pointer: the mark everyone sees takes the place of the arrow under your mouse. */
+.stageOwnPointer,
+.stageOwnPointer video,
+.stageOwnPointer canvas {
+  cursor: none;
+}

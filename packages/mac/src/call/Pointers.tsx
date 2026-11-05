@@ -14,8 +14,9 @@ interface Box {
 }
 
 /**
- * Everyone else's pointer over a shared screen (BLG-733): an arrow in their colour, their picture
- * and name beside it, gliding where they point. Pointers come many times a second and each one
+ * Everyone else's pointer over a shared screen (BLG-733), for those who chose to show it (Show My
+ * Pointer, off until they turn it on): an arrow in their colour, their picture and name beside it,
+ * gliding where they point. Pointers come many times a second and each one
  * follows its last spot on a spring (call/glide.ts), so it moves smoothly however the network
  * delivers. Positions are written straight to the page on each frame, not through React: a
  * pointer moving never draws the stage again. Yours isn't here: it's your own mouse.
@@ -83,29 +84,40 @@ export function Pointers({ people, me, box }: { people: readonly CallPersonView[
       {who.map((by) => {
         const person = people.find((p) => p.peerId === by);
         const name = person?.name ?? 'Someone';
-        const color = personColor(by);
         const g = glides.current.get(by);
         const style: CSSProperties = g ? { transform: `translate3d(${box.x + g.x * box.w}px, ${box.y + g.y * box.h}px, 0)` } : { opacity: 0 };
         return (
-          <div
+          <PointerMark
             key={by}
-            className={c.pointer}
+            by={by}
+            name={name}
             style={style}
-            ref={(el) => {
+            nodeRef={(el) => {
               if (el) nodes.current.set(by, el);
               else nodes.current.delete(by);
             }}
-          >
-            <svg className={c.pointerArrow} viewBox="0 0 16 21" width={16} height={21}>
-              <path d={POINTER_PATH} fill={color} stroke="#ffffff" strokeWidth={1.5} strokeLinejoin="round" />
-            </svg>
-            <span className={c.pointerTag} style={{ background: color }}>
-              <Avatar name={name} id={by} size={16} />
-              <span>{name}</span>
-            </span>
-          </div>
+          />
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * One person's pointer: an arrow in their colour, their picture and name beside it. The same mark
+ * on every screen: the others see yours gliding, and you see it right under your own mouse.
+ */
+export function PointerMark({ by, name, style, nodeRef }: { by: string; name: string; style?: CSSProperties; nodeRef?: (el: HTMLDivElement | null) => void }) {
+  const color = personColor(by);
+  return (
+    <div className={c.pointer} style={style} ref={nodeRef}>
+      <svg className={c.pointerArrow} viewBox="0 0 16 21" width={16} height={21}>
+        <path d={POINTER_PATH} fill={color} stroke="#ffffff" strokeWidth={1.5} strokeLinejoin="round" />
+      </svg>
+      <span className={c.pointerTag} style={{ background: color }}>
+        <Avatar name={name} id={by} size={16} />
+        <span>{name}</span>
+      </span>
     </div>
   );
 }
