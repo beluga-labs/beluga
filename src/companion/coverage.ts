@@ -534,6 +534,7 @@ export const PHONE: Record<Method, Side> = {
   'voice.models': 'mac',
   'voice.prepare': 'mac',
   'voice.transcribe': 'mac',
+  'voice.load': 'mac',
   // Calls (BLG-706): the Mac's window makes the sound. The phone answers one on your Mac, declines
   // it, or hangs up; starting one, muting, sharing and the WebRTC setup are the Mac's.
   'calls.start': 'mac',

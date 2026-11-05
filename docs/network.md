@@ -403,20 +403,28 @@ conversation, and it's the same chat.
   its streams is the camera and which the screen. Faces show as a band under the strip, or a
   filmstrip over a shared screen. Face to Face puts the call over the whole window, like FaceTime:
   one other person fills it, a group is a collage, and you're a picture you drag to any corner.
-- **Notes** (BLG-715). Nobody records anyone else: each Mac writes down only its own microphone
-  (the call's echo-cancelled stream) on its own GPU with the dictation engine, phrase by phrase,
-  keeping no sound. As you leave, your words go to the others who were in the call (`notes` frames,
-  accepted only from someone who was in a call you were in); everyone keeps one merged transcript
-  (`~/.beluga/call-notes/<call>.json`), a one-line chip in the chat however long the call was. It
-  opens in a reader beside the chat, made for long calls: your words on the right and everyone
-  else's on the left, search (⌘F), one person's words only, and the call's timeline to jump along.
-  Notes never go into a prompt: agents look them up with tools (server `beluga_calls`, and inside a
-  chat answer `beluga_chat`): `call_notes_list`, `call_notes_search` (where something was said: the
-  call, the time into it, who, the words around) and `call_notes_read` (a page of a call, from a time
-  or a turn). Your own runs reach every call you were in; an answer in a chat only that chat's
-  calls, and its prompt only says they exist. Its ••• › Talk About It opens a chat with your own
-  agent that only you see, its message a `call:<id>` chip (it opens the notes), never the
-  transcript. Notes need a voice model (Settings › Voice): a call never downloads one.
+- **Notes** (BLG-715, BLG-718). Nobody records anyone else: each Mac records only its own
+  microphone (the call's echo-cancelled stream), cut at its pauses into phrases, keeping no sound
+  once a phrase is written down. Each phrase is written down by whichever Mac in the call will
+  finish it soonest (shared/scribe-plan.ts): every few seconds each Mac says whether it has a voice
+  model, how fast it writes down, how much waits for it, its CPU load and whether it's on battery
+  (`scribe` on the data channel). Its own Mac when that's close enough (no sound leaves it), else
+  the phrase's WAV goes in parts (`clip`) to the soonest one, which sends the words back
+  (`clip-text`). So someone with no model, or a slow or busy Mac, still gets notes. And not word
+  by word at any cost: with time to spare each phrase is written down at once (captions stay
+  live); busy (load per core over 0.7) or on battery, phrases wait and go together, up to 28
+  seconds of speech in one go, never waiting more than a minute. As you leave, your words go to
+  the others who were in the call (`notes` frames, accepted only from someone who was in a call
+  you were in); everyone keeps one merged transcript (`~/.beluga/call-notes/<call>.json`), a
+  one-line chip in the chat however long the call was. It opens in a reader beside the chat, made
+  for long calls: your words on the right and everyone else's on the left, search (⌘F), one
+  person's words only, and the call's timeline to jump along. Notes never go into a prompt:
+  agents look them up with tools (server `beluga_calls`, and inside a chat answer `beluga_chat`):
+  `call_notes_list`, `call_notes_search` and `call_notes_read`. Your own runs reach every call you
+  were in; an answer in a chat only that chat's calls, and its prompt only says they exist. Its
+  ••• › Talk About It opens a chat with your own agent that only you see, its message a
+  `call:<id>` chip, never the transcript. Notes need a voice model on at least one Mac in the
+  call: a call never downloads one.
 - **Rooms** (BLG-716). The same calls in a room's chat: `call` bodies sent through the hub to one
   person at a time (never kept for latecomers), everyone connected and not a guest is in it, and
   the media still goes Mac to Mac. Its latest notes sit folded on top of the room's chat.

@@ -82,7 +82,7 @@ function NotesButton() {
   const engine = useCallEngine();
   const live = useCallLive();
   const on = live.notes === 'on';
-  const label = live.notes === 'none' ? 'Notes need a voice model (Settings › Voice)' : on ? 'Your words go in the call’s notes, written down on this Mac. Click to pause' : 'Notes paused: what you say now stays out';
+  const label = live.notes === 'none' ? 'Notes need a voice model on one of your Macs in the call (Settings › Voice)' : on ? 'Your words go in the call’s notes, written down here or by whichever Mac in the call has time. Click to pause' : 'Notes paused: what you say now stays out';
   return (
     <Tip label={label}>
       <button type="button" className={cx(c.control, on && c.controlOn)} aria-pressed={on} aria-label={on ? 'Pause Notes' : 'Resume Notes'} disabled={live.notes === 'none'} onClick={() => void engine.notes(!on)}>

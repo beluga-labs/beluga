@@ -143,6 +143,12 @@ export type StageMessage =
   | { readonly k: 'said'; readonly by: string; readonly text: string; readonly at: number }
   /** Whose cameras this window shows big (the rest small; `visible` false: none on screen), so senders size each one for it. */
   | { readonly k: 'view'; readonly by: string; readonly big: readonly string[]; readonly visible: boolean }
+  /** How a Mac does as a scribe (BLG-718, shared/scribe-plan.ts): a model or not, how fast, how busy. */
+  | { readonly k: 'scribe'; readonly by: string; readonly ready: boolean; readonly speed?: number; readonly backlog: number; readonly cpu?: number; readonly battery?: boolean }
+  /** A phrase's sound for the Mac that will write it down soonest: a WAV (base64) in parts. */
+  | { readonly k: 'clip'; readonly by: string; readonly id: string; readonly part: number; readonly parts: number; readonly seconds: number; readonly b64: string }
+  /** The words of a phrase another Mac sent here to write down (empty: it couldn't). */
+  | { readonly k: 'clip-text'; readonly by: string; readonly id: string; readonly text: string }
   /** Which of a window's streams is its camera and which its screen (WebRTC only says a stream's id). */
   | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string }
   /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
@@ -153,6 +159,9 @@ export type Box = readonly [number, number, number, number];
 
 /** Sharp: every pixel of text, fewer frames. Smooth: every frame, fewer pixels when the network is tight. */
 export type ShareMode = 'sharp' | 'smooth';
+
+/** The most base64 one `clip` part carries (a data channel message stays well under its limit). */
+export const CLIP_PART = 48_000;
 
 /** How long a caption (something just said) stays on screen before it's gone (BLG-717). */
 export const CAPTION_MS = 7_000;
@@ -206,6 +215,19 @@ export function parseStage(text: string): StageMessage | undefined {
       if (!Array.isArray(big) || big.length > 32 || !big.every((b) => typeof b === 'string' && b.length <= 200)) return undefined;
       return { k: 'view', by, big: big as string[], visible: o['visible'] !== false };
     }
+    case 'scribe': {
+      if (typeof o['ready'] !== 'boolean' || !num(o['backlog'])) return undefined;
+      return { k: 'scribe', by, ready: o['ready'], backlog: o['backlog'], ...(num(o['speed']) ? { speed: o['speed'] } : {}), ...(num(o['cpu']) ? { cpu: o['cpu'] } : {}), ...(o['battery'] === true ? { battery: true } : {}) };
+    }
+    case 'clip': {
+      const id = o['id'];
+      const b64 = o['b64'];
+      const ok = typeof id === 'string' && id.length <= 40 && typeof b64 === 'string' && b64.length <= CLIP_PART && /^[A-Za-z0-9+/=]*$/.test(b64);
+      if (!ok || !num(o['part']) || !num(o['parts']) || !num(o['seconds']) || o['parts'] > 64 || o['part'] >= o['parts'] || o['seconds'] > 40) return undefined;
+      return { k: 'clip', by, id, part: o['part'], parts: o['parts'], seconds: o['seconds'], b64 };
+    }
+    case 'clip-text':
+      return typeof o['id'] === 'string' && o['id'].length <= 40 && typeof o['text'] === 'string' && o['text'].length <= 8_000 ? { k: 'clip-text', by, id: o['id'], text: o['text'] } : undefined;
     case 'streams': {
       const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
       return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}) };

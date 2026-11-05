@@ -1,12 +1,13 @@
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { Intent } from '@beluga/core/intents.js';
-import { type CallView, type ShareMode, type StageMessage, CAPTION_MS, HEARTBEAT_MS, SHARE_KBPS, parseStage, shareChildren, shareTreeBy, sharerOf } from '@beluga/shared/calls.js';
+import { type CallView, type ShareMode, type StageMessage, CAPTION_MS, CLIP_PART, HEARTBEAT_MS, SHARE_KBPS, parseStage, shareChildren, shareTreeBy, sharerOf } from '@beluga/shared/calls.js';
 import { inApp } from '../lib/boot.js';
 import { Levels } from './levels.js';
 import { type CameraSize, type LineState, Peer } from './peer.js';
 import { DEMO_SAID, demoCamera, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
 import { type NotePhrase, Scribe, demoPhrases, scribeReady } from './scribe.js';
+import { type ScribeStatus, pickScribe } from '@beluga/shared/scribe-plan.js';
 
 /**
  * Your side of a call, made in this window (BLG-706). The daemon says who's in the call
@@ -43,7 +44,7 @@ export interface CallLive {
   readonly faces: boolean;
   /** What people just said (their own Macs wrote it down), newest last: captions that pop up and dissolve. */
   readonly captions: readonly Caption[];
-  /** Your words are being written down for the call's notes (`off`: you paused it; `none`: no voice model here). */
+  /** Your words go in the call's notes (`off`: you paused it; `none`: nobody in the call has a voice model). */
   readonly notes: 'on' | 'off' | 'none';
 }
 
@@ -92,6 +93,12 @@ export class CallEngine {
   /** Writing down your words for the call's notes (BLG-715), and what was written before a pause. */
   private scribe: Scribe | undefined;
   private written: NotePhrase[] = [];
+  /** How each Mac in the call does as a scribe (they say so every few seconds, BLG-718). */
+  private readonly scribes = new Map<string, ScribeStatus>();
+  /** Your phrases out at other Macs, waiting for their words; others' phrases arriving in parts. */
+  private readonly clipsOut = new Map<string, (text: string | undefined) => void>();
+  private readonly clipsIn = new Map<string, { parts: string[]; seconds: number }>();
+  private stopScribeTalk: (() => void) | undefined;
   /** The demo's friends whose made-up voices are playing. */
   private readonly demoVoices = new Set<string>();
   private mic: MediaStream | undefined;
@@ -231,21 +238,82 @@ export class CallEngine {
     this.stageSend({ k: 'said', by: this.me, text: text.slice(0, 600), at: Date.now() });
   };
 
-  /** Your words in the call's notes, or not (what you said so far stays in). */
+  /** Your words in the call's notes, or not (others' phrases are still written down here if they need this Mac). */
   async notes(on: boolean): Promise<void> {
     if (!this.view || this.live.notes === 'none') return;
-    if (!on) {
-      const s = this.scribe;
-      this.scribe = undefined;
-      this.patch({ notes: 'off' });
-      if (s) this.written = [...this.written, ...(await s.finish())];
-      return;
-    }
-    if (this.mic && !this.view.demo) {
-      this.scribe = new Scribe(this.client, this.said);
-      this.scribe.start(this.mic);
-    }
-    this.patch({ notes: 'on' });
+    if (this.scribe) this.scribe.paused = !on;
+    this.patch({ notes: on ? 'on' : 'off' });
+  }
+
+  /** Notes are possible when someone in the call (you too) has a voice model; paused stays paused. */
+  private notesState(): void {
+    if (!this.view || this.view.demo) return;
+    if (this.live.notes === 'off') return;
+    const others = new Set(this.view.people.filter((p) => !p.me).map((p) => p.peerId));
+    const anyone = Boolean(this.scribe?.ready) || [...this.scribes.values()].some((st) => st.ready && others.has(st.by));
+    const next = anyone ? 'on' : 'none';
+    if (next !== this.live.notes) this.patch({ notes: next });
+  }
+
+  /** Who writes down a phrase of yours: 'me', another Mac in the call, or nobody (BLG-718). */
+  private route = (seconds: number): string | undefined => {
+    const view = this.view;
+    if (!view) return undefined;
+    const here = new Set(view.people.filter((p) => !p.me).map((p) => p.peerId));
+    const statuses = [...(this.scribe ? [this.scribe.status(this.me)] : []), ...[...this.scribes.values()].filter((st) => here.has(st.by) && this.peers.has(st.by))];
+    const who = pickScribe(this.me, statuses, seconds);
+    return who === this.me ? 'me' : who;
+  };
+
+  /** Send a phrase to the Mac that writes it down; its words come back (or nothing, after a while). */
+  private delegate = (to: string, clip: { readonly id: string; readonly wav: string; readonly seconds: number }): Promise<string | undefined> => {
+    const peer = this.peers.get(to);
+    if (!peer) return Promise.resolve(undefined);
+    const parts = Math.ceil(clip.wav.length / CLIP_PART);
+    for (let i = 0; i < parts; i++) peer.sendStage(JSON.stringify({ k: 'clip', by: this.me, id: clip.id, part: i, parts, seconds: clip.seconds, b64: clip.wav.slice(i * CLIP_PART, (i + 1) * CLIP_PART) }));
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.clipsOut.delete(`${to}:${clip.id}`);
+        resolve(undefined);
+      }, 90_000);
+      this.clipsOut.set(`${to}:${clip.id}`, (text) => {
+        clearTimeout(timer);
+        this.clipsOut.delete(`${to}:${clip.id}`);
+        resolve(text || undefined);
+      });
+    });
+  };
+
+  /** Words this Mac wrote down for another's phrase go back to it. */
+  private giveBack = (to: string, id: string, text: string): void => {
+    this.peers.get(to)?.sendStage(JSON.stringify({ k: 'clip-text', by: this.me, id, text }));
+  };
+
+  /** A part of someone's phrase: once all are here, it waits to be written down (or goes back empty with no model). */
+  private clipPart(from: string, m: Extract<StageMessage, { k: 'clip' }>): void {
+    const key = `${from}:${m.id}`;
+    const got = this.clipsIn.get(key) ?? { parts: new Array<string>(m.parts).fill(''), seconds: m.seconds };
+    got.parts[m.part] = m.b64;
+    this.clipsIn.set(key, got);
+    if (got.parts.some((p) => !p)) return;
+    this.clipsIn.delete(key);
+    if (!this.scribe?.ready) return this.giveBack(from, m.id, '');
+    this.scribe.serve(from, m.id, got.parts.join(''), got.seconds);
+  }
+
+  /** Start the scribe for a call: it records your words, and writes down yours and others' when it's the Mac for it. */
+  private async startScribe(call: CallView, mic: MediaStream | undefined): Promise<void> {
+    const ready = await scribeReady(this.client);
+    if (this.view?.id !== call.id) return;
+    this.scribe = new Scribe(this.client, { onSaid: this.said, route: this.route, delegate: this.delegate, giveBack: this.giveBack }, ready);
+    this.scribe.start(mic);
+    // Every few seconds, each Mac says how it does as a scribe: the others route their phrases by it.
+    const say = (): void => {
+      if (this.scribe) this.stageSend({ k: 'scribe', ...this.scribe.status(this.me) });
+    };
+    say();
+    this.stopScribeTalk = repeat(say, 4_000);
+    this.notesState();
   }
 
   /** Face to face over the whole window, or back to the chat. */
@@ -368,13 +436,9 @@ export class CallEngine {
     if (this.view?.id !== call.id) return;
     if (mic) this.levels.watch(this.me, mic);
     this.reconcile();
-    // Notes: your own words, on this Mac, when a voice model is here (it never downloads one for a call).
+    // Notes: your own words, written down by whichever Mac in the call is soonest (BLG-718).
     if (call.demo) this.patch({ notes: 'on' });
-    else if (mic && (await scribeReady(this.client)) && this.view?.id === call.id) {
-      this.scribe = new Scribe(this.client, this.said);
-      this.scribe.start(mic);
-      this.patch({ notes: 'on' });
-    }
+    else await this.startScribe(call, mic);
   }
 
   /** The call is over for you: what you said goes to the others who were in it (an empty part says you're done). */
@@ -382,10 +446,11 @@ export class CallEngine {
     const scribe = this.scribe;
     const before = this.written;
     const demo = call.demo && this.live.notes === 'on';
-    const kept = this.live.notes !== 'none';
     this.scribe = undefined;
     this.written = [];
-    if (!kept) return;
+    this.stopScribeTalk?.();
+    this.stopScribeTalk = undefined;
+    if (!demo && !scribe) return;
     void (async () => {
       const said = demo ? demoPhrases(call.startedAt) : [...before, ...((await scribe?.finish()) ?? [])];
       await this.client.api.calls.notes(call.id, said.slice(0, 3_000)).catch(() => undefined);
@@ -407,6 +472,9 @@ export class CallEngine {
     this.incoming.clear();
     this.kinds.clear();
     this.viewsOf.clear();
+    this.scribes.clear();
+    this.clipsIn.clear();
+    for (const done of [...this.clipsOut.values()]) done(undefined);
     this.stopDemoSaid?.();
     this.stopDemoSaid = undefined;
     this.sharingTo = new Set();
@@ -569,6 +637,13 @@ export class CallEngine {
             return this.reconcile();
           }
           if (m.k === 'said') return this.caption(peerId, m.text);
+          if (m.k === 'scribe') {
+            const { k: _k, ...status } = m;
+            this.scribes.set(peerId, status);
+            return this.notesState();
+          }
+          if (m.k === 'clip') return this.clipPart(peerId, m);
+          if (m.k === 'clip-text') return this.clipsOut.get(`${peerId}:${m.id}`)?.(m.text);
           if (m.k === 'mode') {
             // Only the sharer's word counts; the relays follow it too.
             if (this.view && sharerOf(this.view)?.peerId === peerId) this.patch({ mode: m.mode });
