@@ -1,7 +1,7 @@
-//! What the others point at, on the sharer's own screen (BLG-717). While you share your screen
-//! and you're in another app, a see-through window covers that screen: the others' sketches,
-//! pointers and clicks where they made them, and what they're saying as captions bottom right.
-//! Clicks and keys go straight through it to the app under it.
+//! The call on the sharer's own screen (BLG-717). While you share your screen and you're in
+//! another app, a see-through window covers that screen: a soft frame that says it's on show, the
+//! others' sketches, pointers and clicks where they made them, and what they write in the chat,
+//! bottom right. Clicks and keys go straight through it to the app under it.
 //!
 //! The window decides what it shows (it hands over the whole state, or none to hide it); this side
 //! only owns the window: which screen it covers, that it floats over everything, that it never
@@ -87,7 +87,7 @@ fn ensure<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<bool> {
 /// `NSWindowSharingNone`: macOS leaves the window out of screenshots and screen captures, so
 /// the others don't get their own ink back in the picture.
 #[cfg(target_os = "macos")]
-fn leave_out_of_captures<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+pub(crate) fn leave_out_of_captures<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
     let Ok(ptr) = window.ns_window() else {

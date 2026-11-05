@@ -7,9 +7,9 @@ import { useApp } from '../lib/beluga.js';
 import { useMyAgentName } from '../lib/agent-words.js';
 import { AskBox, AskCard, type Region } from './AskClaude.js';
 import { type Ink, MAX_POINTS, NO_INK, applyInk, draw, hasInk, pictureBox, sketchBox, tidyInk } from './ink.js';
-import { Captions } from './Captions.js';
+import { CallChatPops } from './ChatPops.js';
 import { CameraStrip } from './Cameras.js';
-import { useCallEngine, useCallLive } from './use-call.js';
+import { useCallEngine, useCallLive, useCallPlace } from './use-call.js';
 import c from './call.module.css';
 
 /** How often your pointer and a growing stroke are sent (the data channel takes far more; the eye doesn't). */
@@ -32,7 +32,8 @@ interface Press {
  * everyone, the person sharing too (on their own screen). Draw again after a pause and the old
  * sketch makes way; left alone, it fades. Beside your sketch, Ask your agent about it: the part it
  * covers, with the ink on it, goes in the chat as a picture. Full Screen gives the picture the
- * whole display; Esc comes back.
+ * whole display; the chat beside it is covered then, so what the others write pops up on the
+ * right, with a line to answer in. Esc comes back.
  */
 export function Stage({ call }: { call: CallView }) {
   const engine = useCallEngine();
@@ -53,6 +54,7 @@ export function Stage({ call }: { call: CallView }) {
   const sharer = call.people.find((p) => p.peerId === stage?.by);
   const color = personColor(me);
   const agent = useMyAgentName();
+  const place = useCallPlace(call.conversation);
 
   // The picture.
   useEffect(() => {
@@ -188,7 +190,6 @@ export function Stage({ call }: { call: CallView }) {
             <AskBox call={call} region={asking} anchor={styleOf(asking)} video={video.current} ink={ink} sharer={sharer?.me ? 'your' : `${sharer?.name ?? 'their'}’s`} done={() => setAsking(undefined)} />
           </>
         ) : null}
-        <Captions call={call} />
         <CameraStrip call={call} floating />
       </div>
       <div className={c.stageBar} role="toolbar" aria-label="The shared screen">
@@ -220,7 +221,11 @@ export function Stage({ call }: { call: CallView }) {
           </>
         ) : null}
       </div>
-      <AskCard call={call} />
+      <div className={c.stageRail}>
+        <AskCard call={call} />
+        {/* Full screen covers the chat: what the others write pops up here instead. */}
+        {live.theater ? <CallChatPops conversation={call.conversation} place={place} /> : null}
+      </div>
     </section>
   );
 }

@@ -70,7 +70,7 @@ test('a channel call: ring, they pick up, mute, and the chat stays the same chat
   await expect(strip(page)).toBeVisible();
 });
 
-test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude', async ({ page }) => {
+test('sharing a screen puts it on the stage beside the chat; the chat in full screen; ink and Ask Claude', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_SCENE === 'call', 'bob rings first in the call scene');
   await channel(page, 'launch').click();
   const call = page.getByRole('button', { name: 'Call #launch' });
@@ -80,6 +80,21 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   const stage = page.getByRole('region', { name: 'Your shared screen' });
   await expect(stage).toBeVisible();
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
+  // Beside the chat, nothing pops up over the screen: the chat is right there.
+  const popChat = stage.getByRole('complementary', { name: 'The chat' });
+  await expect(popChat).toHaveCount(0);
+  // Full screen covers the chat: what the others write pops up on the right, with a line to answer in.
+  await stage.getByRole('button', { name: 'Full Screen' }).click();
+  await expect(popChat.getByRole('list', { name: 'Messages in the chat' })).toContainText('Can you scroll down to the totals?', { timeout: 15_000 });
+  await shot(page, '05-full-screen-chat');
+  const reply = popChat.getByRole('textbox', { name: 'Message #launch' });
+  await reply.fill('Scrolling down now');
+  await reply.press('Enter');
+  await expect(reply).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await expect(stage.getByRole('button', { name: 'Full Screen' })).toBeVisible();
+  await expect(popChat).toHaveCount(0);
+  await expect(page.getByRole('log', { name: 'Channel launch' })).toContainText('Scrolling down now');
   const frame = stage.locator('video').first().locator('..');
   const b = (await frame.boundingBox())!;
   const at = (fx: number, fy: number): [number, number] => [b.x + b.width * fx, b.y + b.height * fy];
@@ -89,9 +104,7 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   for (let i = 0; i <= 12; i++) await page.mouse.move(...at(0.3 + i * 0.02, 0.35 + Math.sin(i / 2) * 0.03));
   await page.mouse.up();
   await expect(stage.getByRole('button', { name: 'Clear the Drawing' })).toBeVisible();
-  // What people say pops up bottom right as they say it.
-  await expect(stage.getByRole('list', { name: 'What people are saying' })).toBeVisible({ timeout: 10_000 });
-  await shot(page, '04-sketch-and-captions');
+  await shot(page, '04-sketch');
   // Ask about what you drew: the pill beside your sketch.
   await stage.getByRole('button', { name: /^Ask / }).click();
   const ask = stage.getByRole('textbox', { name: /^Ask / });

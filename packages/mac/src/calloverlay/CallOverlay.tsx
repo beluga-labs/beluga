@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Avatar, personColor } from '../components/ui.js';
-import { CAPTION_MS } from '@beluga/shared/calls.js';
+import { personColor } from '../components/ui.js';
 import { draw, hasInk, tidyInk } from '../call/ink.js';
+import { PopList } from '../call/PopList.js';
 import type { OverlayState } from '../call/overlay.js';
 import s from './overlay.module.css';
 
@@ -31,8 +31,9 @@ function useOverlayState(): { state: OverlayState | null; offset: number } {
 }
 
 /**
- * Over the screen you share (BLG-717): the others' sketches, pointers and clicks where they made
- * them, and what they're saying, bottom right, dissolving. Nothing here takes the mouse.
+ * Over the screen you share (BLG-717): a soft frame that says it's on show, the others' sketches,
+ * pointers and clicks where they made them, and what they write in the chat, bottom right,
+ * dissolving. Nothing here takes the mouse.
  */
 export function CallOverlay() {
   const { state, offset } = useOverlayState();
@@ -65,18 +66,8 @@ export function CallOverlay() {
   return (
     <div className={s.overlay}>
       <canvas ref={canvas} className={s.ink} aria-hidden="true" />
-      {state?.captions.length ? (
-        <ol className={s.captions}>
-          {state.captions.map((c) => (
-            <li key={c.id} className={s.caption} style={{ animationDuration: `${CAPTION_MS}ms`, animationDelay: `-${c.age}ms` }}>
-              <Avatar name={c.name} id={c.by} size={18} />
-              <span>
-                <strong style={{ color: personColor(c.by) }}>{c.name}</strong> {c.text}
-              </span>
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      {state?.frame ? <div className={s.frame} aria-hidden="true" /> : null}
+      {state ? <PopList pops={state.pops} now={Date.now()} className={s.pops} /> : null}
     </div>
   );
 }

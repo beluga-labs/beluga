@@ -1,4 +1,4 @@
-import type { CallView } from '@beluga/shared/calls.js';
+import type { CallView } from '../../../../src/shared/calls.js';
 
 /**
  * What the floating call card shows (BLG-706): the window works it out and hands it over, so the
@@ -13,12 +13,12 @@ export interface FloatPerson {
 }
 
 export type FloatState =
-  | { readonly kind: 'in'; readonly conversation: string; readonly place: string; readonly startedAt: number; readonly muted: boolean; readonly people: readonly FloatPerson[]; readonly sharing?: string }
+  | { readonly kind: 'in'; readonly conversation: string; readonly place: string; readonly startedAt: number; readonly muted: boolean; readonly people: readonly FloatPerson[]; readonly sharing?: string; readonly youShare?: boolean }
   | { readonly kind: 'ringing'; readonly conversation: string; readonly place: string; readonly by: FloatPerson; readonly group: boolean };
 
-export type FloatAction = 'mute' | 'unmute' | 'leave' | 'join' | 'decline' | 'open';
+export type FloatAction = 'mute' | 'unmute' | 'leave' | 'join' | 'decline' | 'open' | 'stop-sharing';
 
-export const FLOAT_ACTIONS: readonly FloatAction[] = ['mute', 'unmute', 'leave', 'join', 'decline', 'open'];
+export const FLOAT_ACTIONS: readonly FloatAction[] = ['mute', 'unmute', 'leave', 'join', 'decline', 'open', 'stop-sharing'];
 
 /** The call you're in wins; else the oldest one ringing; else nothing (the card hides). */
 export function floatState(mine: CallView | undefined, ringing: readonly CallView[], speaking: ReadonlySet<string>, placeOf: (conversation: string) => string): FloatState | null {
@@ -33,6 +33,7 @@ export function floatState(mine: CallView | undefined, ringing: readonly CallVie
       muted: me?.muted ?? false,
       people: mine.people.filter((p) => !p.me).map((p) => ({ peerId: p.peerId, name: p.name, speaking: speaking.has(p.peerId), muted: p.muted })),
       ...(sharer ? { sharing: sharer.me ? 'You' : sharer.name } : {}),
+      ...(me?.sharing ? { youShare: true } : {}),
     };
   }
   const r = ringing[0];

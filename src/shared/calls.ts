@@ -139,8 +139,6 @@ export type StageMessage =
   | { readonly k: 'unmark'; readonly by: string; readonly id: string }
   /** How the sharer sends their screen: sharp for text, smooth for motion (relays pass it on the same way). */
   | { readonly k: 'mode'; readonly by: string; readonly mode: ShareMode }
-  /** Something someone said, just written down on their Mac (BLG-717): a caption that pops up and dissolves. */
-  | { readonly k: 'said'; readonly by: string; readonly text: string; readonly at: number }
   /** Whose cameras this window shows big (the rest small; `visible` false: none on screen), so senders size each one for it. */
   | { readonly k: 'view'; readonly by: string; readonly big: readonly string[]; readonly visible: boolean }
   /** How a Mac does as a scribe (BLG-718, shared/scribe-plan.ts): a model or not, how fast, how busy. */
@@ -162,9 +160,6 @@ export type ShareMode = 'sharp' | 'smooth';
 
 /** The most base64 one `clip` part carries (a data channel message stays well under its limit). */
 export const CLIP_PART = 48_000;
-
-/** How long a caption (something just said) stays on screen before it's gone (BLG-717). */
-export const CAPTION_MS = 7_000;
 
 /** Ink fades this long after it's done. */
 export const INK_FADE_MS = 4_000;
@@ -206,10 +201,6 @@ export function parseStage(text: string): StageMessage | undefined {
       return typeof o['id'] === 'string' && o['id'].length <= 40 ? { k: 'unmark', by, id: o['id'] } : undefined;
     case 'mode':
       return o['mode'] === 'sharp' || o['mode'] === 'smooth' ? { k: 'mode', by, mode: o['mode'] } : undefined;
-    case 'said': {
-      const text = o['text'];
-      return typeof text === 'string' && text.length > 0 && text.length <= 600 && num(o['at']) ? { k: 'said', by, text, at: o['at'] } : undefined;
-    }
     case 'view': {
       const big = o['big'];
       if (!Array.isArray(big) || big.length > 32 || !big.every((b) => typeof b === 'string' && b.length <= 200)) return undefined;

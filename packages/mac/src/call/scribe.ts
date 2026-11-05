@@ -15,7 +15,7 @@ import { repeat } from './repeat.js';
  * can, so no sound leaves it, else one with a model and time to spare, which sends the words back.
  *
  * Here, the writing down goes at the pace the Mac allows: with time to spare, each phrase at once
- * (captions stay live); busy or on battery, a stretch at a time once enough has waited or the
+ * (nothing piles up); busy or on battery, a stretch at a time once enough has waited or the
  * processor quietens. Phrases other Macs send here are written down the same way. A phrase's sound
  * is dropped once it's written down; muted, nothing is heard.
  */
@@ -82,8 +82,6 @@ function joined(wavs: readonly string[]): string {
 }
 
 export interface ScribeHooks {
-  /** Each of your phrases as soon as it's written down (the others see it as a caption). */
-  readonly onSaid?: (text: string) => void;
   /** Who should write down a phrase of yours: 'me', another Mac's id, or nobody (no model in the call). */
   readonly route: (seconds: number) => string | undefined;
   /** Send a phrase to another Mac to write down: its words, or undefined if it couldn't. */
@@ -215,7 +213,6 @@ export class Scribe {
 
   private keep(at: number, text: string): void {
     this.phrases.push({ at, text });
-    this.hooks.onSaid?.(text);
   }
 
   /** Write down what waits, if now is a good time (or `force`: the call is over). */

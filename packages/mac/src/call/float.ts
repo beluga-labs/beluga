@@ -39,6 +39,7 @@ async function wire(client: SocketClient, engine: CallEngine): Promise<void> {
     const { action, conversation } = payload;
     if (action === 'mute' || action === 'unmute') void engine.mute(action === 'mute');
     if (action === 'leave') void engine.leave();
+    if (action === 'stop-sharing') void engine.stopSharing();
     if (action === 'decline') void client.api.calls.decline(conversation).catch(() => undefined);
     if (action === 'join') void engine.join(conversation).catch(() => undefined);
     if (action === 'join' || action === 'open') openCall(client, conversation);

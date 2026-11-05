@@ -60,8 +60,9 @@ export function CallPill() {
   if (!call || showing) return null;
   const others = call.people.filter((p) => !p.me);
   const talking = others.find((p) => live.speaking.has(p.peerId));
+  const sharing = call.people.some((p) => p.me && p.sharing);
   return (
-    <div className={c.pill} role="region" aria-label={`Call in ${place}`}>
+    <div className={cx(c.pill, sharing && c.pillSharing)} role="region" aria-label={`Call in ${place}`}>
       <button type="button" className={c.pillMain} onClick={() => openCall(client, call.conversation)}>
         <span className={c.pillFaces}>
           {others.slice(0, 3).map((p) => (
@@ -70,7 +71,7 @@ export function CallPill() {
         </span>
         <span className={c.pillText}>
           <strong>{place}</strong>
-          <span>{talking ? `${talking.name} is talking` : others.length ? callLength(now - call.startedAt) : 'Ringing…'}</span>
+          <span>{sharing ? 'You’re sharing your screen' : talking ? `${talking.name} is talking` : others.length ? callLength(now - call.startedAt) : 'Ringing…'}</span>
         </span>
       </button>
       <CallControls call={call} compact />
@@ -126,14 +127,9 @@ export function CallLayer() {
   // The floating card over other apps (src-tauri/src/call_float.rs).
   useEffect(() => syncFloat(client, engine, mine, ringing, live.speaking), [client, engine, mine, ringing, live.speaking]);
 
-  // What the others point at, over your own screen while you share it and look elsewhere (call/overlay.ts).
-  const inCall = mine?.id;
-  useEffect(() => {
-    if (!inCall) return;
-    const names = (id: string): string => client.store.getState().network.calls?.[mine.conversation]?.people.find((p) => p.peerId === id)?.name ?? 'Someone';
-    return startOverlay(engine, () => client.store.getState().network.self?.peerId ?? '', names);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inCall, engine, client]);
+  // While you share and look elsewhere: a frame, what the others point at and what they write, over your screen (call/overlay.ts).
+  const inCall = mine?.conversation;
+  useEffect(() => (inCall ? startOverlay(engine, client, inCall) : undefined), [inCall, engine, client]);
 
   const shown = ringing.filter((r) => r.conversation !== mine?.conversation).slice(0, 2);
   if (!shown.length) return null;

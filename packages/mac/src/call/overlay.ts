@@ -1,35 +1,44 @@
+import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { inApp } from '../lib/boot.js';
-import { CAPTION_MS } from '@beluga/shared/calls.js';
+import { callChat } from './call-chat.js';
+import { type ChatPop, PopClock, popsNow } from './chat-pops.js';
 import type { CallEngine } from './engine.js';
 import { type Ink, NO_INK, applyInk, hasInk, tidyInk } from './ink.js';
 import { repeat } from './repeat.js';
 
 /**
  * The sharer's overlay (BLG-717, src-tauri/src/call_overlay.rs): while you share your screen and
- * look at another app, what the others draw and point at shows over that screen, where they made
- * it, and what they say pops up bottom right. Sharing one window (not a whole screen), there's no
- * way to know where it sits, so only the captions show. Back in Beluga, it goes: the stage there
- * shows the same.
+ * look at another app, you don't see Beluga, so it comes to you, over the screen you share. A soft
+ * frame around it says it's on show; what the others draw and point at shows where they made it;
+ * what they write in the chat pops up bottom right and dissolves. Sharing one window (not a whole
+ * screen), there's no way to know where it sits, so only the chat shows. Back in Beluga, it goes:
+ * the chat is right there. macOS leaves the overlay out of what's shared.
  */
 
-/** What the overlay draws: everyone's ink but yours, captions, names, and this window's clock. */
+/** What the overlay draws: the frame, everyone's ink but yours, the chat, and this window's clock. */
 export interface OverlayState {
   /** The sharer's clock (performance.now) when this was sent: the overlay lines its own up with it. */
   readonly now: number;
-  /** Draw the ink: a whole screen is shared, the overlay covers it. */
+  /** A whole screen is shared: frame it, and draw the ink over it. */
+  readonly frame: boolean;
   readonly ink?: Ink;
-  readonly captions: ReadonlyArray<{ readonly id: string; readonly name: string; readonly by: string; readonly text: string; readonly age: number }>;
+  /** The others' messages since you looked away, each with how long ago it came (ms). */
+  readonly pops: ReadonlyArray<ChatPop & { readonly age: number }>;
 }
 
 /** How often the overlay is brought up to date while something moves (a pointer, a stroke). */
 const SEND_MS = 33;
 
-/** Starts following the call for the overlay (once per window); returns a stop. */
-export function startOverlay(engine: CallEngine, me: () => string, nameOf: (peerId: string) => string): () => void {
+/** Starts following the call for the overlay (once per call); returns a stop. */
+export function startOverlay(engine: CallEngine, client: SocketClient, conversation: string): () => void {
   if (!inApp()) return () => undefined;
+  const me = (): string => client.store.getState().network.self?.peerId ?? '';
   let ink: Ink = NO_INK;
   let dirty = false;
   let shown = false;
+  let popKey = '';
+  /** Set as you look away (what the chat had then, you had seen). */
+  let clock: PopClock | undefined;
   let focused = document.hasFocus();
   const onFocus = (): void => {
     focused = true;
@@ -55,27 +64,35 @@ export function startOverlay(engine: CallEngine, me: () => string, nameOf: (peer
   const stop = repeat(() => {
     const now = performance.now();
     ink = tidyInk(ink, now);
-    const live = engine.get();
     const shareTrack = engine.sharedTrack();
-    const fresh = live.captions.filter((c) => Date.now() - c.at < CAPTION_MS);
-    const wanted = Boolean(shareTrack) && !focused && (hasInk(ink) || fresh.length > 0);
-    if (!wanted) {
+    if (!shareTrack || focused) {
+      clock = undefined;
       if (shown) {
         shown = false;
         void send(null);
       }
       return;
     }
-    // Moving ink and fading captions keep it up to date; nothing new, nothing sent.
+    const chat = callChat(client.store.getState(), conversation);
+    clock ??= new PopClock(chat);
+    const wall = Date.now();
+    const pops = popsNow(clock.stamp(chat, wall), wall);
+    const key = pops.map((p) => p.id).join();
+    if (key !== popKey) {
+      popKey = key;
+      dirty = true;
+    }
+    // Moving ink keeps it up to date; nothing new, nothing sent.
     if (!dirty && !hasInk(ink) && shown) return;
     dirty = false;
     shown = true;
-    const settings = shareTrack!.getSettings() as MediaTrackSettings & { displaySurface?: string };
+    const settings = shareTrack.getSettings() as MediaTrackSettings & { displaySurface?: string };
     const wholeScreen = settings.displaySurface === undefined || settings.displaySurface === 'monitor';
     const state: OverlayState = {
       now,
+      frame: wholeScreen,
       ...(wholeScreen ? { ink } : {}),
-      captions: fresh.map((c) => ({ id: c.id, by: c.by, name: nameOf(c.by), text: c.text, age: Date.now() - c.at })),
+      pops: pops.map((p) => ({ ...p, age: wall - p.at })),
     };
     void send(state, settings.width ?? 0, settings.height ?? 0);
   }, SEND_MS);

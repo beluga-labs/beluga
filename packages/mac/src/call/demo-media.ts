@@ -152,13 +152,3 @@ export function demoCamera(name: string): MediaStream {
   }
   return stream;
 }
-
-/** What the demo's friends say during a call, in turns (their captions; the demo has no voices to write down). */
-export const DEMO_SAID: ReadonlyArray<readonly [who: number, text: string]> = [
-  [0, 'Can everyone see the checkout page?'],
-  [1, 'Yes, the total looks off with the spring code.'],
-  [0, 'Right, tax runs after the discount here.'],
-  [1, 'Can you circle the line where it’s added?'],
-  [0, 'This one, in checkout.ts. Let’s swap the two.'],
-  [1, 'And the receipt email shows the old total too.'],
-];

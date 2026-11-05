@@ -1,10 +1,10 @@
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { Intent } from '@beluga/core/intents.js';
-import { type CallView, type ShareMode, type StageMessage, CAPTION_MS, CLIP_PART, HEARTBEAT_MS, SHARE_KBPS, parseStage, shareChildren, shareTreeBy, sharerOf } from '@beluga/shared/calls.js';
+import { type CallView, type ShareMode, type StageMessage, CLIP_PART, HEARTBEAT_MS, SHARE_KBPS, parseStage, shareChildren, shareTreeBy, sharerOf } from '@beluga/shared/calls.js';
 import { inApp } from '../lib/boot.js';
 import { Levels } from './levels.js';
 import { type CameraSize, type LineState, Peer } from './peer.js';
-import { DEMO_SAID, demoCamera, demoScreen, demoVoice } from './demo-media.js';
+import { demoCamera, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
 import { type NotePhrase, Scribe, demoPhrases, scribeReady } from './scribe.js';
 import { type ScribeStatus, pickScribe } from '@beluga/shared/scribe-plan.js';
@@ -42,25 +42,11 @@ export interface CallLive {
   readonly theater: boolean;
   /** Face to face: cameras over the whole window (theirs big, yours in a corner; a group as a collage). */
   readonly faces: boolean;
-  /** What people just said (their own Macs wrote it down), newest last: captions that pop up and dissolve. */
-  readonly captions: readonly Caption[];
   /** Your words go in the call's notes (`off`: you paused it; `none`: nobody in the call has a voice model). */
   readonly notes: 'on' | 'off' | 'none';
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none', captions: [] };
-
-/** A line someone said, as a caption. */
-export interface Caption {
-  readonly id: string;
-  readonly by: string;
-  readonly text: string;
-  readonly at: number;
-}
-
-/** Captions shown at once (each stays `CAPTION_MS`). */
-const CAPTIONS_KEPT = 4;
-export { CAPTION_MS };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none' };
 
 /** A picture from someone: its track, and whether frames are coming. */
 interface Incoming {
@@ -88,8 +74,6 @@ export class CallEngine {
   /** What this Mac can send, by WebRTC's estimates (kbit/s), as last told to the others. */
   private uplink: number | undefined;
   private uplinkSaid: number | undefined;
-  /** The demo's friends' captions, while a demo call goes on. */
-  private stopDemoSaid: (() => void) | undefined;
   /** Writing down your words for the call's notes (BLG-715), and what was written before a pause. */
   private scribe: Scribe | undefined;
   private written: NotePhrase[] = [];
@@ -226,18 +210,6 @@ export class CallEngine {
     }
   }
 
-  /** A line someone said: a caption for a few seconds (the newest few at once). */
-  private caption(by: string, text: string): void {
-    const at = Date.now();
-    const captions = [...this.live.captions.filter((c) => at - c.at < CAPTION_MS), { id: `${by}-${at}`, by, text, at }].slice(-CAPTIONS_KEPT);
-    this.patch({ captions });
-  }
-
-  /** Your words as they're written down go to the others as captions (never to yourself). */
-  private said = (text: string): void => {
-    this.stageSend({ k: 'said', by: this.me, text: text.slice(0, 600), at: Date.now() });
-  };
-
   /** Your words in the call's notes, or not (others' phrases are still written down here if they need this Mac). */
   async notes(on: boolean): Promise<void> {
     if (!this.view || this.live.notes === 'none') return;
@@ -305,7 +277,7 @@ export class CallEngine {
   private async startScribe(call: CallView, mic: MediaStream | undefined): Promise<void> {
     const ready = await scribeReady(this.client);
     if (this.view?.id !== call.id) return;
-    this.scribe = new Scribe(this.client, { onSaid: this.said, route: this.route, delegate: this.delegate, giveBack: this.giveBack }, ready);
+    this.scribe = new Scribe(this.client, { route: this.route, delegate: this.delegate, giveBack: this.giveBack }, ready);
     this.scribe.start(mic);
     // Every few seconds, each Mac says how it does as a scribe: the others route their phrases by it.
     const say = (): void => {
@@ -475,8 +447,6 @@ export class CallEngine {
     this.scribes.clear();
     this.clipsIn.clear();
     for (const done of [...this.clipsOut.values()]) done(undefined);
-    this.stopDemoSaid?.();
-    this.stopDemoSaid = undefined;
     this.sharingTo = new Set();
     this.myView = { big: [], visible: false };
     this.uplink = this.uplinkSaid = undefined;
@@ -636,7 +606,6 @@ export class CallEngine {
             this.viewsOf.set(peerId, { big: new Set(m.big), visible: m.visible });
             return this.reconcile();
           }
-          if (m.k === 'said') return this.caption(peerId, m.text);
           if (m.k === 'scribe') {
             const { k: _k, ...status } = m;
             this.scribes.set(peerId, status);
@@ -723,15 +692,6 @@ export class CallEngine {
 
   /** The demo's friends make no sound of their own: their voices and screens are played here. */
   private reconcileDemo(call: CallView): void {
-    if (!this.stopDemoSaid) {
-      let turn = 0;
-      this.stopDemoSaid = repeat(() => {
-        const others = this.view?.people.filter((p) => !p.me) ?? [];
-        const [who, text] = DEMO_SAID[turn++ % DEMO_SAID.length]!;
-        const by = others[who % Math.max(1, others.length)];
-        if (by) this.caption(by.peerId, text);
-      }, 4_200);
-    }
     const lines: Record<string, { state: LineState; rtt?: number }> = {};
     for (const p of call.people.filter((x) => !x.me)) {
       lines[p.peerId] = { state: 'connected', rtt: 18 + (p.peerId.charCodeAt(0) % 20) };

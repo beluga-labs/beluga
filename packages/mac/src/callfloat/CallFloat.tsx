@@ -42,7 +42,7 @@ const act = (action: FloatAction, conversation: string): void =>
 
 /**
  * The call while Beluga is behind other apps (BLG-706): who's talking, how long, mute and leave.
- * Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga.
+ * While you share your screen, it says so and has Stop. Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga.
  */
 export function CallFloat() {
   const state = useFloatState();
@@ -71,8 +71,9 @@ export function CallFloat() {
     );
   }
   const talking = state.people.find((p) => p.speaking);
+  const status = state.youShare ? null : talking ? `${talking.name} is talking` : state.sharing ? `${state.sharing} is sharing` : state.people.length ? callLength(now - state.startedAt) : 'Ringing…';
   return (
-    <div className={s.card}>
+    <div className={cx(s.card, state.youShare && s.sharing)}>
       <button type="button" className={s.main} onClick={() => act('open', state.conversation)}>
         <span className={s.faces}>
           {state.people.slice(0, 3).map((p) => (
@@ -83,9 +84,23 @@ export function CallFloat() {
         </span>
         <span className={s.text}>
           <strong>{state.place}</strong>
-          <span>{talking ? `${talking.name} is talking` : state.sharing ? `${state.sharing === 'You' ? 'You’re' : `${state.sharing} is`} sharing` : state.people.length ? callLength(now - state.startedAt) : 'Ringing…'}</span>
+          {status !== null ? (
+            <span>{status}</span>
+          ) : (
+            // You're sharing: the card says so for as long as it lasts, whoever talks.
+            <span className={s.onShow}>
+              <span className={s.liveDot} aria-hidden="true" />
+              Sharing your screen
+            </span>
+          )}
         </span>
       </button>
+      {state.youShare ? (
+        <button type="button" className={s.stop} aria-label="Stop Sharing" onClick={() => act('stop-sharing', state.conversation)}>
+          <Icon name="screenShare" size={13} />
+          Stop
+        </button>
+      ) : null}
       <button type="button" className={cx(s.round, state.muted && s.off)} aria-label={state.muted ? 'Unmute' : 'Mute'} onClick={() => act(state.muted ? 'unmute' : 'mute', state.conversation)}>
         <Icon name={state.muted ? 'micOff' : 'mic'} size={15} />
       </button>

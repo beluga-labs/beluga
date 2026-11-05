@@ -61,7 +61,8 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
           </button>
         </Tip>
       )}
-      {compact ? null : (
+      {/* Small (the sidebar's pill), it's there only while you share: one click stops it. */}
+      {compact && !sharing ? null : (
         <Tip label={sharing ? 'Stop Sharing' : 'Share a Window or Screen'}>
           <button type="button" className={cx(c.control, sharing && c.controlOn)} aria-pressed={sharing} aria-label={sharing ? 'Stop Sharing' : 'Share Screen'} onClick={() => void (sharing ? engine.stopSharing() : engine.share())}>
             <Icon name="screenShare" size={15} />

@@ -1,6 +1,7 @@
 //! The floating call card (BLG-706): while Beluga isn't the app you're in, the call you're in (or
 //! one ringing for you) floats over everything, small, at the top of the screen: who's talking,
-//! mute and leave, or join and decline. Back in Beluga it goes away; the call lives in its chat.
+//! mute and leave, or join and decline. While you share, it says so and stops it. Back in Beluga
+//! it goes away; the call lives in its chat.
 //!
 //! The window decides what the card shows (it hands over the whole state, or none to hide it);
 //! this side only owns the floating window, and passes its buttons back to the window.
@@ -13,7 +14,7 @@ use tauri::{
 };
 
 pub const LABEL: &str = "call-float";
-const WIDTH: f64 = 340.0;
+const WIDTH: f64 = 360.0;
 const HEIGHT: f64 = 64.0;
 const MENU_BAR: f64 = 30.0;
 const MARGIN: f64 = 10.0;
@@ -70,7 +71,11 @@ fn ensure<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<bool> {
     #[cfg(target_os = "macos")]
     {
         let w = window.clone();
-        let _ = app.run_on_main_thread(move || crate::popup::float_over_everything(&w));
+        let _ = app.run_on_main_thread(move || {
+            crate::popup::float_over_everything(&w);
+            // Sharing your whole screen, the card stays yours: the others don't see it.
+            crate::call_overlay::leave_out_of_captures(&w);
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = window.remove_menu();
@@ -122,7 +127,7 @@ pub fn call_float_action(
 ) -> Result<(), String> {
     if !matches!(
         action.as_str(),
-        "mute" | "unmute" | "leave" | "join" | "decline" | "open"
+        "mute" | "unmute" | "leave" | "join" | "decline" | "open" | "stop-sharing"
     ) {
         return Err(format!("Unknown action {action}"));
     }

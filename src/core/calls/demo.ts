@@ -42,6 +42,12 @@ const SAID: Record<string, ReadonlyArray<readonly [number, string]>> = {
   ],
 };
 
+/** What each friend writes in the chat while you share your screen (seconds after you start). */
+const WHILE_YOU_SHARE: Record<string, readonly [number, string]> = {
+  bob: [3, 'Can you scroll down to the totals?'],
+  mia: [7, 'There, the discount line sits above tax. That’s the bug.'],
+};
+
 /** How long each friend takes to pick up. */
 const PICKUP_MS: Record<string, number> = { bob: 1_800, mia: 3_200 };
 
@@ -61,6 +67,7 @@ export function demoCallers(friends: readonly Mesh[], pace = 1): DemoCallers {
     const answered = new Set<string>();
     const metYou = new Set<string>();
     const leaving = new Set<string>();
+    const sawShare = new Set<string>();
     const calls: CallService = new CallService({
       links: meshLinks(mesh),
       headless: true,
@@ -81,6 +88,18 @@ export function demoCallers(friends: readonly Mesh[], pace = 1): DemoCallers {
                   // Not a call they were in.
                 }
                 calls.leave(call.conversation);
+              });
+            }
+            // You share your screen: they write about it in the chat, as people do.
+            const line = WHILE_YOU_SHARE[mesh.summary().self?.name ?? ''];
+            if (line && !sawShare.has(call.id) && others.some((p) => !ids.has(p.peerId) && p.sharing)) {
+              sawShare.add(call.id);
+              later(line[0] * 1000, () => {
+                try {
+                  mesh.post(call.conversation, line[1]);
+                } catch {
+                  // Not in that conversation any more.
+                }
               });
             }
           }
