@@ -3,18 +3,18 @@ import { midi, render, type Note, type SoundSpec } from '../lib/sounds/synth.js'
 
 /**
  * Beluga's call sounds (BLG-706), made by the notification synthesizer so they sound like the rest
- * of Beluga. The ringtone keeps its jazz (Dmaj9, Bm9, Em9, A13) but rings like a phone: two quick,
- * bright rolled chords, "ring-ring", each struck three times like a bell, then a clear pause, so it
- * can't be mistaken for music playing somewhere. The caller hears one soft chord now and then.
- * Joining and leaving are short, crisp bells: three notes up, two notes down.
+ * of Beluga. The ringtone is continuous and still unmistakably a call: a soft electric piano holds
+ * each jazz chord (Dmaj9, Bm9, Em9, A13) so there's never a gap, and over it bright rolled "rings",
+ * struck like a bell, land on a steady pulse twice a chord. The caller hears the held chords alone,
+ * softer. Joining and leaving are short, crisp bells: three notes up, two notes down.
  */
 
 /** A bright electric piano: a strong bell on the attack, gone quickly. */
 const bell = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.003, release: 0.18, decay: 3.2, fm: { ratio: 1, index: 2.4, fade: 4 } });
 /** A vibraphone on top: clear, with a metal ring. */
 const vibes = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.25, decay: 2.4, fm: { ratio: 4, index: 1, fade: 6 } });
-/** A soft electric piano for the caller's side. */
-const soft = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.012, release: 0.5, decay: 1.2, fm: { ratio: 1, index: 1.2, fade: 3 } });
+/** The bed: a soft electric piano held under everything, each chord running into the next. */
+const pad = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.08, release: 0.6, decay: 0.25, fm: { ratio: 1, index: 0.9, fade: 1.5 } });
 
 /** The four chords, voiced high and bright (MIDI notes, bottom to top). */
 const CHORDS: ReadonlyArray<readonly number[]> = [
@@ -24,38 +24,40 @@ const CHORDS: ReadonlyArray<readonly number[]> = [
   [67, 71, 73, 78, 81], // A13
 ];
 
+/** One chord's length (seconds), and a ring every half of it: a steady, unhurried pulse. */
+const CHORD_S = 1.8;
+const PULSE_S = CHORD_S / 2;
+
 /** One ring: the chord rolled up fast, its top three notes struck again twice, a vibraphone on the top note. */
-function ring(at: number, chord: readonly number[]): Note[] {
+function ring(at: number, chord: readonly number[], accent: boolean): Note[] {
   const top = chord.slice(-3);
   return [
-    ...chord.map((n, i) => bell(at + i * 0.018, n, 0.75, 0.2)),
-    ...[0.14, 0.28].flatMap((d) => top.map((n) => bell(at + d, n, 0.4, 0.15))),
-    vibes(at + 0.09, chord.at(-1)! + 12, 0.9, 0.22),
+    ...chord.map((n, i) => bell(at + i * 0.018, n, 0.7, accent ? 0.2 : 0.19)),
+    ...[0.14, 0.28].flatMap((d) => top.map((n) => bell(at + d, n, 0.4, accent ? 0.15 : 0.14))),
+    ...(accent ? [vibes(at + 0.09, chord.at(-1)! + 12, 0.9, 0.22)] : []),
   ];
 }
 
-/** "Ring-ring", then a pause: the shape a call has everywhere. */
-const RING_PAIR_S = 3.6;
-/** The second ring of a pair, after the first. */
-const RING_GAP_S = 0.85;
+/** The held chord under a bar: an octave down, overlapping the next so the sound never drops. */
+const bed = (at: number, chord: readonly number[], gain: number): Note[] => chord.slice(0, 4).map((n, i) => pad(at + i * 0.02, n - 12, CHORD_S + 0.7, gain));
 
-/** The ringtone: two pairs (all four chords), then it starts again. */
+/** The ringtone: all four chords, a held bed and two rings each, then it starts again (no pause). */
 export const RING: SoundSpec = {
-  notes: [0, 1].flatMap((pair) => [...ring(pair * RING_PAIR_S, CHORDS[pair * 2]!), ...ring(pair * RING_PAIR_S + RING_GAP_S, CHORDS[pair * 2 + 1]!)]),
+  notes: CHORDS.flatMap((chord, i) => [...bed(i * CHORD_S, chord, 0.12), ...ring(i * CHORD_S, chord, true), ...ring(i * CHORD_S + PULSE_S, chord, false)]),
   lowpass: 7600,
-  reverb: { mix: 0.16, time: 0.9 },
-  maxLength: 2 * RING_PAIR_S + 0.6,
-};
-export const RING_EVERY_S = 2 * RING_PAIR_S;
-
-/** What the caller hears while it rings at the others': one soft chord each time it rings there. */
-export const RINGBACK: SoundSpec = {
-  notes: [0, 1].flatMap((pair) => CHORDS[pair * 2]!.slice(0, 4).map((n, i) => soft(pair * RING_PAIR_S + i * 0.03, n - 12, 1.4, 0.22))),
-  lowpass: 4200,
   reverb: { mix: 0.2, time: 1 },
-  maxLength: 2 * RING_PAIR_S + 0.6,
+  maxLength: CHORDS.length * CHORD_S + 0.9,
 };
-export const RINGBACK_EVERY_S = 2 * RING_PAIR_S;
+export const RING_EVERY_S = CHORDS.length * CHORD_S;
+
+/** What the caller hears while it rings at the others': the held chords alone, softer. */
+export const RINGBACK: SoundSpec = {
+  notes: CHORDS.flatMap((chord, i) => bed(i * CHORD_S, chord, 0.2)),
+  lowpass: 4200,
+  reverb: { mix: 0.22, time: 1 },
+  maxLength: CHORDS.length * CHORD_S + 0.9,
+};
+export const RINGBACK_EVERY_S = CHORDS.length * CHORD_S;
 
 /** A short, crisp bell for coming and going. */
 const chime = (at: number, note: number, dur: number, gain: number): Note => ({ at, dur, freq: midi(note), wave: 'fm', gain, attack: 0.002, release: 0.08, decay: 5, fm: { ratio: 2, index: 1.4, fade: 8 } });

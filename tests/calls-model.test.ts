@@ -95,22 +95,26 @@ describe('ink on a shared screen (BLG-706)', () => {
 });
 
 describe('the ringtone (BLG-706)', () => {
-  it('rings like a phone: ring-ring, a clear pause, ring-ring; nothing clips', () => {
+  it('is continuous (no gap, the next turn picks up where this one ends) yet rings in clear beats; nothing clips', () => {
     const rate = 22_050;
     const turn = render(RING, 0.8, rate);
-    const win = rate / 10;
+    const step = Math.round(RING_EVERY_S * rate);
+    // Two turns laid end to end, as the player schedules them; measured over the second, seam included.
+    const two = new Float32Array(step + turn.length);
+    for (const at of [0, step]) turn.forEach((v, i) => (two[at + i]! += v));
+    const win = Math.round(rate / 20);
     const levels: number[] = [];
-    for (let at = 0; at + win <= Math.round(RING_EVERY_S * rate); at += win) {
+    for (let at = step; at + win < step * 2; at += win) {
       let sum = 0;
-      for (let i = at; i < at + win; i++) sum += (turn[i] ?? 0) ** 2;
+      for (let i = at; i < at + win; i++) sum += two[i]! ** 2;
       levels.push(Math.sqrt(sum / win));
     }
     const loud = Math.max(...levels);
-    const shape = levels.map((v) => (v > loud * 0.35 ? '#' : v > loud * 0.08 ? '+' : '.')).join('');
-    // Four rings in two pairs, each pair followed by a pause of over a second: it can't pass for music.
-    expect(shape.match(/#+/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(shape.match(/\.{12,}/g)?.length).toBe(2);
-    expect(turn.every((v) => Math.abs(v) < 1)).toBe(true);
+    expect(Math.min(...levels)).toBeGreaterThan(loud * 0.2);
+    // Eight rings a turn (two on each of the four chords) stand out over the held chords.
+    const beats = levels.map((v) => (v > loud * 0.7 ? '#' : '.')).join('').match(/#+/g) ?? [];
+    expect(beats.length).toBeGreaterThanOrEqual(8);
+    expect(two.every((v) => Math.abs(v) < 1)).toBe(true);
   });
 
   it('joining rises and leaving falls, both short', () => {
