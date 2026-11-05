@@ -44,6 +44,14 @@ test('a channel call: ring, they pick up, mute, and the chat stays the same chat
   await strip(page).getByRole('button', { name: 'Mute' }).click();
   await expect(strip(page).getByRole('button', { name: 'Unmute' })).toBeVisible();
   await strip(page).getByRole('button', { name: 'Unmute' }).click();
+  // Cameras: bob's comes on as he picks up; yours with one click. Faces show under the strip.
+  await strip(page).getByRole('button', { name: 'Turn Camera On' }).click();
+  const faces = page.getByRole('list', { name: 'Cameras' });
+  await expect(faces.getByRole('listitem')).toHaveCount(2, { timeout: 10_000 });
+  await expect(faces.getByRole('figure', { name: 'Your camera' })).toBeVisible();
+  await shot(page, '02b-cameras');
+  await strip(page).getByRole('button', { name: 'Turn Camera Off' }).click();
+  await expect(faces.getByRole('listitem')).toHaveCount(1);
 
   // Elsewhere in Beluga, the call is a pill in the sidebar; one click goes back.
   await sidebar(page).getByRole('button', { name: /^Overview/ }).first().click();
@@ -64,30 +72,49 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   const stage = page.getByRole('region', { name: 'Your shared screen' });
   await expect(stage).toBeVisible();
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
-  // Draw on it.
-  await stage.getByRole('button', { name: 'Draw' }).click();
-  const frame = stage.locator('video').locator('..');
+  const frame = stage.locator('video').first().locator('..');
   const b = (await frame.boundingBox())!;
-  await page.mouse.move(b.x + b.width * 0.3, b.y + b.height * 0.35);
+  const at = (fx: number, fy: number): [number, number] => [b.x + b.width * fx, b.y + b.height * fy];
+  // ⌥-drag draws, no tool to pick first.
+  await page.keyboard.down('Alt');
+  await page.mouse.move(...at(0.3, 0.35));
   await page.mouse.down();
-  for (let i = 0; i <= 12; i++) await page.mouse.move(b.x + b.width * (0.3 + i * 0.02), b.y + b.height * (0.35 + Math.sin(i / 2) * 0.03));
+  for (let i = 0; i <= 12; i++) await page.mouse.move(...at(0.3 + i * 0.02, 0.35 + Math.sin(i / 2) * 0.03));
   await page.mouse.up();
-  await expect(stage.getByRole('button', { name: 'Clear the Ink' })).toBeVisible();
-  await shot(page, '04-stage-ink');
-  // Ask Claude about a part of it.
-  await stage.getByRole('button', { name: /^Ask / }).click();
-  await page.mouse.move(b.x + b.width * 0.1, b.y + b.height * 0.2);
+  await page.keyboard.up('Alt');
+  await expect(stage.getByRole('button', { name: 'Clear Marks and Ink' })).toBeVisible();
+  // A drag marks a box; as you let go its three choices open right there.
+  await page.mouse.move(...at(0.12, 0.42));
   await page.mouse.down();
-  await page.mouse.move(b.x + b.width * 0.7, b.y + b.height * 0.55, { steps: 6 });
+  await page.mouse.move(...at(0.62, 0.5), { steps: 6 });
   await page.mouse.up();
+  const menu = stage.getByRole('menu', { name: 'Marked part' });
+  await expect(menu).toBeVisible();
+  await shot(page, '04-mark-menu');
+  await menu.getByRole('menuitem', { name: 'Keep Marked' }).click();
+  await expect(menu).toHaveCount(0);
+  await shot(page, '05-kept-mark');
+  // Mark again and ask your agent about it: one more step, the question, in place.
+  await page.mouse.move(...at(0.1, 0.2));
+  await page.mouse.down();
+  await page.mouse.move(...at(0.7, 0.55), { steps: 6 });
+  await page.mouse.up();
+  await menu.getByRole('menuitem', { name: /^Ask / }).click();
   const ask = stage.getByRole('textbox', { name: /^Ask / });
   await expect(ask).toBeVisible();
   await ask.fill('Is the discount applied in the right order?');
-  await shot(page, '05-ask-box');
   await ask.press('Enter');
   await expect(stage.getByRole('complementary', { name: 'Your agent about the screen' })).toBeVisible();
   await expect(page.getByRole('log', { name: 'Channel launch' })).toContainText('Is the discount applied in the right order?');
   await shot(page, '06-ask-card');
+  // Smooth for motion, and the whole display.
+  await stage.getByRole('radio', { name: 'Smooth' }).click();
+  await expect(stage.getByRole('radio', { name: 'Smooth' })).toHaveAttribute('aria-checked', 'true');
+  await stage.getByRole('button', { name: 'Full Screen' }).click();
+  await expect(stage.getByRole('button', { name: 'Exit Full Screen' })).toBeVisible();
+  await shot(page, '07-full-screen');
+  await page.keyboard.press('Escape');
+  await expect(stage.getByRole('button', { name: 'Full Screen' })).toBeVisible();
   await stage.getByRole('button', { name: 'Stop Sharing' }).click();
   await expect(stage).toHaveCount(0);
   await strip(page).getByRole('button', { name: 'Leave Call' }).click();
@@ -98,9 +125,9 @@ test('someone rings you: the card wherever you are, Join opens the call in its c
   test.skip(process.env.BELUGA_DEMO_SCENE !== 'call', 'needs BELUGA_DEMO_SCENE=call (bob rings you in #launch)');
   const card = page.getByRole('alertdialog', { name: 'bob is calling' });
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await shot(page, '07-incoming');
+  await shot(page, '08-incoming');
   await card.getByRole('button', { name: 'Join' }).click();
   await expect(strip(page).getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
-  await shot(page, '08-joined');
+  await shot(page, '09-joined');
 });

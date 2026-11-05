@@ -1,12 +1,15 @@
+import type { ShareMode } from '@beluga/shared/calls.js';
+
 /**
  * One person's line in a call (BLG-706): a WebRTC connection between your window and theirs, set
  * up with "perfect negotiation" (either side may change what it sends at any time; when both offer
  * at once, the polite side gives way). Setup travels through the daemons (`calls.signal`), the
  * media straight between the two Macs, encrypted (DTLS-SRTP).
  *
- * It carries your voice, the screen share when the tree says this person gets it from you
- * (`setVideo`), and a data channel for the stage (ink, the laser), negotiated up front so it costs
- * no extra round trip.
+ * It carries your voice, your camera, the screen share when the tree says this person gets it
+ * from you (`setVideo`), and a data channel for the stage (pointers, marks, ink), negotiated up
+ * front so it costs no extra round trip. WebRTC only says which stream a picture belongs to, so
+ * each line says once which of its streams is the camera and which the screen (`streams`).
  */
 
 /** Public STUN only finds each Mac's address; the call itself never goes through it. */
@@ -14,19 +17,33 @@ export const ICE_SERVERS: RTCIceServer[] = [{ urls: ['stun:stun.cloudflare.com:3
 
 /** Voice: Opus with in-band error correction, at a rate that sounds like being in the room. */
 const VOICE_BITRATE = 64_000;
-/** A screen of text: up to this, keeping its resolution before its frame rate (degradationPreference). */
-const SCREEN_BITRATE = 3_000_000;
-const SCREEN_FPS = 30;
+/** How a screen is sent, by the sharer's choice: text keeps its pixels, motion keeps its frames. */
+const SCREEN: Record<ShareMode, { readonly maxBitrate: number; readonly maxFramerate: number; readonly degradation: RTCDegradationPreference }> = {
+  sharp: { maxBitrate: 3_500_000, maxFramerate: 24, degradation: 'maintain-resolution' },
+  smooth: { maxBitrate: 4_500_000, maxFramerate: 60, degradation: 'maintain-framerate' },
+};
+
+/** A camera, smaller as the call grows (everyone sends theirs to everyone). */
+export function cameraEncoding(people: number): { readonly maxBitrate: number; readonly scaleResolutionDownBy: number } {
+  if (people <= 2) return { maxBitrate: 1_500_000, scaleResolutionDownBy: 1 };
+  if (people <= 4) return { maxBitrate: 700_000, scaleResolutionDownBy: 1.5 };
+  return { maxBitrate: 320_000, scaleResolutionDownBy: 2.5 };
+}
+
+type Slot = 'screen' | 'cam';
 
 type Signal = { readonly desc: RTCSessionDescriptionInit } | { readonly cand: RTCIceCandidateInit | null };
 
 export type LineState = 'connecting' | 'connected' | 'failed';
 
 export interface PeerHost {
+  /** Your peer id (it signs what this line says on the stage). */
+  readonly me: string;
   readonly polite: boolean;
   readonly send: (data: string) => void;
   readonly onAudio: (stream: MediaStream) => void;
-  readonly onVideo: (track: MediaStreamTrack | undefined) => void;
+  /** A picture from them (or one ended): the stream id says whether it's their camera or a screen. */
+  readonly onVideo: (track: MediaStreamTrack, streamId: string, live: boolean) => void;
   readonly onStage: (text: string) => void;
   readonly onState: (state: LineState) => void;
 }
@@ -48,9 +65,11 @@ export class Peer {
   private readonly stage: RTCDataChannel;
   private making = false;
   private ignoring = false;
-  private video: RTCRtpSender | undefined;
-  /** What `setVideo` last asked for (unchanged: nothing to do). */
-  private videoWanted: MediaStreamTrack | undefined;
+  /** The screen and the camera this line sends: a sender once there's been something to send, and what's wanted now. */
+  private readonly slots: Record<Slot, { sender?: RTCRtpSender; wanted?: MediaStreamTrack; params: string; readonly stream: MediaStream }> = {
+    screen: { params: '', stream: new MediaStream() },
+    cam: { params: '', stream: new MediaStream() },
+  };
   private readonly voice: RTCRtpSender;
   private closed = false;
   /** Setup is handled one message at a time, in the order it came. */
@@ -63,6 +82,7 @@ export class Peer {
     // Reliable and in order: a stroke's end, Clear and an ask must arrive (they're tiny).
     this.stage = this.pc.createDataChannel('stage', { negotiated: true, id: 0 });
     this.stage.onmessage = (e) => typeof e.data === 'string' && e.data.length <= 64_000 && host.onStage(e.data);
+    this.stage.onopen = () => this.stage.send(JSON.stringify({ k: 'streams', by: host.me, cam: this.slots.cam.stream.id, screen: this.slots.screen.stream.id }));
     // Voice both ways from the start, even before your microphone opens (it's put in when it does).
     const stream = new MediaStream(mic ? [mic] : []);
     this.voice = this.pc.addTransceiver(mic ?? 'audio', { direction: 'sendrecv', streams: [stream] }).sender;
@@ -72,9 +92,12 @@ export class Peer {
     this.pc.ontrack = (e) => {
       if (e.track.kind === 'audio') host.onAudio(e.streams[0] ?? new MediaStream([e.track]));
       if (e.track.kind === 'video') {
-        host.onVideo(e.track);
-        e.track.onunmute = () => host.onVideo(e.track);
-        e.track.onended = () => host.onVideo(undefined);
+        const id = e.streams[0]?.id ?? '';
+        const track = e.track;
+        host.onVideo(track, id, !track.muted);
+        track.onunmute = () => host.onVideo(track, id, true);
+        track.onmute = () => host.onVideo(track, id, false);
+        track.onended = () => host.onVideo(track, id, false);
       }
     };
     this.pc.onconnectionstatechange = () => {
@@ -147,25 +170,39 @@ export class Peer {
   }
 
   /** The screen this person should get from you now (yours, or one you pass on), or none. */
-  setVideo(track: MediaStreamTrack | undefined): Promise<void> {
-    if (this.closed || track === this.videoWanted) return Promise.resolve();
-    this.videoWanted = track;
-    this.queue = this.queue.then(() => this.applyVideo(track)).catch(() => undefined);
+  setVideo(track: MediaStreamTrack | undefined, mode: ShareMode = 'sharp'): Promise<void> {
+    const m = SCREEN[mode];
+    return this.setSlot('screen', track, { maxBitrate: m.maxBitrate, maxFramerate: m.maxFramerate }, m.degradation);
+  }
+
+  /** Your camera for this person (or none), sized for a call of `people`. */
+  setCamera(track: MediaStreamTrack | undefined, people: number): Promise<void> {
+    return this.setSlot('cam', track, { ...cameraEncoding(people), maxFramerate: 30 }, 'balanced');
+  }
+
+  private setSlot(slot: Slot, track: MediaStreamTrack | undefined, encoding: RTCRtpEncodingParameters, degradation: RTCDegradationPreference): Promise<void> {
+    const s = this.slots[slot];
+    const params = JSON.stringify([encoding, degradation]);
+    if (this.closed || (track === s.wanted && params === s.params)) return Promise.resolve();
+    s.wanted = track;
+    s.params = params;
+    this.queue = this.queue.then(() => this.applySlot(slot, track, encoding, degradation)).catch(() => undefined);
     return this.queue;
   }
 
-  private async applyVideo(track: MediaStreamTrack | undefined): Promise<void> {
-    if (this.closed || track !== this.videoWanted) return;
-    if (!this.video) {
+  private async applySlot(slot: Slot, track: MediaStreamTrack | undefined, encoding: RTCRtpEncodingParameters, degradation: RTCDegradationPreference): Promise<void> {
+    const s = this.slots[slot];
+    if (this.closed || track !== s.wanted) return;
+    if (!s.sender) {
       if (!track) return;
-      this.video = this.pc.addTrack(track, new MediaStream([track]));
-      const t = this.pc.getTransceivers().find((x) => x.sender === this.video);
+      s.sender = this.pc.addTrack(track, s.stream);
+      const t = this.pc.getTransceivers().find((x) => x.sender === s.sender);
       if (t) preferH264(t);
-    } else if (this.video.track !== track) await this.video.replaceTrack(track ?? null);
+    } else if (s.sender.track !== track) await s.sender.replaceTrack(track ?? null);
     if (track) {
-      const p = this.video.getParameters();
-      const encodings = (p.encodings?.length ? p.encodings : [{}]).map((e) => ({ ...e, maxBitrate: SCREEN_BITRATE, maxFramerate: SCREEN_FPS }));
-      await this.video.setParameters({ ...p, encodings, degradationPreference: 'maintain-resolution' } as RTCRtpSendParameters).catch(() => undefined);
+      const p = s.sender.getParameters();
+      const encodings = (p.encodings?.length ? p.encodings : [{}]).map((e) => ({ ...e, ...encoding }));
+      await s.sender.setParameters({ ...p, encodings, degradationPreference: degradation } as RTCRtpSendParameters).catch(() => undefined);
     }
   }
 

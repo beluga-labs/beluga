@@ -45,6 +45,7 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
   const me = call.people.find((p) => p.me);
   const muted = me?.muted ?? false;
   const sharing = me?.sharing ?? false;
+  const camera = me?.camera ?? false;
   return (
     <span className={cx(c.controls, compact && c.compact)}>
       <Tip label={muted ? 'Unmute' : 'Mute'} keys="⌘⇧M">
@@ -52,6 +53,13 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
           <Icon name={muted ? 'micOff' : 'mic'} size={15} />
         </button>
       </Tip>
+      {compact ? null : (
+        <Tip label={camera ? 'Turn Camera Off' : 'Turn Camera On'}>
+          <button type="button" className={cx(c.control, camera && c.controlOn)} aria-pressed={camera} aria-label={camera ? 'Turn Camera Off' : 'Turn Camera On'} onClick={() => void engine.camera(!camera)}>
+            <Icon name={camera ? 'video' : 'videoOff'} size={15} />
+          </button>
+        </Tip>
+      )}
       {compact ? null : (
         <Tip label={sharing ? 'Stop Sharing' : 'Share a Window or Screen'}>
           <button type="button" className={cx(c.control, sharing && c.controlOn)} aria-pressed={sharing} aria-label={sharing ? 'Stop Sharing' : 'Share Screen'} onClick={() => void (sharing ? engine.stopSharing() : engine.share())}>

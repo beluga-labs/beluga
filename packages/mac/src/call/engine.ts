@@ -1,9 +1,10 @@
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { Intent } from '@beluga/core/intents.js';
-import { type CallView, type StageMessage, HEARTBEAT_MS, parseStage, shareChildren, shareTree, sharerOf } from '@beluga/shared/calls.js';
+import { type CallView, type ShareMode, type StageMessage, HEARTBEAT_MS, parseStage, shareChildren, shareTree, sharerOf } from '@beluga/shared/calls.js';
+import { inApp } from '../lib/boot.js';
 import { Levels } from './levels.js';
 import { type LineState, Peer } from './peer.js';
-import { demoScreen, demoVoice } from './demo-media.js';
+import { demoCamera, demoScreen, demoVoice } from './demo-media.js';
 import { repeat } from './repeat.js';
 
 /**
@@ -31,9 +32,21 @@ export interface CallLive {
   readonly problem?: string;
   /** Asks to Claude about the share in this call (message ids), newest last. */
   readonly asks: readonly string[];
+  /** Cameras that are on, by peer id (yours too: your own preview). */
+  readonly cameras: Readonly<Record<string, MediaStream>>;
+  /** How the screen on the stage is sent (the sharer picks). */
+  readonly mode: ShareMode;
+  /** The stage fills the whole display. */
+  readonly theater: boolean;
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [] };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false };
+
+/** A picture from someone: its track, and whether frames are coming. */
+interface Incoming {
+  readonly track: MediaStreamTrack;
+  readonly live: boolean;
+}
 
 type StageListener = (m: StageMessage) => void;
 
@@ -43,7 +56,12 @@ export class CallEngine {
   private readonly stageSubs = new Set<StageListener>();
   private readonly peers = new Map<string, Peer>();
   private readonly audio = new Map<string, HTMLAudioElement>();
-  private readonly incoming = new Map<string, MediaStreamTrack>();
+  /** Pictures from each person, by the stream they belong to. */
+  private readonly incoming = new Map<string, Map<string, Incoming>>();
+  /** Which of each person's streams is their camera and which a screen (they say so on the stage). */
+  private readonly kinds = new Map<string, { readonly cam?: string; readonly screen?: string }>();
+  /** Your camera, while it's on. */
+  private cam: MediaStream | undefined;
   /** The demo's friends whose made-up voices are playing. */
   private readonly demoVoices = new Set<string>();
   private mic: MediaStream | undefined;
@@ -123,10 +141,11 @@ export class CallEngine {
       this.screen = next;
       const track = this.screen.getVideoTracks()[0];
       if (track) {
-        track.contentHint = 'text';
+        this.tune(track, this.live.mode);
         track.onended = () => void this.stopSharing();
       }
       await this.client.api.calls.set(c, { sharing: true });
+      this.stageSend({ k: 'mode', by: this.me, mode: this.live.mode });
       this.reconcile();
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
@@ -140,6 +159,56 @@ export class CallEngine {
     const c = this.live.conversation;
     if (c) await this.client.api.calls.set(c, { sharing: false }).catch(() => undefined);
     this.reconcile();
+  }
+
+  /** Sharp for text, Smooth for motion: your capture and everyone passing it on follow. */
+  setShareMode(mode: ShareMode): void {
+    const track = this.screen?.getVideoTracks()[0];
+    if (track) this.tune(track, mode);
+    this.patch({ mode });
+    this.stageSend({ k: 'mode', by: this.me, mode });
+    this.reconcile();
+  }
+
+  private tune(track: MediaStreamTrack, mode: ShareMode): void {
+    track.contentHint = mode === 'sharp' ? 'text' : 'motion';
+    void track.applyConstraints({ frameRate: mode === 'sharp' ? { ideal: 24, max: 30 } : { ideal: 60, max: 60 } }).catch(() => undefined);
+  }
+
+  /** The stage over the whole display (the window goes full screen too), or back. */
+  async setTheater(on: boolean): Promise<void> {
+    this.patch({ theater: on });
+    try {
+      if (inApp()) {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().setFullscreen(on);
+      } else if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+      else if (!on && document.fullscreenElement) await document.exitFullscreen();
+    } catch {
+      // Full screen refused (a browser without a click behind it): the stage still fills the window.
+    }
+  }
+
+  /** Your camera on or off (macOS asks the first time). */
+  async camera(on: boolean): Promise<void> {
+    const c = this.live.conversation;
+    if (!c) return;
+    if (!on) {
+      this.cam?.getTracks().forEach((t) => t.stop());
+      this.cam = undefined;
+      await this.client.api.calls.set(c, { camera: false }).catch(() => undefined);
+      this.reconcile();
+      return;
+    }
+    try {
+      this.cam = this.view?.demo ? demoCamera('You') : await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' } });
+      for (const t of this.cam.getVideoTracks()) t.contentHint = 'motion';
+      await this.client.api.calls.set(c, { camera: true });
+      this.reconcile();
+    } catch {
+      this.cam = undefined;
+      this.patch({ problem: 'Beluga can’t use your camera. Allow it in System Settings › Privacy & Security › Camera.' });
+    }
   }
 
   /** Something on the stage everyone in the call sees (ink, the laser, an ask). */
@@ -244,7 +313,11 @@ export class CallEngine {
     }
     this.audio.clear();
     this.incoming.clear();
+    this.kinds.clear();
     this.demoVoices.clear();
+    this.cam?.getTracks().forEach((t) => t.stop());
+    this.cam = undefined;
+    if (this.live.theater) void this.setTheater(false);
     this.levels.stop();
     this.closeMic();
     this.screen?.getTracks().forEach((t) => t.stop());
@@ -280,9 +353,11 @@ export class CallEngine {
       this.peers.delete(id);
       this.dropAudio(id);
       this.incoming.delete(id);
+      this.kinds.delete(id);
       this.levels.forget(id);
     }
     for (const p of others) if (!this.peers.has(p.peerId)) this.peers.set(p.peerId, this.line(call, p.peerId));
+    this.reconcileCameras(call, others.length + 1);
     // The share: who has the stage, who feeds whom.
     const sharer = sharerOf(call);
     // Someone shared after you: they have the stage now, and your capture stops.
@@ -294,9 +369,9 @@ export class CallEngine {
     }
     const viewers = call.people.filter((p) => p.peerId !== sharer.peerId).map((p) => p.peerId);
     const tree = shareTree(sharer.peerId, viewers);
-    const outgoing = sharer.me ? this.screen?.getVideoTracks()[0] : this.incoming.get(tree.get(me) ?? '');
+    const outgoing = sharer.me ? this.screen?.getVideoTracks()[0] : this.picture(tree.get(me) ?? '', 'screen');
     const children = new Set(shareChildren(tree, me));
-    for (const [id, peer] of this.peers) void peer.setVideo(children.has(id) ? outgoing : undefined);
+    for (const [id, peer] of this.peers) void peer.setVideo(children.has(id) ? outgoing : undefined, this.live.mode);
     const stream = sharer.me ? this.screen : outgoing ? new MediaStream([outgoing]) : undefined;
     const was = this.live.stage;
     if (!stream) {
@@ -304,29 +379,68 @@ export class CallEngine {
     } else if (was?.by !== sharer.peerId || was.stream.getVideoTracks()[0] !== stream.getVideoTracks()[0]) this.patch({ stage: { by: sharer.peerId, stream } });
   }
 
+  /** Someone's camera or the screen they send, while frames come. */
+  private picture(peerId: string, kind: 'cam' | 'screen'): MediaStreamTrack | undefined {
+    const id = this.kinds.get(peerId)?.[kind];
+    const got = id ? this.incoming.get(peerId)?.get(id) : undefined;
+    return got?.live ? got.track : undefined;
+  }
+
+  /** Your camera to everyone (smaller as the call grows), and everyone's cameras to draw. */
+  private reconcileCameras(call: CallView, people: number): void {
+    const mine = call.people.find((p) => p.me)?.camera ? this.cam?.getVideoTracks()[0] : undefined;
+    for (const peer of this.peers.values()) void peer.setCamera(mine, people);
+    const cameras: Record<string, MediaStream> = {};
+    for (const p of call.people) {
+      if (!p.camera) continue;
+      if (p.me) {
+        if (this.cam) cameras[p.peerId] = this.cam;
+        continue;
+      }
+      const track = this.picture(p.peerId, 'cam');
+      if (track) cameras[p.peerId] = this.live.cameras[p.peerId]?.getVideoTracks()[0] === track ? this.live.cameras[p.peerId]! : new MediaStream([track]);
+    }
+    if (!sameKeys(cameras, this.live.cameras)) this.patch({ cameras });
+  }
+
   private line(call: CallView, peerId: string): Peer {
     const conversation = call.conversation;
     const mic = this.mic?.getAudioTracks()[0];
     return new Peer(
       {
+        me: this.me,
         polite: this.me > peerId,
         send: (data) => void this.client.api.calls.signal(conversation, peerId, data).catch(() => undefined),
         onAudio: (stream) => {
           this.playAudio(peerId, stream);
           this.levels.watch(peerId, stream);
         },
-        onVideo: (track) => {
-          if (track) this.incoming.set(peerId, track);
-          else this.incoming.delete(peerId);
+        onVideo: (track, streamId, live) => {
+          const theirs = this.incoming.get(peerId) ?? new Map<string, Incoming>();
+          theirs.set(streamId, { track, live });
+          this.incoming.set(peerId, theirs);
           this.reconcile();
         },
         onStage: (text) => {
           const m = parseStage(text);
           if (!m || m.by !== peerId) return;
+          if (m.k === 'streams') {
+            this.kinds.set(peerId, { ...(m.cam ? { cam: m.cam } : {}), ...(m.screen ? { screen: m.screen } : {}) });
+            return this.reconcile();
+          }
+          if (m.k === 'mode') {
+            // Only the sharer's word counts; the relays follow it too.
+            if (this.view && sharerOf(this.view)?.peerId === peerId) this.patch({ mode: m.mode });
+            return this.reconcile();
+          }
           if (m.k === 'asked') this.patch({ asks: [...this.live.asks, m.ask].slice(-8) });
           for (const fn of this.stageSubs) fn(m);
         },
-        onState: (state) => this.patch({ lines: { ...this.live.lines, [peerId]: { ...this.live.lines[peerId], state } } }),
+        onState: (state) => {
+          this.patch({ lines: { ...this.live.lines, [peerId]: { ...this.live.lines[peerId], state } } });
+          // Someone who just joined hears how your screen is sent.
+          if (state === 'connected' && this.screen) this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'mode', by: this.me, mode: this.live.mode }));
+        },
       },
       mic,
     );
@@ -387,6 +501,14 @@ export class CallEngine {
         this.demoVoices.add(p.peerId);
       }
     }
+    const cameras: Record<string, MediaStream> = {};
+    for (const p of call.people) {
+      if (!p.camera) continue;
+      if (p.me) {
+        if (this.cam) cameras[p.peerId] = this.cam;
+      } else cameras[p.peerId] = this.live.cameras[p.peerId] ?? demoCamera(p.name);
+    }
+    if (!sameKeys(cameras, this.live.cameras)) this.patch({ cameras });
     const sharer = sharerOf(call);
     let stage = this.live.stage;
     if (!sharer) stage = undefined;
@@ -394,6 +516,12 @@ export class CallEngine {
     else if (stage?.by !== sharer.peerId) stage = { by: sharer.peerId, stream: demoScreen(sharer.name) };
     if (JSON.stringify(lines) !== JSON.stringify(this.live.lines) || stage !== this.live.stage) this.patch({ lines, stage });
   }
+}
+
+/** The same people with the same streams (so screens draw again only when cameras change). */
+function sameKeys(a: Readonly<Record<string, MediaStream>>, b: Readonly<Record<string, MediaStream>>): boolean {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 }
 
 let engine: CallEngine | undefined;

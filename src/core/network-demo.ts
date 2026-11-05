@@ -136,7 +136,10 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
   const callers = demoCallers([bob, mia], pace);
   if (belugaEnv('DEMO_SCENE') === 'call') {
     void until(() => me.mesh.summary().groups.some((g) => g.id === group.id && g.active) && mia.summary().groups.some((g) => g.id === group.id && g.active)).then((ok) => {
-      if (ok && !stopped) setTimeout(() => !stopped && callers.ring(bob, launch), 2500 * pace).unref();
+      if (!ok || stopped) return;
+      setTimeout(() => !stopped && callers.ring(bob, launch), 2500 * pace).unref();
+      // bob's camera is on, as he would have it; mia keeps hers off.
+      setTimeout(() => !stopped && callers.set(bob, launch, { camera: true }), 3500 * pace).unref();
     });
   }
 

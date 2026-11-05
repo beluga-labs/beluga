@@ -18,8 +18,8 @@ export const CALLS_API = {
   'calls.leave': { args: z.tuple([conversation]) },
   // Not now: it stops ringing, and whoever rang hears it.
   'calls.decline': { args: z.tuple([conversation]) },
-  // Mute or share (the window also says this every few seconds, so the daemon knows it's still making the call) → CallView.
-  'calls.set': { args: z.tuple([conversation, z.object({ muted: z.boolean().optional(), sharing: z.boolean().optional() }).strict()]) },
+  // Mute, share or turn your camera on (the window also says this every few seconds, so the daemon knows it's still making the call) → CallView.
+  'calls.set': { args: z.tuple([conversation, z.object({ muted: z.boolean().optional(), sharing: z.boolean().optional(), camera: z.boolean().optional() }).strict()]) },
   // WebRTC setup for someone's window in the call (an offer, answer or candidate, as JSON) → whether it went.
   'calls.signal': { args: z.tuple([conversation, peerId, z.string().min(1).max(SIGNAL_MAX)]) },
   // The calls in your conversations → CallsView.

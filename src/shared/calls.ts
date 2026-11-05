@@ -16,6 +16,8 @@ export interface CallPersonView {
   readonly muted: boolean;
   /** Sharing their screen now. */
   readonly sharing: boolean;
+  /** Their camera is on (BLG-714). */
+  readonly camera?: boolean;
   readonly joinedAt: number;
 }
 
@@ -98,10 +100,25 @@ export type StageMessage =
   | { readonly k: 'laser'; readonly by: string; readonly x: number; readonly y: number }
   /** A stroke of ink being drawn: its points so far (sent again as it grows), in `color`. */
   | { readonly k: 'ink'; readonly by: string; readonly id: string; readonly color: string; readonly pts: readonly number[]; readonly done?: boolean }
-  /** Take every stroke away. */
+  /** Take every stroke and mark away. */
   | { readonly k: 'clear'; readonly by: string }
+  /** A click on the screen: a ripple there everyone sees. */
+  | { readonly k: 'ping'; readonly by: string; readonly x: number; readonly y: number }
+  /** A box someone marked: shown to everyone, fading (or kept until it's taken away, `keep`). */
+  | { readonly k: 'mark'; readonly by: string; readonly id: string; readonly box: Box; readonly keep?: boolean }
+  | { readonly k: 'unmark'; readonly by: string; readonly id: string }
+  /** How the sharer sends their screen: sharp for text, smooth for motion (relays pass it on the same way). */
+  | { readonly k: 'mode'; readonly by: string; readonly mode: ShareMode }
+  /** Which of a window's streams is its camera and which its screen (WebRTC only says a stream's id). */
+  | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string }
   /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
   | { readonly k: 'asked'; readonly by: string; readonly ask: string; readonly box?: readonly [number, number, number, number] };
+
+/** A part of the shared picture: x, y, width, height, in fractions of it. */
+export type Box = readonly [number, number, number, number];
+
+/** Sharp: every pixel of text, fewer frames. Smooth: every frame, fewer pixels when the network is tight. */
+export type ShareMode = 'sharp' | 'smooth';
 
 /** Ink fades this long after it's done. */
 export const INK_FADE_MS = 4_000;
@@ -131,6 +148,22 @@ export function parseStage(text: string): StageMessage | undefined {
     }
     case 'clear':
       return { k: 'clear', by };
+    case 'ping':
+      return num(o['x']) && num(o['y']) ? { k: 'ping', by, x: o['x'], y: o['y'] } : undefined;
+    case 'mark': {
+      const id = o['id'];
+      const box = o['box'];
+      if (typeof id !== 'string' || id.length > 40 || !Array.isArray(box) || box.length !== 4 || !box.every(num)) return undefined;
+      return { k: 'mark', by, id, box: box as unknown as Box, ...(o['keep'] === true ? { keep: true } : {}) };
+    }
+    case 'unmark':
+      return typeof o['id'] === 'string' && o['id'].length <= 40 ? { k: 'unmark', by, id: o['id'] } : undefined;
+    case 'mode':
+      return o['mode'] === 'sharp' || o['mode'] === 'smooth' ? { k: 'mode', by, mode: o['mode'] } : undefined;
+    case 'streams': {
+      const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
+      return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}) };
+    }
     case 'asked': {
       const box = o['box'];
       const ask = o['ask'];

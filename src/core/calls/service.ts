@@ -17,7 +17,7 @@ import { type CallPersonView, type CallView, type CallsView, GONE_MS, HEARTBEAT_
 
 const callId = z.string().regex(/^[0-9a-f]{16}$/);
 const groupId = z.string().regex(/^[0-9a-f]{32}$/);
-const State = z.object({ muted: z.boolean(), sharing: z.boolean(), joinedAt: z.number().int().min(0) });
+const State = z.object({ muted: z.boolean(), sharing: z.boolean(), joinedAt: z.number().int().min(0), camera: z.boolean().optional() });
 
 /** What one Mac says to another about a call (the `p` of a `call` link frame). `g`: the group; none for your DMs. */
 export const CallFrame = z.discriminatedUnion('k', [
@@ -163,14 +163,15 @@ export class CallService {
    * Mute, share, or say your window is still making the call (it does every few seconds): the
    * screen saying so becomes the one the call's setup goes to.
    */
-  set(conversation: string, change: { readonly muted?: boolean; readonly sharing?: boolean }): CallView {
+  set(conversation: string, change: { readonly muted?: boolean; readonly sharing?: boolean; readonly camera?: boolean }): CallView {
     const call = this.need(conversation);
     if (!call.me) throw new Error('You’re not in this call');
-    const before = { muted: call.me.muted, sharing: call.me.sharing };
+    const before = { muted: call.me.muted, sharing: call.me.sharing, camera: Boolean(call.me.camera) };
     if (change.muted !== undefined) call.me.muted = change.muted;
     if (change.sharing !== undefined) call.me.sharing = change.sharing;
+    if (change.camera !== undefined) call.me.camera = change.camera;
     this.claim(call.me);
-    if (before.muted !== call.me.muted || before.sharing !== call.me.sharing) {
+    if (before.muted !== call.me.muted || before.sharing !== call.me.sharing || before.camera !== Boolean(call.me.camera)) {
       this.sayHere(call);
       this.publish();
     }
@@ -370,7 +371,7 @@ export class CallService {
 
   private mineState(call: Call): PersonState {
     const me = call.me!;
-    return { muted: me.muted, sharing: me.sharing, joinedAt: me.joinedAt };
+    return { muted: me.muted, sharing: me.sharing, joinedAt: me.joinedAt, ...(me.camera ? { camera: true } : {}) };
   }
 
   private sayHere(call: Call): void {
@@ -399,8 +400,8 @@ export class CallService {
 
   private view(call: Call): CallView {
     const mesh = this.host.mesh;
-    const people: CallPersonView[] = [...call.people].map(([peerId, p]) => ({ peerId, name: mesh.nameFor(peerId), muted: p.muted, sharing: p.sharing, joinedAt: p.joinedAt }));
-    if (call.me) people.push({ peerId: mesh.peerId, name: 'You', me: true, muted: call.me.muted, sharing: call.me.sharing, joinedAt: call.me.joinedAt });
+    const people: CallPersonView[] = [...call.people].map(([peerId, p]) => ({ peerId, name: mesh.nameFor(peerId), muted: p.muted, sharing: p.sharing, joinedAt: p.joinedAt, ...(p.camera ? { camera: true } : {}) }));
+    if (call.me) people.push({ peerId: mesh.peerId, name: 'You', me: true, muted: call.me.muted, sharing: call.me.sharing, joinedAt: call.me.joinedAt, ...(call.me.camera ? { camera: true } : {}) });
     people.sort((a, b) => a.joinedAt - b.joinedAt || (a.peerId < b.peerId ? -1 : 1));
     return {
       id: call.id,

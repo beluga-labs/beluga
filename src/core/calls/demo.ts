@@ -10,6 +10,8 @@ import { CallService } from './service.js';
 export interface DemoCallers {
   /** Someone rings you in a conversation they share with you (the call scene). */
   ring(who: Mesh, conversation: string): void;
+  /** Someone turns their camera on or shares (they make no picture: the window plays it). */
+  set(who: Mesh, conversation: string, change: { readonly camera?: boolean; readonly sharing?: boolean }): void;
   stop(): void;
 }
 
@@ -41,7 +43,10 @@ export function demoCallers(friends: readonly Mesh[], pace = 1): DemoCallers {
               calls.join(call.conversation);
             } catch {
               // It ended before they picked up.
+              return;
             }
+            // bob likes his camera on; it comes on a moment after he picks up.
+            if (mesh.summary().self?.name === 'bob') later(1_500, () => calls.set(call.conversation, { camera: true }));
           });
         }
       },
@@ -54,6 +59,13 @@ export function demoCallers(friends: readonly Mesh[], pace = 1): DemoCallers {
   }
   return {
     ring: (who, conversation) => services.get(who)?.start(conversation),
+    set: (who, conversation, change) => {
+      try {
+        services.get(who)?.set(conversation, change);
+      } catch {
+        // Not in that call any more.
+      }
+    },
     stop: () => {
       for (const t of timers) clearTimeout(t);
       for (const s of services.values()) s.stop();

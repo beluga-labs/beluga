@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { cx } from '../components/ui.js';
 import { CallStrip } from './CallStrip.js';
 import { Stage } from './Stage.js';
+import { CameraStrip } from './Cameras.js';
 import { useCallLive, useConversationCall } from './use-call.js';
 import c from './call.module.css';
 
@@ -17,6 +18,8 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
   return (
     <div className={c.room}>
       {call ? <CallStrip id={id} /> : null}
+      {/* Cameras that are on, as a band of faces (over the shared screen instead, while someone shares). */}
+      {call?.mine === 'in' && live.conversation === id && !staged ? <CameraStrip call={call} /> : null}
       <div className={cx(c.roomBody, staged && c.staged)}>
         {staged && call ? <Stage call={call} /> : null}
         <div className={c.roomChat}>{children}</div>

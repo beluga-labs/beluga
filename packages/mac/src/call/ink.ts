@@ -1,9 +1,10 @@
-import { INK_FADE_MS, type StageMessage } from '../../../../src/shared/calls.js';
+import { type Box, INK_FADE_MS, type StageMessage } from '../../../../src/shared/calls.js';
 
 /**
- * What's drawn on a shared screen (BLG-706): everyone's strokes and laser pointers, in fractions of
- * the picture (0…1) so they land on the same spot on every screen. Strokes fade a few seconds after
- * they're done: pointing at something, not drawing on it for good. Pure, apart from `draw`.
+ * What's drawn on a shared screen (BLG-706): everyone's pointers, the boxes they marked, clicks
+ * (a ripple) and strokes, in fractions of the picture (0…1) so they land on the same spot on every
+ * screen. Most of it fades after a few seconds: pointing at something, not drawing on it for good.
+ * A mark kept on purpose stays until it's taken away. Pure, apart from `draw`.
  */
 
 export interface Stroke {
@@ -23,12 +24,35 @@ export interface Laser {
   readonly at: number;
 }
 
+export interface Mark {
+  readonly id: string;
+  readonly by: string;
+  readonly box: Box;
+  readonly keep: boolean;
+  readonly at: number;
+}
+
+export interface Ping {
+  readonly id: string;
+  readonly by: string;
+  readonly x: number;
+  readonly y: number;
+  readonly at: number;
+}
+
 export interface Ink {
   readonly strokes: readonly Stroke[];
   readonly lasers: Readonly<Record<string, Laser>>;
+  readonly marks: readonly Mark[];
+  readonly pings: readonly Ping[];
 }
 
-export const NO_INK: Ink = { strokes: [], lasers: {} };
+export const NO_INK: Ink = { strokes: [], lasers: {}, marks: [], pings: [] };
+
+/** A ripple lasts this long. */
+export const PING_MS = 1_100;
+/** Marks kept at once. */
+const MAX_MARKS = 12;
 
 /** A laser nobody moved for this long goes. */
 const LASER_MS = 2_500;
@@ -52,7 +76,15 @@ export function applyInk(ink: Ink, m: StageMessage, now: number): Ink {
       return { ...ink, strokes: [...rest, stroke].slice(-MAX_STROKES) };
     }
     case 'clear':
-      return { ...ink, strokes: [] };
+      return { ...ink, strokes: [], marks: [] };
+    case 'ping':
+      return { ...ink, pings: [...ink.pings, { id: `${m.by}-${now}`, by: m.by, x: m.x, y: m.y, at: now }].slice(-12) };
+    case 'mark': {
+      const rest = ink.marks.filter((x) => !(x.id === m.id && x.by === m.by));
+      return { ...ink, marks: [...rest, { id: m.id, by: m.by, box: m.box, keep: Boolean(m.keep), at: now }].slice(-MAX_MARKS) };
+    }
+    case 'unmark':
+      return { ...ink, marks: ink.marks.filter((x) => !(x.id === m.id && x.by === m.by)) };
     default:
       return ink;
   }
@@ -67,14 +99,21 @@ export function strokeAlpha(s: Stroke, now: number): number {
   return Math.max(0, 1 - (age - hold) / (INK_FADE_MS - hold));
 }
 
-/** What's left once faded strokes and still lasers are gone. */
+/** A mark that wasn't kept fades like ink; a kept one stays. */
+export const markGone = (m: Mark, now: number): boolean => !m.keep && now - m.at > INK_FADE_MS;
+
+/** What's left once faded strokes, marks and ripples and still lasers are gone. */
 export function tidyInk(ink: Ink, now: number): Ink {
   const strokes = ink.strokes.map((s) => (s.doneAt === undefined && now - s.at > STALE_MS ? { ...s, doneAt: now } : s)).filter((s) => strokeAlpha(s, now) > 0);
   const lasers = Object.fromEntries(Object.entries(ink.lasers).filter(([, l]) => now - l.at < LASER_MS));
-  return strokes.length === ink.strokes.length && strokes.every((s, i) => s === ink.strokes[i]) && Object.keys(lasers).length === Object.keys(ink.lasers).length ? ink : { strokes, lasers };
+  const marks = ink.marks.filter((m) => !markGone(m, now));
+  const pings = ink.pings.filter((p) => now - p.at < PING_MS);
+  const same = strokes.length === ink.strokes.length && strokes.every((s, i) => s === ink.strokes[i]) && Object.keys(lasers).length === Object.keys(ink.lasers).length && marks.length === ink.marks.length && pings.length === ink.pings.length;
+  return same ? ink : { strokes, lasers, marks, pings };
 }
 
-export const hasInk = (ink: Ink): boolean => ink.strokes.length > 0 || Object.keys(ink.lasers).length > 0;
+/** Anything that changes as time passes (so the drawing loop runs). Kept marks alone don't. */
+export const hasInk = (ink: Ink): boolean => ink.strokes.length > 0 || Object.keys(ink.lasers).length > 0 || ink.pings.length > 0 || ink.marks.some((m) => !m.keep);
 
 /** Where the picture is inside its box (object-fit: contain): x, y, width, height in CSS pixels. */
 export function pictureBox(boxW: number, boxH: number, picW: number, picH: number): { x: number; y: number; w: number; h: number } {
@@ -108,6 +147,40 @@ export function draw(g: CanvasRenderingContext2D, ink: Ink, box: { x: number; y:
     }
     const [lx, ly] = at(s.pts[s.pts.length - 2]!, s.pts[s.pts.length - 1]!);
     g.lineTo(lx, ly);
+    g.stroke();
+  }
+  // Marked boxes: a rounded outline in its marker's color over a faint wash, coming in with a small settle.
+  for (const m of ink.marks) {
+    const age = now - m.at;
+    const alpha = m.keep ? 1 : Math.max(0, Math.min(1, (INK_FADE_MS - age) / (INK_FADE_MS * 0.4)));
+    if (alpha <= 0) continue;
+    const grow = 1 + 0.04 * Math.max(0, 1 - age / 220);
+    const [x0, y0] = at(m.box[0], m.box[1]);
+    const [x1, y1] = at(m.box[0] + m.box[2], m.box[1] + m.box[3]);
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    const w = (x1 - x0) * grow;
+    const h = (y1 - y0) * grow;
+    const color = colorOf(m.by);
+    g.globalAlpha = alpha * 0.12;
+    g.fillStyle = color;
+    g.beginPath();
+    g.roundRect(cx - w / 2, cy - h / 2, w, h, 8 * scale);
+    g.fill();
+    g.globalAlpha = alpha;
+    g.strokeStyle = color;
+    g.lineWidth = 2.5 * scale;
+    g.stroke();
+  }
+  // Clicks: a ring that opens and fades.
+  for (const p of ink.pings) {
+    const t = Math.min(1, (now - p.at) / PING_MS);
+    const [x, y] = at(p.x, p.y);
+    g.globalAlpha = (1 - t) * 0.9;
+    g.strokeStyle = colorOf(p.by);
+    g.lineWidth = 3 * scale * (1 - t * 0.5);
+    g.beginPath();
+    g.arc(x, y, (8 + 34 * (1 - (1 - t) ** 3)) * scale, 0, Math.PI * 2);
     g.stroke();
   }
   for (const [by, l] of Object.entries(ink.lasers)) {

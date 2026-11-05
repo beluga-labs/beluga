@@ -95,3 +95,60 @@ export function demoScreen(owner: string): MediaStream {
   }
   return stream;
 }
+
+const FACES = [
+  ['#cfe3f7', '#e7dcf6', '#5b8def'],
+  ['#d8f0e3', '#f6ead2', '#3fa776'],
+  ['#f6dcd6', '#e7dcf6', '#c06a5a'],
+] as const;
+
+/**
+ * A camera for the demo: a soft pastel room with the person's initial in a circle that sways a
+ * little, as someone sitting in front of their Mac would. Their color from their name.
+ */
+export function demoCamera(name: string): MediaStream {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 360;
+  const g = canvas.getContext('2d');
+  const [from, to, ink] = FACES[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % FACES.length]!;
+  const draw = (): void => {
+    if (!g) return;
+    const t = performance.now() / 1000;
+    const bg = g.createLinearGradient(0, 0, 640, 360);
+    bg.addColorStop(0, from);
+    bg.addColorStop(1, to);
+    g.fillStyle = bg;
+    g.fillRect(0, 0, 640, 360);
+    // A window behind them, and a lamp's warm patch.
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(430, 40, 150, 110);
+    const x = 320 + Math.sin(t * 0.7) * 10;
+    const y = 200 + Math.sin(t * 1.1) * 4;
+    g.fillStyle = 'rgba(255,255,255,0.65)';
+    g.beginPath();
+    g.ellipse(x, 360, 150, 90, 0, Math.PI, 0);
+    g.fill();
+    g.fillStyle = ink;
+    g.beginPath();
+    g.arc(x, y - 30, 62, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#ffffff';
+    g.font = '600 56px -apple-system, system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(name.slice(0, 1).toUpperCase(), x, y - 28);
+  };
+  draw();
+  const stopDrawing = repeat(draw, 1000 / 20);
+  const stream = canvas.captureStream(20);
+  const track = stream.getVideoTracks()[0];
+  if (track) {
+    const stop = track.stop.bind(track);
+    track.stop = () => {
+      stopDrawing();
+      stop();
+    };
+  }
+  return stream;
+}
