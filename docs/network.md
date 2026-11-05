@@ -387,7 +387,8 @@ conversation, and it's the same chat.
 - **Cameras** (BLG-714). Each camera goes to everyone in the call, smaller as it grows (full size
   for two, about a third of the bitrate past four). A line says once on the data channel which of
   its streams is the camera and which the screen. Faces show as a band under the strip, or a
-  filmstrip over a shared screen.
+  filmstrip over a shared screen. Face to Face puts the call over the whole window, like FaceTime:
+  one other person fills it, a group is a collage, and you're a picture you drag to any corner.
 - **Notes** (BLG-715). Nobody records anyone else: each Mac writes down only its own microphone
   (the call's echo-cancelled stream) on its own GPU with the dictation engine, phrase by phrase,
   keeping no sound. As you leave, your words go to the others who were in the call (`notes` frames,

@@ -50,6 +50,14 @@ test('a channel call: ring, they pick up, mute, and the chat stays the same chat
   await expect(faces.getByRole('listitem')).toHaveCount(2, { timeout: 10_000 });
   await expect(faces.getByRole('figure', { name: 'Your camera' })).toBeVisible();
   await shot(page, '02b-cameras');
+  // Face to face: bob fills the window, you're in the corner; Esc comes back to the chat.
+  await faces.getByRole('button', { name: 'Face to Face', exact: true }).click();
+  const faceView = page.getByRole('region', { name: 'Face to face' });
+  await expect(faceView).toBeVisible();
+  await expect(faceView.getByRole('figure', { name: 'bob’s camera' })).toBeVisible();
+  await shot(page, '02c-face-to-face');
+  await page.keyboard.press('Escape');
+  await expect(faceView).toHaveCount(0);
   await strip(page).getByRole('button', { name: 'Turn Camera Off' }).click();
   await expect(faces.getByRole('listitem')).toHaveCount(1);
 
@@ -94,6 +102,9 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   await menu.getByRole('menuitem', { name: 'Keep Marked' }).click();
   await expect(menu).toHaveCount(0);
   await shot(page, '05-kept-mark');
+  // One click anywhere clears what you marked and drew.
+  await page.mouse.click(...at(0.85, 0.85));
+  await expect(stage.getByRole('button', { name: 'Clear Marks and Ink' })).toHaveCount(0);
   // Mark again and ask your agent about it: one more step, the question, in place.
   await page.mouse.move(...at(0.1, 0.2));
   await page.mouse.down();
@@ -108,8 +119,9 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   await expect(page.getByRole('log', { name: 'Channel launch' })).toContainText('Is the discount applied in the right order?');
   await shot(page, '06-ask-card');
   // Smooth for motion, and the whole display.
-  await stage.getByRole('radio', { name: 'Smooth' }).click();
-  await expect(stage.getByRole('radio', { name: 'Smooth' })).toHaveAttribute('aria-checked', 'true');
+  // How the screen is sent is the sharer's, tucked behind •••.
+  await stage.getByRole('button', { name: 'How Your Screen Is Sent' }).click();
+  await page.getByRole('menuitem', { name: /^Smooth/ }).click();
   await stage.getByRole('button', { name: 'Full Screen' }).click();
   await expect(stage.getByRole('button', { name: 'Exit Full Screen' })).toBeVisible();
   await shot(page, '07-full-screen');

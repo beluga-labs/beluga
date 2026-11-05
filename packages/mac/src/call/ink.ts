@@ -76,7 +76,7 @@ export function applyInk(ink: Ink, m: StageMessage, now: number): Ink {
       return { ...ink, strokes: [...rest, stroke].slice(-MAX_STROKES) };
     }
     case 'clear':
-      return { ...ink, strokes: [], marks: [] };
+      return m.mine ? { ...ink, strokes: ink.strokes.filter((x) => x.by !== m.by), marks: ink.marks.filter((x) => x.by !== m.by) } : { ...ink, strokes: [], marks: [] };
     case 'ping':
       return { ...ink, pings: [...ink.pings, { id: `${m.by}-${now}`, by: m.by, x: m.x, y: m.y, at: now }].slice(-12) };
     case 'mark': {

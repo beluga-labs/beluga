@@ -39,11 +39,13 @@ export interface CallLive {
   readonly mode: ShareMode;
   /** The stage fills the whole display. */
   readonly theater: boolean;
+  /** Face to face: cameras over the whole window (theirs big, yours in a corner; a group as a collage). */
+  readonly faces: boolean;
   /** Your words are being written down for the call's notes (`off`: you paused it; `none`: no voice model here). */
   readonly notes: 'on' | 'off' | 'none';
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, notes: 'none' };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none' };
 
 /** A picture from someone: its track, and whether frames are coming. */
 interface Incoming {
@@ -210,6 +212,11 @@ export class CallEngine {
       this.scribe.start(this.mic);
     }
     this.patch({ notes: 'on' });
+  }
+
+  /** Face to face over the whole window, or back to the chat. */
+  setFaces(on: boolean): void {
+    this.patch({ faces: on });
   }
 
   /** Your camera on or off (macOS asks the first time). */

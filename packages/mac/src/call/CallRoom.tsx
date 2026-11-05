@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { cx } from '../components/ui.js';
 import { CallStrip } from './CallStrip.js';
 import { Stage } from './Stage.js';
-import { CameraStrip } from './Cameras.js';
+import { CameraStrip, FaceView } from './Cameras.js';
 import { NotesBox } from './NotesBox.js';
 import { useApp } from '../lib/beluga.js';
 import { useCallLive, useConversationCall } from './use-call.js';
@@ -22,6 +22,8 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
   return (
     <div className={c.room}>
       {call ? <CallStrip id={id} /> : null}
+      {/* Face to face (BLG-714): the call over the whole window, like FaceTime. */}
+      {call?.mine === 'in' && live.conversation === id && live.faces ? <FaceView call={call} /> : null}
       {/* Cameras that are on, as a band of faces (over the shared screen instead, while someone shares). */}
       {call?.mine === 'in' && live.conversation === id && !staged ? <CameraStrip call={call} /> : null}
       <div className={cx(c.roomBody, staged && c.staged)}>

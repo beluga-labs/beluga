@@ -100,8 +100,8 @@ export type StageMessage =
   | { readonly k: 'laser'; readonly by: string; readonly x: number; readonly y: number }
   /** A stroke of ink being drawn: its points so far (sent again as it grows), in `color`. */
   | { readonly k: 'ink'; readonly by: string; readonly id: string; readonly color: string; readonly pts: readonly number[]; readonly done?: boolean }
-  /** Take every stroke and mark away. */
-  | { readonly k: 'clear'; readonly by: string }
+  /** Take every stroke and mark away (`mine`: only `by`'s own). */
+  | { readonly k: 'clear'; readonly by: string; readonly mine?: boolean }
   /** A click on the screen: a ripple there everyone sees. */
   | { readonly k: 'ping'; readonly by: string; readonly x: number; readonly y: number }
   /** A box someone marked: shown to everyone, fading (or kept until it's taken away, `keep`). */
@@ -147,7 +147,7 @@ export function parseStage(text: string): StageMessage | undefined {
       return { k: 'ink', by, id, color, pts, ...(o['done'] === true ? { done: true } : {}) };
     }
     case 'clear':
-      return { k: 'clear', by };
+      return { k: 'clear', by, ...(o['mine'] === true ? { mine: true } : {}) };
     case 'ping':
       return num(o['x']) && num(o['y']) ? { k: 'ping', by, x: o['x'], y: o['y'] } : undefined;
     case 'mark': {

@@ -1,7 +1,8 @@
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CallView, ShareMode } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
-import { Tip, cx, personColor } from '../components/ui.js';
+import { IconButton, Tip, cx, personColor } from '../components/ui.js';
+import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { useApp } from '../lib/beluga.js';
 import { useMyAgentName } from '../lib/agent-words.js';
 import { AskBox, AskCard, type Region } from './AskClaude.js';
@@ -47,6 +48,8 @@ export function Stage({ call }: { call: CallView }) {
   const [selecting, setSelecting] = useState<Region | undefined>();
   const [chosen, setChosen] = useState<{ region: Region; asking: boolean } | undefined>();
   const press = useRef<Press | undefined>(undefined);
+  /** The marked box's choices were open when this press began: the click only closes them. */
+  const wasChosen = useRef(false);
   const stroke = useRef<{ id: string; pts: number[]; sent: number } | undefined>(undefined);
   const lastSent = useRef(0);
   const sharer = call.people.find((p) => p.peerId === stage?.by);
@@ -129,6 +132,7 @@ export function Stage({ call }: { call: CallView }) {
     if (e.button !== 0) return;
     const [x, y] = fraction(e);
     e.currentTarget.setPointerCapture(e.pointerId);
+    wasChosen.current = Boolean(chosen);
     setChosen(undefined);
     press.current = { x, y, ink: e.altKey, moved: false };
     if (e.altKey) stroke.current = { id: `${me.slice(0, 6)}-${Date.now().toString(36)}`, pts: [x, y], sent: 0 };
@@ -169,6 +173,13 @@ export function Stage({ call }: { call: CallView }) {
       return;
     }
     if (!p.moved) {
+      // A click clears what you marked or drew (it was there to point, not to stay); with nothing
+      // of yours left, it sends a ripple there.
+      const mine = inkRef.current.marks.filter((m) => m.by === me);
+      if (wasChosen.current || mine.length || inkRef.current.strokes.some((x) => x.by === me)) {
+        if (mine.length || inkRef.current.strokes.some((x) => x.by === me)) engine.stageSend({ k: 'clear', by: me, mine: true });
+        return;
+      }
       const [x, y] = fraction(e);
       engine.stageSend({ k: 'ping', by: me, x, y });
       return;
@@ -208,8 +219,7 @@ export function Stage({ call }: { call: CallView }) {
           <Icon name="screenShare" size={13} />
           <span>{sharer?.me ? 'You’re sharing' : `${sharer?.name ?? 'Someone'}’s screen`}</span>
         </span>
-        <span className={c.stageHint}>Drag to mark · ⌥ drag to draw</span>
-        {sharer?.me ? <ModePicker mode={live.mode} set={(m) => engine.setShareMode(m)} /> : <span className={c.modeBadge}>{live.mode === 'smooth' ? 'Smooth' : 'Sharp'}</span>}
+        <span className={c.stageHint}>Drag to mark · ⌥ drag to draw · click to clear</span>
         {anyInk ? (
           <Tip label="Clear Marks and Ink">
             <button type="button" className={c.tool} aria-label="Clear Marks and Ink" onClick={() => engine.stageSend({ k: 'clear', by: me })}>
@@ -223,9 +233,14 @@ export function Stage({ call }: { call: CallView }) {
           </button>
         </Tip>
         {sharer?.me ? (
-          <button type="button" className={c.pillQuiet} onClick={() => void engine.stopSharing()}>
-            Stop Sharing
-          </button>
+          <>
+            <ActionsDropdown items={shareItems(live.mode, (m) => engine.setShareMode(m))}>
+              <IconButton icon="more" label="How Your Screen Is Sent" />
+            </ActionsDropdown>
+            <button type="button" className={c.pillQuiet} onClick={() => void engine.stopSharing()}>
+              Stop Sharing
+            </button>
+          </>
         ) : null}
       </div>
       <AskCard call={call} />
@@ -263,23 +278,12 @@ function MarkMenu({ at, frame, agent, show, keep, ask }: { at: CSSProperties; fr
   );
 }
 
-/** The sharer's choice: every pixel of text, or every frame of motion. */
-function ModePicker({ mode, set }: { mode: ShareMode; set: (m: ShareMode) => void }) {
-  const options: ReadonlyArray<{ m: ShareMode; label: string; hint: string }> = [
-    { m: 'sharp', label: 'Sharp', hint: 'Text stays crisp: full resolution, fewer frames' },
-    { m: 'smooth', label: 'Smooth', hint: 'Motion stays fluid: every frame, softer when the network is tight' },
+/** The sharer's choice, behind •••: every pixel of text, or every frame of motion. Only the sharer sees it. */
+function shareItems(mode: ShareMode, set: (m: ShareMode) => void): ActionItem[] {
+  return [
+    { label: 'Sharp', hint: 'Text stays crisp: full resolution, fewer frames', checked: mode === 'sharp', onSelect: () => set('sharp') },
+    { label: 'Smooth', hint: 'Motion stays fluid: every frame, softer when the network is tight', checked: mode === 'smooth', onSelect: () => set('smooth') },
   ];
-  return (
-    <span className={c.toolGroup} role="radiogroup" aria-label="How your screen is sent">
-      {options.map((o) => (
-        <Tip key={o.m} label={o.hint}>
-          <button type="button" role="radio" aria-checked={mode === o.m} className={cx(c.modeOption, mode === o.m && c.toolOn)} onClick={() => set(o.m)}>
-            {o.label}
-          </button>
-        </Tip>
-      ))}
-    </span>
-  );
 }
 
 /** A dragged box with its corner anywhere: x, y top-left, width and height positive. */

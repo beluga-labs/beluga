@@ -932,3 +932,197 @@
 .control:disabled {
   opacity: 0.4;
 }
+
+/* ---- face to face (BLG-714): the call over the whole window, like FaceTime */
+
+.tileButton {
+  all: unset;
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  cursor: zoom-in;
+}
+.tileButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.facesOpen {
+  all: unset;
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-2);
+  background: var(--bg-hover);
+  flex: none;
+}
+.facesOpen:hover {
+  background: var(--bg-press);
+  color: var(--text);
+}
+.faceView {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: #15171b;
+  color: #f2f2f4;
+  animation: fadeIn 260ms var(--ease-out);
+}
+.faceHead {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 14px;
+  border-radius: 14px;
+  background: rgba(30, 32, 37, 0.9);
+  font-size: 13px;
+  z-index: 2;
+}
+.faceHead span {
+  color: #a9adb6;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.collage {
+  position: absolute;
+  inset: 56px 16px 88px;
+  display: grid;
+  gap: 10px;
+}
+.solo {
+  inset: 0;
+  gap: 0;
+}
+.collageCell {
+  min-width: 0;
+  min-height: 0;
+}
+.faceTile {
+  position: relative;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #22252b;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+.solo .faceTile {
+  border-radius: 0;
+  box-shadow: none;
+}
+.faceTile.tileSpeaking {
+  box-shadow: 0 0 0 3px var(--call);
+}
+.faceEmpty {
+  display: grid;
+  place-items: center;
+}
+.faceVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.faceWaiting {
+  align-self: center;
+  justify-self: center;
+  color: #a9adb6;
+  font-size: 14px;
+}
+.pip {
+  position: absolute;
+  width: 220px;
+  aspect-ratio: 16 / 10;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #2a2d34;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  touch-action: none;
+  z-index: 3;
+  transition:
+    top 320ms var(--ease-out),
+    left 320ms var(--ease-out),
+    right 320ms var(--ease-out),
+    bottom 320ms var(--ease-out);
+}
+.pipDragging {
+  transition: none;
+  cursor: grabbing;
+}
+.pip_br {
+  right: 18px;
+  bottom: 96px;
+}
+.pip_bl {
+  left: 18px;
+  bottom: 96px;
+}
+.pip_tr {
+  right: 18px;
+  top: 60px;
+}
+.pip_tl {
+  left: 18px;
+  top: 60px;
+}
+.faceBar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 22px;
+  background: rgba(30, 32, 37, 0.92);
+  z-index: 4;
+}
+.faceBar .control {
+  color: #f2f2f4;
+  background: rgba(255, 255, 255, 0.1);
+}
+.faceBar .control:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.faceBar .controlOn {
+  background: color-mix(in srgb, var(--call) 40%, transparent);
+}
+.faceBack {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #f2f2f4;
+  background: rgba(255, 255, 255, 0.1);
+}
+.faceBack:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.faceBack:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.faceBar .leave {
+  background: color-mix(in srgb, var(--error) 75%, #15171b);
+  color: #ffffff;
+}
+.faceBar .leave:hover {
+  background: var(--error);
+}
