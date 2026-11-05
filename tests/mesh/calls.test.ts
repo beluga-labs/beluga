@@ -72,10 +72,10 @@ describe('calls between friends (BLG-706)', () => {
     b.calls.set(toAnn, { muted: true });
     await settle(() => a.view[toBob]?.people.find((p) => p.peerId === bob.identity.peerId)?.muted);
 
+    // Bob hangs up: Ann was the last one in, so the call is over for her too.
     b.calls.leave(toAnn);
-    await settle(() => a.view[toBob]?.people.length === 1);
-    a.calls.leave(toBob);
-    expect(a.view[toBob]).toBeUndefined();
+    await settle(() => a.view[toBob] === undefined);
+    expect(a.toasts.at(-1)).toBe('The call ended');
     a.calls.stop();
     b.calls.stop();
   }, 60_000);

@@ -50,7 +50,14 @@ interface Call {
   readonly people: Map<string, Person>;
   me?: Mine;
   ringing?: { readonly by: string; readonly since: number };
+  /** Someone else was in it while you were: once they've all gone, so has the call. */
+  met?: boolean;
 }
+
+/** Call frames one person may send a second (setup is a burst of candidates; more is a flood). */
+const FRAMES_PER_SECOND = 60;
+/** How far ahead of this Mac's clock a "joined at" may say (clocks differ a little, not by days). */
+const CLOCK_SLACK_MS = 60_000;
 
 export interface CallHost {
   readonly mesh: Mesh;
@@ -75,6 +82,7 @@ export class CallService {
   private readonly calls = new Map<string, Call>();
   private readonly timer: NodeJS.Timeout | undefined;
   private readonly offs: Array<() => void> = [];
+  private readonly frames = new Map<string, { second: number; count: number }>();
 
   constructor(private readonly host: CallHost) {
     const onCall = (from: string, p: unknown): void => this.receive(from, p);
@@ -185,10 +193,11 @@ export class CallService {
   receive(from: string, raw: unknown): void {
     const parsed = CallFrame.safeParse(raw);
     if (!parsed.success) return;
-    const f = parsed.data;
+    const now = this.now();
+    if (this.flooding(from, now)) return;
+    const f = parsed.data.k === 'ring' || parsed.data.k === 'here' ? { ...parsed.data, state: { ...parsed.data.state, joinedAt: Math.min(parsed.data.state.joinedAt, now + CLOCK_SLACK_MS) } } : parsed.data;
     const conversation = f.g ? groupConversation(f.g) : dmConversation(from);
     if (!this.host.mesh.shares(conversation, from)) return;
-    const now = this.now();
     let call = this.calls.get(conversation);
     if (call && call.id !== f.call) {
       if (f.k !== 'ring' && f.k !== 'here') return;
@@ -197,7 +206,10 @@ export class CallService {
         if (call.me) this.send(from, call, { k: 'here', call: call.id, startedBy: call.startedBy, startedAt: call.startedAt, state: this.mineState(call) });
         return;
       }
+      // Only a call just starting gives way: one people are talking in isn't taken over by a newcomer's.
+      if (call.met && now - call.startedAt > RING_MS) return;
       const wasIn = call.me;
+      if (call.ringing) this.host.ring(this.view(call), false);
       this.calls.delete(conversation);
       call = undefined;
       if (wasIn) {
@@ -213,13 +225,15 @@ export class CallService {
         if (!call) {
           call = this.fresh(conversation, f, from, now);
           this.calls.set(conversation, call);
-          if (f.k === 'ring' && !call.me) {
+          // A ring, or the first `here` of a call whose ring didn't reach this Mac (they're alone in it).
+          if (!call.me && (f.k === 'ring' || f.startedBy === from)) {
             call.ringing = { by: from, since: now };
             this.host.ring(this.view(call), true);
           }
         }
         const isNew = !call.people.has(from);
         call.people.set(from, { ...f.state, seen: now });
+        if (call.me) call.met = true;
         // Someone new: they hear you're here at once (their window starts setting up with yours).
         if (isNew && call.me) this.send(from, call, { k: 'here', call: call.id, startedBy: call.startedBy, startedAt: call.startedAt, state: this.mineState(call) });
         break;
@@ -227,6 +241,7 @@ export class CallService {
       case 'bye':
         if (!call) return;
         call.people.delete(from);
+        if (this.lastOneOut(call)) return;
         this.endIfEmpty(call);
         break;
       case 'decline':
@@ -258,8 +273,12 @@ export class CallService {
           changed = true;
         }
       }
-      if (call.me && !call.people.size && call.startedBy === this.host.mesh.peerId && now - call.startedAt > RING_MS && call.conversation.startsWith('dm:')) {
-        this.host.toast(`${this.host.mesh.nameFor(call.conversation.slice(3))} didn’t answer`);
+      if (call.me && call.met && !call.people.size) {
+        changed = this.lastOneOut(call) || changed;
+        continue;
+      }
+      if (call.me && !call.met && !call.people.size && call.startedBy === this.host.mesh.peerId && now - call.startedAt > RING_MS) {
+        this.host.toast(call.conversation.startsWith('dm:') ? `${this.host.mesh.nameFor(call.conversation.slice(3))} didn’t answer` : 'Nobody picked up');
         call.me = undefined;
         this.broadcast(call, { k: 'bye', call: call.id });
         changed = true;
@@ -282,6 +301,27 @@ export class CallService {
   }
 
   // ---- inside
+
+  /** Everyone else left: so do you, and the call is over. */
+  private lastOneOut(call: Call): boolean {
+    if (!call.me || !call.met || call.people.size) return false;
+    call.me = undefined;
+    this.broadcast(call, { k: 'bye', call: call.id });
+    this.calls.delete(call.conversation);
+    this.host.toast('The call ended');
+    this.publish();
+    return true;
+  }
+
+  /** More call frames from one person than any call needs: the rest of this second is dropped. */
+  private flooding(from: string, now: number): boolean {
+    const second = Math.floor(now / 1000);
+    const was = this.frames.get(from);
+    const count = was?.second === second ? was.count + 1 : 1;
+    this.frames.set(from, { second, count });
+    if (this.frames.size > 500) this.frames.clear();
+    return count > FRAMES_PER_SECOND;
+  }
 
   private fresh(conversation: string, f: Extract<CallFrame, { k: 'ring' | 'here' }>, from: string, now: number): Call {
     return { id: f.call, conversation, startedBy: f.k === 'ring' ? from : f.startedBy, startedAt: f.k === 'ring' ? f.at : f.startedAt, people: new Map([[from, { ...f.state, seen: now }]]) };

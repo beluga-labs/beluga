@@ -9,6 +9,7 @@ mod daemon;
 mod export;
 mod focus;
 mod menu;
+mod call_float;
 mod popup;
 #[cfg(target_os = "macos")]
 mod power;
@@ -274,7 +275,7 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state)
                 // The request pop-up places itself (and is never restored visible).
-                .with_denylist(&[popup::LABEL])
+                .with_denylist(&[popup::LABEL, call_float::LABEL])
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -282,6 +283,7 @@ pub fn run() {
         .manage(updater::Updates::default())
         .manage(requests::TrayState::default())
         .manage(popup::PopupState::default())
+        .manage(call_float::CallFloatState::default())
         .manage(AppState {
             lock: tokio::sync::Mutex::new(()),
             child: Mutex::new(None),
@@ -304,6 +306,9 @@ pub fn run() {
             popup::request_popup_resize,
             popup::request_popup_dismiss,
             popup::request_popup_action,
+            call_float::set_call_float,
+            call_float::call_float_state,
+            call_float::call_float_action,
             system_idle_seconds,
             take_pending_links,
             focus_window,

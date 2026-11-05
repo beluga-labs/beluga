@@ -147,6 +147,13 @@ const PATHS = {
   /** Add a reaction (BLG-702): a smile with a plus at its shoulder. */
   smilePlus: 'M13 7.4A5.25 5.25 0 1 1 8.6 3 M5.4 9.3a2.8 2.8 0 0 0 4.6 0 M5.9 6.6v.01 M9.3 6.6v.01 M12.5 1.8v3.8 M10.6 3.7h3.8',
   palette: 'M8 2.5a5.5 5.5 0 1 0 0 11c.9 0 1.3-.6 1.3-1.2 0-.8-.7-1-.7-1.8 0-.6.5-1 1.1-1h1.4A2.4 2.4 0 0 0 13.5 7c0-2.5-2.5-4.5-5.5-4.5z M5.25 7.25h.01 M7.25 5.25h.01 M10 5.5h.01',
+  // Calls (BLG-706): the handset, hanging up, the microphone off, sharing a screen, pointing, rubbing out.
+  call: 'M5.4 2.5l1.3 2.6-1.2 1.2a7.6 7.6 0 0 0 4.2 4.2l1.2-1.2 2.6 1.3-.5 2.1a1 1 0 0 1-1 .8A10 10 0 0 1 2.5 4a1 1 0 0 1 .8-1z',
+  callEnd: 'M2 9.4c3.3-3.2 8.7-3.2 12 0l-1.1 1.9-2.6-.8V8.7a8.4 8.4 0 0 0-4.6 0v1.8l-2.6.8z',
+  micOff: 'M10 7.2V4.5a2 2 0 0 0-3.8-.9 M6 6.5v1.5a2 2 0 0 0 3 1.7 M4.5 7.5a3.5 3.5 0 0 0 5.6 2.8 M11.4 8.2c.07-.23.1-.46.1-.7 M8 11v2.5 M6 13.5h4 M2.5 2.5l11 11',
+  screenShare: 'M2.5 3.5h11a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z M5.5 14h5 M8 12v2 M8 9.5V5.75 M6.25 7.5 8 5.75l1.75 1.75',
+  pointer: 'M3.5 2.5l9 3.6-3.9 1.4 3.4 3.4-1.4 1.4-3.4-3.4-1.4 3.9z',
+  eraser: 'M9.2 3.3l3.5 3.5a1 1 0 0 1 0 1.4L8.4 12.5H5.6l-2.3-2.3a1 1 0 0 1 0-1.4l4.5-4.5a1 1 0 0 1 1.4 0z M6.2 6.3l3.5 3.5 M8.4 12.5h5',
 } as const;
 
 /** Agents and model makers (BLG-497) are their makers' own logos, filled (shared/agent-marks.ts; the phone draws the same). */

@@ -1,0 +1,57 @@
+import { useMemo, useSyncExternalStore } from 'react';
+import type { CallView } from '@beluga/shared/calls.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
+import { useClock } from '../lib/window-active.js';
+import { type CallEngine, type CallLive, callEngine } from './engine.js';
+
+/** This window's call engine (BLG-706). */
+export function useCallEngine(): CallEngine {
+  const { client } = useBeluga();
+  return callEngine(client);
+}
+
+/** What the call you're in looks like right now: who's talking, the lines, the stage. */
+export function useCallLive(): CallLive {
+  const engine = useCallEngine();
+  return useSyncExternalStore(engine.subscribe, engine.get);
+}
+
+/** A conversation's call, as the daemon says (going on, ringing for you, or none). */
+export function useConversationCall(conversation: string | undefined): CallView | undefined {
+  return useApp((st) => (conversation ? st.network.calls?.[conversation] : undefined));
+}
+
+/** The call you're in, if any. */
+export function useMyCall(): CallView | undefined {
+  return useApp((st) => Object.values(st.network.calls ?? {}).find((c) => c.mine === 'in'));
+}
+
+/** Calls ringing for you now, oldest first. */
+export function useRinging(): readonly CallView[] {
+  const calls = useApp((st) => st.network.calls);
+  return useMemo(
+    () =>
+      Object.values(calls ?? {})
+        .filter((c) => c.mine === 'ringing')
+        .sort((a, b) => (a.ringSince ?? 0) - (b.ringSince ?? 0)),
+    [calls],
+  );
+}
+
+/** The time now, once a second while you look (a call's length). */
+export const useSecond = (): number => useClock(true);
+
+/** A conversation's name for a call: the friend's, or the channel's with its #. */
+export function useCallPlace(conversation: string | undefined): string {
+  return useApp((st) => {
+    if (!conversation) return '';
+    if (conversation.startsWith('dm:')) return st.network.friends.find((f) => f.peerId === conversation.slice(3))?.name ?? 'a friend';
+    const g = st.network.groups.find((x) => x.id === conversation.slice(6));
+    return g ? `#${g.name}` : 'a channel';
+  });
+}
+
+/** Whether the screen shows this conversation now. */
+export function useShowing(conversation: string | undefined): boolean {
+  return useApp((st) => st.view.kind === 'conversation' && st.view.id === conversation);
+}

@@ -1213,6 +1213,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'net_main':
     case 'net_offer':
     case 'net_offer_gone':
+    case 'net_calls':
     case 'net_off':
       return { ...state, ...reduceNetwork(state, action) };
     case 'support':

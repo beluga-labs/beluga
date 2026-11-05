@@ -1,0 +1,114 @@
+/* The floating call card (BLG-706): a soft pill over other apps. No glow: a hairline and a quiet shadow. */
+.card {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  margin: 4px;
+  padding: 0 10px 0 6px;
+  border-radius: 28px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: 13px/1.25 var(--font);
+  animation: arrive 260ms var(--ease-out);
+}
+.ringing {
+  background: color-mix(in srgb, var(--call) 9%, var(--bg-raised));
+}
+@keyframes arrive {
+  from {
+    transform: translateY(-10px) scale(0.97);
+    opacity: 0;
+  }
+}
+.main {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  cursor: default;
+}
+.faces {
+  display: flex;
+  padding-left: 4px;
+}
+.faces .face + .face {
+  margin-left: -8px;
+}
+.face {
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg-raised);
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+.speaking {
+  box-shadow:
+    0 0 0 2px var(--bg-raised),
+    0 0 0 4px color-mix(in srgb, var(--call) 70%, transparent);
+}
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.text strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.text span {
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.round,
+.decline,
+.join {
+  all: unset;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex: none;
+  transition:
+    background var(--dur-fast),
+    transform var(--dur-fast);
+}
+.round:active,
+.decline:active,
+.join:active {
+  transform: scale(0.94);
+}
+.round {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.round:hover {
+  background: var(--bg-press);
+}
+.off {
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  color: var(--error);
+}
+.decline {
+  background: color-mix(in srgb, var(--error) 18%, var(--bg-raised));
+  color: var(--error);
+}
+.decline:hover {
+  background: color-mix(in srgb, var(--error) 26%, var(--bg-raised));
+}
+.join {
+  background: color-mix(in srgb, var(--call) 24%, var(--bg-raised));
+  color: var(--call-ink);
+}
+.join:hover {
+  background: color-mix(in srgb, var(--call) 34%, var(--bg-raised));
+}

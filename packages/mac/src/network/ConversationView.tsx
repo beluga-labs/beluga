@@ -19,6 +19,7 @@ import { MessageFiles } from './ChatFiles.js';
 import { ReactButton, ReactionChips, useNetReact } from './Reactions.js';
 import r from './reactions.module.css';
 import { ChatTabs } from './ChatTabs.js';
+import { CallRoom } from '../call/CallRoom.js';
 import { addBlobs, addPaths } from './attachments.js';
 import { type RunPlace, askedLine, authorLabel, channelName, channelWorld, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
 import { conversationOf, dayLabel, keepsFollowing, membersLine, mergeMessages, presenceLine, sameDay, shownState, unreadLine, unreadSince } from './net-model.js';
@@ -563,7 +564,10 @@ export function ConversationView({ id }: { id: string }) {
   return (
     <div className={s.chatArea}>
       <ChatTabs shown={id} />
-      <Conversation id={id} />
+      {/* Its call (BLG-706): the strip on top and, while someone shares, their screen beside this same chat. */}
+      <CallRoom id={id}>
+        <Conversation id={id} />
+      </CallRoom>
     </div>
   );
 }

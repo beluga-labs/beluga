@@ -353,6 +353,37 @@ the prompt's own sections (`<chat>`, `<message>`, `<file>` in them are defused).
 it reaches you (you were offline) isn't answered, and each is answered once (`~/.beluga/chat-claude.json`).
 If your agent can't answer, you get a notification; the others just see it stop.
 
+## Calls (BLG-706)
+
+Voice and screen sharing in a DM or channel, with no call server. The call stays in its
+conversation, and it's the same chat.
+
+- **Setup over the links you already have.** `call` link frames (core/calls, checked there, only
+  between people in that conversation): `ring`, `here` (I'm in it: muted, sharing, joined at; every
+  10 s), `bye`, `decline`, and `sig`, WebRTC setup for one person's window (64 KB at most). Nobody
+  runs a call: each Mac keeps the roster from what it hears and drops whoever was quiet for 32 s.
+  Two people pressing Call at once end up in the same call (the lower id wins on every Mac).
+- **Media goes Mac to Mac.** The window makes the call with WebRTC (packages/mac/src/call): Opus
+  voice with echo cancellation and noise suppression to everyone in it (a mesh), DTLS-SRTP
+  encrypted. Public STUN only finds each Mac's address; there's no TURN yet, so two networks that
+  block UDP can't call each other.
+- **Screen sharing through a tree.** A share is tuned for text (`contentHint: text`, resolution
+  kept before frame rate, H.264 first: the Mac's hardware encodes it). The sharer feeds the first
+  three viewers; each viewer passes it on to at most two more (`shareTree` in shared/calls.ts), so
+  the sharer's upload stays the same however big the call gets. Every Mac draws the same tree from
+  the roster, in join order.
+- **Pointing at it.** The laser, ink that fades after a few seconds and Ask Claude's marked area go
+  as vectors on a WebRTC data channel (fractions of the picture), never through the daemons. Ask
+  Claude puts a snapshot of the share (with the ink on it) in the chat as a question for your own
+  Claude; its answer is a chat message, shown on the stage for everyone in the call.
+- **One window makes your side.** The Mac screen that started or joined it (or the first to say
+  so after you answered from the phone) gets the setup and says it's still there every few
+  seconds. If it goes quiet for 32 s, you leave the call.
+- **Wherever you are.** In the conversation, a strip under its header; elsewhere in Beluga, a pill
+  at the bottom of the sidebar; with Beluga behind other apps, a small floating card
+  (src-tauri/src/call_float.rs). Someone ringing you is a card at the top of the window with the
+  ringtone, a notification, and a Needs you item on the phone (Answer on Mac, Decline).
+
 ## Tasks between Claudes (the gateway)
 
 Code: `src/core/gateway/` (protocol, the gateway, the receiving side, files), `src/agent/gateway-tools.ts`
