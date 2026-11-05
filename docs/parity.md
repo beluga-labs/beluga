@@ -308,7 +308,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.openInFinder` | ✓ |
 | `workspaces.setGroup` | ✓ |
 | `workspaces.renameGroup` | ✓ (group row › Rename) |
-| `workspaces.rename` | ✓ (chat row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels) |
+| `workspaces.rename` | ✓ (chat or worktree row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels; a worktree’s own branch takes the name unless it’s pushed, and a name with a / is that exact branch) |
 | `workspaces.ungroup` | ✓ (group row › Ungroup / Delete Group) |
 | `workspaces.arrange` | drag projects and groups in the sidebar, Move Up / Move Down (⌃⌘↑/↓), Move to Group ▸ |
 | `workspaces.newGroup` | Projects + › New Group, right-click › New Group, Move to Group ▸ New Group… |

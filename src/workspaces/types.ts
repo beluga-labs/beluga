@@ -45,6 +45,13 @@ export interface PullHead {
   readonly fork?: boolean;
 }
 
+/** What renaming a workspace did: its name, and a worktree's branch (`branchKept`: why it kept its name). */
+export interface RenameResult {
+  readonly name: string;
+  readonly branch?: string;
+  readonly branchKept?: 'pushed';
+}
+
 /** What we remember about a workspace between runs. */
 export interface WorkspaceRecord {
   readonly id: string;

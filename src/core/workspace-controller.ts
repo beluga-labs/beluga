@@ -16,7 +16,7 @@ import { agentName } from '../shared/agent-label.js';
 import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
-import type { DeletePlan, Project, PullHead, Workspace } from '../workspaces/types.js';
+import type { DeletePlan, Project, PullHead, RenameResult, Workspace } from '../workspaces/types.js';
 import { type MergeResult, git } from '../workspaces/git.js';
 import type { FoundConversation } from '../agent/runtime/claude/claude-sessions.js';
 import type { ShareService } from './shares.js';
@@ -850,10 +850,11 @@ export class WorkspaceController {
     return ws;
   }
 
-  /** Set the workspace name and publish it to connected screens. */
-  async rename(id: string, name: string): Promise<void> {
-    this.deps.manager.rename(id, name);
+  /** Set the workspace name (a worktree's branch follows) and publish it to connected screens. */
+  async rename(id: string, name: string): Promise<RenameResult> {
+    const done = await this.deps.manager.renameByUser(id, name);
     await this.refresh();
+    return done;
   }
 
   /** An automatic title follows the plan until the user sets a name. */

@@ -249,7 +249,7 @@ export const API = {
   // Load a workspace's saved conversation without going there (the Mac Overview's read-only look at an archived one).
   'workspaces.load': args(id),
   'workspaces.refresh': args(),
-  // Set the display name. Keep the branch and folder names.
+  // Set the display name. A worktree's own branch takes it too unless it's on a remote (a / in it: exactly that branch); the folder stays. → { name, branch?, branchKept? }.
   'workspaces.rename': args(id, z.string().trim().min(1).max(200)),
   'workspaces.newWorktree': args(id, z.string().max(200), opt(z.object({ base: opt(z.string().min(1).max(250)), agent: opt(AgentRef) }))),
   'workspaces.newChat': args(id, z.string().max(200), opt(path)),
