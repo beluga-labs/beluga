@@ -27,7 +27,8 @@ const VIEWS_PER_CONVERSATION = 12;
 export interface CallNotesHost {
   /** Where the notes live; null: memory only (the demo, tests). */
   readonly dir: string | null;
-  readonly me: () => string;
+  /** Whether a peer id is you (your friends' links and a room know you by different ids). */
+  readonly isMe: (peerId: string) => boolean;
   readonly nameOf: (peerId: string) => string;
   readonly publish: (notes: Readonly<Record<string, readonly CallNotesView[]>>) => void;
 }
@@ -48,9 +49,9 @@ export class CallNotes {
     }
   }
 
-  /** Your own words in a call (from your window, as you leave it). */
-  mine(call: PastCall, phrases: NotePhrases): void {
-    this.add(this.host.me(), call, phrases);
+  /** Your own words in a call (from your window, as you leave it); `self`: your id where the call was. */
+  mine(self: string, call: PastCall, phrases: NotePhrases): void {
+    this.add(self, call, phrases);
   }
 
   /** Someone else's words in a call you were in (the call service checked they were). */
@@ -82,7 +83,7 @@ export class CallNotes {
 
   private add(peerId: string, call: PastCall, phrases: NotePhrases): void {
     const was = this.calls.get(call.id);
-    const people = { ...was?.people, ...Object.fromEntries([...call.people].map((p) => [p, p === this.host.me() ? 'You' : this.host.nameOf(p)])) };
+    const people = { ...was?.people, ...Object.fromEntries([...call.people].map((p) => [p, this.host.isMe(p) ? 'You' : this.host.nameOf(p)])) };
     // It ended when you last saw it going (or when the last thing was said, if later).
     const endedAt = Math.max(was?.endedAt ?? call.startedAt, call.lastSeen, phrases.at(-1)?.at ?? 0);
     const saved: Saved = { id: call.id, conversation: call.conversation, startedAt: call.startedAt, endedAt, people, parts: { ...was?.parts, [peerId]: phrases } };

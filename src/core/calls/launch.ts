@@ -1,30 +1,58 @@
+import path from 'node:path';
 import { currentClient } from '../client-context.js';
+import { belugaHome } from '../home.js';
 import { watchNetwork } from '../network.js';
 import type { Session } from '../session.js';
 import type { Store } from '../store.js';
-import type { CallView } from '../../shared/calls.js';
-import path from 'node:path';
-import { belugaHome } from '../home.js';
+import type { CallView, CallsView } from '../../shared/calls.js';
 import { CallNotes } from './notes.js';
-import { CallService } from './service.js';
+import { ROOM_CONVERSATION, roomLinks } from './room.js';
+import { type CallLinks, CallService, meshLinks } from './service.js';
 
 /**
- * Calls for the daemon whenever the network is on (core/calls/service.ts): what they are goes into
- * the shared state (`network.calls`), their setup to the window in each call as a `call_signal`
- * intent, and someone ringing you is a notification (the phone shows it in Needs you).
+ * Calls for the daemon (core/calls/service.ts): in your room's chat always (through its hub,
+ * BLG-716), and in your conversations with friends while the network is on. What they are goes
+ * into the shared state (`network.calls`), their setup to the window in each call as a
+ * `call_signal` intent, someone ringing you is a notification (the phone shows it in Needs you),
+ * and their notes are kept in one place (`network.callNotes`, BLG-715).
  */
 
-const services = new WeakMap<object, CallService>();
-const notebooks = new WeakMap<object, CallNotes>();
+interface Calls {
+  readonly room: CallService;
+  readonly roomInbox: (from: string, payload: unknown) => void;
+  friends?: CallService;
+  readonly notes: CallNotes;
+}
 
-/** This session's call notes (BLG-715), while the network is on. */
-export const callNotesOf = (session: object): CallNotes | undefined => notebooks.get(session);
+const sessions = new WeakMap<object, Calls>();
 
-/** This session's calls, or a clear error while the network is off. */
-export function callsOf(session: object): CallService {
-  const service = services.get(session);
-  if (!service) throw new Error('Calls need the Beluga network: turn it on in Settings › Network');
-  return service;
+/** This session's call notes (BLG-715). */
+export const callNotesOf = (session: object): CallNotes | undefined => sessions.get(session)?.notes;
+
+/** A call frame that came through the room (session.ts hands it over). */
+export function receiveRoomCall(session: object, from: string, payload: unknown): void {
+  sessions.get(session)?.roomInbox(from, payload);
+}
+
+/** The calls of a conversation: the room's, or your friends' (a clear error while the network is off). */
+export function callsFor(session: object, conversation: string): CallService {
+  const calls = sessions.get(session);
+  if (!calls) throw new Error('Calls aren’t running here');
+  if (conversation === ROOM_CONVERSATION) return calls.room;
+  if (!calls.friends) throw new Error('Calls with friends need the Beluga network: turn it on in Settings › Network');
+  return calls.friends;
+}
+
+/** The call service that remembers a past call (for its notes). */
+export function callsWithPast(session: object, id: string): CallService | undefined {
+  const calls = sessions.get(session);
+  return [calls?.room, calls?.friends].find((s) => s?.pastCall(id));
+}
+
+/** Every call now, the room's and your friends'. */
+export function allCalls(session: object): CallsView {
+  const calls = sessions.get(session);
+  return { ...calls?.friends?.list(), ...calls?.room.list() };
 }
 
 export interface CallsHost {
@@ -35,50 +63,74 @@ export interface CallsHost {
 
 /** Where a ring's notification opens, and what it says. */
 function ringNotice(store: Store, call: CallView): { title: string; body: string } {
-  const net = store.getState().network;
-  const by = call.ringBy ? (net.friends.find((f) => f.peerId === call.ringBy)?.name ?? call.people.find((p) => p.peerId === call.ringBy)?.name ?? 'Someone') : 'Someone';
-  const group = call.conversation.startsWith('group:') ? net.groups.find((g) => g.id === call.conversation.slice(6)) : undefined;
+  const st = store.getState();
+  const named = (id: string | undefined): string | undefined => (id ? (st.network.friends.find((f) => f.peerId === id)?.name ?? st.peers.find((p) => p.peerId === id)?.name ?? call.people.find((p) => p.peerId === id)?.name) : undefined);
+  const by = named(call.ringBy) ?? 'Someone';
+  if (call.conversation === ROOM_CONVERSATION) return { title: `${by} is calling`, body: 'in the room' };
+  const group = call.conversation.startsWith('group:') ? st.network.groups.find((g) => g.id === call.conversation.slice(6)) : undefined;
   return { title: `${by} is calling`, body: group ? `in #${group.name}` : 'Answer in Beluga' };
 }
 
 export function launchCalls(host: CallsHost): () => void {
   const { session, store } = host;
-  let current: CallService | undefined;
+  let friendLinks: CallLinks | undefined;
+  const parts: { room: CallsView; friends: CallsView } = { room: {}, friends: {} };
+  const publish = (): void => {
+    const view = { ...parts.friends, ...parts.room };
+    store.dispatch({ type: 'net_calls', calls: host.demo ? Object.fromEntries(Object.entries(view).map(([k, c]) => [k, { ...c, demo: true as const }])) : view });
+  };
+  const common = {
+    signal: (to: string | undefined, s: { conversation: string; call: string; from: string; data: string }) => session.intents.emit({ type: 'call_signal', ...s }, to),
+    ring: (call: CallView, on: boolean) => {
+      if (!on) return;
+      const { title, body } = ringNotice(store, call);
+      session.notifier.notify({ kind: 'people', tag: 'message', title, body, channel: call.conversation, need: `call:${call.id}`, watched: true });
+    },
+    toast: (text: string) => session.intents.emit({ type: 'toast', text, level: 'info' }, undefined),
+    client: currentClient,
+  };
+  const notes = new CallNotes({
+    dir: host.demo ? null : path.join(belugaHome(), 'call-notes'),
+    isMe: (id) => id === store.getState().selfId || id === friendLinks?.peerId,
+    nameOf: (id) => store.getState().peers.find((p) => p.peerId === id)?.name ?? friendLinks?.nameFor(id) ?? 'someone',
+    publish: (view) => store.dispatch({ type: 'net_call_notes', notes: view }),
+  });
+  store.dispatch({ type: 'net_call_notes', notes: notes.views() });
+  const room = roomLinks({ store, send: (to, p) => session.send({ kind: 'call', p }, { to }) });
+  const roomCalls = new CallService({
+    ...common,
+    links: room.links,
+    publish: (view) => {
+      parts.room = view;
+      publish();
+    },
+    notes: (from, call, phrases) => notes.theirs(from, call, phrases),
+  });
+  const calls: Calls = { room: roomCalls, roomInbox: room.receive, notes };
+  sessions.set(session, calls);
   const off = watchNetwork(session, (service) => {
-    current?.stop();
-    services.delete(session);
-    notebooks.delete(session);
-    current = undefined;
+    calls.friends?.stop();
+    calls.friends = undefined;
+    friendLinks = undefined;
+    parts.friends = {};
+    publish();
     if (!service) return;
-    const mesh = service.mesh;
-    const notes = new CallNotes({
-      dir: host.demo ? null : path.join(belugaHome(), 'call-notes'),
-      me: () => mesh.peerId,
-      nameOf: (peerId) => mesh.nameFor(peerId),
-      publish: (view) => store.dispatch({ type: 'net_call_notes', notes: view }),
-    });
-    notebooks.set(session, notes);
-    store.dispatch({ type: 'net_call_notes', notes: notes.views() });
-    const calls = new CallService({
-      notes: (from, call, phrases) => notes.theirs(from, call, phrases),
-      mesh: service.mesh,
-      publish: (view) => store.dispatch({ type: 'net_calls', calls: host.demo ? Object.fromEntries(Object.entries(view).map(([k, c]) => [k, { ...c, demo: true as const }])) : view }),
-      signal: (to, s) => session.intents.emit({ type: 'call_signal', ...s }, to),
-      ring: (call, on) => {
-        if (!on) return;
-        const { title, body } = ringNotice(store, call);
-        session.notifier.notify({ kind: 'people', tag: 'message', title, body, channel: call.conversation, need: `call:${call.id}`, watched: true });
+    friendLinks = meshLinks(service.mesh);
+    calls.friends = new CallService({
+      ...common,
+      links: friendLinks,
+      publish: (view) => {
+        parts.friends = view;
+        publish();
       },
-      toast: (text) => session.intents.emit({ type: 'toast', text, level: 'info' }, undefined),
-      client: currentClient,
+      notes: (from, call, phrases) => notes.theirs(from, call, phrases),
     });
-    current = calls;
-    services.set(session, calls);
   });
   return () => {
     off();
-    current?.stop();
-    services.delete(session);
-    notebooks.delete(session);
+    calls.friends?.stop();
+    roomCalls.stop();
+    room.stop();
+    sessions.delete(session);
   };
 }

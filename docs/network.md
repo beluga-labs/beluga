@@ -355,7 +355,7 @@ If your agent can't answer, you get a notification; the others just see it stop.
 
 ## Calls (BLG-706)
 
-Voice and screen sharing in a DM or channel, with no call server. The call stays in its
+Voice, cameras and screen sharing in a DM, a channel or a room, with no call server. The call stays in its
 conversation, and it's the same chat.
 
 - **Setup over the links you already have.** `call` link frames (core/calls, checked there, only
@@ -379,6 +379,25 @@ conversation, and it's the same chat.
 - **One window makes your side.** The Mac screen that started or joined it (or the first to say
   so after you answered from the phone) gets the setup and says it's still there every few
   seconds. If it goes quiet for 32 s, you leave the call.
+- **Pointing, without tools.** On a shared screen your pointer shows for everyone as you move, a
+  click sends a ripple, and dragging marks a box: as you let go, Show Everyone (it fades), Keep
+  Marked (it stays until cleared) and Ask your agent open right at it. ⌥-drag draws. The sharer
+  picks Sharp (text: full resolution, fewer frames) or Smooth (motion: every frame); the relays
+  pass it on the same way. Full Screen gives the picture the whole display.
+- **Cameras** (BLG-714). Each camera goes to everyone in the call, smaller as it grows (full size
+  for two, about a third of the bitrate past four). A line says once on the data channel which of
+  its streams is the camera and which the screen. Faces show as a band under the strip, or a
+  filmstrip over a shared screen.
+- **Notes** (BLG-715). Nobody records anyone else: each Mac writes down only its own microphone
+  (the call's echo-cancelled stream) on its own GPU with the dictation engine, phrase by phrase,
+  keeping no sound. As you leave, your words go to the others who were in the call (`notes` frames,
+  accepted only from someone who was in a call you were in); everyone keeps one merged transcript
+  (`~/.beluga/call-notes/<call>.json`) shown as one folded box in the chat. Talk About It opens a
+  chat with your own agent about the call that only you see; agents asked in the chat read the
+  latest notes as context. Notes need a voice model (Settings › Voice): a call never downloads one.
+- **Rooms** (BLG-716). The same calls in a room's chat: `call` bodies sent through the hub to one
+  person at a time (never kept for latecomers), everyone connected and not a guest is in it, and
+  the media still goes Mac to Mac. Its latest notes sit folded on top of the room's chat.
 - **Wherever you are.** In the conversation, a strip under its header; elsewhere in Beluga, a pill
   at the bottom of the sidebar; with Beluga behind other apps, a small floating card
   (src-tauri/src/call_float.rs). Someone ringing you is a card at the top of the window with the

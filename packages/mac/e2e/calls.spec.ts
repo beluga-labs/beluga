@@ -143,3 +143,14 @@ test('someone rings you: the card wherever you are, Join opens the call in its c
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
   await shot(page, '11-joined');
 });
+
+test('calls in the room: the call button in its header, the strip over its chat', async ({ page }) => {
+  test.skip(process.env.BELUGA_DEMO_SCENE === 'call', 'bob rings first in the call scene');
+  await sidebar(page).getByRole('button', { name: /^Group chat/ }).first().click();
+  await page.getByRole('button', { name: 'Call the Room' }).click();
+  await expect(strip(page)).toBeVisible();
+  await expect(strip(page)).toContainText('Waiting for them to pick up');
+  await shot(page, '12-room-call');
+  await strip(page).getByRole('button', { name: 'Leave Call' }).click();
+  await expect(strip(page)).toHaveCount(0, { timeout: 10_000 });
+});

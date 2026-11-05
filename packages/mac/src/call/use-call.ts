@@ -3,6 +3,14 @@ import type { CallView } from '@beluga/shared/calls.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { useClock } from '../lib/window-active.js';
 import { type CallEngine, type CallLive, callEngine } from './engine.js';
+import type { SocketClient } from '@beluga/ipc/socket-client.js';
+import { openConversation } from '../network/use-net.js';
+
+/** Go to where a call is: the room's chat, or the conversation with friends. */
+export function openCall(client: SocketClient, conversation: string): void {
+  if (conversation === 'room') client.store.dispatch({ type: 'view', view: { kind: 'room' } });
+  else openConversation(client, conversation);
+}
 
 /** This window's call engine (BLG-706). */
 export function useCallEngine(): CallEngine {
@@ -45,6 +53,7 @@ export const useSecond = (): number => useClock(true);
 export function useCallPlace(conversation: string | undefined): string {
   return useApp((st) => {
     if (!conversation) return '';
+    if (conversation === 'room') return 'the room';
     if (conversation.startsWith('dm:')) return st.network.friends.find((f) => f.peerId === conversation.slice(3))?.name ?? 'a friend';
     const g = st.network.groups.find((x) => x.id === conversation.slice(6));
     return g ? `#${g.name}` : 'a channel';
@@ -53,5 +62,5 @@ export function useCallPlace(conversation: string | undefined): string {
 
 /** Whether the screen shows this conversation now. */
 export function useShowing(conversation: string | undefined): boolean {
-  return useApp((st) => st.view.kind === 'conversation' && st.view.id === conversation);
+  return useApp((st) => (conversation === 'room' ? st.view.kind === 'room' : st.view.kind === 'conversation' && st.view.id === conversation));
 }

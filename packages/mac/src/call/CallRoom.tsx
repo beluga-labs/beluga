@@ -3,6 +3,8 @@ import { cx } from '../components/ui.js';
 import { CallStrip } from './CallStrip.js';
 import { Stage } from './Stage.js';
 import { CameraStrip } from './Cameras.js';
+import { NotesBox } from './NotesBox.js';
+import { useApp } from '../lib/beluga.js';
 import { useCallLive, useConversationCall } from './use-call.js';
 import c from './call.module.css';
 
@@ -15,6 +17,8 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
   const call = useConversationCall(id);
   const live = useCallLive();
   const staged = Boolean(call?.mine === 'in' && live.conversation === id && live.stage);
+  // The room's chat has no timeline of its own for them: its latest call's notes sit on top, folded.
+  const roomNotes = useApp((st) => (id === 'room' ? st.network.callNotes?.room?.at(-1) : undefined));
   return (
     <div className={c.room}>
       {call ? <CallStrip id={id} /> : null}
@@ -22,7 +26,10 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
       {call?.mine === 'in' && live.conversation === id && !staged ? <CameraStrip call={call} /> : null}
       <div className={cx(c.roomBody, staged && c.staged)}>
         {staged && call ? <Stage call={call} /> : null}
-        <div className={c.roomChat}>{children}</div>
+        <div className={c.roomChat}>
+          {roomNotes && !call ? <NotesBox notes={roomNotes} place="the room" /> : null}
+          {children}
+        </div>
       </div>
     </div>
   );

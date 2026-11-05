@@ -1,7 +1,7 @@
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { CallView } from '@beluga/shared/calls.js';
 import { inApp } from '../lib/boot.js';
-import { openConversation } from '../network/use-net.js';
+import { openCall } from './use-call.js';
 import type { CallEngine } from './engine.js';
 import { type FloatAction, type FloatState, floatState } from './float-model.js';
 
@@ -41,7 +41,7 @@ async function wire(client: SocketClient, engine: CallEngine): Promise<void> {
     if (action === 'leave') void engine.leave();
     if (action === 'decline') void client.api.calls.decline(conversation).catch(() => undefined);
     if (action === 'join') void engine.join(conversation).catch(() => undefined);
-    if (action === 'join' || action === 'open') openConversation(client, conversation);
+    if (action === 'join' || action === 'open') openCall(client, conversation);
   });
 }
 
@@ -49,7 +49,7 @@ async function wire(client: SocketClient, engine: CallEngine): Promise<void> {
 export function syncFloat(client: SocketClient, engine: CallEngine, mine: CallView | undefined, ringing: readonly CallView[], speaking: ReadonlySet<string>): void {
   void wire(client, engine);
   const st = client.store.getState();
-  const nameOf = (c: string): string => (c.startsWith('dm:') ? (st.network.friends.find((f) => f.peerId === c.slice(3))?.name ?? 'a friend') : `#${st.network.groups.find((g) => g.id === c.slice(6))?.name ?? 'channel'}`);
+  const nameOf = (c: string): string => (c === 'room' ? 'The room' : c.startsWith('dm:') ? (st.network.friends.find((f) => f.peerId === c.slice(3))?.name ?? 'a friend') : `#${st.network.groups.find((g) => g.id === c.slice(6))?.name ?? 'channel'}`);
   latest = floatState(mine, ringing, speaking, nameOf);
   void send();
 }

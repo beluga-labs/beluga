@@ -267,11 +267,11 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `voice.models` | Settings › Voice: the models on this Mac, here or coming |
 | `voice.prepare` | Settings › Voice › Get now |
 | `voice.transcribe` | The composer's microphone beside Send, and the talk shortcut (Settings › Voice) |
-| `calls.start` | A DM's or channel's header › the phone button: rings everyone in it (BLG-706) |
+| `calls.start` | A DM's, channel's or room's header › the phone button: rings everyone in it (BLG-706, BLG-716) |
 | `calls.join` | The incoming call card's Join, the floating card's Join, the call strip's Join on a call going on; the phone's Needs you › Answer on Mac |
 | `calls.leave` | The call strip's red Leave, the sidebar's call pill and the floating card's Leave |
 | `calls.decline` | The incoming call card's and the floating card's Decline; the phone's Needs you › Decline |
-| `calls.set` | The call strip's Mute and Share buttons (and the window says it's still in the call every few seconds) |
+| `calls.set` | The call strip's Mute, Camera and Share buttons (and the window says it's still in the call every few seconds) |
 | `calls.signal` | – sent by the call's window on its own: WebRTC setup for the others' windows |
 | `calls.notes` | – sent by the call's window as you leave: your own words, written down on this Mac, for the others who were in it (BLG-715) |
 | `calls.forgetNotes` | A call's notes box in the chat › ••• › Forget These Notes |

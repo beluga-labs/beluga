@@ -65,8 +65,53 @@ const FRAMES_PER_SECOND = 60;
 /** How far ahead of this Mac's clock a "joined at" may say (clocks differ a little, not by days). */
 const CLOCK_SLACK_MS = 60_000;
 
+/**
+ * Whom a call's frames go to and come from: your friends' Noise links (`meshLinks`) or a room's
+ * hub (core/calls/room.ts). Conversation ids are the transport's own (`dm:…`, `group:…`, `room`).
+ */
+export interface CallLinks {
+  /** You, as the others know you here. */
+  readonly peerId: string;
+  conversations(): string[];
+  shares(conversation: string, peerId: string): boolean;
+  peopleIn(conversation: string): string[];
+  nameFor(peerId: string): string;
+  sendCall(peerId: string, payload: unknown): boolean;
+  /** The conversation a frame from `from` is about (`g`: the group it names, if any). */
+  conversationOf(from: string, g?: string): string;
+  /** The group id a conversation's frames name (none for a DM or a room). */
+  groupOf(conversation: string): string | undefined;
+  onCall(fn: (from: string, payload: unknown) => void): () => void;
+  /** People or conversations changed (someone left a group, the room). */
+  onChange(fn: () => void): () => void;
+}
+
+/** Calls over your friends' links (DMs and channels). */
+export function meshLinks(mesh: Mesh): CallLinks {
+  return {
+    get peerId() {
+      return mesh.peerId;
+    },
+    conversations: () => mesh.conversations(),
+    shares: (c, p) => mesh.shares(c, p),
+    peopleIn: (c) => mesh.peopleIn(c),
+    nameFor: (p) => mesh.nameFor(p),
+    sendCall: (p, payload) => mesh.sendCall(p, payload),
+    conversationOf: (from, g) => (g ? groupConversation(g) : dmConversation(from)),
+    groupOf: (c) => (c.startsWith('group:') ? c.slice(6) : undefined),
+    onCall: (fn) => {
+      mesh.on('call', fn);
+      return () => void mesh.off('call', fn);
+    },
+    onChange: (fn) => {
+      mesh.on('change', fn);
+      return () => void mesh.off('change', fn);
+    },
+  };
+}
+
 export interface CallHost {
-  readonly mesh: Mesh;
+  readonly links: CallLinks;
   /** The calls changed: what screens see now. */
   readonly publish: (calls: CallsView) => void;
   /** WebRTC setup for the window in a call (to its screen; undefined: every screen). */
@@ -108,9 +153,7 @@ export class CallService {
   constructor(private readonly host: CallHost) {
     const onCall = (from: string, p: unknown): void => this.receive(from, p);
     const onChange = (): void => this.prune();
-    host.mesh.on('call', onCall);
-    host.mesh.on('change', onChange);
-    this.offs.push(() => host.mesh.off('call', onCall), () => host.mesh.off('change', onChange));
+    this.offs.push(host.links.onCall(onCall), host.links.onChange(onChange));
     if (!host.manual) {
       this.timer = setInterval(() => this.tick(), HEARTBEAT_MS);
       this.timer.unref();
@@ -137,7 +180,7 @@ export class CallService {
     const existing = this.calls.get(conversation);
     if (existing && (existing.people.size || existing.me)) return this.join(conversation);
     const now = this.now();
-    const call: Call = { id: randomBytes(8).toString('hex'), conversation, startedBy: this.host.mesh.peerId, startedAt: now, people: new Map() };
+    const call: Call = { id: randomBytes(8).toString('hex'), conversation, startedBy: this.host.links.peerId, startedAt: now, people: new Map() };
     call.me = { muted: false, sharing: false, joinedAt: now, kept: now, ...this.screenNow() };
     this.calls.set(conversation, call);
     this.broadcast(call, { k: 'ring', call: call.id, at: now, state: this.mineState(call) });
@@ -219,8 +262,8 @@ export class CallService {
     if (parsed.data.k === 'notes') return this.receiveNotes(from, parsed.data);
     if (this.flooding(from, now)) return;
     const f = parsed.data.k === 'ring' || parsed.data.k === 'here' ? { ...parsed.data, state: { ...parsed.data.state, joinedAt: Math.min(parsed.data.state.joinedAt, now + CLOCK_SLACK_MS) } } : parsed.data;
-    const conversation = f.g ? groupConversation(f.g) : dmConversation(from);
-    if (!this.host.mesh.shares(conversation, from)) return;
+    const conversation = this.host.links.conversationOf(from, f.g);
+    if (!this.host.links.shares(conversation, from)) return;
     let call = this.calls.get(conversation);
     if (call && call.id !== f.call) {
       if (f.k !== 'ring' && f.k !== 'here') return;
@@ -271,7 +314,7 @@ export class CallService {
         if (!call?.me) return;
         // In a direct conversation that's the only other person: the call is over.
         if (conversation.startsWith('dm:') && !call.people.size) {
-          this.host.toast(`${this.host.mesh.nameFor(from)} can’t talk right now`);
+          this.host.toast(`${this.host.links.nameFor(from)} can’t talk right now`);
           this.leave(conversation);
           return;
         }
@@ -300,8 +343,8 @@ export class CallService {
         changed = this.lastOneOut(call) || changed;
         continue;
       }
-      if (call.me && !call.met && !call.people.size && call.startedBy === this.host.mesh.peerId && now - call.startedAt > RING_MS) {
-        this.host.toast(call.conversation.startsWith('dm:') ? `${this.host.mesh.nameFor(call.conversation.slice(3))} didn’t answer` : 'Nobody picked up');
+      if (call.me && !call.met && !call.people.size && call.startedBy === this.host.links.peerId && now - call.startedAt > RING_MS) {
+        this.host.toast(call.conversation.startsWith('dm:') ? `${this.host.links.nameFor(call.conversation.slice(3))} didn’t answer` : 'Nobody picked up');
         call.me = undefined;
         this.broadcast(call, { k: 'bye', call: call.id });
         changed = true;
@@ -323,6 +366,11 @@ export class CallService {
     if (changed) this.publish();
   }
 
+  /** You, as the others in these calls know you. */
+  get selfId(): string {
+    return this.host.links.peerId;
+  }
+
   /** A call you were in (now or within the last hours), with everyone who was in it too. */
   pastCall(id: string): PastCall | undefined {
     return this.past.get(id);
@@ -332,20 +380,20 @@ export class CallService {
   sendNotes(id: string, phrases: NotePhrases): number {
     const call = this.past.get(id);
     if (!call) throw new Error('That call isn’t one you were in');
-    const g = call.conversation.startsWith('group:') ? call.conversation.slice(6) : undefined;
+    const g = this.host.links.groupOf(call.conversation);
     let sent = 0;
     for (const peerId of call.people) {
-      if (peerId === this.host.mesh.peerId || !this.host.mesh.shares(call.conversation, peerId)) continue;
-      if (this.host.mesh.sendCall(peerId, { k: 'notes', call: id, startedAt: call.startedAt, phrases, ...(g ? { g } : {}) })) sent++;
+      if (peerId === this.host.links.peerId || !this.host.links.shares(call.conversation, peerId)) continue;
+      if (this.host.links.sendCall(peerId, { k: 'notes', call: id, startedAt: call.startedAt, phrases, ...(g ? { g } : {}) })) sent++;
     }
     return sent;
   }
 
   private receiveNotes(from: string, f: Extract<CallFrame, { k: 'notes' }>): void {
     const call = this.past.get(f.call);
-    const conversation = f.g ? groupConversation(f.g) : dmConversation(from);
+    const conversation = this.host.links.conversationOf(from, f.g);
     // Only from someone who was in a call you were in, in the conversation it was in.
-    if (!call || call.conversation !== conversation || !call.people.has(from) || !this.host.mesh.shares(conversation, from)) return;
+    if (!call || call.conversation !== conversation || !call.people.has(from) || !this.host.links.shares(conversation, from)) return;
     this.host.notes?.(from, call, f.phrases);
   }
 
@@ -356,7 +404,7 @@ export class CallService {
     for (const call of this.calls.values()) {
       if (!call.me) continue;
       const was = this.past.get(call.id);
-      const people = new Set([...(was?.people ?? []), this.host.mesh.peerId, ...call.people.keys()]);
+      const people = new Set([...(was?.people ?? []), this.host.links.peerId, ...call.people.keys()]);
       this.past.set(call.id, { id: call.id, conversation: call.conversation, startedAt: call.startedAt, people, lastSeen: now });
     }
     for (const [id, c] of this.past) if (now - c.lastSeen > PAST_MS) this.past.delete(id);
@@ -399,13 +447,13 @@ export class CallService {
   private prune(): void {
     let changed = false;
     for (const call of [...this.calls.values()]) {
-      if (!this.host.mesh.conversations().includes(call.conversation)) {
+      if (!this.host.links.conversations().includes(call.conversation)) {
         this.calls.delete(call.conversation);
         changed = true;
         continue;
       }
       for (const peerId of [...call.people.keys()]) {
-        if (!this.host.mesh.shares(call.conversation, peerId)) {
+        if (!this.host.links.shares(call.conversation, peerId)) {
           call.people.delete(peerId);
           changed = true;
         }
@@ -439,16 +487,16 @@ export class CallService {
   }
 
   private broadcast(call: Call, frame: CallFrame): void {
-    for (const peerId of this.host.mesh.peopleIn(call.conversation)) this.send(peerId, call, frame);
+    for (const peerId of this.host.links.peopleIn(call.conversation)) this.send(peerId, call, frame);
   }
 
   private send(peerId: string, call: Call, frame: CallFrame): boolean {
-    const g = call.conversation.startsWith('group:') ? call.conversation.slice(6) : undefined;
-    return this.host.mesh.sendCall(peerId, { ...frame, ...(g ? { g } : {}) });
+    const g = this.host.links.groupOf(call.conversation);
+    return this.host.links.sendCall(peerId, { ...frame, ...(g ? { g } : {}) });
   }
 
   private needConversation(conversation: string): void {
-    if (!this.host.mesh.conversations().includes(conversation)) throw new Error('No such conversation');
+    if (!this.host.links.conversations().includes(conversation)) throw new Error('No such conversation');
   }
 
   private need(conversation: string): Call {
@@ -458,7 +506,7 @@ export class CallService {
   }
 
   private view(call: Call): CallView {
-    const mesh = this.host.mesh;
+    const mesh = this.host.links;
     const people: CallPersonView[] = [...call.people].map(([peerId, p]) => ({ peerId, name: mesh.nameFor(peerId), muted: p.muted, sharing: p.sharing, joinedAt: p.joinedAt, ...(p.camera ? { camera: true } : {}) }));
     if (call.me) people.push({ peerId: mesh.peerId, name: 'You', me: true, muted: call.me.muted, sharing: call.me.sharing, joinedAt: call.me.joinedAt, ...(call.me.camera ? { camera: true } : {}) });
     people.sort((a, b) => a.joinedAt - b.joinedAt || (a.peerId < b.peerId ? -1 : 1));

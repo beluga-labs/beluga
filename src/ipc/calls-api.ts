@@ -7,8 +7,9 @@ import { SIGNAL_MAX } from '../shared/calls.js';
  * through here. Browser-safe: zod only.
  */
 
-const conversation = z.string().regex(/^(dm:[\w-]{32}|group:[0-9a-f]{32})$/);
-const peerId = z.string().regex(/^[\w-]{32}$/);
+const conversation = z.string().regex(/^(dm:[\w-]{32}|group:[0-9a-f]{32}|room)$/);
+// Friends' peer ids, or someone's in the room.
+const peerId = z.string().regex(/^[\w:+/=.-]{1,200}$/);
 
 export const CALLS_API = {
   // Ring everyone in a conversation (or join the call it has) → CallView.

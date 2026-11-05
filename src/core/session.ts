@@ -61,6 +61,7 @@ import type { EnvVars } from './env-vars.js';
 import { gatewayOf } from './gateway/registry.js';
 import { receiveFriendOffer } from './friend-offers.js';
 import { onChatReact, reactInChat, type RoomReactDeps } from './room-reactions.js';
+import { receiveRoomCall } from './calls/launch.js';
 
 /** Bigger, smaller, or back to normal text. */
 export type ZoomDir = 'in' | 'out' | 'reset';
@@ -1205,6 +1206,10 @@ export class Session {
       case 'gateway':
         // Tasks between Claudes (core/gateway): sent to one person; the gateway checks who may say what.
         gatewayOf(this)?.onRoomFrame(from, body.frame);
+        return;
+      case 'call':
+        // A call in the room's chat (core/calls): the call service checks who may say what.
+        receiveRoomCall(this, from, body.p);
         return;
       case 'friend_offer':
         // Someone in the room wants to be friends on the network (BLG-202): shown, never acted on by itself.

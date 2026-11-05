@@ -1,5 +1,5 @@
 import type { Mesh } from '../../net/mesh/mesh.js';
-import { CallService } from './service.js';
+import { CallService, meshLinks } from './service.js';
 
 /**
  * The demo's friends in calls (BLG-706): bob and mia are real Macs on the demo's network, so a
@@ -50,7 +50,7 @@ export function demoCallers(friends: readonly Mesh[], pace = 1): DemoCallers {
     const metYou = new Set<string>();
     const leaving = new Set<string>();
     const calls: CallService = new CallService({
-      mesh,
+      links: meshLinks(mesh),
       headless: true,
       publish: (view) => {
         for (const call of Object.values(view)) {

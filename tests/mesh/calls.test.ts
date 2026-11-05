@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CallService } from '../../src/core/calls/service.js';
+import { CallService, meshLinks } from '../../src/core/calls/service.js';
 import { dmConversation, groupConversation } from '../../src/net/mesh/views.js';
 import { type CallView, type CallsView, GONE_MS, RING_MS } from '../../src/shared/calls.js';
 import { type Crowd, type Person, befriend, crowd, settle } from './helpers.js';
@@ -27,7 +27,7 @@ interface Phone {
 function phone(p: Person): Phone {
   const me: Phone = { calls: undefined as unknown as CallService, view: {}, rings: [], signals: [], toasts: [], screen: 'mac-1', clock: Date.now() };
   (me as { calls: CallService }).calls = new CallService({
-    mesh: p.mesh,
+    links: meshLinks(p.mesh),
     manual: true,
     now: () => me.clock,
     publish: (v) => (me.view = v),

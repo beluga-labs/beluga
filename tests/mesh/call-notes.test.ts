@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CallNotes } from '../../src/core/calls/notes.js';
-import { CallService } from '../../src/core/calls/service.js';
+import { CallService, meshLinks } from '../../src/core/calls/service.js';
 import type { CallNotesView } from '../../src/shared/calls.js';
 import { groupConversation } from '../../src/net/mesh/views.js';
 import { type Crowd, type Person, befriend, crowd, settle } from './helpers.js';
@@ -19,8 +19,8 @@ afterAll(async () => {
 /** Someone's Mac in a call, keeping notes (on disk, as the daemon does). */
 function mac(p: Person): { calls: CallService; notes: CallNotes; seen: () => Readonly<Record<string, readonly CallNotesView[]>> } {
   let view: Readonly<Record<string, readonly CallNotesView[]>> = {};
-  const notes = new CallNotes({ dir: mkdtempSync(path.join(os.tmpdir(), 'beluga-notes-')), me: () => p.mesh.peerId, nameOf: (id) => p.mesh.nameFor(id), publish: (v) => (view = v) });
-  const calls = new CallService({ mesh: p.mesh, manual: true, publish: () => undefined, signal: () => undefined, ring: () => undefined, toast: () => undefined, client: () => 'mac-1', notes: (from, call, phrases) => notes.theirs(from, call, phrases) });
+  const notes = new CallNotes({ dir: mkdtempSync(path.join(os.tmpdir(), 'beluga-notes-')), isMe: (id) => id === p.mesh.peerId, nameOf: (id) => p.mesh.nameFor(id), publish: (v) => (view = v) });
+  const calls = new CallService({ links: meshLinks(p.mesh), manual: true, publish: () => undefined, signal: () => undefined, ring: () => undefined, toast: () => undefined, client: () => 'mac-1', notes: (from, call, phrases) => notes.theirs(from, call, phrases) });
   return { calls, notes, seen: () => view };
 }
 
@@ -44,9 +44,9 @@ describe('call notes (BLG-715)', () => {
     await settle(() => a.calls.list()[conv]?.people.length === 2);
     const t = call.startedAt;
     // ann and bo were in it; cy never joined.
-    a.notes.mine(a.calls.pastCall(call.id)!, [{ at: t + 2_000, text: 'Shall we ship today?' }]);
+    a.notes.mine(ann.mesh.peerId, a.calls.pastCall(call.id)!, [{ at: t + 2_000, text: 'Shall we ship today?' }]);
     expect(a.calls.sendNotes(call.id, [{ at: t + 2_000, text: 'Shall we ship today?' }])).toBe(1);
-    b.notes.mine(b.calls.pastCall(call.id)!, [{ at: t + 5_000, text: 'Yes, after the tax fix.' }]);
+    b.notes.mine(bo.mesh.peerId, b.calls.pastCall(call.id)!, [{ at: t + 5_000, text: 'Yes, after the tax fix.' }]);
     b.calls.sendNotes(call.id, [{ at: t + 5_000, text: 'Yes, after the tax fix.' }]);
     await settle(() => a.seen()[conv]?.[0]?.lines.length === 2 && b.seen()[conv]?.[0]?.lines.length === 2);
     expect(a.seen()[conv]![0]!.lines.map((l) => [l.name, l.text])).toEqual([

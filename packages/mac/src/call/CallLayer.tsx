@@ -3,12 +3,11 @@ import type { CallView } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
-import { openConversation } from '../network/use-net.js';
 import { CallAvatar } from './CallAvatar.js';
 import { CallControls, namesOf } from './CallStrip.js';
 import { JOINED, LEFT, RING, RINGBACK, RINGBACK_EVERY_S, RING_EVERY_S, loop, playOnce } from './ringtone.js';
 import { callLength } from '@beluga/shared/calls.js';
-import { useCallEngine, useCallLive, useCallPlace, useMyCall, useRinging, useSecond, useShowing } from './use-call.js';
+import { openCall, useCallEngine, useCallLive, useCallPlace, useMyCall, useRinging, useSecond, useShowing } from './use-call.js';
 import { syncFloat } from './float.js';
 import c from './call.module.css';
 
@@ -21,12 +20,12 @@ function Incoming({ call }: { call: CallView }) {
   const group = call.conversation.startsWith('group:');
   const others = call.people.filter((p) => p.peerId !== by?.peerId);
   const join = (): void => {
-    openConversation(client, call.conversation);
+    openCall(client, call.conversation);
     void engine.join(call.conversation).catch(() => undefined);
   };
   return (
     <div className={c.incoming} role="alertdialog" aria-label={`${by?.name ?? 'Someone'} is calling`}>
-      <button type="button" className={c.incomingWho} onClick={() => openConversation(client, call.conversation)}>
+      <button type="button" className={c.incomingWho} onClick={() => openCall(client, call.conversation)}>
         <span className={c.ripples} aria-hidden="true">
           <span />
           <span />
@@ -62,7 +61,7 @@ export function CallPill() {
   const talking = others.find((p) => live.speaking.has(p.peerId));
   return (
     <div className={c.pill} role="region" aria-label={`Call in ${place}`}>
-      <button type="button" className={c.pillMain} onClick={() => openConversation(client, call.conversation)}>
+      <button type="button" className={c.pillMain} onClick={() => openCall(client, call.conversation)}>
         <span className={c.pillFaces}>
           {others.slice(0, 3).map((p) => (
             <CallAvatar key={p.peerId} peerId={p.peerId} name={p.name} size={20} speaking={live.speaking.has(p.peerId)} muted={p.muted} />
