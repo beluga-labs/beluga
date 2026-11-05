@@ -131,16 +131,26 @@ test('sharing a screen puts it on the stage beside the chat; ink and Ask Claude'
   await expect(stage).toHaveCount(0);
   await strip(page).getByRole('button', { name: 'Leave Call' }).click();
   await expect(strip(page)).toHaveCount(0, { timeout: 10_000 });
-  // The notes: each Mac's own words (the demo's are made up), one box in the chat, folded.
-  const notes = page.getByRole('region', { name: 'Call notes' }).last();
-  await expect(notes).toBeVisible({ timeout: 15_000 });
-  await expect(notes).not.toContainText('waiting for', { timeout: 15_000 });
-  await notes.getByRole('button', { name: /^Call notes/ }).click();
-  await expect(notes).toContainText('tax runs after the discount');
-  await expect(notes).toContainText('I’ll review the fix this afternoon');
+  // The notes: one line in the chat, however long the call; they open beside it, like the chat.
+  const chip = page.getByRole('button', { name: 'Call notes' }).last();
+  await expect(chip).toBeVisible({ timeout: 15_000 });
+  await expect(chip).not.toContainText('waiting for', { timeout: 15_000 });
+  await chip.click();
+  const reader = page.getByRole('complementary', { name: 'Call notes reader' });
+  await expect(reader).toBeVisible();
+  await expect(reader).toContainText('tax runs after the discount');
+  await expect(reader).toContainText('I’ll review the fix this afternoon');
+  // Search the call: what matches is marked, and Enter goes from one to the next.
+  await reader.getByRole('textbox', { name: 'Search the call' }).fill('refund');
+  await expect(reader).toContainText(/1 of [2-9]/);
   await shot(page, '08-notes');
-  // Talking about it with your agent is a chat of your own, not in the channel.
-  await notes.getByRole('button', { name: 'Talk About It' }).click();
+  // One person's words only.
+  await reader.getByRole('radio', { name: 'mia' }).click();
+  await expect(reader).not.toContainText('loud and clear');
+  await reader.getByRole('radio', { name: 'Everyone' }).click();
+  // Talking about it with your agent is a chat of your own, from •••.
+  await reader.getByRole('button', { name: 'More for these notes' }).click();
+  await page.getByRole('menuitem', { name: /^Talk About It/ }).click();
   await expect(page.getByText('These are the notes of a call I was in').first()).toBeVisible({ timeout: 15_000 });
   await shot(page, '09-notes-chat');
 });

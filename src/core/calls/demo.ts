@@ -22,11 +22,23 @@ const SAID: Record<string, ReadonlyArray<readonly [number, string]>> = {
     [14, 'So the checkout total is off when someone uses a discount code.'],
     [27, 'I think tax runs after the discount. It should be the other way round.'],
     [52, 'Let’s ship the fix today and add a test for expired codes.'],
+    [96, 'One more thing: the receipt email still shows the old total, before the discount.'],
+    [131, 'I can take the email. It reads the order before it’s saved, that’s the bug.'],
+    [205, 'For the test, let’s use the spring code and a cart with two regions.'],
+    [262, 'Do we tell support? A few people were charged a little more than they should have been.'],
+    [330, 'Refunds are fine by me. It’s under fifty orders.'],
+    [402, 'Okay, I’ll write up the plan in the channel after this.'],
+    [455, 'Thanks both, talk tomorrow.'],
   ],
   mia: [
     [6, 'Hi both, sound’s good here.'],
     [20, 'I saw the same thing on staging yesterday, with the spring code.'],
     [44, 'I’ll update the landing copy once the fix is in.'],
+    [110, 'The receipt template is mine, I can check it with Bob.'],
+    [168, 'Should the discount line show before or after tax on the receipt?'],
+    [280, 'Yes, I’ll draft a note to support and the affected customers.'],
+    [355, 'I’ll pull the list of orders from Stripe this afternoon.'],
+    [440, 'Sounds good, bye!'],
   ],
 };
 

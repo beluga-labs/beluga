@@ -393,8 +393,10 @@ conversation, and it's the same chat.
   (the call's echo-cancelled stream) on its own GPU with the dictation engine, phrase by phrase,
   keeping no sound. As you leave, your words go to the others who were in the call (`notes` frames,
   accepted only from someone who was in a call you were in); everyone keeps one merged transcript
-  (`~/.beluga/call-notes/<call>.json`) shown as one folded box in the chat. Talk About It opens a
-  chat with your own agent about the call that only you see; agents asked in the chat read the
+  (`~/.beluga/call-notes/<call>.json`), a one-line chip in the chat however long the call was. It
+  opens in a reader beside the chat, made for long calls: your words on the right and everyone
+  else's on the left, search (⌘F), one person's words only, and the call's timeline to jump along.
+  Its ••• › Talk About It opens a chat with your own agent about the call that only you see; agents asked in the chat read the
   latest notes as context. Notes need a voice model (Settings › Voice): a call never downloads one.
 - **Rooms** (BLG-716). The same calls in a room's chat: `call` bodies sent through the hub to one
   person at a time (never kept for latecomers), everyone connected and not a guest is in it, and

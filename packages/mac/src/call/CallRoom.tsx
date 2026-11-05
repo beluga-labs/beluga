@@ -3,7 +3,8 @@ import { cx } from '../components/ui.js';
 import { CallStrip } from './CallStrip.js';
 import { Stage } from './Stage.js';
 import { CameraStrip, FaceView } from './Cameras.js';
-import { NotesBox } from './NotesBox.js';
+import { NotesBox, NotesReaderFor } from './NotesBox.js';
+import { useCallPlace } from './use-call.js';
 import { useApp } from '../lib/beluga.js';
 import { useCallLive, useConversationCall } from './use-call.js';
 import c from './call.module.css';
@@ -19,6 +20,7 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
   const staged = Boolean(call?.mine === 'in' && live.conversation === id && live.stage);
   // The room's chat has no timeline of its own for them: its latest call's notes sit on top, folded.
   const roomNotes = useApp((st) => (id === 'room' ? st.network.callNotes?.room?.at(-1) : undefined));
+  const place = useCallPlace(id);
   return (
     <div className={c.room}>
       {call ? <CallStrip id={id} /> : null}
@@ -32,6 +34,8 @@ export function CallRoom({ id, children }: { id: string; children: ReactNode }) 
           {roomNotes && !call ? <NotesBox notes={roomNotes} place="the room" /> : null}
           {children}
         </div>
+        {/* A call's notes open beside the chat (BLG-715): long calls read like the chat, with search and a timeline. */}
+        <NotesReaderFor conversation={id} place={place} />
       </div>
     </div>
   );

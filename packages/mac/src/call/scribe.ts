@@ -111,5 +111,9 @@ export function demoPhrases(startedAt: number): NotePhrase[] {
     [9, 'Yes, loud and clear.'],
     [33, 'Agreed, tax first and then the discount. I’ll check the order in checkout.ts.'],
     [58, 'Sounds good. I’ll review the fix this afternoon.'],
+    [180, 'After tax, like the checkout page. Otherwise the numbers won’t match.'],
+    [228, 'Good idea. And an expired code should fail before we charge anything.'],
+    [300, 'Let’s refund the difference and say sorry, it’s the right thing to do.'],
+    [420, 'Perfect. I’ll merge once the tests pass.'],
   ].map(([s, text]) => ({ at: startedAt + (s as number) * 1000, text: text as string }));
 }
