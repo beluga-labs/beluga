@@ -1,8 +1,12 @@
+import type { LanguageCount } from './call-language.js';
+import { type VoiceModelId, voiceKnows } from './voice-models.js';
+
 /**
  * Who writes down whose words in a call, and when (BLG-718). Every Mac records only its own
- * microphone, cut at its pauses into phrases. Each phrase is then written down by whichever Mac in
- * the call will finish it soonest: its own when it can (no sound leaves it), else another that has
- * a voice model, isn't busy and isn't on battery. And not word by word at any cost: a Mac with time
+ * microphone, cut at its pauses into phrases. Each phrase is then written down by the best voice
+ * model in the call for its language (BLG-738: Whisper Turbo over Parakeet for Turkish), and of the
+ * Macs that have it, the one that will finish soonest: its own when it can (no sound leaves it),
+ * else another that isn't busy and isn't on battery. And not word by word at any cost: a Mac with time
  * to spare writes each phrase down at once (captions stay live), a busy one waits and writes a
  * whole stretch down together when its processor quietens. Pure, so every Mac decides the same way.
  */
@@ -20,7 +24,44 @@ export interface ScribeStatus {
   readonly cpu?: number;
   /** On battery or in Low Power Mode. */
   readonly battery?: boolean;
+  /** The voice models it has ready (older Beluga doesn't say: taken as one good model). */
+  readonly models?: readonly VoiceModelId[];
+  /** Seconds of its phrases heard in each language (BLG-738, shared/call-language.ts). */
+  readonly langs?: LanguageCount;
 }
+
+/** How well a model writes down `lang` ('auto': not settled yet): 0 when it can't. */
+export function modelQuality(model: VoiceModelId, lang: string): number {
+  if (!voiceKnows(model, lang)) return 0;
+  if (model === 'whisper-turbo') return 3;
+  // Parakeet is as exact as Turbo in a language it knows, but it can't be told which one: until the
+  // call's language is known it might hear one it doesn't (Turkish as Russian).
+  if (model === 'parakeet') return lang === 'auto' ? 1 : 3;
+  return 1;
+}
+
+/** The best model on a Mac for `lang`, and how good it is (undefined: none it can use). */
+export function bestModel(models: readonly VoiceModelId[], lang: string): { readonly model: VoiceModelId; readonly quality: number } | undefined {
+  let best: { model: VoiceModelId; quality: number } | undefined;
+  // Turbo first: of two equally good, the one that knows every language.
+  for (const model of [...models].sort((a, b) => (a === 'whisper-turbo' ? -1 : b === 'whisper-turbo' ? 1 : 0))) {
+    const quality = modelQuality(model, lang);
+    if (quality > 0 && (!best || quality > best.quality)) best = { model, quality };
+  }
+  return best;
+}
+
+/** How well a Mac would write down `lang` (an older Beluga that doesn't list its models: as Turbo). */
+export function scribeQuality(s: ScribeStatus, lang: string): number {
+  if (!s.ready) return 0;
+  if (!s.models) return 3;
+  return bestModel(s.models, lang)?.quality ?? 0;
+}
+
+/** A Mac with the best model may be this many times later than a lesser one, and still write it. */
+const BEST_IS_WORTH = 4;
+/** …unless it's further behind than this (seconds): then the phrase goes where it'll be written soon. */
+const TOO_LATE_S = 45;
 
 /** What a Mac with a model but no measure yet is taken to manage (Whisper Turbo on Apple silicon does far more). */
 const GUESS_SPEED = 4;
@@ -43,16 +84,24 @@ export function eta(s: ScribeStatus, seconds: number): number {
 }
 
 /**
- * Who writes down a phrase `owner` said: the owner unless someone else would be clearly sooner;
- * undefined when nobody in the call can (no model anywhere: there are no notes).
+ * Who writes down a phrase `owner` said in `lang`: of the Macs with the best model for it, the owner
+ * unless another would be clearly sooner; a lesser model only when the best are far behind.
+ * Undefined when nobody in the call can (no model anywhere that knows it: there are no notes).
  */
-export function pickScribe(owner: string, statuses: readonly ScribeStatus[], seconds: number): string | undefined {
-  const ready = statuses.filter((s) => s.ready);
-  if (!ready.length) return undefined;
-  const own = ready.find((s) => s.by === owner);
-  const best = [...ready].sort((a, b) => eta(a, seconds) - eta(b, seconds) || (a.by < b.by ? -1 : 1))[0]!;
-  if (own && eta(own, seconds) <= eta(best, seconds) * WORTH_SENDING) return owner;
-  return best.by;
+export function pickScribe(owner: string, statuses: readonly ScribeStatus[], seconds: number, lang = 'auto'): string | undefined {
+  const able = statuses.filter((s) => scribeQuality(s, lang) > 0);
+  if (!able.length) return undefined;
+  const soonest = (list: readonly ScribeStatus[]): ScribeStatus => [...list].sort((a, b) => eta(a, seconds) - eta(b, seconds) || (a.by < b.by ? -1 : 1))[0]!;
+  const top = Math.max(...able.map((s) => scribeQuality(s, lang)));
+  const finest = able.filter((s) => scribeQuality(s, lang) === top);
+  const anyone = soonest(able);
+  const best = soonest(finest);
+  const tooSlow = eta(best, seconds) > TOO_LATE_S && eta(best, seconds) > eta(anyone, seconds) * BEST_IS_WORTH;
+  const pool = tooSlow ? able : finest;
+  const pick = tooSlow ? anyone : best;
+  const own = pool.find((s) => s.by === owner);
+  if (own && eta(own, seconds) <= eta(pick, seconds) * WORTH_SENDING) return owner;
+  return pick.by;
 }
 
 /**

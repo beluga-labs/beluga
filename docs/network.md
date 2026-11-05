@@ -434,7 +434,16 @@ conversation, and it's the same chat.
   model, how fast it writes down, how much waits for it, its CPU load and whether it's on battery
   (`scribe` on the data channel). Its own Mac when that's close enough (no sound leaves it), else
   the phrase's WAV goes in parts (`clip`) to the soonest one, which sends the words back
-  (`clip-text`). So someone with no model, or a slow or busy Mac, still gets notes. And not word
+  (`clip-text`). So someone with no model, or a slow or busy Mac, still gets notes.
+  **The best model, one language** (BLG-738): each Mac also says which voice models it has, and a
+  phrase goes to the best one in the call for its language (Whisper Turbo over Parakeet, which
+  doesn't know Turkish; a lesser model only when the best is far behind), its own Mac when that's
+  among the best. Each Mac counts how many seconds of its phrases came out in which language and
+  says so too (`langs`); once one language clearly leads across the call (8 s heard, 60% of it),
+  every phrase is written down in it (`lang` on `clip`), so a short Turkish phrase can't come out
+  as Russian, and the early phrases that came out in another language are written down again. A
+  language set in Settings › Voice always wins for your own words. The Notes button says which
+  model writes on which Mac, and the call's language once it settled. And not word
   by word at any cost: with time to spare each phrase is written down at once; busy (load per
   core over 0.7) or on battery, phrases wait and go together, up to 28 seconds of speech in one
   go, never waiting more than a minute. As you leave, your words go to the others who were in

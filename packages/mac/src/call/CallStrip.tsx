@@ -5,6 +5,7 @@ import { Icon } from '../components/Icon.js';
 import { Tip, cx } from '../components/ui.js';
 import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import type { AudioDevices } from './engine.js';
+import { VOICE_MODELS, type VoiceModelId } from '@beluga/shared/voice-models.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { CallAvatar } from './CallAvatar.js';
 import { useCallEngine, useCallLive, useConversationCall, useSecond } from './use-call.js';
@@ -57,7 +58,7 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
         </button>
       </Tip>
       {compact ? null : <DevicesButton />}
-      {compact ? null : <NotesButton />}
+      {compact ? null : <NotesButton call={call} />}
       {compact ? null : (
         <Tip label={camera ? 'Turn Camera Off' : 'Turn Camera On'}>
           <button type="button" className={cx(c.control, camera && c.controlOn)} aria-pressed={camera} aria-label={camera ? 'Turn Camera Off' : 'Turn Camera On'} onClick={() => void engine.camera(!camera)}>
@@ -128,12 +129,39 @@ function DevicesButton() {
   );
 }
 
+/** "Turkish", from "tr" (the code itself if the system doesn't know it). */
+function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** Who writes the notes down with what, in words: "Whisper Turbo on yours and Berca’s Macs · in Turkish" (BLG-738). */
+export function scribingWords(call: CallView, scribing: { readonly writers: Readonly<Record<string, VoiceModelId>>; readonly language?: string }): string {
+  const byModel = new Map<VoiceModelId, string[]>();
+  for (const [peerId, model] of Object.entries(scribing.writers)) {
+    const p = call.people.find((x) => x.peerId === peerId);
+    if (!p) continue;
+    byModel.set(model, [...(byModel.get(model) ?? []), p.me ? 'yours' : `${p.name}’s`]);
+  }
+  const who = [...byModel].map(([model, names]) => `${VOICE_MODELS[model].label} on ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)} Macs` : `${names[0]} Mac`}`);
+  const lang = scribing.language ? `in ${languageName(scribing.language)}` : 'the language is settled once a few phrases were heard';
+  return [...who, lang].join(' · ');
+}
+
 /** Your words in the call's notes: on, paused, or not possible here (no voice model). */
-function NotesButton() {
+function NotesButton({ call }: { call: CallView }) {
   const engine = useCallEngine();
   const live = useCallLive();
   const on = live.notes === 'on';
-  const label = live.notes === 'none' ? 'Notes need a voice model on one of your Macs in the call (Settings › Voice)' : on ? 'Your words go in the call’s notes, written down here or by whichever Mac in the call has time. Click to pause' : 'Notes paused: what you say now stays out';
+  const label =
+    live.notes === 'none'
+      ? 'Notes need a voice model on one of your Macs in the call (Settings › Voice)'
+      : on
+        ? `Your words go in the call’s notes, written down by the best voice model in the call: ${scribingWords(call, live.scribing)}. Click to pause`
+        : 'Notes paused: what you say now stays out';
   return (
     <Tip label={label}>
       <button type="button" className={cx(c.control, on && c.controlOn)} aria-pressed={on} aria-label={on ? 'Pause Notes' : 'Resume Notes'} disabled={live.notes === 'none'} onClick={() => void engine.notes(!on)}>

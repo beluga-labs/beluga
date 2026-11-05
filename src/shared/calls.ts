@@ -1,12 +1,15 @@
 /**
  * Calls in a conversation (BLG-706): what screens see of one, and the rules every Mac in it follows
- * the same way, so nobody has to coordinate. Browser-safe: no imports.
+ * the same way, so nobody has to coordinate. Browser-safe: it imports only other pure shared modules.
  *
  * The daemon rings, keeps who's in, and passes WebRTC setup between Macs over the friends' Noise
  * links (core/calls). The Mac's window makes the media: voice to everyone in the call (a mesh), a
  * screen share through a fan-out tree (`shareTree`) once there are more viewers than the sharer
  * should feed alone.
  */
+
+import { type LanguageCount, languageCode } from './call-language.js';
+import { VOICE_MODEL_IDS, type VoiceModelId } from './voice-models.js';
 
 /** Someone in a call, as screens show them. */
 export interface CallPersonView {
@@ -142,11 +145,11 @@ export type StageMessage =
   /** Whose cameras this window shows big (the rest small; `visible` false: none on screen), so senders size each one for it. */
   | { readonly k: 'view'; readonly by: string; readonly big: readonly string[]; readonly visible: boolean }
   /** How a Mac does as a scribe (BLG-718, shared/scribe-plan.ts): a model or not, how fast, how busy. */
-  | { readonly k: 'scribe'; readonly by: string; readonly ready: boolean; readonly speed?: number; readonly backlog: number; readonly cpu?: number; readonly battery?: boolean }
+  | { readonly k: 'scribe'; readonly by: string; readonly ready: boolean; readonly speed?: number; readonly backlog: number; readonly cpu?: number; readonly battery?: boolean; readonly models?: readonly VoiceModelId[]; readonly langs?: LanguageCount }
   /** A phrase's sound for the Mac that will write it down soonest: a WAV (base64) in parts. */
-  | { readonly k: 'clip'; readonly by: string; readonly id: string; readonly part: number; readonly parts: number; readonly seconds: number; readonly b64: string }
+  | { readonly k: 'clip'; readonly by: string; readonly id: string; readonly part: number; readonly parts: number; readonly seconds: number; readonly b64: string; readonly lang?: string }
   /** The words of a phrase another Mac sent here to write down (empty: it couldn't). */
-  | { readonly k: 'clip-text'; readonly by: string; readonly id: string; readonly text: string }
+  | { readonly k: 'clip-text'; readonly by: string; readonly id: string; readonly text: string; readonly lang?: string }
   /** Which of a window's streams is its camera and which its screen (WebRTC only says a stream's id). */
   | { readonly k: 'streams'; readonly by: string; readonly cam?: string; readonly screen?: string; readonly pointers?: boolean }
   /** Someone asked Claude about the share; the answer comes as a chat message (`ask` names it). */
@@ -163,6 +166,9 @@ export const CLIP_PART = 48_000;
 
 /** Ink fades this long after it's done. */
 export const INK_FADE_MS = 4_000;
+
+/** The language a phrase is to be written down in: a code, or 'auto'. */
+const phraseLang = (v: unknown): string | undefined => (v === 'auto' ? 'auto' : languageCode(v));
 
 /** Parse a data channel message; undefined for anything malformed (it comes from another Mac). */
 export function parseStage(text: string): StageMessage | undefined {
@@ -208,17 +214,30 @@ export function parseStage(text: string): StageMessage | undefined {
     }
     case 'scribe': {
       if (typeof o['ready'] !== 'boolean' || !num(o['backlog'])) return undefined;
-      return { k: 'scribe', by, ready: o['ready'], backlog: o['backlog'], ...(num(o['speed']) ? { speed: o['speed'] } : {}), ...(num(o['cpu']) ? { cpu: o['cpu'] } : {}), ...(o['battery'] === true ? { battery: true } : {}) };
+      const models = Array.isArray(o['models']) ? o['models'].filter((m): m is VoiceModelId => (VOICE_MODEL_IDS as readonly unknown[]).includes(m)).slice(0, VOICE_MODEL_IDS.length) : undefined;
+      const rawLangs = o['langs'] && typeof o['langs'] === 'object' && !Array.isArray(o['langs']) ? Object.entries(o['langs'] as Record<string, unknown>).slice(0, 8) : [];
+      const langs = Object.fromEntries(rawLangs.filter((e): e is [string, number] => Boolean(languageCode(e[0])) && num(e[1]) && e[1] >= 0 && e[1] < 1e6));
+      return {
+        k: 'scribe',
+        by,
+        ready: o['ready'],
+        backlog: o['backlog'],
+        ...(num(o['speed']) ? { speed: o['speed'] } : {}),
+        ...(num(o['cpu']) ? { cpu: o['cpu'] } : {}),
+        ...(o['battery'] === true ? { battery: true } : {}),
+        ...(models ? { models } : {}),
+        ...(Object.keys(langs).length ? { langs } : {}),
+      };
     }
     case 'clip': {
       const id = o['id'];
       const b64 = o['b64'];
       const ok = typeof id === 'string' && id.length <= 40 && typeof b64 === 'string' && b64.length <= CLIP_PART && /^[A-Za-z0-9+/=]*$/.test(b64);
       if (!ok || !num(o['part']) || !num(o['parts']) || !num(o['seconds']) || o['parts'] > 64 || o['part'] >= o['parts'] || o['seconds'] > 40) return undefined;
-      return { k: 'clip', by, id, part: o['part'], parts: o['parts'], seconds: o['seconds'], b64 };
+      return { k: 'clip', by, id, part: o['part'], parts: o['parts'], seconds: o['seconds'], b64, ...(phraseLang(o['lang']) ? { lang: phraseLang(o['lang'])! } : {}) };
     }
     case 'clip-text':
-      return typeof o['id'] === 'string' && o['id'].length <= 40 && typeof o['text'] === 'string' && o['text'].length <= 8_000 ? { k: 'clip-text', by, id: o['id'], text: o['text'] } : undefined;
+      return typeof o['id'] === 'string' && o['id'].length <= 40 && typeof o['text'] === 'string' && o['text'].length <= 8_000 ? { k: 'clip-text', by, id: o['id'], text: o['text'], ...(languageCode(o['lang']) ? { lang: languageCode(o['lang'])! } : {}) } : undefined;
     case 'streams': {
       const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 100;
       return { k: 'streams', by, ...(id(o['cam']) ? { cam: o['cam'] } : {}), ...(id(o['screen']) ? { screen: o['screen'] } : {}), ...(o['pointers'] === true ? { pointers: true } : {}) };
