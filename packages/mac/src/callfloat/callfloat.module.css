@@ -1,15 +1,27 @@
-/* The floating call card (BLG-706): a soft pill over other apps. No glow: a hairline and a quiet shadow. */
+/*
+ * The floating call card (BLG-706): a soft pill over other apps. No glow: a hairline and a quiet shadow.
+ * Its window is see-through room around it (call_float.rs: 90 tall, 16 either side), and the shadow
+ * stays inside that room: a shadow cut off at the window's edge shows as a faint rectangle (BLG-743).
+ * The card is only as wide as what it says; the window follows it.
+ */
+:global(#root) {
+  display: flex;
+  justify-content: center;
+}
 .card {
+  --lift: 0 0 0 0.5px var(--hairline-strong), 0 4px 12px rgba(0, 0, 0, 0.22);
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
+  width: max-content;
+  max-width: calc(520px - 32px);
   height: 56px;
-  margin: 4px;
+  margin: 12px 16px 22px;
   padding: 0 10px 0 6px;
   border-radius: 28px;
   background: var(--bg-raised);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--lift);
   color: var(--text);
   font: 13px/1.25 var(--font);
   animation: arrive 260ms var(--ease-out);
@@ -21,7 +33,7 @@
 .sharing {
   background: color-mix(in srgb, var(--call) 14%, var(--bg-raised));
   box-shadow:
-    var(--shadow-pop),
+    var(--lift),
     inset 0 0 0 1.5px color-mix(in srgb, var(--call) 55%, transparent);
 }
 .text .onShow {
@@ -124,6 +136,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  max-width: 200px;
 }
 .text strong {
   font-weight: 600;

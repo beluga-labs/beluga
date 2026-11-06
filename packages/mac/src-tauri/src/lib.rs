@@ -311,6 +311,8 @@ pub fn run() {
             call_float::set_call_float,
             call_float::call_float_state,
             call_float::call_float_action,
+            call_float::call_float_resize,
+            call_float::call_float_drag,
             call_overlay::set_call_overlay,
             call_overlay::call_overlay_state,
             system_idle_seconds,

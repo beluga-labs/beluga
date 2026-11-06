@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { callLength } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, cx } from '../components/ui.js';
@@ -39,21 +39,77 @@ function useFloatState(): FloatState | null {
 const act = (action: FloatAction, conversation: string): void =>
   void import('@tauri-apps/api/core').then(({ invoke }) => invoke('call_float_action', { action, conversation })).catch(() => undefined);
 
+/** See-through room on each side of the card for its shadow (callfloat.module.css keeps the same). */
+const ROOM_X = 16;
+/** Moving this far (px) with the button down drags the card; less is a click. */
+const DRAG_PX = 4;
+
+/**
+ * The card's window fits the card (it says so as its words change), and the card can be dragged
+ * from anywhere but its buttons. A drag isn't a click: the card's middle opens the call only when
+ * it didn't move.
+ */
+function useFitAndDrag(): { card: (el: HTMLDivElement | null) => void; onPointerDown: (e: ReactPointerEvent) => void; dragged: () => boolean } {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const moved = useRef(false);
+  useLayoutEffect(() => {
+    if (!el) return;
+    let said = 0;
+    const say = (): void => {
+      const width = Math.ceil(el.getBoundingClientRect().width) + ROOM_X * 2;
+      if (Math.abs(width - said) < 1) return;
+      said = width;
+      void import('@tauri-apps/api/core').then(({ invoke }) => invoke('call_float_resize', { width })).catch(() => undefined);
+    };
+    say();
+    const ro = new ResizeObserver(say);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  const onPointerDown = (e: ReactPointerEvent): void => {
+    moved.current = false;
+    if (e.button !== 0) return;
+    // The card's own buttons are for clicking; its middle (which opens the call) and its edges drag.
+    const button = (e.target as HTMLElement).closest('button');
+    if (button && !button.dataset['drag']) return;
+    const x = e.clientX;
+    const y = e.clientY;
+    const move = (m: PointerEvent): void => {
+      if (Math.hypot(m.clientX - x, m.clientY - y) < DRAG_PX) return;
+      moved.current = true;
+      stop();
+      void import('@tauri-apps/api/core').then(({ invoke }) => invoke('call_float_drag')).catch(() => undefined);
+    };
+    const stop = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+  return { card: setEl, onPointerDown, dragged: () => moved.current };
+}
+
 
 /**
  * The call while Beluga is behind other apps (BLG-706): who's talking, how long, mute and leave.
  * While you share your screen, it says so, has Stop, and tucks away for that share (the frame
- * around your screen stays). Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga.
+ * around your screen stays). Ringing: who calls, decline and join. A click on the card itself goes back to the call in Beluga;
+ * a drag moves it (BLG-743).
  */
 export function CallFloat() {
   const state = useFloatState();
   // The card's window is never the one you're in: its clock always runs (watchWindow isn't started here).
   const now = useClock(true);
+  const { card, onPointerDown, dragged } = useFitAndDrag();
+  const open = (conversation: string): void => {
+    if (!dragged()) act('open', conversation);
+  };
   if (!state) return null;
   if (state.kind === 'ringing') {
     return (
-      <div className={cx(s.card, s.ringing)}>
-        <button type="button" className={s.main} onClick={() => act('open', state.conversation)}>
+      <div ref={card} className={cx(s.card, s.ringing)} onPointerDown={onPointerDown}>
+        <button type="button" className={s.main} data-drag="true" onClick={() => open(state.conversation)}>
           <span className={s.face}>
             <Avatar name={state.by.name} id={state.by.peerId} size={30} />
           </span>
@@ -74,8 +130,8 @@ export function CallFloat() {
   const talking = state.people.find((p) => p.speaking);
   const status = state.youShare ? null : talking ? `${talking.name} is talking` : state.sharing ? `${state.sharing} is sharing` : state.people.length ? callLength(now - state.startedAt) : 'Ringing…';
   return (
-    <div className={cx(s.card, state.youShare && s.sharing)}>
-      <button type="button" className={s.main} onClick={() => act('open', state.conversation)}>
+    <div ref={card} className={cx(s.card, state.youShare && s.sharing)} onPointerDown={onPointerDown}>
+      <button type="button" className={s.main} data-drag="true" onClick={() => open(state.conversation)}>
         <span className={s.faces}>
           {state.people.slice(0, 3).map((p) => (
             <span key={p.peerId} className={cx(s.face, p.speaking && s.speaking)}>

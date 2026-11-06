@@ -80,6 +80,14 @@ test('sharing a screen puts it on the stage beside the chat; the chat in full sc
   const stage = page.getByRole('region', { name: 'Your shared screen' });
   await expect(stage).toBeVisible();
   await expect(page.getByRole('log', { name: 'Channel launch' })).toBeVisible();
+  // In a smaller window the chat beside the stage is narrow: Send stays inside the message box (BLG-743).
+  await page.setViewportSize({ width: 1000, height: 760 });
+  const field = page.getByRole('textbox', { name: 'Message launch' });
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const [fieldAt, sendAt] = await Promise.all([field.boundingBox(), send.boundingBox()]);
+  expect(sendAt!.x + sendAt!.width).toBeLessThanOrEqual(fieldAt!.x + fieldAt!.width + 8);
+  await shot(page, '04-share-beside-chat');
+  await page.setViewportSize({ width: 1440, height: 900 });
   // Beside the chat, nothing pops up over the screen: the chat is right there.
   const popChat = stage.getByRole('complementary', { name: 'The chat' });
   await expect(popChat).toHaveCount(0);
