@@ -62,12 +62,18 @@ export async function walkSize(dir: string, timeoutMs = 30_000): Promise<number 
   return total;
 }
 
-/** Measure folders one at a time (so a dozen worktrees don't hammer the disk at once). */
-export async function measureAll(dirs: ReadonlyArray<{ id: string; path: string }>, measure = folderSize): Promise<Record<string, number>> {
+/**
+ * Measure folders one at a time (so a dozen worktrees don't hammer the disk at once). `onEach`
+ * hears every size as it comes, so a screen needn't wait for the whole round (a big main folder
+ * can take the full time budget).
+ */
+export async function measureAll(dirs: ReadonlyArray<{ id: string; path: string }>, measure = folderSize, onEach?: (id: string, size: number) => void): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const d of dirs) {
     const size = await measure(d.path);
-    if (size !== undefined) out[d.id] = size;
+    if (size === undefined) continue;
+    out[d.id] = size;
+    onEach?.(d.id, size);
   }
   return out;
 }
