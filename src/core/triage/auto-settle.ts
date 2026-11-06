@@ -1,6 +1,6 @@
 import { planById } from '../plans/model.js';
 import type { DomainState } from '../store.js';
-import { channelsOf, triageFacts } from './facts.js';
+import { channelsOf, handSourceOf, triageFacts } from './facts.js';
 import { type SettleWhy, triageKey } from './model.js';
 
 /**
@@ -30,9 +30,15 @@ const free = (state: DomainState, key: string): boolean => {
   return !facts.working && !facts.handRaised && state.triage[key]?.autoSettle !== false;
 };
 
+/** A merge waits for every open question and approval, also one a snooze hides: settling would end the snooze and spend the PR while it's unanswered. */
+const freeToMerge = (state: DomainState, key: string): boolean => {
+  const hands = handSourceOf(state, key);
+  return free(state, key) && !hands.openIds.length && !hands.planStuck;
+};
+
 function mergedHere(state: DomainState): readonly AutoSettled[] {
   return Object.entries(state.triage)
-    .filter(([key, record]) => record.mergedHere && free(state, key))
+    .filter(([key, record]) => record.mergedHere && freeToMerge(state, key))
     .map(([key]) => ({ key, why: 'merged_here' as const }));
 }
 
@@ -42,7 +48,7 @@ function mergedPrs(state: DomainState): readonly AutoSettled[] {
     const pr = state.prs[ws.id];
     if (pr?.state !== 'MERGED' || ws.prDone === pr.number) continue;
     const key = triageKey(state, `ws:${ws.id}`);
-    if (key && state.triage[key]?.settledPr !== pr.number && free(state, key)) out.push({ key, why: 'pr_merged', pr: pr.number });
+    if (key && state.triage[key]?.settledPr !== pr.number && freeToMerge(state, key)) out.push({ key, why: 'pr_merged', pr: pr.number });
   }
   return out;
 }

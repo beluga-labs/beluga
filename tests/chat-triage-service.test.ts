@@ -457,6 +457,30 @@ describe('auto-settle', () => {
       expect(category(store)).toBe('settled');
     });
 
+    it('a question open before the snooze holds the merge settle until you answer it', () => {
+      const store = makeStore();
+      store.dispatch({ type: 'question_add', question: question('q1') });
+      start(store).snooze(CH, NOW + HOUR);
+      setPr(store, 7);
+      expect(category(store)).toBe('snoozed');
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      expect(store.getState().triage[CH]?.settledPr).toBeUndefined();
+      store.dispatch({ type: 'question_remove', qid: 'q1' });
+      expect(category(store)).toBe('settled');
+      expect(store.getState().triage[CH]?.settled).toEqual({ at: NOW, why: 'pr_merged', pr: 7 });
+      expect(store.getState().triage[CH]?.settledPr).toBe(7);
+    });
+
+    it('a question opened after the snooze still ends the snooze', () => {
+      const store = makeStore();
+      start(store).snooze(CH, NOW + HOUR);
+      store.dispatch({ type: 'question_add', question: question('q1') });
+      expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
+      expect(store.getState().triage[CH]?.backAt).toBe(NOW);
+      setPr(store, 7);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
     it('after Un-settle the same PR does not settle again; a new number does', () => {
       const store = makeStore();
       const service = start(store);
@@ -628,7 +652,9 @@ describe('auto-settle', () => {
     const withTask = () => {
       const store = makeStore();
       const board = new Board({ store, dir: null, projectName: () => 'app' });
-      const issue = board.create({ projectId: 'p1', title: 'Do it' }, { kind: 'beluga' });
+      const made = board.create({ projectId: 'p1', title: 'Do it' }, { kind: 'beluga' });
+      const issue = board.linkWorktree(made.id, 'w1', { branch: 'do-it', name: 'w1' }, { kind: 'beluga' });
+      expect(store.getState().board.issues.find((i) => i.id === issue.id)?.worktrees).toEqual(['w1']);
       return { store, board, issue };
     };
     const statusOf = (store: Store, id: string) => store.getState().board.issues.find((i) => i.id === id)?.status;
