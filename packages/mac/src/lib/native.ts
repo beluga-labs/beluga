@@ -4,6 +4,7 @@ import type { Actions } from './actions.js';
 import type { UiStore } from './beluga.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { setPrefs, getPrefs, subscribePrefs, zoom } from './prefs.js';
+import { FOCUS_SIDEBAR_SEARCH } from '../layout/sidebar-search-model.js';
 import { byMenu, showPanelTab, togglePanel, toggleTerminal } from './panel.js';
 import { PANEL_LABELS, PANEL_TABS, type PanelTab } from './panel-model.js';
 import { dockCount, workingCount } from '../layout/attention-model.js';
@@ -80,6 +81,10 @@ export function runMenuItem(id: string, client: SocketClient, ui: UiStore, actio
       return ui.patch({ notices: true });
     case 'toggle-sidebar':
       return setPrefs({ sidebar: !getPrefs().sidebar });
+    case 'sidebar-search':
+      // A hidden sidebar comes back first: the field is there a moment later.
+      setPrefs({ sidebar: true });
+      return void setTimeout(() => document.dispatchEvent(new CustomEvent(FOCUS_SIDEBAR_SEARCH)), 40);
     case 'toggle-dock':
       // ⌘J: the terminal, where you keep it (the drawer under the chat or the right panel).
       return byMenu('terminal', () => {
