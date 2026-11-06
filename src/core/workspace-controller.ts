@@ -126,6 +126,7 @@ export interface OutsideConversation extends FoundConversation {
 export const workspaceIdOf = (channel: string): string | undefined => (channel.startsWith(WS_PREFIX) ? channel.slice(WS_PREFIX.length) : undefined);
 export { shareNameOf } from '../shared/share-names.js';
 import { shareNameOf } from '../shared/share-names.js';
+import { FILE_MANAGER } from '../shared/assistant.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
 import { SCRATCH_DIR, type ScratchFile, type ScratchTotal, ensureScratch, listScratch, scratchTotal } from '../workspaces/scratch.js';
 import { isUnder } from '../shared/path-inside.js';
@@ -1538,7 +1539,7 @@ export class WorkspaceController {
   openInFinder(id: string): void {
     try {
       this.deps.manager.openInFinder(id);
-      this.deps.toast('Opened in Finder');
+      this.deps.toast(`Opened in ${FILE_MANAGER}`);
     } catch (err) {
       this.deps.toast(errorText(err), 'error');
     }
