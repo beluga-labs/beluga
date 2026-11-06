@@ -8,8 +8,6 @@ import type { AudioDevices } from './engine.js';
 import { VOICE_MODELS, type VoiceModelId } from '@beluga/shared/voice-models.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { CallAvatar } from './CallAvatar.js';
-import { NO_MIC_MODE, type MicMode, nudgeVoiceIsolation, voiceIsolationOn } from './mic-mode-model.js';
-import { markNudged, openMicModes, readMicMode, useMicMode, wasNudged } from './mic-mode.js';
 import { useCallEngine, useCallLive, useCallUnreachable, useConversationCall, useSecond } from './use-call.js';
 import c from './call.module.css';
 
@@ -88,18 +86,15 @@ export function CallControls({ call, compact }: { call: CallView; compact?: bool
 /**
  * Which microphone you speak into and which speaker you hear them on (BLG-737), beside Mute.
  * Picked during a call, it switches at once; Beluga remembers it for the next one. With them,
- * macOS's Voice Isolation (BLG-744): on or off, and a click opens macOS's Mic Mode to change it.
+ * Noise Removal (BLG-744): on in every call, off for this one with a click.
  */
 function DevicesButton() {
   const engine = useCallEngine();
+  const live = useCallLive();
   const [devices, setDevices] = useState<AudioDevices | undefined>();
-  const [mode, setMode] = useState<MicMode>(NO_MIC_MODE);
   useEffect(() => {
     let alive = true;
-    const load = (): void => {
-      void engine.devices().then((d) => alive && setDevices(d));
-      void readMicMode().then((m) => alive && setMode(m));
-    };
+    const load = (): void => void engine.devices().then((d) => alive && setDevices(d));
     load();
     // Headphones plugged in, a USB microphone taken out: the list follows.
     navigator.mediaDevices?.addEventListener?.('devicechange', load);
@@ -108,31 +103,22 @@ function DevicesButton() {
       navigator.mediaDevices?.removeEventListener?.('devicechange', load);
     };
   }, [engine]);
-  const reload = (): void => {
-    void engine.devices().then(setDevices);
-    void readMicMode().then(setMode);
-  };
-  const isolating = voiceIsolationOn(mode);
+  const reload = (): void => void engine.devices().then(setDevices);
   const choices = (list: AudioDevices['mics'], current: string | undefined, pick: (id: string | undefined) => void): ActionItem[] => [
     { label: 'Same as macOS', checked: !current || !list.some((d) => d.id === current), onSelect: () => pick(undefined) },
     ...list.map((d, i) => ({ label: d.label, checked: d.id === current, ...(i === 0 ? { separate: true } : {}), onSelect: () => pick(d.id) })),
   ];
   const items: ActionItem[] = [
     { label: 'Microphone', icon: 'mic', submenu: choices(devices?.mics ?? [], devices?.mic, (id) => void engine.pickMic(id).then(reload)), onSelect: () => undefined },
-    ...(mode.available
-      ? [
-          {
-            label: 'Voice Isolation',
-            icon: 'wand' as const,
-            checked: isolating,
-            hint: isolating ? 'On: macOS keeps the noise around you out' : 'Keeps the noise around you out · opens macOS’s Mic Mode',
-            onSelect: () => {
-              markNudged();
-              openMicModes();
-            },
-          },
-        ]
-      : []),
+    live.quiet === 'none'
+      ? { label: 'Noise Removal', icon: 'wand', hint: 'Can’t run here: they hear your microphone as it is', disabled: true, onSelect: () => undefined }
+      : {
+          label: 'Noise Removal',
+          icon: 'wand',
+          checked: live.quiet === 'on',
+          hint: live.quiet === 'on' ? 'Typing, fans and the room stay out · off for this call' : 'Off for this call: they hear the room too',
+          onSelect: () => engine.setQuiet(live.quiet !== 'on'),
+        },
     devices?.canPickSpeaker === false
       ? { label: 'Speaker', icon: 'speaker', hint: 'As set in macOS (Control Center › Sound)', disabled: true, onSelect: () => undefined }
       : {
@@ -196,46 +182,6 @@ function NotesButton({ call }: { call: CallView }) {
   );
 }
 
-/** How long the suggestion stays if you leave it be (it isn't shown again on this Mac). */
-const NUDGE_MS = 20_000;
-
-/**
- * Once per Mac, in a call with someone: if macOS's Voice Isolation is off for Beluga, a quiet
- * suggestion beside the controls (BLG-744). Turn On opens macOS's Mic Mode; it goes once it's on,
- * dismissed, or after a while.
- */
-function VoiceIsolationNudge({ withOthers }: { withOthers: boolean }) {
-  const [nudged, setNudged] = useState(wasNudged);
-  const mode = useMicMode(!nudged && withOthers);
-  const show = nudgeVoiceIsolation({ mode, nudged, withOthers });
-  const done = (): void => {
-    markNudged();
-    setNudged(true);
-  };
-  useEffect(() => {
-    if (!show) return;
-    const t = setTimeout(done, NUDGE_MS);
-    return () => clearTimeout(t);
-  }, [show]);
-  // Turned on in Control Center: thanks, and gone.
-  useEffect(() => {
-    if (!nudged && voiceIsolationOn(mode)) done();
-  }, [mode, nudged]);
-  if (!show) return null;
-  return (
-    <span className={c.nudge} role="note">
-      <Icon name="wand" size={12} />
-      <span className={c.nudgeText}>Hear less background noise</span>
-      <button type="button" className={c.nudgeOn} onClick={openMicModes}>
-        Voice Isolation
-      </button>
-      <button type="button" className={c.nudgeX} aria-label="Not Now" onClick={done}>
-        <Icon name="x" size={10} />
-      </button>
-    </span>
-  );
-}
-
 /**
  * The call in a conversation (BLG-706), right under its header: who's in and who's talking, how
  * long it's been, and its buttons. The chat stays where it is, and it's the same chat: what you
@@ -266,9 +212,7 @@ export function CallStrip({ id }: { id: string }) {
             <Icon name="alert" size={12} />
             {live.problem}
           </span>
-        ) : (
-          <VoiceIsolationNudge withOthers={!alone} />
-        )}
+        ) : null}
         <CallControls call={call} />
       </div>
     );

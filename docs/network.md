@@ -412,13 +412,14 @@ conversation, and it's the same chat.
   the call uses; a new microphone goes on every line at once, and the choice is kept on this Mac.
   Picking a speaker needs WebKit's `setSinkId`; without it, macOS's own output is used.
 - **Background noise** (BLG-744). WebKit ignores a page's `noiseSuppression` and
-  `autoGainControl`: only echo cancellation applies, which turns on macOS's voice processing in its
-  Standard Mic Mode, and the room gets through. macOS's Voice Isolation takes it out, but only you
-  can pick it, per app, in Control Center. So the same menu has Voice Isolation, checked when it's
-  on for Beluga (`AVCaptureDevice` `preferredMicrophoneMode` / `activeMicrophoneMode`, read by the
-  shell, src-tauri/src/mic_mode.rs); a click opens macOS's Mic Mode picker
-  (`showSystemUserInterface:`). Once per Mac, in a call with someone, the strip suggests it if it's
-  off (not if you chose Wide Spectrum); it goes once it's on, dismissed, or after 20 seconds.
+  `autoGainControl`: only echo cancellation applies (macOS's voice processing, Standard Mic Mode),
+  and macOS lets no app turn Voice Isolation on for itself (only the user, in Control Center). So
+  the call has its own filter (call/noise-filter.ts): RNNoise (via @sapphi-red/web-noise-suppressor)
+  in an audio worklet at 48 kHz, between the microphone and everything that hears you (the lines,
+  the speaking ring, the notes). It's on in every call; Noise Removal in the microphone menu turns it
+  off for that call, rewiring what feeds the call's one track, so no line is renegotiated. If the
+  audio engine won't start, or stops and won't resume, the plain microphone goes on instead and the
+  menu says it can't run.
 - **The chat where it can't be seen.** Full Screen and Face to Face cover the chat, so what the
   others write from then on pops up on the right, dissolves once there was time to read it, and a
   line under it answers in the same chat (call/ChatPops.tsx). Messages that were already there

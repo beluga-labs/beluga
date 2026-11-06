@@ -11,7 +11,6 @@ mod focus;
 mod menu;
 mod call_float;
 mod call_overlay;
-mod mic_mode;
 mod popup;
 #[cfg(target_os = "macos")]
 mod power;
@@ -315,8 +314,6 @@ pub fn run() {
             call_float::call_float_resize,
             call_float::call_float_drag,
             call_float::call_float_pointer,
-            mic_mode::mic_mode,
-            mic_mode::mic_mode_picker,
             call_overlay::set_call_overlay,
             call_overlay::call_overlay_state,
             system_idle_seconds,

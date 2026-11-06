@@ -5,6 +5,7 @@ import { inApp } from '../lib/boot.js';
 import { Levels } from './levels.js';
 import { type CameraSize, type LineState, Peer } from './peer.js';
 import { demoCamera, demoPointer, demoScreen, demoVoice } from './demo-media.js';
+import { NoiseFilter } from './noise-filter.js';
 import { repeat } from './repeat.js';
 import { wakeSound } from './ringtone.js';
 import { type NotePhrase, Scribe, type Words, demoPhrases, scribeModels } from './scribe.js';
@@ -49,13 +50,15 @@ export interface CallLive {
   readonly theater: boolean;
   /** Face to face: cameras over the whole window (theirs big, yours in a corner; a group as a collage). */
   readonly faces: boolean;
+  /** Background noise out of your voice (BLG-744): on in every call until you turn it off for it; `none`: this window can't. */
+  readonly quiet: 'on' | 'off' | 'none';
   /** Your words go in the call's notes (`off`: you paused it; `none`: nobody in the call has a voice model). */
   readonly notes: 'on' | 'off' | 'none';
   /** Who writes the notes down with which model (peer ids, yours too), and the call's language once it settled (BLG-738). */
   readonly scribing: { readonly writers: Readonly<Record<string, VoiceModelId>>; readonly language?: string };
 }
 
-const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, notes: 'none', scribing: { writers: {} } };
+const EMPTY: CallLive = { speaking: new Set(), lines: {}, asks: [], cameras: {}, mode: 'sharp', theater: false, faces: false, quiet: 'on', notes: 'none', scribing: { writers: {} } };
 
 /** A picture from someone: its track, and whether frames are coming. */
 interface Incoming {
@@ -102,7 +105,11 @@ export class CallEngine {
   private readonly demoVoices = new Set<string>();
   /** A demo friend pointing at the shared screen (as the network would bring it: a few times a second). */
   private stopDemoPointer: (() => void) | undefined;
+  /** What the call sends of your voice: the noise filter's output, or the microphone itself. */
   private mic: MediaStream | undefined;
+  /** The microphone itself, and the filter over it (call/noise-filter.ts). */
+  private raw: MediaStream | undefined;
+  private filter: NoiseFilter | undefined;
   /** The microphone and speaker you picked (BLG-737), remembered on this Mac; undefined: macOS's own. */
   private micId: string | undefined = readPref(MIC_PREF);
   private speakerId: string | undefined = readPref(SPEAKER_PREF);
@@ -156,6 +163,41 @@ export class CallEngine {
     };
   }
 
+  /** Background noise out of your voice for this call, or kept (the next call starts with it on again). */
+  setQuiet(on: boolean): void {
+    if (this.live.quiet === 'none') return;
+    if (this.filter) this.filter.enabled = on;
+    this.patch({ quiet: on ? 'on' : 'off' });
+  }
+
+  /** The noise filter over this microphone, set as the call wants it (undefined: it can't run here). */
+  private async startFilter(raw: MediaStream): Promise<NoiseFilter | undefined> {
+    const filter = await NoiseFilter.start(raw, () => this.filterBroke(filter));
+    if (filter) filter.enabled = this.live.quiet !== 'off';
+    else this.patch({ quiet: 'none' });
+    return filter;
+  }
+
+  /** The filter stopped working mid-call: your voice goes on, unfiltered, rather than going silent. */
+  private filterBroke(which: NoiseFilter | undefined): void {
+    if (!which || which !== this.filter || !this.raw) return;
+    this.filter = undefined;
+    which.stop();
+    this.useVoice(this.raw);
+    this.patch({ quiet: 'none' });
+  }
+
+  /** Your voice is this stream from now on: every line, the speaking ring and the notes follow. */
+  private useVoice(stream: MediaStream): void {
+    this.mic = stream;
+    this.micAsked = Promise.resolve(stream);
+    if (this.view) this.applyMute(this.view);
+    const track = stream.getAudioTracks()[0];
+    for (const p of this.peers.values()) void p.setMic(track);
+    if (this.view) this.levels.watch(this.me, stream);
+    this.scribe?.listen(stream);
+  }
+
   /** Use this microphone (undefined: macOS's own) from now on; in a call, the others hear it at once. */
   async pickMic(id: string | undefined): Promise<void> {
     this.micId = id;
@@ -163,20 +205,19 @@ export class CallEngine {
     if (!this.view || this.view.demo || !this.mic) return;
     const token = this.micToken;
     try {
-      const next = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(id) });
+      const raw = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(id) });
+      const filter = await this.startFilter(raw);
       if (token !== this.micToken || !this.view) {
-        next.getTracks().forEach((t) => t.stop());
+        filter?.stop();
+        raw.getTracks().forEach((t) => t.stop());
         return;
       }
-      const old = this.mic;
-      this.mic = next;
-      this.micAsked = Promise.resolve(next);
-      this.applyMute(this.view);
-      const track = next.getAudioTracks()[0];
-      for (const p of this.peers.values()) void p.setMic(track);
-      this.levels.watch(this.me, next);
-      this.scribe?.listen(next);
-      old?.getTracks().forEach((t) => t.stop());
+      const [oldRaw, oldFilter] = [this.raw, this.filter];
+      this.raw = raw;
+      this.filter = filter;
+      this.useVoice(filter?.stream ?? raw);
+      oldFilter?.stop();
+      oldRaw?.getTracks().forEach((t) => t.stop());
     } catch {
       this.patch({ problem: 'Couldn’t switch to that microphone. Check it’s plugged in, then pick it again.' });
     }
@@ -475,12 +516,17 @@ export class CallEngine {
     const token = this.micToken;
     this.micAsked ??= navigator.mediaDevices
       .getUserMedia({ audio: micConstraints(this.micId) })
-      .then((s) => {
+      .then(async (raw) => {
+        const filter = await this.startFilter(raw);
         // The call ended while macOS asked: this microphone isn't wanted any more.
         if (token !== this.micToken) {
-          s.getTracks().forEach((t) => t.stop());
+          filter?.stop();
+          raw.getTracks().forEach((t) => t.stop());
           return undefined;
         }
+        this.raw = raw;
+        this.filter = filter;
+        const s = filter?.stream ?? raw;
         this.mic = s;
         if (this.view) this.applyMute(this.view);
         // Lines made while it opened carry it from now on.
@@ -524,6 +570,8 @@ export class CallEngine {
     const mic = await this.openMic();
     if (this.view?.id !== call.id) return;
     if (mic) this.levels.watch(this.me, mic);
+    // The microphone opened before the call's state was fresh: say again whether the filter runs.
+    if (mic) this.patch({ quiet: this.filter ? (this.filter.enabled ? 'on' : 'off') : 'none' });
     this.reconcile();
   }
 
@@ -595,6 +643,10 @@ export class CallEngine {
 
   private closeMic(): void {
     this.micToken++;
+    this.filter?.stop();
+    this.filter = undefined;
+    this.raw?.getTracks().forEach((t) => t.stop());
+    this.raw = undefined;
     this.mic?.getTracks().forEach((t) => t.stop());
     this.mic = undefined;
     this.micAsked = undefined;
@@ -602,7 +654,8 @@ export class CallEngine {
 
   private applyMute(call: CallView): void {
     const muted = call.people.find((p) => p.me)?.muted ?? false;
-    for (const t of this.mic?.getAudioTracks() ?? []) t.enabled = !muted;
+    // Muted at the microphone itself too: nothing of you reaches the filter, the ring or the notes.
+    for (const t of [...(this.raw?.getAudioTracks() ?? []), ...(this.mic?.getAudioTracks() ?? [])]) t.enabled = !muted;
   }
 
   /** Make the lines match the call: one per person, the share going where the tree says. */
@@ -923,9 +976,9 @@ function writePref(key: string, value: string | undefined): void {
 }
 
 /**
- * Your voice, cleaned up, from the microphone you picked (if it's gone, macOS's own). WebKit takes
- * only echo cancellation from these (macOS's voice processing); noise is macOS's Voice Isolation's
- * to take out, which only you can turn on (call/mic-mode.ts, BLG-744). The rest is for other browsers.
+ * Your voice from the microphone you picked (if it's gone, macOS's own). WebKit takes only echo
+ * cancellation from these (macOS's voice processing): background noise is taken out after, by the
+ * call's own filter (call/noise-filter.ts, BLG-744). The rest is for other browsers.
  */
 function micConstraints(id: string | undefined): MediaTrackConstraints {
   return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48_000, ...(id ? { deviceId: { ideal: id } } : {}) };
