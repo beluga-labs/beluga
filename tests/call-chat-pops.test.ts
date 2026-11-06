@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { netChat, roomChat } from '../packages/mac/src/call/call-chat.js';
 import { type ChatPop, POPS_KEPT, POP_CHARS, PopClock, popMs, popText, popsNow } from '../packages/mac/src/call/chat-pops.js';
-import { floatState } from '../packages/mac/src/call/float-model.js';
+import { cardFaces, floatState } from '../packages/mac/src/call/float-model.js';
 import type { LogItem } from '../src/core/store.js';
 import type { MessageView } from '../src/net/mesh/views.js';
 import type { CallView } from '../src/shared/calls.js';
@@ -90,5 +90,20 @@ describe('the floating card while you share', () => {
     const off = floatState(call(false), [], new Set(), () => '#launch');
     expect(on?.kind === 'in' && on.youShare).toBe(true);
     expect(off?.kind === 'in' && off.youShare).toBeFalsy();
+  });
+});
+
+describe('the faces on the compact card (BLG-743)', () => {
+  const people = (talking?: string) => ['a', 'b', 'c', 'd', 'e'].map((id) => ({ peerId: id, speaking: id === talking }));
+  const ids = (ps: ReadonlyArray<{ peerId: string }>) => ps.map((p) => p.peerId);
+
+  it('shows the first few, in the call’s order, whoever talks among them', () => {
+    expect(ids(cardFaces(people(), 3))).toEqual(['a', 'b', 'c']);
+    expect(ids(cardFaces(people('b'), 3))).toEqual(['a', 'b', 'c']);
+  });
+
+  it('someone further down talking takes the last place, so the one talking is always seen', () => {
+    expect(ids(cardFaces(people('e'), 3))).toEqual(['a', 'b', 'e']);
+    expect(ids(cardFaces(people('e'), 0))).toEqual([]);
   });
 });

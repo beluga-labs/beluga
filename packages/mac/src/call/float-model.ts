@@ -42,3 +42,14 @@ export function floatState(mine: CallView | undefined, ringing: readonly CallVie
   if (!by) return null;
   return { kind: 'ringing', conversation: r.conversation, place: placeOf(r.conversation), by: { peerId: by.peerId, name: by.name, speaking: false, muted: by.muted }, group: r.conversation.startsWith('group:') };
 }
+
+/**
+ * The faces the card shows, at most `most`, in the call's order: whoever is talking is always one
+ * of them (in the last place, when they'd be past it), so the card can show them on top (BLG-743).
+ */
+export function cardFaces<P extends { readonly speaking: boolean }>(people: readonly P[], most: number): readonly P[] {
+  const shown = people.slice(0, most);
+  if (shown.some((p) => p.speaking)) return shown;
+  const talker = people.slice(most).find((p) => p.speaking);
+  return talker && most > 0 ? [...shown.slice(0, most - 1), talker] : shown;
+}

@@ -188,17 +188,21 @@
 .faces {
   display: flex;
   padding-left: 4px;
+  isolation: isolate;
 }
 .faces .face + .face {
   margin-left: -8px;
 }
 .face {
+  position: relative;
   display: inline-flex;
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--bg-raised);
   transition: box-shadow var(--dur) var(--ease-out);
 }
+/* Whoever is talking sits on top of the stack, ring and all. */
 .speaking {
+  z-index: 1;
   box-shadow:
     0 0 0 2px var(--bg-raised),
     0 0 0 4px color-mix(in srgb, var(--call) 70%, transparent);

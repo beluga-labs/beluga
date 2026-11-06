@@ -2,7 +2,7 @@ import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, 
 import { callLength } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, cx } from '../components/ui.js';
-import type { FloatAction, FloatState } from '../call/float-model.js';
+import { type FloatAction, type FloatState, cardFaces } from '../call/float-model.js';
 import { useClock } from '../lib/window-active.js';
 import s from './callfloat.module.css';
 
@@ -222,7 +222,7 @@ export function CallFloat() {
 
   const talking = state.people.find((p) => p.speaking);
   const status = state.youShare ? null : talking ? `${talking.name} is talking` : state.sharing ? `${state.sharing} is sharing` : state.people.length ? callLength(now - state.startedAt) : 'Ringing…';
-  const faces = state.people.slice(0, 3);
+  const faces = cardFaces(state.people, 3);
   const more = state.people.length - faces.length;
   return (
     <div ref={setCard} className={cx(s.card, open && s.open, state.youShare && s.sharing)} style={size} onPointerDown={onPointerDown}>
