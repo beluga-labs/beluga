@@ -298,9 +298,9 @@ describe('the store', () => {
     expect(seen).toEqual([]);
   });
 
-  it('read clears the unread count of that channel only', () => {
+  it('read clears the unread count of the named channels only', () => {
     const before = { ...state(), unread: { 'ws:a': 2, 'ws:b': 1 } };
-    const next = reduceDomain(before, { type: 'triage_set', channel: 'ws:a', record: settled, read: true });
+    const next = reduceDomain(before, { type: 'triage_set', channel: 'ws:a', record: settled, read: ['ws:a'] });
     expect(next.unread).toEqual({ 'ws:b': 1 });
   });
 });

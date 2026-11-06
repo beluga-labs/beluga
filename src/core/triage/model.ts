@@ -1,3 +1,7 @@
+import type { DomainState } from '../store.js';
+import { planOf } from '../plans/owner.js';
+import { sentinelOfChannel } from '../sentinel/model.js';
+
 /**
  * Each chat's category for one person: Active (the UI says Inbox), Working, Snoozed or Settled.
  * Pure rules, no clock and no files, so the daemon, the Mac and the phone's views read the same
@@ -22,6 +26,8 @@ export interface ChatTriage {
   readonly holdIdle?: true;
   /** The last activity in the chat. */
   readonly lastAt?: number;
+  /** A friend's chat: it may be away while they're offline, so a load doesn't take it for deleted. */
+  readonly shared?: true;
 }
 
 export interface TriageFacts {
@@ -51,11 +57,29 @@ export type TriageEvent =
   | { readonly kind: 'turn_start'; readonly at: number }
   | { readonly kind: 'turn_end'; readonly at: number }
   | { readonly kind: 'agent_text'; readonly at: number }
+  | { readonly kind: 'auto_settle'; readonly on: boolean }
   | { readonly kind: 'system' };
+
+export type TriageSource = Pick<DomainState, 'projects' | 'shared' | 'plans' | 'board' | 'sentinel'>;
 
 export const SETTLE_WORKING_MESSAGE = 'This chat is working. Settle it when its turn ends, or snooze it now.';
 
 const NO_RECORD: ChatTriage = {};
+
+/**
+ * Which record speaks for a conversation: its own, or its plan's row. None for what has no category:
+ * the room, Your Mac, friends' chats, a sentinel's chats, archived worktrees and a project's main folder.
+ */
+export function triageKey(state: TriageSource, channel: string): string | undefined {
+  if (channel.startsWith('plan:')) return state.plans.plans.some((p) => `plan:${p.id}` === channel) ? channel : undefined;
+  if (!channel.startsWith('ws:') || sentinelOfChannel(state.sentinel, channel)) return undefined;
+  const id = channel.slice(3);
+  const plan = planOf(state, id);
+  if (plan) return `plan:${plan.id}`;
+  const own = state.projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
+  if (own) return own.archived || own.kind === 'main' ? undefined : channel;
+  return state.shared.some((w) => w.id === id) ? channel : undefined;
+}
 
 /** The category a chat shows: a raised hand wins over all, then a snooze, a settle, a running turn. */
 export function categoryOf(record: ChatTriage | undefined, facts: TriageFacts): ChatCategory {
@@ -109,6 +133,8 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
     case 'turn_end':
     case 'agent_text':
       return touched(was, event.at);
+    case 'auto_settle':
+      return event.on ? without(was, 'autoSettle') : { ...was, autoSettle: false };
     case 'system':
       return was;
   }

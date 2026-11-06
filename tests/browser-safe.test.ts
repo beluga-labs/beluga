@@ -34,6 +34,7 @@ const ENTRIES = [
   'src/companion/open-on-mac.ts',
   // Its rules also run in the Mac and in the phone's views.
   'src/core/triage/model.ts',
+  'src/core/triage/facts.ts',
 ];
 // Pure packages that run anywhere (string-width measures text the same way in both clients).
 const ALLOWED_PACKAGES = new Set(['zod', 'string-width']);

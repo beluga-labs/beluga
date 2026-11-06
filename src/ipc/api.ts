@@ -7,6 +7,7 @@ import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
+import { TRIAGE_API } from './triage-api.js';
 import { SUPPORT_API } from './support-api.js';
 import { CLAUDE_CODE_API } from './claude-code-api.js';
 import { STEPS_API } from './steps-api.js';
@@ -432,6 +433,8 @@ export const API = {
   ...CI_API,
   // ---- team boards: friends on the same GitHub repository keep one board (team-api.ts)
   ...TEAM_API,
+  // ---- each chat's category for you (triage-api.ts)
+  ...TRIAGE_API,
   // ---- git: keeping main current, GitHub, history (git-api.ts)
   ...GIT_API,
   ...VIEWS_API,

@@ -26,7 +26,7 @@ import { AUTO_COMPACT_DEFAULT } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, type SlotWait } from '../shared/run-slots.js';
 import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
-import type { ChatTriage } from './triage/model.js';
+import { type ChatTriage, triageKey } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
 
 export type { CompactMark, ContextInfo } from './context-log.js';
@@ -631,8 +631,8 @@ export type Action =
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
-  /** One chat's category record changed (none: removed). `read`: its unread count clears too (you settled it). */
-  | { type: 'triage_set'; channel: string; record?: ChatTriage; read?: true }
+  /** One chat's category record changed (none: removed). `read`: the conversations whose unread count clears too (you settled it). */
+  | { type: 'triage_set'; channel: string; record?: ChatTriage; read?: readonly string[] }
   | CollabAction
   | WorkAction
   | NetworkAction
@@ -943,7 +943,15 @@ function attend(state: DomainState, attention: Attention): DomainState {
   const unread = Object.fromEntries(Object.entries(state.unread).filter(([c]) => !fresh.includes(c)));
   // Opening (or leaving) Shared files counts every folder there as seen.
   const seenShares = attention.files !== state.attention.files ? shareKeys(state) : state.seenShares;
-  return { ...state, attention, unread, seenShares };
+  return { ...state, attention, unread, seenShares, triage: withoutBack(state, fresh) };
+}
+
+/** Opening a chat that woke from a snooze ends its Back state. */
+function withoutBack(state: DomainState, opened: readonly string[]): DomainState['triage'] {
+  const keys = new Set(opened.map((c) => triageKey(state, c)));
+  const back = Object.entries(state.triage).filter(([key, record]) => record.backAt !== undefined && keys.has(key));
+  if (!back.length) return state.triage;
+  return { ...state.triage, ...Object.fromEntries(back.map(([key, { backAt: _gone, ...record }]) => [key, record])) };
 }
 
 /** The reducer itself: pure for stamped actions (no clock, no counters). */
@@ -1275,8 +1283,9 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
 function reduceTriage(state: DomainState, action: Extract<Action, { type: 'triage_set' }>): DomainState {
   const { [action.channel]: was, ...rest } = state.triage;
   if (!action.record && !was) return state;
-  const { [action.channel]: _read, ...unread } = state.unread;
-  return { ...state, triage: action.record ? { ...state.triage, [action.channel]: action.record } : rest, ...(action.read ? { unread } : {}) };
+  const read = action.read ?? [];
+  const unread = read.length ? Object.fromEntries(Object.entries(state.unread).filter(([c]) => !read.includes(c))) : state.unread;
+  return { ...state, triage: action.record ? { ...state.triage, [action.channel]: action.record } : rest, unread };
 }
 
 /**
