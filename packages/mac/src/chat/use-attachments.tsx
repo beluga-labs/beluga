@@ -114,7 +114,7 @@ export interface Attachments {
  * `text`/`setText`: the words in the box (the composer keeps them in the window's UI state, the
  * plan chat in its own).
  */
-export function useAttachments({ channel, box, text, setText, chipLinks }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void; chipLinks?: (text: string) => string | undefined }): Attachments {
+export function useAttachments({ channel, box, text, setText, chipLinks, finderDrops = true }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void; chipLinks?: (text: string) => string | undefined; finderDrops?: boolean }): Attachments {
   // What waits in the box is kept per computer too (BLG-784): `channel` stays what the computer calls it.
   const memo = useScopedKey(channel);
   const { client } = useBeluga();
@@ -295,7 +295,7 @@ export function useAttachments({ channel, box, text, setText, chipLinks }: { cha
   // answers for its own conversation only, and not while it can't be written in.
   const [dragOver, setDragOver] = useState<Box>();
   useEffect(() => {
-    if (!inApp()) return;
+    if (!inApp() || !finderDrops) return;
     let off: (() => void) | undefined;
     let alive = true;
     const zoneAt = (x: number, y: number): Box | undefined => {
@@ -323,7 +323,7 @@ export function useAttachments({ channel, box, text, setText, chipLinks }: { cha
       off?.();
       setDragOver(undefined);
     };
-  }, [memo]);
+  }, [memo, finderDrops]);
 
   const pastePaths = usePastePaths(
     box,
