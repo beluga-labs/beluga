@@ -411,6 +411,14 @@ conversation, and it's the same chat.
 - **Microphone and speaker** (BLG-737). The chevron beside Mute picks which microphone and speaker
   the call uses; a new microphone goes on every line at once, and the choice is kept on this Mac.
   Picking a speaker needs WebKit's `setSinkId`; without it, macOS's own output is used.
+- **Background noise** (BLG-744). WebKit ignores a page's `noiseSuppression` and
+  `autoGainControl`: only echo cancellation applies, which turns on macOS's voice processing in its
+  Standard Mic Mode, and the room gets through. macOS's Voice Isolation takes it out, but only you
+  can pick it, per app, in Control Center. So the same menu has Voice Isolation, checked when it's
+  on for Beluga (`AVCaptureDevice` `preferredMicrophoneMode` / `activeMicrophoneMode`, read by the
+  shell, src-tauri/src/mic_mode.rs); a click opens macOS's Mic Mode picker
+  (`showSystemUserInterface:`). Once per Mac, in a call with someone, the strip suggests it if it's
+  off (not if you chose Wide Spectrum); it goes once it's on, dismissed, or after 20 seconds.
 - **The chat where it can't be seen.** Full Screen and Face to Face cover the chat, so what the
   others write from then on pops up on the right, dissolves once there was time to read it, and a
   line under it answers in the same chat (call/ChatPops.tsx). Messages that were already there

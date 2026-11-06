@@ -922,7 +922,11 @@ function writePref(key: string, value: string | undefined): void {
   }
 }
 
-/** Your voice, cleaned up, from the microphone you picked (if it's gone, macOS's own). */
+/**
+ * Your voice, cleaned up, from the microphone you picked (if it's gone, macOS's own). WebKit takes
+ * only echo cancellation from these (macOS's voice processing); noise is macOS's Voice Isolation's
+ * to take out, which only you can turn on (call/mic-mode.ts, BLG-744). The rest is for other browsers.
+ */
 function micConstraints(id: string | undefined): MediaTrackConstraints {
   return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48_000, ...(id ? { deviceId: { ideal: id } } : {}) };
 }
