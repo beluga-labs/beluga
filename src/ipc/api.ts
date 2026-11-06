@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, NotifySettings, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, NotifySettings, SETTLE_IDLE_DAYS_MAX, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
@@ -76,6 +76,9 @@ export const PrefsPatch = z
     autoCompactAt: z.number().int().min(AUTO_COMPACT_MIN).max(AUTO_COMPACT_MAX),
     parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX),
     chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX),
+    chatCategories: bool,
+    settleOnMerge: bool,
+    settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
     scratchFolder: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),

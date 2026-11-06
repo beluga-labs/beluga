@@ -3,7 +3,7 @@ import { agentName } from '../shared/agent-label.js';
 import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assistantChannel } from '../shared/assistant.js';
 import type { ConnectionStatus } from '../net/peer-client.js';
 import type { Effort, NotifySettings, Settings, ThemeName, TrustLevel } from './settings.js';
-import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema, SETTLE_IDLE_DAYS_DEFAULT } from '../shared/settings-schema.js';
 import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
@@ -26,6 +26,7 @@ import { AUTO_COMPACT_DEFAULT } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, type SlotWait } from '../shared/run-slots.js';
 import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
+import type { ChatTriage } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
 
 export type { CompactMark, ContextInfo } from './context-log.js';
@@ -289,6 +290,12 @@ export interface Prefs {
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
   readonly chatLimit: number;
+  /** Sort chats into Inbox, Working, Snoozed and Settled (core/triage). Off: no automatic change and no triage file. */
+  readonly chatCategories: boolean;
+  /** A merged PR settles its chat. */
+  readonly settleOnMerge: boolean;
+  /** Days without activity before a chat settles; 0: never. */
+  readonly settleIdleDays: number;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
   readonly subagents: Settings['subagents'];
@@ -518,6 +525,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly prefs: Prefs;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
+  /** Each chat's category record, by channel (core/triage), for you only: it never leaves this computer. */
+  readonly triage: Readonly<Record<string, ChatTriage>>;
 }
 
 /** What one screen shows: where it is, its tabs and dialogs, and its own cursors and scroll positions. */
@@ -622,6 +631,8 @@ export type Action =
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
+  /** One chat's category record changed (none: removed). `read`: its unread count clears too (you settled it). */
+  | { type: 'triage_set'; channel: string; record?: ChatTriage; read?: true }
   | CollabAction
   | WorkAction
   | NetworkAction
@@ -659,6 +670,9 @@ export const DEFAULT_PREFS: Prefs = {
   autoCompactAt: AUTO_COMPACT_DEFAULT,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
+  chatCategories: false,
+  settleOnMerge: true,
+  settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
   scratchFolder: true,
   subagents: 'full',
   hiddenButtons: [],
@@ -722,6 +736,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialTeam,
     companion: { devices: [] },
     assistant: NO_ASSISTANT_CHATS,
+    triage: {},
   };
 }
 
@@ -1175,6 +1190,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, assistant: action.assistant };
     case 'needs_dismissed':
       return { ...state, dismissedNeeds: action.ids };
+    case 'triage_set':
+      return reduceTriage(state, action);
     case 'btw': {
       const { [action.channel]: _gone, ...rest } = state.btw ?? {};
       return { ...state, btw: action.btw ? { ...rest, [action.channel]: action.btw } : rest };
@@ -1253,6 +1270,13 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     default:
       return state;
   }
+}
+
+function reduceTriage(state: DomainState, action: Extract<Action, { type: 'triage_set' }>): DomainState {
+  const { [action.channel]: was, ...rest } = state.triage;
+  if (!action.record && !was) return state;
+  const { [action.channel]: _read, ...unread } = state.unread;
+  return { ...state, triage: action.record ? { ...state.triage, [action.channel]: action.record } : rest, ...(action.read ? { unread } : {}) };
 }
 
 /**
