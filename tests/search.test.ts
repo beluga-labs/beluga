@@ -60,6 +60,13 @@ describe('searchConversations', () => {
     expect(hits).toEqual([{ channel: 'main', place: 'Chat', who: '', text: 'bob joined', at: 4, ts: 5 }]);
   });
 
+  it('dates an earlier message of a shared chat by when it was said, as the chat draws it', () => {
+    const said = { from: 'bob', name: 'bob', text: 'the old note', byAgent: false, ts: 3 };
+    const earlier: LogItem = { id: '1', type: 'system', channel: 'c', text: 'bob: the old note', ts: 9, level: 'info', said };
+    const hits = searchConversations('note', [source([earlier, system('2', 'note without a speaker', 8)])]);
+    expect(hits.map((h) => h.ts)).toEqual([8, 3]);
+  });
+
   it('records where the first word starts (case-insensitive)', () => {
     const hits = searchConversations('rejects auth', [source([chat('1', 'b', 'The Auth middleware REJECTS', 1)])]);
     expect(hits[0]!.at).toBe('The Auth middleware '.length);
