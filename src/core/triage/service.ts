@@ -127,7 +127,8 @@ export class TriageService {
       case 'question_add':
         return this.handCheck(action.question.channel, prev);
       case 'plan_put':
-        return this.handCheck(`plan:${action.plan.id}`, prev);
+        this.handCheck(`plan:${action.plan.id}`, prev);
+        return this.settleWhatCan();
       case 'approval_remove': {
         const gone = prev.approvals.find((a) => a.id === action.id);
         // One that ran out of time was never answered.

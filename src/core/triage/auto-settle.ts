@@ -20,7 +20,7 @@ const DAY_MS = 86_400_000;
 export function autoSettle(state: DomainState, now: number): readonly AutoSettled[] {
   if (!state.prefs.chatCategories) return [];
   const out = new Map<string, AutoSettled>();
-  if (state.prefs.settleOnMerge) for (const settled of [...mergedHere(state), ...mergedPrs(state)]) out.set(settled.key, settled);
+  if (state.prefs.settleOnMerge) for (const settled of [...mergedHere(state), ...mergedPrs(state), ...mergedPlanPrs(state)]) out.set(settled.key, settled);
   if (state.prefs.settleIdleDays > 0) for (const key of idleChats(state, now)) if (!out.has(key)) out.set(key, { key, why: 'idle' });
   return [...out.values()];
 }
@@ -42,16 +42,29 @@ function mergedHere(state: DomainState): readonly AutoSettled[] {
     .map(([key]) => ({ key, why: 'merged_here' as const }));
 }
 
+/** A worktree's PR speaks only for a chat with its own row: a plan's later tasks can still wait after one of its tasks' PRs. */
 function mergedPrs(state: DomainState): readonly AutoSettled[] {
   const out: AutoSettled[] = [];
   for (const ws of state.projects.flatMap((p) => p.workspaces)) {
     const pr = state.prs[ws.id];
     if (pr?.state !== 'MERGED' || ws.prDone === pr.number) continue;
-    const key = triageKey(state, `ws:${ws.id}`);
-    if (key && state.triage[key]?.settledPr !== pr.number && freeToMerge(state, key)) out.push({ key, why: 'pr_merged', pr: pr.number });
+    const key = `ws:${ws.id}`;
+    if (triageKey(state, key) === key && mergeSettles(state, key, pr.number)) out.push({ key, why: 'pr_merged', pr: pr.number });
   }
   return out;
 }
+
+/** A plan's row settles on merge only from the plan's own PR (branch into main). */
+function mergedPlanPrs(state: DomainState): readonly AutoSettled[] {
+  const out: AutoSettled[] = [];
+  for (const plan of state.plans.plans) {
+    const key = `plan:${plan.id}`;
+    if (plan.pr?.state === 'MERGED' && mergeSettles(state, key, plan.pr.number)) out.push({ key, why: 'pr_merged', pr: plan.pr.number });
+  }
+  return out;
+}
+
+const mergeSettles = (state: DomainState, key: string, pr: number): boolean => state.triage[key]?.settledPr !== pr && freeToMerge(state, key);
 
 /** An open PR stops this: it can wait days for review, and its merge settles the chat later. */
 function idleChats(state: DomainState, now: number): readonly string[] {

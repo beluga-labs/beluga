@@ -20,9 +20,12 @@ interface RunFacts {
 // The log is replaced, never changed, so one pass per log serves every chat.
 const runIndex = new WeakMap<readonly LogItem[], ReadonlyMap<string, RunFacts>>();
 
-/** The conversations a record stands for. */
+/** The conversations a record stands for. A plan that's done folds nothing any more, but its home still talks while its PR waits. */
 export function channelsOf(state: Pick<DomainState, 'plans' | 'board'>, key: string): readonly string[] {
-  return key.startsWith('plan:') ? planConversations(state, key.slice(5)).map((ws) => `ws:${ws}`) : [key];
+  if (!key.startsWith('plan:')) return [key];
+  const id = key.slice(5);
+  const home = planById(state.plans, id)?.home;
+  return [...new Set([...planConversations(state, id).map((ws) => `ws:${ws}`), ...(home?.startsWith('ws:') ? [home] : [])])];
 }
 
 export function handSourceOf(state: FactSource, key: string): HandSource {

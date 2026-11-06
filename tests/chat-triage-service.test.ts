@@ -7,6 +7,9 @@ import { type DomainState, type LogItem, Store, initialState } from '../src/core
 import type { PendingQuestion } from '../src/core/collab-store.js';
 import { TriageService } from '../src/core/triage/service.js';
 import { Board } from '../src/core/board/board.js';
+import type { Issue } from '../src/core/board/model.js';
+import { normalizeBody } from '../src/core/plans/edit.js';
+import type { Plan } from '../src/core/plans/model.js';
 import { categoryOf } from '../src/core/triage/model.js';
 import { triageFacts } from '../src/core/triage/facts.js';
 import { PHONE } from '../src/companion/coverage.js';
@@ -524,6 +527,107 @@ describe('auto-settle', () => {
       start(store).setAutoSettle(CH, false);
       setPr(store, 7);
       expect(category(store)).toBe('active');
+    });
+  });
+
+  describe('a plan row', () => {
+    const KEY = 'plan:p';
+    const HOME = 'ws:home';
+    const body = normalizeBody({ title: 'P', goal: 'g', milestones: [{ id: 'one', title: 'One', tasks: [{ id: 'a', title: 'A', issueId: 'ia' }] }] });
+    const plan = (over: Partial<Plan> = {}): Plan => ({ id: 'p', projectId: 'p1', home: HOME, status: 'active', body, draftRev: 1, autonomy: 'gated', maxParallel: 3, paused: false, testsAt: 'end', runs: {}, activity: [], createdAt: 0, updatedAt: 0, ...over });
+    const issue = { id: 'ia', key: 'X-1', number: 1, projectId: 'p1', title: 'A', status: 'in_progress', priority: 'medium', labels: [], blockedBy: [], related: [], rank: 0, brief: {}, revisions: [], worktrees: ['w1'] } as unknown as Issue;
+    const planStore = (on = true, over: Partial<Plan> = {}): Store => {
+      const base = makeStore(on, [project(ws('w1'), ws('home'))]).getState();
+      return new Store({ ...base, board: { ...base.board, issues: [issue] }, plans: { ...base.plans, plans: [plan(over)] } });
+    };
+    /** Every milestone passed, so the plan is done, and its own PR merged: how it really looks when that PR merges. */
+    const merged = (store: Store, number = 9) => store.dispatch({ type: 'plan_put', plan: plan({ status: 'done', pr: pr(number, 'MERGED') }) });
+
+    it('the plan’s own PR merging settles the row with its number', () => {
+      const store = planStore();
+      start(store);
+      store.dispatch({ type: 'plan_put', plan: plan({ pr: pr(9, 'OPEN') }) });
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+      merged(store);
+      expect(store.getState().triage[KEY]?.settled).toEqual({ at: NOW, why: 'pr_merged', pr: 9 });
+      expect(store.getState().triage[KEY]?.settledPr).toBe(9);
+    });
+
+    it('a merge during a turn in the plan settles the row when the turn ends', () => {
+      const store = planStore();
+      start(store);
+      run(store, 'started', 'r1', HOME);
+      merged(store);
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+      run(store, 'done', 'r1', HOME);
+      expect(store.getState().triage[KEY]?.settled?.pr).toBe(9);
+    });
+
+    it('a merge with an open question settles the row once it is answered', () => {
+      const store = planStore();
+      start(store);
+      store.dispatch({ type: 'question_add', question: question('q1', HOME) });
+      merged(store);
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+      store.dispatch({ type: 'question_remove', qid: 'q1' });
+      expect(store.getState().triage[KEY]?.settled?.pr).toBe(9);
+    });
+
+    it('after Un-settle the same plan PR does not settle again', () => {
+      const store = planStore();
+      const service = start(store);
+      merged(store);
+      service.unsettle(KEY);
+      merged(store);
+      store.dispatch({ type: 'plan_put', plan: plan({ status: 'done', pr: pr(9, 'MERGED'), updatedAt: 1 }) });
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+    });
+
+    it('a task worktree’s PR merging leaves the plan row unsettled', () => {
+      const store = planStore();
+      start(store);
+      setPr(store, 7);
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+      expect(store.getState().triage[CH]).toBeUndefined();
+    });
+
+    it('a worktree with its own row still settles from its PR', () => {
+      const store = planStore();
+      store.dispatch({ type: 'projects', projects: [project(ws('w1'), ws('home'), ws('w2'))] });
+      start(store);
+      setPr(store, 7, 'MERGED', 'w2');
+      expect(store.getState().triage['ws:w2']?.settled?.pr).toBe(7);
+    });
+
+    it('a plan with no own PR does not settle on merge', () => {
+      const store = planStore();
+      start(store);
+      store.dispatch({ type: 'plan_put', plan: plan({ status: 'done' }) });
+      expect(store.getState().triage[KEY]?.settled).toBeUndefined();
+    });
+
+    it('settleOnMerge off and autoSettle false stop it', () => {
+      const off = planStore();
+      off.dispatch({ type: 'prefs', prefs: { settleOnMerge: false } });
+      start(off);
+      merged(off);
+      expect(off.getState().triage[KEY]?.settled).toBeUndefined();
+
+      const chat = planStore();
+      start(chat).setAutoSettle(KEY, false);
+      merged(chat);
+      expect(chat.getState().triage[KEY]?.settled).toBeUndefined();
+    });
+
+    it('with chatCategories off a plan PR merge makes no transition and writes no file', () => {
+      const store = planStore(false);
+      start(store);
+      merged(store);
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(store.getState().triage).toEqual({});
+      expect(existsSync(file)).toBe(false);
     });
   });
 
