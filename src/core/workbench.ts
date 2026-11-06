@@ -32,6 +32,8 @@ import { openCode } from '../workspaces/open-code.js';
 import type { WorkspaceController } from './workspace-controller.js';
 import type { Intent } from './intents.js';
 import { agentName } from '../shared/agent-label.js';
+import { sentinelChatOf } from './sentinel/model.js';
+import { ASSISTANT_TITLE, assistantChatOf, assistantChatTitle, isAssistant } from '../shared/assistant.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import type { RuntimeChoice } from '../shared/agent-runtimes.js';
 import { type GitFixId, type GitSetup, type GitTrouble, explainGitTrouble, httpsRemoteOf, troubleLine } from '../shared/git-trouble.js';
@@ -47,6 +49,10 @@ export interface WorkbenchDeps {
   readonly intend: (intent: Intent) => void;
   /** Ask your Claude in a workspace conversation. */
   readonly askClaude: (prompt: string, channel: string) => void;
+  /** What Your Mac's chats outside `loaded` said, read from disk for a search (unset: there is no Your Mac). */
+  readonly savedChats?: (loaded: ReadonlySet<string>) => ReadonlyArray<{ readonly channel: string; readonly items: readonly LogItem[] }>;
+  /** Bring a Your Mac chat with nothing in the log back from disk, before opening it. */
+  readonly loadSavedChat?: (id: string) => void;
   readonly setPrefs: (prefs: Partial<Prefs>) => void;
   /** Ask you before something runs by itself the first time (e.g. a repo's own setup command). */
   readonly confirm?: (title: string, detail: string) => Promise<'yes' | 'no' | 'always'>;
@@ -218,6 +224,9 @@ async function inPool(tasks: ReadonlyArray<() => Promise<void>>, limit: number):
   };
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
 }
+
+/** "Your Mac › plan my trip": where a hit in one of Your Mac's chats was said. */
+const macChatPlace = (channel: string, items: readonly LogItem[]): string => `${ASSISTANT_TITLE} › ${assistantChatTitle(channel, items)}`;
 
 const samePr = (a: PullRequest | undefined, b: PullRequest | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
 
@@ -1641,13 +1650,17 @@ export class Workbench {
       if (channel === 'draft') continue;
       const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
       const shared = channel.startsWith('ws:') ? state.shared.find((w) => w.id === channel.slice(3)) : undefined;
-      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? (state.peers.length > 1 ? 'Group chat' : 'Chat') : channel, items: state.log.filter((l) => l.channel === channel), archived: ws?.archived });
+      const items = state.log.filter((l) => l.channel === channel);
+      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? (state.peers.length > 1 ? 'Group chat' : 'Chat') : isAssistant(channel) ? macChatPlace(channel, items) : channel, items, archived: ws?.archived });
     }
     for (const ws of this.manager.list.flatMap((p) => p.workspaces)) {
       const channel = `ws:${ws.id}`;
       if (loaded.has(channel)) continue;
       const items = this.manager.loadHistory<LogItem>(ws.id);
       if (items.length) sources.push({ channel, place: placeOf(ws), items, archived: ws.archived });
+    }
+    for (const { channel, items } of this.deps.savedChats?.(loaded) ?? []) {
+      if (items.length) sources.push({ channel, place: macChatPlace(channel, items), items });
     }
     const hits = searchConversations(query, sources);
     this.deps.store.dispatch({ type: 'search', search: { query, hits, searched: sources.length } });
@@ -1662,6 +1675,18 @@ export class Workbench {
       this.deps.intend({ type: 'navigate', view: { kind: 'room' } });
       return;
     }
+    const chat = assistantChatOf(hit.channel);
+    if (chat) {
+      this.deps.loadSavedChat?.(chat);
+      this.deps.intend({ type: 'navigate', view: { kind: 'assistant', chat } });
+      return;
+    }
+    const sentinelChat = sentinelChatOf(hit.channel);
+    if (sentinelChat) {
+      this.deps.intend({ type: 'navigate', view: { kind: 'sentinel_chat', chat: sentinelChat } });
+      return;
+    }
+    if (!hit.channel.startsWith('ws:')) return;
     const id = hit.channel.slice(3);
     const shared = state.shared.find((w) => w.id === id);
     if (shared) this.deps.intend({ type: 'navigate', view: { kind: 'shared', owner: shared.owner, id, tab: 'chat' } });
