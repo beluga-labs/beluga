@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, NotifySettings, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, NotifySettings, SETTLE_IDLE_DAYS_MAX, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
+import { TRIAGE_API } from './triage-api.js';
 import { SUPPORT_API } from './support-api.js';
 import { CLAUDE_CODE_API } from './claude-code-api.js';
 import { STEPS_API } from './steps-api.js';
@@ -76,6 +77,9 @@ export const PrefsPatch = z
     autoCompactAt: z.number().int().min(AUTO_COMPACT_MIN).max(AUTO_COMPACT_MAX),
     parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX),
     chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX),
+    chatCategories: bool,
+    settleOnMerge: bool,
+    settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
     scratchFolder: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),
@@ -429,6 +433,8 @@ export const API = {
   ...CI_API,
   // ---- team boards: friends on the same GitHub repository keep one board (team-api.ts)
   ...TEAM_API,
+  // ---- each chat's category for you (triage-api.ts)
+  ...TRIAGE_API,
   // ---- git: keeping main current, GitHub, history (git-api.ts)
   ...GIT_API,
   ...VIEWS_API,
