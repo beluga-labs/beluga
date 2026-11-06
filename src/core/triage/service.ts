@@ -4,6 +4,8 @@ import { writeJson } from '../../workspaces/store.js';
 import { type NoticeEvent, mentionOf, placeName } from '../notify.js';
 import { planById } from '../plans/model.js';
 import type { Action, DomainState, LogItem, Store } from '../store.js';
+import type { WorktreeEvent } from '../workspace-controller.js';
+import { autoSettle } from './auto-settle.js';
 import { channelsOf, handSourceOf, lastLogAt, triageFacts } from './facts.js';
 import { type ChatTriage, type TriageEvent, applyTriage, handRaisedOf, settleRefusal, triageKey } from './model.js';
 
@@ -21,11 +23,15 @@ export interface TriageServiceDeps {
   readonly notify: (event: NoticeEvent) => void;
   /** A workspace's saved chat, to seed when it was last active. */
   readonly history: (workspaceId: string) => readonly LogItem[];
+  /** Worktree events (a merge into main here). */
+  readonly onWorktree?: (listener: (event: WorktreeEvent) => void) => () => void;
   readonly now?: () => number;
 }
 
 const TICK_MAX_MS = 30_000;
+const AUTO_SETTLE_MS = 60_000;
 const SAVE_DELAY_MS = 1_000;
+const FINAL: ReadonlySet<string> = new Set(['done', 'error', 'denied']);
 const OFF_MESSAGE = 'Chat categories are off. Turn them on in Settings.';
 
 const Record_ = z.object({
@@ -36,6 +42,7 @@ const Record_ = z.object({
   settledPr: z.number().optional(),
   holdIdle: z.literal(true).optional(),
   lastAt: z.number().optional(),
+  mergedHere: z.literal(true).optional(),
   shared: z.literal(true).optional(),
 });
 
@@ -47,16 +54,18 @@ export class TriageService {
   private tickTimer?: NodeJS.Timeout;
   /** Deleted conversations go once, at load, when the projects are known. */
   private pruned = false;
-  private readonly off: () => void;
+  private lastAuto = 0;
+  private readonly offs: Array<() => void> = [];
 
   constructor(private readonly deps: TriageServiceDeps) {
     this.prev = deps.store.getState();
-    this.off = deps.store.onAction((action) => this.onAction(action));
+    this.offs.push(deps.store.onAction((action) => this.onAction(action)));
+    if (deps.onWorktree) this.offs.push(deps.onWorktree((event) => this.onWorktree(event)));
     if (this.prev.prefs.chatCategories) this.enable();
   }
 
   stop(): void {
-    this.off();
+    for (const off of this.offs) off();
     if (this.on) this.save();
     this.halt();
   }
@@ -108,7 +117,11 @@ export class TriageService {
       case 'chat':
         return this.onChat(action);
       case 'agent_event':
-        return this.onRun(action, prev);
+        this.onRun(action, prev);
+        if (FINAL.has(action.event)) this.settleWhatCan();
+        return;
+      case 'pr':
+        return this.settleWhatCan();
       case 'approval_add':
         return this.handCheck(action.approval.channel, prev);
       case 'question_add':
@@ -119,11 +132,13 @@ export class TriageService {
         const gone = prev.approvals.find((a) => a.id === action.id);
         // One that ran out of time was never answered.
         if (gone?.channel && !(gone.askedAt !== undefined && gone.timeoutMs !== undefined && gone.askedAt + gone.timeoutMs <= this.now())) this.applyIn(gone.channel, { kind: 'answer', at: this.now() });
+        this.settleWhatCan();
         return;
       }
       case 'question_remove': {
         const gone = prev.questions.find((q) => q.qid === action.qid);
         if (gone?.channel && !action.unanswered) this.applyIn(gone.channel, { kind: 'answer', at: this.now() });
+        this.settleWhatCan();
         return;
       }
       case 'projects':
@@ -133,6 +148,20 @@ export class TriageService {
       default:
         return;
     }
+  }
+
+  /** A merge into main here settles the chat, now or when it next can. */
+  private onWorktree(event: WorktreeEvent): void {
+    if (!this.on || event.kind !== 'merged') return;
+    this.applyIn(`ws:${event.id}`, { kind: 'merged_here' });
+    this.settleWhatCan();
+    if (this.state().triage !== this.saved) this.queueSave();
+  }
+
+  private settleWhatCan(): void {
+    const now = this.now();
+    this.lastAuto = now;
+    for (const { key, why, pr } of autoSettle(this.state(), now)) this.apply(key, { kind: 'settle', at: now, why, ...(pr !== undefined ? { pr } : {}) });
   }
 
   private onChat(action: Extract<Action, { type: 'chat' }>): void {
@@ -151,7 +180,7 @@ export class TriageService {
   private onRun(action: Extract<Action, { type: 'agent_event' }>, prev: DomainState): void {
     if (!action.channel) return;
     if (action.event === 'started' || action.event === 'queued') this.applyIn(action.channel, { kind: 'turn_start', at: action.ts });
-    else if (action.event === 'done' || action.event === 'error' || action.event === 'denied') this.applyIn(action.channel, { kind: 'turn_end', at: action.ts });
+    else if (FINAL.has(action.event)) this.applyIn(action.channel, { kind: 'turn_end', at: action.ts });
     this.handCheck(action.channel, prev);
   }
 
@@ -173,6 +202,7 @@ export class TriageService {
     this.prune();
     this.seed();
     this.wakeEnded();
+    this.settleWhatCan();
     this.arm();
     if (this.state().triage !== this.saved) this.queueSave();
   }
@@ -245,6 +275,8 @@ export class TriageService {
     this.tickTimer = undefined;
     if (!this.on) return;
     this.wakeEnded();
+    if (this.now() - this.lastAuto >= AUTO_SETTLE_MS) this.settleWhatCan();
+    if (this.state().triage !== this.saved) this.queueSave();
     this.arm();
   }
 

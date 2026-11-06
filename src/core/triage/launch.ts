@@ -4,6 +4,7 @@ import path from 'node:path';
 import { belugaHome } from '../home.js';
 import type { Session } from '../session.js';
 import type { LogItem, Store } from '../store.js';
+import type { WorktreeEvent } from '../workspace-controller.js';
 import { TriageService } from './service.js';
 
 /** Which triage service serves a session (the daemon's), so the API can reach it. */
@@ -24,6 +25,7 @@ export function launchTriage(host: TriageHost): () => void {
     file: path.join(dir, 'triage.json'),
     notify: (e) => session.notifier.notify(e),
     history: (id) => session.workspaces?.manager.loadHistory<LogItem>(id) ?? [],
+    ...(session.workspaces ? { onWorktree: (listener: (event: WorktreeEvent) => void) => session.workspaces!.onWorktree(listener) } : {}),
   });
   services.set(session, service);
   return () => {

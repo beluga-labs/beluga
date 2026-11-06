@@ -26,6 +26,8 @@ export interface ChatTriage {
   readonly holdIdle?: true;
   /** The last activity in the chat. */
   readonly lastAt?: number;
+  /** It merged into main here while it couldn't settle yet (a turn ran, a hand was up). */
+  readonly mergedHere?: true;
   /** A friend's chat: it may be away while they're offline, so a load doesn't take it for deleted. */
   readonly shared?: true;
 }
@@ -58,6 +60,7 @@ export type TriageEvent =
   | { readonly kind: 'turn_end'; readonly at: number }
   | { readonly kind: 'agent_text'; readonly at: number }
   | { readonly kind: 'auto_settle'; readonly on: boolean }
+  | { readonly kind: 'merged_here' }
   | { readonly kind: 'system' };
 
 export type TriageSource = Pick<DomainState, 'projects' | 'shared' | 'plans' | 'board' | 'sentinel'>;
@@ -135,6 +138,8 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
       return touched(was, event.at);
     case 'auto_settle':
       return event.on ? without(was, 'autoSettle') : { ...was, autoSettle: false };
+    case 'merged_here':
+      return { ...was, mergedHere: true };
     case 'system':
       return was;
   }
@@ -142,7 +147,7 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
 
 function settle(was: ChatTriage, event: Extract<TriageEvent, { kind: 'settle' }>): ChatTriage {
   const settled = { at: event.at, why: event.why, ...(event.pr !== undefined ? { pr: event.pr } : {}) };
-  return { ...without(was, 'snoozed', 'backAt', 'holdIdle'), settled, ...(event.pr !== undefined ? { settledPr: event.pr } : {}) };
+  return { ...without(was, 'snoozed', 'backAt', 'holdIdle', 'mergedHere'), settled, ...(event.pr !== undefined ? { settledPr: event.pr } : {}) };
 }
 
 /** Someone or something needs you: a settle or a snooze ends, and a snooze that ended shows Back. */

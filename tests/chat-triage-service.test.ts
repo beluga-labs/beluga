@@ -6,6 +6,7 @@ import { type NoticeEvent, Notifier } from '../src/core/notify.js';
 import { type DomainState, type LogItem, Store, initialState } from '../src/core/store.js';
 import type { PendingQuestion } from '../src/core/collab-store.js';
 import { TriageService } from '../src/core/triage/service.js';
+import { Board } from '../src/core/board/board.js';
 import { categoryOf } from '../src/core/triage/model.js';
 import { triageFacts } from '../src/core/triage/facts.js';
 import { PHONE } from '../src/companion/coverage.js';
@@ -402,5 +403,259 @@ describe('the API', () => {
 
   it('every method is the phone’s', () => {
     for (const m of ['triage.settle', 'triage.unsettle', 'triage.snooze', 'triage.wake', 'triage.setAutoSettle'] as const) expect(PHONE[m]).toBe('phone');
+  });
+});
+
+describe('auto-settle', () => {
+  const DAY = 24 * HOUR;
+  const pr = (number: number, state: 'OPEN' | 'CLOSED' | 'MERGED') => ({ number, url: 'u', state, title: 't', draft: false, checks: 'none' as const });
+  const setPr = (store: Store, number: number, state: 'OPEN' | 'CLOSED' | 'MERGED' = 'MERGED', id = 'w1') => store.dispatch({ type: 'pr', id, pr: pr(number, state) });
+
+  describe('on merge', () => {
+    it('a PR that becomes MERGED settles the chat with its number', () => {
+      const store = makeStore();
+      start(store);
+      setPr(store, 7, 'OPEN');
+      expect(category(store)).toBe('active');
+      setPr(store, 7);
+      expect(store.getState().triage[CH]?.settled).toEqual({ at: NOW, why: 'pr_merged', pr: 7 });
+      expect(store.getState().triage[CH]?.settledPr).toBe(7);
+    });
+
+    it('a closed PR does not settle the chat', () => {
+      const store = makeStore();
+      start(store);
+      setPr(store, 7, 'CLOSED');
+      expect(category(store)).toBe('active');
+    });
+
+    it('a merge during a turn settles the chat when the turn ends', () => {
+      const store = makeStore();
+      start(store);
+      run(store, 'started');
+      setPr(store, 7);
+      expect(category(store)).toBe('working');
+      run(store, 'done');
+      expect(category(store)).toBe('settled');
+    });
+
+    it('a merge while a question is open settles the chat once it is answered', () => {
+      const store = makeStore();
+      start(store);
+      store.dispatch({ type: 'question_add', question: question('q1') });
+      setPr(store, 7);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      store.dispatch({ type: 'question_remove', qid: 'q1' });
+      expect(category(store)).toBe('settled');
+    });
+
+    it('a merge settles a snoozed chat', () => {
+      const store = makeStore();
+      start(store).snooze(CH, NOW + HOUR);
+      setPr(store, 7);
+      expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
+      expect(category(store)).toBe('settled');
+    });
+
+    it('after Un-settle the same PR does not settle again; a new number does', () => {
+      const store = makeStore();
+      const service = start(store);
+      setPr(store, 7);
+      service.unsettle(CH);
+      setPr(store, 7);
+      run(store, 'started');
+      run(store, 'done');
+      vi.advanceTimersByTime(2 * 60_000);
+      expect(category(store)).toBe('active');
+      setPr(store, 8);
+      expect(store.getState().triage[CH]?.settled?.pr).toBe(8);
+    });
+
+    it('a PR you continued past does not settle', () => {
+      const store = makeStore(true, [project(ws('w1', { prDone: 7 }))]);
+      start(store);
+      setPr(store, 7);
+      expect(category(store)).toBe('active');
+    });
+
+    it('a restart and the first enable settle what merged meanwhile', () => {
+      const store = makeStore(false);
+      setPr(store, 7);
+      start(store);
+      expect(store.getState().triage).toEqual({});
+      store.dispatch({ type: 'prefs', prefs: { chatCategories: true } });
+      expect(category(store)).toBe('settled');
+    });
+
+    it('settleOnMerge off stops it', () => {
+      const store = makeStore();
+      store.dispatch({ type: 'prefs', prefs: { settleOnMerge: false } });
+      start(store);
+      setPr(store, 7);
+      expect(category(store)).toBe('active');
+    });
+
+    it('autoSettle false on the chat stops it', () => {
+      const store = makeStore();
+      start(store).setAutoSettle(CH, false);
+      setPr(store, 7);
+      expect(category(store)).toBe('active');
+    });
+  });
+
+  describe('merged here', () => {
+    const merged = (store: Store) => {
+      let emit: (e: { kind: 'merged'; id: string }) => void = () => undefined;
+      const service = new TriageService({ store, file, notify: (e) => notices.push(e), history: () => [], onWorktree: (l) => ((emit = l), () => undefined) });
+      services.push(service);
+      return { service, merge: () => emit({ kind: 'merged', id: 'w1' }) };
+    };
+
+    it('settles the chat with why merged_here', () => {
+      const store = makeStore();
+      merged(store).merge();
+      expect(store.getState().triage[CH]?.settled?.why).toBe('merged_here');
+    });
+
+    it('during a turn it waits for the turn to end', () => {
+      const store = makeStore();
+      const { merge } = merged(store);
+      run(store, 'started');
+      merge();
+      expect(category(store)).toBe('working');
+      run(store, 'done');
+      expect(store.getState().triage[CH]?.settled?.why).toBe('merged_here');
+      expect(store.getState().triage[CH]?.mergedHere).toBeUndefined();
+    });
+
+    it('settleOnMerge off stops it', () => {
+      const store = makeStore();
+      store.dispatch({ type: 'prefs', prefs: { settleOnMerge: false } });
+      merged(store).merge();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+  });
+
+  describe('idle', () => {
+    const idleStore = () => {
+      const store = makeStore();
+      const service = start(store);
+      return { store, service };
+    };
+    const pass = (days = 4) => {
+      vi.setSystemTime(NOW + days * DAY);
+      vi.advanceTimersByTime(61_000);
+    };
+
+    it('settles after N days with why idle', () => {
+      const { store } = idleStore();
+      pass();
+      expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+
+    it('not before N days', () => {
+      const { store } = idleStore();
+      pass(2);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
+    it('0 days means never', () => {
+      const { store } = idleStore();
+      store.dispatch({ type: 'prefs', prefs: { settleIdleDays: 0 } });
+      pass(100);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
+    it('a running turn stops it', () => {
+      const { store } = idleStore();
+      run(store, 'started');
+      pass();
+      expect(category(store)).toBe('working');
+    });
+
+    it('a raised hand stops it', () => {
+      const { store } = idleStore();
+      store.dispatch({ type: 'question_add', question: question('q1') });
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
+    it('unread stops it', () => {
+      const { store } = idleStore();
+      chat(store, 'bob', 'hello');
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
+    it('a snooze stops it', () => {
+      const { store, service } = idleStore();
+      service.snooze(CH, NOW + 100 * DAY);
+      pass();
+      expect(category(store)).toBe('snoozed');
+    });
+
+    it('holdIdle stops it, until new activity', () => {
+      const { store, service } = idleStore();
+      service.settle(CH);
+      service.unsettle(CH);
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      chat(store, 'me', 'back');
+      store.dispatch({ type: 'attention', attention: { shown: [CH], visible: [CH], files: false, front: true } });
+      store.dispatch({ type: 'attention', attention: { shown: [], visible: [], files: false, front: true } });
+      pass(9);
+      expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+
+    it('autoSettle false stops it', () => {
+      const { store, service } = idleStore();
+      service.setAutoSettle(CH, false);
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+    });
+
+    it('an open PR stops it; a closed one does not', () => {
+      const { store } = idleStore();
+      setPr(store, 7, 'OPEN');
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      setPr(store, 7, 'CLOSED');
+      expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+  });
+
+  describe('tasks stay independent', () => {
+    const withTask = () => {
+      const store = makeStore();
+      const board = new Board({ store, dir: null, projectName: () => 'app' });
+      const issue = board.create({ projectId: 'p1', title: 'Do it' }, { kind: 'beluga' });
+      return { store, board, issue };
+    };
+    const statusOf = (store: Store, id: string) => store.getState().board.issues.find((i) => i.id === id)?.status;
+
+    it('settling, snoozing and un-settling leave the task status unchanged', () => {
+      const { store, issue } = withTask();
+      const before = statusOf(store, issue.id);
+      const service = start(store);
+      service.settle(CH);
+      service.unsettle(CH);
+      service.snooze(CH, NOW + HOUR);
+      expect(statusOf(store, issue.id)).toBe(before);
+    });
+
+    it('a task moved to Done by hand leaves the chat unsettled', () => {
+      const { store, board, issue } = withTask();
+      start(store);
+      board.update(issue.id, { status: 'done' }, { kind: 'beluga' });
+      expect(statusOf(store, issue.id)).toBe('done');
+      expect(category(store)).toBe('active');
+    });
+
+    it('src/core/triage does not import the board at runtime', () => {
+      for (const f of ['model', 'facts', 'service', 'auto-settle', 'launch']) {
+        const src = readFileSync(path.resolve(`src/core/triage/${f}.ts`), 'utf8');
+        expect(src).not.toMatch(/^import (?!type)[^'"]*from '[^']*board\//m);
+      }
+    });
   });
 });
