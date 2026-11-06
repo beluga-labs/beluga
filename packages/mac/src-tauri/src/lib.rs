@@ -11,6 +11,7 @@ mod focus;
 mod menu;
 mod call_float;
 mod call_overlay;
+mod shared_window;
 mod popup;
 #[cfg(target_os = "macos")]
 mod power;

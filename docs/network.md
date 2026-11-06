@@ -438,8 +438,13 @@ conversation, and it's the same chat.
   looks for them in its own capture (call/leak-probe.ts, BLG-736). Found: the overlay still shows
   (a screen whose owner can't see the pointers is no use, BLG-743), and the sharer says so
   (`overlay` with `inPicture`): the others stop drawing pointers over that picture, since they're in
-  it, so nobody sees one twice. Ink lands on the same spot in both, so it stays. Sharing one window, the frame and the ink stay off (its place on screen
-  isn't known); the chat still pops up. In Beluga, the strip, the stage and the sidebar's pill say
+  it, so nobody sees one twice. Ink lands on the same spot in both, so it stays. Sharing one window,
+  WebKit doesn't say where it is, so the shell looks it up in macOS's window list
+  (src-tauri/src/shared_window.rs): the window whose size in pixels is the picture's; several that
+  size in one place (maximized) are one place, in different places the title settles it, else
+  nothing. Found, the overlay covers just that window and follows it (looked up again every 400
+  ms); not found, the frame and the ink stay off and the chat still pops up. A window's capture
+  never has the overlay in it, so there's nothing to probe. In Beluga, the strip, the stage and the sidebar's pill say
   you're sharing, and the pill can stop it. In full screen the stage's bar floats over the
   bottom and steps aside after a couple of seconds without the pointer moving.
 - **Calls of 5–10.** Each Mac measures what it can send (WebRTC's own estimate per line) and says so

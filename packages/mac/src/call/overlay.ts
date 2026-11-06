@@ -13,7 +13,9 @@ import { repeat } from './repeat.js';
  * frame around it says it's on show; what the others draw and point at shows where they made it;
  * what they write in the chat pops up bottom right and dissolves. Sharing one window (not a whole
  * screen), there's no way to know where it sits, so only the chat shows. Back in Beluga, it goes:
- * the chat is right there. macOS is asked to leave the overlay out of what's shared; since macOS 15
+ * the chat is right there. Sharing one window, the shell finds where that window is (by its size
+ * and title, src-tauri/src/shared_window.rs) and the overlay covers just it, following it as it
+ * moves; not found, only the chat shows (BLG-743). macOS is asked to leave the overlay out of what's shared; since macOS 15
  * it doesn't always, so the overlay first checks (call/leak-probe.ts). If it's in the picture, it
  * still shows (pointing at a screen its owner can't see is no use, BLG-743), and the others hear
  * so: they leave pointers to the picture instead of drawing their own over it, so nobody sees one
@@ -24,7 +26,7 @@ import { repeat } from './repeat.js';
 export interface OverlayState {
   /** The sharer's clock (performance.now) when this was sent: the overlay lines its own up with it. */
   readonly now: number;
-  /** A whole screen is shared: frame it, and draw the ink over it. */
+  /** Frame what's shared, and draw the ink over it (a whole screen, or the one window when it's found). */
   readonly frame: boolean;
   readonly ink?: Ink;
   /** The others' messages since you looked away, each with how long ago it came (ms). */
@@ -38,6 +40,8 @@ const PROBE_SETTLE_MS = 600;
 
 /** How often the overlay is brought up to date while something moves (a pointer, a stroke). */
 const SEND_MS = 33;
+/** Sharing one window: how often its place is checked again, in case it moved. */
+const FOLLOW_MS = 400;
 
 /** Starts following the call for the overlay (once per call); returns a stop. */
 export function startOverlay(engine: CallEngine, client: SocketClient, conversation: string): () => void {
@@ -82,10 +86,11 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
     dirty = true;
   });
   const offLive = engine.subscribe(() => (dirty = true));
-  const send = async (state: OverlayState | null, width = 0, height = 0): Promise<void> => {
+  const send = async (state: OverlayState | null, width = 0, height = 0, surface?: string, label?: string): Promise<void> => {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('set_call_overlay', { state, width, height }).catch(() => undefined);
+    await invoke('set_call_overlay', { state, width, height, surface: surface ?? null, label: label ?? null }).catch(() => undefined);
   };
+  let followedAt = 0;
   const stop = repeat(() => {
     const now = performance.now();
     ink = tidyInk(ink, now);
@@ -126,19 +131,25 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
     }
     // In the picture: the others draw no pointers of their own over it (said before it shows).
     say(wholeScreen && probe.verdict === 'leaks');
+    // One window: its place is looked at again now and then (it may have moved).
+    if (!wholeScreen && now - followedAt > FOLLOW_MS) {
+      followedAt = now;
+      dirty = true;
+    }
     // Moving ink keeps it up to date; nothing new, nothing sent.
     if (!dirty && !hasInk(ink) && shown) return;
     dirty = false;
     shown = true;
     const checking = wholeScreen && probe.verdict === 'unknown';
+    // One window's ink and frame go too: the shell drops them if it can't find the window.
     const state: OverlayState = {
       now,
-      frame: wholeScreen,
-      ...(wholeScreen && !checking ? { ink } : {}),
+      frame: true,
+      ...(!checking ? { ink } : {}),
       ...(checking ? { probe: probeColor(probe) } : {}),
       pops: checking ? [] : pops.map((p) => ({ ...p, age: wall - p.at })),
     };
-    void send(state, settings.width ?? 0, settings.height ?? 0);
+    void send(state, settings.width ?? 0, settings.height ?? 0, wholeScreen ? 'monitor' : 'window', shareTrack.label);
   }, SEND_MS);
   return () => {
     stop();
