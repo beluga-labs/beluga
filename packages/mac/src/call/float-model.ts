@@ -44,12 +44,14 @@ export function floatState(mine: CallView | undefined, ringing: readonly CallVie
 }
 
 /**
- * The faces the card shows, at most `most`, in the call's order: whoever is talking is always one
- * of them (in the last place, when they'd be past it), so the card can show them on top (BLG-743).
+ * The order of the faces on the card (peer ids), from the last order and who's in the call now
+ * (BLG-743): whoever talks moves to the front and stays there after they stop, until someone else
+ * talks; someone new comes in at the end. The card shows the first few, the front one on top.
  */
-export function cardFaces<P extends { readonly speaking: boolean }>(people: readonly P[], most: number): readonly P[] {
-  const shown = people.slice(0, most);
-  if (shown.some((p) => p.speaking)) return shown;
-  const talker = people.slice(most).find((p) => p.speaking);
-  return talker && most > 0 ? [...shown.slice(0, most - 1), talker] : shown;
+export function faceOrder(prev: readonly string[], people: ReadonlyArray<{ readonly peerId: string; readonly speaking: boolean }>): string[] {
+  const here = new Set(people.map((p) => p.peerId));
+  const kept = prev.filter((id) => here.has(id));
+  const order = [...kept, ...people.map((p) => p.peerId).filter((id) => !kept.includes(id))];
+  const talking = new Set(people.filter((p) => p.speaking).map((p) => p.peerId));
+  return [...order.filter((id) => talking.has(id)), ...order.filter((id) => !talking.has(id))];
 }

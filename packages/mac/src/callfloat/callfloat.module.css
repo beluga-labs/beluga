@@ -107,6 +107,13 @@
     var(--lift),
     inset 0 0 0 1.5px color-mix(in srgb, var(--call) 55%, transparent);
 }
+/* You're muted: the card turns rose, so it's plain at a glance (over the sharing green too). */
+.muted {
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-raised));
+  box-shadow:
+    var(--lift),
+    inset 0 0 0 1.5px color-mix(in srgb, var(--error) 50%, transparent);
+}
 .text .onShow {
   display: inline-flex;
   align-items: center;
@@ -200,12 +207,24 @@
   box-shadow: 0 0 0 2px var(--bg-raised);
   transition: box-shadow var(--dur) var(--ease-out);
 }
-/* Whoever is talking sits on top of the stack, ring and all. */
+/* Whoever is talking: at the front, on top, a ring in the call's green that breathes while they talk (no glow, a solid ring). */
 .speaking {
-  z-index: 1;
   box-shadow:
     0 0 0 2px var(--bg-raised),
-    0 0 0 4px color-mix(in srgb, var(--call) 70%, transparent);
+    0 0 0 4px color-mix(in srgb, var(--call) 75%, transparent);
+  animation: talk 1.4s ease-in-out infinite;
+}
+@keyframes talk {
+  50% {
+    box-shadow:
+      0 0 0 2px var(--bg-raised),
+      0 0 0 5.5px color-mix(in srgb, var(--call) 45%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .speaking {
+    animation: none;
+  }
 }
 .text {
   display: flex;

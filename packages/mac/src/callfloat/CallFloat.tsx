@@ -2,7 +2,7 @@ import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, 
 import { callLength } from '@beluga/shared/calls.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, cx } from '../components/ui.js';
-import { type FloatAction, type FloatState, cardFaces } from '../call/float-model.js';
+import { type FloatAction, type FloatPerson, type FloatState, faceOrder } from '../call/float-model.js';
 import { useClock } from '../lib/window-active.js';
 import s from './callfloat.module.css';
 
@@ -142,6 +142,53 @@ function useWindowFit(open: boolean, full: number, compact: number): void {
   }, [width, full, compact]);
 }
 
+/** How long a face takes to slide to its new place when someone else starts talking. */
+const SLIDE_MS = 380;
+
+/** The faces' order: whoever talks comes to the front and stays there until someone else talks (call/float-model.ts). */
+function useFaceOrder(people: readonly FloatPerson[]): readonly FloatPerson[] {
+  const last = useRef<readonly string[]>([]);
+  const order = faceOrder(last.current, people);
+  last.current = order;
+  const byId = new Map(people.map((p) => [p.peerId, p]));
+  return order.map((id) => byId.get(id)!);
+}
+
+/**
+ * A stack of faces, the front one on top, a ring on whoever talks. When the order changes, each
+ * face slides from where it was to where it is now, so someone starting to talk glides to the front.
+ */
+function Faces({ people, size, more }: { people: readonly FloatPerson[]; size: number; more: number }) {
+  const row = useRef<HTMLSpanElement>(null);
+  const was = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const now = new Map<string, number>();
+    for (const face of el.querySelectorAll<HTMLElement>('[data-face]')) {
+      const id = face.dataset['face'] ?? '';
+      const x = face.offsetLeft;
+      now.set(id, x);
+      const before = was.current.get(id);
+      if (!still && before !== undefined && before !== x) {
+        face.animate([{ transform: `translateX(${before - x}px)` }, { transform: 'none' }], { duration: SLIDE_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+      }
+    }
+    was.current = now;
+  });
+  return (
+    <span ref={row} className={s.faces}>
+      {people.map((p, i) => (
+        <span key={p.peerId} data-face={p.peerId} className={cx(s.face, p.speaking && s.speaking)} style={{ zIndex: people.length - i }}>
+          <Avatar name={p.name} id={p.peerId} size={size} />
+        </span>
+      ))}
+      {more > 0 ? <span className={s.more}>+{more}</span> : null}
+    </span>
+  );
+}
+
 /** Drag from anywhere but its buttons (its middle, which opens the call, drags too). A drag isn't a click. */
 function useDrag(): { onPointerDown: (e: ReactPointerEvent) => void; dragged: () => boolean } {
   const moved = useRef(false);
@@ -170,8 +217,8 @@ function useDrag(): { onPointerDown: (e: ReactPointerEvent) => void; dragged: ()
 
 /**
  * The call while Beluga is behind other apps (BLG-706, BLG-743). It comes up showing everything,
- * then shrinks to a small pill of faces (a ring on whoever talks, a dot while you share, a crossed
- * microphone when you're muted); point at it and it grows back with its buttons: stop sharing,
+ * then shrinks to a small pill of faces (whoever talks glides to the front with a ring that
+ * breathes; a dot while you share; muted, the whole card turns rose and shows a crossed microphone); point at it and it grows back with its buttons: stop sharing,
  * mute, leave, hide. Drag it anywhere: it comes back there. A click on its middle goes back to the
  * call in Beluga. Ringing, it stays whole: who calls, decline and join.
  */
@@ -188,6 +235,7 @@ export function CallFloat() {
   const pill = ringing ? fullW : compactW;
   useWindowFit(open, fullW, pill);
   const { onPointerDown, dragged } = useDrag();
+  const ordered = useFaceOrder(state?.kind === 'in' ? state.people : []);
   if (!state) return null;
   const openCall = (): void => {
     if (!dragged()) act('open', state.conversation);
@@ -222,19 +270,13 @@ export function CallFloat() {
 
   const talking = state.people.find((p) => p.speaking);
   const status = state.youShare ? null : talking ? `${talking.name} is talking` : state.sharing ? `${state.sharing} is sharing` : state.people.length ? callLength(now - state.startedAt) : 'Ringing…';
-  const faces = cardFaces(state.people, 3);
+  const faces = ordered.slice(0, 3);
   const more = state.people.length - faces.length;
   return (
-    <div ref={setCard} className={cx(s.card, open && s.open, state.youShare && s.sharing)} style={size} onPointerDown={onPointerDown}>
+    <div ref={setCard} className={cx(s.card, open && s.open, state.youShare && s.sharing, state.muted && s.muted)} style={size} onPointerDown={onPointerDown}>
       <div ref={fullRef} className={s.full} aria-hidden={!open}>
         <button type="button" className={s.main} data-drag="true" tabIndex={tab} onClick={openCall}>
-          <span className={s.faces}>
-            {faces.map((p) => (
-              <span key={p.peerId} className={cx(s.face, p.speaking && s.speaking)}>
-                <Avatar name={p.name} id={p.peerId} size={26} />
-              </span>
-            ))}
-          </span>
+          <Faces people={faces} size={26} more={0} />
           <span className={s.text}>
             <strong>{state.place}</strong>
             {status !== null ? (
@@ -269,14 +311,7 @@ export function CallFloat() {
       <div ref={compactRef} className={s.compact} aria-hidden={open}>
         {state.youShare ? <span className={s.liveDot} aria-label="Sharing your screen" /> : null}
         {faces.length ? (
-          <span className={s.faces}>
-            {faces.map((p) => (
-              <span key={p.peerId} className={cx(s.face, p.speaking && s.speaking)}>
-                <Avatar name={p.name} id={p.peerId} size={22} />
-              </span>
-            ))}
-            {more > 0 ? <span className={s.more}>+{more}</span> : null}
-          </span>
+          <Faces people={faces} size={22} more={more} />
         ) : (
           <span className={s.waiting} aria-label="Ringing">
             <Icon name="call" size={13} />
