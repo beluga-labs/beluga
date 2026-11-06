@@ -394,7 +394,10 @@ conversation, and it's the same chat.
   dissolves a few seconds later by itself. The Box tool (or Shift as you drag) marks a box instead;
   it goes as a stroke along its sides, so it fades and can be asked about like any sketch. Beside
   your sketch, Ask your agent sends the part it covers, ink and all, to the chat; the sketch stays up
-  while you type the question. The sharer picks Sharp (text) or Smooth (motion) behind •••; Full
+  while you type the question. The sharer picks Sharp (text) or Smooth (motion) behind •••; each
+  viewer can pick their own there too (BLG-743), or keep the sharer's. A viewer's choice goes out as
+  `want`, and whoever feeds them the picture sends it that way (the sharer captures every frame once
+  anyone wants Smooth); passed on through another viewer, it can't be sharper than what they get. Full
   Screen gives the picture the whole display. Nothing is written over the shared screen while the
   chat shows beside it.
 - **Everyone's pointer** (BLG-733). Off until you turn on Show My Pointer in the stage's bar (each
@@ -423,8 +426,10 @@ conversation, and it's the same chat.
   bottom right. Both ask macOS to leave them out of captures (`NSWindowSharingNone`), so the
   others don't see them. Since macOS 15, ScreenCaptureKit doesn't always listen, so the overlay
   first shows a few pixels of two colours in turn in its top-left corner and the sharer's window
-  looks for them in its own capture (call/leak-probe.ts, BLG-736). Found: the overlay stays away
-  for the call (a toast says why), and nobody sees their own pointer or ink twice. Sharing one window, the frame and the ink stay off (its place on screen
+  looks for them in its own capture (call/leak-probe.ts, BLG-736). Found: the overlay still shows
+  (a screen whose owner can't see the pointers is no use, BLG-743), and the sharer says so
+  (`overlay` with `inPicture`): the others stop drawing pointers over that picture, since they're in
+  it, so nobody sees one twice. Ink lands on the same spot in both, so it stays. Sharing one window, the frame and the ink stay off (its place on screen
   isn't known); the chat still pops up. In Beluga, the strip, the stage and the sidebar's pill say
   you're sharing, and the pill can stop it. In full screen the stage's bar floats over the
   bottom and steps aside after a couple of seconds without the pointer moving.

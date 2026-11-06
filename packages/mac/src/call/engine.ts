@@ -41,6 +41,10 @@ export interface CallLive {
   readonly cameras: Readonly<Record<string, MediaStream>>;
   /** How the screen on the stage is sent (the sharer picks). */
   readonly mode: ShareMode;
+  /** How you want it sent to you, watching someone else's (BLG-743); undefined: as they send it. */
+  readonly want?: ShareMode;
+  /** The sharer whose overlay macOS puts in the picture: their screen shows everyone's pointers, so this window doesn't draw them again. */
+  readonly overlayBy?: string;
   /** The stage fills the whole display. */
   readonly theater: boolean;
   /** Face to face: cameras over the whole window (theirs big, yours in a corner; a group as a collage). */
@@ -71,6 +75,10 @@ export class CallEngine {
   private readonly incoming = new Map<string, Map<string, Incoming>>();
   /** Which of each person's streams is their camera and which a screen (they say so on the stage). */
   private readonly kinds = new Map<string, { readonly cam?: string; readonly screen?: string }>();
+  /** How each viewer wants the screen sent to them (they say so); the rest get the sharer's mode. */
+  private readonly wants = new Map<string, ShareMode>();
+  /** Your overlay is in the picture you share now (you said so to the others). */
+  private overlayMine = false;
   /** Your camera, while it's on. */
   private cam: MediaStream | undefined;
   /** How each person shows your camera (they say so), and how you show theirs. */
@@ -224,7 +232,7 @@ export class CallEngine {
       this.screen = next;
       const track = this.screen.getVideoTracks()[0];
       if (track) {
-        this.tune(track, this.live.mode);
+        this.tune(track);
         track.onended = () => void this.stopSharing();
       }
       await this.client.api.calls.set(c, { sharing: true });
@@ -244,18 +252,37 @@ export class CallEngine {
     this.reconcile();
   }
 
-  /** Sharp for text, Smooth for motion: your capture and everyone passing it on follow. */
+  /** Sharp for text, Smooth for motion: your capture and everyone passing it on follow (but viewers who chose their own). */
   setShareMode(mode: ShareMode): void {
-    const track = this.screen?.getVideoTracks()[0];
-    if (track) this.tune(track, mode);
     this.patch({ mode });
+    const track = this.screen?.getVideoTracks()[0];
+    if (track) this.tune(track);
     this.stageSend({ k: 'mode', by: this.me, mode });
     this.reconcile();
   }
 
-  private tune(track: MediaStreamTrack, mode: ShareMode): void {
+  /**
+   * Watching someone's screen: how you want it sent to you (undefined: as they send it). Whoever
+   * feeds you sends it so; passed on through someone else, it can't be sharper than what they get.
+   */
+  setWant(mode: ShareMode | undefined): void {
+    this.patch({ want: mode });
+    this.stageSend({ k: 'want', by: this.me, ...(mode ? { mode } : {}) });
+  }
+
+  /** The sharer's overlay is in the picture now (call/overlay.ts says so as it changes): the others hear it. */
+  setOverlayInPicture(on: boolean): void {
+    if (on === this.overlayMine) return;
+    this.overlayMine = on;
+    this.stageSend({ k: 'overlay', by: this.me, inPicture: on });
+  }
+
+  /** Your capture: tuned for the mode you send in, and every frame when someone watching wants Smooth. */
+  private tune(track: MediaStreamTrack): void {
+    const mode = this.live.mode;
+    const smooth = mode === 'smooth' || [...this.wants.values()].includes('smooth');
     track.contentHint = mode === 'sharp' ? 'text' : 'motion';
-    void track.applyConstraints({ frameRate: mode === 'sharp' ? { ideal: 24, max: 30 } : { ideal: 60, max: 60 } }).catch(() => undefined);
+    void track.applyConstraints({ frameRate: smooth ? { ideal: 60, max: 60 } : { ideal: 24, max: 30 } }).catch(() => undefined);
   }
 
   /** The stage over the whole display (the window goes full screen too), or back. */
@@ -485,7 +512,7 @@ export class CallEngine {
   }
 
   private async begin(call: CallView): Promise<void> {
-    this.patch({ ...EMPTY, conversation: call.conversation, call: call.id });
+    this.patch({ ...EMPTY, want: undefined, overlayBy: undefined, conversation: call.conversation, call: call.id });
     // This window makes your side of the call: say so now, and every few seconds while it does.
     const keep = (): void => {
       const c = this.live.conversation;
@@ -543,6 +570,8 @@ export class CallEngine {
     this.audio.clear();
     this.incoming.clear();
     this.kinds.clear();
+    this.wants.clear();
+    this.overlayMine = false;
     this.viewsOf.clear();
     this.scribes.clear();
     this.clipsIn.clear();
@@ -561,7 +590,7 @@ export class CallEngine {
     this.screen?.getTracks().forEach((t) => t.stop());
     this.screen = undefined;
     this.view = undefined;
-    this.patch(EMPTY);
+    this.patch({ ...EMPTY, want: undefined, overlayBy: undefined });
   }
 
   private closeMic(): void {
@@ -593,12 +622,15 @@ export class CallEngine {
       this.dropAudio(id);
       this.incoming.delete(id);
       this.kinds.delete(id);
+      this.wants.delete(id);
       this.levels.forget(id);
     }
     for (const p of others) if (!this.peers.has(p.peerId)) this.peers.set(p.peerId, this.line(call, p.peerId));
     this.reconcileCameras(call, others.length + 1);
     // The share: who has the stage, who feeds whom.
     const sharer = sharerOf(call);
+    // The overlay in the picture was that sharer's: another share has its own.
+    if (this.live.overlayBy && this.live.overlayBy !== sharer?.peerId) this.patch({ overlayBy: undefined });
     // Someone shared after you: they have the stage now, and your capture stops.
     if (this.screen && sharer && !sharer.me) void this.stopSharing();
     if (!sharer || (sharer.me && !this.screen)) {
@@ -612,7 +644,8 @@ export class CallEngine {
     this.sharingTo = new Set(shareChildren(tree, me));
     const outgoing = sharer.me ? this.screen?.getVideoTracks()[0] : this.picture(tree.get(me) ?? '', 'screen');
     const children = this.sharingTo;
-    for (const [id, peer] of this.peers) void peer.setVideo(children.has(id) ? outgoing : undefined, this.live.mode);
+    // Each viewer gets it the way they asked for, else the sharer's way.
+    for (const [id, peer] of this.peers) void peer.setVideo(children.has(id) ? outgoing : undefined, this.wants.get(id) ?? this.live.mode);
     const stream = sharer.me ? this.screen : outgoing ? new MediaStream([outgoing]) : undefined;
     const was = this.live.stage;
     if (!stream) {
@@ -718,6 +751,17 @@ export class CallEngine {
           }
           if (m.k === 'clip') return this.clipPart(peerId, m);
           if (m.k === 'clip-text') return this.clipsOut.get(`${peerId}:${m.id}`)?.({ text: m.text, ...(m.lang ? { lang: m.lang } : {}) });
+          if (m.k === 'want') {
+            if (m.mode) this.wants.set(peerId, m.mode);
+            else this.wants.delete(peerId);
+            const track = this.screen?.getVideoTracks()[0];
+            if (track) this.tune(track);
+            return this.reconcile();
+          }
+          if (m.k === 'overlay') {
+            if (this.view && sharerOf(this.view)?.peerId === peerId) this.patch({ overlayBy: m.inPicture ? peerId : undefined });
+            return;
+          }
           if (m.k === 'mode') {
             // Only the sharer's word counts; the relays follow it too.
             if (this.view && sharerOf(this.view)?.peerId === peerId) this.patch({ mode: m.mode });
@@ -731,6 +775,8 @@ export class CallEngine {
           // Someone who just joined hears how your screen is sent, and how you show their camera.
           if (state === 'connected' && this.screen) this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'mode', by: this.me, mode: this.live.mode }));
           if (state === 'connected') this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'view', by: this.me, big: this.myView.big, visible: this.myView.visible }));
+          if (state === 'connected' && this.live.want) this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'want', by: this.me, mode: this.live.want }));
+          if (state === 'connected' && this.overlayMine) this.peers.get(peerId)?.sendStage(JSON.stringify({ k: 'overlay', by: this.me, inPicture: true }));
         },
       },
       mic,

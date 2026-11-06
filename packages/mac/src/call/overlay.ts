@@ -14,8 +14,10 @@ import { repeat } from './repeat.js';
  * what they write in the chat pops up bottom right and dissolves. Sharing one window (not a whole
  * screen), there's no way to know where it sits, so only the chat shows. Back in Beluga, it goes:
  * the chat is right there. macOS is asked to leave the overlay out of what's shared; since macOS 15
- * it doesn't always, so the overlay first checks (call/leak-probe.ts), and if it would be in the
- * picture it stays away: the others never see their own pointers and ink twice (BLG-736).
+ * it doesn't always, so the overlay first checks (call/leak-probe.ts). If it's in the picture, it
+ * still shows (pointing at a screen its owner can't see is no use, BLG-743), and the others hear
+ * so: they leave pointers to the picture instead of drawing their own over it, so nobody sees one
+ * twice (BLG-736). Ink lands on the same spot either way.
  */
 
 /** What the overlay draws: the frame, everyone's ink but yours, the chat, and this window's clock. */
@@ -49,6 +51,13 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
   let probe: ProbeState = NEW_PROBE;
   let reader: { readonly track: MediaStreamTrack; readonly corner: CornerReader } | undefined;
   let probeAt = 0;
+  /** What the others were last told: the overlay is in the picture now. */
+  let inPicture = false;
+  const say = (on: boolean): void => {
+    if (on === inPicture) return;
+    inPicture = on;
+    engine.setOverlayInPicture(on);
+  };
   const stopReader = (): void => {
     reader?.corner.stop();
     reader = undefined;
@@ -83,6 +92,7 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
     const shareTrack = engine.sharedTrack();
     if (!shareTrack || focused) {
       clock = undefined;
+      say(false);
       if (shown) {
         shown = false;
         void send(null);
@@ -112,20 +122,13 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
         probeAt = now;
         dirty = true;
         if (probe.verdict !== 'unknown') stopReader();
-        if (probe.verdict === 'leaks') client.store.dispatch({ type: 'toast', text: 'macOS puts Beluga’s overlay in what you share, so the others’ pointers and drawings show only in Beluga’s window.', level: 'info' });
       }
     }
+    // In the picture: the others draw no pointers of their own over it (said before it shows).
+    say(wholeScreen && probe.verdict === 'leaks');
     // Moving ink keeps it up to date; nothing new, nothing sent.
     if (!dirty && !hasInk(ink) && shown) return;
     dirty = false;
-    // It would be: it stays away, so nobody sees their own pointer or ink twice.
-    if (wholeScreen && probe.verdict === 'leaks') {
-      if (shown) {
-        shown = false;
-        void send(null);
-      }
-      return;
-    }
     shown = true;
     const checking = wholeScreen && probe.verdict === 'unknown';
     const state: OverlayState = {
@@ -144,6 +147,7 @@ export function startOverlay(engine: CallEngine, client: SocketClient, conversat
     offLive();
     window.removeEventListener('focus', onFocus);
     window.removeEventListener('blur', onBlur);
+    say(false);
     if (shown) void send(null);
   };
 }
