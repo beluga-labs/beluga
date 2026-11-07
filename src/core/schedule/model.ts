@@ -1,6 +1,6 @@
 import { dueNow, LATE_MS, nextRunAt } from '../../shared/schedule/clock.js';
-import type { ScheduleTrigger } from '../../shared/schedule/trigger.js';
-import type { Schedule, ScheduleInput, ScheduleWhen } from './schema.js';
+import { scheduleWords, type ScheduleTrigger } from '../../shared/schedule/trigger.js';
+import type { Schedule, ScheduleInput, SchedulePatch, ScheduleWhen } from './schema.js';
 
 /**
  * Every timing and merge decision of a schedule in a chat: pure functions, no I/O. The service
@@ -12,6 +12,9 @@ export const RUN_LIMIT_MS = 60 * 60 * 1000;
 export const MAX_FAILURES = 3;
 
 export type ScheduleStatus = 'never' | 'waiting' | 'running' | 'ok' | 'failed' | 'interrupted';
+
+/** A schedule as screens see it. */
+export type ScheduleView = Schedule & { readonly status: ScheduleStatus; readonly next?: number };
 
 export interface ClockOpts {
   /** An IANA zone, for tests: without it, the Mac's local time. */
@@ -168,7 +171,7 @@ export function resumeSchedule(schedule: Schedule, now: number): Schedule {
 }
 
 /** The saved edit. A new `when` restarts the timing from now, so there is always one next time. */
-export function applyEdit(schedule: Schedule, patch: Partial<ScheduleInput>, now: number): Schedule {
+export function applyEdit(schedule: Schedule, patch: SchedulePatch, now: number): Schedule {
   const whenChanged = patch.when !== undefined && JSON.stringify(patch.when) !== JSON.stringify(schedule.when);
   if (!whenChanged) return { ...schedule, ...patch, updatedAt: now };
   const { pending: _pending, anchor: _anchor, ...rest } = schedule;
@@ -187,10 +190,22 @@ export function overLimit(schedule: Schedule, now: number): boolean {
   return schedule.running !== undefined && now - schedule.running.startedAt > RUN_LIMIT_MS;
 }
 
+export function scheduleView(schedule: Schedule, now: number, opts: ClockOpts = {}): ScheduleView {
+  const next = nextTime(schedule, now, opts);
+  return { ...schedule, status: scheduleStatus(schedule), ...(next !== undefined ? { next } : {}) };
+}
+
 export function scheduleStatus(schedule: Schedule): ScheduleStatus {
   if (schedule.running) return 'running';
   if (schedule.pending) return 'waiting';
   return schedule.last ?? 'never';
+}
+
+/** When it runs, in words. */
+export function whenWords(when: ScheduleWhen, opts: ClockOpts = {}): string {
+  if (when.kind === 'interval') return when.minutes === 1 ? 'Every minute' : `Every ${when.minutes} minutes`;
+  if (when.kind === 'once') return `Once at ${clock(when.at, opts)}`;
+  return scheduleWords(asTrigger(when));
 }
 
 /** The chat line of a run. */

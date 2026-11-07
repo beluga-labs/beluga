@@ -5,6 +5,7 @@ import type { ScheduleMark } from '../store.js';
 import {
   RUN_LIMIT_MS,
   applyDecision,
+  applyEdit,
   applyEnd,
   checkWhen,
   clock,
@@ -16,11 +17,13 @@ import {
   resumeSchedule,
   runLine,
   scheduleBrief,
+  scheduleView,
   skipLine,
   type Decision,
   type ScheduleOutcome,
+  type ScheduleView,
 } from './model.js';
-import { ScheduleInputSchema, type Schedule } from './schema.js';
+import { ScheduleInputSchema, SchedulePatchSchema, type Schedule } from './schema.js';
 import { ScheduleFile } from './store.js';
 
 /**
@@ -108,6 +111,11 @@ export class Schedules {
     return channel ? this.items.filter((s) => s.channel === channel) : this.items;
   }
 
+  /** What a screen shows of it. */
+  view(s: Schedule): ScheduleView {
+    return scheduleView(s, this.deps.now(), this.clockOpts());
+  }
+
   /** A new schedule in a chat. It throws a message the user can act on. */
   create(channel: string, input: unknown): Schedule {
     const parsed = ScheduleInputSchema.parse(input);
@@ -121,6 +129,39 @@ export class Schedules {
     this.items = [...this.items, made];
     this.save();
     return made;
+  }
+
+  /** A saved edit, on the schedule as it is now. A run under way ends on these values. */
+  update(id: string, patch: unknown): Schedule {
+    const s = this.need(id);
+    const parsed = SchedulePatchSchema.parse(patch);
+    const now = this.deps.now();
+    const late = parsed.when ? checkWhen(parsed.when, now) : undefined;
+    if (late) throw new Error(late);
+    return this.replace(applyEdit(s, parsed, now));
+  }
+
+  /** Run it now, on or paused. On a busy chat it waits its turn when it's on, as a due slot does. */
+  runNow(id: string): Schedule {
+    const s = this.need(id);
+    if (s.running) throw new Error('This schedule is already running. Wait for that run to end.');
+    const refused = this.refusal(s.channel);
+    if (refused) throw new Error(refused);
+    const now = this.deps.now();
+    if (this.busy(s.channel)) {
+      if (!s.enabled) throw new Error('This chat is busy. Try again when it is idle.');
+      if (s.pending) return s;
+      return this.replace({ ...s, pending: { due: now, slots: 1, missed: 0 } });
+    }
+    this.fire(s, { kind: 'run', due: s.pending?.due ?? now, slots: s.pending?.slots ?? 1, missed: s.pending?.missed ?? 0, late: false }, now);
+    return this.need(id);
+  }
+
+  /** Remove it. A run under way finishes, and nothing is kept of it. */
+  remove(id: string): void {
+    this.need(id);
+    this.items = this.items.filter((s) => s.id !== id);
+    this.save();
   }
 
   /** Turn it on or off. On is refused while the chat can't have one, or a once time has passed. */
@@ -157,6 +198,11 @@ export class Schedules {
   briefFor(channel: string, requestId: string): string | undefined {
     const s = this.items.find((x) => x.channel === channel && x.running?.requestId === requestId);
     return s?.running ? scheduleBrief(s.title, s.running, this.clockOpts()) : undefined;
+  }
+
+  /** The setting, for the API: it refuses every method while this is false. */
+  isOn(): boolean {
+    return this.deps.enabled();
   }
 
   /** Stop ticking. A run under way is left as saved: the next start calls it interrupted. */

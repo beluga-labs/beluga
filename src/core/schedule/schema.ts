@@ -16,21 +16,32 @@ export const ScheduleWhenSchema = z.discriminatedUnion('kind', [
 ]);
 export type ScheduleWhen = z.infer<typeof ScheduleWhenSchema>;
 
+/** A slot that passed while this computer was off: run once when it's back, or skip it. */
+const Missed = z.enum(['catch-up', 'skip']);
+/** A slot that comes due while the chat is busy: hold one occurrence until it's idle, or drop it. */
+const IfBusy = z.enum(['hold', 'skip']);
+/** What a run continues from: the chat's conversation, or a fresh session. */
+const Context = z.enum(['continue', 'fresh']);
+
 const fields = {
   title: z.string().trim().min(1, 'A schedule needs a title').max(MAX_TITLE),
   prompt: z.string().trim().min(1, 'A schedule needs a prompt').max(MAX_PROMPT),
   when: ScheduleWhenSchema,
-  /** A slot that passed while this computer was off: run once when it's back, or skip it. */
-  missed: z.enum(['catch-up', 'skip']).default('catch-up'),
-  /** A slot that comes due while the chat is busy: hold one occurrence until it's idle, or drop it. */
-  ifBusy: z.enum(['hold', 'skip']).default('hold'),
-  /** What a run continues from: the chat's conversation, or a fresh session. */
-  context: z.enum(['continue', 'fresh']).default('continue'),
+};
+const withDefaults = {
+  ...fields,
+  missed: Missed.default('catch-up'),
+  ifBusy: IfBusy.default('hold'),
+  context: Context.default('continue'),
   enabled: z.boolean().default(true),
 };
 
-export const ScheduleInputSchema = z.object(fields);
+export const ScheduleInputSchema = z.object(withDefaults);
 export type ScheduleInput = z.infer<typeof ScheduleInputSchema>;
+
+/** A saved edit: only what it names changes. Pause and resume have their own method. */
+export const SchedulePatchSchema = z.object({ ...fields, missed: Missed, ifBusy: IfBusy, context: Context }).partial();
+export type SchedulePatch = z.infer<typeof SchedulePatchSchema>;
 
 /** The occurrence that waits for the chat to be idle: one, however many slots merged into it. */
 export const SchedulePendingSchema = z.object({
@@ -49,7 +60,7 @@ export const ScheduleRunningSchema = SchedulePendingSchema.extend({
 export type ScheduleRunning = z.infer<typeof ScheduleRunningSchema>;
 
 export const ScheduleSchema = z.object({
-  ...fields,
+  ...withDefaults,
   id: z.string().min(1),
   channel: z.string().min(1),
   /** Why it is paused (archived, three failures…): shown to the user. */
