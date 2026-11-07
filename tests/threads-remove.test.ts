@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { threadFamily } from '../packages/mac/src/lib/thread-family.js';
+import { batchCalls, threadFamily } from '../packages/mac/src/lib/thread-family.js';
 import { ShareService } from '../src/core/shares.js';
 import { Store, initialState } from '../src/core/store.js';
 import { ThreadService } from '../src/core/threads/service.js';
@@ -262,6 +262,58 @@ describe('a kept thread, on the real records', () => {
   });
 });
 
+describe('a batch in the Worktrees view', () => {
+  const picked = (ids: readonly string[], children?: 'with' | 'keep') => batchCalls({ projects: manager.list as never }, ids, children);
+  const noneFailed = (): void => expect(toasts.filter((t) => /Couldn/.test(t))).toEqual([]);
+
+  it('with: a parent and its child make one call for the child, and no call fails', async () => {
+    const f = await family();
+    const calls = picked([f.child.id, f.parent.id], 'with');
+    expect(calls).toEqual([f.parent.id]);
+    const spy = vi.spyOn(manager, 'archive');
+    expect(await Promise.all(calls.map((id) => ctl.archive(id, false, { children: 'with' })))).toEqual([true]);
+    expect(spy.mock.calls.filter(([id]) => id === f.child.id)).toHaveLength(1);
+    noneFailed();
+    expect(now(f.child.id)!.archived).toBe(true);
+    expect(now(f.grand.id)!.archived).toBe(true);
+  });
+
+  it('with, delete: the same, in parallel with a row of its own', async () => {
+    const f = await family();
+    const alone = await chat('Alone');
+    const calls = picked([f.grand.id, f.parent.id, alone.id], 'with');
+    expect(calls).toEqual([f.parent.id, alone.id]);
+    const spy = vi.spyOn(manager, 'remove');
+    await Promise.all(calls.map((id) => ctl.remove(id, { children: 'with' })));
+    expect(spy.mock.calls.filter(([id]) => id === f.grand.id)).toHaveLength(1);
+    noneFailed();
+    for (const c of [f.parent, f.child, f.other, f.grand, alone]) expect(now(c.id)).toBeUndefined();
+  });
+
+  it('a row under a picked row’s picked row is covered, also with the middle one not picked', async () => {
+    const f = await family();
+    expect(picked([f.parent.id, f.grand.id], 'with')).toEqual([f.parent.id]);
+    expect(picked([f.child.id, f.grand.id, f.other.id], 'with')).toEqual([f.child.id, f.other.id]);
+  });
+
+  it('keep: a picked child stays picked, the parent keeps the rest, and no call fails', async () => {
+    const f = await family();
+    const calls = picked([f.parent.id, f.child.id], 'keep');
+    expect(calls).toEqual([f.parent.id, f.child.id]);
+    await Promise.all(calls.map((id) => ctl.remove(id, { children: 'keep' })));
+    noneFailed();
+    expect(now(f.parent.id)).toBeUndefined();
+    expect(now(f.child.id)).toBeUndefined();
+    expect(now(f.other.id)!.thread!.parentGone).toBe(true);
+    expect(now(f.grand.id)!.thread!.parentGone).toBe(true);
+  });
+
+  it('with no question asked, each row is its own call', async () => {
+    const f = await family();
+    expect(picked([f.parent.id, f.child.id])).toEqual([f.parent.id, f.child.id]);
+  });
+});
+
 describe('what the dialog counts', () => {
   const ws = (id: string, thread?: ThreadRecord, archived?: boolean): Workspace => ({ id, projectRoot: '/r', name: id, path: `/r/${id}`, kind: 'chat', createdAt: 1, projectId: 'p', external: false, ...(thread ? { thread } : {}), ...(archived ? { archived: true } : {}) }) as Workspace;
   const state = (log: object[] = []) => ({
@@ -274,6 +326,12 @@ describe('what the dialog counts', () => {
     expect(threadFamily(state(), 'a', 'delete')).toEqual({ count: 3, running: 0 });
     expect(threadFamily(state(), 'a', 'archive')).toEqual({ count: 2, running: 0 });
     expect(threadFamily(state([{ type: 'agent', owner: 'me', status: 'started', channel: 'ws:c' }]), 'a', 'archive')).toEqual({ count: 2, running: 1 });
+  });
+
+  it('picked rows: every tree, each thread once, and a picked thread is not asked about', () => {
+    expect(threadFamily(state(), ['a', 'b'], 'delete')).toEqual({ count: 2, running: 0 });
+    expect(threadFamily(state(), ['b', 'a', 'c', 'd'], 'delete')).toEqual({ count: 0, running: 0 });
+    expect(threadFamily(state(), ['b', 'z'], 'archive')).toEqual({ count: 1, running: 0 });
   });
 
   it('a chat with no threads has nothing to ask', () => {
