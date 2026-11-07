@@ -119,6 +119,18 @@ html[data-app='tauri'][data-transparency='reduce'] body {
   background: var(--bg-sidebar-solid);
 }
 
+/*
+ * Low Power mode (BLG-621, lib/power.ts): no blur inside the window (what blurs is nearly opaque
+ * already), and a looping animation plays once, then rests (one-shot ones, and their ends, as before).
+ */
+html[data-power='save'] *,
+html[data-power='save'] *::before,
+html[data-power='save'] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-iteration-count: 1 !important;
+}
+
 /* Find in this conversation (⌘F): every match, and the one you're on. */
 ::highlight(beluga-find) {
   background-color: color-mix(in srgb, #ffd60a 45%, transparent);

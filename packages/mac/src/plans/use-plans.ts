@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Plan, PlansState } from '@beluga/core/plans/model.js';
-import { type PlanView, liveFrom, planView } from '@beluga/core/plans/progress.js';
+import { type MilestoneView, type PlanView, liveFrom, planView } from '@beluga/core/plans/progress.js';
+import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { useActions } from '../lib/actions.js';
 import { onWindowActive, windowActive } from '../lib/window-active.js';
 import { sameDeep, sameItems } from '../lib/stable.js';
+import { beat, onPowerSaving, powerSaving } from '../lib/power.js';
 
 /** What the Plans screens share: the plans, a plan where it stands (live), and acting on plans. */
 
@@ -24,6 +26,15 @@ export function usePlanView(plan: Plan | undefined): PlanView | undefined {
   }, sameDeep);
 }
 
+/**
+ * The conversation checking a milestone (its own Claude, folded into the plan so the sidebar never
+ * shows it): its workspace id while it's there, archived ones too (a passed milestone's check is kept).
+ */
+export function useCheckerChat(m: MilestoneView | undefined): string | undefined {
+  const id = m?.run.checker;
+  return useApp((s) => (id && findWorkspace(s.projects, id) ? id : undefined));
+}
+
 // One clock for every card that shows how long a step has run: it ticks each second only while one
 // does and you're looking at the window (on time again the moment you look back).
 const CLOCK_MS = 1000;
@@ -40,13 +51,15 @@ function runClock(): void {
   clockTimer = undefined;
   if (!clockSubs.size || !windowActive()) return;
   tickClock();
-  clockTimer = setInterval(tickClock, CLOCK_MS);
+  clockTimer = setInterval(tickClock, beat(CLOCK_MS, powerSaving()));
 }
+let stopSaving: (() => void) | undefined;
 function subscribeClock(onChange: () => void): () => void {
   clockSubs.add(onChange);
   clockNow = Date.now();
   if (!stopLooking) {
     stopLooking = onWindowActive(runClock);
+    stopSaving = onPowerSaving(runClock);
     runClock();
   }
   return () => {
@@ -54,6 +67,8 @@ function subscribeClock(onChange: () => void): () => void {
     if (clockSubs.size) return;
     stopLooking?.();
     stopLooking = undefined;
+    stopSaving?.();
+    stopSaving = undefined;
     runClock();
   };
 }

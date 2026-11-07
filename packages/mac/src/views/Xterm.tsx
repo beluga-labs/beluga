@@ -95,8 +95,9 @@ export function Xterm({ termKey, start, focus = true, gpu = false, extend, onKey
     term.loadAddon(new WebLinksAddon((_e, uri) => void openExternal(uri)));
     term.open(el);
     // The GPU draws a full-window terminal smoothly; when WebGL isn't there (or its context is lost), the DOM does.
+    // Low Power mode (BLG-621): the DOM always, no GPU textures (a terminal opened since it turned on).
     let webgl: WebglAddon | undefined;
-    if (gpu) {
+    if (gpu && !client.store.getDomain().powerSaving) {
       try {
         webgl = new WebglAddon();
         webgl.onContextLoss(() => {
@@ -198,12 +199,12 @@ export function Xterm({ termKey, start, focus = true, gpu = false, extend, onKey
     if (import.meta.env.DEV) ((window as unknown as { __belugaTerms?: Record<string, Terminal> }).__belugaTerms ??= {})[termKey] = term;
     const resize = new ResizeObserver(settleMs > 0 ? settled : refit);
     resize.observe(el);
-    // Follow the appearance (light/dark, accent) as it changes.
+    // Follow the appearance (light/dark, the theme, accent) as it changes.
     const restyle = new MutationObserver(() => {
       term.options.theme = themeNow();
       el.style.background = themeNow().background;
     });
-    restyle.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style', 'class'] });
+    restyle.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette', 'style', 'class'] });
     if (focus) term.focus();
     return () => {
       live.current = undefined;

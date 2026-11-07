@@ -2,12 +2,13 @@ import { useState } from 'react';
 import type { SoundChoice } from '../../../../../src/shared/notify-sound.js';
 import { Icon } from '../../components/Icon.js';
 import { Button, Segmented, cx } from '../../components/ui.js';
-import { CHIP_CHOICES, FAMILY_LABELS, MAC_CHOICES, type SoundFamily, choiceKey, soundName } from '../../lib/sounds/catalog.js';
+import { CHIP_CHOICES, FAMILY_LABELS, MAC_CHOICES, type SoundFamily, choiceKey, familiesHere, soundName } from '../../lib/sounds/catalog.js';
+import { keyPlatform } from '../../lib/shortcuts-model.js';
 import { generatedName, randomSeed } from '../../lib/sounds/generated.js';
 import { playSound } from '../../lib/sounds/player.js';
 import s from './sound.module.css';
 
-const FAMILIES: readonly SoundFamily[] = ['chip', 'gen', 'mac', 'none'];
+const FAMILIES = familiesHere(keyPlatform() === 'mac');
 
 const FAMILY_HINTS: Readonly<Record<SoundFamily, string>> = {
   chip: 'Short 8-bit sounds, made by Beluga',
@@ -87,7 +88,8 @@ function Generator({ volume, onKeep }: { volume: number; onKeep: (seed: number) 
 
 /** Every sound you can choose, by where it comes from, each with a ▶ to hear it first. */
 export function SoundPicker({ value, volume, made, onPick, onKeep, kindLabel }: PickerProps) {
-  const [family, setFamily] = useState<SoundFamily>(value.kind);
+  // A Mac sound off the Mac (the default) plays as Beluga's chime: opened on the 8-bit ones.
+  const [family, setFamily] = useState<SoundFamily>(FAMILIES.includes(value.kind) ? value.kind : 'chip');
   const current = choiceKey(value);
   const tiles = (choices: readonly SoundChoice[]) => (
     <div className={s.tiles} role="radiogroup" aria-label={`${FAMILY_LABELS[family]} sounds`}>

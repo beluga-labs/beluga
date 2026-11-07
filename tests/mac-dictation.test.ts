@@ -66,3 +66,19 @@ describe('the words', () => {
     expect(spoken('Hi. ', 'Fix it')).toBe('Fix it');
   });
 });
+
+describe('the talk shortcut off the Mac', () => {
+  const press = (code: string, m: { ctrl?: boolean; alt?: boolean; meta?: boolean } = {}) => ({ code, metaKey: !!m.meta, ctrlKey: !!m.ctrl, altKey: !!m.alt, shiftKey: false });
+
+  it('records Ctrl as the main key and shows it in words', () => {
+    expect(accelOf(press('KeyD', { ctrl: true }), false)).toBe('CommandOrControl+D');
+    expect(accelLabel('CommandOrControl+Shift+D', false)).toBe('Ctrl+Shift+D');
+    expect(accelLabel('Alt+Space', false)).toBe('Alt+Space');
+  });
+
+  it('matches a Ctrl shortcut pressed with Ctrl', () => {
+    const accel = parseAccel('CommandOrControl+D')!;
+    expect(matchesAccel(accel, press('KeyD', { ctrl: true }), false)).toBe(true);
+    expect(matchesAccel(accel, press('KeyD', { meta: true }), false)).toBe(false);
+  });
+});

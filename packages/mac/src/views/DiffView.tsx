@@ -7,6 +7,7 @@ import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { useMyAgentName } from '../lib/agent-words.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
+import { joinPath } from '@beluga/shared/os-path.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { ActionsContext, ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { copyText } from '../lib/copy.js';
@@ -15,6 +16,7 @@ import { quoteInBox } from '../chat/message-menu.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { ChangedFileView, canShowFile, fileLookLabel, onlyAsFile, useChangeLocation } from './ChangedFile.js';
 import s from './diff.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /** Side by side: deletions on the left, additions on the right, aligned within each change. */
 function splitRows(lines: Line[]): Array<{ left?: Line; right?: Line; full?: Line }> {
@@ -90,7 +92,7 @@ export function useFileItems(): (f: ChangedFile, index: number) => ActionItem[] 
     const state = client.store.getState();
     const view = state.view;
     const ws = view.kind === 'workspace' ? findWorkspace(state.projects, view.id) : undefined;
-    const local = ws && f.state !== 'deleted' ? `${ws.path}/${f.path}` : undefined;
+    const local = ws && f.state !== 'deleted' ? joinPath(ws.path, f.path) : undefined;
     const at = view.kind === 'workspace' ? { owner: state.selfId, share: shareNameOf(view.id), path: f.path } : view.kind === 'shared' ? (() => {
       const w = state.shared.find((x) => x.id === view.id && x.owner === view.owner);
       return w ? { owner: w.owner, share: w.share, path: f.path } : undefined;
@@ -114,7 +116,7 @@ export function useFileItems(): (f: ChangedFile, index: number) => ActionItem[] 
     return [
       { label: 'Show Changes', icon: 'diff', onSelect: () => actions.run({ type: 'review_file', index }) },
       ...(at && f.state !== 'deleted' ? [{ label: 'Open File', icon: 'file' as const, onSelect: open }] : []),
-      ...(local ? [{ label: 'Show in Finder', icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
+      ...(local ? [{ label: revealLabel(), icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
       { label: 'Copy Path', icon: 'copy', separate: true, onSelect: () => void copyText(local ?? f.path).then(() => say('Copied the path')) },
       { label: 'Mention in Chat', icon: 'chat', onSelect: ask },
     ];

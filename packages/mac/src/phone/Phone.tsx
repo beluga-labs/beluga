@@ -14,6 +14,7 @@ import { pathLabel } from '../../../../src/companion/diagnose.js';
 import { leftText, markOf, seenText } from './phone-model.js';
 import p from '../dialogs/native/person.module.css';
 import s from './phone.module.css';
+import { computerWord, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
 
 /**
  * Your phone on the Mac (docs/companion.md, "On the Mac"): a small mark in the sidebar's footer
@@ -82,7 +83,7 @@ function BelugaLink({ id, reachable }: { id: string; reachable: boolean }) {
     }
   };
   const detail = reachable
-    ? 'Beluga Link is the small app on the phone that lets your agent tap and type there without a cable. It’s separate so Android’s Play Protect never blocks Beluga itself; set up from here, Link isn’t blocked either. This Mac installs it and turns it on.'
+    ? `Beluga Link is the small app on the phone that lets your agent tap and type there without a cable. It’s separate so Android’s Play Protect never blocks Beluga itself; set up from here, Link isn’t blocked either. ${upFirst(thisComputer())} installs it and turns it on.`
     : 'Beluga Link is the small app on the phone that lets your agent tap and type there without a cable. Downloaded on the phone, Android may block it (“App blocked to protect your device”); set up from here, it isn’t. Connect the phone with a USB cable first.';
   return (
     <Row label="Beluga Link" detail={said ?? detail}>
@@ -114,9 +115,9 @@ function OverWifi({ id, on, cable, path }: { id: string; on: boolean; cable: boo
   };
   const way =
     path === 'blocked'
-      ? 'This Wi‑Fi keeps devices apart (dorms, campuses and cafés often do), so the Mac reaches the phone through Beluga’s end-to-end encrypted link instead: a little slower. On another network it connects straight.'
+      ? `This Wi‑Fi keeps devices apart (dorms, campuses and cafés often do), so the ${computerWord()} reaches the phone through Beluga’s end-to-end encrypted link instead: a little slower. On another network it connects straight.`
       : path === 'direct'
-        ? 'On this Wi‑Fi the Mac connects straight to the phone, once it proves it’s yours (a one-time code sent over Beluga’s encrypted link), so nobody else on the network can pass for it.'
+        ? `On this Wi‑Fi the ${computerWord()} connects straight to the phone, once it proves it’s yours (a one-time code sent over Beluga’s encrypted link), so nobody else on the network can pass for it.`
         : 'Straight over the Wi‑Fi when the network lets devices reach each other and the phone proves it’s yours, else through Beluga’s end-to-end encrypted link.';
   const detail = on
     ? `Wireless debugging is on. ${way} While it’s on, the phone listens for debugging on its Wi‑Fi (only keys it allowed get in); Beluga turns it off after 15 minutes unused.`
@@ -138,9 +139,9 @@ function OverWifi({ id, on, cable, path }: { id: string; on: boolean; cable: boo
 
 /** How phones on other networks (a dorm's or a café's Wi-Fi, mobile data) reach this Mac, in a line (BLG-126). */
 export function relayText(relay: 'ready' | 'starting' | 'off' | undefined): { readonly text: string; readonly ok: boolean } | undefined {
-  if (relay === 'ready') return { text: 'Ready: your phone reaches this Mac from any network, end-to-end encrypted.', ok: true };
+  if (relay === 'ready') return { text: `Ready: your phone reaches ${thisComputer()} from any network, end-to-end encrypted.`, ok: true };
   if (relay === 'starting') return { text: 'Starting the relay… Phones on a network that blocks direct connections connect in a moment, by themselves.', ok: false };
-  if (relay === 'off') return { text: 'Off: Remote access is set to direct only, so a phone on a network that blocks direct connections can’t reach this Mac.', ok: false };
+  if (relay === 'off') return { text: `Off: Remote access is set to direct only, so a phone on a network that blocks direct connections can’t reach ${thisComputer()}.`, ok: false };
   return undefined;
 }
 
@@ -162,8 +163,8 @@ function Reaching() {
           <span className={cx(s.relayDot, relay.ok && s.relayOk)} aria-label={relay.ok ? 'Ready' : 'Not ready'} />
         </Row>
       ) : null}
-      <Row label="Keep this Mac awake" detail="A sleeping Mac can’t be reached or woken from your phone, so Beluga keeps it from sleeping while a phone is paired. The display still sleeps; closing the lid still sleeps it. Your phone can change this too.">
-        <Select label="Keep this Mac awake" value={keepAwake} onChange={(v) => void client.api.session.setPrefs({ keepAwake: v })} options={KEEP_AWAKE_OPTIONS.map((o) => ({ ...o }))} />
+      <Row label={`Keep ${thisComputer()} awake`} detail={`A sleeping ${computerWord()} can’t be reached or woken from your phone, so Beluga keeps it from sleeping while a phone is paired. The display still sleeps; closing the lid still sleeps it. Your phone can change this too.`}>
+        <Select label={`Keep ${thisComputer()} awake`} value={keepAwake} onChange={(v) => void client.api.session.setPrefs({ keepAwake: v })} options={KEEP_AWAKE_OPTIONS.map((o) => ({ ...o }))} />
       </Row>
     </>
   );
@@ -312,12 +313,12 @@ function AdbLine() {
   const adb = useAdb();
   if (!adb) return null;
   const detail = adb.path
-    ? `Found adb ${adb.version ?? ''} on this Mac.`
+    ? `Found adb ${adb.version ?? ''} on ${thisComputer()}.`
     : adb.fetching
       ? 'Getting Android platform-tools…'
       : 'adb (Android platform-tools) isn’t installed. The Accessibility route still works without it; for Wireless debugging, shell and logs, install it.';
   return (
-    <Row label="adb on this Mac" detail={detail}>
+    <Row label={`adb on ${thisComputer()}`} detail={detail}>
       {adb.path ? <span className={cx(s.relayDot, s.relayOk)} aria-label="Found" /> : <span className={s.relayDot} aria-label="Not found" />}
     </Row>
   );
@@ -368,7 +369,7 @@ function OnTheCable() {
   if (cable.state === 'unauthorized') return <Row label="On the cable" detail={`${name} is asking: unlock it and tap Allow on “Allow USB debugging?” (tick “Always allow from this computer” so it doesn’t ask again).`}><span /></Row>;
   if (cable.canPair)
     return (
-      <Row label="On the cable" detail={said ?? `${name} has Beluga but isn’t paired with this Mac. Pair it over the cable: its Beluga opens the pairing, and you check the four pictures match.`}>
+      <Row label="On the cable" detail={said ?? `${name} has Beluga but isn’t paired with ${thisComputer()}. Pair it over the cable: its Beluga opens the pairing, and you check the four pictures match.`}>
         <Button size="small" disabled={busy} onClick={() => void run(() => client.api.companion['phone.pairCable']())}>
           {busy ? 'Opening…' : 'Pair over the Cable'}
         </Button>
@@ -395,7 +396,7 @@ export function PhoneSettings() {
       </Group>
       {useDevices().some((d) => d.platform !== 'ios') ? (
         <Group title="Let your agent use your phone">
-          <Row label="How it works" detail="Ask your agent on this Mac to do something on your phone — look at the screen, tap, type, open apps, install a build. It uses Wireless debugging when it can, or Beluga Link, the phone’s small add-on app. Off until you choose a level below; set it up on the phone in Beluga › Settings.">
+          <Row label="How it works" detail={`Ask your agent on ${thisComputer()} to do something on your phone — look at the screen, tap, type, open apps, install a build. It uses Wireless debugging when it can, or Beluga Link, the phone’s small add-on app. Off until you choose a level below; set it up on the phone in Beluga › Settings.`}>
             <span />
           </Row>
           <AdbLine />
@@ -405,12 +406,12 @@ export function PhoneSettings() {
         </Group>
       ) : null}
       {useDevices().length ? (
-        <Group title="Reaching your Mac">
+        <Group title={`Reaching ${yourComputer()}`}>
           <Reaching />
         </Group>
       ) : null}
       <Group title="Pair a phone">
-        <Row label="The Beluga app" detail="Your phone gets its own key, signed by your Mac: it shows what your agent is doing and lets you answer, ask and chat. It never sees code. Up to 4 phones; Remove cuts one off at once.">
+        <Row label="The Beluga app" detail={`Your phone gets its own key, signed by ${yourComputer()}: it shows what your agent is doing and lets you answer, ask and chat. It never sees code. Up to 4 phones; Remove cuts one off at once.`}>
           <span />
         </Row>
         <div className={s.inSettings}>

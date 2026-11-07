@@ -21,6 +21,7 @@ import { AskBanner } from '../chat/AskBanner.js';
 import { ConnectionStatus } from './room/ConnectionStatus.js';
 import { AssistantTabs } from '../chat/AssistantTabs.js';
 import { DrivingBanner } from '../agent-term/DrivingBanner.js';
+import { computerWord, yourComputer } from '../lib/os-words.js';
 
 /** A conversation and the box to add to it: the room, a workspace, a shared workspace, a draft. */
 /** One-click ways to begin, under an empty conversation. */
@@ -116,7 +117,7 @@ export function ChatView() {
     ) : view.kind === 'draft_worktree' ? (
       <Empty icon="branch" title="A new worktree" detail="Describe the task below. Beluga makes a branch and a folder for it from the branch you pick, and your agent starts right away." />
     ) : view.kind === 'assistant' ? (
-      <Empty icon="laptop" title="Ask your Mac" detail="Your agent for this whole Mac, not one project: screenshots, what’s using the CPU, starting a worktree or a task. Keep several chats as tabs above; the open one is the one on your phone." action={<AssistantStarters />} />
+      <Empty icon="laptop" title={`Ask ${yourComputer()}`} detail={`Your agent for this whole ${computerWord()}, not one project: screenshots, what’s using the CPU, starting a worktree or a task. Keep several chats as tabs above; the open one is the one on your phone.`} action={<AssistantStarters />} />
     ) : view.kind === 'room' ? (
       <Empty icon="claude" title={solo ? 'Talk to your agent' : 'Say hi to the room'} detail={solo ? 'Ask anything here, or give your agent a task in a worktree of its own.' : 'Everyone here sees this chat. Mention @claude to ask your agent.'} action={<Starters />} />
     ) : (

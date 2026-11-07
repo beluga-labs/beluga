@@ -20,6 +20,7 @@ import { useActions } from './lib/actions.js';
 import { SHORTCUTS, TALK_ID, keyPlatform, shortcutFor } from './lib/shortcuts-model.js';
 import { fromKey, getBindings, isRecording, useMenuKeys } from './lib/shortcuts.js';
 import { useApp, useBeluga } from './lib/beluga.js';
+import { setPowerSaving } from './lib/power.js';
 import { usePrefs } from './lib/prefs.js';
 import { joinRoom, runMenuItem, useMenuState, useNative, useNotificationTaps, useTrayStatus, useTraySpout, useWindowFocus } from './lib/native.js';
 import { AddProjectSheet } from './dialogs/AddProjectSheet.js';
@@ -40,6 +41,7 @@ import { useState } from 'react';
 import { Onboarding, useOnboarding } from './onboarding/Onboarding.js';
 import { Lightbox } from './chat/ChatImages.js';
 import s from './layout/Shell.module.css';
+import { CallLayer } from './call/CallLayer.js';
 
 const TOAST_MS = 3500;
 
@@ -197,6 +199,9 @@ export function App() {
   useNative(client, ui, actions, setJoining);
   useTrayStatus(client);
   useTraySpout();
+  // Low Power mode (BLG-621): the daemon says when it saves; the window follows.
+  const saving = useApp((st) => st.powerSaving);
+  useEffect(() => setPowerSaving(saving), [saving]);
   useMenuState(client);
   useMenuKeys();
   useWindowFocus(client);
@@ -227,6 +232,8 @@ export function App() {
       {/* One per window, over whatever opened it (a chat, a sub-agent's activity, a graph). */}
       <Lightbox />
       <Toasts />
+      {/* Calls (BLG-706): this window's call engine, who rings you, the ringtone, the floating card. */}
+      <CallLayer />
       <MessageBanner />
       <UndoToast />
       {welcome.open ? <Onboarding start={welcome.start} onClose={welcome.close} onArrive={welcome.arrive} /> : null}

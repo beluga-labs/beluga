@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react';
+import type { BundledLanguage } from 'shiki';
+import { THEMES, loadShiki } from '../../lib/shiki.js';
 
 /**
  * Syntax colors for the reader, on demand: shiki loads the first time a file or a code block
@@ -12,8 +14,6 @@ export interface Token {
 }
 
 export type TokenLines = readonly (readonly Token[])[];
-
-const THEMES = { light: 'github-light', dark: 'github-dark-dimmed' } as const;
 
 /** Past this, a file is shown in plain text (coloring it would hold the window up). */
 export const HIGHLIGHT_MAX_CHARS = 200_000;
@@ -60,23 +60,9 @@ interface Engine {
 let engine: Promise<Engine> | undefined;
 
 function loadEngine(): Promise<Engine> {
-  engine ??= import('shiki').then(async ({ createHighlighter, bundledLanguages }) => {
-    const h = await createHighlighter({ themes: [THEMES.light, THEMES.dark], langs: [] });
-    const loading = new Map<string, Promise<boolean>>();
-    const load = (lang: string): Promise<boolean> => {
-      if (!(lang in bundledLanguages)) return Promise.resolve(false);
-      let p = loading.get(lang);
-      if (!p) {
-        p = h.loadLanguage(lang as keyof typeof bundledLanguages).then(
-          () => true,
-          () => false,
-        );
-        loading.set(lang, p);
-      }
-      return p;
-    };
+  engine ??= loadShiki().then(({ h, load }) => {
     const tokenize = (code: string, lang: string): TokenLines =>
-      h.codeToTokens(code, { lang: lang as keyof typeof bundledLanguages, themes: THEMES }).tokens.map((line) => line.map((t) => (t.htmlStyle ? { content: t.content, style: styleOf(t.htmlStyle) } : { content: t.content })));
+      h.codeToTokens(code, { lang: lang as BundledLanguage, themes: THEMES }).tokens.map((line) => line.map((t) => (t.htmlStyle ? { content: t.content, style: styleOf(t.htmlStyle) } : { content: t.content })));
     return { tokenize, load };
   });
   return engine;
@@ -96,6 +82,9 @@ export function languageOf(lang: string | undefined): string {
 /** Colored once per code and language, then remembered (a live file re-renders often). */
 const cache = new Map<string, TokenLines>();
 const CACHE_MAX = 120;
+/** Characters of code remembered in all: a live file colored version after version would otherwise keep near-copies of itself. */
+const CACHE_MAX_CHARS = 2_000_000;
+let cacheChars = 0;
 
 /** The code's tokens if they're already colored (so it's drawn colored at once, not plain first). */
 export function cachedTokens(code: string, lang: string | undefined): TokenLines | undefined {
@@ -113,7 +102,13 @@ export async function tokenize(code: string, lang: string | undefined): Promise<
   const e = await loadEngine();
   if (!(await e.load(id))) return undefined;
   const lines = e.tokenize(code, id);
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);
+  if (cache.has(key)) return cache.get(key);
+  while (cache.size && (cache.size >= CACHE_MAX || cacheChars + key.length > CACHE_MAX_CHARS)) {
+    const oldest = cache.keys().next().value!;
+    cache.delete(oldest);
+    cacheChars -= oldest.length;
+  }
   cache.set(key, lines);
+  cacheChars += key.length;
   return lines;
 }

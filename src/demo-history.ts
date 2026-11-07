@@ -84,3 +84,22 @@ export function seedLandingHistory(dir: string, origin: string, scratch: string)
   // Your copy knows about it (as after a fetch), so it shows as 3 behind.
   execFileSync('git', ['fetch', '-q', 'origin'], { cwd: dir, stdio: 'ignore' });
 }
+
+/**
+ * The branches of bob-api's open pull requests (core/issues/demo.ts) on its origin, pushed by the
+ * teammates who opened them, so Open in Worktree checks them out as on GitHub: #51, #49 and #46 on
+ * origin's branches, #44 from a fork (only GitHub's refs/pull/44/head has it).
+ */
+export function seedBobPulls(origin: string, scratch: string): void {
+  const mate = path.join(scratch, 'bob-api-teammates');
+  execFileSync('git', ['clone', '-q', origin, mate], { stdio: 'ignore' });
+  branch(mate, 'fix/plus-in-email');
+  commit(mate, SAM, 3, 'Decode emails before the user lookup', { 'src/users.ts': 'export const lookupEmail = (raw: string) => decodeURIComponent(raw).toLowerCase();\n' });
+  branch(mate, 'feat/read-only-keys');
+  commit(mate, BOB, 50, 'Read-only API keys: scopes on each key', { 'src/keys.ts': "export type Scope = 'read' | 'write';\n" });
+  branch(mate, 'dependabot/npm_and_yarn/express-4.21.0');
+  commit(mate, KAY, 98, 'Bump express from 4.19.2 to 4.21.0', { 'package.json': '{ "name": "bob-api", "dependencies": { "express": "^4.21.0" } }\n' });
+  branch(mate, 'docs/refunds');
+  commit(mate, MIA, 146, 'Explain refunds in the README', { 'docs/refunds.md': '# Refunds\n\nRefunds go back to the card within 5 days.\n' });
+  execFileSync('git', ['push', '-q', 'origin', 'fix/plus-in-email', 'feat/read-only-keys', 'dependabot/npm_and_yarn/express-4.21.0', 'docs/refunds:refs/pull/44/head'], { cwd: mate, stdio: 'ignore' });
+}

@@ -3,7 +3,7 @@ import { TeamBoardSync } from '../../src/core/team/board-sync.js';
 import { canAssign, offerWords, teamShareChoices, teammatesOf } from '../../src/core/team/model.js';
 import { mergeRoster } from '../../src/core/team/roster.js';
 import { answerFriendOffer } from '../../src/core/friend-offers.js';
-import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
+import { type Crowd, LOSES_A_MESSAGE_ON_WINDOWS, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type PartsFor, type TeamMac, personOf, teamMac } from './helpers.js';
 
 /** BLG-510: a team is one group: everyone sees everyone, any of them invites, leaving goes for all. */
@@ -90,6 +90,39 @@ describe('a team of three', () => {
 
     // Mia leaves the team: gone for everyone.
     mia.team.leave('pm');
+    await settle(() => names(kay, 'pk').length === 1 && names(ata, 'pa').length === 1);
+    expect(names(kay, 'pk')).toEqual(['ata']);
+    expect(mates(mia, 'pm')).toEqual([]);
+  }, 120_000);
+
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('leaving while two friends on the team are still linking up: the late answer doesn’t put you back on it', async () => {
+    net = await crowd();
+    const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], withSync);
+    const kay = await teamMac(net, 'kay', [{ id: 'pk', name: 'api', repo: 'acme/api' }], withSync);
+    const mia = await teamMac(net, 'mia', [{ id: 'pm', name: 'api', repo: 'acme/api' }], withSync);
+    macs.push(ata, kay, mia);
+    await befriend(ata.person, kay.person);
+    await befriend(ata.person, mia.person);
+    await teamUp(ata, 'pa', kay, 'pk');
+    await teamUp(ata, 'pa', mia, 'pm');
+    await settle(() => names(kay, 'pk').length === 2 && names(mia, 'pm').length === 2);
+
+    // Kay's invite and answer to mia are held on the way: kay is linked with her, she isn't yet.
+    const held: Array<() => void> = [];
+    const send = kay.person.mesh.sendTeam.bind(kay.person.mesh);
+    kay.person.mesh.sendTeam = (peerId, payload) => {
+      const k = (payload as { m?: { k?: string } }).m?.k;
+      if (peerId !== mia.id || (k !== 'invite' && k !== 'accept')) return send(peerId, payload);
+      held.push(() => send(peerId, payload));
+      return true;
+    };
+    await befriend(kay.person, mia.person);
+    await settle(() => mates(kay, 'pk').find((m) => m.peerId === mia.id)?.indirect === undefined);
+    expect(held.length).toBeGreaterThan(0);
+
+    // She leaves, then what kay sent arrives.
+    mia.team.leave('pm');
+    for (const deliver of held.splice(0)) deliver();
     await settle(() => names(kay, 'pk').length === 1 && names(ata, 'pa').length === 1);
     expect(names(kay, 'pk')).toEqual(['ata']);
     expect(mates(mia, 'pm')).toEqual([]);

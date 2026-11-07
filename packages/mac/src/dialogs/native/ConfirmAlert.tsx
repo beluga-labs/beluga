@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ArchivePreview } from '@beluga/workspaces/archive.js';
 import { formatBytes } from '@beluga/shared/format.js';
 import type { EnvChange } from '@beluga/workspaces/env.js';
+import type { DeletePlan } from '@beluga/workspaces/types.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { Alert, Checkbox } from '../../components/Alert.js';
 import { useApi, useApp } from '../../lib/beluga.js';
@@ -53,6 +54,24 @@ function useArchivePlan(id: string, worktree: boolean): ArchivePreview | undefin
   return plan;
 }
 
+/** What deleting a worktree would lose that archiving keeps: `null` once asked and there's nothing, undefined while asking. */
+function useDeletePlan(id: string, worktree: boolean): DeletePlan | null | undefined {
+  const api = useApi();
+  const [plan, setPlan] = useState<DeletePlan | null | undefined>(worktree ? undefined : null);
+  useEffect(() => {
+    if (!worktree) return;
+    let live = true;
+    api.workspaces.deletePlan(id).then(
+      (p) => live && setPlan(p ?? null),
+      () => live && setPlan(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [id, worktree]);
+  return plan;
+}
+
 /**
  * Archive or delete a workspace: what happens, in a sentence; archiving keeps everything of
  * yours (uncommitted work too) and says how much space it frees; env changes the main folder
@@ -66,6 +85,7 @@ export function ConfirmAlert({ menu, close }: NativeMenuProps<'confirm'>) {
   const [copyEnv, setCopyEnv] = useState(true);
   const [saveEnv, setSaveEnv] = useState(false);
   const plan = useArchivePlan(menu.id, menu.action !== 'delete' && ws?.kind === 'worktree' && !ws.archived);
+  const lose = useDeletePlan(menu.id, menu.action === 'delete' && ws?.kind === 'worktree' && !ws.external);
   if (!ws) return null;
   const changed = ws.status?.changed ?? 0;
   const table = env.length
@@ -91,6 +111,41 @@ export function ConfirmAlert({ menu, close }: NativeMenuProps<'confirm'>) {
 
   if (menu.action === 'delete') {
     const worktree = ws.kind === 'worktree' && !ws.external;
+    const remove = (): void => go(withEnv ? 'confirm-delete-env' : 'confirm-delete');
+    // Delete waits until it's known whether unpushed commits would go with it.
+    const asking = lose === undefined;
+    // Commits pushed nowhere (BLG-617): say how many, and Archive (which keeps them) is the main button.
+    if (lose) {
+      const it = lose.unpushed === 1 ? 'it' : 'them';
+      return (
+        <Alert
+          icon="alert"
+          tone="danger"
+          title={`Delete “${ws.name}” and its unpushed work?`}
+          message={
+            <>
+              <p>
+                <strong>{count(lose.unpushed, 'commit')}</strong> on <code>{lose.branch}</code> {lose.unpushed === 1 ? 'was' : 'were'} never pushed or merged into <code>{lose.into}</code>. Deleting loses {it}, with the folder and the conversation, and you can’t undo it.
+              </p>
+              {lose.subjects.length ? (
+                <ul className={s.subjects}>
+                  {lose.subjects.map((subject, i) => (
+                    <li key={i}>{subject}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <p>{ws.archived ? `It’s archived: the branch and the conversation are kept as long as it stays that way.` : `Archive keeps the branch and the conversation, and still frees the space.`}</p>
+            </>
+          }
+          table={table}
+          confirm={ws.archived ? { label: 'Keep It', onClick: close } : { label: 'Archive Instead', onClick: () => go(withEnv ? 'confirm-archive-env' : 'confirm-archive') }}
+          alternative={{ label: 'Delete Anyway', destructive: true, onClick: remove }}
+          onCancel={close}
+        >
+          {envBox}
+        </Alert>
+      );
+    }
     return (
       <Alert
         icon="alert"
@@ -111,7 +166,7 @@ export function ConfirmAlert({ menu, close }: NativeMenuProps<'confirm'>) {
           </>
         }
         table={table}
-        confirm={{ label: 'Delete', destructive: true, onClick: () => go(withEnv ? 'confirm-delete-env' : 'confirm-delete') }}
+        confirm={{ label: 'Delete', destructive: true, disabled: asking, onClick: remove }}
         onCancel={close}
       >
         {envBox}

@@ -13,9 +13,6 @@ import {
   type RunState,
   type SentinelAsk,
   type RunSummary,
-  type ScheduleEvery,
-  type ScheduleHours,
-  type ScheduleTrigger,
   type Sentinel,
   type SentinelState,
   type Recipe,
@@ -43,10 +40,12 @@ import { agentForChoice } from '../../../../src/ui/agent-choice.js';
 import type { IconName } from '../components/Icon.js';
 import { ago } from '../tasks/tasks-model.js';
 import { ASSISTANT_TITLE } from '../../../../src/shared/assistant.js';
+import { computerTitle, computerWord } from '../lib/os-words.js';
+import { DEFAULT_SCHEDULE } from '../components/schedule-model.js';
 
 /**
  * Sentinel's window, its plain parts (docs/sentinel.md §3): the list's rows and groups, the
- * sidebar's line, the foot, times and durations in words, the schedule's controls, the Ask Claude
+ * sidebar's line, the foot, times and durations in words, the Ask Claude
  * presets and the step edits. Pure (tests/mac-sentinel.test.ts).
  */
 
@@ -321,39 +320,6 @@ export function runsFolderOf(runs: ReadonlyArray<Pick<RunSummary, 'report'>>): s
 }
 
 // ---------------------------------------------------------------- the When card
-
-export const EVERY_CHOICES: ReadonlyArray<{ readonly value: ScheduleEvery; readonly label: string }> = [
-  { value: 'day', label: 'Every day' },
-  { value: 'other-day', label: 'Every other day' },
-  { value: 'week', label: 'Every week' },
-  { value: 'month', label: 'Every month' },
-  { value: 'hours', label: 'Every few hours' },
-];
-
-export const DEFAULT_SCHEDULE: ScheduleTrigger = { kind: 'schedule', every: 'day', at: '07:00', missed: 'catch-up' };
-
-/** Another "every": the fields that kind needs, the rest kept where they make sense. */
-export function withEvery(t: ScheduleTrigger, every: ScheduleEvery): ScheduleTrigger {
-  const base = { kind: 'schedule' as const, every, at: t.at, missed: t.missed };
-  if (every === 'week') return { ...base, days: t.days?.length ? t.days : [1] };
-  if (every === 'month') return { ...base, day: t.day ?? 1 };
-  if (every === 'hours') return { ...base, hours: t.hours ?? 3 };
-  return base;
-}
-
-/** A weekday chip pressed: on or off (one stays on). Monday first, as the chips show them. */
-export function toggleDay(days: readonly number[] | undefined, day: number): number[] {
-  const now = new Set(days?.length ? days : [1]);
-  if (now.has(day)) {
-    if (now.size > 1) now.delete(day);
-  } else now.add(day);
-  return [...now].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
-}
-
-/** The chips' order: Monday … Sunday. */
-export const WEEK = [1, 2, 3, 4, 5, 6, 0] as const;
-
-export const HOURS_CHOICES: readonly ScheduleHours[] = [1, 2, 3, 6, 12];
 
 /** "What starts it": a schedule, by hand, after another sentinel, or an event (each kind this Beluga runs). */
 export function triggerChoices(): Array<{ readonly value: TriggerKind; readonly label: string; readonly disabled: boolean; readonly description?: string }> {
@@ -768,7 +734,7 @@ export const PAUSE_AFTER_CHOICES: readonly number[] = [0, 1, 2, 3, 5, 10];
 export const perDayLabel = (n: number | undefined): string => (!n ? 'No limit' : n === 1 ? 'Once a day' : `${n} a day`);
 export const pauseAfterLabel = (n: number): string => (n === 0 ? 'Never' : n === 1 ? '1 failure' : `${n} failures in a row`);
 
-export const NOTIFY_LABEL: Readonly<Record<Sentinel['notify'], string>> = { mac: 'On the Mac', phone: 'On your phone', both: 'Mac and phone', off: 'Off' };
+export const NOTIFY_LABEL: Readonly<Record<Sentinel['notify'], string>> = { mac: `On the ${computerWord()}`, phone: 'On your phone', both: `${computerTitle()} and phone`, off: 'Off' };
 
 /** The model the Claude steps share ('' for Claude Code's default, undefined when they differ or there are none). */
 export function sharedModel(steps: readonly Step[]): string | undefined {
@@ -925,4 +891,64 @@ export function latestOf(state: Pick<SentinelState, 'items' | 'runs'>, scope: st
     if (run) out.push({ sentinel: s, run });
   }
   return out.sort((a, b) => (b.run.endedAt ?? b.run.startedAt) - (a.run.endedAt ?? a.run.startedAt)).slice(0, n);
+}
+
+// ---------------------------------------------------------------- in the sidebar (BLG-570)
+
+/**
+ * A run as a row under its sentinel in the sidebar (BLG-576): the whole pipeline, its agent one step
+ * of it. It opens the run's page (every step, its output, the agent's session). `chat`: its agent's
+ * conversation while it's kept.
+ */
+export interface SideRun {
+  readonly runId: string;
+  readonly state: RunSummary['state'];
+  readonly startedAt: number;
+  readonly headline: string;
+  readonly chat?: string;
+}
+
+/** A sentinel under the Sentinel row: how it's doing, and its runs, newest first. */
+export interface SideSentinel {
+  readonly sentinel: Sentinel;
+  readonly live: boolean;
+  readonly needs: boolean;
+  readonly failed: boolean;
+  readonly runs: readonly SideRun[];
+}
+
+/** Folded, the Sentinel row keeps these under it: running, waiting for you, or its last run failed. */
+export const needsALook = (x: Pick<SideSentinel, 'live' | 'needs' | 'failed'>): boolean => x.live || x.needs || x.failed;
+
+/** The runs a sentinel row unfolds to at most; the rest are on its page. */
+export const SIDE_RUNS = 5;
+
+/** A run's agent conversation: the last agent step's (its worktree's too), unless it was put away. */
+export function runChatOf(run: Pick<RunSummary, 'putAway' | 'channel' | 'steps'>): string | undefined {
+  if (run.putAway) return undefined;
+  const steps = run.steps.map((st) => st.channel).filter((c): c is string => chatPlaceOf(c) !== undefined);
+  return chatPlaceOf(run.channel) ? run.channel! : steps.at(-1);
+}
+
+function sideRunOf(run: RunSummary): SideRun {
+  const chat = runChatOf(run);
+  return { runId: run.id, state: run.state, startedAt: run.startedAt, headline: headlineOf(run), ...(chat ? { chat } : {}) };
+}
+
+/**
+ * The sentinels the sidebar lists under its Sentinel row (BLG-570): every one that's on, and a
+ * paused one while a run of it still goes or waits for you. The one that ran last first; one that
+ * never ran last, by name. Each with its runs, newest first (every one the index keeps).
+ */
+export function sidebarSentinels(state: Pick<SentinelState, 'items' | 'runs'>): SideSentinel[] {
+  const out: Array<SideSentinel & { readonly last: number }> = [];
+  for (const sentinel of state.items) {
+    const runs = state.runs.filter((r) => r.sentinelId === sentinel.id).sort((a, b) => b.startedAt - a.startedAt);
+    const live = runs.some((r) => r.state === 'running' || r.state === 'queued');
+    const needs = runs.some((r) => r.state === 'needs-you');
+    if (sentinel.paused && !live && !needs) continue;
+    const ended = runs.find((r) => r.state !== 'running' && r.state !== 'queued');
+    out.push({ sentinel, live, needs, failed: ended?.state === 'failed', runs: runs.map(sideRunOf), last: runs[0]?.startedAt ?? 0 });
+  }
+  return out.sort((a, b) => b.last - a.last || a.sentinel.name.localeCompare(b.sentinel.name)).map(({ last: _l, ...rest }) => rest);
 }

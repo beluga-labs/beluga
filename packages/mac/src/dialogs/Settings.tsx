@@ -1,31 +1,40 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import * as Dialog from '@radix-ui/react-dialog';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { TRUST_INFO, trustOf } from '@beluga/core/trust.js';
-import { BRANCH_PREFIX_RE, EFFORTS } from '@beluga/shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, type LowPower } from '@beluga/shared/settings-schema.js';
 import { agentChoices, agentForChoice, choiceForAgent } from '@beluga/ui/agent-choice.js';
 import { EFFORT_INFO, agentEntries, modelInfo, myModel, myRuntime, setMyAgent } from '../chat/ModelPicker.js';
 import { HIDEABLE_BUTTONS, TUNNEL_LABELS, TUNNEL_ORDER } from '@beluga/ui/settings-menus.js';
-import { Icon, type IconName } from '../components/Icon.js';
+import { Icon } from '../components/Icon.js';
 import { Avatar, Button, Dot, cx } from '../components/ui.js';
 import { runtimeMark } from '@beluga/shared/agent-marks.js';
 import type { RuntimeState } from '@beluga/shared/agent-runtimes.js';
 import { CopyCommand, LOCAL_MODELS_ID, useAgents } from '../onboarding/AgentsStep.js';
-import { FIX_LABEL } from '../onboarding/agent-setup.js';
-import { APP_VERSION } from '../lib/boot.js';
+import { fixLabel } from '../onboarding/agent-setup.js';
+import { APP_VERSION, webServed } from '../lib/boot.js';
 import { revealInFinder } from '../lib/files.js';
 import { type SettingsPane, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
-import { ACCENTS, type Accent, setPrefs, usePrefs } from '../lib/prefs.js';
+import { ACCENTS, type Accent, setPrefs, useChosenPrefs, usePrefs } from '../lib/prefs.js';
+import { themeFor } from '../lib/themes.js';
+import { useDocTheme } from '../components/markdown/use-doc-theme.js';
+import { ThemeGroups } from './ThemePicker.js';
 import { EnvironmentSettings } from './EnvironmentSettings.js';
+import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
+import { LaunchFlagsSettings } from './LaunchFlagsSettings.js';
 import { LocalModelsSettings } from './LocalModelsSettings.js';
 import { EarningsSettings } from './EarningsSettings.js';
 import { NotificationSettings } from './NotificationSettings.js';
 import { VoiceSettings } from './VoiceSettings.js';
 import { KeyboardSettings } from './KeyboardSettings.js';
+import { WebAccessSettings } from './WebAccessSettings.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
+import { PANES } from './settings-index.js';
+import { SettingsSearchField, SettingsSearchResults, useSettingsSearch } from './SettingsSearch.js';
 import { MaintainerChip } from './SupportSheets.js';
 import s from './settings.module.css';
 import { TerminalSettings } from './TerminalSettings.js';
@@ -40,23 +49,7 @@ import { GITHUB_URL, openSupport } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { keyPlatform } from '../lib/shortcuts-model.js';
-
-const PANES: ReadonlyArray<{ id: SettingsPane; label: string; icon: IconName }> = [
-  { id: 'general', label: 'General', icon: 'gear' },
-  { id: 'appearance', label: 'Appearance', icon: 'eye' },
-  { id: 'claude', label: 'Agent', icon: 'spark' },
-  { id: 'notifications', label: 'Notifications', icon: 'bell' },
-  { id: 'workspaces', label: 'Workspaces', icon: 'branch' },
-  { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'fire', label: 'Fire & Confetti', icon: 'flame' },
-  { id: 'menubar', label: 'Menu Bar', icon: 'laptop' },
-  { id: 'environment', label: 'Environment', icon: 'lock' },
-  { id: 'people', label: 'People & access', icon: 'people' },
-  { id: 'phone', label: 'Phone', icon: 'phone' },
-  { id: 'voice', label: 'Voice', icon: 'mic' },
-  { id: 'keyboard', label: 'Keyboard', icon: 'command' },
-  { id: 'about', label: 'About', icon: 'globe' },
-];
+import { cmdReturn, returnName, revealLabel, yourComputer } from '../lib/os-words.js';
 
 /** Your profile picture: friends and people in your groups get it once and keep it (net/mesh/avatars.ts). */
 function PictureRow() {
@@ -164,7 +157,8 @@ function General() {
           />
         </Row>
       </Group>
-      <UpdateSettingsGroup />
+      {/* A browser runs the build its server serves: the server's Beluga updates, not the page. */}
+      {webServed() ? null : <UpdateSettingsGroup />}
       <Group title="Writing">
         <Row label="Send with" detail={prefs.sendWith === 'enter' ? 'Shift+Return makes a new line.' : 'Return makes a new line.'}>
           <Select
@@ -172,8 +166,8 @@ function General() {
             value={prefs.sendWith}
             onChange={(v) => setPrefs({ sendWith: v })}
             options={[
-              { value: 'enter', label: 'Return' },
-              { value: 'cmd-enter', label: '⌘ Return' },
+              { value: 'enter', label: returnName() },
+              { value: 'cmd-enter', label: cmdReturn(' ') },
             ]}
           />
         </Row>
@@ -197,12 +191,24 @@ function General() {
   );
 }
 
+const LOW_POWER_OPTIONS: ReadonlyArray<{ value: LowPower; label: string }> = [
+  { value: 'off', label: 'Off' },
+  { value: 'battery', label: 'On battery' },
+  { value: 'always', label: 'Always' },
+];
+
 function Appearance() {
-  const prefs = usePrefs();
+  const prefs = useChosenPrefs();
+  const api = useApi();
+  const lowPower = useApp((st) => st.prefs.lowPower ?? 'off');
+  const saving = useApp((st) => st.powerSaving);
+  const savingNote = saving ? 'Off while Low Power mode saves power.' : undefined;
+  const theme = themeFor(useDocTheme(), prefs);
+  const themeAccent = theme.accent !== undefined;
   return (
     <>
       <Group>
-        <Row label="Appearance">
+        <Row label="Appearance" {...(prefs.appearance === 'system' ? { detail: `Your light theme by day and your dark theme at night, as ${yourComputer()} switches.` } : {})}>
           <Select
             label="Appearance"
             value={prefs.appearance}
@@ -214,12 +220,21 @@ function Appearance() {
             ]}
           />
         </Row>
-        <Row label="Accent" detail="Selection, focus and buttons. “System” follows your Mac.">
+        <Row label="Accent" detail={`Selection, focus and buttons. “System” follows ${yourComputer()}${themeAccent ? `; the one beside it is ${theme.name}’s own` : ''}.`}>
           <div className={s.swatches}>
-            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
-              <button key={a} type="button" aria-label={a} aria-pressed={prefs.accent === a} className={cx(s.swatch, prefs.accent === a && s.swatchOn)} style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }} onClick={() => setPrefs({ accent: a })} />
+            {(Object.keys(ACCENTS) as Accent[]).filter((a) => a !== 'theme' || themeAccent || prefs.accent === 'theme').map((a) => (
+              <button key={a} type="button" aria-label={a === 'theme' ? `${theme.name}’s own` : a} {...(a === 'theme' ? { title: `${theme.name}’s own` } : {})} aria-pressed={prefs.accent === a} className={cx(s.swatch, prefs.accent === a && s.swatchOn)} style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }} onClick={() => setPrefs({ accent: a })} />
             ))}
           </div>
+        </Row>
+      </Group>
+      <ThemeGroups />
+      <Group title="Low Power">
+        <Row
+          label="Low Power mode"
+          detail={`Beluga does less and shows less to save the battery: no motion or blur, the window redraws a few times a second, terminals skip the GPU, background checks come less often, and idle terminals rest sooner. On battery counts macOS Low Power Mode too.${saving ? ' Saving power now.' : ''}`}
+        >
+          <Select label="Low Power mode" value={lowPower} onChange={(v) => void api.session.setPrefs({ lowPower: v })} options={LOW_POWER_OPTIONS.map((o) => ({ ...o }))} />
         </Row>
       </Group>
       <Group title="Layout">
@@ -241,7 +256,7 @@ function Appearance() {
           <Select
             label="Width"
             value={prefs.chatWidth}
-            onChange={(v) => setPrefs({ chatWidth: v })}
+            onChange={(v) => setPrefs({ chatWidth: v, chatWidthPicked: true })}
             options={[
               { value: 'narrow', label: 'Narrow' },
               { value: 'wide', label: 'Wide' },
@@ -255,11 +270,11 @@ function Appearance() {
         <Row label="Sidebar width">
           <input className={s.slider} type="range" min={200} max={360} step={4} value={prefs.sidebarWidth} onChange={(e) => setPrefs({ sidebarWidth: Number(e.target.value) })} />
         </Row>
-        <Row label="Reduce motion">
+        <Row label="Reduce motion" {...(savingNote ? { detail: savingNote } : {})}>
           <Switch label="Reduce motion" on={prefs.reduceMotion} onChange={(v) => setPrefs({ reduceMotion: v })} />
         </Row>
-        {keyPlatform() === 'mac' && (
-          <Row label="Reduce transparency" detail="A solid sidebar, with no blur behind the window. Lighter on slower Macs.">
+        {keyPlatform() === 'mac' && !webServed() && (
+          <Row label="Reduce transparency" detail={savingNote ?? 'A solid sidebar, with no blur behind the window. Lighter on slower Macs.'}>
             <Switch label="Reduce transparency" on={prefs.reduceTransparency} onChange={(v) => setPrefs({ reduceTransparency: v })} />
           </Row>
         )}
@@ -291,7 +306,7 @@ function AgentsGroup({ mine }: { mine: string }) {
               {row.fix === 'install' ? (
                 <>
                   {' '}
-                  <CopyCommand className={s.agentCommand} />
+                  <CopyCommand className={s.agentCommand} runtime={row.id} />
                 </>
               ) : null}
             </div>
@@ -301,7 +316,7 @@ function AgentsGroup({ mine }: { mine: string }) {
             {row.words}
             {row.fix ? (
               <Button size="small" onClick={() => act(row)}>
-                {FIX_LABEL[row.fix]}
+                {fixLabel(row)}
               </Button>
             ) : null}
           </div>
@@ -355,6 +370,7 @@ function AgentPane() {
         </Row>
       </Group>
       <AgentsGroup mine={runtime} />
+      <LaunchFlagsSettings />
       <McpSettings />
       <div id={LOCAL_MODELS_ID}>
         <LocalModelsSettings />
@@ -409,8 +425,8 @@ function HiddenProjectsGroup() {
     <Group title="Hidden projects">
       {hidden.length ? (
         hidden.map((root) => (
-          <Row key={root} label={root.split('/').filter(Boolean).pop() ?? root} detail={root}>
-            <Button onClick={() => void api.workspaces.showProject(root)} aria-label={`Show ${root.split('/').filter(Boolean).pop() ?? root}`}>
+          <Row key={root} label={baseName(root) || root} detail={root}>
+            <Button onClick={() => void api.workspaces.showProject(root)} aria-label={`Show ${baseName(root) || root}`}>
               Show
             </Button>
           </Row>
@@ -554,8 +570,8 @@ function About() {
   return (
     <>
       <Group>
-        <Row label="Beluga for Mac">{APP_VERSION}</Row>
-        <UpdateAboutRow />
+        <Row label="The Beluga app">{APP_VERSION}</Row>
+        {webServed() ? null : <UpdateAboutRow />}
         <Row label="Beluga (the part that runs your room)">{client.daemonVersion}</Row>
         <Row label="Windows attached" detail="Beluga windows connected to the room right now.">
           {client.clients}
@@ -565,9 +581,10 @@ function About() {
             Open in Console
           </Button>
           <Button size="small" variant="quiet" onClick={() => void revealInFinder(client, logPath)}>
-            Show in Finder
+            {revealLabel()}
           </Button>
         </Row>
+        <ReportProblemRow />
       </Group>
       <Group title="Support Beluga">
         <Row label="Beluga is free, and a passion project" detail={
@@ -609,14 +626,28 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   phone: PhoneSettings,
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
+  advanced: WebAccessSettings,
   about: About,
 };
 
+/** The app's own panes a browser has no use for (it has no menu bar icon). */
+const APP_ONLY: ReadonlySet<SettingsPane> = new Set(['menubar']);
+
 /** Beluga's settings: this window's look on the left panes, Beluga's shared settings on the rest. */
 export function Settings() {
-  const { ui } = useBeluga();
   const pane = useUi((u) => u.settings);
-  if (!pane) return null;
+  return pane ? <SettingsWindow pane={pane} /> : null;
+}
+
+/**
+ * The window, with the search above the panes (BLG-740): opened, the field has focus; ⌘F comes
+ * back to it, Esc clears it, and a second Esc closes the window.
+ */
+function SettingsWindow({ pane }: { pane: SettingsPane }) {
+  const { ui } = useBeluga();
+  const panes = useMemo(() => (webServed() ? PANES.filter((p) => !APP_ONLY.has(p.id)) : PANES), []);
+  const scroll = useRef<HTMLDivElement>(null);
+  const search = useSettingsSearch(panes, pane, (id) => ui.patch({ settings: id }), scroll);
   const Body = BODY[pane];
   // Opened from the welcome (Set Up… on Your agents): over it, not hidden behind it.
   const overWelcome = document.querySelector('[data-welcome]') ? '' : undefined;
@@ -624,11 +655,33 @@ export function Settings() {
     <Dialog.Root open onOpenChange={(v) => (v ? undefined : ui.patch({ settings: undefined }))}>
       <Dialog.Portal>
         <Dialog.Overlay className={s.overlay} data-over-welcome={overWelcome} />
-        <Dialog.Content className={s.window} data-over-welcome={overWelcome} aria-describedby={undefined} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <Dialog.Content
+          className={s.window}
+          data-over-welcome={overWelcome}
+          aria-describedby={undefined}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            search.field.current?.focus();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (!search.query) return;
+            e.preventDefault();
+            search.clear();
+          }}
+        >
           <nav className={s.nav}>
             <Dialog.Title className={s.title}>Settings</Dialog.Title>
-            {PANES.map((p) => (
-              <button key={p.id} type="button" className={cx(s.navItem, p.id === pane && s.navOn)} onClick={() => ui.patch({ settings: p.id })}>
+            <SettingsSearchField search={search} />
+            {panes.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={cx(s.navItem, p.id === pane && !search.showing && s.navOn, search.showing && !search.matched.has(p.id) && s.navDim)}
+                onClick={() => {
+                  ui.patch({ settings: p.id });
+                  search.browse();
+                }}
+              >
                 <Icon name={p.icon} size={14} />
                 {p.label}
               </button>
@@ -636,13 +689,13 @@ export function Settings() {
           </nav>
           <div className={s.body}>
             <div className={s.bodyHead}>
-              <h2 className={s.paneTitle}>{PANES.find((p) => p.id === pane)?.label}</h2>
+              <h2 className={s.paneTitle}>{search.showing ? 'Search' : PANES.find((p) => p.id === pane)?.label}</h2>
               <Dialog.Close className={s.close} aria-label="Close">
                 <Icon name="x" size={12} />
               </Dialog.Close>
             </div>
-            <div className={s.scroll}>
-              <Body />
+            <div ref={scroll} className={s.scroll}>
+              {search.showing ? <SettingsSearchResults search={search} panes={panes} /> : <Body />}
             </div>
           </div>
         </Dialog.Content>

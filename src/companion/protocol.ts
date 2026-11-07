@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 37 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 41 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -98,8 +98,19 @@ export const COMPANION_PROTO = { major: 1, minor: 37 } as const;
  * (`agentTerm.takeOver`). An older Mac sends none, and never refuses a message for it.
  * 1.37 (BLG-559): a repo's own board also lists the tasks running in its repo from other boards,
  * each saying the board it's on (`TaskSummary.onBoard`). An older phone shows them without it.
+ * 1.38 (BLG-574): how many of their messages in a chat you haven't read (`ChatView.unread`), so the
+ * phone marks them as the Mac does when you open it. An older Mac leaves it out: no marks.
+ * 1.39 (BLG-634): the conversation checking a milestone (`PlanView.milestones[].checker`), its own
+ * Claude off the sidebar, so you can watch the check. An older Mac leaves it out: no way in.
+ * 1.40 (BLG-688): what a milestone's agent is doing right now (`PlanView.milestones[].agentNow`),
+ * even between tasks, and its conversation. An older Mac leaves it out: the tasks still say theirs.
+ * 1.41 (BLG-702): emoji reactions on chat messages (`ChatMessageView.reactions`: each emoji, how
+ * many, whether one is yours and who), your quick row (`ChatView.quick`), and a tap putting one on
+ * or taking yours off (`network.messages.react`); the same on the room's and workspaces' chat turns
+ * (`TurnView.reactions` / `reactable`, `ConvView.quick`, `session.react`). An older Mac leaves them
+ * out: no reactions.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -367,6 +378,15 @@ export type SubAgentDetailView = z.infer<typeof SubAgentDetailView>;
 export const AgentRefView = z.object({ runtime: z.string().max(32), model: z.string().max(64).optional(), label: z.string().max(64) });
 export type AgentRefView = z.infer<typeof AgentRefView>;
 
+/** 1.41 (BLG-702): one emoji under a message: how many put it there, whether you did, and who (their names, you as "You"). */
+export const ChatReactionView = z.object({
+  emoji: z.string().min(1).max(32),
+  count: z.number().int().min(1),
+  mine: z.boolean(),
+  who: z.array(z.string().max(100)).max(20),
+});
+export type ChatReactionView = z.infer<typeof ChatReactionView>;
+
 export const TurnView = z.object({
   id,
   who: z.enum(['you', 'claude', 'friend', 'system']),
@@ -396,6 +416,10 @@ export const TurnView = z.object({
    * files go back too) or a chat. Only a message whose words show here whole (no code in it).
    */
   edit: z.object({ ws: id, kind: z.enum(['worktree', 'chat']) }).optional(),
+  /** 1.41 (BLG-702): a person's message in the room's or a workspace's chat: its emoji reactions (`session.react` changes yours). */
+  reactions: z.array(ChatReactionView).max(20).optional(),
+  /** 1.41: it takes reactions (a message of the room's or a workspace's chat, not an earlier line). */
+  reactable: z.boolean().optional(),
   /**
    * 1.34 (BLG-466): where a dialogue between agents begins (core/dialogues view.ts, in words): its
    * topic, who talks, turn n of the cap, the budget left, and whether Stop / Continue apply now.
@@ -480,7 +504,7 @@ export type MergeView = z.infer<typeof MergeView>;
  * (core/branch-state.ts) but Merge into the main folder (its own sheet, companion.merge) and Open
  * PR (the phone's browser).
  */
-export const PHONE_BRANCH_STEPS = ['merge_pr', 'merge_auto', 'merge_admin', 'cancel_auto', 'update_branch', 'mark_ready', 'resolve_pr', 'fix_checks', 'merge_claude', 'review_claude', 'commit', 'pr', 'pr_claude', 'pr_draft', 'continue_after_merge', 'archive', 'delete'] as const;
+export const PHONE_BRANCH_STEPS = ['merge_pr', 'merge_auto', 'merge_admin', 'cancel_auto', 'update_branch', 'mark_ready', 'resolve_pr', 'fix_checks', 'merge_claude', 'review_claude', 'commit', 'pr', 'pr_claude', 'pr_draft', 'pr_original', 'continue_after_merge', 'archive', 'delete'] as const;
 export type PhoneBranchStep = (typeof PHONE_BRANCH_STEPS)[number];
 
 /** 1.8: one of a branch's steps (core/branch-state.ts BranchStep). */
@@ -586,6 +610,8 @@ export const ConvView = z.object({
   tags: z.array(z.object({ tag: z.string().max(80), hint: z.string().max(200), agent: AgentRefView })).max(40).optional(),
   /** 1.36: the agent's own terminal on the Mac drives this conversation (its agent's name): messages wait for Take Over. */
   terminal: z.object({ label: z.string().max(80) }).optional(),
+  /** 1.41 (BLG-702): your quick reactions, for a reactable turn's long-press (the room's or a workspace's chat). */
+  quick: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 export type ConvView = z.infer<typeof ConvView>;
 
@@ -620,6 +646,10 @@ export const PlanView = z.object({
         /** 1.5: the milestones it waits on (ids; none: it runs alongside from the start), and its own autonomy when it differs from the plan's. */
         dependsOn: z.array(id).max(20).optional(),
         autonomy: PlanAutonomy.optional(),
+        /** 1.39: the conversation of its checker (a Claude of its own checking its criteria), once there is one. */
+        checker: Topic.optional(),
+        /** 1.40: its agent at work right now (“Working on BLG-12 · Edit README.md”), and its conversation. */
+        agentNow: z.object({ text: z.string().max(300), asking: z.boolean().optional(), topic: Topic.optional() }).optional(),
       }),
     )
     .max(50),
@@ -939,6 +969,7 @@ export const WidgetsView = z.object({ tiles: z.array(WidgetTileView).max(120) })
 export type WidgetsView = z.infer<typeof WidgetsView>;
 
 
+
 export const ChatMessageView = z.object({
   id,
   from: z.string().max(100),
@@ -953,6 +984,8 @@ export const ChatMessageView = z.object({
   /** 1.30 (BLG-429): your own direct message whose words reach the phone whole: it can be edited here. */
   editable: z.boolean().optional(),
   files: z.array(OutputView).max(20).optional(),
+  /** 1.41 (BLG-702): the emoji reactions under it, in the order they were first put there. */
+  reactions: z.array(ChatReactionView).max(20).optional(),
   /** A friend's Claude answering you can't touch their Mac from the chat: what it offers to do there as a request (gateway.ask `to`). */
   offer: z.object({ to: id, ask: z.string().max(500), needs: z.array(z.enum(['project', 'shell', 'files', 'screen', 'device'])).max(5).optional() }).optional(),
   /**
@@ -1004,6 +1037,10 @@ export const ChatView = z.object({
   waiting: z.array(z.object({ text: z.string().max(300), you: z.boolean(), task: id.optional() })).max(10).optional(),
   /** 1.20: who won't get a message now ("Mia is offline: this waits for them"). */
   note: z.string().max(200).optional(),
+  /** 1.38 (BLG-574): their messages you haven't read yet, the last ones (until you open it: then 0). */
+  unread: z.number().int().min(0).optional(),
+  /** 1.41 (BLG-702): your quick reactions, the ones you use most first (then 👍 ❤️ 😂 🎉 👀 ✅). */
+  quick: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 export type ChatView = z.infer<typeof ChatView>;
 
@@ -1015,6 +1052,8 @@ export const PeopleView = z.object({
         name: z.string().max(64),
         presence: z.enum(['online', 'away', 'dnd', 'offline']),
         note: z.string().max(200).optional(),
+        /** The emoji of their status ("🌮"), shown by their name; an older Mac leaves it out. */
+        emoji: z.string().max(32).optional(),
         usage: UsageView.optional(),
         /** What their Beluga lets your Claude do (their card): "screen", "commands"… */
         offers: z.array(z.string().max(40)).max(20),

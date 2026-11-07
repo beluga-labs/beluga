@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EmojiSchema } from '../shared/reactions.js';
 
 /**
  * The Beluga network's part of the API (see api.ts): friends, direct messages, groups and your
@@ -17,7 +18,7 @@ const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const File = z.object({ sha, name: z.string().min(1).max(200), size: z.number().int().min(0), mime: z.string().max(100).optional(), image: z.boolean().optional() });
 const Ask = z.union([z.literal('all'), z.array(peerId).min(1).max(100)]);
 const Post = z.object({ text: z.string().max(8_000), files: z.array(File).max(20).optional(), ask: Ask.optional() });
-const Presence = z.object({ state: z.enum(['online', 'away', 'dnd', 'offline']), note: z.string().max(140).optional(), until: z.number().int().positive().optional() });
+const Presence = z.object({ state: z.enum(['online', 'away', 'dnd', 'offline']), note: z.string().max(140).optional(), emoji: z.string().max(32).optional(), until: z.number().int().positive().optional() });
 
 export const NETWORK_API = {
   // Whether the network is on, and your peer id and address on it.
@@ -84,6 +85,9 @@ export const NETWORK_API = {
   'network.messages.delete': { args: z.tuple([conversation, z.string().regex(/^[\w-]{8,64}$/), z.object({ everyone: z.boolean().optional() }).optional()]) },
   // Change the text of a message you sent in a direct conversation (your friend sees it edited): → the message.
   'network.messages.edit': { args: z.tuple([conversation, z.string().regex(/^[\w-]{8,64}$/), text]) },
+  // Put an emoji on a message, or take yours off (BLG-702): `true` puts it there, `false` takes it off, none flips
+  // it. Your friend's Mac (or everyone in the group) sees it at once: → the message's reactions now.
+  'network.messages.react': { args: z.tuple([conversation, z.string().regex(/^[\w-]{8,64}$/), EmojiSchema, z.boolean().optional()]) },
   // Empty a direct conversation on this Mac (your friend keeps their copy).
   'network.clear': { args: z.tuple([conversation]) },
   // Mark a conversation read: `dm:<peerId>` or `group:<id>`.

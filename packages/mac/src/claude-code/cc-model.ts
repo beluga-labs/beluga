@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import type { AppState } from '@beluga/core/store.js';
 import type { CcAgent, CcAgentStatus, CcSession } from '@beluga/core/claude-code/model.js';
 import { sessionLive } from '@beluga/core/claude-code/model.js';
@@ -72,7 +73,7 @@ export function groupByProject(state: Pick<AppState, 'projects'>, sessions: read
   for (const s of sessions) {
     const project = s.projectId ? state.projects.find((p) => p.id === s.projectId) : undefined;
     const key = project ? `p:${project.id}` : `d:${s.cwd}`;
-    const name = project?.name ?? (s.cwd.split('/').filter(Boolean).pop() || 'Other');
+    const name = project?.name ?? (baseName(s.cwd) || 'Other');
     const g = groups.get(key) ?? { ...(project ? { projectId: project.id } : {}), name, sessions: [] };
     g.sessions.push(s);
     groups.set(key, g);

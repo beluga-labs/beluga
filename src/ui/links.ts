@@ -10,6 +10,7 @@ import { findWorkspace } from './workspace-models.js';
 
 import type { LinkTarget } from '../shared/link-target.js';
 import { isUnder } from '../shared/path-inside.js';
+import { COMPUTER } from '../shared/assistant.js';
 
 export type { LinkTarget };
 
@@ -227,7 +228,7 @@ export function linkHint(link: LinkTarget, cwd?: string): string {
   };
   switch (link.kind) {
     case 'local':
-      return `${link.dir ? 'Browse' : 'Open'} ${rel(link.path)}${link.dir ? '/' : ''}${link.line ? `:${link.line}` : ''} · click (⌥-click)`;
+      return `${link.dir ? 'Browse' : 'Open'} ${rel(link.path)}${link.dir ? '/' : ''}${link.line ? `:${link.line}` : ''} · click (${COMPUTER === 'mac' ? '⌥' : 'Alt'}-click)`;
     case 'peer':
       return `Open ${link.share}/${link.path}${link.line ? `:${link.line}` : ''} on their computer · click`;
     case 'url':

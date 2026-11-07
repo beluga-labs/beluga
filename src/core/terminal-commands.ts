@@ -40,6 +40,9 @@ export function runEnvCommand(session: Session, args: readonly string[], channel
  * `/shell default` goes back to your login shell, `/shell login on|off` and `/shell args …`
  * change how it starts. New shells use it.
  */
+/** A full path on any system (no node:path: the screens load this file). */
+const FULL_PATH = /^\/|^[A-Za-z]:[\\/]|^\\\\/;
+
 export function runShellCommand(session: Session, args: readonly string[]): void {
   const state = session.store.getState();
   const p = state.prefs;
@@ -65,9 +68,10 @@ export function runShellCommand(session: Session, args: readonly string[]): void
   }
   // A name ("fish") picks the installed one; anything else is taken as a path.
   const wanted = args.join(' ');
-  const match = state.shellChoices.find((c) => c.name.toLowerCase() === wanted.toLowerCase() || c.path.endsWith(`/${wanted}`));
+  const match = state.shellChoices.find((c) => c.name.toLowerCase() === wanted.toLowerCase() || c.path.endsWith(`/${wanted}`) || c.path.endsWith(`\\${wanted}`));
   const shell = match?.path ?? wanted;
-  if (!shell.startsWith('/')) return session.toast(`No shell called ${wanted} here. Give its full path, e.g. /opt/homebrew/bin/${wanted}`, 'warn');
+  // A full path: /opt/homebrew/bin/fish, or C:\Program Files\Git\bin\bash.exe on Windows.
+  if (!FULL_PATH.test(shell)) return session.toast(`No shell called ${wanted} here. Give its full path, e.g. /opt/homebrew/bin/${wanted}`, 'warn');
   session.setPrefs({ shell });
   session.toast(`New shells use ${shell}`, 'success');
 }

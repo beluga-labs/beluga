@@ -1,23 +1,25 @@
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
-import type { WorkspaceController } from '../core/workspace-controller.js';
+import type { AddResult, WorkspaceController } from '../core/workspace-controller.js';
 import type { Workbench } from '../core/workbench.js';
-import { listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
+import { browseDir, listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
 import { ATTACHMENT_SHARE, type FetchShared, attachmentOnDisk, chipText, expandChips, importImageFitting, mediaTypeOf, pathInfo, publishForRoom, reattach, readAttachment, registerAttachment, roomAttachmentsDir, saveImageBytes } from '../core/attachments.js';
 import { fetchBytes } from '../core/downloads.js';
 import { testDatabase } from '../core/views/sources.js';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome } from '../workspaces/new-project.js';
+import { createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
 import { projectId } from '../workspaces/manager.js';
-import { chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
+import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
 import { NETWORK_HANDLERS } from './network-handlers.js';
 import { STRIPE_HANDLERS } from './stripe-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
+import { WEB_HANDLERS } from './web-handlers.js';
+import { DIAGNOSTICS_HANDLERS } from './diagnostics-handlers.js';
 import { CLAUDE_CODE_HANDLERS } from './claude-code-handlers.js';
 import { STEPS_HANDLERS } from './steps-handlers.js';
 import { GATEWAY_HANDLERS } from './gateway-handlers.js';
@@ -25,6 +27,7 @@ import { BOARD_HANDLERS } from './board-handlers.js';
 import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
+import { plansOf } from '../core/plans/registry.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
@@ -35,6 +38,7 @@ import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
 import { VOICE_HANDLERS } from './voice-handlers.js';
+import { CALLS_HANDLERS } from './calls-handlers.js';
 import { TERMINAL_IMPORT_HANDLERS } from './terminal-import-handlers.js';
 import { AGENT_TERM_HANDLERS } from './agent-term-handlers.js';
 import { waitingNeeds } from '../companion/needs-you.js';
@@ -74,6 +78,7 @@ export const HANDLERS = {
   'session.unshareFolder': (s, name) => s.unshareFolder(name),
   'session.follow': (s, name) => s.follow(name),
   'session.clearChat': (s, channel, opts) => s.clearChat(channel, opts),
+  'session.react': (s, channel, id, emoji, on) => s.reactChat(channel, id, emoji, on),
   'session.removePerson': (s, peerId) => s.removePerson(peerId),
   'session.newInviteLink': (s) => s.newInviteLink(),
   'session.setRoomOpen': (s, open) => s.setRoomOpen(open),
@@ -150,6 +155,7 @@ export const HANDLERS = {
 
   'remote.requestWorktree': (s, peerId, project, task, plan) => s.remote.requestWorktree(peerId, project, task, plan),
   'remote.handoff': (s, wsId, peerId) => s.remote.handoff(wsId, peerId),
+  'remote.canHandOff': (s, wsId, peerId) => s.remote.canHandOff(wsId, peerId),
 
   'diff.load': (s, id) => s.diff.load(id),
   'diff.select': (s, index) => s.diff.select(index),
@@ -180,7 +186,7 @@ export const HANDLERS = {
   'workspaces.refresh': (s) => ctl(s)?.refresh(),
   'workspaces.newWorktree': async (s, projectId, name, opts) => (await ctl(s)?.newWorktree(projectId, name, { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.agent ? { agent: opts.agent } : {}) }))?.id,
   'workspaces.newChat': async (s, projectId, title, dir) => (await ctl(s)?.newChat(projectId, title, dir))?.id,
-  'workspaces.startChat': (s, projectId, text, dir, opts) => ctl(s)?.startChat(projectId, text, dir ?? undefined, opts?.terminal ? { terminal: true } : {}),
+  'workspaces.startChat': (s, projectId, text, dir, opts) => ctl(s)?.startChat(projectId, text, dir ?? undefined, { ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.plan ? { plan: true } : {}) }),
   'workspaces.startWorktree': async (s, projectId, text, opts) => (await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
   'workspaces.branches': (s, projectId) => ctl(s)?.branches(projectId),
   'workspaces.fork': async (s, id, name) => (await ctl(s)?.fork(id, name))?.id,
@@ -191,6 +197,7 @@ export const HANDLERS = {
   'workspaces.archive': (s, id, force) => ctl(s)?.archive(id, force),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
+  'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
   'workspaces.remove': (s, id) => ctl(s)?.remove(id),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
@@ -206,6 +213,7 @@ export const HANDLERS = {
   'workspaces.openInFinder': (s, id) => ctl(s)?.openInFinder(id),
   'workspaces.setGroup': (s, projectId, group) => ctl(s)?.setGroup(projectId, group),
   'workspaces.renameGroup': (s, from, to) => ctl(s)?.renameGroup(from, to),
+  'workspaces.rename': (s, id, name) => ctl(s)?.rename(id, name),
   'workspaces.ungroup': (s, name) => ctl(s)?.ungroup(name),
   'workspaces.arrange': (s, item, place) => ctl(s)?.arrange(item, place ?? {}) ?? false,
   'workspaces.newGroup': (s, name, opts) => ctl(s)?.newGroup(name, opts ?? {}),
@@ -233,13 +241,13 @@ export const HANDLERS = {
   'workbench.runSetup': (s, wsId) => bench(s)?.runSetup(wsId),
   'workbench.setScript': (s, projectId, kind, command, team) => bench(s)?.setScript(projectId, kind, command, team),
   'workbench.shareScripts': (s, projectId) => bench(s)?.shareScripts(projectId),
-  'workbench.setAgent': (s, channel, agent) => s.workbench?.setAgent(channel, agent ?? undefined) ?? false,
+  'workbench.setAgent': (s, channel, agent, mode) => s.workbench?.setAgent(channel, agent ?? undefined, mode) ?? false,
   'workbench.setModel': (s, channel, value) => (s.workbench ? s.workbench.setModel(channel, value) : s.setPrefs({ model: value || undefined })),
   'workbench.createPr': (s, id, extra) => bench(s)?.createPr(id, extra),
   'workbench.quickPr': (s, id, opts) => bench(s)?.quickPr(id, opts),
   'workbench.mergeToBase': (s, id, opts) => bench(s)?.mergeToBase(id, opts),
   'workbench.gitFix': (s, id, fix, retry) => bench(s)?.gitFix(id, fix, retry),
-  'workbench.signInClaude': (s, key, channel) => bench(s)?.signInClaude(key, channel),
+  'workbench.signInClaude': (s, key, channel, how) => bench(s)?.signInClaude(key, channel, how),
   'workbench.fixChecks': (s, id) => bench(s)?.fixChecks(id),
   'workbench.resolvePrConflicts': (s, id) => bench(s)?.resolvePrConflicts(id),
   'workbench.continueAfterMerge': (s, id) => bench(s)?.continueAfterMerge(id),
@@ -252,7 +260,11 @@ export const HANDLERS = {
   'workbench.openCode': (s, id, file, line) => bench(s)?.openCode(id, file, line),
   'workbench.excerpt': (s, id, file, from, to) => bench(s)?.excerpt(id, file, from, to),
   'workbench.cancelMergeWhenReady': (s, id) => bench(s)?.cancelMergeWhenReady(id),
-  'workbench.refreshPrs': (s, only, recheckGh) => (typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh)),
+  'workbench.refreshPrs': (s, only, recheckGh) => {
+    // Back to the window: the plans' pull requests are looked at too, as the worktrees' are.
+    if (typeof only === 'object' && only.reason === 'focus') void plansOf(s)?.pilot.pollPrs('focus').catch(() => undefined);
+    return typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh);
+  },
   'workbench.editPrPrompt': (s) => bench(s)?.editPrPrompt(),
   'workbench.resetPrPrompt': (s) => bench(s)?.resetPrPrompt(),
   'workbench.measureDisk': (s) => bench(s)?.measureDisk(),
@@ -338,20 +350,27 @@ export const HANDLERS = {
     chooseProjectIcon(root, image ? expandHome(image) : undefined);
   },
   // A git project is added; a folder of them is watched (new ones in it show up too).
-  'projects.add': (s, dir) => {
+  // → what it did, or why it couldn't (the Add projects sheet shows it on the folder's row).
+  'projects.add': async (s, dir): Promise<AddResult> => {
     const abs = expandHome(dir);
-    if (isMainCheckout(abs)) return ctl(s)?.addProject(abs);
-    if (findProjects([abs]).length) return ctl(s)?.addFolder(abs);
-    s.toast(`${path.basename(abs)} isn't a git project, and has none inside`, 'warn');
-    return undefined;
+    if (isMainCheckout(abs)) return (await ctl(s)?.addProject(abs)) ?? {};
+    if (findProjects([abs]).length) return (await ctl(s)?.addFolder(abs)) ?? {};
+    const plain = existsSync(abs);
+    const error = plain ? `${path.basename(abs)} isn't a git project yet` : `${abs} isn't there`;
+    s.toast(error, 'warn');
+    // A plain folder: the Add projects sheet offers to set up git there (projects.initGit).
+    return plain ? { error, canInit: true } : { error };
   },
+  // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
+  'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
-  'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean)),
+  // Every repo found (the sheet shows the newest, and its Filter searches them all).
+  'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean), undefined, SUGGEST_ALL),
   'projects.create': async (s, name, parent) => {
     const dir = await createProject(name, parent ? expandHome(parent) : undefined);
-    await ctl(s)?.addProject(dir);
-    return { id: projectId(dir), path: dir };
+    const added = await ctl(s)?.addProject(dir);
+    return { id: added?.project?.id ?? projectId(dir), path: dir };
   },
   'projects.newHome': () => defaultProjectsHome(),
   'local.listDirs': (s, dir) => {
@@ -359,11 +378,14 @@ export const HANDLERS = {
     s.store.dispatch({ type: 'dir_cache', key: localDirKey(dir), entries });
     return entries;
   },
+  'local.browse': (_s, dir) => browseDir(dir),
   'local.openFolder': (_s, dir) => openWithSystem(dir),
   'local.statFiles': (_s, paths) => paths.map(pathInfo),
   ...NETWORK_HANDLERS,
   ...STRIPE_HANDLERS,
   ...SUPPORT_HANDLERS,
+  ...WEB_HANDLERS,
+  ...DIAGNOSTICS_HANDLERS,
   ...CLAUDE_CODE_HANDLERS,
   ...STEPS_HANDLERS,
   ...GATEWAY_HANDLERS,
@@ -381,6 +403,7 @@ export const HANDLERS = {
   ...COMPANION_HANDLERS,
   ...ASSISTANT_HANDLERS,
   ...VOICE_HANDLERS,
+  ...CALLS_HANDLERS,
   ...TERMINAL_IMPORT_HANDLERS,
   ...AGENT_TERM_HANDLERS,
 } satisfies Handlers;

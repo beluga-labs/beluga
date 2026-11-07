@@ -362,6 +362,7 @@ describe('the views of a known Mac', () => {
     expect(w1.agent?.groups.map((g) => [g.runtime, g.available])).toEqual([
       ['claude', true],
       ['codex', false],
+      ['opencode', false],
       ['local', false],
     ]);
     expect(w1.agent?.groups[1]?.why).toMatch(/Codex/);
@@ -402,6 +403,14 @@ describe('the views of a known Mac', () => {
     expect(w2).toMatchObject({ projectId: 'p1', icon: ICON });
     expect(w2.queue).toEqual([{ id: 'r3', text: 'Then update the docs' }]);
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.icon).toBe(ICON);
+  });
+
+  it('work lists a project with no conversations yet (one just added), last, and never Chats (BLG-675)', () => {
+    const added = { ...state, projects: [...state.projects, { id: 'p9', name: 'notes', root: '/srv/notes', base: 'main', workspaces: [] }, { id: 'chats', name: 'Chats', root: '', base: '', workspaces: [] }] } as DomainState;
+    const work = WorkView.parse(viewOf(added, ctx, 'work'));
+    expect(work.projects.at(-1)).toEqual({ id: 'p9', name: 'notes', conversations: [] });
+    expect(work.projects.find((p) => p.id === 'p1')?.conversations.length).toBeGreaterThan(0);
+    expect(work.projects.some((p) => p.id === 'chats' || p.name === 'Chats')).toBe(false);
   });
 
   it('tasks: by project and status, and one task’s page with its brief, ticks and activity', () => {
@@ -472,6 +481,21 @@ describe('the views of a known Mac', () => {
     expect(conv.turns[1]!.outputs?.map((o) => [o.name, o.kind])).toEqual([['desktop.png', 'image']]);
     expect(conv.canSend).toBe(false);
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'asked')?.conversations.map((c) => c.topic)).toEqual(['conv:task:t_screen000001']);
+  });
+
+  it('the room’s turns carry their reactions and your quick row; a conversation with Claude has none (1.41, BLG-702, BLG-742)', () => {
+    const store = new Store(state);
+    store.dispatch({ type: 'chat', id: 'r1', from: BOB, text: 'shipped it', ts: T0 + 40, byAgent: false, channel: 'room' });
+    store.dispatch({ type: 'chat_react', channel: 'room', id: 'r1', emoji: '🚀', by: BOB, on: true, at: 1 });
+    store.dispatch({ type: 'chat_react', channel: 'room', id: 'r1', emoji: '🚀', by: ME, on: true, at: 2 });
+    const room = ConvView.parse(viewOf(store.getState(), ctx, 'conv:room'));
+    expect(room.turns.find((t) => t.id === 'r1')).toMatchObject({ reactable: true, reactions: [{ emoji: '🚀', count: 2, mine: true, who: ['bob', 'You'] }] });
+    expect(room.quick).toEqual(['🚀', '👍', '❤️', '😂', '🎉', '👀']);
+    // A workspace chat is a conversation with Claude: no emoji there, even one an older Mac put.
+    store.dispatch({ type: 'chat_react', channel: 'ws:w1', id: 'c1', emoji: '🚀', by: BOB, on: true, at: 3 });
+    const conv = ConvView.parse(viewOf(store.getState(), ctx, 'conv:ws:w1'));
+    expect(conv.turns.every((t) => !t.reactable && !t.reactions)).toBe(true);
+    expect(conv.quick).toBeUndefined();
   });
 
   it('a message steered in that Claude hasn’t read yet says so on your turn, not as a turn of Claude’s (BLG-54)', () => {
@@ -551,9 +575,28 @@ describe('the views of a known Mac', () => {
     ]);
     // 1.30 (BLG-429): only your own words, whole on the phone, can be edited there.
     expect(chat.messages.map((m) => m.editable)).toEqual([undefined, true]);
+    // 1.38 (BLG-574): what's unread, so the phone marks it when it opens; none, and it isn't said.
+    expect(chat.unread).toBe(2);
+    expect(ChatView.parse(viewOf({ ...state, network: { ...state.network, friends: state.network.friends.map((f) => ({ ...f, unread: 0 })) } }, ctx, `chat:dm:${BOB}`)).unread).toBeUndefined();
     expect(ChatsView.parse(viewOf(state, ctx, 'chats')).chats[0]).toMatchObject({ name: 'bob', kind: 'dm', unread: 2 });
     expect(PeopleView.parse(viewOf(state, ctx, 'people')).people[0]).toMatchObject({ name: 'bob', presence: 'away', note: 'lunch', offers: ['claude', 'screen', 'shell'] });
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.conversations.map((c) => c.title)).toEqual(['tests', 'auth']);
+  });
+
+  it('a chat’s reactions and your quick row (1.41, BLG-702)', () => {
+    const conv = `dm:${BOB}`;
+    const list = state.network.messages[conv] ?? [];
+    const [first, ...rest] = list;
+    const reacted = { ...state, network: { ...state.network, messages: { ...state.network.messages, [conv]: [{ ...first!, reactions: [{ emoji: '🚀', by: [BOB, ME] }, { emoji: '👀', by: [BOB] }] }, ...rest] } } };
+    const chat = ChatView.parse(viewOf(reacted, ctx, `chat:${conv}`));
+    expect(chat.messages[0]?.reactions).toEqual([
+      { emoji: '🚀', count: 2, mine: true, who: ['bob', 'You'] },
+      { emoji: '👀', count: 1, mine: false, who: ['bob'] },
+    ]);
+    expect(chat.messages[1]?.reactions).toBeUndefined();
+    // The one you use comes first in your row, then the defaults.
+    expect(chat.quick).toEqual(['🚀', '👍', '❤️', '😂', '🎉', '👀']);
+    expect(ChatView.parse(viewOf(state, ctx, `chat:${conv}`)).quick).toEqual(['👍', '❤️', '😂', '🎉', '👀', '✅']);
   });
 
   it('people are friends only: someone only in your room isn’t listed, and their friend request needs you (BLG-202)', () => {

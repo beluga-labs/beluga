@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { AgentOrigin } from '@beluga/core/claude-code/model.js';
 import type { WorktreeInfo } from '@beluga/core/other-worktrees.js';
@@ -12,6 +13,7 @@ import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { setWorktreeFlag, useWorktreeInfo } from './worktree-info-state.js';
 import s from './worktree-info.module.css';
 import { LivePanel } from '../claude-code/Live.js';
+import { openFolderLabel } from '../lib/os-words.js';
 
 /**
  * What a worktree made outside Beluga is (another app's, Claude Code's, a script's): where it
@@ -170,7 +172,7 @@ export function WorktreeInfoPage({ ws, agent, origin }: { ws: Workspace; agent?:
           </span>
           <div className={s.headText}>
             <h1 className={s.title}>{origin?.description ?? ws.name}</h1>
-            <p className={s.origin}>{origin ? `Sub-agent · started by “${origin.sessionTitle ?? 'a Claude Code session'}”${origin.sessionCwd ? ` in ${origin.sessionCwd.split('/').at(-1)}` : ''}` : (info?.origin.label ?? MADE_OUTSIDE)}</p>
+            <p className={s.origin}>{origin ? `Sub-agent · started by “${origin.sessionTitle ?? 'a Claude Code session'}”${origin.sessionCwd ? ` in ${baseName(origin.sessionCwd)}` : ''}` : (info?.origin.label ?? MADE_OUTSIDE)}</p>
           </div>
           {hasChat ? (
             <Button size="small" variant="quiet" icon="back" onClick={() => setWorktreeFlag('about', ws.id, false)}>
@@ -199,7 +201,7 @@ export function WorktreeInfoPage({ ws, agent, origin }: { ws: Workspace; agent?:
           ) : null}
           {!info?.missing ? (
             <Button icon="folder" onClick={() => void api.workspaces.openInFinder(ws.id)}>
-              Open in Finder
+              {openFolderLabel()}
             </Button>
           ) : null}
           {!info?.missing ? (

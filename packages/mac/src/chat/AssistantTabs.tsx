@@ -9,6 +9,7 @@ import { sameDeep } from '../lib/stable.js';
 import { signalOf } from '../layout/attention-model.js';
 import { SignalMark } from '../layout/signal-marks.js';
 import s from './assistant-tabs.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Your Mac's chats as tabs (BLG-102, core/assistant): several conversations at once, one open.
@@ -20,15 +21,17 @@ export function AssistantTabs() {
   const api = useApi();
   const actions = useActions();
   const { client } = useBeluga();
-  const chats = useApp((st) => st.assistant.chats, sameDeep);
+  const all = useApp((st) => st.assistant.chats, sameDeep);
   const active = useApp((st) => st.assistant.active);
   const shown = useApp((st) => (st.view.kind === 'assistant' ? st.view.chat : undefined));
   // A chat this window went to (a tab, a notification) is the one open everywhere.
   useEffect(() => {
-    if (shown && shown !== active && chats.some((c) => c.id === shown)) api.assistant.openChat(shown).catch(() => undefined);
-  }, [shown, active, chats, api]);
-  if (!chats.length) return null;
+    if (shown && shown !== active && all.some((c) => c.id === shown)) api.assistant.openChat(shown).catch(() => undefined);
+  }, [shown, active, all, api]);
   const open = shown ?? active;
+  // A sentinel run's chat is its run's (BLG-566): a tab only while it's the one open (Open Chat on the run).
+  const chats = all.filter((c) => !c.auto || c.id === open);
+  if (!chats.length) return null;
   const fail = (err: unknown): void => toast(client, err instanceof Error ? err.message : String(err), 'error');
   return (
     <div className={s.bar} role="tablist" aria-label={`${ASSISTANT_TITLE}’s chats`}>
@@ -52,7 +55,7 @@ function ChatTab({ chat, open, only, onOpen, onDelete }: { chat: AssistantChat; 
     <div className={cx(s.tab, open && s.tabOn)}>
       <Tip label={signal.tip || title}>
         <button type="button" role="tab" aria-selected={open} className={s.tabMain} onClick={onOpen}>
-          <Icon name="chat" size={12} className={s.tabIcon} />
+          <Icon name={chat.auto ? 'sentinel' : 'chat'} size={12} className={s.tabIcon} />
           <span className={s.tabTitle}>{title}</span>
           {open ? null : <SignalMark signal={signal} />}
         </button>
@@ -66,7 +69,7 @@ function confirmDelete(title: string, last: boolean, run: () => void): void {
   openSheet({
     kind: 'confirm',
     title: `Delete “${title}”?`,
-    message: `Its messages go from this Mac and your phone for good, and your agent forgets the conversation. Files it made stay in ${ASSISTANT_TITLE}’s folder.${last ? ' A fresh chat takes its place.' : ''}`,
+    message: `Its messages go from ${thisComputer()} and your phone for good, and your agent forgets the conversation. Files it made stay in ${ASSISTANT_TITLE}’s folder.${last ? ' A fresh chat takes its place.' : ''}`,
     confirm: 'Delete Chat',
     destructive: true,
     run,

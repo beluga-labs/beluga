@@ -12,15 +12,17 @@ import { WorkspaceStore } from './store.js';
 import { migrateMainConversations } from './main-migration.js';
 import { stopTestProcesses } from './test-procs.js';
 import { applySnapshot, dropSnapshots, snapshotBase } from './snapshots.js';
-import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree } from './archive.js';
+import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree, sweepPartialArchives } from './archive.js';
 import { worktreeOrigin } from './origin.js';
 import { deleteFolderInBackground, removeWorktreeKeepingBranch, sweepSetAside } from './others.js';
 import { moveToTrash } from './trash.js';
-import { dropFolderSessions, dropSession } from '../agent/runtime/claude/claude-sessions.js';
+import { dropFolderSessions, dropSession, pathVariants, sessionFoldersUnder } from '../agent/runtime/claude/claude-sessions.js';
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
+import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/opencode/sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
-import type { MergeWait, Project, ProjectGroup, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, RenameResult, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { ForkOf } from './github.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
@@ -37,6 +39,16 @@ export const slug = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'workspace';
+
+/** A pull request's worktree name: pr-<n> and the first whole words of its title ("pr-51-decode-emails-safely"). */
+export function pullName(pull: { readonly number: number; readonly title?: string | undefined }): string {
+  let name = `pr-${pull.number}`;
+  for (const word of pull.title ? slug(pull.title).split('-') : []) {
+    if (name.length + word.length + 1 > 28) break;
+    name += `-${word}`;
+  }
+  return name;
+}
 
 /**
  * Canonical path: resolves symlinks (macOS /var → /private/var) and, via the native call,
@@ -106,10 +118,14 @@ export class WorkspaceManager {
   /** The refresh running now, and the one queued behind it (every call made meanwhile shares it). */
   private refreshing?: Promise<readonly Project[]>;
   private followUp?: Promise<readonly Project[]>;
+  private archivesSwept = false;
+  private sessionsSwept = false;
   /** One folder's status refresh in flight, per folder: the next waits for it (see refreshWorkspace). */
   private readonly folderRefreshes = new Map<string, Promise<boolean>>();
   /** Fetching state per project root (in flight, the last failure), shown with the default branch. */
   private fetchState = new Map<string, Pick<ProjectSync, 'fetching' | 'fetchError'>>();
+  /** What each project's origin was forked from (by root), as gh last said. */
+  private forks = new Map<string, ForkOf>();
   /** A remote's default branch learned while fetching, for repos without origin/HEAD (by root). */
   private remoteDefaults = new Map<string, string>();
 
@@ -169,19 +185,45 @@ export class WorkspaceManager {
 
   addProject(dir: string): string {
     const root = path.resolve(dir);
+    if (!existsSync(root)) throw new WorkspaceError(`${root} isn’t there anymore`);
     if (!isMainCheckout(root)) throw new WorkspaceError(`${root} is not a git project (no .git folder)`);
     const removed = this.config.removed?.filter((r) => real(r) !== real(root));
-    this.config = { ...this.config, projects: [...new Set([...this.config.projects, root])], hidden: this.config.hidden.filter((h) => h !== root), ...(removed ? { removed } : {}) };
+    const hidden = this.config.hidden.filter((h) => real(h) !== real(root));
+    this.config = { ...this.config, projects: [...new Set([...this.config.projects, root])], hidden, ...(removed ? { removed } : {}) };
     this.store.saveConfig(this.config);
     return projectId(root);
   }
 
+  /** Watch a folder of projects: new ones in it show up, and ones you removed from it come back. */
   addFolder(dir: string): number {
     const root = path.resolve(dir);
     if (!existsSync(root)) throw new WorkspaceError(`${root} doesn't exist`);
-    this.config = { ...this.config, roots: [...new Set([...this.config.roots, root])] };
+    const inside = real(root) + path.sep;
+    const removed = this.config.removed?.filter((r) => !real(r).startsWith(inside));
+    this.config = { ...this.config, roots: [...new Set([...this.config.roots, root])], ...(removed ? { removed } : {}) };
     this.store.saveConfig(this.config);
     return findProjects([root]).length;
+  }
+
+  /** Whether a project's (real) root is one the config lists and shows. */
+  private wanted(root: string): boolean {
+    const is = (r: string): boolean => real(r) === root;
+    if (!existsSync(root) || this.config.hidden.some(is) || this.config.removed?.some(is)) return false;
+    return this.config.projects.some(is) || findProjects(this.config.roots).some(is);
+  }
+
+  /**
+   * A project just added, read from git now and listed, without waiting for a full refresh of
+   * every project (that follows). Undefined: it isn't one the config shows anymore.
+   */
+  async loadAdded(dir: string): Promise<Project | undefined> {
+    const root = real(dir);
+    if (!this.wanted(root)) return undefined;
+    const project = await this.loadProject(root);
+    if (!this.wanted(root)) return undefined;
+    const repos = [...this.projects.filter((p) => p.root && p.id !== project.id), project].sort((a, b) => a.name.localeCompare(b.name));
+    this.projects = [...this.projects.filter((p) => !p.root), ...repos];
+    return project;
   }
 
   get groups(): readonly ProjectGroup[] {
@@ -401,6 +443,15 @@ export class WorkspaceManager {
       .then((projects) => {
         // Worktree folders an earlier background delete couldn't finish sit next to the ones still here.
         void sweepSetAside(new Set(projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree').map((w) => path.dirname(w.path)))));
+        // Archives cut short by a quit (their worktree is still there): once a run, before any new archive starts.
+        if (!this.archivesSwept) {
+          this.archivesSwept = true;
+          void sweepSetAside([this.store.archivesDir]).then(() => sweepPartialArchives(this.store.archivesDir));
+        }
+        if (!this.sessionsSwept) {
+          this.sessionsSwept = true;
+          void this.sweepLeftoverSessions().catch(() => undefined);
+        }
         return projects;
       })
       .finally(() => {
@@ -449,7 +500,10 @@ export class WorkspaceManager {
     const roots = [...new Set([...findProjects(this.config.roots), ...this.config.projects].map(real))].filter(
       (r) => !this.config.hidden.includes(r) && !this.config.removed?.includes(r) && existsSync(r),
     );
-    const loaded = await Promise.all(roots.map((root) => this.loadProject(root)));
+    const read = await Promise.all(roots.map((root) => this.loadProject(root)));
+    // Projects added while this ran (it read the config before them) stay until the next scan finds them.
+    const scanned = new Set(roots);
+    const loaded = [...read, ...this.projects.filter((p) => p.root && !scanned.has(p.root) && this.wanted(p.root))];
     // Same-named projects (e.g. two clones) get their parent folder added so you can tell them apart.
     const counts = new Map<string, number>();
     for (const p of loaded) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
@@ -515,7 +569,8 @@ export class WorkspaceManager {
         const branch = w.kind === 'worktree' || w.kind === 'main' ? (trees.find((t) => real(t.path) === real(w.path))?.branch ?? now.branch) : now.branch;
         return { ...now, ...(branch ? { branch } : {}), base: now.base ?? base, projectId: id, external: false, ...(w.askOnly ? { askOnly: true } : {}), ...(w.status ? { status: w.status } : {}) };
       };
-      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}) };
+      const fork = this.forks.get(root);
+      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}), ...(fork ? { fork } : {}) };
     } catch (err) {
       return { id, name, root, base: 'HEAD', workspaces: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -624,6 +679,19 @@ export class WorkspaceManager {
   async defaultBranchName(projectId: string): Promise<string> {
     const base = await this.baseOf(this.repoProject(projectId).root);
     return base.replace(/^origin\//, '');
+  }
+
+  /** Record what a project's origin was forked from (undefined: not a fork), shown right away. */
+  setFork(projectId: string, fork: ForkOf | undefined): void {
+    const project = this.projects.find((p) => p.id === projectId && p.root);
+    if (!project) return;
+    if (fork) this.forks.set(project.root, fork);
+    else this.forks.delete(project.root);
+    this.projects = this.projects.map((p) => {
+      if (p !== project) return p;
+      const { fork: _f, ...rest } = p;
+      return fork ? { ...rest, fork } : rest;
+    });
   }
 
   /** Mark a project as fetching (or record how its last fetch went), shown right away. */
@@ -776,6 +844,54 @@ export class WorkspaceManager {
   }
 
   /**
+   * A worktree on a pull request's own branch (BLG-633). One from this repository gets its
+   * branch, fetched from origin and tracking it, so a push there updates the pull request (a
+   * local branch of that name is used as it is, moved up to origin's when it can be); one from a
+   * fork gets its branch's name (pr-<n> when that's taken here) from GitHub's pull ref, which
+   * `git pull` keeps current. Named pr-<n> and the first words of its title.
+   * It's compared with the branch the pull request merges into.
+   */
+  async createPullWorktree(projectId: string, pull: PullHead, opts: { readonly id?: string } = {}): Promise<Workspace> {
+    const project = this.repoProject(projectId);
+    const root = project.root;
+    if (!(await g.hasRemote(root))) throw new WorkspaceError('This project has no origin to fetch the pull request from');
+    await g.tryGit(root, ['fetch', 'origin', '--prune']);
+    const s = pullName(pull);
+    const dir = this.freeDir(project, s);
+    let branch: string;
+    if (!pull.fork && pull.branch) {
+      branch = pull.branch;
+      if (!(await g.isCommit(root, `refs/remotes/origin/${branch}`))) throw new WorkspaceError(`${branch} isn’t on origin (it may have been deleted, or the fetch failed)`);
+      if (await g.isCommit(root, `refs/heads/${branch}`)) {
+        const out = (await g.listWorktrees(root)).find((w) => w.branch === branch);
+        if (out) throw new WorkspaceError(`${branch} is already checked out in ${out.path}`);
+        await g.git(root, ['worktree', 'add', dir, branch]);
+        // Your own commits on it stay; otherwise it catches up with the pull request.
+        await g.tryGit(dir, ['merge', '--ff-only', `origin/${branch}`]);
+      } else {
+        await g.git(root, ['worktree', 'add', '--track', '-b', branch, dir, `origin/${branch}`]);
+      }
+    } else {
+      const named = pull.branch && !pull.branch.startsWith('-') && !(await g.isCommit(root, `refs/heads/${pull.branch}`));
+      branch = named ? pull.branch : await this.freeBranch(root, `pr-${pull.number}`);
+      await g.git(root, ['fetch', 'origin', `+refs/pull/${pull.number}/head:refs/heads/${branch}`]).catch((err: unknown) => {
+        throw new WorkspaceError(`Couldn’t fetch pull request #${pull.number} from origin: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      await g.git(root, ['worktree', 'add', dir, branch]);
+      // `git pull` there brings the pull request's new commits.
+      await g.git(root, ['config', `branch.${branch}.remote`, 'origin']);
+      await g.git(root, ['config', `branch.${branch}.merge`, `refs/pull/${pull.number}/head`]);
+    }
+    await g.excludeProjectDir(dir);
+    await copyEnvFiles(root, dir);
+    const base = pull.base && (await g.isCommit(root, `refs/remotes/origin/${pull.base}`)) ? `origin/${pull.base}` : project.base;
+    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: root, name: s, path: dir, kind: 'worktree', branch, base, createdAt: Date.now(), envSnapshot: await envSnapshot(dir) };
+    this.saveRecord(record);
+    const status = await g.status(dir, base).catch(() => undefined);
+    return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
+  }
+
+  /**
    * A workspace just made, listed at once: no re-scan of every project on the way to its first
    * message (that took seconds with many projects, BLG-531). The next full refresh lists it as it
    * finds it; one that began before it was made keeps it here until then.
@@ -823,9 +939,11 @@ export class WorkspaceManager {
     }
   }
 
-  private async freeBranch(repo: string, wanted: string): Promise<string> {
+  /** `mine`: the branch being renamed, free for itself (renaming foo-2 back to foo-2 keeps it). */
+  private async freeBranch(repo: string, wanted: string, mine?: string): Promise<string> {
     for (let i = 1; ; i++) {
       const name = i === 1 ? wanted : `${wanted}-${i}`;
+      if (name === mine) return name;
       try {
         await g.git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`]);
       } catch {
@@ -978,6 +1096,19 @@ export class WorkspaceManager {
     return previewOf(await planArchive(ws.path));
   }
 
+  /**
+   * What deleting a worktree would lose that archiving keeps (BLG-617): its branch's commits that are
+   * on neither its base nor any remote. Undefined: nothing to warn about (not ours, no branch, all pushed).
+   */
+  async deletePlan(id: string): Promise<DeletePlan | undefined> {
+    const ws = this.require(id);
+    // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
+    if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
+    const into = ws.base ?? (await this.baseOf(ws.projectRoot));
+    const lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    return lost.count ? { branch: ws.branch, into, unpushed: lost.count, subjects: lost.subjects } : undefined;
+  }
+
   /** Throw away a worktree's dependencies, builds and caches (it stays; they're made again by its setup). */
   async freeSpace(id: string): Promise<{ bytes: number; remake: readonly string[] }> {
     const ws = this.require(id);
@@ -1002,6 +1133,29 @@ export class WorkspaceManager {
     this.patchRecord(id, { archived: false, archive: undefined });
     await this.refresh();
     return manifest;
+  }
+
+  /**
+   * Claude Code's sessions for worktrees of ours deleted before Delete took them too (BLG-532): ones
+   * whose folder is gone and that no workspace still names (an archived one's stay, for Restore).
+   * Once a run. → how many folders' sessions went.
+   */
+  async sweepLeftoverSessions(): Promise<number> {
+    // An unreadable workspaces.json reads as none: then every archived worktree's would look left over.
+    if (!this.records.length) return 0;
+    const base = real(this.store.workspacesDir);
+    const named = new Set(this.records.flatMap((r) => (r.path ? pathVariants(r.path) : [])));
+    let dropped = 0;
+    for (const cwd of await sessionFoldersUnder(base)) {
+      // The worktree it ran in: <project>/<name> under the workspaces folder (Claude may have run in a sub-folder).
+      const parts = path.relative(base, real(cwd)).split(path.sep);
+      if (parts.length < 2 || parts[0] === '..') continue;
+      const folder = path.join(base, parts[0]!, parts[1]!);
+      if (existsSync(folder) || pathVariants(folder).some((v) => named.has(v))) continue;
+      await dropFolderSessions(cwd).catch(() => 0);
+      dropped++;
+    }
+    return dropped;
   }
 
   /** Permanently delete: worktree folder, its branch, and its conversation. */
@@ -1035,11 +1189,16 @@ export class WorkspaceManager {
     if (ws.archived) await dropArchive(ws.projectRoot, this.store.archivesDir, id).catch(() => undefined);
     if (scratch) rmSync(ws.path, { recursive: true, force: true });
     if (ours) {
-      // Claude Code's (your own Claude and local models alike) and Codex's, whichever agent ran there.
+      // Claude Code's (your own Claude and local models alike), Codex's and OpenCode's, whichever agent ran there.
       for (const dir of new Set([sessionsDir, path.resolve(ws.path)])) await dropFolderSessions(dir).catch(() => 0);
       await dropCodexSessions({ dir: sessionsDir }).catch(() => 0);
+      if (ws.sessionRuntime === 'opencode') {
+        if (ws.sessionId) await dropOpenCodeSession(ws.sessionId).catch(() => false);
+        await dropOpenCodeFolder(sessionsDir, ws.kind === 'worktree' ? ws.projectRoot : sessionsDir).catch(() => 0);
+      }
     } else if (ws.kind === 'chat' && this.ownSession(ws)) {
       if (ws.sessionRuntime === 'codex') await dropCodexSessions({ threadId: ws.sessionId! }).catch(() => 0);
+      else if (ws.sessionRuntime === 'opencode') await dropOpenCodeSession(ws.sessionId!).catch(() => false);
       else await dropSession(sessionsDir, ws.sessionId!).catch(() => undefined);
     }
     this.records = this.records.filter((r) => r.id !== id);
@@ -1110,6 +1269,12 @@ export class WorkspaceManager {
     this.require(id);
     // Another agent's model may not take the effort picked for the last one: Settings' again.
     this.patchRecord(id, { agent: undefined, model: undefined, effort: undefined, ...agentFields(agent) });
+  }
+
+  /** After a quiet switch, the agent it came from (BLG-592); undefined once its recent conversation went along. */
+  setCarry(id: string, from: string | undefined): void {
+    this.require(id);
+    this.patchRecord(id, { carryFrom: from });
   }
 
   /** Pick the thinking effort for one workspace's conversation (undefined: Settings'). */
@@ -1241,8 +1406,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { sessionId: undefined, forkFromSession: undefined, sessionRuntime: undefined });
   }
 
-  rename(id: string, name: string): void {
-    this.patchRecord(id, { name: name.trim().slice(0, 40) || this.require(id).name });
+  rename(id: string, name: string, opts: { readonly automatic?: boolean } = {}): void {
+    const ws = this.require(id);
+    if (opts.automatic && ws.nameSetByUser) return;
+    const clean = opts.automatic ? name.trim().slice(0, 40) || ws.name : name.trim();
+    if (!clean || clean.length > 200) throw new WorkspaceError('A workspace name must contain 1 to 200 characters');
+    this.patchRecord(id, { name: clean, ...(opts.automatic ? {} : { nameSetByUser: true }) });
   }
 
   /**
@@ -1252,13 +1421,62 @@ export class WorkspaceManager {
   async renameWorktree(id: string, name: string): Promise<void> {
     const ws = this.require(id);
     const s = slug(name);
-    if (ws.kind !== 'worktree' || !s || s === ws.name) return;
-    const pushed = ws.branch && (await g.tryGit(ws.path, ['for-each-ref', '--count=1', `refs/remotes/*/${ws.branch}`]))?.trim();
+    // You named it meanwhile: yours stays.
+    if (ws.kind !== 'worktree' || ws.nameSetByUser || !s || s === ws.name) return;
     const prefix = this.branchPrefix();
-    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !pushed ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
+    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !(await this.onRemote(ws.path, ws.branch)) ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
     if (branch) await g.git(ws.path, ['branch', '-m', ws.branch!, branch]);
     this.patchRecord(id, { name: s, ...(branch ? { branch } : {}) });
     await this.refresh();
+  }
+
+  /**
+   * You renamed a workspace. A worktree's branch takes the name too: beluga/<name> (or your prefix)
+   * for one Beluga made, the same folder for one of yours (feature/<name>), or exactly what you typed
+   * when it has a / in it. A branch already on a remote keeps its name (its pull request follows it),
+   * and the folder stays where it is (sessions and terminals run in it).
+   */
+  async renameByUser(id: string, typed: string): Promise<RenameResult> {
+    const ws = this.require(id);
+    if (ws.kind !== 'worktree') {
+      this.rename(id, typed);
+      return { name: this.require(id).name };
+    }
+    const text = typed.trim();
+    const exact = text.includes('/') ? await this.validBranch(ws.path, text) : undefined;
+    const label = exact ? exact.slice(exact.lastIndexOf('/') + 1) : text;
+    if (!/[a-z0-9]/i.test(label)) throw new WorkspaceError('A worktree needs a name with a letter or a digit in it');
+    const s = slug(label);
+    const old = ws.branch;
+    const kept = !old ? undefined : (await this.onRemote(ws.path, old)) ? ('pushed' as const) : undefined;
+    let branch = old;
+    if (old && !kept) {
+      const prefix = this.branchPrefix();
+      const wanted = exact ?? (isOwnBranch(old, ws.name, prefix) ? `${prefix}${s}` : `${old.slice(0, old.lastIndexOf('/') + 1)}${s}`);
+      branch = exact ? await this.takenOrFree(ws.path, exact, old) : await this.freeBranch(ws.path, wanted, old);
+      if (branch !== old) await g.git(ws.path, ['branch', '-m', old, branch]);
+    }
+    this.patchRecord(id, { name: s, nameSetByUser: true, ...(branch ? { branch } : {}) });
+    await this.refresh();
+    return { name: s, ...(branch ? { branch } : {}), ...(kept ? { branchKept: kept } : {}) };
+  }
+
+  /** Is this branch on a remote already (a remote branch of the same name)? Its upstream alone says nothing: a new worktree's is origin/main. */
+  private async onRemote(repo: string, branch: string): Promise<boolean> {
+    return Boolean((await g.tryGit(repo, ['for-each-ref', '--count=1', `refs/remotes/*/${branch}`]))?.trim());
+  }
+
+  /** The branch name you typed, as git accepts it, or why not. */
+  private async validBranch(repo: string, name: string): Promise<string> {
+    const ok = (await g.tryGit(repo, ['check-ref-format', '--branch', name]))?.trim();
+    if (!ok || ok !== name) throw new WorkspaceError(`“${name}” can’t be a branch name`);
+    return ok;
+  }
+
+  /** An exact branch name you asked for: refused when another branch has it already. */
+  private async takenOrFree(repo: string, wanted: string, mine: string): Promise<string> {
+    if (wanted === mine || (await this.freeBranch(repo, wanted, mine)) === wanted) return wanted;
+    throw new WorkspaceError(`A branch named ${wanted} is there already`);
   }
 
   /** `runtime`: the one that made `sessionId` (unset: Claude). */

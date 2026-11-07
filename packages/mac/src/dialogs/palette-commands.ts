@@ -11,6 +11,7 @@ import { openStripe } from '../lib/earnings.js';
 import { openSupport } from '../lib/support.js';
 import { SHOW_WELCOME } from '../onboarding/onboarding-model.js';
 import { previewRequestPopup } from '../gateway/request-native.js';
+import { revealLabel } from '../lib/os-words.js';
 
 export interface PaletteCommand {
   readonly id: string;
@@ -48,7 +49,7 @@ function workspaceCommands({ ui, actions, state }: Ctx): PaletteCommand[] {
     ['compact', cmd('compact', 'compact', 'Compact the Conversation…', 'wand', act('compact'), 'Your agent keeps what matters'), true],
     ['run', cmd('run', 'run', 'Run the Project', 'play', act('run')), Boolean(project?.scripts?.run)],
     ['setup', cmd('setup', 'setup', 'Run Setup Again', 'refresh', act('setup')), Boolean(project?.scripts?.setup)],
-    ['finder', cmd('finder', 'finder', 'Show in Finder', 'folder', act('finder')), true],
+    ['finder', cmd('finder', 'finder', revealLabel(), 'folder', act('finder')), true],
     ['archive', cmd('archive', 'archive', 'Archive This Workspace…', 'archive', act('archive')), ws.kind !== 'main'],
     ['delete', cmd('delete', 'delete', 'Delete This Workspace…', 'alert', act('delete')), ws.kind !== 'main'],
   ];

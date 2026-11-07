@@ -3,6 +3,7 @@ import { AgentRef } from '../protocol.js';
 import { AUTO_COMPACT_DEFAULT, AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from './context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from './run-slots.js';
 import { CHAT_LIMIT_DEFAULT, CHAT_LIMIT_MAX } from './chat-limit.js';
+import { MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH } from './agent-args.js';
 import { coercePerKind, coerceSound, DEFAULT_SOUND, DEFAULT_VOLUME, PerKindSounds, SoundChoice } from './notify-sound.js';
 
 // Settings as data (no file access), so the reducer and the clients can use them anywhere.
@@ -28,6 +29,9 @@ export const BRANCH_PREFIX_RE = /^(?![./-])(?!.*\.\.)(?!.*\/\/)(?!.*\/[.-])[\w./
 /** Keep the Mac awake for your phone: never, only on power, or always (the display may still sleep). */
 export const KEEP_AWAKE = ['off', 'power', 'always'] as const;
 export type KeepAwake = (typeof KEEP_AWAKE)[number];
+/** Low Power mode (BLG-621): never, on battery (or macOS Low Power Mode), or always. */
+export const LOW_POWER = ['off', 'battery', 'always'] as const;
+export type LowPower = (typeof LOW_POWER)[number];
 
 /** Which events can notify you (desktop notification + the in-app inbox). */
 export const NotifySettings = z.object({
@@ -75,6 +79,8 @@ const peerKey = z.string().regex(/^[\w-]{8,64}$/);
 /** Choices that persist between runs in ~/.beluga/settings.json. */
 export const Settings = z.object({
   name: z.string().regex(/^[\w.-]{1,32}$/).optional(),
+  /** What your phone calls this computer (`beluga setup`); unset: its own name (Sharing name, else host name). */
+  computerName: z.string().trim().min(1).max(64).optional(),
   theme: z.enum(THEMES).default('calm'),
   /** Default trust for people you haven't chosen a level for. Unset until you answer the welcome screen once. */
   policy: z.enum(['ask', 'auto', 'deny']).optional(),
@@ -82,6 +88,8 @@ export const Settings = z.object({
   tunnel: z.enum(['auto', 'p2p', 'cloudflared', 'ngrok', 'none']).default('auto'),
   /** Keep the Mac from sleeping while a phone is paired, so it stays reachable (companion/awake.ts): never, on power only, or always. */
   keepAwake: z.enum(KEEP_AWAKE).default('off'),
+  /** Low Power mode: Beluga does less and shows less to save the battery (core/power-saver.ts). */
+  lowPower: z.enum(LOW_POWER).default('off'),
   /** Whether your own Claude asks before shell commands and other risky actions. */
   selfApproval: z.enum(['never', 'ask']).default('never'),
   notify: NotifySettings.default(NotifySettings.parse({})),
@@ -118,6 +126,8 @@ export const Settings = z.object({
   friendWorktrees: z.enum(['ask', 'off']).default('ask'),
   /** Who may call your Claude into a chat (you always can): friends in the chat, people you trust, or only you. */
   chatClaude: z.enum(['everyone', 'trusted', 'off']).default('everyone'),
+  /** Who sees how much of your plans (Claude Code, Codex…) you have left, on your profile: people you trust, every friend, or no one (BLG-597). */
+  shareUsage: z.enum(['trusted', 'everyone', 'off']).default('trusted'),
   /** Your main channel: a group with all your friends (made the first time you open it). */
   mainChannel: z.string().regex(/^[0-9a-f]{32}$/).optional(),
   /** People you chose a trust level for (by their key-derived id). */
@@ -128,6 +138,9 @@ export const Settings = z.object({
   shellLogin: z.boolean().default(true),
   /** Extra arguments for the shell, after -l. */
   shellArgs: z.array(z.string().max(200)).max(20).default([]),
+  /** Your own flags for `claude` and `codex` on your own runs (shared/agent-args.ts), e.g. --dangerously-skip-permissions. */
+  claudeArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
+  codexArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
   /** Show every earnings total in this currency (lowercase ISO code; unset: the one most was earned in). */
   earningsCurrency: z.string().regex(/^[a-z]{3}$/).optional(),
   /** Be on the Beluga network (friends, groups, presence) while the Mac app's daemon runs. Off by default for now. */

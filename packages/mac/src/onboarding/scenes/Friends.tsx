@@ -4,6 +4,7 @@ import { Icon, type IconName } from '../../components/Icon.js';
 import { SPRING } from '../fx.js';
 import { useBeats } from './use-beats.js';
 import s from './scenes.module.css';
+import { upFirst, yourComputer } from '../../lib/os-words.js';
 
 /**
  * Claudes that work together: yours is in the middle of something and needs a hand from a
@@ -28,7 +29,7 @@ interface Errand {
 const ERRANDS: readonly Errand[] = [
   {
     before: 'Drafting the Q3 investor update',
-    ask: 'Find the Q3 balance sheet on Ada’s Mac and send me a summary',
+    ask: 'Find the Q3 balance sheet on Ada’s computer and send me a summary',
     steps: [
       { icon: 'search', text: 'Searched', code: '~/Desktop' },
       { icon: 'file', text: 'Found', code: 'Balance-Sheet-Q3.xlsx' },
@@ -79,7 +80,7 @@ function Window({ who, hue, you, children }: { readonly who: string; readonly hu
           {who[0]}
         </span>
         <div>
-          <strong>{you ? 'Your Mac' : `${who}’s Mac`}</strong>
+          <strong>{you ? upFirst(yourComputer()) : `${who}’s computer`}</strong>
           <span className={s.macClaude}>
             <Icon name="claude" size={10} /> {you ? 'your agent' : `${who}’s agent`}
           </span>
@@ -174,7 +175,7 @@ export function Friends() {
             ) : null}
           </AnimatePresence>
           <span className={s.lock}>
-            <Icon name="lock" size={10} /> Mac to Mac, encrypted
+            <Icon name="lock" size={10} /> Computer to computer, encrypted
           </span>
         </div>
 

@@ -5,6 +5,9 @@ import type { Row, Source } from '../../shared/view-spec.js';
 import type { MetricColumn } from './columns.js';
 import type { Dashboard } from './dashboard-model.js';
 import { ASSISTANT_TITLE } from '../../shared/assistant.js';
+import { type ScheduleTrigger, scheduleWords } from '../../shared/schedule/trigger.js';
+
+export type { ScheduleTrigger };
 
 /**
  * Sentinel (docs/sentinel.md): watchers that run on a schedule, by hand, or when something
@@ -16,25 +19,6 @@ import { ASSISTANT_TITLE } from '../../shared/assistant.js';
 
 export const TRIGGER_KINDS = ['schedule', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
-
-export const SCHEDULE_EVERY = ['hours', 'day', 'other-day', 'week', 'month'] as const;
-export type ScheduleEvery = (typeof SCHEDULE_EVERY)[number];
-export const SCHEDULE_HOURS = [1, 2, 3, 6, 12] as const;
-export type ScheduleHours = (typeof SCHEDULE_HOURS)[number];
-
-export interface ScheduleTrigger {
-  readonly kind: 'schedule';
-  readonly every: ScheduleEvery;
-  /** Local time, "HH:MM" (for `hours`: where the hours line up, "00:00" by default). */
-  readonly at: string;
-  readonly hours?: ScheduleHours;
-  /** For `week`: 0 Sunday … 6 Saturday (Monday when empty). */
-  readonly days?: readonly number[];
-  /** For `month`: 1…28. */
-  readonly day?: number;
-  /** A slot that passed while the Mac slept or Beluga was closed: run once when it's back, or skip it. */
-  readonly missed: 'catch-up' | 'skip';
-}
 
 export interface ManualTrigger {
   readonly kind: 'manual';
@@ -301,6 +285,30 @@ export interface Limits {
 }
 
 export const DEFAULT_LIMITS: Limits = { minutes: 30, pauseAfter: 3 };
+
+/**
+ * Which runs' conversations a sentinel keeps (BLG-566). The rest are put away once their run ends: a
+ * project chat archived (restorable), a Your Mac chat deleted; each run's report and outputs stay
+ * either way, and a worktree with work is never put away. `all` keeps every one (the 200 runs a
+ * sentinel keeps), `failed` only failed and stopped runs', `latest` only the newest run's.
+ */
+export const KEEP_CHATS = ['all', 'failed', 'latest'] as const;
+export type KeepChats = (typeof KEEP_CHATS)[number];
+export const DEFAULT_KEEP_CHATS: KeepChats = 'all';
+/** `keeps`: what it does, after its name ("Hourly check keeps only failed runs’ chats"). */
+export const KEEP_CHATS_INFO: Readonly<Record<KeepChats, { readonly label: string; readonly description: string; readonly keeps: string }>> = {
+  all: { label: 'Every run', description: 'Each run’s chat stays, to read or carry on', keeps: 'keeps every run’s chat' },
+  failed: { label: 'Failed runs only', description: 'A run that went fine puts its chat away; its report stays', keeps: 'keeps only failed runs’ chats' },
+  latest: { label: 'The latest run only', description: 'Each run puts the one before’s chat away; reports stay', keeps: 'keeps only the latest run’s chat' },
+};
+
+/** Whether a run that ended keeps its conversation; `latest`: the newest ended run with one. */
+export function keepsChat(keep: KeepChats, run: Pick<Run, 'id' | 'state'>, latest: string | undefined): boolean {
+  if (isLive(run.state)) return true;
+  if (keep === 'failed') return run.state === 'failed' || run.state === 'stopped';
+  if (keep === 'latest') return run.id === latest;
+  return true;
+}
 export const TIME_LIMITS = [10, 30, 60, 120] as const;
 
 export interface Sentinel {
@@ -314,6 +322,8 @@ export interface Sentinel {
   readonly steps: readonly Step[];
   readonly access: Access;
   readonly limits: Limits;
+  /** Which runs' conversations it keeps (none: all). */
+  readonly keepChats?: KeepChats;
   /** Where the run's end is told. */
   readonly notify: NotifyWhere;
   /** A new sentinel starts paused until you Turn It On. */
@@ -345,6 +355,7 @@ export interface SentinelDraft {
   readonly steps?: readonly StepDraft[];
   readonly access?: Access;
   readonly limits?: Partial<Limits>;
+  readonly keepChats?: KeepChats;
   readonly notify?: NotifyWhere;
   readonly recipe?: string;
 }
@@ -423,6 +434,10 @@ export interface Run {
    * done later) still can't start a loop.
    */
   readonly chain?: readonly string[];
+  /** Its conversations were put away, as its sentinel keeps them (or it was the oldest of 200). */
+  readonly putAway?: true;
+  /** You deleted its conversations (BLG-577): put away too, and its page says you did. */
+  readonly chatDeleted?: true;
 }
 
 /** A run in the index and the state: no outputs, no trigger payload. */
@@ -671,6 +686,8 @@ export type SentinelAction =
   | { type: 'sentinel_remove'; id: string }
   /** One run changed or began. */
   | { type: 'sentinel_run'; run: RunSummary }
+  /** Runs you deleted (BLG-577): out of the history. */
+  | { type: 'sentinel_runs_gone'; ids: readonly string[] }
   /** Your Claude changing a sentinel: began, or ended (none: forgotten). */
   | { type: 'sentinel_ask'; id: string; ask?: SentinelAsk }
   /** An event sentinel can't watch (none: it watches again). */
@@ -764,6 +781,10 @@ export function reduceSentinel(state: SentinelSlice, action: SentinelAction): Se
     case 'sentinel_ask': {
       const { [action.id]: _was, ...asks } = s.asks ?? {};
       return { sentinel: { ...s, asks: action.ask ? { ...asks, [action.id]: action.ask } : asks } };
+    }
+    case 'sentinel_runs_gone': {
+      const gone = new Set(action.ids);
+      return { sentinel: { ...s, runs: s.runs.filter((r) => !gone.has(r.id)), live: Object.fromEntries(Object.entries(s.live).filter(([id]) => !gone.has(id))) } };
     }
     case 'sentinel_run': {
       const run = action.run;
@@ -1060,21 +1081,6 @@ export const RUN_STATE_INFO: Readonly<Record<RunState, { readonly label: string;
 
 // ---------------------------------------------------------------- sentences
 
-export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-
-/** "07:00" → "7:00". */
-export function clockText(at: string): string {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(at);
-  return m ? `${Number(m[1])}:${m[2]}` : at;
-}
-
-/** 1 → "1st", 22 → "22nd". */
-export function ordinal(n: number): string {
-  const tens = n % 100;
-  const suffix = tens >= 11 && tens <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th';
-  return `${n}${suffix}`;
-}
-
 const WORDS: Readonly<Record<string, string>> = {
   'task-done': 'a task is done',
   'pr-opened': 'a pull request opens',
@@ -1102,29 +1108,8 @@ const WORDS: Readonly<Record<string, string>> = {
  */
 export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => string | undefined = () => undefined): string {
   switch (trigger.kind) {
-    case 'schedule': {
-      const at = clockText(trigger.at);
-      switch (trigger.every) {
-        case 'hours': {
-          const n = trigger.hours ?? 1;
-          return n === 1 ? 'Every hour' : `Every ${n} hours`;
-        }
-        case 'day':
-          return `Every day at ${at}`;
-        case 'other-day':
-          return `Every other day at ${at}`;
-        case 'week': {
-          const days = [...new Set(trigger.days?.length ? trigger.days : [1])].filter((d) => d >= 0 && d <= 6).sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
-          if (days.length === 7) return `Every day at ${at}`;
-          if (days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d))) return `Every weekday at ${at}`;
-          if (days.length === 2 && days.includes(0) && days.includes(6)) return `Every weekend day at ${at}`;
-          return `Every week on ${days.map((d) => DAY_NAMES[d]).join(', ')} at ${at}`;
-        }
-        case 'month':
-          return `Every month on the ${ordinal(trigger.day ?? 1)} at ${at}`;
-      }
-      return at;
-    }
+    case 'schedule':
+      return scheduleWords(trigger);
     case 'manual':
       return 'Only when you press Run';
     case 'after': {

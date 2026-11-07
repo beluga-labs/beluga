@@ -32,7 +32,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     (worktree ? buildKeepAppend(agent) : '') +
     (worktree && !input.planBrief && !askOnly ? buildCommitAppend() : '') +
     (place?.shipped && !askOnly ? buildShippedAppend(place.shipped) : '') +
-    (askOnly ? (syncMain ? buildSyncMainAppend(askOnly.project, syncMain.branch, syncMain.upstream) : buildAskOnlyAppend(askOnly.project, Boolean(input.continueInWorktree))) : '') +
+    (askOnly ? (syncMain ? buildSyncMainAppend(askOnly.project, syncMain.branch, syncMain.upstream) : buildAskOnlyAppend(askOnly.project, Boolean(input.continueInWorktree), Boolean(input.board))) : '') +
     (input.terminal ? buildTerminalAppend() : '')
   );
 }

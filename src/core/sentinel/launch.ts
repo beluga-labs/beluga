@@ -1,9 +1,12 @@
 import { belugaHome } from '../home.js';
 import type { Session } from '../session.js';
 import type { Store } from '../store.js';
+import { ownClaude } from '../own-agent.js';
 import { assistantOf } from '../assistant/registry.js';
-import { assistantChannel } from '../../shared/assistant.js';
+import { busyChannels } from '../board/work.js';
+import { assistantChannel, assistantChatOf } from '../../shared/assistant.js';
 import { commandEnv, fetchSource } from '../views/sources.js';
+import { ghRepoEnv } from '../../workspaces/github.js';
 import type { Source } from '../../shared/view-spec.js';
 import { gatewayOf } from '../gateway/registry.js';
 import { isFinal } from '../gateway/model.js';
@@ -19,7 +22,7 @@ import { openTunnel, waitUntilReachable } from '../../net/tunnel.js';
 import { demoGitHub, demoServices, demoTriggers, seedDemoSentinel } from './demo.js';
 import type { FetchLike, TriggerDeps, WebhookTunnel } from './triggers/types.js';
 import { attachSentinel, detachSentinel } from './registry.js';
-import type { PrLook, PrPlace, SentinelChat, SentinelClaude, SentinelFriends, SentinelGitHub, SentinelPlaces } from './runner.js';
+import type { PrLook, PrPlace, SentinelChat, SentinelFriends, SentinelGitHub, SentinelPlaces } from './runner.js';
 import { Sentinels } from './sentinels.js';
 import { keepWidgetSnapshot } from './widgets.js';
 import path from 'node:path';
@@ -49,7 +52,8 @@ export function launchSentinel(host: SentinelHost): () => void {
     selfId: () => session.selfId,
     claude,
     places: places(session),
-    envFor: (cwd) => commandEnv(cwd),
+    // A script step's gh works on origin's repository (a fork's own, not the original), as Beluga does.
+    envFor: (cwd) => ({ ...ghRepoEnv(cwd), ...commandEnv(cwd) }),
     notify: (e) => session.notifier.notify(e),
     // The demo's pull requests open, pass and merge without GitHub.
     github: host.demo ? demoGitHub() : github(session, store),
@@ -125,42 +129,6 @@ const cloudflareTunnel: WebhookTunnel = async (port, onDied) => {
   return { url: t.publicUrl, close: () => t.close() };
 };
 
-/** Your own Claude, asked in a conversation and waited for by its request (askAndWait's pattern, keyed by request). */
-function ownClaude(session: Session, store: Store): SentinelClaude & { close(): void } {
-  const waits = new Map<string, { readonly resolve: (text: string) => void; readonly reject: (err: Error) => void }>();
-  const off = store.onAction((a) => {
-    if (a.type !== 'agent_event') return;
-    const w = waits.get(a.requestId);
-    if (!w || !['done', 'error', 'denied'].includes(a.event)) return;
-    waits.delete(a.requestId);
-    if (a.event === 'done') w.resolve(a.text);
-    else w.reject(new Error(a.text || a.event));
-  });
-  return {
-    ask: (prompt, channel, shown) => session.askOwnClaude(prompt, channel, false, shown),
-    wait: (requestId) => new Promise<string>((resolve, reject) => void waits.set(requestId, { resolve, reject })),
-    // The wait stays until the request ends (its done or error event), so the run can wait for it
-    // before archiving its worktree; one that never says so is let go after a while.
-    cancel: (requestId, note) => {
-      const letGo = (): void => {
-        const w = waits.get(requestId);
-        if (!w) return;
-        waits.delete(requestId);
-        w.reject(new Error('Stopped'));
-      };
-      // Not running (any more): nothing to wait for.
-      if (!session.host.cancelRun(requestId, note)) return letGo();
-      const timer = setTimeout(letGo, 15_000);
-      timer.unref?.();
-    },
-    close: () => {
-      off();
-      for (const w of waits.values()) w.reject(new Error('Beluga closed'));
-      waits.clear();
-    },
-  };
-}
-
 /** Where a run's Claude works: quiet chats and worktrees (the window stays where it is), Your Mac's chats. */
 function places(session: Session): SentinelPlaces | undefined {
   const ctl = session.workspaces;
@@ -174,11 +142,33 @@ function places(session: Session): SentinelPlaces | undefined {
       const ws = await ctl.startWorktree(projectId, '', (p) => session.nameTask(p), { quiet: true, name });
       return ws ? { channel: `ws:${ws.id}`, workspaceId: ws.id } : undefined;
     },
-    macChat: () => {
+    macChat: (run) => {
       const mac = assistantOf(session);
       if (!mac) return undefined;
-      // Beluga's own: never refused by your Open chats limit, never takes your tab (BLG-568).
-      return { channel: assistantChannel(mac.newChat({ auto: true })) };
+      // Beluga's own: never refused by your Open chats limit, never takes your tab (BLG-568); a run's on the agent its step chose.
+      return { channel: assistantChannel(mac.newChat({ auto: true, ...(run?.agent ? { agent: run.agent } : {}) })) };
+    },
+    putAway: async (channel) => {
+      if (channel.startsWith('ws:')) {
+        const ws = ctl.manager.find(channel.slice(3));
+        if (ws && !ws.archived && ws.kind === 'chat') await ctl.archive(ws.id, false, { quiet: true });
+        return;
+      }
+      const mac = assistantOf(session);
+      const id = assistantChatOf(channel);
+      const chats = mac?.chats();
+      // Only one of Beluga's own, and never the one you have open.
+      if (mac && id && chats && chats.active !== id && chats.chats.some((c) => c.id === id && c.auto)) await mac.deleteChat(id);
+    },
+    deleteChat: async (channel) => {
+      if (busyChannels(session.store.getState().log).has(channel)) session.host.stopRun(channel);
+      if (channel.startsWith('ws:')) {
+        const ws = ctl.manager.find(channel.slice(3));
+        if (ws && ws.kind === 'chat') await ctl.remove(ws.id, { quiet: true });
+        return;
+      }
+      const id = assistantChatOf(channel);
+      if (id) await assistantOf(session)?.deleteChat(id);
     },
     madeChanges: async (workspaceId) => {
       const ws = ctl.manager.find(workspaceId);
