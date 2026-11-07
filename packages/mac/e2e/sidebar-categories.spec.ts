@@ -222,6 +222,8 @@ test.describe('with the setting on', () => {
 test('a chat already put off folds under Later in Inbox, Snooze is the only new way to put off, and the header shows archived chats', async ({ page }) => {
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
+  // Remind Me Later is on the menu only with the setting off, and the tests before this one may leave it on.
+  await setCategories(page, false);
   const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
   if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
   // The project's page is in (it takes focus as it comes, which would close a menu).
