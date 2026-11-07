@@ -82,7 +82,7 @@ export type LogItem =
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
       readonly reacts?: readonly ReactionEvent[];
     }
-  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
+  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark; readonly schedule?: ScheduleMark }
   | {
       readonly id: string;
       readonly type: 'agent';
@@ -139,6 +139,14 @@ export interface ShippedMark {
 export const shippedText = (number: number, into: string): string => `Above this line went to PR #${number}, merged into ${into}. New work starts here, for a new pull request.`;
 
 /** Where a dialogue shows in a conversation: its header card (a system line) and its turns (chat lines). */
+/** The system line of a schedule's run (core/schedule): which one, and its prompt, folded on screen. */
+export interface ScheduleMark {
+  readonly id: string;
+  readonly title: string;
+  readonly prompt: string;
+  readonly due: number;
+}
+
 export interface DialogueMark {
   readonly id: string;
   readonly turn?: number;
@@ -587,7 +595,7 @@ export type Action =
   | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; agent?: AgentRef; dialogue?: DialogueMark }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
-  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
+  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark; schedule?: ScheduleMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
   | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
@@ -1020,7 +1028,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'system':
       return {
         ...state,
-        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
+        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}), ...(action.schedule ? { schedule: action.schedule } : {}) }),
       };
     case 'conflicts': {
       const { [action.id]: _old, ...rest } = state.conflicts;

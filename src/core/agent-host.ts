@@ -78,6 +78,8 @@ export interface AgentHostDeps {
   readonly confirmTool?: (toolName: string, input: Record<string, unknown>) => { readonly title: string; readonly detail: string } | undefined;
   /** Sentinels (your own runs): their tools, and a sentinel run's brief in its Claude step's conversation (core/sentinel). */
   readonly sentinel?: (channel: string, from: string) => { readonly tools: import('../agent/types.js').SentinelTools; readonly dashboard?: import('../agent/types.js').DashboardTools; readonly brief: string; readonly inRun: boolean } | undefined;
+  /** A schedule's run (core/schedule, your own runs): what Claude is told, for this one request. */
+  readonly schedule?: (channel: string, requestId: string) => string | undefined;
   /** A plan's home conversation (your own runs): its plan tools and what Claude is told about the plan (core/plans). */
   readonly plans?: (channel: string, from: string) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string } | undefined;
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
@@ -439,6 +441,12 @@ export class AgentHost {
   /** Whether a run of your Claude is under way in this conversation: its Claude Code process is there. */
   runningIn(channel: string): boolean {
     return Boolean(this.lanes.get(channel)?.current);
+  }
+
+  /** Whether this conversation has anything to do first: a run, a queue, or a queue held after a failure. */
+  busyIn(channel: string): boolean {
+    const lane = this.lanes.get(channel);
+    return Boolean(lane && (lane.current || lane.waiting.length || lane.held));
   }
 
   /**
@@ -1202,6 +1210,7 @@ export class AgentHost {
       const planFirst = body.plan && !plans?.tools;
       // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools (it makes tasks).
       const sentinel = from === this.selfId && !place?.syncMain ? this.deps.sentinel?.(body.channel, from) : undefined;
+      const scheduleBrief = from === this.selfId ? this.deps.schedule?.(body.channel, body.requestId) : undefined;
       const noBoard = place?.syncMain || (place?.askOnly && plans?.tools && !sentinel?.inRun);
       // A friend's run gets its repo's board too, as their trust allows (BLG-701; see boardAccess).
       const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
@@ -1251,6 +1260,7 @@ export class AgentHost {
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
+        ...(scheduleBrief ? { scheduleBrief } : {}),
         prompt: this.promptOf(body),
         ...this.promptIdOf(body),
         requesterName,

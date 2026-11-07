@@ -18,6 +18,7 @@ import { GATEWAY_API } from './gateway-api.js';
 import { BOARD_API } from './board-api.js';
 import { CI_API } from './ci-api.js';
 import { DASHBOARD_API } from './dashboard-api.js';
+import { SCHEDULE_API } from './schedule-api.js';
 import { SENTINEL_API } from './sentinel-api.js';
 import { PLANS_API } from './plans-api.js';
 import { DIALOGUES_API } from './dialogues-api.js';
@@ -457,6 +458,8 @@ export const API = {
   ...BOARD_API,
   // ---- Sentinel: watchers on a schedule or by hand, their runs and reports (sentinel-api.ts)
   ...SENTINEL_API,
+  // ---- Schedules: recurring runs in one chat (schedule-api.ts)
+  ...SCHEDULE_API,
   // ---- Dashboards: the numbers sentinels keep, arranged in tiles (dashboard-api.ts)
   ...DASHBOARD_API,
   ...PLANS_API,

@@ -2,8 +2,8 @@ import type { Session } from './session.js';
 import type { Store } from './store.js';
 
 export interface OwnClaude {
-  /** Ask your Claude in a conversation → the request's id (undefined: it can't be asked there). `shown`: what the chat shows you asked. */
-  ask(prompt: string, channel: string, shown: string): string | undefined;
+  /** Ask your Claude in a conversation → the request's id (undefined: it can't be asked there). `shown`: what the chat shows you asked (false: nothing). */
+  ask(prompt: string, channel: string, shown: string | false): string | undefined;
   /** That request's final message; rejects with what went wrong (an error, a denial). */
   wait(requestId: string): Promise<string>;
   /** Stop it. */

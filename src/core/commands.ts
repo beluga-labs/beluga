@@ -6,6 +6,7 @@ import { type InvitePlace, friendNamed, inviteRoute, namesLine, parseInvite } fr
 import { defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { builtInInstead } from '../shared/skills.js';
+import { runScheduleCommand } from './schedule/command.js';
 
 /**
  * "~/x" (or "~\\x" on Windows) from your home folder. No node:os here (the screens load this file):
@@ -68,6 +69,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: 'theme', args: 'calm|light|contrast|mono', desc: 'switch the color theme' },
   { name: 'zoom', args: 'in|out|reset', desc: 'make the text bigger or smaller (also Option+↑ / Option+↓)' },
   { name: 'clear', desc: 'clear this conversation (choose: just you, everyone, or a fresh agent)' },
+  { name: 'schedule', args: '[pause|resume|run|remove] [title]', desc: 'see this chat’s schedules; pause, resume, run or remove one' },
   { name: 'plan', args: 'on|off', desc: 'your agent plans first and asks you to approve before changing anything' },
   { name: 'remove', args: '<name>', desc: 'host: remove someone from the room (the invite link changes)' },
   { name: 'newlink', desc: 'host: make a new invite link; the old one stops working' },
@@ -302,6 +304,8 @@ export function runCommand(session: Session, name: string, args: readonly string
       session.askOwnClaude(visualizePrompt(what), channel, false, false);
       return;
     }
+    case 'schedule':
+      return runScheduleCommand(session, args, channel);
     case 'plan': {
       session.setPlanMode(channel, arg ? arg !== 'off' : !state.planMode[channel]);
       return;
