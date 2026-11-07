@@ -271,6 +271,7 @@ function real() {
     workspaces: {
       manager,
       refresh: async () => undefined,
+      isLeaving: () => false,
       ensureLoaded: () => undefined,
       newWorktree: async (_p: string, name: string, o: { thread: Workspace['thread'] }) => add(`t${++n}`, { name, thread: o.thread }),
       newChat: async () => undefined,

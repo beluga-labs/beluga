@@ -38,7 +38,12 @@ export interface ThreadRecord {
   readonly owed: readonly string[];
   readonly outcome?: ThreadOutcome;
   readonly stopped?: { readonly by: 'person' | 'agent'; readonly at: number };
+  /** A person archived or deleted the parent and kept this thread: it stands on its own, with parentTitle as words and no link. */
+  readonly parentGone?: true;
 }
+
+/** What archiving or deleting a chat does to its threads. `keep` is the default of every call. */
+export type ThreadChildren = 'with' | 'keep';
 
 export interface ThreadLimits {
   /** How deep a tree goes. */

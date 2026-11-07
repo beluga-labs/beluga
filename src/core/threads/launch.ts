@@ -45,6 +45,7 @@ export function launchThreads(session: Session): () => void {
       session.store.dispatch({ type: 'system', text: line, channel });
       session.host.runFor(session.selfId, channel, prompt, session.store.getState().planMode[channel] === true, requestId);
     },
+    leaving: (id) => controller.isLeaving(id),
     terminalDriving: (channel) => session.agentTerms?.driving(channel) ?? false,
     hasMacChat: (channel) => Boolean(assistantOf(session)?.chats().chats.some((c) => c.channel === channel)),
   });

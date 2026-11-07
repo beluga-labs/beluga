@@ -45,6 +45,8 @@ export interface ThreadServiceDeps {
   readonly hasMacChat: (channel: string) => boolean;
   /** A person's agent terminal has this chat: a run there is refused until it closes. */
   readonly terminalDriving: (channel: string) => boolean;
+  /** A person's archive or delete of this chat is under way: results wait to see how it ends. */
+  readonly leaving?: (id: string) => boolean;
   readonly wakeMs?: number;
 }
 
@@ -430,7 +432,7 @@ export class ThreadService {
     const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
     if (!ws) return 'gone';
     // A thread that was stopped stays stopped: a child's result does not start it again.
-    return ws.archived || ws.thread?.stopped || this.deps.terminalDriving(parent) ? 'held' : 'here';
+    return ws.archived || ws.thread?.stopped || this.deps.leaving?.(ws.id) || this.deps.terminalDriving(parent) ? 'held' : 'here';
   }
 
   /** A wake of a parent that is a thread itself is an agent's turn, so its answer goes up the chain. */
