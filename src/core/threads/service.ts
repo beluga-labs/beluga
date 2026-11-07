@@ -41,6 +41,8 @@ export interface ThreadServiceDeps {
   readonly wake: (channel: string, prompt: string, line: string, requestId: string) => void;
   /** Whether a Your Mac chat still exists. */
   readonly hasMacChat: (channel: string) => boolean;
+  /** A person's agent terminal has this chat: a run there is refused until it closes. */
+  readonly terminalDriving: (channel: string) => boolean;
   readonly wakeMs?: number;
 }
 
@@ -240,7 +242,8 @@ export class ThreadService {
     if (input.waitSec) waited = await this.waitFor(input.waitSec * 1000, () => (input.id ? this.waitOver(this.node(input.id)) : this.anyWaitOver(caller)));
     const claimed = new Set<string>();
     // A wait hands the results it found to the caller, so they are not delivered again.
-    if (waited === 'ended') for (const n of target ? [this.node(target.id)] : subtree(this.nodes(), caller)) if (n && this.claim(n)) claimed.add(n.id);
+    // So does a read while a person's terminal holds the parent: the reader is the one that has them now.
+    for (const n of target ? [this.node(target.id)] : subtree(this.nodes(), caller)) if (n && (waited === 'ended' || this.deps.terminalDriving(n.thread.parent)) && this.claim(n)) claimed.add(n.id);
     if (target) return JSON.stringify({ ...this.view(this.node(target.id) ?? target, true), ...(waited ? { waited } : {}) });
     const live = this.liveMap();
     return JSON.stringify({
@@ -386,7 +389,7 @@ export class ThreadService {
     const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
     if (!ws) return 'gone';
     // A thread that was stopped stays stopped: a child's result does not start it again.
-    return ws.archived || ws.thread?.stopped ? 'held' : 'here';
+    return ws.archived || ws.thread?.stopped || this.deps.terminalDriving(parent) ? 'held' : 'here';
   }
 
   /** A wake of a parent that is a thread itself is an agent's turn, so its answer goes up the chain. */

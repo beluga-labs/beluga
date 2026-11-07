@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ThreadRecord } from '../../shared/threads.js';
+import { TERMINAL_DRIVING } from '../agent-host.js';
 import type { Action } from '../store.js';
 import { type ThreadNode, type ThreadResult, isReportable, threadBatchLine, threadBatchPrompt } from './model.js';
 
@@ -34,6 +35,8 @@ export class ThreadDelivery {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Parents that could not take their reports: tried again at their next final event or restore. */
   private readonly held = new Set<string>();
+  /** Wakes on their way, and the results each carries. A wake that a terminal refuses gives them back. */
+  private readonly carrying = new Map<string, { readonly parent: string; readonly ids: readonly string[] }>();
   private stopped = false;
 
   constructor(private readonly deps: ThreadDeliveryDeps) {}
@@ -49,9 +52,11 @@ export class ThreadDelivery {
     this.timers.set(parent, timer);
   }
 
-  /** A held parent's turn ended, or the workspaces changed (a restore). */
+  /** A held parent's turn ended or its terminal closed, or the workspaces changed (a restore). */
   onAction(action: Action): void {
+    if (action.type === 'agent_event' && isFinalEvent(action.event)) this.wakeEnded(action.requestId, action.text);
     if (!this.held.size) return;
+    if (action.type === 'agent_term' && !action.state && this.held.has(`ws:${action.id}`)) this.flush(`ws:${action.id}`);
     if (action.type === 'projects') for (const parent of [...this.held]) this.flush(parent);
     if (action.type === 'agent_event' && action.owner === this.deps.selfId() && action.channel && this.held.has(action.channel) && isFinalEvent(action.event)) this.flush(action.channel);
   }
@@ -67,6 +72,7 @@ export class ThreadDelivery {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.held.clear();
+    this.carrying.clear();
   }
 
   private flush(parent: string): void {
@@ -80,8 +86,19 @@ export class ThreadDelivery {
     const results = due.map((n): ThreadResult => ({ id: n.id, ...this.deps.describe(n), state: n.thread.outcome!.state, summary: n.thread.outcome!.summary }));
     for (const n of due) this.deps.setThread(n.id, { ...n.thread, outcome: { ...n.thread.outcome!, delivered: true } });
     const requestId = randomUUID();
+    this.carrying.set(requestId, { parent, ids: due.map((n) => n.id) });
     this.deps.owe(parent, requestId);
     this.deps.wake(parent, threadBatchPrompt(results), threadBatchLine(results), requestId);
+  }
+
+  /** A terminal opened while the wake waited in the queue, so no run read the results: they wait again. */
+  private wakeEnded(requestId: string, text: string): void {
+    const wake = this.carrying.get(requestId);
+    if (!wake) return;
+    this.carrying.delete(requestId);
+    if (text !== TERMINAL_DRIVING) return;
+    for (const n of this.deps.nodes()) if (wake.ids.includes(n.id) && n.thread.outcome) this.deps.setThread(n.id, { ...n.thread, outcome: { ...n.thread.outcome, delivered: false } });
+    this.held.add(wake.parent);
   }
 }
 

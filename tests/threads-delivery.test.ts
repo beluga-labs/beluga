@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TERMINAL_DRIVING } from '../src/core/agent-host.js';
 import { ThreadService, type ThreadServiceDeps } from '../src/core/threads/service.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { ThreadRecord } from '../src/shared/threads.js';
@@ -21,6 +22,7 @@ interface Wake {
 /** The service on a fake backend. `chats` stands for workspaces.json: a second service on it is a restart. */
 function setup(chats = new Map<string, Workspace>(), store = freshStore()) {
   const wakes: Wake[] = [];
+  const driven = new Set<string>();
   const asks: Array<{ channel: string; id: string }> = [];
   let n = chats.size;
   const add = (id: string, fields: Partial<Workspace> = {}): Workspace => {
@@ -46,6 +48,7 @@ function setup(chats = new Map<string, Workspace>(), store = freshStore()) {
     wake: (channel, prompt, line, requestId) => void wakes.push({ channel, prompt, line, requestId, saved: [...chats.values()].flatMap((w) => (w.thread?.outcome ? [w.thread.outcome.delivered] : [])) }),
     wakeMs: WAKE_MS,
     hasMacChat: () => true,
+    terminalDriving: (channel) => driven.has(channel),
   };
   const service = new ThreadService(deps);
   const tools = (channel = 'ws:root') => service.forRun(channel)!;
@@ -56,7 +59,18 @@ function setup(chats = new Map<string, Workspace>(), store = freshStore()) {
   };
   const finish = (channel: string, requestId: string, event: 'done' | 'error' = 'done', text = `Result of ${channel}`) => store.dispatch({ type: 'agent_event', owner: ME, requestId, requester: ME, event, text, ts: Date.now(), channel });
   const parentWorks = (requestId = 'turn', channel = 'ws:root') => store.dispatch({ type: 'agent_event', owner: ME, requestId, requester: ME, event: 'started', text: '', ts: Date.now(), channel });
-  return { store, service, chats, wakes, asks, add, start, finish, parentWorks, tools };
+  /** A person's terminal takes the chat, or gives it back: the state and the event as AgentTerminals makes them. */
+  const terminal = (channel: string, open: boolean) => {
+    const id = channel.slice('ws:'.length);
+    if (open) {
+      driven.add(channel);
+      store.dispatch({ type: 'agent_term', id, state: { runtime: 'claude', label: 'Claude', since: 1 } });
+    } else {
+      driven.delete(channel);
+      store.dispatch({ type: 'agent_term', id });
+    }
+  };
+  return { store, service, chats, wakes, asks, add, start, finish, parentWorks, tools, terminal };
 }
 
 function freshStore(): Store {
@@ -290,6 +304,96 @@ describe('a restart', () => {
     third.service.recover();
     await settle();
     expect(third.wakes).toEqual([]);
+  });
+});
+
+describe('a person’s terminal drives the parent', () => {
+  it('while the terminal drives the parent, no result is marked delivered and no run starts', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    t.terminal('ws:root', true);
+    t.finish(a.channel, a.request);
+    await settle();
+    expect(t.wakes).toEqual([]);
+    expect(t.chats.get(a.id)!.thread!.outcome).toMatchObject({ state: 'done', delivered: false });
+  });
+
+  it('when the terminal stops driving, one wake holds all held results, and no result repeats', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    const b = await t.start('b');
+    t.terminal('ws:root', true);
+    t.finish(a.channel, a.request);
+    await settle();
+    t.finish(b.channel, b.request);
+    await settle();
+    expect(t.wakes).toEqual([]);
+    t.terminal('ws:root', false);
+    await waitFor(() => t.wakes.length === 1);
+    expect(t.wakes[0]!.prompt.match(/<thread_result /g)).toHaveLength(2);
+    expect(t.wakes[0]!.saved).toEqual([true, true]);
+    t.terminal('ws:root', true);
+    t.terminal('ws:root', false);
+    await settle();
+    expect(t.wakes).toHaveLength(1);
+  });
+
+  it('another chat’s terminal releases nothing here', async () => {
+    const t = setup();
+    t.add('other');
+    const a = await t.start('a');
+    t.terminal('ws:root', true);
+    t.finish(a.channel, a.request);
+    await settle();
+    t.terminal('ws:other', true);
+    t.terminal('ws:other', false);
+    await settle();
+    expect(t.wakes).toEqual([]);
+  });
+
+  it('a thread_status read while held still returns the results and counts as delivered', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    const b = await t.start('b');
+    t.terminal('ws:root', true);
+    t.finish(a.channel, a.request);
+    t.finish(b.channel, b.request, 'done', 'Second result');
+    await settle();
+    expect(JSON.parse(await t.tools().status({ id: a.id }))).toMatchObject({ state: 'done', answer: `Result of ${a.channel}` });
+    const list = JSON.parse(await t.tools().status({})) as { threads: Array<{ id: string; answer?: string }> };
+    expect(list.threads.find((x) => x.id === b.id)?.answer).toBe('Second result');
+    expect(t.chats.get(a.id)!.thread!.outcome?.delivered).toBe(true);
+    expect(t.chats.get(b.id)!.thread!.outcome?.delivered).toBe(true);
+    t.terminal('ws:root', false);
+    await settle();
+    expect(t.wakes).toEqual([]);
+  });
+
+  it('a read while nothing holds the parent still does not claim', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    t.parentWorks();
+    t.finish(a.channel, a.request);
+    await t.tools().status({ id: a.id });
+    expect(t.chats.get(a.id)!.thread!.outcome?.delivered).toBe(false);
+  });
+
+  it('a terminal that opens while the wake waits gets the results held again, and they come once', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    t.finish(a.channel, a.request);
+    await waitFor(() => t.wakes.length === 1);
+    t.terminal('ws:root', true);
+    t.finish('ws:root', t.wakes[0]!.requestId, 'error', TERMINAL_DRIVING);
+    expect(t.chats.get(a.id)!.thread!.outcome?.delivered).toBe(false);
+    await settle();
+    expect(t.wakes).toHaveLength(1);
+    t.terminal('ws:root', false);
+    await waitFor(() => t.wakes.length === 2);
+    t.finish('ws:root', t.wakes[1]!.requestId);
+    await settle();
+    expect(t.wakes).toHaveLength(2);
+    expect(t.chats.get(a.id)!.thread!.outcome?.delivered).toBe(true);
   });
 });
 

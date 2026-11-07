@@ -66,6 +66,7 @@ function setup(over: Partial<ThreadServiceDeps> = {}) {
     canSteer: (runtime) => runtime !== 'noSteer',
     wake: () => undefined,
     hasMacChat: () => true,
+    terminalDriving: () => false,
     ...over,
   };
   const service = new ThreadService(deps);
