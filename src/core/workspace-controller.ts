@@ -429,6 +429,12 @@ export class WorkspaceController {
     void this.checkEnv(this.deps.manager.find(id)?.projectId);
   }
 
+  /** A chat's thread record (core/threads): saved at once, and on every screen at once. */
+  setThread(id: string, thread: ThreadRecord): void {
+    this.deps.manager.setThread(id, thread);
+    this.publish();
+  }
+
   /** Publish the projects as they're arranged (no re-scan: arranging is instant); nothing when nothing changed. */
   private publish(): void {
     const arranged = this.deps.manager.arrangement();
