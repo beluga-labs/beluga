@@ -5,7 +5,7 @@ import { worktreeOrigin } from '../workspaces/origin.js';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { slugify } from '../agent/namer.js';
+import { cleanPlanTitle, slugify } from '../agent/namer.js';
 import { SESSION_RUNTIME_DEFAULT, carrySession, resumeFor } from '../agent/session-carry.js';
 import { sessionBefore } from '../agent/runtime/claude/session-rewind.js';
 import { promptRef, restoreSnapshot, snapshot, snapshotAt } from '../workspaces/snapshots.js';
@@ -55,6 +55,8 @@ export interface ControllerDeps {
    */
   /** `shown`: the message is in the conversation already under this request id (see showAsk). */
   readonly askClaude: (prompt: string, channel: string, opts?: { readonly echo?: boolean | string; readonly shown?: string; readonly terminal?: boolean }) => void;
+  /** Generate a title from recent chat content with a separate side call. */
+  readonly titleChat?: (content: string) => Promise<string | undefined>;
   /** Draw your first message in a conversation that isn't there yet (a worktree being made) → its request id. */
   readonly showAsk?: (prompt: string, channel: string) => string;
   /** Stop your Claude in a conversation, resolving once nothing runs there (editing a message cuts it there). */
@@ -885,6 +887,19 @@ export class WorkspaceController {
     return done;
   }
 
+  /** Replace a chat title from its recent messages and protect it as a manual name. */
+  async regenerateTitle(id: string): Promise<RenameResult> {
+    const ws = this.deps.manager.find(id);
+    if (!ws || ws.kind !== 'chat') throw new Error('Select a chat to regenerate its title');
+    this.ensureLoaded(id);
+    const content = recentChatContent(this.deps.store.getState().log, `${WS_PREFIX}${id}`);
+    if (!content) throw new Error('This chat has no content for a title');
+    const generated = await this.deps.titleChat?.(content);
+    const title = generated ? cleanPlanTitle(generated) : undefined;
+    if (!title || !/[\p{L}\p{N}]/u.test(title)) throw new Error('Cannot generate a usable chat title. Try again.');
+    return this.rename(id, title);
+  }
+
   /** An automatic title follows the plan until the user sets a name. */
   async renameChat(id: string, name: string): Promise<void> {
     try {
@@ -1635,4 +1650,19 @@ export class WorkspaceController {
     const id = workspaceIdOf(channel);
     return id !== undefined && this.ahead.making.has(id);
   }
+}
+
+/** Keep at most 40 recent messages and 12,000 characters. Omit tools and system notices. */
+function recentChatContent(log: readonly LogItem[], channel: string): string {
+  const parts: string[] = [];
+  let remaining = 12_000;
+  for (let i = log.length - 1; i >= 0 && remaining > 0 && parts.length < 40; i--) {
+    const item = log[i]!;
+    if (item.channel !== channel || (item.type !== 'chat' && item.type !== 'agent') || !item.text.trim()) continue;
+    const role = item.type === 'agent' || item.byAgent ? 'Assistant' : 'User';
+    const part = `${role}: ${item.text.trim()}`.slice(-remaining);
+    parts.unshift(part);
+    remaining -= part.length + 2;
+  }
+  return parts.join('\n\n');
 }
