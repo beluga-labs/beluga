@@ -11,7 +11,7 @@ import { openSettings } from '../lib/native-routes.js';
 import { openSheet } from '../lib/sheets.js';
 import { sameDeep } from '../lib/stable.js';
 import { useClock } from '../lib/window-active.js';
-import { guestLine, rowStatus, scheduleLine, scheduleProblem, statusTone, statusWords } from './schedule-model.js';
+import { rowStatus, scheduleLine, sentLine, scheduleProblem, statusTone, statusWords } from './schedule-model.js';
 import c from './schedule.module.css';
 
 const NONE: readonly ScheduleView[] = [];
@@ -50,7 +50,7 @@ export function SharedScheduleSection({ owner, id }: { owner: string; id: string
     <Panel title={items.length > 1 ? `Schedules · ${items.length}` : 'Schedules'}>
       <div className={c.where}>Runs on {ownerName}’s computer</div>
       {items.map((item) => {
-        const line = guestLine(item, now);
+        const line = sentLine(item, now);
         return (
           <div key={item.id} className={c.row} data-schedule={item.title} data-status={item.status}>
             <Tip label={statusWords(item.status)}>

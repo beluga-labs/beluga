@@ -217,6 +217,14 @@ export function rowStatus(s: ScheduleView): RowStatus {
   return s.status;
 }
 
+/** The reason a row shows under its line: why it failed or was paused. Your own pause needs no reason. */
+export function scheduleProblem(s: Pick<ScheduleView, 'pausedReason' | 'last' | 'lastError'>): string | undefined {
+  const reason = s.pausedReason && s.pausedReason !== 'Paused by you' ? s.pausedReason : undefined;
+  const error = s.last === 'failed' ? s.lastError : undefined;
+  if (reason && error) return `${reason}. The last one: ${error}`;
+  return reason ?? error;
+}
+
 /** What goes to someone who follows the chat. Nothing of the run itself, and no reason that speaks to the owner ("Paused by you"). */
 export function guestSchedule(s: ScheduleView, opts: ClockOpts = {}): GuestSchedule {
   const sentence = whenInSentence(s.when, opts);

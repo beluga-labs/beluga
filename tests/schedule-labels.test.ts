@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ScheduleView } from '../src/core/schedule/model.js';
 import { ScheduleInputSchema, type ScheduleWhen } from '../src/core/schedule/schema.js';
 import { initialState, type AppState } from '../src/core/store.js';
-import { MAC_CHATS, chatMarks, dueWords, draftOf, guestLine, runWords, draftProblem, inputOf, isDirty, newDraft, nextIn, rowStatus, scheduleChannel, scheduleLine, scheduleProblem, statusTone, whenLabel, type RowStatus, type TimeWords } from '../packages/mac/src/schedule/schedule-model.js';
+import { MAC_CHATS, chatMarks, dueWords, draftOf, runWords, sentLine, draftProblem, inputOf, isDirty, newDraft, nextIn, rowStatus, scheduleChannel, scheduleLine, scheduleProblem, statusTone, whenLabel, type RowStatus, type TimeWords } from '../packages/mac/src/schedule/schedule-model.js';
 
 const NOW = new Date(2026, 10, 7, 18, 0).getTime();
 const MIN = 60_000;
@@ -187,10 +187,10 @@ describe('a guest row', () => {
   const guest = { id: 's1', title: 'Check', prompt: 'Look', sentence: 'Every day at 21:00', enabled: true } as const;
 
   it('says the owner’s words for when, then what comes next', () => {
-    expect(guestLine({ ...guest, status: 'ok', next: NOW + 3 * HOUR }, NOW)).toBe('Every day at 21:00 · next in 3 h');
-    expect(guestLine({ ...guest, status: 'running' }, NOW)).toBe('Every day at 21:00 · running now');
-    expect(guestLine({ ...guest, status: 'waiting' }, NOW)).toBe('Every day at 21:00 · waiting for the chat');
-    expect(guestLine({ ...guest, status: 'paused', enabled: false }, NOW)).toBe('Every day at 21:00 · paused');
-    expect(guestLine({ ...guest, status: 'ok', enabled: false }, NOW)).toBe('Every day at 21:00 · done');
+    expect(sentLine({ ...guest, status: 'ok', next: NOW + 3 * HOUR }, NOW)).toBe('Every day at 21:00 · next in 3 h');
+    expect(sentLine({ ...guest, status: 'running' }, NOW)).toBe('Every day at 21:00 · running now');
+    expect(sentLine({ ...guest, status: 'waiting' }, NOW)).toBe('Every day at 21:00 · waiting for the chat');
+    expect(sentLine({ ...guest, status: 'paused', enabled: false }, NOW)).toBe('Every day at 21:00 · paused');
+    expect(sentLine({ ...guest, status: 'ok', enabled: false }, NOW)).toBe('Every day at 21:00 · done');
   });
 });
