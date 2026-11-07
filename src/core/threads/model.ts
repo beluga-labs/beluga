@@ -1,5 +1,5 @@
 import { decodeFailure, failureText } from '../../shared/run-failure.js';
-import { THREAD_LIMITS_WHERE, type ThreadEnd, type ThreadLimits, type ThreadRecord, type ThreadState } from '../../shared/threads.js';
+import { THREAD_LIMITS_WHERE, THREAD_LIMIT_ROWS, type ThreadEnd, type ThreadLimits, type ThreadRecord, type ThreadState } from '../../shared/threads.js';
 
 /** The rules of one thread tree: pure, no I/O (core/threads/service.ts acts on them). */
 
@@ -80,7 +80,7 @@ export const isReportable = (thread: ThreadRecord): boolean => Boolean(thread.ou
 
 /** Why one more thread does not fit, in words for the agent: the numbers, what frees a slot, where to raise it. */
 export function threadLimitProblem(counts: ThreadCounts, limits: ThreadLimits): string | undefined {
-  const raise = (name: keyof ThreadLimits): string => `A person can raise ${name} in ${THREAD_LIMITS_WHERE}.`;
+  const raise = (name: keyof ThreadLimits): string => `A person can raise “${THREAD_LIMIT_ROWS.find((r) => r.key === name)!.label}” in ${THREAD_LIMITS_WHERE}.`;
   if (counts.childDepth > limits.depth) return `This thread would be at depth ${counts.childDepth}, and the limit is ${limits.depth}. Start it from a shallower chat, or do the work in this chat. ${raise('depth')}`;
   if (counts.treeLive >= limits.treeLive) return `${counts.treeLive} threads in this tree are not archived, and the limit is ${limits.treeLive}. A person must archive a thread to free a slot. ${raise('treeLive')}`;
   if (counts.treeRunning >= limits.treeRunning) return `${counts.treeRunning} threads are running or queued in this tree, and the limit is ${limits.treeRunning}. Wait for one to finish, or stop one with thread_stop. ${raise('treeRunning')}`;

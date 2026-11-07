@@ -20,6 +20,8 @@ import { type ThreadLive, type ThreadNode, capSummary, deriveThreadState, isDesc
 const WS = 'ws:';
 /** A status wait goes on through these. */
 const STILL_WORKING: readonly ThreadState[] = ['queued', 'running'];
+/** What a run that a person's Stop reached gets when it tries to do more. */
+const RUN_STOPPED = 'A person stopped this chat, so this run cannot start threads or message them. Beluga did nothing. End your turn.';
 
 export interface ThreadServiceDeps {
   readonly store: Store;
@@ -43,6 +45,8 @@ export interface ThreadServiceDeps {
   readonly hasMacChat: (channel: string) => boolean;
   /** A person's agent terminal has this chat: a run there is refused until it closes. */
   readonly terminalDriving: (channel: string) => boolean;
+  /** A person's archive or delete of this chat is under way: results wait to see how it ends. */
+  readonly leaving?: (id: string) => boolean;
   readonly wakeMs?: number;
 }
 
@@ -59,6 +63,8 @@ export class ThreadService {
   /** Slots held by starts still making their chat, by tree root. */
   private readonly reserved = new Map<string, number>();
   private readonly waiters = new Set<Waiter>();
+  /** How many times a person's Stop reached each chat. A run compares it with the count at its start. */
+  private readonly stopCounts = new Map<string, number>();
   private readonly offAction: () => void;
   private readonly delivery: ThreadDelivery;
 
@@ -83,12 +89,34 @@ export class ThreadService {
   /** The tools for one run, bound to its chat. A parent is a workspace chat or a Your Mac chat: never the room or a chat with friends. */
   forRun(channel: string): ThreadTools | undefined {
     if (!channel.startsWith(WS) && !isAssistant(channel)) return undefined;
+    const born = this.stopCounts.get(channel) ?? 0;
+    const reached = (): boolean => (this.stopCounts.get(channel) ?? 0) !== born;
     return {
-      start: (input) => this.start(channel, input),
+      start: async (input) => {
+        if (reached()) throw new Error(RUN_STOPPED);
+        return this.start(channel, input, reached);
+      },
       status: (input) => this.status(channel, input),
-      message: (input) => this.message(channel, input),
+      message: (input) => {
+        if (reached()) throw new Error(RUN_STOPPED);
+        return this.message(channel, input);
+      },
       stop: (input) => this.stopThreads(channel, input),
     };
+  }
+
+  /**
+   * A person's Stop on a chat: every thread under it stops, depth first, and nothing wakes a parent
+   * for them. Every run it reached is refused more work, also when its call lands late. The chat's
+   * own run stays with its caller (see stopChat). Answers how many threads stopped.
+   */
+  stopTree(channel: string): number {
+    const order = stopOrder(this.nodes(), channel);
+    for (const c of [channel, ...order.map((n) => n.channel)]) this.stopCounts.set(c, (this.stopCounts.get(c) ?? 0) + 1);
+    const { stopped } = this.stopNodes(order, 'person', 'Stopped by a person, with its parent chat.');
+    // Results not yet delivered stay on the record: thread_status and the child's chat have them.
+    for (const n of subtree(this.nodes(), channel)) this.claim(n);
+    return stopped;
   }
 
   /**
@@ -100,7 +128,7 @@ export class ThreadService {
     const at = Date.now();
     for (const n of this.nodes()) {
       if (!n.thread.owed.length || live.has(n.channel)) continue;
-      this.deps.setThread(n.id, { ...n.thread, owed: [], outcome: { state: 'interrupted', summary: 'Beluga stopped during this turn, so the turn did not finish. Beluga did not start it again. Use thread_message to continue it.', at, delivered: n.thread.stopped?.by === 'agent' } });
+      this.deps.setThread(n.id, { ...n.thread, owed: [], outcome: { state: 'interrupted', summary: 'Beluga stopped during this turn, so the turn did not finish. Beluga did not start it again. Use thread_message to continue it.', at, delivered: Boolean(n.thread.stopped) } });
     }
     this.delivery.recover();
   }
@@ -113,19 +141,19 @@ export class ThreadService {
 
   // ------------------------------------------------------------------ thread_start
 
-  private start(parent: string, input: ThreadStartInput): Promise<string> {
-    if (!input.key) return this.startNow(parent, input);
+  private start(parent: string, input: ThreadStartInput, reached: () => boolean): Promise<string> {
+    if (!input.key) return this.startNow(parent, input, reached);
     const existing = this.nodes().find((n) => n.thread.parent === parent && n.thread.key === input.key);
     if (existing) return Promise.resolve(`This key already has thread "${existing.id}". Beluga started no second run. Use thread_status to see its state.`);
     const slot = `${parent}\0${input.key}`;
     const running = this.starting.get(slot);
     if (running) return running;
-    const job = this.startNow(parent, input).finally(() => this.starting.delete(slot));
+    const job = this.startNow(parent, input, reached).finally(() => this.starting.delete(slot));
     this.starting.set(slot, job);
     return job;
   }
 
-  private async startNow(parent: string, input: ThreadStartInput): Promise<string> {
+  private async startNow(parent: string, input: ThreadStartInput, reached: () => boolean): Promise<string> {
     const from = this.parentOf(parent);
     const agent = input.agent ? this.resolveAgent(input.agent.runtime, input.agent.model, input.agent.effort) : undefined;
     const plan = this.planFor(parent, input.plan);
@@ -153,6 +181,11 @@ export class ThreadService {
       this.reserved.set(from.root, (this.reserved.get(from.root) ?? 1) - 1);
     }
     if (!child) throw new Error(where.kind === 'read' ? 'Beluga could not make the chat. Try again.' : `Beluga could not make the worktree. Check that ${input.base ? `base "${input.base}"` : 'the project'} is correct, then try again.`);
+    // A person's Stop landed while the chat was being made: the chat stays, with no work in it.
+    if (reached()) {
+      this.deps.setThread(child.id, { ...thread, owed: [], stopped: { by: 'person', at: Date.now() }, outcome: { state: 'stopped', summary: 'A person stopped the parent before this thread began.', at: Date.now(), delivered: true } });
+      throw new Error(RUN_STOPPED);
+    }
     if (agent && where.kind === 'read') this.deps.setAgent(child.id, agent);
     if (input.agent?.effort) this.deps.setEffort(child.id, input.agent.effort);
     const channel = `${WS}${child.id}`;
@@ -325,25 +358,35 @@ export class ThreadService {
 
   private stopThreads(caller: string, input: { readonly id: string; readonly reason?: string }): string {
     const target = this.need(caller, input.id);
+    const { stopped, ended } = this.stopNodes([...stopOrder(this.nodes(), target.channel), target], 'agent', input.reason);
+    return `Stopped ${stopped} thread${stopped === 1 ? '' : 's'}.${ended ? ` ${ended} already ended.` : ''} To continue one, use thread_message.`;
+  }
+
+  /** Stop each of `order`, each on its own: a failure on one does not end the walk. `by` already knows, so nothing is owed to it. */
+  private stopNodes(order: readonly ThreadNode[], by: 'person' | 'agent', reason: string | undefined): { readonly stopped: number; readonly ended: number } {
     const live = this.liveMap();
-    const order = [...stopOrder(this.nodes(), target.channel), target];
+    const who = by === 'agent' ? 'Stopped by the parent agent' : 'Stopped by a person, with its parent chat';
+    const at = Date.now();
     let stopped = 0;
     let ended = 0;
-    const at = Date.now();
     for (const n of order) {
       const running = live.has(n.channel);
       if (!running && !n.thread.owed.length && deriveThreadState(n.thread) !== 'queued') {
         ended++;
         continue;
       }
-      stopped++;
-      const mark = { ...n.thread, stopped: { by: 'agent' as const, at } };
-      // Nothing is running, so no final event comes: the outcome is written now. The stopper knows, so nothing is owed.
-      this.deps.setThread(n.id, running ? mark : { ...mark, owed: [], outcome: { state: 'stopped', summary: input.reason ?? 'Stopped by the parent agent.', at, delivered: true } });
-      if (running) this.deps.stopRun(n.channel);
-      this.deps.store.dispatch({ type: 'system', channel: n.channel, level: 'info', text: `Stopped by the parent agent${input.reason ? `: ${input.reason.slice(0, 500)}` : '.'}` });
+      try {
+        const mark = { ...n.thread, stopped: { by, at } };
+        // Nothing is running, so no final event comes: the outcome is written now.
+        this.deps.setThread(n.id, running ? mark : { ...mark, owed: [], outcome: { state: 'stopped', summary: reason ?? `${who}.`, at, delivered: true } });
+        if (running) this.deps.stopRun(n.channel);
+        this.deps.store.dispatch({ type: 'system', channel: n.channel, level: 'info', text: by === 'agent' && reason ? `${who}: ${reason.slice(0, 500)}` : `${who}.` });
+        stopped++;
+      } catch {
+        // The next thread still stops. This one's state says what it is.
+      }
     }
-    return `Stopped ${stopped} thread${stopped === 1 ? '' : 's'}.${ended ? ` ${ended} already ended.` : ''} To continue one, use thread_message.`;
+    return { stopped, ended };
   }
 
   // ------------------------------------------------------------------ helpers
@@ -389,7 +432,7 @@ export class ThreadService {
     const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
     if (!ws) return 'gone';
     // A thread that was stopped stays stopped: a child's result does not start it again.
-    return ws.archived || ws.thread?.stopped || this.deps.terminalDriving(parent) ? 'held' : 'here';
+    return ws.archived || ws.thread?.stopped || this.deps.leaving?.(ws.id) || this.deps.terminalDriving(parent) ? 'held' : 'here';
   }
 
   /** A wake of a parent that is a thread itself is an agent's turn, so its answer goes up the chain. */
@@ -417,8 +460,8 @@ export class ThreadService {
     if (!thread) return;
     const owedTurn = thread.owed.includes(action.requestId);
     const by = thread.stopped?.by;
-    // Owed: the parent gets it, unless the parent's side stopped it. A person's turn: nothing new is owed, and a result on its way stays on its way.
-    const delivered = owedTurn ? end.state === 'stopped' && by === 'agent' : (thread.outcome?.delivered ?? true);
+    // Owed: the parent gets it, unless its side stopped it, or a person's Stop on the tree did (written before the final event, also when the turn just ended by itself). A person's turn: nothing new is owed, and a result on its way stays on its way.
+    const delivered = owedTurn ? by === 'person' || (end.state === 'stopped' && by === 'agent') : (thread.outcome?.delivered ?? true);
     // A turn that ended on its own means someone carried the thread on: the old stop no longer holds.
     const { stopped: _stopped, ...rest } = thread;
     const next: ThreadRecord = {

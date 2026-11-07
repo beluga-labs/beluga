@@ -28,6 +28,7 @@ import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
 import { plansOf } from '../core/plans/registry.js';
+import { stopChat } from '../core/threads/launch.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
@@ -102,7 +103,7 @@ export const HANDLERS = {
   'host.promote': (s, requestId) => s.host.promote(requestId),
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
-  'host.stopRun': (s, channel) => s.host.stopRun(channel),
+  'host.stopRun': (s, channel) => stopChat(s, channel),
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 
@@ -194,12 +195,12 @@ export const HANDLERS = {
   'workspaces.continueInWorktree': async (s, id, opts) =>
     // Claude starts there once whatever runs in the conversation now has finished (its session is complete then).
     (await ctl(s)?.continueInWorktree(id, (prompt) => s.nameTask(prompt), { ...(opts?.task ? { task: opts.task } : {}), ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), after: s.host.idle(`ws:${id}`) }))?.id,
-  'workspaces.archive': (s, id, force) => ctl(s)?.archive(id, force),
+  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, opts),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
   'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
-  'workspaces.remove': (s, id) => ctl(s)?.remove(id),
+  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, opts),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
   'workspaces.merge': (s, id) => ctl(s)?.merge(id),
   'workspaces.prepareRemoval': (s, id) => ctl(s)?.prepareRemoval(id),

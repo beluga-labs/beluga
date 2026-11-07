@@ -106,7 +106,7 @@ describe('threadLimitProblem', () => {
   });
 
   it('every refusal says where to raise the limit', () => {
-    for (const over of [{ childDepth: 4 }, { treeRunning: 8 }, { treeLive: 30 }, { macRunning: 16 }]) expect(threadLimitProblem({ ...room, ...over }, limits)).toContain('threadLimits');
+    for (const over of [{ childDepth: 4 }, { treeRunning: 8 }, { treeLive: 30 }, { macRunning: 16 }]) expect(threadLimitProblem({ ...room, ...over }, limits)).toContain('Settings › Agent › Thread limits');
   });
 });
 

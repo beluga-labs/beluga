@@ -611,14 +611,17 @@ export class AgentHost {
    * messages still waiting there come out of the queue: their prompts are returned in queue order
    * so the screen can put them back in the message box (Claude goes quiet, nothing typed is lost).
    * Other people's requests there keep their places and run next; other conversations carry on.
+   * `threads`: how many child threads this Stop also stopped (see stopChat), so the toast says so.
+   * `quiet`: no toast (an agent stopped its thread; nobody pressed anything).
    */
-  stopRun(channel: string): { stopped: boolean; returned: string[] } {
+  stopRun(channel: string, opts: { readonly quiet?: boolean; readonly threads?: number } = {}): { stopped: boolean; returned: string[] } {
     const lane = this.lanes.get(channel);
     const mine = lane?.waiting.filter((w) => w.from === this.selfId) ?? [];
+    const threads = opts.threads ? `${opts.threads} thread${opts.threads === 1 ? '' : 's'}` : '';
     if (!lane || (!lane.current && !mine.length)) {
-      const busy = [...this.lanes.values()].some((l) => l.current || l.waiting.length);
-      this.toast(busy ? "Your agent isn't working here" : 'Your agent is not running anything');
-      return { stopped: false, returned: [] };
+      if (threads) this.toast(`Stopped ${threads}`, 'success');
+      else if (!opts.quiet) this.toast([...this.lanes.values()].some((l) => l.current || l.waiting.length) ? "Your agent isn't working here" : 'Your agent is not running anything');
+      return { stopped: Boolean(threads), returned: [] };
     }
     for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
     this.deps.questions.cancelChannel(channel);
@@ -630,7 +633,7 @@ export class AgentHost {
     }
     const n = mine.filter((w) => !w.compact).length;
     const back = n ? ` · ${n} queued message${n === 1 ? '' : 's'} back in the box` : '';
-    this.toast(`Stopped your agent here${back}`, 'success');
+    if (!opts.quiet) this.toast(`Stopped your agent here${threads ? ` and ${threads}` : ''}${back}`, 'success');
     return { stopped: true, returned: mine.filter((w) => !w.compact).map((w) => w.body.prompt) };
   }
 

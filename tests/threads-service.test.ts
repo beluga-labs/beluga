@@ -10,6 +10,7 @@ import { runToolSuites } from '../src/agent/run-tools.js';
 import { runtimeFor as realRuntime } from '../src/agent/runtime/registry.js';
 import { routedBackend } from '../src/agent/runtime/router.js';
 import { AgentHost } from '../src/core/agent-host.js';
+import { PHONE } from '../src/companion/coverage.js';
 import { localModels, parseLocalModel } from '../src/shared/local-endpoints.js';
 import { ThreadService, type ThreadServiceDeps } from '../src/core/threads/service.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -192,6 +193,16 @@ describe('thread_start', () => {
       const child = idOf(await t.tools().start({ task: 'one' }));
       await expect(t.tools(`ws:${child}`).start({ task: 'two' })).rejects.toThrow(/depth 2.*limit is 1/);
       expect(t.made).toHaveLength(1);
+    });
+
+    it('a changed limit holds for the next thread_start, with no restart', async () => {
+      const t = setup();
+      t.store.dispatch({ type: 'prefs', prefs: { threadLimits: limits({ treeRunning: 1 }) } });
+      await t.tools().start({ task: 'one' });
+      await expect(t.tools().start({ task: 'two' })).rejects.toThrow(/Settings › Agent › Thread limits/);
+      t.store.dispatch({ type: 'prefs', prefs: { threadLimits: limits({ treeRunning: 2 }) } });
+      await t.tools().start({ task: 'two' });
+      expect(t.made).toHaveLength(2);
     });
 
     it('refuses at the tree running limit, and a finished thread frees the slot', async () => {
@@ -625,6 +636,23 @@ describe('who gets the tools', () => {
     await t.ask(ME);
     await waitFor(() => t.runs.length === 1);
     expect(t.runs[0]!.continueInWorktree).toBeUndefined();
+  });
+
+  it('turning the switch off takes the server from the next run, with no restart', async () => {
+    const t = host();
+    await t.h.onAgentRequest(ME, { kind: 'agent_request', requestId: 'on', prompt: 'go', viaAgent: false, channel: 'ws:a', urgent: false, plan: false });
+    await waitFor(() => t.runs.length === 1);
+    await t.h.idle('ws:a');
+    t.store.dispatch({ type: 'prefs', prefs: { agentThreads: false } });
+    await t.h.onAgentRequest(ME, { kind: 'agent_request', requestId: 'off', prompt: 'go', viaAgent: false, channel: 'ws:a', urgent: false, plan: false });
+    await waitFor(() => t.runs.length === 2);
+    expect(Object.keys(runToolSuites(t.runs[0]!, {} as never, {} as never, t.dir))).toContain('beluga_threads');
+    expect(Object.keys(runToolSuites(t.runs[1]!, {} as never, {} as never, t.dir))).not.toContain('beluga_threads');
+  });
+
+  it('no tool writes the switch or the limits: only the Mac’s Settings do', () => {
+    expect([...THREAD_TOOL_NAMES].sort()).toEqual(['thread_message', 'thread_start', 'thread_status', 'thread_stop'].map((n) => `mcp__beluga_threads__${n}`));
+    expect(PHONE['session.setPrefs']).toBe('mac');
   });
 
   it('flag off: runs have no beluga_threads server', async () => {
