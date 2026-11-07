@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures.js';
 
-/** Remind Me Later on a worktree, from its right-click menu (BLG-748): a quiet clock until then, or Show Again Now. */
+/** Remind Me Later on a worktree, from its right-click menu (BLG-748): folded under Later until then, or Show Again Now. */
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
 
@@ -24,11 +24,21 @@ test('put a worktree off for an hour, then show it again', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Next Week' })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('remind-menu.png') });
   await hour.click();
-  // A quiet clock, and the tooltip says when it reminds you.
+  // Out of the way: folded under Later at the bottom of the project.
+  const later = sidebar(page).getByRole('button', { name: 'Later, 1' });
+  await expect(later).toBeVisible();
+  await expect(later).toHaveAttribute('aria-expanded', 'false');
+  await expect(row).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('later-folded.png') });
+  // Unfolded: a quiet clock, and the tooltip says when it reminds you.
+  await later.click();
   await expect(row.locator('[data-signal="later"]')).toBeVisible();
   await expect(row).toHaveAttribute('title', /Reminds you at \d\d:\d\d/);
-  await page.screenshot({ path: test.info().outputPath('later-row.png') });
+  await page.screenshot({ path: test.info().outputPath('later-open.png') });
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: /Show Again Now/ }).click();
+  // Back in its place.
+  await expect(later).toHaveCount(0);
+  await expect(row).toBeVisible();
   await expect(row.locator('[data-signal="later"]')).toHaveCount(0);
 });

@@ -26,6 +26,7 @@ import { RequestsNav } from '../gateway/RequestsNav.js';
 import { WorkNav } from '../work/WorkNav.js';
 import { SentinelNav } from '../sentinel/SentinelNav.js';
 import { AssistantNav } from './AssistantNav.js';
+import { LaterRows, laterOf, notLater } from './later-rows.js';
 import { footerStatus } from '../views/room/connection-model.js';
 import { WorktreesNav } from '../views/worktrees/WorktreesNav.js';
 import { SelfBar } from '../network/StatusMenu.js';
@@ -168,9 +169,11 @@ export function Sidebar() {
             </>
           }
         >
-          {liveChats.map((w) => (
+          {liveChats.filter((w) => notLater(w)).map((w) => (
             <WorkspaceRow key={w.id} ws={w} indent={0} />
           ))}
+          {/* Put off till later (Remind Me Later): folded at the bottom. */}
+          <LaterRows list={laterOf(liveChats)} indent={0} foldKey="later:chats" />
           {liveChats.length ? null : <Row className={s.hintRow} icon={<Icon name="plus" size={13} />} label="Talk to your agent about anything" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}
         </Section>
 
