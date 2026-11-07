@@ -6,7 +6,7 @@ import { type TaskView, tasksIn } from '@beluga/core/gateway/model.js';
 import { LogTaskCard } from '../gateway/TaskCard.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Empty, Working, cx } from '../components/ui.js';
-import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
+import { toast, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { agentName, useMyAgent } from '../lib/agent-words.js';
 import { keepSameLists, sameItems } from '../lib/stable.js';
 import { FindBar } from './FindBar.js';
@@ -17,7 +17,7 @@ import { ShippedDivider, isShippedItem } from './ShippedDivider.js';
 import { DialogueCard, isDialogueItem } from './DialogueCard.js';
 import { useClaudeStarting } from './flight.js';
 import { withLiveTails } from './live-tail.js';
-import { JUMP_MARK_MS, chatJumpState } from '@beluga/ui/chat-jump.js';
+import { JUMP_LOST_TEXT, JUMP_MARK_MS, JUMP_TTL_MS, chatJumpState } from '@beluga/ui/chat-jump.js';
 import { asSent, steeredMessages } from '@beluga/shared/claude-notices.js';
 import { inYourQueue } from '@beluga/ui/compose.js';
 import s from './chat.module.css';
@@ -191,18 +191,25 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
 
   // A search hit opened: to its message, marked for a moment, once its history is here. After the
   // effect above, which sends a conversation that just opened to the bottom.
-  const { ui } = useBeluga();
+  const { client, ui } = useBeluga();
   const jump = useUi((u) => u.chatJump);
   const [marked, setMarked] = useState<React.Key | undefined>(undefined);
+  const [waited, setWaited] = useState(0);
   useEffect(() => {
     const next = chatJumpState(jump, channel, rows, Date.now());
-    if (next.state === 'drop') ui.patch({ chatJump: undefined });
-    if (next.state !== 'go') return;
+    if (next.state === 'none') return;
+    if (next.state === 'wait') {
+      // No row comes to run this again when the history never lands.
+      const t = setTimeout(() => setWaited((n) => n + 1), JUMP_TTL_MS + 1);
+      return () => clearTimeout(t);
+    }
     ui.patch({ chatJump: undefined });
+    if (next.state === 'lost') toast(client, JUMP_LOST_TEXT);
+    if (next.state !== 'go') return;
     stick.current = false;
     virtualizer.scrollToIndex(next.index, { align: 'center' });
     setMarked(shown[next.index]?.key ?? next.index);
-  }, [jump, channel, rows, shown, virtualizer, ui]);
+  }, [jump, channel, rows, shown, virtualizer, ui, client, waited]);
   useEffect(() => {
     if (marked === undefined) return;
     const t = setTimeout(() => setMarked(undefined), JUMP_MARK_MS);

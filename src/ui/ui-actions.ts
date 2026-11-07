@@ -67,7 +67,7 @@ export function runUiActionWith(c: UiActionContext, action: UiAction): void {
       store.dispatch({ type: 'search_cursor', cursor: action.index });
       void api.workbench.openHit(action.index);
       // The box shows that chat's own unsent words (the Mac's Composer keeps each chat's).
-      patchUi({ focus: 'chat', ...(hit ? { chatJump: { channel: hit.channel, ts: hit.ts, at: Date.now() } } : {}) });
+      patchUi({ focus: 'chat', ...(hit ? { chatJump: { channel: hit.channel, ...(hit.id ? { id: hit.id } : {}), ts: hit.ts, at: Date.now() } } : {}) });
       return;
     }
     case 'ws_more':

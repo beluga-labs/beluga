@@ -538,7 +538,7 @@ describe('models, usage, space and search', () => {
     expect(kay.state().log.some((l) => l.channel === channel)).toBe(false);
 
     kay.bench.search('kumquat');
-    expect(kay.state().search.hits).toEqual([{ channel, place: `${ASSISTANT_TITLE} › plan my trip`, who: 'kay', text: 'the kumquat invoice', at: 4, ts: 6 }]);
+    expect(kay.state().search.hits).toEqual([{ channel, place: `${ASSISTANT_TITLE} › plan my trip`, who: 'kay', text: 'the kumquat invoice', at: 4, ts: 6, id: '2' }]);
     kay.bench.openHit(0);
     expect(kay.screen.getState().view).toEqual({ kind: 'assistant', chat });
     expect(kay.state().log.filter((l) => l.channel === channel).map((l) => l.id)).toEqual(['1', '2']);
