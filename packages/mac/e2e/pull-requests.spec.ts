@@ -36,7 +36,7 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   await expect(teammate.getByRole('img', { name: 'Approved' })).toBeVisible();
   await expect(teammate.getByRole('img', { name: 'Checks pass' })).toBeVisible();
   await expect(section.locator('[data-pull="49"]')).toContainText('Draft');
-  await expect(section.getByRole('button', { name: 'Show All on GitHub' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'See all on GitHub' })).toBeVisible();
   await section.scrollIntoViewIfNeeded();
   await shot(page, '01-home-pull-requests.png');
   // #52 is on the webhook-retries worktree's branch: a click opens that worktree.
@@ -45,11 +45,11 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   await expect(page.getByText('webhook-retries').first()).toBeVisible();
 });
 
-test('Show All Pull Requests opens every open one in Beluga, under Work', async ({ page }) => {
+test('See All opens every open pull request in Beluga, under Work', async ({ page }) => {
   await openHome(page);
   const section = main(page).getByRole('region', { name: 'Pull Requests' });
-  await expect(section.getByRole('button', { name: 'Show All on GitHub' })).toBeVisible();
-  await section.getByRole('button', { name: 'Show All Pull Requests' }).click();
+  await expect(section.getByRole('button', { name: 'See all on GitHub' })).toBeVisible();
+  await section.getByRole('button', { name: 'See all pull requests' }).click();
   const list = main(page).getByRole('list', { name: 'bob-api’s open pull requests' });
   // All five, not Project Home's four.
   await expect(list.locator('[data-pull]')).toHaveCount(5);
