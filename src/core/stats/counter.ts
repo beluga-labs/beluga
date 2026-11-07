@@ -1,0 +1,274 @@
+/**
+ * Your stats (BLG-755), counted by the daemon as things happen: prompts you send, how long your
+ * agent works, workspaces made and archived, tokens spent, pastes and dictation (the Mac tells it).
+ * The first start backfills what Beluga already knew (workspace records, chat histories, pull
+ * requests on GitHub), in the background, one file or one gh call at a time. Kept in
+ * ~/.beluga/stats.json, written a few seconds after a change; the Usage tab asks for it, so
+ * nothing is sent while nobody looks. Nothing here leaves this computer.
+ */
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { StatsSnapshot } from '../../shared/stats.js';
+import { hasGh, runGh } from '../../workspaces/pr.js';
+import type { Project, Workspace } from '../../workspaces/types.js';
+import { belugaHome } from '../home.js';
+import { chosenAgent } from '../settings.js';
+import type { Action, LogItem, Store } from '../store.js';
+import { demoStats } from './demo.js';
+import { type StatsFile, emptyStats, loadStats, saveStats, snapshotOf, statsPath } from './file.js';
+import { GH_PR_FIELDS, addStats, belugaBranches, count, countPrompt, fromHistory, observeWorkspaces, parseGhPrs, withPrs } from './tally.js';
+
+/** What the Mac reports (it alone sees the composer and the microphone). */
+export type StatsNote = { readonly kind: 'paste'; readonly chars: number; readonly channel?: string } | { readonly kind: 'dictation'; readonly ms: number; readonly channel?: string };
+
+export interface StatsCounterDeps {
+  readonly store: Store;
+  /** Where the stats are kept; null: only in memory (the demo, tests). */
+  readonly file?: string | null;
+  /** Made-up stats to start from once the projects are known (the demo). */
+  readonly seed?: (projects: readonly Project[], now: number) => Pick<StatsFile, 'days' | 'hours' | 'prs'>;
+  /** Where chat histories are (unset: ~/.beluga/history; null: none to read). */
+  readonly historyDir?: string | null;
+  /** A project's pull requests as gh lists them (JSON); unset: gh itself; null: never ask. */
+  readonly listPrs?: ((root: string) => Promise<string>) | null;
+  readonly now?: () => number;
+}
+
+/** Write a few seconds after a change, so a busy minute is one write. */
+const SAVE_MS = 4000;
+/** Workspaces change often (git status): looked at once in a while. */
+const OBSERVE_MS = 3000;
+/** The backfill waits for the app to settle after start. */
+const BACKFILL_AFTER_MS = 60_000;
+/** Pull requests are asked of GitHub at most this often per project. */
+const PRS_EVERY_MS = 6 * 3_600_000;
+const PR_LIMIT = 300;
+
+const defaultListPrs = async (root: string): Promise<string> => {
+  if (!(await hasGh())) return '[]';
+  return runGh(['pr', 'list', '--state', 'all', '--author', '@me', '--limit', String(PR_LIMIT), '--json', GH_PR_FIELDS], root, 60_000);
+};
+
+export class StatsCounter {
+  private data: StatsFile;
+  private readonly offs: Array<() => void> = [];
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private saveTimer?: ReturnType<typeof setTimeout>;
+  private observeTimer?: ReturnType<typeof setTimeout>;
+  /** Runs started and not finished: requestId → when. */
+  private readonly running = new Map<string, number>();
+  private backfilling = false;
+  private seeded = false;
+  private stopped = false;
+
+  constructor(private readonly deps: StatsCounterDeps) {
+    const now = this.now();
+    this.data = deps.file === null ? emptyStats(now) : loadStats(deps.file ?? statsPath(), now);
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+
+  start(): void {
+    this.offs.push(this.deps.store.onAction((a) => queueMicrotask(() => this.onAction(a))));
+    this.observeSoon();
+    this.later(BACKFILL_AFTER_MS, () => void this.backfill());
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const off of this.offs.splice(0)) off();
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    if (this.observeTimer) clearTimeout(this.observeTimer);
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveNow();
+    }
+  }
+
+  /** What the Usage tab shows. */
+  snapshot(): StatsSnapshot {
+    return snapshotOf(this.data, this.backfilling);
+  }
+
+  /** A paste or a dictation the Mac saw. */
+  note(n: StatsNote): void {
+    const { root, agent } = this.whereOf(n.channel);
+    this.change(count(this.data, this.now(), root, agent, n.kind === 'paste' ? { pasted: n.chars } : { dictationMs: n.ms }));
+  }
+
+  // ---------------------------------------------------------------- live
+
+  /**
+   * You sent a prompt (the composer, on the Mac or the phone: see ipc/handlers.ts). Counted where
+   * you typed it, never from the chat log: Beluga writes there for you too (handoffs, switches).
+   */
+  prompt(channel: string | undefined, text: string, agent?: string): void {
+    if (this.stopped || !text.trim() || text.startsWith('/')) return;
+    const where = this.whereOf(channel);
+    if (!where.root && !channel?.startsWith('ws:')) return;
+    this.change(countPrompt(this.data, this.now(), where.root, agent ?? where.agent, text.length));
+  }
+
+  private onAction(a: Action): void {
+    if (this.stopped) return;
+    if (a.type === 'projects') return this.observeSoon();
+    const self = this.deps.store.getState().selfId;
+    // Your agent's runs for you (a friend's requests run on your Mac too: not your time).
+    if (a.type === 'agent_event' && a.owner === self && a.requester === self) {
+      if (a.event === 'started') this.running.set(a.requestId, a.ts);
+      if (a.event !== 'done' && a.event !== 'error' && a.event !== 'denied') return;
+      const began = this.running.get(a.requestId);
+      this.running.delete(a.requestId);
+      if (began === undefined || a.ts <= began) return;
+      const { root, agent } = this.whereOf(a.channel);
+      this.change(count(this.data, a.ts, root, a.agent?.runtime ?? agent, { agentMs: a.ts - began, runs: 1 }));
+    }
+  }
+
+  /** The project and agent of a channel ("ws:<id>", or a project's new chat or worktree page); none for anything else. */
+  private whereOf(channel: string | undefined): { root: string; agent: string } {
+    const state = this.deps.store.getState();
+    const id = channel?.startsWith('ws:') ? channel.slice(3) : undefined;
+    for (const p of state.projects) {
+      const w = id ? p.workspaces.find((x) => x.id === id) : undefined;
+      if (w) return { root: p.root, agent: this.agentOf(w, p) };
+    }
+    const draft = /^new-(?:chat|worktree):(.+)$/.exec(channel ?? '')?.[1];
+    const p = draft ? state.projects.find((x) => x.id === draft) : undefined;
+    return p ? { root: p.root, agent: chosenAgent(state.prefs, p.name).runtime } : { root: '', agent: '' };
+  }
+
+  private readonly agentOf = (w: Workspace, p: Project): string => w.agent?.runtime ?? chosenAgent(this.deps.store.getState().prefs, p.name).runtime;
+
+  private observeSoon(): void {
+    if (this.observeTimer || this.stopped) return;
+    this.observeTimer = setTimeout(() => {
+      this.observeTimer = undefined;
+      const projects = this.deps.store.getState().projects;
+      if (!projects.length) return;
+      if (this.deps.seed && !this.seeded) {
+        this.seeded = true;
+        const seed = this.deps.seed(projects, this.now());
+        this.data = { ...addStats(this.data, seed), prs: { ...seed.prs, ...this.data.prs } };
+      }
+      const next = observeWorkspaces(this.data, projects, this.agentOf, this.now());
+      if (next !== this.data) this.change(next);
+    }, OBSERVE_MS);
+    this.observeTimer.unref?.();
+  }
+
+  // ---------------------------------------------------------------- backfill
+
+  /** Chat histories once (prompts and agent time from before), then each project's pull requests, then again every few hours. */
+  async backfill(): Promise<void> {
+    if (this.backfilling || this.stopped) return;
+    this.backfilling = true;
+    try {
+      if (!this.data.history) await this.readHistories();
+      await this.readPrs();
+    } finally {
+      this.backfilling = false;
+    }
+    if (!this.stopped) this.later(PRS_EVERY_MS, () => void this.backfill());
+  }
+
+  private async readHistories(): Promise<void> {
+    const dir = this.deps.historyDir === undefined ? path.join(belugaHome(), 'history') : this.deps.historyDir;
+    const state = this.deps.store.getState();
+    if (!state.selfId) return;
+    // Counted on its own, then added: live counting goes on while the files are read.
+    let found = emptyStats(this.data.startedAt);
+    if (dir) {
+      for (const p of state.projects) {
+        for (const w of p.workspaces) {
+          if (this.stopped) return;
+          const items = await readItems(path.join(dir, `${w.id.replace(/[^\w.-]/g, '_')}.json`));
+          if (items.length) found = fromHistory(found, items, state.selfId, p.root, this.agentOf(w, p), this.data.startedAt);
+        }
+      }
+    }
+    this.change({ ...addStats(this.data, found), history: true });
+  }
+
+  private async readPrs(): Promise<void> {
+    if (this.deps.listPrs === null) return;
+    const list = this.deps.listPrs ?? defaultListPrs;
+    for (const p of this.deps.store.getState().projects) {
+      if (this.stopped || !p.root) return;
+      if (this.now() - (this.data.prsAt[p.root] ?? 0) < PRS_EVERY_MS) continue;
+      const branches = belugaBranches(p, this.agentOf);
+      try {
+        const prs = parseGhPrs(await list(p.root));
+        this.change(withPrs(this.data, p, prs, branches, chosenAgent(this.deps.store.getState().prefs, p.name).runtime, this.now()));
+      } catch {
+        // No GitHub here (no remote, not signed in): asked again next time.
+        this.change({ ...this.data, prsAt: { ...this.data.prsAt, [p.root]: this.now() } });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- keeping
+
+  private change(next: StatsFile): void {
+    if (this.stopped) return;
+    this.data = next;
+    if (this.deps.file === null || this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = undefined;
+      this.saveNow();
+    }, SAVE_MS);
+    this.saveTimer.unref?.();
+  }
+
+  private saveNow(): void {
+    if (this.deps.file === null) return;
+    try {
+      saveStats(this.data, this.deps.file ?? statsPath());
+    } catch {
+      // A full disk or a locked folder: kept in memory, written with the next change.
+    }
+  }
+
+  private later(ms: number, run: () => void): void {
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      if (!this.stopped) run();
+    }, ms);
+    t.unref?.();
+    this.timers.add(t);
+  }
+}
+
+async function readItems(file: string): Promise<LogItem[]> {
+  try {
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as unknown;
+    return Array.isArray(parsed) ? (parsed as LogItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------- the daemon
+
+const counters = new WeakMap<object, StatsCounter>();
+
+/** The stats counter of this session, or a clear error where there's none (no daemon running it, e.g. tests). */
+/** The counter, where the daemon runs one (none in tests or a plain terminal session). */
+export const maybeStatsOf = (session: object): StatsCounter | undefined => counters.get(session);
+
+export function statsOf(session: object): StatsCounter {
+  const counter = counters.get(session);
+  if (!counter) throw new Error('Your stats live in the Beluga app for Mac (its daemon).');
+  return counter;
+}
+
+/** Start counting for the daemon. The demo keeps made-up stats in memory and never reads files or asks GitHub. */
+export function launchStats(host: { readonly session: object; readonly store: Store; readonly demo: boolean }): () => void {
+  const counter = new StatsCounter({ store: host.store, ...(host.demo ? { file: null, historyDir: null, listPrs: null, seed: demoStats } : {}) });
+  counters.set(host.session, counter);
+  counter.start();
+  return () => counter.stop();
+}

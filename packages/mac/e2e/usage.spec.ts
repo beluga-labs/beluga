@@ -42,7 +42,7 @@ test('shows your plan, this week, and disk space by project', async ({ page }) =
   await expect(friends.getByRole('meter', { name: /^bob’s Claude: 5-hour/ })).toBeVisible();
   await expect(friends.getByRole('meter', { name: /^mia’s Codex: 5-hour/ })).toBeVisible();
   // A bar a day, this week's tokens and cost on top.
-  await expect(page.getByRole('list', { name: 'Agent tokens per day' }).getByRole('listitem')).toHaveCount(14);
+  await expect(page.getByRole('list', { name: 'Agent tokens per day, by project' }).getByRole('listitem')).toHaveCount(14);
   // Disk by project: a segment per project, and its legend jumps to the project's rows.
   const stack = page.getByRole('group', { name: 'Disk space by project' });
   await expect(stack.getByRole('button', { name: /^bob-api: / })).toBeVisible();
@@ -124,4 +124,27 @@ test('Free up space lists what is safe to put away, and cleans it up after askin
   await page.getByRole('alertdialog').getByRole('button', { name: /^(Remove|Clean Up|Archive)$/ }).click();
   await expect(page.getByText(/Removed \d+ finished agent worktree/)).toBeVisible();
   await expect(card).toBeHidden({ timeout: 15_000 });
+});
+
+test('your stats: a number per thing, the year, and each project or agent ranked', async ({ page }) => {
+  await openUsage(page);
+  const stats = page.getByRole('region', { name: 'Your stats' });
+  const strip = stats.getByRole('tablist', { name: 'What to show' });
+  await expect(strip.getByRole('tab')).toHaveCount(8);
+  await expect(strip.getByRole('tab', { name: /Agent time/ })).toHaveAttribute('aria-selected', 'true');
+  // A square a day for the last year, coloured by the picked number.
+  await expect(stats.getByRole('grid', { name: 'Agent time per day, the last year' }).getByRole('gridcell')).toHaveCount(53 * 7);
+  // Pressing another number moves the calendar and the ranking to it.
+  await strip.getByRole('tab', { name: /PRs merged/ }).click();
+  await expect(stats.getByRole('grid', { name: 'PRs merged per day, the last year' })).toBeVisible();
+  const byProject = stats.getByRole('list', { name: 'PRs merged by project' });
+  await expect(byProject.getByRole('listitem').first()).toBeVisible();
+  // By agent: Claude, Codex and a local model each get a bar.
+  await stats.getByRole('tab', { name: 'Agents' }).click();
+  const byAgent = stats.getByRole('list', { name: 'PRs merged by agent' });
+  await expect(byAgent.getByText('Claude', { exact: true })).toBeVisible();
+  await expect(byAgent.getByText('Codex', { exact: true })).toBeVisible();
+  // When you work, and a few highlights.
+  await expect(stats.getByRole('grid', { name: 'Prompts by weekday and hour' }).getByRole('gridcell')).toHaveCount(168);
+  await expect(stats.getByText(/Longest streak/)).toBeVisible();
 });

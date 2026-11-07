@@ -1,0 +1,437 @@
+/*
+ * Your stats (StatsSection): a strip of numbers, each with its own colour (only in its icon, its
+ * mark when picked, and the charts it drives), then the calendar and the ranking, then when you
+ * work and highlights. Sits inside usage.module.css's .page (its --card, --track and --series-*).
+ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  --m-time: var(--worktree);
+  --m-prompts: var(--series-1);
+  --m-pasted: var(--series-4);
+  --m-voice: var(--series-5);
+  --m-worktrees: var(--series-3);
+  --m-prs: var(--merged);
+  --m-lines: var(--epic);
+  --m-tokens: var(--claude);
+  --a-codex: var(--series-1);
+  --a-opencode: var(--series-4);
+  --a-local: var(--series-3);
+}
+.head {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+.titles {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  margin-right: auto;
+}
+.title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--text);
+}
+.since {
+  color: var(--text-3);
+  font-size: 0.86rem;
+}
+.quiet {
+  margin: 4px 0 0;
+  color: var(--text-3);
+}
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ------------------------------------------------------------ the strip */
+
+/* One raised surface split in cells by hairlines: 4 across, 8 when there's room, 2 when narrow. */
+.stripFit {
+  container: stats-strip / inline-size;
+}
+.strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-radius: var(--radius-l);
+  overflow: hidden;
+  background: var(--card-line);
+  box-shadow: inset 0 0 0 0.5px var(--card-line);
+}
+@container stats-strip (width >= 64rem) {
+  .strip {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+@container stats-strip (width < 34rem) {
+  .strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px 13px;
+  border: 0;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.cell:hover {
+  background: color-mix(in srgb, var(--card) 88%, var(--text) 4%);
+}
+.cell:focus-visible {
+  outline: 2px solid var(--m);
+  outline-offset: -2px;
+}
+.cell::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 2.5px;
+  border-radius: 2px 2px 0 0;
+  background: var(--m);
+  transform: scaleX(0);
+  transition: transform 220ms var(--ease-out);
+}
+.cellOn {
+  background: color-mix(in srgb, var(--m) 7%, var(--card));
+}
+.cellOn:hover {
+  background: color-mix(in srgb, var(--m) 10%, var(--card));
+}
+.cellOn::after {
+  transform: scaleX(1);
+}
+.cellLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 0.84rem;
+  font-weight: 550;
+}
+.cellLabel :global(svg) {
+  color: var(--m);
+}
+.cellValue {
+  font-size: 1.55rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.cellAside {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: 0.8rem;
+}
+.cellAsideText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delta {
+  flex: none;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.deltaUp {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.deltaDown {
+  color: var(--text-3);
+  background: var(--track);
+}
+
+/* ------------------------------------------------------------ ranking, hours, highlights */
+
+/* Three across when there's room, the ranking above the other two when there's some, else one. */
+.trioFit {
+  container: stats-trio / inline-size;
+}
+.trio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+@container stats-trio (width >= 40rem) {
+  .trio {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .trio > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+@container stats-trio (width >= 64rem) {
+  .trio {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 0.9fr);
+  }
+  .trio > :first-child {
+    grid-column: auto;
+  }
+}
+
+/* ------------------------------------------------------------ calendar */
+
+.calendarWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.calendar {
+  display: flex;
+  gap: 3px;
+  padding-top: 14px;
+}
+.week {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 0 auto;
+}
+.month {
+  position: absolute;
+  top: -15px;
+  left: 0;
+  color: var(--text-3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.day {
+  display: block;
+  width: 100%;
+  max-width: 15px;
+  aspect-ratio: 1;
+  border-radius: 2.5px;
+  background: var(--track);
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+.level1 {
+  background: color-mix(in srgb, var(--m) 28%, var(--card));
+}
+.level2 {
+  background: color-mix(in srgb, var(--m) 50%, var(--card));
+}
+.level3 {
+  background: color-mix(in srgb, var(--m) 74%, var(--card));
+}
+.level4 {
+  background: var(--m);
+}
+.future {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--track);
+}
+.dayOn {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 1.5px var(--card), 0 0 0 2.5px var(--text-3);
+}
+.calendarFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 1.3em;
+  color: var(--text-3);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.calendarHover {
+  color: var(--text-2);
+}
+.calendarHover strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.legend .day {
+  width: 9px;
+  min-width: 9px;
+}
+
+/* ------------------------------------------------------------ ranking */
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.rank {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.9fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
+  animation: rankIn 360ms var(--ease-out) both;
+}
+.rankName {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.rankText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 0 3px;
+  border-radius: 3px;
+  background: var(--g);
+}
+.rankBar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rankFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--g);
+  transform-origin: left;
+  animation: grow 520ms var(--ease-out) both;
+  animation-delay: inherit;
+}
+.rankValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 5.5rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.rankShare {
+  min-width: 2.4rem;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes rankIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rank,
+  .rankFill {
+    animation: none;
+  }
+  .cell::after {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------ when you work */
+
+.hours {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hoursGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hoursRow {
+  display: grid;
+  grid-template-columns: 2.4rem repeat(24, minmax(0, 1fr));
+  gap: 3px;
+  align-items: center;
+}
+.hoursDay {
+  color: var(--text-3);
+  font-size: 0.74rem;
+}
+.hour {
+  height: 13px;
+  border-radius: 2.5px;
+  background: var(--m-prompts);
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+.hoursAxis {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding-left: calc(2.4rem + 3px);
+}
+
+/* ------------------------------------------------------------ highlights */
+
+.highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+}
+.highlights li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  line-height: 1.4;
+}
+.highlights li :global(svg) {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.highlights li:first-child :global(svg) {
+  color: var(--series-2);
+}
+.highlights strong {
+  color: var(--text);
+  font-weight: 600;
+}

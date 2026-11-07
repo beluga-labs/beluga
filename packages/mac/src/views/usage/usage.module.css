@@ -497,18 +497,31 @@
   justify-content: center;
   cursor: default;
 }
+/* A column is its projects stacked, each in its colour; last week's are paler. */
 .columnBar {
   width: 100%;
   max-width: 22px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
   border-radius: 3px 3px 1px 1px;
-  background: color-mix(in srgb, var(--claude) 32%, transparent);
-  transition: background var(--dur-fast);
+  overflow: hidden;
+  opacity: 0.42;
+  transition: opacity var(--dur-fast), filter var(--dur-fast);
+}
+.columnEmpty {
+  background: var(--track);
+}
+.columnPart {
+  flex: 1 1 0;
+  min-height: 1px;
 }
 .columnThisWeek .columnBar {
-  background: var(--claude);
+  opacity: 1;
 }
 .columnOn .columnBar {
-  background: color-mix(in srgb, var(--claude) 80%, var(--text));
+  opacity: 1;
+  filter: brightness(1.08) saturate(1.1);
 }
 .axis {
   display: flex;
@@ -525,6 +538,16 @@
 .axisHover strong {
   color: var(--text);
   font-weight: 600;
+}
+.axisPart {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 9px;
+}
+.axisPart .swatch {
+  width: 7px;
+  height: 7px;
 }
 
 /* ------------------------------------------------------------ storage */

@@ -27,6 +27,7 @@ import { launchGateway } from '../core/gateway/launch.js';
 import { launchFriendShares } from '../core/friend-share/launch.js';
 import { launchEarnings } from '../core/stripe-launch.js';
 import { launchSupport } from '../core/merge-counter.js';
+import { launchStats } from '../core/stats/counter.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
 import { Store, initialState, prefsFrom } from '../core/store.js';
@@ -351,6 +352,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   let stopNetwork = async (): Promise<void> => undefined;
   let stopEarnings = (): void => undefined;
   let stopSupport = (): void => undefined;
+  let stopStats = (): void => undefined;
   let stopClaudeCode = (): void => undefined;
   let stopGateway = (): void => undefined;
   let stopChat = (): void => undefined;
@@ -370,6 +372,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopEarnings = launchEarnings({ session, store, demo: Boolean(demo) });
     // Merged work made in Beluga, counted once per branch: the first and fifth merge ask for a star and a coffee.
     if (opts.network) stopSupport = launchSupport({ session, store, demo: Boolean(demo), asks: belugaEnv('DEMO_ASKS') });
+    // Your stats for the Usage tab: prompts, agent time, worktrees, pull requests, by project and agent.
+    if (opts.network) stopStats = launchStats({ session, store, demo: Boolean(demo) });
     // Claude Code sessions running outside Beluga (Conductor, a terminal): the Mac app shows them live, read-only.
     // Tasks between Claudes (the gateway): over this room now, and over the network whenever it's on.
     if (opts.network) stopGateway = launchGateway({ session, store, demo: Boolean(demo) });
@@ -435,6 +439,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     await stopNetwork();
     stopEarnings();
     stopSupport();
+    stopStats();
     stopClaudeCode();
     await session.stop();
     terminals.closeAll();

@@ -18,6 +18,8 @@ import type { Args, Method } from './api.js';
 import { NETWORK_HANDLERS } from './network-handlers.js';
 import { STRIPE_HANDLERS } from './stripe-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
+import { STATS_HANDLERS } from './stats-handlers.js';
+import { maybeStatsOf } from '../core/stats/counter.js';
 import { WEB_HANDLERS } from './web-handlers.js';
 import { DIAGNOSTICS_HANDLERS } from './diagnostics-handlers.js';
 import { CLAUDE_CODE_HANDLERS } from './claude-code-handlers.js';
@@ -65,7 +67,11 @@ const fetchShared = (s: Session): FetchShared => (at, max) => fetchBytes(at, s.f
 const started = (pty: { id: string } | undefined): string | undefined => pty?.id;
 
 export const HANDLERS = {
-  'session.submit': (s, raw, opts) => s.submit(raw, opts),
+  // Your prompts count for your stats here, where you typed them (core/stats/counter.ts).
+  'session.submit': (s, raw, opts) => {
+    maybeStatsOf(s)?.prompt(opts?.channel, raw);
+    return s.submit(raw, opts);
+  },
   'session.copyInvite': (s) => s.copyInvite(),
   'session.copyLastAnswer': (s) => s.copyLastAnswer(),
   'session.copyText': (s, text, success) => s.copyText(text, success),
@@ -187,8 +193,8 @@ export const HANDLERS = {
   'workspaces.refresh': (s) => ctl(s)?.refresh(),
   'workspaces.newWorktree': async (s, projectId, name, opts) => (await ctl(s)?.newWorktree(projectId, name, { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.agent ? { agent: opts.agent } : {}) }))?.id,
   'workspaces.newChat': async (s, projectId, title, dir) => (await ctl(s)?.newChat(projectId, title, dir))?.id,
-  'workspaces.startChat': (s, projectId, text, dir, opts) => ctl(s)?.startChat(projectId, text, dir ?? undefined, { ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.plan ? { plan: true } : {}) }),
-  'workspaces.startWorktree': async (s, projectId, text, opts) => (await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
+  'workspaces.startChat': (s, projectId, text, dir, opts) => (maybeStatsOf(s)?.prompt(`new-chat:${projectId}`, text), ctl(s)?.startChat(projectId, text, dir ?? undefined, { ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.plan ? { plan: true } : {}) })),
+  'workspaces.startWorktree': async (s, projectId, text, opts) => (maybeStatsOf(s)?.prompt(`new-worktree:${projectId}`, text, opts?.agent?.runtime), await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
   'workspaces.branches': (s, projectId) => ctl(s)?.branches(projectId),
   'workspaces.fork': async (s, id, name) => (await ctl(s)?.fork(id, name))?.id,
   'workspaces.editPrompt': (s, id, line, text, mode) => ctl(s)?.editPrompt(id, line, text, mode),
@@ -387,6 +393,7 @@ export const HANDLERS = {
   ...NETWORK_HANDLERS,
   ...STRIPE_HANDLERS,
   ...SUPPORT_HANDLERS,
+  ...STATS_HANDLERS,
   ...WEB_HANDLERS,
   ...DIAGNOSTICS_HANDLERS,
   ...CLAUDE_CODE_HANDLERS,

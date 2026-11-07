@@ -7,6 +7,7 @@ import { Breakdown } from './usage/Breakdown.js';
 import { CleanupCard } from './usage/CleanupCard.js';
 import { EarningsSummaryCard } from './usage/EarningsSummaryCard.js';
 import { PlanCard } from './usage/PlanCard.js';
+import { StatsSection } from './usage/StatsSection.js';
 import { StorageCard } from './usage/StorageCard.js';
 import { type SortKey, cleanups, projectRows } from './usage/usage-model.js';
 import s from './usage/usage.module.css';
@@ -53,7 +54,7 @@ function useMeasure(): { measuring: boolean; measure: () => void } {
 
 /**
  * Usage: your Claude plan's limits (and friends'), what Claude used this week, what connected
- * projects earned (Stripe), and the disk your worktrees take, by project; then every project and worktree side by side, with what
+ * projects earned (Stripe), your stats (prompts, agent time, worktrees, PRs, by project or agent), and the disk your worktrees take, by project; then every project and worktree side by side, with what
  * can be put away to free space.
  */
 export function UsageView() {
@@ -91,6 +92,7 @@ export function UsageView() {
             <EarningsSummaryCard />
           </div>
         </div>
+        <StatsSection state={state} />
         <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
         {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
         <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />
