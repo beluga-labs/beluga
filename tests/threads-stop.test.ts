@@ -270,6 +270,7 @@ function real() {
     host,
     workspaces: {
       manager,
+      setThread: manager.setThread,
       refresh: async () => undefined,
       isLeaving: () => false,
       ensureLoaded: () => undefined,
