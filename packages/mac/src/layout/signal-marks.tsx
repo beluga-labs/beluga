@@ -48,11 +48,11 @@ export function DotMark({ tone, live, signal }: { tone: Parameters<typeof Dot>[0
   );
 }
 
-/** A snoozed conversation (BLG-748): a quiet moon in the same slot, nothing asking for you. */
-export function SnoozeMark() {
+/** Put off till later (Remind Me Later, BLG-748): a quiet clock in the same slot, nothing asking for you. */
+export function LaterMark() {
   return (
-    <span className={cx(m.mark, m.snoozed)} data-signal="snoozed" aria-hidden="true">
-      <Icon name="moon" size={11} />
+    <span className={cx(m.mark, m.later)} data-signal="later" aria-hidden="true">
+      <Icon name="clock" size={11} />
     </span>
   );
 }

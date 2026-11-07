@@ -77,7 +77,7 @@
 .markProblem {
   color: var(--error);
 }
-.snoozed {
+.later {
   color: var(--text-3);
 }
 .count {

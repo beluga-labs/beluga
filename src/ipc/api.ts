@@ -253,8 +253,8 @@ export const API = {
   'workspaces.rename': args(id, z.string().trim().min(1).max(200)),
   // Generate a title from recent chat content. The chat session stays unchanged.
   'workspaces.regenerateTitle': args(id),
-  // Snooze a chat or worktree until then (epoch ms; null or left out: wake it now). Its news, failing checks and conflicts stay quiet meanwhile.
-  'workspaces.snooze': args(id, z.number().int().positive().nullish()),
+  // Remind Me Later: a chat or worktree stays quiet (its news, failing checks, conflicts) until then (epoch ms), then you're reminded once. Null or left out: show it again now.
+  'workspaces.remindLater': args(id, z.number().int().positive().nullish()),
   'workspaces.newWorktree': args(id, z.string().max(200), opt(z.object({ base: opt(z.string().min(1).max(250)), agent: opt(AgentRef) }))),
   'workspaces.newChat': args(id, z.string().max(200), opt(path)),
   // `terminal`: you see it as its agent's terminal, so that opens on the message (BLG-553).
