@@ -18,24 +18,45 @@ const UI_TTL_MS = 30_000;
 
 /** A project's open pull requests; what was read last time shows at once while it's read again. */
 export function usePullList(projectId: string): PullsList | undefined {
+  return usePulls(projectId).list;
+}
+
+/** usePullList, with asking GitHub again (Ask GitHub Again), whether it's asking, and why it failed. */
+export function usePulls(projectId: string): { readonly list?: PullsList; readonly loading: boolean; readonly error?: string; readonly refresh: () => void } {
   const api = useApi();
   const [got, setGot] = useState<{ readonly id: string; readonly list: PullsList }>();
+  const [asking, setAsking] = useState<{ readonly id: string; readonly force: boolean; readonly n: number }>({ id: projectId, force: false, n: 0 });
+  const [state, setState] = useState<{ readonly id: string; readonly loading: boolean; readonly error?: string }>({ id: projectId, loading: false });
   const current = useRef(projectId);
   current.current = projectId;
   useEffect(() => {
+    const force = asking.id === projectId && asking.force;
     const kept = lists.get(projectId);
-    const fresh = kept && Date.now() - kept.at < UI_TTL_MS;
-    const job = fresh ? kept.job : api.issues.pulls(projectId);
+    const fresh = !force && kept && Date.now() - kept.at < UI_TTL_MS;
+    const job = fresh ? kept.job : api.issues.pulls(projectId, force ? { force: true } : undefined);
     if (!fresh) lists.set(projectId, { job, at: Date.now() });
+    setState({ id: projectId, loading: true });
     job.then(
       (list) => {
         keepSeen(`pulls:${projectId}`, list);
-        if (current.current === projectId) setGot({ id: projectId, list });
+        if (current.current !== projectId) return;
+        setGot({ id: projectId, list });
+        setState({ id: projectId, loading: false });
       },
-      () => lists.delete(projectId),
+      (err: unknown) => {
+        lists.delete(projectId);
+        if (current.current === projectId) setState({ id: projectId, loading: false, error: err instanceof Error ? err.message : String(err) });
+      },
     );
-  }, [projectId]);
-  return got?.id === projectId ? got.list : lastSeen<PullsList>(`pulls:${projectId}`);
+  }, [projectId, asking]);
+  const list = got?.id === projectId ? got.list : lastSeen<PullsList>(`pulls:${projectId}`);
+  const here: { readonly loading: boolean; readonly error?: string } = state.id === projectId ? state : { loading: true };
+  return {
+    ...(list ? { list } : {}),
+    loading: here.loading,
+    ...(here.error ? { error: here.error } : {}),
+    refresh: () => setAsking((a) => ({ id: projectId, force: true, n: a.n + 1 })),
+  };
 }
 
 /** Checks and review as one small mark each (words in the tooltip): the row stays a title and a line. */

@@ -363,6 +363,8 @@ export type View =
   /** GitHub issues (Mac app): one project's issues (the one you were last in when unset), and one issue's page. */
   | { readonly kind: 'issues'; readonly projectId?: string }
   | { readonly kind: 'gh_issue'; readonly projectId: string; readonly number: number }
+  /** GitHub pull requests (Mac app): one project's open pull requests, anyone's (the one you were last in when unset). */
+  | { readonly kind: 'pulls'; readonly projectId?: string }
   /** GitHub Actions (Mac app): one project's workflow runs, or its workflows drawn as graphs; and one run's page (its jobs and steps, live). */
   | { readonly kind: 'actions'; readonly projectId?: string; readonly page?: 'workflows' }
   | { readonly kind: 'gh_run'; readonly projectId: string; readonly runId: number }

@@ -45,6 +45,23 @@ test('a project’s home lists its open pull requests, and one on a worktree’s
   await expect(page.getByText('webhook-retries').first()).toBeVisible();
 });
 
+test('Show All Pull Requests opens every open one in Beluga, under Work', async ({ page }) => {
+  await openHome(page);
+  const section = main(page).getByRole('region', { name: 'Pull Requests' });
+  await expect(section.getByRole('button', { name: 'Show All on GitHub' })).toBeVisible();
+  await section.getByRole('button', { name: 'Show All Pull Requests' }).click();
+  const list = main(page).getByRole('list', { name: 'bob-api’s open pull requests' });
+  // All five, not Project Home's four.
+  await expect(list.locator('[data-pull]')).toHaveCount(5);
+  await expect(list.locator('[data-pull="51"]')).toContainText('sam-r');
+  await expect(main(page).getByRole('tablist', { name: 'Work' }).getByRole('tab', { name: 'Pull Requests' })).toHaveAttribute('aria-selected', 'true');
+  await expect(main(page).getByText(/5 open · acme\/bob-api · from GitHub/)).toBeVisible();
+  await shot(page, '04-all-pull-requests.png');
+  // The same rows: #52 is on a worktree's branch, a click opens it.
+  await list.locator('[data-pull="52"]').click();
+  await expect(page.getByText('webhook-retries').first()).toBeVisible();
+});
+
 test('Open in Worktree checks a teammate’s pull request out in a new worktree, and opens it', async ({ page }) => {
   await openHome(page);
   const section = main(page).getByRole('region', { name: 'Pull Requests' });

@@ -680,13 +680,22 @@ function HomePulls({ projectId }: { projectId: string }) {
       count={list.total}
       hint="Open on GitHub"
       action={
-        <Button
-          size="small"
-          variant="quiet"
-          onClick={() => actions.openLink({ kind: "url", url: `${repo.url}/pulls` })}
-        >
-          Show All on GitHub
-        </Button>
+        <>
+          <Button
+            size="small"
+            variant="quiet"
+            onClick={() => actions.openLink({ kind: "url", url: `${repo.url}/pulls` })}
+          >
+            Show All on GitHub
+          </Button>
+          <Button
+            size="small"
+            variant="quiet"
+            onClick={() => actions.run({ type: "view", view: { kind: "pulls", projectId } })}
+          >
+            Show All Pull Requests
+          </Button>
+        </>
       }
     >
       {shown.map((pull) => (
