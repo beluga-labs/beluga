@@ -68,3 +68,44 @@ test('a row shows its harness, and children fold under their parent', async ({ p
   await expect(group.getByRole('button', { name: 'Four', exact: true })).toHaveCount(0);
   await shot(page, 'sidebar-folded');
 });
+
+test('the panel lists the children, Stop stops one, and Stop All the rest', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await sidebar(page).getByRole('button', { name: 'e2e-parent', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await expect(inspector.getByRole('heading', { name: 'Lineage · 2 running' })).toBeVisible();
+  const row = (title: string) => inspector.locator('[data-lineage-row]').filter({ has: page.getByRole('button', { name: new RegExp(`^Open ${title},`) }) });
+  await expect(row('Four')).toHaveAttribute('data-state', 'running');
+  await shot(page, 'panel-parent');
+
+  // The keyboard reaches open, then Stop; Stop replaces the timer.
+  await row('Four').getByRole('button', { name: /^Open Four/ }).focus();
+  await page.keyboard.press('Tab');
+  await expect(row('Four').getByRole('button', { name: 'Stop Four' })).toBeFocused();
+  await expect(row('Four').getByRole('button', { name: 'Stop Four' })).toHaveCSS('opacity', '1');
+  await shot(page, 'panel-stop-focus');
+
+  // Stop one: its sibling and the parent's fold go on, and the parent hears of it.
+  await page.keyboard.press('Enter');
+  await expect(row('Four')).toHaveAttribute('data-state', 'stopped', { timeout: 20_000 });
+  await expect(row('Five')).toHaveAttribute('data-state', 'running');
+  await expect(inspector.getByRole('heading', { name: 'Lineage · 1 running' })).toBeVisible();
+  await expect(row('Four').getByRole('button', { name: 'Stop Four' })).toHaveCount(0);
+  await expect(page.getByText(/1 child thread reported: Four \(stopped\)/)).toBeVisible({ timeout: 20_000 });
+  await shot(page, 'panel-one-stopped');
+
+  // Stop All needs no second action.
+  await inspector.getByRole('button', { name: 'Lineage actions' }).click();
+  await page.getByRole('menuitem', { name: 'Stop All Running' }).click();
+  await expect(row('Five')).toHaveAttribute('data-state', 'stopped', { timeout: 20_000 });
+  await expect(inspector.getByRole('heading', { name: 'Lineage', exact: true })).toBeVisible();
+
+  // A child shows its parent, which opens it.
+  await row('Five').getByRole('button', { name: /^Open Five/ }).click();
+  const up = inspector.getByRole('button', { name: 'Open the parent chat, e2e-parent' });
+  await expect(up).toBeVisible();
+  await shot(page, 'panel-child');
+  await up.click();
+  await expect(inspector.getByRole('button', { name: /^Open Five/ })).toBeVisible();
+});

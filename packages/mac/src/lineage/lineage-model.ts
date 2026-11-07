@@ -1,11 +1,14 @@
 import type { AppState } from '../../../../src/core/store.js';
 import { isPlanOwned } from '../../../../src/core/plans/owner.js';
-import { type ThreadLive, deriveThreadState } from '../../../../src/core/threads/model.js';
+import { type ThreadLive, type ThreadNode, deriveThreadState, stopOrder } from '../../../../src/core/threads/model.js';
 import { type AgentRef, defaultAgentOf } from '../../../../src/protocol.js';
+import { type AgentMark, agentMark } from '../../../../src/shared/agent-marks.js';
+import { agentName } from '../../../../src/shared/agent-label.js';
+import { isAssistant } from '../../../../src/shared/assistant.js';
 import type { ThreadState } from '../../../../src/shared/threads.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Workspace } from '../../../../src/workspaces/types.js';
-import { type SubAgent, cappedAgents, subAgentsSummary } from '../claude-code/subagents-model.js';
+import { type SubAgent, agentTitle, cappedAgents, subAgentsSummary } from '../claude-code/subagents-model.js';
 
 /**
  * Child threads in the Mac app: which chat holds which, and how each one is doing. A child is a
@@ -14,7 +17,40 @@ import { type SubAgent, cappedAgents, subAgentsSummary } from '../claude-code/su
 
 const WS = 'ws:';
 
-export type LineageSource = Pick<AppState, 'prefs' | 'projects' | 'log' | 'approvals' | 'questions' | 'plans' | 'board'>;
+export type LineageSource = Pick<AppState, 'prefs' | 'self' | 'projects' | 'log' | 'approvals' | 'questions' | 'plans' | 'board'>;
+
+/** What a row in the panel says when it is not counting time. */
+export const THREAD_WORDS: Readonly<Record<ThreadState, string>> = { queued: 'Queued', running: 'Running', needs_you: 'Needs you', done: 'Done', failed: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted' };
+
+/** One line of the Lineage panel: a child thread, or a native sub-agent (it has no Stop). */
+export interface LineageRow {
+  readonly kind: 'thread' | 'agent';
+  readonly id: string;
+  readonly title: string;
+  readonly state: ThreadState;
+  readonly mark: AgentMark;
+  readonly agent: string;
+  readonly model?: string;
+  /** When its current turn began. */
+  readonly since: number;
+  readonly endedAt?: number;
+}
+
+export interface LineageParent {
+  readonly title: string;
+  readonly state?: ThreadState;
+  /** The chat to open. Unset: the parent is gone, or it is not a workspace chat. */
+  readonly openId?: string;
+  readonly gone: boolean;
+}
+
+export interface LineageView {
+  readonly parent?: LineageParent;
+  readonly rows: readonly LineageRow[];
+  readonly running: number;
+  /** Every working thread under this chat, each after its own children: the order Stop all goes in. */
+  readonly stoppable: readonly string[];
+}
 
 /** A child under its parent's row, as it is now. */
 export interface ThreadChild {
@@ -60,6 +96,39 @@ export function threadNesting(state: Pick<LineageSource, 'prefs' | 'projects' | 
   const value = { nested, under };
   nestings.set(state.projects, { plans: state.plans, board: state.board, value });
   return value;
+}
+
+/** The panel of one chat: its parent, its children and sub-agents. Undefined: it has neither, or threads are off. */
+export function lineageView(state: LineageSource, ws: Workspace, agents: readonly SubAgent[]): LineageView | undefined {
+  if (!state.prefs.agentThreads) return undefined;
+  const live = state.projects.flatMap((p) => p.workspaces).filter((w) => !w.archived);
+  const channel = `${WS}${ws.id}`;
+  const children = live.filter((w) => w.thread?.parent === channel);
+  if (!ws.thread && !children.length && !agents.length) return undefined;
+  const rows = orderRows([...children.map((w) => threadRow(state, w)), ...agents.map((sub) => agentRow(state, ws, sub))]);
+  const nodes = live.flatMap((w): ThreadNode[] => (w.thread ? [{ id: w.id, channel: `${WS}${w.id}`, thread: w.thread }] : []));
+  const byId = new Map(live.map((w) => [w.id, w]));
+  const parent = ws.thread ? parentRow(state, ws, byId) : undefined;
+  return {
+    ...(parent ? { parent } : {}),
+    rows,
+    running: rows.filter((r) => isThreadWorking(r.state)).length,
+    stoppable: stopOrder(nodes, channel).map((n) => n.id).filter((id) => isThreadWorking(threadStateOf(state, byId.get(id)!) ?? 'done')),
+  };
+}
+
+/** Needs you, then working, then finished: each in creation order, so a settled row stays where it is among its batch. */
+export function orderRows(rows: readonly LineageRow[]): LineageRow[] {
+  const rank = (r: LineageRow): number => (r.state === 'needs_you' ? 0 : isThreadWorking(r.state) ? 1 : 2);
+  return [...rows].sort((a, b) => rank(a) - rank(b) || a.since - b.since);
+}
+
+/** The rows in view: all that work, and the newest few that finished. Older finished rows fold into Earlier. */
+export function panelRows(rows: readonly LineageRow[], keepFinished: number, showAll: boolean): { shown: readonly LineageRow[]; earlier: number } {
+  if (showAll) return { shown: rows, earlier: 0 };
+  const finished = rows.filter((r) => !isThreadWorking(r.state));
+  const hide = new Set(finished.slice(0, Math.max(0, finished.length - keepFinished)));
+  return { shown: rows.filter((r) => !hide.has(r)), earlier: hide.size };
 }
 
 /** The workspace `id` of a thread's parent chat, when its parent is a workspace chat at all. */
@@ -135,6 +204,50 @@ export function foldNoun(rows: readonly FoldRow[]): string {
 export function harnessOf(state: Pick<AppState, 'prefs' | 'self'>, ws: Pick<Workspace, 'agent' | 'kind'>): AgentRef | undefined {
   if (!state.prefs.agentThreads || ws.kind === 'main') return undefined;
   return ws.agent ?? defaultAgentOf(state.self);
+}
+
+function threadRow(state: LineageSource, w: Workspace): LineageRow {
+  const harness = w.agent ?? defaultAgentOf(state.self);
+  const thread = w.thread!;
+  const stateNow = threadStateOf(state, w) ?? 'queued';
+  const model = w.model ?? harness.model;
+  const endedAt = !isThreadWorking(stateNow) ? thread.outcome?.at : undefined;
+  return {
+    kind: 'thread',
+    id: w.id,
+    title: w.name,
+    state: stateNow,
+    mark: agentMark(harness),
+    agent: agentName(harness),
+    ...(model ? { model } : {}),
+    since: isThreadWorking(stateNow) ? (activityOf(state.log, `${WS}${w.id}`).startedAt ?? thread.startedAt) : thread.startedAt,
+    ...(endedAt !== undefined ? { endedAt } : {}),
+  };
+}
+
+function agentRow(state: LineageSource, ws: Workspace, sub: SubAgent): LineageRow {
+  const harness = ws.agent ?? defaultAgentOf(state.self);
+  const a = sub.agent;
+  return {
+    kind: 'agent',
+    id: a.id,
+    title: agentTitle(a),
+    state: a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'finished' || a.status === 'idle' ? 'done' : 'stopped',
+    mark: agentMark(harness),
+    agent: agentName(harness),
+    ...(a.model ? { model: a.model } : {}),
+    since: a.startedAt,
+    ...(a.status !== 'running' ? { endedAt: a.endedAt ?? a.lastAt } : {}),
+  };
+}
+
+function parentRow(state: LineageSource, ws: Workspace, byId: ReadonlyMap<string, Workspace>): LineageParent {
+  const thread = ws.thread!;
+  const id = parentIdOf(ws);
+  const parent = id === undefined ? undefined : byId.get(id);
+  if (!parent) return { title: thread.parentTitle, gone: !isAssistant(thread.parent) };
+  const stateNow = parent.thread ? threadStateOf(state, parent) : activityOf(state.log, `${WS}${parent.id}`).running ? 'running' : undefined;
+  return { title: parent.name, openId: parent.id, gone: false, ...(stateNow ? { state: stateNow } : {}) };
 }
 
 const parentOf = (ws: Workspace, byId: ReadonlyMap<string, Workspace>): Workspace | undefined => {
