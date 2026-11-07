@@ -22,6 +22,7 @@ import { ThemeGroups } from './ThemePicker.js';
 import { EnvironmentSettings } from './EnvironmentSettings.js';
 import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
+import { UsageLimitSettings } from './UsageLimitSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
@@ -401,6 +402,7 @@ function AgentPane() {
         </Row>
       </Group>
       <ContextSettings />
+      <UsageLimitSettings />
       <ParallelSettings />
       <ChatLimitSettings />
       <Group title="Scratch folder">

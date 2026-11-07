@@ -55,6 +55,7 @@ export const PHONE: Record<Method, Side> = {
   'host.sendNext': 'phone',
   // Your steered message Claude hasn't read yet, answered now: like Stop, phone-sized.
   'host.steerNow': 'phone',
+  'host.cancelSteer': 'phone',
   'host.stopRun': 'phone',
   'host.cancelQueued': 'phone',
   'host.reorderQueued': 'mac',
@@ -191,6 +192,9 @@ export const PHONE: Record<Method, Side> = {
   'workbench.openPr': 'mac',
   'workbench.mergePr': 'mac',
   'workbench.prStep': 'mac',
+  // The phone pushes and re-runs through companion.branchStep (push, rerun_checks).
+  'workbench.pushPr': 'mac',
+  'workbench.rerunChecks': 'mac',
   'workbench.prConversation': 'mac',
   'workbench.prPost': 'mac',
   'workbench.addressPrComments': 'mac',

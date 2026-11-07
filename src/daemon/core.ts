@@ -20,6 +20,7 @@ import { leaveNetwork, networkSwitch } from '../core/network.js';
 import { launchBoard } from '../core/board/launch.js';
 import { launchDialogues } from '../core/dialogues/launch.js';
 import { launchSentinel } from '../core/sentinel/launch.js';
+import { AutoContinue } from '../core/auto-continue.js';
 import { launchAssistant } from '../core/assistant/launch.js';
 import { launchChat } from '../core/chat/launch.js';
 import { launchCalls } from '../core/calls/launch.js';
@@ -361,6 +362,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   let stopBoard = (): void => undefined;
   let stopDialogues = (): void => undefined;
   let stopSentinel = (): void => undefined;
+  let stopAutoContinue = (): void => undefined;
   let stopAssistant = (): void => undefined;
   let stopCompanion = async (): Promise<void> => undefined;
   const start = (): void => {
@@ -390,6 +392,11 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopDialogues = launchDialogues({ session, store, demo: Boolean(demo) });
     // Sentinel: watchers that run on a schedule or by hand, do a few steps and leave a report (docs/sentinel.md).
     if (opts.network) stopSentinel = launchSentinel({ session, store, demo: Boolean(demo) });
+    // A run that stopped on your usage limit is told to continue once the limit resets (shared/auto-continue.ts).
+    if (opts.network) {
+      const auto = new AutoContinue({ store, ask: (prompt, channel) => session.askOwnClaude(prompt, channel, true), warn: (text) => console.warn(text) });
+      stopAutoContinue = () => auto.stop();
+    }
     // "Your Mac": one conversation with your Claude for the whole Mac, from the phone and the sidebar (core/assistant).
     if (opts.network) stopAssistant = launchAssistant({ session, store, demo: Boolean(demo) });
     if (opts.network) stopClaudeCode = launchClaudeCode({ session, store, demo: Boolean(demo), notify: (e) => session.notifier.notify(e) });
@@ -435,6 +442,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     stopFriendShares();
     stopAssistant();
     stopSentinel();
+    stopAutoContinue();
     stopBoard();
     stopDialogues();
     await stopCompanion();

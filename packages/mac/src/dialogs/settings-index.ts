@@ -97,6 +97,11 @@ export const SETTINGS: readonly Entry[] = [
     ['Auto-compact when the context is nearly full', 'Your agent summarizes and carries on.', 'compact compaction summarize context'],
     ['Compact at', 'How full a conversation gets before it compacts.', 'compact threshold percent context'],
   ]),
+  ...rows('claude', 'Usage limits', [
+    ['Continue when your usage limit resets', 'Beluga tells your agent to continue once your limit resets.', 'usage limit rate limit reset resume continue automatically auto quota session'],
+    ['Skipped this session', 'Nothing continues on its own until the limit resets.', 'usage limit skip session resume continue'],
+    ['Chats it’s off in', 'Chats that wait for you to press Continue.', 'usage limit chats off resume continue'],
+  ]),
   ...rows('claude', 'Working at once', [['Conversations your agent works in at once', 'Past it, a message waits its turn.', 'parallel concurrency limit queue simultaneous runs']]),
   ...rows('claude', 'Open chats', [['Chats kept at once', 'How many chats Your Mac and Sentinel keep as tabs.', 'chat limit tabs sentinel']]),
   ...rows('claude', 'Scratch folder', [
