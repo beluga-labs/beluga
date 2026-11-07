@@ -7,6 +7,12 @@ import { expect, test, type Page } from './fixtures.js';
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
 const NAMES = ['range-1', 'range-2', 'range-3', 'range-4'];
+const shot = async (page: Page, name: string): Promise<void> => {
+  if (!process.env.SHOTS) return;
+  // Screenshots only: let animations settle so the picture is still.
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${process.env.SHOTS}/${name}.png` });
+};
 
 /** A second connection to the demo daemon from the page (the app's own boot code), for driving it. */
 async function daemon<T>(page: Page, fn: string, arg: unknown): Promise<T> {
@@ -45,13 +51,17 @@ test('Shift+click selects a range, a click elsewhere keeps its start, and Archiv
   await chat(ours[2]!).click({ modifiers: ['Shift'] });
   await expect(status).toContainText('3 chats selected');
   await expect(sidebar(page).locator('[data-chat-selected]')).toHaveCount(3);
+  await shot(page, 'chat-select-1-range');
 
   // One confirmation and one message for the three.
   await chat(ours[1]!).click({ button: 'right' });
+  await shot(page, 'chat-select-2-menu');
   await page.getByRole('menuitem', { name: 'Archive 3 Chats…' }).click();
   const alert = page.getByRole('alertdialog', { name: /Archive 3 chats\?/ });
+  await shot(page, 'chat-select-3-confirm');
   await alert.getByRole('button', { name: 'Archive 3 Chats' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Archived 3 chats.' })).toBeVisible({ timeout: 20_000 });
+  await shot(page, 'chat-select-4-done');
   await expect(page.getByRole('status').filter({ hasText: /^Archived\. / })).toHaveCount(0);
   await expect(status).toBeHidden();
   for (const name of ours.slice(0, 3)) await expect(chat(name)).toHaveCount(0);
