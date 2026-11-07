@@ -1,6 +1,6 @@
 import type { AgentRef } from '../protocol.js';
 import { buildGraphAppend } from './graph-prompt.js';
-import { buildAskOnlyAppend, buildCommitAppend, buildKeepAppend, buildScratchAppend, buildShippedAppend, buildSystemAppend } from './prompt.js';
+import { buildAskOnlyAppend, buildChatSendAppend, buildCommitAppend, buildKeepAppend, buildScratchAppend, buildShippedAppend, buildSystemAppend } from './prompt.js';
 import { buildSyncMainAppend } from './sync-main.js';
 import { buildTerminalAppend } from './terminal-prompt.js';
 import type { AgentRunInput } from './types.js';
@@ -22,6 +22,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     buildGraphAppend(Boolean(input.terminal)) +
     buildViewAppend(Boolean(input.terminal)) +
     (input.chatLink ? buildChatLinkAppend(input.chatLink) : '') +
+    (input.chatTools ? buildChatSendAppend() : '') +
     (input.taskBrief ?? '') +
     (input.planBrief ?? '') +
     (input.macBrief ?? '') +

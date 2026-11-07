@@ -182,6 +182,8 @@ export const ChatOrigin = z.object({
   /** How many sends led to this message. */
   hop: z.number().int().min(0).max(1000),
   messageId: shortStr,
+  /** The source chat wants an answer. Without it, the message wants none. */
+  replyWanted: z.boolean().optional(),
 });
 export type ChatOrigin = z.infer<typeof ChatOrigin>;
 

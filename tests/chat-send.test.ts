@@ -1,0 +1,399 @@
+import { describe, expect, it } from 'vitest';
+import { createChatTools } from '../src/agent/chat-tools.js';
+import { decideTool } from '../src/agent/policy.js';
+import { runInstructions } from '../src/agent/run-instructions.js';
+import type { AgentBackend, AgentPlace, AgentRunInput, ChatTools, FollowUp, LiveStatus, Steer } from '../src/agent/types.js';
+import { AgentHost } from '../src/core/agent-host.js';
+import { MAX_PAIR_MESSAGES, MAX_QUEUED_PER_TARGET } from '../src/core/chat-links/guard.js';
+import { type DomainState, Store, initialState } from '../src/core/store.js';
+import type { BodyOf } from '../src/protocol.js';
+import { humanizeTool } from '../src/shared/step-titles.js';
+import { waitFor } from './helpers.js';
+
+const ME = 'me-me-me-me-me-me-me-me-me-me-me0';
+const FRIEND = 'friend-friend-friend-friend-frie';
+const SOURCE = 'ws:src';
+const TARGET = 'ws:tgt';
+const refOf = (channel: string, owner = ME): string => `${owner}/${channel}`;
+
+const ws = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: `chat ${id}`, projectId: 'p1', projectRoot: '/p', path: `/p/${id}`, kind: 'worktree', createdAt: 1000, ...extra });
+
+function setup() {
+  const base = initialState('room', 'auto');
+  const store = new Store({
+    ...base,
+    selfId: ME,
+    projectsLoaded: true,
+    prefs: { ...base.prefs, chatLinks: true },
+    projects: [{ id: 'p1', name: 'Beluga', root: '/p', workspaces: [ws('main1', { kind: 'main' }), ws('src'), ws('tgt'), ws('other'), ...['s1', 's2', 's3', 's4', 's5', 's6'].map((id) => ws(id)), ws('gone', { archived: true })] }],
+    shared: [{ owner: FRIEND, id: 'theirs', name: 'Their work', project: 'x', role: 'contribute', share: 's' }],
+  } as unknown as DomainState);
+  const prompts: Array<[string, string]> = [];
+  const tools = new Map<string, ChatTools>();
+  const finish = new Map<string, (text: string) => void>();
+  const steered: FollowUp[] = [];
+  const live: { status: LiveStatus } = { status: { lastEventAt: Date.now(), between: false } };
+  const places = new Map<string, Partial<AgentPlace>>();
+  const agent: AgentBackend = {
+    run: (input: AgentRunInput) => {
+      const channel = input.channel!;
+      prompts.push([channel, input.prompt]);
+      if (input.chatTools) tools.set(channel, input.chatTools);
+      return new Promise<string>((resolve, reject) => {
+        input.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        const steer: Steer = Object.assign(
+          (f: FollowUp) => {
+            steered.push(f);
+            return true;
+          },
+          { status: () => live.status },
+        );
+        input.onSteer?.(steer);
+        finish.set(channel, (text) => {
+          finish.delete(channel);
+          input.onSteer?.(undefined);
+          resolve(text);
+        });
+      });
+    },
+  };
+  const send = (body: { kind: string } & Record<string, unknown>): boolean => {
+    if (body.kind !== 'agent_event') return true;
+    const e = body as unknown as BodyOf<'agent_event'>;
+    store.dispatch({ type: 'agent_event', owner: ME, requestId: e.requestId, requester: e.requester, event: e.event, text: e.text, ts: Date.now(), channel: e.channel });
+    return true;
+  };
+  const place = (channel: string): AgentPlace | undefined => (channel.startsWith('ws:') ? ({ cwd: `/p/${channel}`, additionalDirectories: [], autoEdit: true, onSession: () => undefined, ...places.get(channel) } as AgentPlace) : undefined);
+  const driving = new Set<string>();
+  const h = new AgentHost({
+    store,
+    selfId: () => ME,
+    send: send as never,
+    agent: () => agent,
+    shares: {} as never,
+    sharing: { recipients: () => [], sharedFor: () => undefined, canPost: () => true } as never,
+    people: {} as never,
+    questions: { track: () => undefined, ask: async () => ({ kind: 'skip' }), cancelAll: () => undefined, cancelChannel: () => undefined } as never,
+    toast: () => undefined,
+    system: () => undefined,
+    approvalTimeoutMs: () => 60_000,
+    refreshUsage: async () => undefined,
+    workspaces: { place, ensureLoaded: () => undefined, inChannel: () => undefined, agentIn: () => undefined, refreshWorkspace: async () => undefined, manager: { list: [] } } as never,
+    terminalDriving: (channel) => driving.has(channel),
+  });
+  const say = (channel: string, requestId: string, prompt = 'go', extra: Partial<BodyOf<'agent_request'>> = {}): Promise<void> =>
+    h.onAgentRequest(ME, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel, urgent: false, plan: false, ...extra });
+  /** A chat whose run is at work, with its tools. */
+  const working = async (channel: string, requestId = `r-${channel}`, extra: Partial<BodyOf<'agent_request'>> = {}): Promise<ChatTools> => {
+    await say(channel, requestId, 'go', extra);
+    await waitFor(() => tools.has(channel) && finish.has(channel));
+    return tools.get(channel)!;
+  };
+  const card = (requestId: string) => store.getState().log.find((l) => l.type === 'agent' && l.requestId === requestId) as Extract<DomainState['log'][number], { type: 'agent' }> | undefined;
+  const runsIn = (channel: string): string[] => prompts.filter(([c]) => c === channel).map(([, p]) => p);
+  const end = async (...channels: string[]): Promise<void> => {
+    for (const channel of channels) {
+      await waitFor(() => finish.has(channel) || !h.runningIn(channel));
+      finish.get(channel)?.('done');
+      await h.idle(channel);
+      // What queued behind it runs next.
+      await waitFor(() => !h.runningIn(channel) || finish.has(channel));
+      if (h.runningIn(channel)) await end(channel);
+    }
+  };
+  return { h, store, say, working, card, runsIn, finish, steered, live, places, driving, end, tools };
+}
+
+const parsed = (text: string): { message_id: string; state: string; delivery: string; note?: string; answer?: string } => JSON.parse(text);
+
+describe('send_to_chat: the state of the target', () => {
+  it('idle: starts a turn, with the origin and chain from the sending run', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE, 'r1', { origin: { ref: refOf('ws:other'), title: 'x', agent: { runtime: 'claude', label: 'Claude' }, chainId: 'c1', hop: 1, messageId: 'm0' } });
+    const receipt = parsed(await from.send(refOf(TARGET), 'please look', { reply: 'wanted' }));
+    expect(receipt).toMatchObject({ state: 'working', delivery: 'started' });
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(t.runsIn(TARGET)[0]).toContain('please look');
+    expect(t.tools.get(TARGET)!.chain()).toMatchObject({ chainId: 'c1', hop: 2 });
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('takes a chat link as well as a ref', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    const receipt = parsed(await from.send(`beluga://chat/${ME}/${encodeURIComponent(TARGET)}`, 'hi', {}));
+    expect(receipt.delivery).toBe('started');
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('working: queues in order, the queue card shows it and cancelQueued drops it', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const one = parsed(await from.send(refOf(TARGET), 'one', {}));
+    const two = parsed(await from.send(refOf(TARGET), 'two', {}));
+    expect(one).toMatchObject({ state: 'queued', delivery: 'queued' });
+    expect(t.card(one.message_id)).toMatchObject({ status: 'queued', prompt: 'one' });
+    expect(t.h.cancelQueued(one.message_id)).toBe(true);
+    expect(parsed(await from.wait(one.message_id, 0)).state).toBe('failed');
+    t.finish.get(TARGET)!('first');
+    await waitFor(() => t.runsIn(TARGET).length === 2);
+    expect(t.runsIn(TARGET)[1]).toContain('two');
+    expect(t.card(two.message_id)?.status).toBe('started');
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('steer: goes into the turn when it can', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const receipt = parsed(await from.send(refOf(TARGET), 'now', { mode: 'steer' }));
+    expect(receipt.delivery).toBe('steered');
+    expect(t.steered.map((f) => f.prompt)).toEqual(['now']);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('steer: a long step is never interrupted by another chat', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    t.live.status = { tool: { label: 'npm test', since: Date.now() - 600_000 }, lastEventAt: Date.now(), between: false };
+    expect(parsed(await from.send(refOf(TARGET), 'now', { mode: 'steer' })).delivery).toBe('steered');
+    expect(t.card('r-ws:tgt')?.status).toBe('started');
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('steer: queues when the chat cannot take it, and the receipt says so', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    const receipt = parsed(await from.send(refOf(TARGET), 'now', { mode: 'steer' }));
+    expect(receipt.delivery).toBe('started');
+    expect(receipt.note).toMatch(/could not take a steer/);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('archived: refused, and it stays archived with no run', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf('ws:gone'), 'hi', {})).rejects.toThrow(/^chat_archived:/);
+    expect(t.runsIn('ws:gone')).toEqual([]);
+    await t.end(SOURCE);
+  });
+
+  it.each([
+    ['a removed chat', refOf('ws:nothing')],
+    ['a main checkout', refOf('ws:main1')],
+    ['someone else’s chat', refOf('ws:x', FRIEND)],
+  ])('%s: refused with not_found', async (_what, ref) => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send(ref, 'hi', {})).rejects.toThrow(/^not_found:/);
+    await t.end(SOURCE);
+  });
+
+  it('what has no ref is refused, from either side', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send('room', 'hi', {})).rejects.toThrow(/^not_addressable:/);
+    await t.end(SOURCE);
+    const room = await t.working('room');
+    await expect(room.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^source_not_addressable:/);
+    await t.end('room');
+  });
+
+  it('a chat shared with you: refused for now', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf('ws:theirs', FRIEND), 'hi', {})).rejects.toThrow(/^shared_chat:/);
+    await t.end(SOURCE);
+  });
+
+  it('a chat its terminal drives: refused with no run', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    t.driving.add(TARGET);
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^terminal_driving:/);
+    expect(t.runsIn(TARGET)).toEqual([]);
+    await t.end(SOURCE);
+  });
+
+  it('a chat that goes while the message waits: the sender hears it, and wait_for_chat says lost', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'one', {}));
+    const going = t.h.endIn(TARGET, 'The worktree was deleted');
+    expect(parsed(await from.wait(id, 0))).toMatchObject({ state: 'lost', answer: 'The worktree was deleted' });
+    await going;
+    expect(t.store.getState().log.some((l) => l.type === 'system' && l.channel === SOURCE && /lost/.test(l.text))).toBe(true);
+    await t.end(SOURCE);
+  });
+});
+
+describe('mode_wider', () => {
+  it('a chat in plan mode cannot send to a chat that can act', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    t.store.dispatch({ type: 'plan_mode', channel: SOURCE, on: true });
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^mode_wider:/);
+    expect(t.runsIn(TARGET)).toEqual([]);
+    await t.end(SOURCE);
+  });
+
+  it('a read-only chat cannot send to a chat that edits; a chat that edits can send to a read-only one', async () => {
+    const t = setup();
+    t.places.set(SOURCE, { askOnly: { project: 'p' } } as never);
+    const narrow = await t.working(SOURCE);
+    await expect(narrow.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^mode_wider:/);
+    await t.end(SOURCE);
+
+    const wide = await t.working(TARGET);
+    expect(parsed(await wide.send(refOf(SOURCE), 'hi', {})).delivery).toBe('started');
+    await t.end(TARGET, SOURCE);
+  });
+});
+
+describe('a guard refusal starts no run and returns its code', () => {
+  it('self', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf(SOURCE), 'hi', {})).rejects.toThrow(/^self:/);
+    expect(t.runsIn(SOURCE)).toHaveLength(1);
+    await t.end(SOURCE);
+  });
+
+  it('hop_limit', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE, 'r1', { origin: { ref: refOf('ws:other'), title: 'x', agent: { runtime: 'claude', label: 'Claude' }, chainId: 'c1', hop: 4, messageId: 'm0' } });
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^hop_limit:/);
+    expect(t.runsIn(TARGET)).toEqual([]);
+    await t.end(SOURCE);
+  });
+
+  it('pair_rate says when to retry', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    for (let i = 0; i < MAX_PAIR_MESSAGES; i++) await from.send(refOf(TARGET), `m${i}`, {});
+    await expect(from.send(refOf(TARGET), 'more', {})).rejects.toThrow(/^pair_rate:.*Try again after \d{4}-/);
+    expect(t.runsIn(TARGET)).toHaveLength(1);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('queue_full counts only messages from chats, at that chat', async () => {
+    const t = setup();
+    await t.working(TARGET);
+    // Your own messages leave the chat's room for messages from chats as it was.
+    await t.say(TARGET, 'mine', 'from you');
+    const froms = await Promise.all(['ws:s1', 'ws:s2', 'ws:s3', 'ws:s4', 'ws:s5', 'ws:s6'].map((s) => t.working(s)));
+    for (const from of froms.slice(0, MAX_QUEUED_PER_TARGET)) expect(parsed(await from.send(refOf(TARGET), 'm', {})).delivery).toBe('queued');
+    await expect(froms[5]!.send(refOf(TARGET), 'too many', {})).rejects.toThrow(/^queue_full:/);
+    expect(parsed(await froms[5]!.send(refOf('ws:other'), 'elsewhere', {})).delivery).toBe('started');
+    expect(t.runsIn(TARGET)).toHaveLength(1);
+    t.h.stopAgent();
+  });
+});
+
+describe('idempotency', () => {
+  it('the same request id sends one time and returns the same receipt', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    const first = parsed(await from.send(refOf(TARGET), 'once', { requestId: 'q1' }));
+    const again = parsed(await from.send(refOf(TARGET), 'once', { requestId: 'q1' }));
+    expect(again.message_id).toBe(first.message_id);
+    expect(again.delivery).toBe('started');
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(t.card(first.message_id)?.status).toBe('started');
+    expect(t.store.getState().log.filter((l) => l.type === 'agent' && l.channel === TARGET)).toHaveLength(1);
+    await t.end(SOURCE, TARGET);
+  });
+});
+
+describe('wait_for_chat', () => {
+  it('returns the final answer of the run that read the message', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'q', { reply: 'wanted' }));
+    const waiting = from.wait(id, 5);
+    await waitFor(() => t.finish.has(TARGET));
+    t.finish.get(TARGET)!('the answer');
+    expect(parsed(await waiting)).toMatchObject({ message_id: id, state: 'answered', answer: 'the answer' });
+    await t.end(SOURCE);
+  });
+
+  it('a steered message: the answer of the turn that took it', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'q', { mode: 'steer' }));
+    t.steered[0]!.onFolded?.();
+    const waiting = from.wait(id, 5);
+    t.finish.get(TARGET)!('the turn’s answer');
+    expect(parsed(await waiting)).toMatchObject({ state: 'answered', answer: 'the turn’s answer' });
+    await t.end(SOURCE);
+  });
+
+  it('at the timeout it returns the state and cancels nothing', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'q', {}));
+    expect(parsed(await from.wait(id, 0))).toEqual({ message_id: id, state: 'queued' });
+    expect(t.card(id)?.status).toBe('queued');
+    t.finish.get(TARGET)!('first');
+    await waitFor(() => t.runsIn(TARGET).length === 2);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('ends when the waiting run stops', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'q', {}));
+    const waiting = from.wait(id, 600);
+    t.h.stopRun(SOURCE);
+    expect(parsed(await waiting).state).toBe('queued');
+    await t.end(TARGET);
+  });
+
+  it('a message another chat sent has the same answer as one that does not exist', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    const other = await t.working('ws:other');
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'q', {}));
+    await expect(other.wait(id, 0)).rejects.toThrow(/^not_found:/);
+    await expect(other.wait('nope', 0)).rejects.toThrow(/^not_found:/);
+    await t.end(SOURCE, 'ws:other', TARGET);
+  });
+});
+
+describe('the tools', () => {
+  const chats: ChatTools = { chain: () => ({ chainId: 'c', hop: 0 }), list: () => '', read: () => '', send: async (ref, text, opts) => JSON.stringify({ ref, text, opts }), wait: async (id, sec) => JSON.stringify({ id, sec }) };
+
+  it('have no way to set the chain or the source', () => {
+    const suite = createChatTools(chats);
+    const send = suite.tools.find((t) => t.name === 'send_to_chat')!;
+    expect(Object.keys(send.inputSchema).sort()).toEqual(['mode', 'ref', 'reply', 'request_id', 'text']);
+    expect(Object.keys(suite.tools.find((t) => t.name === 'wait_for_chat')!.inputSchema).sort()).toEqual(['message_id', 'timeout_sec']);
+  });
+
+  it('a refusal comes back as an error result with its code', async () => {
+    const suite = createChatTools({ ...chats, send: () => Promise.reject(new Error('hop_limit: stop')) });
+    const out = await suite.tools.find((t) => t.name === 'send_to_chat')!.handler({ ref: 'x', text: 'y', mode: 'queue', reply: 'none' }, {});
+    expect(out).toMatchObject({ isError: true, content: [{ text: 'hop_limit: stop' }] });
+  });
+
+  it('the run instructions teach them only to a run that has them', () => {
+    const base = { place: undefined, env: {} } as unknown as AgentRunInput;
+    expect(runInstructions({ ...base, chatTools: chats }, 'kay')).toContain('Do not send to acknowledge');
+    expect(runInstructions(base, 'kay')).not.toContain('send_to_chat');
+  });
+
+  it('are in the policy and have step titles', () => {
+    const ctx = { cwd: '/p', roots: ['/p'], autoEdit: true, scope: 'full' } as never;
+    expect(decideTool('mcp__beluga_chats__send_to_chat', {}, ctx)).toBe('allow');
+    expect(decideTool('mcp__beluga_chats__wait_for_chat', {}, ctx)).toBe('allow');
+    expect(humanizeTool('mcp__beluga_chats__send_to_chat', {}).done).toMatch(/Sent a message/);
+    expect(humanizeTool('mcp__beluga_chats__wait_for_chat', {}).done).toMatch(/Waited/);
+  });
+});

@@ -115,6 +115,10 @@ function belugaTool(name: string, input: Readonly<Record<string, unknown>>): Hum
       return both('Looked through your chats', 'Looking through your chats');
     case 'read_chat':
       return both('Read another chat', 'Reading another chat');
+    case 'send_to_chat':
+      return both('Sent a message to another chat', 'Sending a message to another chat');
+    case 'wait_for_chat':
+      return both('Waited for another chat', 'Waiting for another chat');
     default:
       return undefined;
   }

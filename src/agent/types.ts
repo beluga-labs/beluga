@@ -591,6 +591,10 @@ export interface ChatChain {
 export interface ChatTools {
   /** The chain of this run now. */
   chain(): ChatChain;
+  /** Deliver a message to a chat. Its answer is a receipt, or it throws with a refusal code. */
+  send(ref: string, text: string, opts: { readonly mode?: 'queue' | 'steer'; readonly reply?: 'none' | 'wanted'; readonly requestId?: string }): Promise<string>;
+  /** The final answer of the run that read a message this chat sent, or its state at the timeout. */
+  wait(messageId: string, timeoutSec?: number): Promise<string>;
   /** The chats this run may read, newest activity first. */
   list(opts: { readonly query?: string; readonly state?: 'idle' | 'working' | 'archived'; readonly limit?: number }): string;
   /** A page of one chat, oldest first. `after` is the `next` position of the page before. */
