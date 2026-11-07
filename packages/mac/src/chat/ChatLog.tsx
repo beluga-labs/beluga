@@ -195,8 +195,10 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const jump = useUi((u) => u.chatJump);
   const [marked, setMarked] = useState<React.Key | undefined>(undefined);
   const [waited, setWaited] = useState(0);
+  // Which part of a split turn each row is: a hit on a turn goes to its answer, in the tail.
+  const jumpRows = useMemo(() => shown.map((x) => ({ id: x.row.id, ts: x.row.ts, side: x.part?.side })), [shown]);
   useEffect(() => {
-    const next = chatJumpState(jump, channel, rows, Date.now());
+    const next = chatJumpState(jump, channel, jumpRows, Date.now());
     if (next.state === 'none') return;
     if (next.state === 'wait') {
       // No row comes to run this again when the history never lands.
@@ -209,7 +211,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
     stick.current = false;
     virtualizer.scrollToIndex(next.index, { align: 'center' });
     setMarked(shown[next.index]?.key ?? next.index);
-  }, [jump, channel, rows, shown, virtualizer, ui, client, waited]);
+  }, [jump, channel, jumpRows, shown, virtualizer, ui, client, waited]);
   useEffect(() => {
     if (marked === undefined) return;
     const t = setTimeout(() => setMarked(undefined), JUMP_MARK_MS);

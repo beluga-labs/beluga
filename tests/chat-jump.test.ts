@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chatJumpState } from '../src/ui/chat-jump.js';
 import { asSent } from '../src/shared/claude-notices.js';
+import { withLiveTails } from '../packages/mac/src/chat/live-tail.js';
 import { type LogItem, Store, initialState } from '../src/core/store.js';
 import { type UiActionContext, runUiActionWith } from '../src/ui/ui-actions.js';
 
@@ -37,6 +38,16 @@ describe('chatJumpState', () => {
     // By its time alone, the row isn't found.
     expect(chatJumpState({ channel, ts: 20, at: 1000 }, channel, drawn, 1001).state).not.toBe('go');
     expect(chatJumpState({ channel, id: 'queued', ts: 20, at: 1000 }, channel, drawn, 1001)).toEqual({ state: 'go', index });
+  });
+
+  it('goes to the part of a split turn that holds its answer, not to where the turn began', () => {
+    const channel = 'ws:1';
+    const said = (id: string, text: string, ts: number): LogItem => ({ id, type: 'chat', channel, from: 'me', name: 'kay', text, ts, byAgent: false });
+    const card: LogItem = { id: 'c', type: 'agent', channel, subagents: [], requestId: 'r1', owner: 'me', ownerName: 'kay', requesterName: 'kay', status: 'done', text: 'the persimmon answer', steps: [], ts: 11, endTs: 50 };
+    const shown = withLiveTails([said('u', 'go', 10), card, said('m', 'and one more thing', 20)]);
+    const rows = shown.map((x) => ({ id: x.row.id, ts: x.row.ts, side: x.part?.side }));
+    expect(shown.map((x) => x.key)).toEqual(['u', 'c', 'm', 'c:tail']);
+    expect(chatJumpState({ channel, id: 'c', ts: 11, at: 1000 }, channel, rows, 1001)).toEqual({ state: 'go', index: 3 });
   });
 
   it('falls back on the time when the item has no id', () => {
