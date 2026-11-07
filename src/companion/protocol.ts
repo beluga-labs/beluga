@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -111,11 +111,13 @@ export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
  * out: no reactions.
  * 1.42 (BLG-757): a run stopped by your usage limit says when Beluga tells it to continue on its
  * own (`TurnView.resumesAt`). An older Mac leaves it out.
- * 1.43 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
+ * 1.43 (BLG-762): a steered message your agent hasn't read yet can be taken back
+ * (`host.cancelSteer` → its words, for the box). An older Mac doesn't have it: no Cancel.
+ * 1.44 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
  * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Snooze, Wake and Un-settle
  * from the phone (`triage.*`). An older Mac or phone never sees them: Work stays one list by project.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, triage: 43 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -468,13 +470,13 @@ export const ConvSummary = z.object({
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
   fresh: z.number().int().min(0).optional(),
-  /** 1.43: in Work while `chatCategories` is on: its category, none for what has none (the room). */
+  /** 1.44: in Work while `chatCategories` is on: its category, none for what has none (the room). */
   category: z.enum(['active', 'working', 'snoozed', 'settled']).optional(),
-  /** 1.43: when a snoozed chat wakes. */
+  /** 1.44: when a snoozed chat wakes. */
   snoozedUntil: ts.optional(),
-  /** 1.43: why a settled chat settled. */
+  /** 1.44: why a settled chat settled. */
   settledWhy: z.enum(['you', 'pr_merged', 'merged_here', 'idle']).optional(),
-  /** 1.43: a snooze ended, and it shows Back until you open it. */
+  /** 1.44: a snooze ended, and it shows Back until you open it. */
   back: z.literal(true).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
@@ -506,7 +508,7 @@ export type HomeView = z.infer<typeof HomeView>;
 
 export const WorkView = z.object({
   projects: z.array(z.object({ id, name: z.string().max(200), conversations: z.array(ConvSummary).max(200), /** 1.3: its icon's checksum (companion.icon). */ icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional() })).max(200),
-  /** 1.43: `chatCategories` is on: the phone sorts by `ConvSummary.category`. */
+  /** 1.44: `chatCategories` is on: the phone sorts by `ConvSummary.category`. */
   categories: z.literal(true).optional(),
 });
 export type WorkView = z.infer<typeof WorkView>;
@@ -523,9 +525,10 @@ export type MergeView = z.infer<typeof MergeView>;
 /**
  * 1.8: the branch steps the phone can ask the Mac for (companion.branchStep): all of the Mac's
  * (core/branch-state.ts) but Merge into the main folder (its own sheet, companion.merge) and Open
- * PR (the phone's browser).
+ * PR (the phone's browser). Since BLG-753 also Push (an open PR's commits not pushed yet) and Re-run
+ * Failed Checks, added at the end (an older Mac never offers them).
  */
-export const PHONE_BRANCH_STEPS = ['merge_pr', 'merge_auto', 'merge_admin', 'cancel_auto', 'update_branch', 'mark_ready', 'resolve_pr', 'fix_checks', 'merge_claude', 'review_claude', 'commit', 'pr', 'pr_claude', 'pr_draft', 'pr_original', 'continue_after_merge', 'archive', 'delete'] as const;
+export const PHONE_BRANCH_STEPS = ['merge_pr', 'merge_auto', 'merge_admin', 'cancel_auto', 'update_branch', 'mark_ready', 'resolve_pr', 'fix_checks', 'merge_claude', 'review_claude', 'commit', 'pr', 'pr_claude', 'pr_draft', 'pr_original', 'continue_after_merge', 'archive', 'delete', 'push', 'rerun_checks'] as const;
 export type PhoneBranchStep = (typeof PHONE_BRANCH_STEPS)[number];
 
 /** 1.8: one of a branch's steps (core/branch-state.ts BranchStep). */

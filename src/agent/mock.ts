@@ -873,6 +873,7 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     }
     // What you said meanwhile: read at the next step, folded into this turn (its answer covers it).
     // Sent now (Steer.force): the step it's on stops and your message is the next turn, its own.
+    // Cancelled (Steer.cancel) before that: never read.
     const said: FollowUp[] = [];
     let forced: { followUp: FollowUp; note: string } | undefined;
     let wake: (() => void) | undefined;
@@ -889,7 +890,14 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       wake?.();
       return true;
     };
-    if (script.steerable) input.onSteer?.(Object.assign((followUp: FollowUp) => (said.push(followUp), true), { force }));
+    // Taken back (Steer.cancel): out of what it reads at its next step.
+    const cancel = async (followUp: FollowUp): Promise<boolean> => {
+      const i = said.indexOf(followUp);
+      if (i < 0) return false;
+      said.splice(i, 1);
+      return true;
+    };
+    if (script.steerable) input.onSteer?.(Object.assign((followUp: FollowUp) => (said.push(followUp), true), { force, cancel }));
     let last: string | undefined;
     try {
       for (const step of script.steps) {

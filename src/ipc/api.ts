@@ -167,11 +167,14 @@ export const API = {
 
   // ---- your Claude's queue and approvals
   'host.answerApproval': args(Answer, id),
-  'host.promote': args(id),
+  // Steer a waiting message now: read at the agent's next step. `interrupt` (a plan's Steer Now): a long command or a stuck turn is stopped for it.
+  'host.promote': args(id, opt(z.object({ interrupt: opt(bool) }))),
   // Send a waiting message next, never interrupting (Send Now).
   'host.sendNext': args(id),
   // Send now a message steered into the running turn that Claude hasn't read yet: its step stops, your message is next (BLG-54).
   'host.steerNow': args(id),
+  // Cancel a message steered into the running turn that Claude hasn't read yet: → { cancelled, prompt: its words, for the box }.
+  'host.cancelSteer': args(id),
   // Stop your Claude in one conversation: → { stopped, returned: your queued prompts, in order }.
   'host.stopRun': args(channel),
   'host.cancelQueued': args(id),
@@ -368,6 +371,10 @@ export const API = {
   'workbench.mergePr': args(id, z.object({ method: z.enum(['squash', 'merge', 'rebase']), auto: opt(bool), deleteBranch: opt(bool), admin: opt(bool) }).strict()),
   // A PR's one-click step on GitHub: bring its base in ('update_branch') or mark a draft ready ('ready') → { ok, message }.
   'workbench.prStep': args(id, z.enum(['update_branch', 'ready'])),
+  // Push a worktree's commits to its open PR (GitHub's checks and conflicts were for an older commit) → { ok, message, trouble? }.
+  'workbench.pushPr': args(id),
+  // Re-run a PR's failed GitHub Actions jobs on the same commit (gh run rerun --failed) → { ok, message, trouble? }.
+  'workbench.rerunChecks': args(id),
   // A worktree's PR conversation: comments, reviews and threads on lines (BLG-514).
   'workbench.prConversation': args(id),
   'workbench.prPost': args(id, z.discriminatedUnion('kind', [z.object({ kind: z.literal('comment'), body: z.string().min(1).max(60_000) }).strict(), z.object({ kind: z.literal('reply'), thread: z.string().min(1).max(200), body: z.string().min(1).max(60_000) }).strict(), z.object({ kind: z.enum(['resolve', 'unresolve']), thread: z.string().min(1).max(200) }).strict()])),
