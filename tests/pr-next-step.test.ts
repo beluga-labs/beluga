@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { branchState, failedRunIds, prBlocker } from '../src/core/branch-state.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -122,9 +125,9 @@ describe('failedRunIds / rerunFailed', () => {
 });
 
 /** A Workbench with one worktree whose PR lives in a stubbed GitHub. */
-function bench(start: PullRequest, opts: { pushFails?: Error } = {}) {
+function bench(start: PullRequest, opts: { pushFails?: Error; dir?: string } = {}) {
   const store = new Store(initialState('t', 'ask'));
-  const w: Record<string, unknown> = { id: 'auth', name: 'auth', kind: 'worktree', branch: 'klaud/auth', path: '/code/auth', projectId: 'p1', status: { changed: 0, ahead: 2, behind: 0, unpushed: 2 } };
+  const w: Record<string, unknown> = { id: 'auth', name: 'auth', kind: 'worktree', branch: 'klaud/auth', path: opts.dir ?? '/code/auth', projectId: 'p1', status: { changed: 0, ahead: 2, behind: 0, unpushed: 2 } };
   const manager = { list: [{ id: 'p1', workspaces: [w] }], find: (id: string) => (id === w.id ? w : undefined) };
   let github = start;
   const pushes: string[] = [];
@@ -163,6 +166,21 @@ describe('Workbench.pushPr / rerunChecks', () => {
     expect(b.refreshed()).toBe(1);
     expect(b.pr()?.checks).toBe('pending');
     expect(b.toasts.at(-1)).toEqual({ text: 'Pushed klaud/auth: PR #42’s checks run again', level: 'success' });
+  });
+
+  it('a fork’s PR checked out here (BLG-756) isn’t pushed to origin: its branch lives on the fork', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-fork-pull-'));
+    try {
+      mkdirSync(path.join(dir, '.git'));
+      writeFileSync(path.join(dir, '.git', 'config'), '[branch "klaud/auth"]\n\tremote = origin\n\tmerge = refs/pull/9/head\n');
+      const b = bench(pr({ number: 9, checks: 'failing' }), { dir });
+      const out = await b.wb.pushPr('auth');
+      expect(out.ok).toBe(false);
+      expect(out.message).toContain('PR #9 is from someone’s fork');
+      expect(b.pushes).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('a push git refuses says why, and nothing else changes', async () => {

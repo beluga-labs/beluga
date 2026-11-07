@@ -4,7 +4,9 @@ import { HIDDEN_STEPS, isRunning } from '@beluga/ui/format.js';
 import { formatDuration } from '@beluga/shared/text.js';
 import { splitImages } from '@beluga/shared/attachment-links.js';
 import { READS_AFTER_STEP, STEERED_IN, STOPPING_FOR, type SteeredMessage, isLimitNotice } from '@beluga/shared/claude-notices.js';
-import { CONTINUE_PROMPT, type RunFailure, decodeFailure, failureTitle } from '@beluga/shared/run-failure.js';
+import { CONTINUE_PROMPT, type RunFailure, decodeFailure, failureTitle, resetWords } from '@beluga/shared/run-failure.js';
+import { autoContinueFor, chatsOff, limitResumeAt, sessionSkip } from '@beluga/shared/auto-continue.js';
+import { sentinelOfChannel } from '@beluga/core/sentinel/model.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Button, Dot, Tip, claudeColor, cx, personColor } from '../components/ui.js';
 import { ActionsContext, ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
@@ -552,6 +554,8 @@ function TurnCard({
                 Continue
               </Button>
             </div>
+          ) : limited && failure?.kind === 'usage_limit' ? (
+            <LimitResume channel={item.channel} failure={failure} stoppedAt={item.endTs ?? item.lastAt ?? item.ts} agent={item.agent} onContinue={resume} />
           ) : limited ? (
             <div className={s.limitActions}>
               <Button size="small" icon="play" onClick={resume} title={`Send “continue”: ${agentName(item.agent)} picks up where it stopped`}>
@@ -563,6 +567,78 @@ function TurnCard({
         </div>
       </div>
     </ActionsContext>
+  );
+}
+
+/**
+ * Under a run that stopped on your usage limit (BLG-757): when Beluga tells it to continue on its
+ * own (shared/auto-continue.ts), and Don't Send for this chat, this session or everywhere. Off, it's
+ * Continue as before, with a way to turn it back on for this chat or session.
+ */
+function LimitResume({ channel, failure, stoppedAt, agent, onContinue }: { channel: string; failure: RunFailure; stoppedAt: number; agent: AgentRef | undefined; onContinue: () => void }) {
+  const { client } = useBeluga();
+  const prefs = useApp((st) => st.prefs);
+  const now = useNow(true, 15_000);
+  const at = limitResumeAt(failure, stoppedAt);
+  // A sentinel's run chat isn't continued: the sentinel runs again after the reset (core/auto-continue.ts sentinelRunChat).
+  const sentinelRun = useApp((st) => Boolean(sentinelOfChannel(st.sentinel, channel)?.runId));
+  const auto = sentinelRun ? ({ kind: 'off', why: 'sentinel', at } as const) : autoContinueFor(prefs, channel, at, now);
+  const set = (patch: Parameters<typeof client.api.session.setPrefs>[0], said: string): void =>
+    void client.api.session.setPrefs(patch).then(
+      () => toast(client, said, 'success'),
+      (err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'),
+    );
+  const when = resetWords(at, now);
+  if (auto.kind === 'scheduled') {
+    const dontSend: ActionItem[] = [
+      { label: 'Not in This Chat', icon: 'chat', onSelect: () => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, true) }, 'This chat waits for you to press Continue') },
+      { label: 'Not This Session', icon: 'pause', hint: 'Every chat, until this limit resets', onSelect: () => set({ autoContinueSkip: sessionSkip(at) }, `Nothing continues on its own until ${when}`) },
+      { label: 'Turn Off Everywhere', icon: 'x', separate: true, hint: 'Settings › Agent › Usage limits', onSelect: () => set({ autoContinue: false }, 'Turned off: agents wait for you to press Continue') },
+    ];
+    return (
+      <div className={cx(s.limitActions, s.limitResume)}>
+        <Icon name="clock" size={13} />
+        <span className={s.limitResumeText}>
+          {now < at ? (
+            <>
+              Sends “{CONTINUE_PROMPT}” at {when}, when your limit resets
+            </>
+          ) : (
+            <>Your limit reset: telling {agentName(agent)} to continue…</>
+          )}
+        </span>
+        {now < at ? (
+          // The limit lifted sooner (a plan change, more usage): go on now.
+          <Button size="small" variant="quiet" icon="play" onClick={onContinue} title={`Send “continue” now: ${agentName(agent)} picks up where it stopped`}>
+            Continue Now
+          </Button>
+        ) : null}
+        <ActionsDropdown items={dontSend} align="start">
+          <Button size="small" variant="quiet" title="Keep it from continuing on its own">
+            Don’t Send
+          </Button>
+        </ActionsDropdown>
+      </div>
+    );
+  }
+  // Off for this chat or this session, and still ahead: one click puts it back.
+  const undo =
+    now < at && auto.why === 'chat'
+      ? (): void => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, false) }, `Continues on its own at ${when}`)
+      : now < at && auto.why === 'session'
+        ? (): void => set({ autoContinueSkip: 0 }, `Continues on its own at ${when}`)
+        : undefined;
+  return (
+    <div className={s.limitActions}>
+      <Button size="small" icon="play" onClick={onContinue} title={`Send “continue”: ${agentName(agent)} picks up where it stopped`}>
+        Continue
+      </Button>
+      {undo ? (
+        <Button size="small" variant="quiet" icon="clock" onClick={undo} title="Beluga sends it on its own once your limit resets">
+          Send at {when}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ShareService } from '../src/core/shares.js';
 import { Store, initialState } from '../src/core/store.js';
 import { WorkspaceController } from '../src/core/workspace-controller.js';
+import { pullOfBranch } from '../src/workspaces/github.js';
 import { WorkspaceManager, pullName } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
 import { screenOver } from './helpers.js';
@@ -104,6 +105,8 @@ describe('a pull request in a worktree', () => {
     expect(ws).toMatchObject({ branch: 'their-fork-branch', name: 'pr-7-from-a-fork' });
     expect(readFileSync(path.join(ws!.path, 'fork.ts'), 'utf8')).toBe('from a fork\n');
     expect(git(repo, 'config', 'branch.their-fork-branch.merge').trim()).toBe('refs/pull/7/head');
+    // So its PR is looked up by number: gh finds no fork's PR by the branch's name alone.
+    expect(pullOfBranch(ws!.path, ws!.branch!)).toBe(7);
     // The fork pushes again: git pull brings it.
     writeFileSync(path.join(mate, 'fork.ts'), 'more\n');
     git(mate, 'commit', '-q', '-am', 'more');

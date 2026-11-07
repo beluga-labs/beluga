@@ -47,6 +47,26 @@ export function clearChatSelection(selection: ChatSelection): ChatSelection {
   return selection.ids.length ? selectionOf(selection.anchor, emptyChatSelection.ids) : selection;
 }
 
+export interface RowBox {
+  readonly id: string;
+  readonly top: number;
+  readonly bottom: number;
+}
+
+export interface ChatJoin {
+  readonly up: boolean;
+  readonly down: boolean;
+}
+
+/** Selected rows that touch on screen read as one box: which sides of each row the box goes on past. */
+export function chatJoins(selected: readonly RowBox[]): ReadonlyMap<string, ChatJoin> {
+  const touches = (above: RowBox, below: RowBox): boolean => above !== below && Math.abs(above.bottom - below.top) <= 1;
+  return new Map(selected.map((box) => [box.id, { up: selected.some((other) => touches(other, box)), down: selected.some((other) => touches(box, other)) }]));
+}
+
+/** The row's `data-chat-join`: "up", "down", "up down", or nothing. */
+export const joinValue = (join: ChatJoin | undefined): string => [join?.up && 'up', join?.down && 'down'].filter(Boolean).join(' ');
+
 export function visibleChatIds(rows: readonly ChatRow[]): string[] {
   return rows.filter((row) => !row.folded).map((row) => row.id);
 }

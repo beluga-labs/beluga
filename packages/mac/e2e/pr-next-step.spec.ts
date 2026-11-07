@@ -52,7 +52,9 @@ test('the toolbar names the PR’s real next step: conflicts, running, failed, n
 
     // Conflicts with main: the pill says with what, the button what it resolves.
     await showPr(page, openPr({ mergeable: 'CONFLICTING' }));
-    await expect(toolbar(page).locator('[data-branch-state="conflicts"]')).toContainText('Conflicts with main', { timeout: 20_000 });
+    // (The pill's words, folded or not: a narrow toolbar keeps only its icon and number.)
+    await expect(toolbar(page).locator('[data-branch-state="conflicts"]')).toContainText('#7', { timeout: 20_000 });
+    await expect(branchGroup(page)).toHaveAttribute('aria-label', 'Branch: Conflicts with main');
     await expect(mainStep(page)).toHaveText('Resolve Conflicts…');
     await expect(mainStep(page)).toHaveAttribute('data-branch-step', 'resolve_pr');
     await page.screenshot({ path: test.info().outputPath('01-conflicts.png') });
@@ -65,7 +67,8 @@ test('the toolbar names the PR’s real next step: conflicts, running, failed, n
     // One check failed, another still runs: calm "Checks running", Fix Checks only in the menu.
     await showPr(page, openPr({ statusCheckRollup: [check('test', 'COMPLETED', 'FAILURE', 1), check('e2e', 'IN_PROGRESS', '', 2)] }));
     const running = toolbar(page).locator('[data-branch-state="checks_running"]');
-    await expect(running).toContainText('Checks running', { timeout: 20_000 });
+    await expect(running).toBeVisible({ timeout: 20_000 });
+    await expect(branchGroup(page)).toHaveAttribute('aria-label', 'Branch: Checks running');
     await expect(mainStep(page)).toHaveAttribute('data-branch-step', 'open_pr');
     await expect(branchGroup(page).locator('[class*="mainError"]')).toHaveCount(0);
     await otherSteps(page);
@@ -88,7 +91,8 @@ test('the toolbar names the PR’s real next step: conflicts, running, failed, n
     execFileSync('git', ['-c', 'user.email=demo@beluga.dev', '-c', 'user.name=Beluga demo', 'commit', '-qam', 'Say why it refused'], { cwd: dir });
     await lookAgain(page);
     const notPushed = toolbar(page).locator('[data-branch-state="not_pushed"]');
-    await expect(notPushed).toContainText('Not pushed', { timeout: 20_000 });
+    await expect(notPushed).toBeVisible({ timeout: 20_000 });
+    await expect(branchGroup(page)).toHaveAttribute('aria-label', 'Branch: Not pushed');
     await expect(mainStep(page)).toHaveText('Push 1 Commit');
     await expect(toolbar(page).locator('[data-branch-step="fix_checks"]')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('04-not-pushed.png') });

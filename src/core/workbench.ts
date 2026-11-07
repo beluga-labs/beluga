@@ -15,7 +15,7 @@ import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
 import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
 import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, rerunFailed, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
-import { prTargetOf } from '../workspaces/github.js';
+import { prTargetOf, pullOfBranch } from '../workspaces/github.js';
 import { failedRunIds, prOnOriginal } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
@@ -862,6 +862,14 @@ export class Workbench {
     const pr = this.deps.store.getState().prs[id];
     if (!ws?.branch) return { ok: false, message: 'Only a worktree (a branch of its own) can push' };
     if (this.creatingPr.has(id)) return { ok: false, message: 'It’s already being pushed' };
+    // A fork's pull request checked out here (BLG-756): its branch lives on the fork, so pushing to
+    // origin wouldn't reach the PR, and would stop the branch following refs/pull/<n>/head.
+    const pull = pullOfBranch(ws.path, ws.branch);
+    if (pull !== undefined) {
+      const message = `PR #${pull} is from someone’s fork: Beluga can’t push to it, so your commits stay here. Suggest them on the PR, or open a PR of your own`;
+      this.deps.toast(message, 'info');
+      return { ok: false, message };
+    }
     this.creatingPr.add(id);
     try {
       await (this.deps.pushForPr ?? pushForPr)(ws.path, ws.branch);
@@ -1078,7 +1086,8 @@ export class Workbench {
     const tasks: Array<() => Promise<void>> = [];
     for (const all of byProject.values()) {
       // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
-      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch));
+      // Nor is a fork's PR checked out here by its branch name: asked about by its number.
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch) && pullOfBranch(ws.path, ws.branch!) === undefined);
       tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
