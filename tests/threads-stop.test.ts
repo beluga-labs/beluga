@@ -7,6 +7,7 @@ import { AgentHost } from '../src/core/agent-host.js';
 import { launchThreads, threadsOf } from '../src/core/threads/launch.js';
 import { ThreadService, type ThreadServiceDeps } from '../src/core/threads/service.js';
 import { Store, initialState } from '../src/core/store.js';
+import { phoneMay } from '../src/companion/coverage.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
 import { waitFor } from './helpers.js';
@@ -209,6 +210,8 @@ describe('a run that the Stop reached', () => {
   });
 });
 
+const session = (t: { session: unknown }): never => t.session as never;
+
 /** The real host and the real wiring, down to the handler the Mac and the phone call. */
 function real() {
   const store = freshStore();
@@ -295,10 +298,25 @@ function real() {
     await waitFor(() => kids.every((k) => running.has(k)));
     return kids;
   };
-  return { store, host, toasts, running, chats, ask, stop, family, tools: (channel: string) => threads.forRun(channel)!, off };
+  return { session, store, host, toasts, running, chats, ask, stop, family, tools: (channel: string) => threads.forRun(channel)!, off };
 }
 
 describe('the real Stop', () => {
+  it('threads.stop, the phone\'s and the Lineage panel\'s: that child and those under it stop, its siblings go on', async () => {
+    const t = real();
+    const [kid, sibling] = await t.family();
+    const grandchild = `ws:${idOf(await t.tools(kid!).start({ task: 'deep', title: 'deep' }))}`;
+    await waitFor(() => t.running.has(grandchild));
+    expect(phoneMay('threads.stop')).toBe(true);
+    HANDLERS['threads.stop'](session(t), kid!.slice(3));
+    await waitFor(() => !t.running.has(kid!) && !t.running.has(grandchild));
+    expect(t.running.has(sibling!)).toBe(true);
+    expect(t.running.has('ws:root')).toBe(true);
+    t.stop('ws:root');
+    await waitFor(() => t.running.size === 0);
+    t.off();
+  });
+
   it('stops the parent and its 3 children, the toast says how many, and no wake follows', async () => {
     const t = real();
     const kids = await t.family();
