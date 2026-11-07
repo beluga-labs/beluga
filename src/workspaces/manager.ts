@@ -32,6 +32,7 @@ import { type ProjectScripts, type ResolvedScripts, resolveScripts, saveProjectF
 import { PROJECT_DIR } from '../shared/scratch-dir.js';
 import { BRANCH_PREFIX_DEFAULT } from '../shared/settings-schema.js';
 import { envRecord, parseEnvText } from '../shared/env-vars.js';
+import type { ThreadRecord } from '../shared/threads.js';
 
 export const slug = (s: string): string =>
   s
@@ -1275,6 +1276,12 @@ export class WorkspaceManager {
   setCarry(id: string, from: string | undefined): void {
     this.require(id);
     this.patchRecord(id, { carryFrom: from });
+  }
+
+  /** A chat's thread record (core/threads), saved at once: a result must survive a restart. */
+  setThread(id: string, thread: ThreadRecord): void {
+    this.require(id);
+    this.patchRecord(id, { thread });
   }
 
   /** Pick the thinking effort for one workspace's conversation (undefined: Settings'). */
