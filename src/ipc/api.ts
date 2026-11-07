@@ -240,6 +240,8 @@ export const API = {
   'files.readImage': args(),
   // An image a document points at (Markdown's ![](diagram.png)), a PDF or a video (the reader plays it), read the way files.open reads one: → { mediaType, data (base64) }.
   'files.readImageFile': args(Location),
+  // Which version of a file this is, without reading it: → { size, mtime (ms) }. A picture kept by its path is read again once either changes (BLG-749).
+  'files.version': args(Location),
   // A file's text without opening it in the viewer (the Mac Changes tab shows a changed file as itself): → { content, truncated }.
   'files.read': args(Location),
 
