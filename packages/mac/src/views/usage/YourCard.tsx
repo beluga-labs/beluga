@@ -65,27 +65,6 @@ export function serialOf(id: string): string {
   return String(h % 10_000).padStart(4, '0');
 }
 
-const MET = 'beluga.usage.met';
-
-/** The first time you open Usage on this Mac (your pass shakes hello, once). */
-function useFirstVisit(): boolean {
-  const [first] = useState(() => {
-    try {
-      return !localStorage.getItem(MET);
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(MET, String(Date.now()));
-    } catch {
-      // Private mode: it shakes again next time.
-    }
-  }, []);
-  return first;
-}
-
 /** Your name and picture as the network knows them (else this Mac's name). */
 function useYou(state: AppState): { name: string; id: string; picture?: string } {
   const self = state.network.self;
@@ -171,13 +150,12 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
     [faces, title, since, figures, all, longest, active],
   );
   const layer = useLayer();
-  const firstVisit = useFirstVisit();
   return (
     <section ref={layer.ref} className={s.hero} aria-label="Your card">
       {/* Its place in the layout; the pass itself hangs in the layer below. */}
       <div className={s.lanyard} />
       <div className={cx(s.layer, layer.narrow && s.layerNarrow)}>
-        {faces && !recap ? <Suspense fallback={null}>{pass(faces, title.color, layer.size, { strapLength: layer.strapLength, passThrough: true, anchor: layer.narrow ? 'center' : 'left', shake: firstVisit ? 1 : 0 })}</Suspense> : null}
+        {faces && !recap ? <Suspense fallback={null}>{pass(faces, title.color, layer.size, { strapLength: layer.strapLength, passThrough: true, anchor: layer.narrow ? 'center' : 'left', wiggle: 1 })}</Suspense> : null}
       </div>
       <div className={s.words}>
         <span className={s.brand}>

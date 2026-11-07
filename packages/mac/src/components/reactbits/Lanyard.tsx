@@ -7,7 +7,7 @@
  * - a pull stops a little past the strap's length (MAX_PULL), so the card can't be stretched away;
  * - `passThrough`: the canvas takes the pointer only over the card, so it can be bigger than its
  *   place and the card swing over what's around it while all that stays clickable;
- * - `shake`: a new number swings the card around by itself (Usage's first visit).
+ * - `wiggle`: a new number gives the card a small wiggle by itself (Usage on opening: it's there to play with).
  * Beluga draws the card it holds (views/usage/YourCard.tsx).
  */
 // @ts-nocheck
@@ -737,7 +737,7 @@ const Lanyard = ({
   breeze = 0.5,
   interactive = true,
   passThrough = false,
-  shake = 0,
+  wiggle = 0,
   intro = true,
   className = '',
   style
@@ -745,8 +745,8 @@ const Lanyard = ({
   const containerRef = useRef(null);
   const settingsRef = useRef(null);
   const applyRef = useRef(null);
-  // Beluga: swings the card around by itself (set by the effect below).
-  const shakeRef = useRef(null);
+  // Beluga: wiggles the card by itself (set by the effect below).
+  const wiggleRef = useRef(null);
 
   settingsRef.current = {
     frontImage,
@@ -776,12 +776,12 @@ const Lanyard = ({
     applyRef.current?.();
   });
 
-  // Beluga: a new `shake` swings the card: a push one way, the other, then a twirl.
+  // Beluga: a new `wiggle` tips the card one way, then the other, once it has settled from its drop.
   useEffect(() => {
-    if (!shake) return;
-    const timers = [0, 320, 640].map((at, i) => setTimeout(() => shakeRef.current?.(i), at + 900));
+    if (!wiggle) return;
+    const timers = [0, 340].map((at, i) => setTimeout(() => wiggleRef.current?.(i), at + 1500));
     return () => timers.forEach(clearTimeout);
-  }, [shake]);
+  }, [wiggle]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1323,15 +1323,13 @@ const Lanyard = ({
     document.addEventListener('visibilitychange', onVisibility);
 
     applyRef.current = apply;
-    // Beluga: one push of the shake (0, 1, 2): sideways, back, and a spin about the strap.
-    shakeRef.current = step => {
+    // Beluga: one small push of the wiggle (0, then 1 the other way): a tip about the strap.
+    wiggleRef.current = step => {
       if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
       const body = sim.body;
-      const side = step === 1 ? -1 : 1;
-      body.velocity.x += side * (step === 2 ? 1.2 : 2.6);
-      body.velocity.z += 0.6;
-      body.angular.z += side * 5;
-      if (step === 2) body.angular.y += 9;
+      const side = step === 0 ? 1 : -1;
+      body.angular.z += side * 2.4;
+      body.velocity.x += side * 0.45;
       start();
     };
     resize();
@@ -1340,7 +1338,7 @@ const Lanyard = ({
       alive = false;
       cancelAnimationFrame(raf);
       applyRef.current = null;
-      shakeRef.current = null;
+      wiggleRef.current = null;
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);

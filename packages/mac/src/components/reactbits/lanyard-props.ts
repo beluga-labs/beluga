@@ -26,8 +26,8 @@ export interface LanyardProps {
   readonly interactive?: boolean;
   /** The canvas takes the pointer only over the card (it can then be bigger than its place). */
   readonly passThrough?: boolean;
-  /** A new number swings the card around by itself (0: never). */
-  readonly shake?: number;
+  /** A new number gives the card a small wiggle by itself (0: never). */
+  readonly wiggle?: number;
   readonly intro?: boolean;
   readonly className?: string;
   readonly style?: CSSProperties;
