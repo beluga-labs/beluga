@@ -313,6 +313,8 @@ export const PHONE: Record<Method, Side> = {
 
   // ---- Your Mac's chats (BLG-102): since 1.14 the phone lists them, starts one and deletes one
   // (it's chatting). Which tab is open is the Mac's: the phone opens any chat without moving it.
+  // What a chat's address is now: its chip's title and where it opens.
+  'chats.resolve': 'phone',
   'assistant.newChat': 'phone',
   'assistant.openChat': 'mac',
   'assistant.deleteChat': 'phone',

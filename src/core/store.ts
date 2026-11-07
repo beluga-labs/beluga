@@ -297,6 +297,11 @@ export interface Prefs {
   readonly chatLimit: number;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
+  /**
+   * Chat refs, chips and links (shared/chat-ref.ts). Owner: the plan "Communication between chats".
+   * Remove this flag, and turn the feature on for everyone, once that plan has shipped.
+   */
+  readonly chatLinks: boolean;
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -680,6 +685,7 @@ export const DEFAULT_PREFS: Prefs = {
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
   scratchFolder: true,
+  chatLinks: false,
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',
