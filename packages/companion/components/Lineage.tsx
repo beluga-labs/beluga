@@ -34,9 +34,9 @@ export function LineageSheet({ lineage, visible, onClose }: { readonly lineage: 
     onClose();
     router.push(convHref(topic));
   };
-  const stop = (ids: readonly string[]): void => {
+  const stop = (call: ReturnType<typeof calls.stopThread>): void => {
     haptic.commit();
-    for (const id of ids) void store.call(calls.stopThread(id), { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+    void store.call(call, { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
   };
   const running = lineage?.children.filter((c) => c.working).length ?? 0;
   const parent = lineage?.parent;
@@ -90,7 +90,7 @@ export function LineageSheet({ lineage, visible, onClose }: { readonly lineage: 
                 </View>
               </Press>
               {c.working ? (
-                <Press onPress={() => stop([c.id])} hitSlop={6} accessibilityLabel={`Stop ${c.title}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingHorizontal: 12, marginRight: 8, borderRadius: 16, backgroundColor: color.sunken }}>
+                <Press onPress={() => stop(calls.stopThread(c.id))} hitSlop={6} accessibilityLabel={`Stop ${c.title}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingHorizontal: 12, marginRight: 8, borderRadius: 16, backgroundColor: color.sunken }}>
                   <Square color={color.text2} size={12} />
                   <T v="caption" c={color.text2} style={{ fontWeight: '700' }}>
                     Stop
@@ -103,7 +103,7 @@ export function LineageSheet({ lineage, visible, onClose }: { readonly lineage: 
       </ScrollView>
       {(lineage?.stoppable.length ?? 0) > 1 ? (
         <View style={{ paddingHorizontal: 20, paddingTop: 6 }}>
-          <Button label="Stop all running" Icon={Square} quiet onPress={() => stop(lineage!.stoppable)} />
+          <Button label="Stop all running" Icon={Square} quiet onPress={() => stop(calls.stopThreads(lineage!.chat))} />
         </View>
       ) : null}
     </Sheet>

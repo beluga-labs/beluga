@@ -39,6 +39,7 @@ export function lineageOf(state: DomainState, channel: string): Pick<ConvView, '
       const topic = convTopic(`${WS}${w.id}`);
       return topic ? [{ id: clip(w.id, 200), topic, title: clip(w.name, 300), state: stateOf(w), working: isThreadWorking(stateOf(w)), harness: agentRefView(w.agent ?? defaultAgentOf(state.self)) }] : [];
     }),
+    chat: clip(ws.id, 200),
     stoppable: stopOrder(threadNodes(live), channel)
       .filter((n) => isThreadWorking(stateOf(byId.get(n.id)!)))
       .slice(0, 200)

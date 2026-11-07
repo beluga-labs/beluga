@@ -19,7 +19,7 @@ export { type LineageParent, type ThreadNesting, parentIdOf, threadNesting, thre
 
 const WS = 'ws:';
 
-export type LineageSource = Pick<AppState, 'prefs' | 'self' | 'projects' | 'log' | 'approvals' | 'questions' | 'plans' | 'board'>;
+export type LineageSource = Pick<AppState, 'prefs' | 'self' | 'projects' | 'log' | 'approvals' | 'questions' | 'plans' | 'board' | 'assistant'>;
 
 /** One line of the Lineage panel: a child thread, or a native sub-agent (it has no Stop). */
 export interface LineageRow {

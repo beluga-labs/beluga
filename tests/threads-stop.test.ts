@@ -225,13 +225,20 @@ function real() {
   };
   add('root');
   const running = new Set<string>();
+  /** Every prompt a run got: a wake starts with [beluga]. */
+  const prompts: string[] = [];
+  const turns = new Map<string, { readonly finish: (text: string) => void; readonly fail: (why: string) => void }>();
   const agent: AgentBackend = {
     run(input: AgentRunInput) {
-      const channel = input.prompt.includes('[parent]') ? 'ws:root' : input.prompt;
+      const channel = input.channel ?? 'room';
+      if (input.signal.aborted) return Promise.reject(new Error('aborted'));
+      prompts.push(input.prompt);
       running.add(channel);
-      return new Promise<string>((_resolve, reject) => {
+      return new Promise<string>((resolve, reject) => {
+        const end = (): void => void running.delete(channel);
+        turns.set(channel, { finish: (text) => (end(), resolve(text)), fail: (why) => (end(), reject(new Error(why))) });
         input.signal.addEventListener('abort', () => {
-          running.delete(channel);
+          end();
           reject(new Error('aborted'));
         });
       });
@@ -281,11 +288,13 @@ function real() {
       newChat: async () => undefined,
     },
     sendChat: () => undefined,
-    requestAgent: (_to: string, _prompt: string, _via: boolean, channel: string, _urgent: boolean, _project: string | undefined, requestId: string) => void ask(requestId, channel, channel),
+    // As the real one: delivered on the next turn (Session.loopback).
+    requestAgent: (_to: string, prompt: string, _via: boolean, channel: string, urgent: boolean, _project: string | undefined, requestId: string) => void setImmediate(() => void ask(requestId, channel, prompt, urgent)),
     runsAgent: () => true,
     canSteer: () => true,
+    toast: (text: string) => void toasts.push(text),
   };
-  const off = launchThreads(session as never);
+  const off = launchThreads(session as never, { wakeMs: WAKE_MS });
   const threads = threadsOf(session)!;
   const stop = (channel: string): { stopped?: boolean; returned?: string[] } => HANDLERS['host.stopRun'](session as never, channel as never) as never;
   /** A parent working on one turn, with 3 children working under it. */
@@ -298,7 +307,8 @@ function real() {
     await waitFor(() => kids.every((k) => running.has(k)));
     return kids;
   };
-  return { session, store, host, toasts, running, chats, ask, stop, family, tools: (channel: string) => threads.forRun(channel)!, off };
+  const wakes = (): string[] => prompts.filter((p) => p.startsWith('[beluga]'));
+  return { session, store, host, toasts, running, turns, wakes, chats, ask, stop, family, tools: (channel: string) => threads.forRun(channel)!, off };
 }
 
 describe('the real Stop', () => {
@@ -327,6 +337,78 @@ describe('the real Stop', () => {
     for (const k of kids) await waitFor(() => t.chats.get(k.slice(3))!.thread!.outcome?.state === 'stopped');
     await settle();
     expect(t.running.size).toBe(0);
+    expect(t.wakes()).toEqual([]);
+    t.off();
+  });
+
+  it('Stop All Running on a chat: its threads stop, the toast counts them, no wake follows, and its own turn goes on', async () => {
+    const t = real();
+    const kids = await t.family();
+    const grandchild = `ws:${idOf(await t.tools(kids[0]!).start({ task: 'deep', title: 'deep' }))}`;
+    await waitFor(() => t.running.has(grandchild));
+    t.toasts.length = 0;
+    expect(HANDLERS['threads.stopAll'](session(t), 'root')).toEqual({ stopped: 4 });
+    await waitFor(() => [...kids, grandchild].every((k) => !t.running.has(k)));
+    expect(t.toasts).toEqual(['Stopped 4 threads']);
+    for (const k of [...kids, grandchild]) await waitFor(() => t.chats.get(k.slice(3))!.thread!.outcome?.delivered === true);
+    expect(t.running.has('ws:root')).toBe(true);
+    t.stop('ws:root');
+    await waitFor(() => !t.running.has('ws:root'));
+    await settle();
+    expect(t.wakes()).toEqual([]);
+    t.off();
+  });
+
+  it('Stop All Running with an idle parent: a result still on its way does not wake it', async () => {
+    const t = real();
+    const [finished, ...working] = await t.family();
+    t.host.stopRun('ws:root');
+    await t.host.idle('ws:root');
+    t.turns.get(finished!)!.finish('All green.');
+    await waitFor(() => t.chats.get(finished!.slice(3))!.thread!.outcome?.state === 'done');
+    expect(HANDLERS['threads.stopAll'](session(t), 'root')).toEqual({ stopped: 2 });
+    await waitFor(() => working.every((k) => !t.running.has(k)));
+    await settle();
+    expect(t.wakes()).toEqual([]);
+    expect(t.chats.get(finished!.slice(3))!.thread!.outcome?.delivered).toBe(true);
+    t.off();
+  });
+
+  it('with nothing working, Stop All Running says so', async () => {
+    const t = real();
+    expect(HANDLERS['threads.stopAll'](session(t), 'root')).toEqual({ stopped: 0 });
+    expect(t.toasts).toEqual(['No thread is running here']);
+    t.off();
+  });
+
+  it('a Stop on a thread that was just started: its request is in a lane already, so it never starts afterwards', async () => {
+    const t = real();
+    await t.ask('parent', 'ws:root', '[parent]');
+    await waitFor(() => t.running.has('ws:root'));
+    const id = idOf(await t.tools('ws:root').start({ task: 'late', title: 'late' }));
+    // Promises settle, and no timer or socket message runs: a Stop lands no earlier than this.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    HANDLERS['threads.stop'](session(t), id);
+    await settle();
+    expect(t.running.has(`ws:${id}`)).toBe(false);
+    expect(t.chats.get(id)!.thread!.outcome?.state).toBe('stopped');
+    expect(t.toasts.some((m) => /isn.t working here|not running anything/.test(m))).toBe(false);
+    t.off();
+  });
+
+  it('a parent that fails with results held gets them once, in the next wake', async () => {
+    const t = real();
+    const [kid] = await t.family();
+    t.turns.get(kid!)!.finish('All green.');
+    await waitFor(() => t.chats.get(kid!.slice(3))!.thread!.outcome?.state === 'done');
+    await settle();
+    expect(t.wakes()).toEqual([]);
+    t.turns.get('ws:root')!.fail('boom');
+    await waitFor(() => t.wakes().length === 1);
+    expect(t.wakes()[0]).toContain('All green.');
+    await settle();
+    expect(t.wakes()).toHaveLength(1);
+    t.stop('ws:root');
     t.off();
   });
 

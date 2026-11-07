@@ -603,7 +603,9 @@ export const LineageView = z.object({
   /** No `topic`: nothing to open (removed, or a Your Mac chat). `gone`: removed, and only its title stays. */
   parent: z.object({ title: z.string().max(300), topic: Topic.optional(), state: ThreadStateView.optional(), gone: z.boolean() }).optional(),
   children: z.array(z.object({ id, topic: Topic, title: z.string().max(300), state: ThreadStateView, working: z.boolean(), harness: AgentRefView })).max(100),
-  /** Every working thread under this chat, each after its own children: what Stop all stops, in order. */
+  /** This chat's workspace id: `threads.stopAll` takes it. */
+  chat: id,
+  /** Every working thread under this chat, each after its own children. */
   stoppable: z.array(id).max(200),
 });
 export type LineageView = z.infer<typeof LineageView>;

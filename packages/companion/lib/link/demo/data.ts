@@ -187,6 +187,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
       threads: { archive: { count: 3, running: 2 }, delete: { count: 3, running: 2 } },
     },
     lineage: {
+      chat: 'onboarding',
       children: [
         { id: 'pair-android', topic: 'conv:beluga.pair-android', title: 'Check pairing on Android', state: 'running', working: true, harness: { runtime: 'codex', label: 'Codex' } },
         { id: 'pair-e2e', topic: 'conv:beluga.pair-e2e', title: 'Write the pairing e2e', state: 'done', working: false, harness: { runtime: 'claude', label: 'Claude Code' } },
@@ -498,10 +499,11 @@ export function makeWorld(now = Date.now()): DemoWorld {
     child('conv:beluga.pair-android', 'Check pairing on Android', true, 'Running the emulator', {
       parent: startedBy('Make pairing feel like the Mac', 'conv:beluga.onboarding'),
       children: [{ id: 'pair-fonts', topic: 'conv:beluga.pair-fonts', title: 'Compare the fonts', state: 'running', working: true, harness: { runtime: 'claude', label: 'Claude Code' } }],
+      chat: 'pair-android',
       stoppable: ['pair-fonts'],
     }),
-    child('conv:beluga.pair-fonts', 'Compare the fonts', true, 'Reading the screenshots', { parent: startedBy('Check pairing on Android', 'conv:beluga.pair-android'), children: [], stoppable: [] }),
-    child('conv:beluga.pair-e2e', 'Write the pairing e2e', false, 'The test covers the code, the fingerprint and a wrong code.', { parent: { title: 'Make pairing feel like the Mac', topic: 'conv:beluga.onboarding', state: 'running', gone: false }, children: [], stoppable: [] }),
+    child('conv:beluga.pair-fonts', 'Compare the fonts', true, 'Reading the screenshots', { parent: startedBy('Check pairing on Android', 'conv:beluga.pair-android'), children: [], chat: 'pair-fonts', stoppable: [] }),
+    child('conv:beluga.pair-e2e', 'Write the pairing e2e', false, 'The test covers the code, the fingerprint and a wrong code.', { parent: { title: 'Make pairing feel like the Mac', topic: 'conv:beluga.onboarding', state: 'running', gone: false }, children: [], chat: 'pair-e2e', stoppable: [] }),
   ];
   const threadRows: DemoWorld['threadRows'] = {
     'conv:beluga.onboarding': { harness: { runtime: 'claude', label: 'Claude Code' } },

@@ -114,6 +114,7 @@ export const calls = {
   branchStep: (topic: Topic, step: PhoneBranchStep, label: string, children?: ThreadChildren): Call => make('companion.branchStep', children ? [topic, step, children] : [topic, step], label),
   /** 1.42: one child thread and those under it stop, as the Mac's Lineage panel does it. */
   stopThread: (id: string): Call => make('threads.stop', [id], 'Stop the thread'),
+  stopThreads: (id: string): Call => make('threads.stopAll', [id], 'Stop the threads'),
   /** Your steered message Claude hasn't read yet, now: its step stops and it reads it next. */
   steerNow: (request: string): Call => make('host.steerNow', [request], 'Send now'),
   /** 1.28 (BLG-387): a message you sent, edited: the conversation rewinds to it ('here') or goes on in a new fork → where it went on. */

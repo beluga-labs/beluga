@@ -17,8 +17,16 @@ export function stopChat(session: Session, channel: string): ReturnType<Session[
   return session.host.stopRun(channel, { threads });
 }
 
+/** A person's Stop All Running on a chat: the threads under it stop, as with stopChat, and its own turn goes on. */
+export function stopThreadsUnder(session: Session, id: string): { readonly stopped: number } {
+  const stopped = threadsOf(session)?.stopUnder(`ws:${id}`) ?? 0;
+  if (stopped) session.toast(`Stopped ${stopped} thread${stopped === 1 ? '' : 's'}`, 'success');
+  else session.toast('No thread is running here');
+  return { stopped };
+}
+
 /** Start child threads for the daemon (core/threads). Its runs get the tools only with prefs.agentThreads on. */
-export function launchThreads(session: Session): () => void {
+export function launchThreads(session: Session, opts: { readonly wakeMs?: number } = {}): () => void {
   const controller = session.workspaces;
   if (!controller) return () => undefined;
   const manager = controller.manager;
@@ -36,7 +44,9 @@ export function launchThreads(session: Session): () => void {
       controller.ensureLoaded(channel.slice(3));
       // Shown as an agent's message. The run stays viaAgent false: that flag means a friend's agent, and Codex then gives it a friend's sandbox.
       session.sendChat(o.shown, true, channel, requestId, o.urgent && session.host.runningIn(channel));
-      session.requestAgent(session.selfId, prompt, false, channel, o.urgent, undefined, requestId);
+      // Into its lane at once (not on the next turn, as requestAgent is), so a Stop on its queued row always finds it.
+      if (o.urgent) session.requestAgent(session.selfId, prompt, false, channel, true, undefined, requestId);
+      else session.host.runFor(session.selfId, channel, prompt, session.store.getState().planMode[channel] === true, requestId);
     },
     stopRun: (channel) => void session.host.stopRun(channel, { quiet: true }),
     runsAgent: (agent) => session.runsAgent(agent),
@@ -48,6 +58,7 @@ export function launchThreads(session: Session): () => void {
     leaving: (id) => controller.isLeaving(id),
     terminalDriving: (channel) => session.agentTerms?.driving(channel) ?? false,
     hasMacChat: (channel) => Boolean(assistantOf(session)?.chats().chats.some((c) => c.channel === channel)),
+    ...(opts.wakeMs !== undefined ? { wakeMs: opts.wakeMs } : {}),
   });
   all.set(session, service);
   // What a restart left: reports still on their way, and turns that no run finishes now.

@@ -169,6 +169,8 @@ export const API = {
   'host.stopRun': args(channel),
   // A person's Stop on one child thread, from the parent's panel.
   'threads.stop': args(id),
+  // A person's Stop All Running on a chat's threads: its own turn goes on → { stopped: how many }.
+  'threads.stopAll': args(id),
   'host.cancelQueued': args(id),
   'host.reorderQueued': args(id, z.number().int().min(0).max(100)),
 

@@ -10,11 +10,28 @@ import { type FoldRow, type LineageRow, type LineageSource, capFold, foldNoun, f
 const thread = (parent: string, startedAt = 1, extra: Partial<ThreadRecord> = {}): ThreadRecord => ({ parent, parentTitle: 'parent', root: parent, depth: 1, task: 't', startedAt, owed: [], ...extra });
 const ws = (id: string, extra: Partial<Workspace> = {}): Workspace => ({ id, name: id, kind: 'chat', projectId: 'p', external: false, path: `/${id}`, projectRoot: '/p', createdAt: 1, ...extra }) as Workspace;
 const source = (workspaces: Workspace[], on = true, homes: string[] = []): LineageSource =>
-  ({ prefs: { agentThreads: on }, projects: [{ id: 'p', name: 'p', root: '/p', workspaces }], log: [], approvals: [], questions: [], plans: { plans: homes.map((home, i) => ({ id: `plan${i}`, home })) }, board: { issues: [] } }) as unknown as LineageSource;
+  ({ assistant: { chats: [], active: 'one' }, prefs: { agentThreads: on }, projects: [{ id: 'p', name: 'p', root: '/p', workspaces }], log: [], approvals: [], questions: [], plans: { plans: homes.map((home, i) => ({ id: `plan${i}`, home })) }, board: { issues: [] } }) as unknown as LineageSource;
 const done = (state: 'done' | 'failed' = 'done') => ({ state, summary: 's', at: 2, delivered: true });
 const sub = (id: string, startedAt: number): SubAgent => ({ agent: { id, startedAt, status: 'finished' } as CcAgent, session: { id: 's' } as CcSession });
 const row = (id: string, startedAt: number, state: 'running' | 'done'): FoldRow => ({ kind: 'thread', ws: ws(id, { thread: thread('ws:top', startedAt) }), state, startedAt });
 const ids = (rows: readonly FoldRow[]): string[] => rows.map((r) => (r.kind === 'thread' ? r.ws.id : r.sub.agent.id));
+
+describe('a parent that went', () => {
+  const mac = 'mac:assistant:one';
+  const withMac = (workspaces: Workspace[], chats: Array<{ channel: string }>): LineageSource => ({ ...source(workspaces), assistant: { chats, active: 'one' } }) as unknown as LineageSource;
+
+  it('a thread marked parentGone has no link and no nesting, also when a chat with that id is there', () => {
+    const list = [ws('top'), ws('kid', { thread: thread('ws:top', 1, { parentGone: true }) })];
+    expect(startedBy(source(list), 'ws:kid')).toEqual({ title: 'parent', gone: true });
+    expect(threadNesting(source(list)).nested.has('kid')).toBe(false);
+  });
+
+  it('a Your Mac parent is there while its chat is, and gone after', () => {
+    const list = [ws('kid', { thread: thread(mac) })];
+    expect(startedBy(withMac(list, [{ channel: mac }]), 'ws:kid')).toEqual({ title: 'parent', gone: false });
+    expect(startedBy(withMac(list, []), 'ws:kid')).toEqual({ title: 'parent', gone: true });
+  });
+});
 
 describe('child threads in the sidebar', () => {
   it('nests a child under a live parent in start order, and takes it off the top level', () => {
@@ -128,7 +145,7 @@ describe('the Lineage panel', () => {
     expect(lineageView(panel([top, kid]), kid, [])?.parent).toEqual({ title: 'Top chat', openId: 'top', gone: false });
     expect(lineageView(panel([kid]), kid, [])?.parent).toEqual({ title: 'Old title', gone: true });
     const fromMac = ws('mac', { thread: { ...thread('mac:assistant'), parentTitle: 'Your Mac' } });
-    expect(lineageView(panel([fromMac]), fromMac, [])?.parent).toEqual({ title: 'Your Mac', gone: false });
+    expect(lineageView({ ...panel([fromMac]), assistant: { chats: [{ channel: 'mac:assistant' }], active: 'one' } } as unknown as LineageSource, fromMac, [])?.parent).toEqual({ title: 'Your Mac', gone: false });
   });
 
   it('keeps the latest finished rows in view and folds older ones into Earlier', () => {

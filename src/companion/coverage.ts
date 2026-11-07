@@ -58,6 +58,7 @@ export const PHONE: Record<Method, Side> = {
   'host.stopRun': 'phone',
   // Stop one child thread: like Stop, phone-sized.
   'threads.stop': 'phone',
+  'threads.stopAll': 'phone',
   'host.cancelQueued': 'phone',
   'host.reorderQueued': 'mac',
 

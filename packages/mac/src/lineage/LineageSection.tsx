@@ -44,16 +44,14 @@ export function LineageSection({ id }: { id: string }) {
   if (!view) return null;
   const { shown, earlier } = panelRows(view.rows, FINISHED_SHOWN, showAll);
   const toggle = (): void => actions.run({ type: 'toggle_fold', key });
-  const stop = (ids: readonly string[]): void => {
-    for (const thread of ids) void api.threads.stop(thread).catch((err: unknown) => toast(client, err instanceof Error ? err.message : 'Cannot stop the thread', 'error'));
-  };
+  const stop = (thread: string): void => void api.threads.stop(thread).catch((err: unknown) => toast(client, err instanceof Error ? err.message : 'Cannot stop the thread', 'error'));
   const open = (row: LineageRow): void => {
     const sub = row.kind === 'agent' ? agents.find((a) => a.agent.id === row.id) : undefined;
     if (sub) openSubAgent(client, actions, sub);
     else actions.run({ type: 'open_ws', id: row.id });
   };
   const items: ActionItem[] = [
-    { label: 'Stop All Running', icon: 'stop', disabled: !view.stoppable.length, onSelect: () => stop(view.stoppable) },
+    { label: 'Stop All Running', icon: 'stop', disabled: !view.stoppable.length, onSelect: () => void api.threads.stopAll(id).catch((err: unknown) => toast(client, err instanceof Error ? err.message : 'Cannot stop the threads', 'error')) },
     { label: 'Show Finished', checked: showAll, separate: true, onSelect: toggle },
   ];
   return (
@@ -70,7 +68,7 @@ export function LineageSection({ id }: { id: string }) {
       <div className={s.list} role="list" aria-label="Lineage">
         {view.parent ? <ParentRow parent={view.parent} onOpen={(to) => actions.run({ type: 'open_ws', id: to })} /> : null}
         {shown.map((row) => (
-          <ChildRow key={`${row.kind}:${row.id}`} row={row} now={now} onOpen={() => open(row)} onStop={() => stop([row.id])} />
+          <ChildRow key={`${row.kind}:${row.id}`} row={row} now={now} onOpen={() => open(row)} onStop={() => stop(row.id)} />
         ))}
         {earlier ? (
           <div role="listitem">
