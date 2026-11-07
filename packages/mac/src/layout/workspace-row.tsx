@@ -16,6 +16,9 @@ import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import { outsideLocation } from './outside-model.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
+import { agentName } from '../lib/agent-words.js';
+import { harnessOf } from '../lineage/lineage-model.js';
+import { agentMark } from '@beluga/shared/agent-marks.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -65,11 +68,13 @@ const ARCHIVING: Record<NonNullable<AppState['archiving'][string]>, string> = {
   removing: 'Archiving: removing the folder',
 };
 
-/** A row's sub-agents, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
+/** A row's sub-agents and child threads, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
 export interface WorkspaceFold {
   readonly open: boolean;
   readonly count: number;
   readonly running: number;
+  /** What it holds, for the arrow's name: "sub-agents", "threads". */
+  readonly noun: string;
   /** "2 sub-agents · 1 running". */
   readonly summary: string;
   readonly toggle: () => void;
@@ -85,7 +90,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
   const { client } = useBeluga();
   const [renaming, setRenaming] = useState(false);
   // Only what the row shows: another conversation streaming doesn't draw it again (KLD-48).
-  const { selected, st, signal, where, archiving } = useApp(
+  const { selected, st, signal, where, archiving, harness } = useApp(
     (state) => ({
       selected: state.view.kind === 'workspace' && state.view.id === ws.id,
       st: stateOf(state, ws, 0),
@@ -94,10 +99,17 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
       where: outsideLocation(state, ws),
       // Being archived: how far along (it leaves the sidebar when done).
       archiving: state.archiving[ws.id],
+      // Which agent runs it (only with threads on): at the row's edge, one width whatever the row says.
+      harness: harnessOf(state, ws),
     }),
     sameDeep,
   );
   const icon: IconName = ws.kind === 'chat' ? 'chat' : ws.kind === 'main' ? 'folder' : 'branch';
+  const mark = harness ? (
+    <span className={s.harnessMark} title={agentName(harness)} data-harness={harness.runtime}>
+      <Icon name={agentMark(harness)} size={12} />
+    </span>
+  ) : null;
   // Being made: its page opens here (the core has nothing to open yet), with nothing to do on it until it's there.
   if (ws.pending) {
     return (
@@ -111,7 +123,12 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         label={ws.name}
         detail={`${ws.name}: making the worktree from ${ws.base ?? 'the latest origin'}…`}
         onClick={() => client.store.dispatch({ type: 'view', view: { kind: 'workspace', id: ws.id, tab: 'chat' } })}
-        trailing={<span className={s.making} role="progressbar" aria-label="Making the worktree" />}
+        trailing={
+          <>
+            <span className={s.making} role="progressbar" aria-label="Making the worktree" />
+            {mark}
+          </>
+        }
       />
     );
   }
@@ -134,7 +151,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
               <button
                 type="button"
                 className={s.agentFold}
-                aria-label={fold.open ? `Fold the sub-agents of ${ws.name}` : `Show the sub-agents of ${ws.name}`}
+                aria-label={fold.open ? `Fold the ${fold.noun} of ${ws.name}` : `Show the ${fold.noun} of ${ws.name}`}
                 title={fold.open ? `Fold away ${fold.summary}` : `Show ${fold.summary}`}
                 onClick={(e) => (e.stopPropagation(), fold.toggle())}
               >
@@ -175,7 +192,10 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         onClick={() => actions.run({ type: 'open_ws', id: ws.id })}
         trailing={
           archiving ? (
-            <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+            <>
+              <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+              {mark}
+            </>
           ) : (
             <>
               {/* Folded away: how many, quietly (and that one is at work, when the row says nothing else). */}
@@ -186,6 +206,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
                 </span>
               ) : null}
               <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+              {mark}
             </>
           )
         }
