@@ -13,10 +13,10 @@ import type { AgentPlace } from '../agent/types.js';
 import type { AgentRef } from '../protocol.js';
 import { placeAgent } from '../shared/agent-picker.js';
 import { agentName } from '../shared/agent-label.js';
-import { transcriptOf } from './agent-switch.js';
+import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
-import type { Project, Workspace } from '../workspaces/types.js';
+import type { DeletePlan, Project, PullHead, RenameResult, Workspace } from '../workspaces/types.js';
 import { type MergeResult, git } from '../workspaces/git.js';
 import type { FoundConversation } from '../agent/runtime/claude/claude-sessions.js';
 import type { ShareService } from './shares.js';
@@ -30,6 +30,15 @@ import { claudeHome } from './claude-code/launch.js';
 import { HistorySaver } from './history-saver.js';
 import { forgetViews } from './views/forget.js';
 import { nothingAhead, pendingWorktree, withAhead } from './optimistic.js';
+
+/** What adding a folder did: the project it added, how many a watched folder holds, or why it couldn't. */
+export interface AddResult {
+  readonly project?: { readonly id: string; readonly name: string };
+  readonly found?: number;
+  /** The folder is there but isn't a git project: it can be made one (projects.initGit). */
+  readonly canInit?: boolean;
+  readonly error?: string;
+}
 
 export interface ControllerDeps {
   readonly manager: WorkspaceManager;
@@ -50,6 +59,8 @@ export interface ControllerDeps {
   readonly showAsk?: (prompt: string, channel: string) => string;
   /** Stop your Claude in a conversation, resolving once nothing runs there (editing a message cuts it there). */
   readonly stopHere?: (channel: string) => Promise<void>;
+  /** A worktree is going: end your Claude's run and queue in its conversation, quietly, resolving once nothing runs there. */
+  readonly endRuns?: (channel: string, why: string) => Promise<void>;
   /** A conversation went back to an earlier point: forget how full its context was. */
   readonly forgetContext?: (channel: string) => void;
   /** Compact a conversation's context in your Claude's queue (falls back to asking Claude for /compact). */
@@ -88,6 +99,8 @@ const WS_PREFIX = 'ws:';
 /** What Claude starts with in a worktree you continued into without saying what to do. */
 export const CONTINUE_PROMPT = 'We moved here from the main folder so you can make changes. Go ahead with what we discussed.';
 const CONTINUE_WAIT_MS = 60_000;
+/** How long deleting or archiving waits for the Claude working there to stop before it goes on anyway. */
+const END_RUNS_WAIT_MS = 10_000;
 
 /** How a conversation goes on in a new worktree (see continueInWorktree). */
 export interface ContinueOptions {
@@ -114,7 +127,7 @@ export const workspaceIdOf = (channel: string): string | undefined => (channel.s
 export { shareNameOf } from '../shared/share-names.js';
 import { shareNameOf } from '../shared/share-names.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
-import { SCRATCH_DIR, type ScratchFile, ensureScratch, listScratch } from '../workspaces/scratch.js';
+import { SCRATCH_DIR, type ScratchFile, type ScratchTotal, ensureScratch, listScratch, scratchTotal } from '../workspaces/scratch.js';
 import { isUnder } from '../shared/path-inside.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -144,6 +157,8 @@ export class WorkspaceController {
   private readonly worktreeListeners = new Set<(event: WorktreeEvent) => void>();
   private readonly goingListeners = new Set<(ws: Workspace) => void>();
   private readonly loaded = new Set<string>();
+  /** Conversations of worktrees deleted here: their agent's last words, echoed back late, don't land (deletedChannel). */
+  private readonly deleted = new Set<string>();
   private reviewToken = 0;
   /** Saves the loaded conversations that changed (see history-saver.ts). */
   private readonly saver: HistorySaver;
@@ -167,8 +182,19 @@ export class WorkspaceController {
   private readonly archiving = new Map<string, Promise<boolean>>();
   /** Conversations moving to a new worktree now, by id: the sheet doesn't wait, so a second Continue joins the first. */
   private readonly moving = new Map<string, Promise<Workspace | undefined>>();
+  /** Pull requests being checked out in a worktree, by project and number (openPull). */
+  private readonly pulling = new Map<string, Promise<Workspace | undefined>>();
 
   /** Hear about worktrees opening, merging, going and coming back. */
+  /**
+   * A worktree deleted here: nothing more goes in its conversation. Its stopped run's last event
+   * comes back through the room hub, and on a slow computer that's after the conversation was
+   * cleared (Windows' runners showed it).
+   */
+  deletedChannel(channel: string): boolean {
+    return this.deleted.has(channel);
+  }
+
   onWorktree(listener: (event: WorktreeEvent) => void): () => void {
     this.worktreeListeners.add(listener);
     return () => void this.worktreeListeners.delete(listener);
@@ -194,6 +220,18 @@ export class WorkspaceController {
     }
   }
 
+  /**
+   * Before a worktree's folder goes: the Claude working there stops and its queue empties (it
+   * would go on in a folder that's gone, and its card land in a conversation that's gone).
+   */
+  private async endRunsIn(id: string, why: string): Promise<void> {
+    if (!this.deps.endRuns) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<void>((resolve) => (timer = setTimeout(resolve, END_RUNS_WAIT_MS)));
+    await Promise.race([this.deps.endRuns(`${WS_PREFIX}${id}`, why).catch(() => undefined), late]);
+    clearTimeout(timer);
+  }
+
   private emit(event: WorktreeEvent): void {
     for (const l of this.worktreeListeners) {
       try {
@@ -206,6 +244,7 @@ export class WorkspaceController {
 
   /** A worktree opened: the workbench (setup) and the listeners hear of it. */
   private created(ws: Workspace, extra: { from?: string; about?: string } = {}): void {
+    this.deleted.delete(`${WS_PREFIX}${ws.id}`);
     this.deps.onWorktreeCreated?.(ws);
     this.emit({ kind: 'created', ws, ...extra });
   }
@@ -230,6 +269,7 @@ export class WorkspaceController {
       newWorktree: (projectId, name, opts) => this.newWorktree(projectId, name, opts),
       armSync: (wsId, target) => void this.syncRuns.set(wsId, target),
       askClaude: (prompt, channel) => deps.askClaude(prompt, channel),
+      saving: () => deps.store.getState().powerSaving,
       open: (wsId) => this.open(wsId),
     });
   }
@@ -631,6 +671,19 @@ export class WorkspaceController {
     return ws ? (ws.agent ?? this.followedAgent(ws.id)) : undefined;
   }
 
+  /**
+   * A message as its run starts: after a quiet switch (BLG-592) the first run carries the recent
+   * conversation the new agent can't read, once (without the message itself, `requestId`'s).
+   */
+  withCarry(channel: string, message: string, requestId?: string): string {
+    const ws = this.inChannel(channel);
+    if (!ws?.carryFrom) return message;
+    this.deps.manager.setCarry(ws.id, undefined);
+    const log = this.deps.store.getState().log.filter((l) => !(requestId && l.type === 'chat' && l.request === requestId));
+    const transcript = transcriptOf(log, channel);
+    return transcript ? carriedPrompt(ws.carryFrom, transcript, message) : message;
+  }
+
   /** The runtime a workspace's conversation runs on (its pick, else yours, else the daemon's own). */
   private runtimeIn(wsId: string): string {
     const ws = this.deps.manager.find(wsId);
@@ -771,6 +824,53 @@ export class WorkspaceController {
     return ws;
   }
 
+  /**
+   * A pull request in a worktree (BLG-633): the worktree already on its branch opens; otherwise
+   * one is made on it (its row and page show at once, as for any new worktree) and opens, with a
+   * line saying what it is. No agent starts: you look, run it, or ask. A second click while it's
+   * made is the same one.
+   */
+  openPull(projectId: string, pull: PullHead): Promise<Workspace | undefined> {
+    const key = `${projectId}#${pull.number}`;
+    const running = this.pulling.get(key);
+    if (running) return running;
+    const job = this.openPullNow(projectId, pull).finally(() => this.pulling.delete(key));
+    this.pulling.set(key, job);
+    return job;
+  }
+
+  private async openPullNow(projectId: string, pull: PullHead): Promise<Workspace | undefined> {
+    const project = this.deps.manager.list.find((p) => p.id === projectId && p.root);
+    if (!project) {
+      this.deps.toast('That project is gone', 'warn');
+      return undefined;
+    }
+    const mine = (branch: string): boolean => branch === pull.branch || (Boolean(pull.fork) && branch === `pr-${pull.number}`);
+    const there = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && w.branch && mine(w.branch));
+    if (there) {
+      this.open(there.id);
+      return there;
+    }
+    const id = this.deps.manager.newWorktreeId();
+    this.ahead.making.set(id, pendingWorktree({ id, project, name: `pr-${pull.number}`, ...(pull.base ? { base: `origin/${pull.base}` } : {}) }));
+    this.publish();
+    this.deps.intend({ type: 'navigate', view: { kind: 'workspace', id, tab: 'chat' } });
+    const ws = await this.act(`Couldn't open #${pull.number} in a worktree`, () => this.deps.manager.createPullWorktree(projectId, pull, { id }), undefined, { later: true });
+    const shown = this.ahead.making.delete(id);
+    this.publish();
+    if (!ws) {
+      if (shown) this.deps.intend({ type: 'close_tab', id });
+      return undefined;
+    }
+    const pushes = pull.fork ? 'It’s from a fork, so pushing here doesn’t change it; git pull brings its new commits.' : 'Pushing here updates the pull request.';
+    this.deps.store.dispatch({ type: 'system', channel: `${WS_PREFIX}${ws.id}`, text: `Pull request #${pull.number}${pull.title ? ` “${pull.title}”` : ''}, checked out on ${ws.branch}. ${pushes}` });
+    this.deps.toast(`#${pull.number} is checked out in ${ws.name}`, 'success');
+    if (shown) this.ensureLoaded(ws.id);
+    else this.open(ws.id);
+    this.created(ws);
+    return ws;
+  }
+
   /** `quiet`: made for something else's page (a plan's conversation), so it doesn't take you there. */
   async newChat(projectId: string, title: string, inDir?: string, opts: { readonly quiet?: boolean } = {}): Promise<Workspace | undefined> {
     const ws = await this.act("Couldn't start the chat", () => this.deps.manager.createChat(projectId, title, inDir), undefined, { later: true });
@@ -778,10 +878,17 @@ export class WorkspaceController {
     return ws;
   }
 
-  /** A chat's name changed for you (a plan's conversation follows the plan's name). */
+  /** Set the workspace name (a worktree's branch follows) and publish it to connected screens. */
+  async rename(id: string, name: string): Promise<RenameResult> {
+    const done = await this.deps.manager.renameByUser(id, name);
+    await this.refresh();
+    return done;
+  }
+
+  /** An automatic title follows the plan until the user sets a name. */
   async renameChat(id: string, name: string): Promise<void> {
     try {
-      this.deps.manager.rename(id, name);
+      this.deps.manager.rename(id, name, { automatic: true });
       await this.refresh();
     } catch {
       // Keeps its name.
@@ -789,10 +896,13 @@ export class WorkspaceController {
   }
 
   /** Turn a draft into a real chat with your first message, then send it to Claude. */
-  async startChat(projectId: string, firstMessage: string, inDir?: string, opts: { terminal?: boolean } = {}): Promise<void> {
+  async startChat(projectId: string, firstMessage: string, inDir?: string, opts: { terminal?: boolean; plan?: boolean } = {}): Promise<void> {
     const title = firstMessage.replace(/\s+/g, ' ').trim().slice(0, 40);
     const ws = await this.newChat(projectId, title, inDir);
-    if (ws) this.deps.askClaude(firstMessage, `${WS_PREFIX}${ws.id}`, opts.terminal ? { terminal: true } : undefined);
+    if (!ws) return;
+    const channel = `${WS_PREFIX}${ws.id}`;
+    if (opts.plan) this.deps.store.dispatch({ type: 'plan_mode', channel, on: true });
+    this.deps.askClaude(firstMessage, channel, opts.terminal && !opts.plan ? { terminal: true } : undefined);
   }
 
   /** The branches a new worktree can start from, the project's default base first. */
@@ -1067,6 +1177,7 @@ export class WorkspaceController {
     const phase = (p?: ArchivePhase): void => void this.deps.store.dispatch({ type: 'archiving', id, ...(p ? { phase: p } : {}) });
     let manifest: ArchiveManifest | undefined;
     const answers = this.answersIn(id);
+    await this.endRunsIn(id, 'Stopped: its worktree was archived');
     const done = await this.inLane(ws?.projectRoot || ws?.path || id, () =>
       this.act(
         "Couldn't archive",
@@ -1176,6 +1287,11 @@ export class WorkspaceController {
     return this.deps.manager.archivePlan(id).catch(() => undefined);
   }
 
+  /** What Delete would lose that Archive keeps: commits pushed nowhere (the Delete dialog warns and leads with Archive). */
+  deletePlan(id: string): Promise<DeletePlan | undefined> {
+    return this.deps.manager.deletePlan(id).catch(() => undefined);
+  }
+
   /** Free space in a worktree you keep (its dependencies, builds and caches) → bytes freed. */
   async freeSpace(id: string): Promise<number> {
     const freed = await this.act("Couldn't free space", () => this.deps.manager.freeSpace(id));
@@ -1208,13 +1324,15 @@ export class WorkspaceController {
     if (back && manifest?.dropped.length) this.deps.onWorktreeRestored?.(back, manifest.remake);
   }
 
-  async remove(id: string): Promise<void> {
+  /** Delete for good. `quiet`: a sentinel clearing away a run's chat (no toast). */
+  async remove(id: string, opts: { readonly quiet?: boolean } = {}): Promise<void> {
     const agents = this.agentWorktreesOf(id);
     const ws = this.deps.manager.find(id);
     // Gone from the sidebar now; the folder, its branch and the conversation follow.
     this.going(id);
     const settle = ws && ws.kind !== 'main' ? this.leaveNow(id, 'delete') : () => undefined;
     const answers = this.answersIn(id);
+    await this.endRunsIn(id, 'Stopped: its worktree was deleted');
     const done = await this.inLane(ws?.projectRoot || ws?.path || id, () =>
       this.act(
         "Couldn't delete",
@@ -1228,11 +1346,14 @@ export class WorkspaceController {
     settle();
     if (done) {
       this.loaded.delete(`${WS_PREFIX}${id}`);
+      // Its conversation went with it on disk; the copy loaded here goes too, or search still finds it.
+      this.deps.store.dispatch({ type: 'history', channel: `${WS_PREFIX}${id}`, items: [] });
+      this.deleted.add(`${WS_PREFIX}${id}`);
       this.deps.intend({ type: 'close_tab', id });
       // Its views' rows go, and their scripts and handed-over rows unless another conversation shows them.
       forgetViews(answers, 'deleted', () => this.answersElsewhere(id));
       const also = await this.removeAgentWorktrees(agents);
-      this.deps.toast(['Deleted.', also].filter(Boolean).join(' '), 'success');
+      if (!opts.quiet) this.deps.toast(['Deleted.', also].filter(Boolean).join(' '), 'success');
       this.emit({ kind: 'removed', id });
     }
   }
@@ -1404,13 +1525,14 @@ export class WorkspaceController {
   }
 
   /** A workspace's scratch folder and what's in it, newest first (nothing when it's gone). */
-  async scratch(id: string): Promise<{ root: string; dir: string; files: ScratchFile[] } | undefined> {
+  async scratch(id: string): Promise<{ root: string; dir: string; files: ScratchFile[]; total: ScratchTotal } | undefined> {
     const ws = this.deps.manager.find(id);
     if (!ws || !existsSync(ws.path)) return undefined;
     // Made when you look (kept out of git), so there's a folder to drop things in and show in Finder.
     // (Never in a sub-agent's own worktree: that's Claude Code's, looked at, not written to.)
     if (!ws.askOnly && worktreeOrigin(ws) !== 'agent') await ensureScratch(ws.path);
-    return { root: ws.path, dir: path.join(ws.path, SCRATCH_DIR), files: await listScratch(ws.path) };
+    const [files, total] = await Promise.all([listScratch(ws.path), scratchTotal(ws.path)]);
+    return { root: ws.path, dir: path.join(ws.path, SCRATCH_DIR), files, total };
   }
 
   openInFinder(id: string): void {
@@ -1422,23 +1544,38 @@ export class WorkspaceController {
     }
   }
 
-  async addProject(dir: string): Promise<void> {
+  /**
+   * Add a git project. It waits for a delete of the same project still running (archiving its
+   * worktrees), so that one can't take it out again afterwards. The project shows as soon as its
+   * own git is read; the full refresh of every project follows in the background.
+   */
+  async addProject(dir: string): Promise<AddResult> {
     try {
-      this.deps.manager.addProject(dir);
-      await this.refresh();
+      const project = await this.inLane(real(dir), async () => {
+        this.deps.manager.addProject(dir);
+        return this.deps.manager.loadAdded(dir);
+      });
+      this.publish();
       this.deps.toast('Project added', 'success');
+      void this.refresh().catch(() => undefined);
+      return project ? { project: { id: project.id, name: project.name } } : {};
     } catch (err) {
-      this.deps.toast(errorText(err), 'error');
+      const error = errorText(err);
+      this.deps.toast(error, 'error');
+      return { error };
     }
   }
 
-  async addFolder(dir: string): Promise<void> {
+  async addFolder(dir: string): Promise<AddResult> {
     try {
       const found = this.deps.manager.addFolder(dir);
       await this.refresh();
       this.deps.toast(`Watching ${dir}: ${found} project(s) found`, 'success');
+      return { found };
     } catch (err) {
-      this.deps.toast(errorText(err), 'error');
+      const error = errorText(err);
+      this.deps.toast(error, 'error');
+      return { error };
     }
   }
 

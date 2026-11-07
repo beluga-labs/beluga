@@ -11,6 +11,7 @@ import { ago } from '../tasks/tasks-model.js';
 import { useSentinelActions } from './use-sentinel.js';
 import d from './data.module.css';
 import n from './numbers.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * A metric's whole history (BLG-392), from its file: a number's value at every run, a table's rows
@@ -54,7 +55,7 @@ export function DataSheet({ sentinelId, metric, close }: { sentinelId: string; m
             Export JSON
           </Button>
           <Button size="small" icon="folder" onClick={() => void a.act(() => a.api.dataReveal(sentinelId))}>
-            Show in Finder
+            {revealLabel()}
           </Button>
         </span>
       }

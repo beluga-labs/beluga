@@ -10,6 +10,7 @@ import { soundTitle } from '../../lib/sounds/catalog.js';
 import { playTestSound } from '../../lib/sounds/native.js';
 import { Row } from '../settings-controls.js';
 import s from './sound.module.css';
+import { keyPlatform } from '../../lib/shortcuts-model.js';
 
 export interface TestNotificationProps {
   readonly n: NotifySettings;
@@ -38,7 +39,7 @@ export function TestNotification({ n, onChecked, onAction }: TestNotificationPro
       const access = await notificationAccess();
       await api.session.testNotification();
       onChecked(access);
-      setOutcome(testOutcome(access, tone.kind === 'none' ? null : soundTitle(tone)));
+      setOutcome(testOutcome(access, tone.kind === 'none' ? null : soundTitle(tone), keyPlatform()));
     } catch (e) {
       setOutcome({ tone: 'warn', text: `Couldn’t send it: ${e instanceof Error ? e.message : String(e)}` });
     } finally {

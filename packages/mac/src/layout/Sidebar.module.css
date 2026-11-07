@@ -28,6 +28,11 @@
 :global(html:not([data-os='mac'])) .trafficSpace {
   width: 8px;
 }
+/* A browser: the menu bar's button (AppMenu) where the traffic lights would be. */
+.appMenu {
+  display: inline-flex;
+  padding-left: 10px;
+}
 
 .scroll {
   flex: 1;
@@ -119,6 +124,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.renameField {
+  width: calc(100% - 4px);
+  min-width: 0;
+  height: 20px;
+  margin: 2px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.renameField:focus {
+  outline: none;
+}
 .trailing {
   display: inline-flex;
   align-items: center;
@@ -146,6 +169,10 @@
 .projectRow .rowIcon {
   width: auto;
   color: var(--text-3);
+}
+/* A row with a disclosure before its icon (a sentinel under Sentinel, BLG-570): the icon slot widens for both. */
+.foldRow .rowIcon {
+  width: auto;
 }
 /* The disclosure triangle, then the project's icon (like Finder's sidebar and Xcode's navigator). */
 .projectIcon {

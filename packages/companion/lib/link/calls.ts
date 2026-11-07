@@ -46,7 +46,7 @@ export const calls = {
   deleteMacChat: (topic: Topic): Call => make('assistant.deleteChat', [macChatOf(topic)], 'Delete the chat'),
   /** A chat's id → its topic: the first (`main`) keeps `conv:mac:assistant`. */
   macChatTopic: (id: string): Topic => (id === 'main' ? 'conv:mac:assistant' : `conv:mac:assistant:${id}`) as Topic,
-  /** 1.38 (BLG-74): a chat's category, as its sheet in Work changes it. The setting itself stays the Mac's. */
+  /** 1.42 (BLG-74): a chat's category, as its sheet in Work changes it. The setting itself stays the Mac's. */
   settle: (topic: Topic): Call => make('triage.settle', [channelOf(topic)], 'Settle'),
   unsettle: (topic: Topic): Call => make('triage.unsettle', [channelOf(topic)], 'Un-settle'),
   snooze: (topic: Topic, until: number): Call => make('triage.snooze', [channelOf(topic), until], 'Snooze'),
@@ -148,6 +148,10 @@ export const calls = {
   deleteMessage: (topic: Topic, id: string, everyone: boolean): Call => make('network.messages.delete', [conversationOf(topic), id, everyone ? { everyone: true } : {}], 'Delete the message'),
   editMessage: (topic: Topic, id: string, text: string): Call => make('network.messages.edit', [conversationOf(topic), id, text], `Edit to "${short(text)}"`),
   clearChat: (topic: Topic): Call => make('network.clear', [conversationOf(topic)], 'Clear the chat'),
+  /** 1.41 (BLG-702): an emoji on a person's message in the room's or a workspace's chat (`on`), or yours taken off. */
+  reactTurn: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('session.react', [channelOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
+  /** 1.41 (BLG-702): put an emoji on a message (`on`) or take yours off. */
+  react: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('network.messages.react', [conversationOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
   /** 1.34 (BLG-466): a dialogue between agents: Stop it, or Continue? → yes. */
   dialogueStop: (id: string): Call => make('dialogues.stop', [id], 'Stop the dialogue'),
   dialogueContinue: (id: string): Call => make('dialogues.continue', [id], 'Continue the dialogue'),

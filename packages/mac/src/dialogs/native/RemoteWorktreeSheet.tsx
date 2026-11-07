@@ -4,6 +4,7 @@ import { defaultAgentOf } from '@beluga/protocol.js';
 import { agentName } from '@beluga/shared/agent-label.js';
 import { useApi, useApp } from '../../lib/beluga.js';
 import type { NativeMenuProps } from './index.js';
+import { cmdReturn } from '../../lib/os-words.js';
 
 /**
  * Start a worktree on a friend's computer: which of their projects, the task, and whether their
@@ -35,7 +36,7 @@ export function RemoteWorktreeForm({ peerId, project, close }: { peerId: string;
       <Field label="Project" htmlFor="rws-project">
         <Popup id="rws-project" label="Project" value={picked} onChange={setPicked} options={projects.map((p) => ({ value: p, label: p }))} />
       </Field>
-      <Field label="Task" htmlFor="rws-task" hint={`What their ${agentName(defaultAgentOf(peer))} should do. ⌘Return asks.`}>
+      <Field label="Task" htmlFor="rws-task" hint={`What their ${agentName(defaultAgentOf(peer))} should do. ${cmdReturn()} asks.`}>
         <TextArea id="rws-task" value={task} onChange={setTask} rows={4} placeholder="Add a health check endpoint and a test for it" data-autofocus />
       </Field>
       <Field label="">

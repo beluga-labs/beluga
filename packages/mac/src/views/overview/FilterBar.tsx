@@ -8,6 +8,7 @@ import { Tip, cx } from '../../components/ui.js';
 import menu from '../../components/SpecMenu.module.css';
 import { FILTERS, FILTER_LABELS, type OverviewFilter, type OverviewSort, SORTS, SORT_LABELS } from './overview-model.js';
 import s from './filter-bar.module.css';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 
 const FILTER_HINTS: Record<OverviewFilter, string> = {
   all: 'Everything, archived included',
@@ -136,7 +137,7 @@ function ProjectPopup({ projects, project, onProject }: Pick<FilterBarProps, 'pr
 /** A Mac search field: Esc clears it (then leaves it), ↓ goes to the first row. */
 function SearchField({ search, onSearch, searchRef, onLeave }: { search: string; onSearch: (t: string) => void; searchRef: Ref<HTMLInputElement>; onLeave: () => void }) {
   return (
-    <label className={s.field} title="Search names, branches, projects and last messages (⌘F)">
+    <label className={s.field} title={`Search names, branches, projects and last messages (${chordLabel('Cmd+F')})`}>
       <Icon name="search" size={12} />
       <input
         ref={searchRef}

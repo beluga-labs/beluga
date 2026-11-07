@@ -197,7 +197,13 @@ export async function unpackKeeping(file: string, dir: string): Promise<void> {
   await run('tar', ['-x', keep, '-p', '-f', file, '-C', dir], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS });
 }
 
-/** Pack these (relative) paths of `dir` into an xz file, as small as xz makes it, and check every one is in it. */
+/**
+ * xz's own default: within a few percent of its smallest (9), several times faster, and about
+ * 94 MB of memory to compress instead of 674 MB.
+ */
+const XZ_LEVEL = 6;
+
+/** Pack these (relative) paths of `dir` into an xz file, and check every one is in it. */
 export async function pack(dir: string, rels: readonly string[], file: string): Promise<void> {
   const names = rels.map((r) => r.replace(/\/$/, ''));
   const list = `${file}.list`;
@@ -205,8 +211,8 @@ export async function pack(dir: string, rels: readonly string[], file: string): 
   try {
     // bsdtar takes xz's level as an option; GNU tar runs xz, which reads it from XZ_OPT.
     const gnu = (await tarFlavor()) === 'gnu';
-    const level = gnu ? [] : ['--options', 'xz:compression-level=9'];
-    await run('tar', ['-c', '-J', ...level, '-f', file, '-C', dir, '--null', '-T', list], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS, ...(gnu ? { env: { XZ_OPT: '-9' } } : {}) });
+    const level = gnu ? [] : ['--options', `xz:compression-level=${XZ_LEVEL}`];
+    await run('tar', ['-c', '-J', ...level, '-f', file, '-C', dir, '--null', '-T', list], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS, ...(gnu ? { env: { XZ_OPT: `-${XZ_LEVEL}` } } : {}) });
     const listed = new Set((await run('tar', ['-t', '-f', file], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS })).split(/\r?\n/).map((l) => l.replace(/\/$/, '')));
     const missing = names.find((n) => !listed.has(n));
     if (missing) throw new ArchiveError(`Couldn’t pack ${missing}`);

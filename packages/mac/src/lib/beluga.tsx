@@ -4,6 +4,8 @@ import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { type UiState, initialUi } from '@beluga/ui/keymap.js';
 import type { MenuKind } from '@beluga/ui/menus.js';
 import { onWindowActive, windowActive } from './window-active.js';
+import { SAVING_DRAW_MS, powerSaving } from './power.js';
+import type { SettingsPane } from './settings-search.js';
 
 /**
  * This window's own UI state. It uses the shared shape (UiState) for everything the
@@ -45,7 +47,7 @@ export const recipientPrefix = (to: Recipient): string => (to.claude ? (to.self 
 /** "bob's Claude", "your Claude", "bob". */
 export const recipientLabel = (to: Recipient): string => (to.claude ? (to.self ? 'your agent' : `${to.name}’s agent`) : to.name);
 
-export type SettingsPane = 'general' | 'appearance' | 'claude' | 'notifications' | 'workspaces' | 'terminal' | 'fire' | 'menubar' | 'environment' | 'people' | 'phone' | 'voice' | 'keyboard' | 'about';
+export type { SettingsPane };
 
 type Listener = () => void;
 
@@ -123,6 +125,11 @@ function viewSubscribe(store: { subscribe: (listener: () => void) => () => void 
   store.subscribe(() => {
     if (!windowActive()) {
       timer ??= setTimeout(flush, AWAY_MS);
+      return;
+    }
+    // Low Power mode (BLG-621): what changed is drawn a few times a second, not every frame.
+    if (powerSaving()) {
+      timer ??= setTimeout(flush, SAVING_DRAW_MS);
       return;
     }
     if (frame !== undefined || soon !== undefined) return;

@@ -1,3 +1,5 @@
+import { fileUrlToPath } from '../../../../src/shared/os-path.js';
+
 /**
  * Which pasted text is file paths: "/Users/…/CleanShot … .png" quoted (straight or “smart”), with
  * escaped spaces, ~/…, or a file:// URL; one or more, one per line. And, in any other text, where
@@ -12,19 +14,21 @@ const IMAGE_END = /\.(?:png|jpe?g|gif|webp)/gi;
 const MAX_ENDS = 4;
 const MAX_CANDIDATES = MAX_PATHS;
 
-const safeDecode = (s: string): string => {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-};
+/** A Windows path from its root ("C:\…", "C:/…", "\\server\…"): its "\" separate, never escape. */
+const WINDOWS = /^[A-Za-z]:[\\/][^\\/\s]|^\\\\[^\\\s]+\\./;
 
-/** A path as written ("~/a", "/a/b", "file:///a/b"), or undefined if it isn't one. "/help" is a command, not a path. */
+/** "\ " is a space (and "\x" an x) in a Mac or Linux path as a shell writes it; a Windows path is as it is. */
+const unshell = (s: string): string => (WINDOWS.test(s) ? s : s.replace(/\\(.)/g, '$1'));
+
+/**
+ * A path as written ("~/a", "/a/b", "C:\a", "file:///a/b", "file:///C:/a"), or undefined if it
+ * isn't one. "/help" is a command, not a path.
+ */
 function asPath(token: string): string | undefined {
-  const p = token.startsWith('file://') ? safeDecode(token.slice(7).replace(/^localhost(?=\/)/, '')) : token;
-  if (/^~\/[^/\s]/.test(p)) return p;
-  return /^\/[^/]+\/./.test(p) && !p.includes('\n') ? p : undefined;
+  const p = token.startsWith('file://') ? (fileUrlToPath(token) ?? token) : token;
+  if (p.includes('\n')) return undefined;
+  if (/^~\/[^/\s]/.test(p) || WINDOWS.test(p)) return p;
+  return /^\/[^/]+\/./.test(p) ? p : undefined;
 }
 
 /** Quotes around a path: straight, and the curly ones Notes, Slack or Mail put in. */
@@ -32,7 +36,7 @@ const CLOSE: Record<string, string> = { '"': '"', "'": "'", '“': '”', '‘':
 
 /** Words of a line: '…', "…", “…” and ‘…’ are one each, and "\ " is a space inside one. */
 const tokens = (line: string): string[] =>
-  [...line.matchAll(/'([^']*)'|"([^"]*)"|“([^”]*)”|‘([^’]*)’|((?:\\.|[^\s\\])+)/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4] ?? (m[5] ?? '').replace(/\\(.)/g, '$1'));
+  [...line.matchAll(/'([^']*)'|"([^"]*)"|“([^”]*)”|‘([^’]*)’|((?:\\.|[^\s\\])+)/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4] ?? unshell(m[5] ?? ''));
 
 /**
  * The paths a paste is made of, or undefined when it's anything more (or less) than paths.
@@ -46,7 +50,7 @@ export function pathsInPaste(text: string): string[] | undefined {
   for (const line of lines) {
     const words = tokens(line).map(asPath);
     if (words.length && words.every((w): w is string => Boolean(w))) out.push(...words);
-    else if (!/["'“”‘’]/.test(line) && asPath(line.replace(/\\(.)/g, '$1'))) out.push(asPath(line.replace(/\\(.)/g, '$1'))!);
+    else if (!/["'“”‘’]/.test(line) && asPath(unshell(line))) out.push(asPath(unshell(line))!);
     else return undefined;
   }
   return out.length <= MAX_PATHS ? out : undefined;
@@ -64,7 +68,7 @@ export interface PathSpot {
 }
 
 /** Where a path can start in a sentence: at the line's start, after a space or an opening bracket. */
-const STARTS = /(^|[\s([<{])(file:\/\/|~\/|\/(?=[^/\s]))/gm;
+const STARTS = /(^|[\s([<{])(file:\/\/|~\/|\/(?=[^/\s])|[A-Za-z]:[\\/](?=[^\\/\s]))/gm;
 /** What may follow a path's end: the line going on, or punctuation closing the sentence. */
 const ENDS_OK = /^(?:$|[\s.,;:!?)\]>}"'”’])/;
 
@@ -105,7 +109,7 @@ export function imagePathsIn(text: string): PathSpot[] {
       .reverse()
       .slice(0, MAX_ENDS)
       .flatMap((end) => {
-        const path = asPath(rest.slice(0, end).replace(/\\(.)/g, '$1'));
+        const path = asPath(unshell(rest.slice(0, end)));
         return path ? [{ path, end: start + end }] : [];
       });
     if (!paths.length) continue;

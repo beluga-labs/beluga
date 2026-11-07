@@ -8,6 +8,7 @@ import { type Actor, BRIEF_SECTIONS, type Issue, PROVIDER_INFO, type ProjectSync
 import { SYNCED, type SyncedField, fieldsOf, markdownToBrief, printsOf } from './fields.js';
 import { LinearProvider, type LinearOptions, linearKeyProblem } from './linear.js';
 import { type IssueFields, type Provider, type RemoteIssue, type RemoteTeam, SyncError } from './provider.js';
+import { paced } from '../../power-saver.js';
 
 /**
  * A project's board kept in step with a team in another tracker (Linear), both ways. Issues there
@@ -430,7 +431,8 @@ export class TaskSync {
 
   /** Autosync: every minute, and a few seconds after a change here to a project that syncs. */
   start(): void {
-    this.timer = setInterval(() => void this.tick(), this.deps.autoMs ?? AUTO_MS);
+    const every = this.deps.autoMs ?? AUTO_MS;
+    this.timer = setInterval(paced(every, () => this.deps.store.getState().powerSaving, () => void this.tick()), every);
     this.timer.unref?.();
     this.off = this.deps.store.onAction((a) => this.onAction(a));
     // Soon after starting: catch up on what changed while Beluga was closed.

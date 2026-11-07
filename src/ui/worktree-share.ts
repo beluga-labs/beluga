@@ -39,9 +39,10 @@ export function worktreeShareRows(state: ShareState, wsId: string): WorktreeShar
     if (f.peerId === selfId) continue;
     const grant = grantFor(state, projectId, wsId, f.peerId);
     const room = members[f.peerId];
-    // A friend already in it through the room stays on the room's way until they're removed.
-    const via = room || !network ? 'room' : 'network';
-    rows.push({ peerId: f.peerId, name: f.name, access: room ?? grant?.role ?? 'none', via, wholeProject: !room && Boolean(grant?.whole) });
+    // Shared over the network, it's changed and taken back there (it makes them a member too, BLG-623);
+    // a friend already in it only through the room stays on the room's way until they're removed.
+    const via = grant ? 'network' : room || !network ? 'room' : 'network';
+    rows.push({ peerId: f.peerId, name: f.name, access: room ?? grant?.role ?? 'none', via, wholeProject: Boolean(grant?.whole) });
   }
   for (const p of state.peers) {
     if (p.peerId === selfId || rows.some((r) => r.peerId === p.peerId)) continue;

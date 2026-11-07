@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StepRecord, StepSummary } from '@beluga/shared/steps.js';
 import { useApi } from '../../lib/beluga.js';
 import { useWindowActive } from '../../lib/window-active.js';
+import { beat, usePowerSaving } from '../../lib/power.js';
 
 interface Loaded {
   readonly key: string;
@@ -74,11 +75,12 @@ export function useAgentSteps(channel: string, itemId: string, running: boolean,
     if (looking) void load();
   }, [load, change, running, looking]);
 
+  const every = beat(1000, usePowerSaving());
   useEffect(() => {
     if (!running || !enabled || !looking) return;
-    const t = setInterval(() => void load(), 1000);
+    const t = setInterval(() => void load(), every);
     return () => clearInterval(t);
-  }, [load, running, enabled, looking]);
+  }, [load, running, enabled, looking, every]);
 
   return state.key === key ? { steps: state.steps, missing: state.missing } : { steps: undefined, missing: false };
 }

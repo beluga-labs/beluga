@@ -28,6 +28,8 @@ import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
 import { type ChatTriage, triageKey } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
+import type { ReactionEvent } from '../shared/reactions.js';
+import { type ChatReactAction, reactOnLog } from './chat-reactions.js';
 
 export type { CompactMark, ContextInfo } from './context-log.js';
 
@@ -78,6 +80,8 @@ export type LogItem =
       readonly steer?: true;
       /** A turn of a chaired dialogue (core/dialogues): which one, and its number (0: a person's interjection). */
       readonly dialogue?: DialogueMark;
+      /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
+      readonly reacts?: readonly ReactionEvent[];
     }
   | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
   | {
@@ -269,6 +273,8 @@ export interface Prefs {
   readonly tunnel: Settings['tunnel'];
   /** Keep the Mac awake while a phone is paired (companion/awake.ts). */
   readonly keepAwake: Settings['keepAwake'];
+  /** Low Power mode: when Beluga saves power (core/power-saver.ts). */
+  readonly lowPower: Settings['lowPower'];
   /** 'never': your own Claude just works; 'ask': it asks before risky actions. */
   readonly selfApproval: 'never' | 'ask';
   readonly notify: NotifySettings;
@@ -303,11 +309,16 @@ export interface Prefs {
   readonly friendWorktrees: Settings['friendWorktrees'];
   /** Who may call your Claude into a chat (core/chat/claude.ts). */
   readonly chatClaude: Settings['chatClaude'];
+  /** Who sees your plan usage on your profile (core/gateway: it rides on your card). */
+  readonly shareUsage: Settings['shareUsage'];
   readonly shell?: string;
   /** Start the terminal's shell as a login shell. */
   readonly shellLogin: boolean;
   /** Extra arguments for the terminal's shell. */
   readonly shellArgs: readonly string[];
+  /** Your own flags for `claude` and `codex`, on your own runs (shared/agent-args.ts). */
+  readonly claudeArgs: readonly string[];
+  readonly codexArgs: readonly string[];
   /** The currency every earnings total is shown in (lowercase ISO code; undefined: the one most was earned in). */
   readonly earningsCurrency?: string;
 }
@@ -510,6 +521,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly approvals: readonly Approval[];
   readonly browser: BrowserDomain;
   readonly viewer?: ViewerDomain;
+  /** When each watched file was last written (fileKey), so a preview of it reads it again: a picture shows the new one. */
+  readonly written: Readonly<Record<string, number>>;
   readonly follow?: string;
   readonly focus: Readonly<Record<string, Focus>>;
   /** Your default for people you haven't picked a trust level for. */
@@ -523,6 +536,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   /** Recent downloads (newest last). */
   readonly transfers: readonly Transfer[];
   readonly prefs: Prefs;
+  /** Saving power now: Low Power mode is on, always or on battery while on battery (core/power-saver.ts). */
+  readonly powerSaving: boolean;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
   /** Each chat's category record, by channel (core/triage), for you only: it never leaves this computer. */
@@ -579,6 +594,7 @@ export type Action =
   | { type: 'welcome'; self: PeerInfo }
   | { type: 'peers'; peers: readonly PeerInfo[] }
   | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; agent?: AgentRef; dialogue?: DialogueMark }
+  | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
   | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
@@ -607,6 +623,8 @@ export type Action =
   | { type: 'viewer_image'; at: Location; image: Bitmap }
   | { type: 'viewer_error'; at: Location; error: string }
   | { type: 'viewer_close' }
+  /** A watched file was written again (fs_changed). */
+  | { type: 'file_written'; at: Location; ts: number }
   | { type: 'focus'; actorKey: string; focus: Focus }
   | { type: 'follow'; peerId?: string }
   | { type: 'policy'; policy: Policy }
@@ -617,6 +635,7 @@ export type Action =
   | { type: 'dir_cache'; key: string; entries: readonly FsEntry[] }
   | { type: 'transfer'; transfer: Transfer }
   | { type: 'prefs'; prefs: { readonly [K in keyof Prefs]?: Prefs[K] | null } }
+  | { type: 'power_saving'; on: boolean }
   | { type: 'clear'; channel: string }
   | { type: 'context_reset'; channel: string }
   /** A conversation's side question (/btw) changed; none: it was closed. */
@@ -661,6 +680,7 @@ export const DEFAULT_PREFS: Prefs = {
   mouse: true,
   tunnel: 'auto',
   keepAwake: 'off',
+  lowPower: 'off',
   selfApproval: 'never',
   notify: NotifySchema.parse({}),
   autoSetup: true,
@@ -678,8 +698,11 @@ export const DEFAULT_PREFS: Prefs = {
   hiddenButtons: [],
   friendWorktrees: 'ask',
   chatClaude: 'everyone',
+  shareUsage: 'trusted',
   shellLogin: true,
   shellArgs: [],
+  claudeArgs: [],
+  codexArgs: [],
 };
 
 /** The preference fields out of saved settings. */
@@ -709,6 +732,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     log: [],
     approvals: [],
     browser: { rows: [], loading: false },
+    written: {},
     focus: {},
     policy,
     levels: {},
@@ -716,6 +740,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     dirCache: {},
     transfers: [],
     prefs: { ...DEFAULT_PREFS, ...prefs },
+    powerSaving: (prefs.lowPower ?? DEFAULT_PREFS.lowPower) === 'always',
     selfId: '',
     home: '',
     isHost: false,
@@ -762,11 +787,23 @@ export function stampAction<A extends Action>(action: A): A {
 }
 
 /** Someone's name: in the room, yourself, a friend, or someone in a project a friend shared with you. */
-export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects'] }, peerId: string): string =>
+export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects']; readonly remembered?: DomainState['remembered'] }, peerId: string): string =>
   state.peers.find((p) => p.peerId === peerId)?.name ??
   (state.self?.peerId === peerId
     ? state.self.name
-    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? peerId.slice(0, 6)));
+    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? state.remembered?.[peerId]?.name ?? peerId.slice(0, 6)));
+
+/** One file, wherever it is: the key `written` is kept by. */
+export const fileKey = (at: Location): string => `${at.owner}\0${at.share}\0${at.path}`;
+
+/** How many files' last writes are kept (the most recent; as many as are watched). */
+export const WRITTEN_LIMIT = 200;
+
+function noteWritten(written: Readonly<Record<string, number>>, key: string, ts: number): Readonly<Record<string, number>> {
+  const { [key]: _old, ...rest } = written;
+  const kept = Object.entries(rest).slice(-(WRITTEN_LIMIT - 1));
+  return { ...Object.fromEntries(kept), [key]: ts };
+}
 
 const sameLoc = (a: Location | undefined, b: Location): boolean =>
   Boolean(a) && a?.owner === b.owner && a.share === b.share && a.path === b.path;
@@ -999,6 +1036,10 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
           ...(action.dialogue ? { dialogue: action.dialogue } : {}),
         }),
       }, action.channel ?? 'room', true);
+    case 'chat_react': {
+      const log = reactOnLog(state.log, action);
+      return log === state.log ? state : { ...state, log };
+    }
     case 'system':
       return {
         ...state,
@@ -1096,6 +1137,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, viewer: { ...state.viewer, loading: false, error: action.error } };
     case 'viewer_close':
       return { ...state, viewer: undefined };
+    case 'file_written':
+      return { ...state, written: noteWritten(state.written, fileKey(action.at), action.ts) };
     case 'focus':
       return { ...state, focus: { ...state.focus, [action.actorKey]: action.focus } };
     case 'follow':
@@ -1115,6 +1158,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'trust':
       if (!action.trusted && state.levels[action.peerId] !== 'trusted') return state;
       return reduceDomain(state, { type: 'trust_level', peerId: action.peerId, level: action.trusted ? (state.levels[action.peerId] === 'full' ? 'full' : 'trusted') : 'ask' });
+    case 'power_saving':
+      return state.powerSaving === action.on ? state : { ...state, powerSaving: action.on };
     case 'prefs': {
       // A null clears a preference back to its default (an unset value can't travel as JSON).
       const prefs: Record<string, unknown> = { ...state.prefs };
@@ -1184,12 +1229,16 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'net_message':
     case 'net_messages':
     case 'net_unsent':
+    case 'net_reacted':
     case 'net_cleared':
     case 'net_files':
     case 'net_live':
     case 'net_main':
     case 'net_offer':
     case 'net_offer_gone':
+    case 'net_calls':
+    case 'net_call_notes':
+    case 'net_missed_calls':
     case 'net_off':
       return { ...state, ...reduceNetwork(state, action) };
     case 'support':
@@ -1243,6 +1292,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'sentinel_put':
     case 'sentinel_remove':
     case 'sentinel_run':
+    case 'sentinel_runs_gone':
     case 'sentinel_ask':
     case 'sentinel_trouble':
     case 'sentinel_webhook':

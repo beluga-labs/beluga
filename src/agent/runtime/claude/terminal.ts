@@ -38,7 +38,8 @@ export function trustFolder(dir: string, file = claudeJson()): void {
   }
   if (!config || typeof config !== 'object') return;
   const projects = (config.projects ??= {});
-  const keys = pathVariants(dir);
+  // On Windows Claude Code keys its projects with forward slashes (C:/Users/…): both spellings.
+  const keys = [...new Set(pathVariants(dir).flatMap((k) => (process.platform === 'win32' ? [k, k.replaceAll('\\', '/')] : [k])))];
   if (keys.some((k) => projects[k]?.hasTrustDialogAccepted === true)) return;
   for (const k of keys) projects[k] = { ...projects[k], hasTrustDialogAccepted: true };
   const tmp = `${file}.beluga-${process.pid}.tmp`;
@@ -78,6 +79,15 @@ export function sessionArgs(resume: string | undefined, fork: boolean, newId: ()
 }
 
 /**
+ * How the terminal's Claude Code asks, then your `claude` flags (Settings › Agents) as Terminal
+ * would take them: a mode of yours (--dangerously-skip-permissions, --permission-mode) over Beluga's.
+ */
+export function modeArgs(autoEdit: boolean, yours: readonly string[]): string[] {
+  const ownMode = yours.some((a) => /^--(dangerously-skip-permissions|permission-mode)(=|$)/.test(a));
+  return [...(autoEdit && !ownMode ? ['--permission-mode', 'acceptEdits'] : []), ...yours];
+}
+
+/**
  * Claude Code's own terminal app on a workspace's conversation (BLG-534), as a chat run would have
  * it: the same session, Beluga's tools (served for it over the tool host, as Codex's are), Beluga's
  * instructions with the terminal's (visuals as tokens), your user settings only (never a project's
@@ -92,7 +102,7 @@ export async function claudeTerminal(input: AgentRunInput, sink: TerminalSink, o
   const askOnly = place.askOnly;
   const autoEdit = !askOnly && place.autoEdit;
   const extraDirs = place.additionalDirectories;
-  const policy: PolicyContext = { cwd, roots: [cwd, ...extraDirs], autoEdit, scope: input.scope, guest: input.guest, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(place.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
+  const policy: PolicyContext = { cwd, roots: [cwd, ...extraDirs], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(place.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
   const bridge = input.channel && opts.bridge.inChannel ? opts.bridge.inChannel(input.channel) : opts.bridge;
   const mounted = await (opts.toolHost ?? toolHost()).mount(
     runToolSuites(input, bridge, new TerminalShelf(sink), cwd),
@@ -120,7 +130,7 @@ export async function claudeTerminal(input: AgentRunInput, sink: TerminalSink, o
       JSON.stringify(gateHookSettings(opts.node ?? process.execPath, gateHookFile(opts.home))),
       '--append-system-prompt',
       instructions,
-      ...(autoEdit ? ['--permission-mode', 'acceptEdits'] : []),
+      ...modeArgs(autoEdit, input.launchArgs?.claude ?? []),
       ...(model ? ['--model', model] : []),
       ...extraDirs.flatMap((d) => ['--add-dir', d]),
       // The message you sent from the chat, as the terminal's first prompt (BLG-553); after `--`, so

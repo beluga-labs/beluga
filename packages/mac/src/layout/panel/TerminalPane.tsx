@@ -8,7 +8,7 @@ import { useApi, useApp, useBeluga, useUi } from '../../lib/beluga.js';
 import { closeFocus, moveTerminal, openFocus, usePanelRuntime } from '../../lib/panel.js';
 import { setPrefs, usePrefs } from '../../lib/prefs.js';
 import { useGlobalShells } from '../../lib/shells.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { claimShell, extraShells, pruneShells, releaseShell, useShellOwners } from '../../lib/ws-shells.js';
 import { EnvStale, NoShells, ShellTabs, useEnvStale } from '../../views/TerminalView.js';
 import { TerminalTab } from '../../views/TerminalTab.js';
@@ -71,9 +71,9 @@ function WorkspaceScripts({ wsId }: { wsId: string }) {
   const runOn = useApp((st) => runId(wsId) in st.terminals && !(runId(wsId) in st.termExits));
   if (!project?.scripts?.run) return null;
   return runOn ? (
-    <IconButton icon="stop" label="Stop running" keys={`${mod()}R`} onClick={() => actions.run({ type: 'ws', id: wsId, action: 'stop_run' })} />
+    <IconButton icon="stop" label="Stop running" keys={chordLabel('Cmd+R')} onClick={() => actions.run({ type: 'ws', id: wsId, action: 'stop_run' })} />
   ) : (
-    <IconButton icon="play" label={`Run · ${project.scripts.run.command}`} keys={`${mod()}R`} onClick={() => actions.run({ type: 'ws', id: wsId, action: 'run' })} />
+    <IconButton icon="play" label={`Run · ${project.scripts.run.command}`} keys={chordLabel('Cmd+R')} onClick={() => actions.run({ type: 'ws', id: wsId, action: 'run' })} />
   );
 }
 
@@ -87,7 +87,7 @@ function useMenuItems(where: 'drawer' | 'panel', wsId: string | undefined): Acti
   return [
     { label: other === 'panel' ? 'Move to the Right Panel' : 'Move to the Bottom Drawer', icon: other === 'panel' ? 'panelRight' : 'panelBottom', onSelect: () => moveTerminal(client.store.getState(), other) },
     {
-      label: `${mod()}J Opens the Terminal`,
+      label: `${chordLabel('Cmd+J')} Opens the Terminal`,
       separate: true,
       onSelect: () => undefined,
       submenu: [
@@ -180,7 +180,7 @@ export function TerminalPane({ where, onClose }: { where: 'drawer' | 'panel'; on
         <ActionsDropdown items={items}>
           <IconButton icon="more" label="Terminal options" />
         </ActionsDropdown>
-        {onClose ? <IconButton icon="x" label="Close the drawer" keys={`${mod()}J`} onClick={onClose} /> : null}
+        {onClose ? <IconButton icon="x" label="Close the drawer" keys={chordLabel('Cmd+J')} onClick={onClose} /> : null}
       </div>
       <div ref={body} className={s.termBody}>
         {elsewhere ? (

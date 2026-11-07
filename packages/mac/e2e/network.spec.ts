@@ -31,7 +31,7 @@ test('the Friends card turns the network on, and friends show with their status'
   await card.getByRole('button', { name: 'Turn On' }).click();
   await expect(friend(page, 'bob')).toBeVisible({ timeout: 30_000 });
   await expect(friend(page, 'bob')).toHaveAccessibleName(/^bob, Online/);
-  await expect(friend(page, 'mia')).toHaveAccessibleName(/^mia, Away · in a meeting/, { timeout: 15_000 });
+  await expect(friend(page, 'mia')).toHaveAccessibleName(/^mia, Away · 📅 in a meeting/, { timeout: 15_000 });
   await expect(group(page, 'launch')).toBeVisible();
   // Your own status at the bottom of the sidebar.
   await expect(page.getByRole('button', { name: /^Your status: Online/ })).toBeVisible();
@@ -78,6 +78,27 @@ test('a chat with a friend opens scrolled all the way down', async ({ page }) =>
   await atBottom('mia');
   await friend(page, 'bob').click();
   await atBottom('bob');
+});
+
+test('what came in while you were away is marked when you come back, at the bottom (BLG-573)', async ({ page }) => {
+  await friend(page, 'bob').click();
+  const box = page.getByRole('textbox', { name: 'Message bob' });
+  await box.fill('Ping while I’m away');
+  await box.press('Enter');
+  // His answer lands while mia's chat is open: unread on his row.
+  await friend(page, 'mia').click();
+  await expect(friend(page, 'bob')).toHaveAccessibleName(/unread/, { timeout: 15_000 });
+  await friend(page, 'bob').click();
+  const log = page.getByRole('log', { name: 'Conversation with bob' });
+  await expect(log.getByText(/^(New message|\d+ new messages)$/)).toBeVisible();
+  await expect(log).toContainText('On it: “Ping while I’m away”');
+  await expect.poll(() => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(4);
+  await shot(page, 'unread-marked');
+  // Read now: the next visit has no line.
+  await friend(page, 'mia').click();
+  await friend(page, 'bob').click();
+  await expect(log).toContainText('On it: “Ping while I’m away”');
+  await expect(log.getByText(/^(New message|\d+ new messages)$/)).toHaveCount(0);
 });
 
 /** SHOTS=<folder>: save screenshots there. */
@@ -190,6 +211,22 @@ test('your status: Do Not Disturb from the sidebar, then back to Online', async 
   await expect(card.getByRole('radio', { name: /Do Not Disturb/ })).toHaveAttribute('aria-checked', 'true');
   await card.getByRole('radio', { name: /^Online/ }).click();
   await expect(page.getByRole('button', { name: /^Your status: Online/ })).toBeVisible();
+});
+
+test('your status gets an emoji next to its note, and a friend’s shows by their name', async ({ page }) => {
+  await expect(friend(page, 'mia').getByText('📅')).toBeVisible({ timeout: 15_000 });
+  await shot(page, '06-friends-emoji');
+  await page.getByRole('button', { name: /^Your status/ }).click();
+  const card = page.getByRole('dialog', { name: 'Your status' });
+  await card.getByRole('textbox', { name: 'Status note' }).fill('Beluga');
+  await card.getByRole('textbox', { name: 'Status note' }).press('Tab');
+  await card.getByRole('button', { name: 'Pick a status emoji' }).click();
+  await shot(page, '07-emoji-picker');
+  await page.getByRole('dialog', { name: 'Status emoji' }).getByRole('button', { name: '🐋' }).click();
+  await expect(page.getByRole('button', { name: /^Your status: Online · 🐋 Beluga/ })).toBeVisible();
+  await shot(page, '08-status-set');
+  await card.getByRole('button', { name: 'Clear the note and emoji' }).click();
+  await expect(page.getByRole('button', { name: /^Your status: Online$/ })).toBeVisible();
 });
 
 test('a friend’s right-click menu: Message, Add to Channel, Copy Name, Remove…', async ({ page }) => {

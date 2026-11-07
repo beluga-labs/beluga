@@ -2,9 +2,12 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { TerminalLaunch, TerminalSink } from '../agent/types.js';
 import type { StepRecord } from '../shared/steps.js';
+import { runtimeHas } from '../shared/runtime-fallbacks.js';
 import { describeVisual } from '../shared/term-visuals.js';
 import { agentTermId } from '../shared/terminal-keys.js';
 import type { PtyProcess } from '../terminal/pty-host.js';
+import { hasShellUnder } from '../terminal/shells-under.js';
+import { paced } from './power-saver.js';
 import type { Workspace } from '../workspaces/types.js';
 import { TranscriptTail, claudeTranscriptFile, claudeTurns, sizeOf } from './agent-term-sync.js';
 import { belugaHome } from './home.js';
@@ -42,7 +45,20 @@ export interface AgentTermDeps {
   /** How often the transcript is looked at while the terminal is open (default 700 ms; 0: only when asked, tests). */
   readonly pollMs?: number;
   readonly now?: () => number;
+  /** How long a terminal nobody shows and nothing happens in keeps its program (default 20 min, 5 while saving power; 0: always). */
+  readonly restAfterMs?: number;
+  /** Whether Low Power mode is saving now (BLG-621): terminals rest sooner. */
+  readonly saving?: () => boolean;
+  /** Whether a shell runs under the program (a command, a dev server): then it's never let go. */
+  readonly shellUnder?: (pid: number | undefined) => Promise<boolean>;
 }
+
+/** A terminal's program is let go of (and resumed when shown again) after this long unseen and quiet. */
+export const REST_AFTER_MS = 20 * 60_000;
+/** The same while Low Power mode saves (BLG-621). */
+export const REST_AFTER_SAVING_MS = 5 * 60_000;
+/** How often an unseen, quiet terminal looks for shells under its program. */
+const REST_CHECK_MS = 60_000;
 
 /** One open terminal. */
 interface Live {
@@ -55,8 +71,15 @@ interface Live {
   pty: PtyProcess;
   remembered: boolean;
   /** The message from the chat it opened with (BLG-553): in the chat already, so its copy in the transcript isn't. */
-  readonly handed?: string;
+  handed?: string;
   tail?: TranscriptTail;
+  /** Transcript messages let go of (their turns are in the chat). */
+  first: number;
+  /** When a screen last showed it. */
+  seenAt: number;
+  /** When it last looked for shells under its program (and whether it's looking now). */
+  checkedAt?: number;
+  checking?: boolean;
   timer?: NodeJS.Timeout;
 }
 
@@ -88,10 +111,10 @@ export class AgentTerminals {
     return channel.startsWith('ws:') && this.live.has(channel.slice(3));
   }
 
-  /** Whether a conversation can have its agent's terminal: a chat or a worktree of yours, not on Codex. */
+  /** Whether a conversation can have its agent's terminal: a chat or a worktree of yours, on an agent that has one (not Codex or OpenCode). */
   canOpen(wsId: string): boolean {
     const ws = this.deps.find(wsId);
-    return Boolean(ws && !ws.archived && ws.kind !== 'main' && this.deps.agentOf(wsId).runtime !== 'codex');
+    return Boolean(ws && !ws.archived && ws.kind !== 'main' && runtimeHas(this.deps.agentOf(wsId).runtime, 'terminal'));
   }
 
   /**
@@ -121,7 +144,7 @@ export class AgentTerminals {
     if (ws.kind === 'main') throw new Error('A project’s main folder has no conversation of its own: open a chat or a worktree.');
     const channel = `ws:${wsId}`;
     const agent = this.deps.agentOf(wsId);
-    if (agent.runtime === 'codex') throw new Error('Codex conversations stay in the chat: the terminal view is Claude Code’s (and local models’, which run in it).');
+    if (!runtimeHas(agent.runtime, 'terminal')) throw new Error(`${agent.label} conversations stay in the chat: the terminal view is Claude Code’s (and local models’, which run in it).`);
     this.deps.ensureLoaded(wsId);
     this.loadVisuals(wsId, true);
     const launch = await this.deps.launch(channel, this.sink(wsId), prompt);
@@ -133,13 +156,13 @@ export class AgentTerminals {
       const startAt = sizeOf(existing);
       const pty = this.deps.openProgram(key, ws, { file: launch.file, args: launch.args, env: launch.env, title: agent.label }, size);
       if (!pty) throw new Error('Beluga couldn’t start a terminal here.');
-      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
+      const entry: Live = { wsId, key, launch, runtime: agent.runtime, cwd: ws.path, startedAt, pty, remembered: !launch.fresh, first: 0, seenAt: startedAt, ...(prompt ? { handed: prompt } : {}), ...(existing ? { tail: new TranscriptTail(existing, startAt) } : {}) };
       this.live.set(wsId, entry);
       this.deps.store.dispatch({ type: 'agent_term', id: wsId, state: { runtime: agent.runtime, label: agent.label, since: startedAt } });
       pty.onExit(() => this.finish(wsId));
       const every = this.deps.pollMs ?? 700;
       if (every > 0) {
-        entry.timer = setInterval(() => this.tick(wsId), every);
+        entry.timer = setInterval(paced(every, () => this.deps.saving?.() ?? false, () => this.tick(wsId)), every);
         entry.timer.unref();
       }
       return key;
@@ -175,6 +198,33 @@ export class AgentTerminals {
     // Closed some other way (archived, the window's ✕): the conversation is the chat's again.
     if (this.deps.pty(live.key) !== live.pty || !live.pty.running) return this.finish(wsId);
     this.sync(wsId);
+    this.restIfIdle(wsId, live);
+  }
+
+  /**
+   * A terminal no screen has shown for a while, whose program wrote nothing since, whose last
+   * turn ended and with no shell running under it (a command, a dev server) is let go of: its
+   * Claude (hundreds of MB) stops, the conversation's turns are in the chat, and the screen
+   * resumes it when it's shown again. Never one that's working or asking something.
+   */
+  private restIfIdle(wsId: string, live: Live): void {
+    const after = this.deps.restAfterMs ?? (this.deps.saving?.() ? REST_AFTER_SAVING_MS : REST_AFTER_MS);
+    if (after <= 0) return;
+    const now = this.now;
+    if (live.pty.watchers > 0) {
+      live.seenAt = now;
+      return;
+    }
+    const quiet = (): boolean => live.pty.watchers === 0 && now - Math.max(live.seenAt, live.pty.lastOutputAt) >= after && Boolean(live.tail?.turnEnded);
+    if (!quiet() || live.checking || now - (live.checkedAt ?? 0) < REST_CHECK_MS) return;
+    live.checking = true;
+    live.checkedAt = now;
+    void (this.deps.shellUnder ?? hasShellUnder)(live.pty.pid)
+      .catch(() => true)
+      .then((busy) => {
+        live.checking = false;
+        if (!busy && this.live.get(wsId) === live && quiet()) this.takeOver(wsId);
+      });
   }
 
   /** Read what the terminal's agent wrote since the last look, into the chat. */
@@ -194,12 +244,18 @@ export class AgentTerminals {
     }
     const self = this.deps.self();
     // A few seconds' slack: the transcript's clock is the agent's, ours is the daemon's (the same Mac).
-    const opts = { selfId: self.id, selfName: self.name, cwd: live.cwd, key: `${live.startedAt.toString(36)}`, visual: (n: number) => this.visual(wsId, n), since: live.startedAt - 5_000 };
+    const opts = { selfId: self.id, selfName: self.name, cwd: live.cwd, key: `${live.startedAt.toString(36)}`, visual: (n: number) => this.visual(wsId, n), since: live.startedAt - 5_000, first: live.first };
     const turns = claudeTurns(live.tail.lines, opts);
     const items = withoutHanded(turns.items, live.handed);
     if (!items.length) return;
     this.deps.keepSteps?.(turns.steps);
     this.deps.store.dispatch({ type: 'log_upsert', channel: `ws:${wsId}`, items });
+    // Finished turns are in the chat now: only the one going on is read again on the next look.
+    if (turns.cut) {
+      live.tail.drop(turns.cut.lines);
+      live.first += turns.cut.messages;
+      live.handed = undefined;
+    }
   }
 
   private finish(wsId: string): void {

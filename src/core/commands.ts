@@ -7,6 +7,12 @@ import { defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { builtInInstead } from '../shared/skills.js';
 
+/**
+ * "~/x" (or "~\\x" on Windows) from your home folder. No node:os here (the screens load this file):
+ * Windows has no $HOME, so its USERPROFILE.
+ */
+const fromHome = (p: string): string => p.replace(/^~(?=$|[\\/])/, () => process.env.HOME || process.env.USERPROFILE || '~');
+
 export interface CommandSpec {
   readonly name: string;
   readonly args?: string;
@@ -71,6 +77,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 ];
 
 const POLICIES: readonly Policy[] = ['ask', 'auto', 'deny'];
+const COMMAND_ALIASES = new Set(['q', 'exit', 'h', '?', 'projects', 'workspaces', 'lobby', 'worktree', 'find', 'space', 'notifications', 'templates', 'e', 'download', 'peers', 'who', 'y', 'yes', 'n', 'no', 'a', 'always', 'graph', 'prefs', 'text']);
 
 /** What /visualize asks Claude (the graph format is in its instructions: agent/graph-prompt.ts). */
 export function visualizePrompt(what: string): string {
@@ -250,7 +257,7 @@ export function runCommand(session: Session, name: string, args: readonly string
       return;
     case 'share': {
       if (!arg) return session.toast('Usage: /share <folder> [rw]', 'warn');
-      session.shareFolder(arg.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'), args[1] === 'rw');
+      session.shareFolder(fromHome(arg), args[1] === 'rw');
       return;
     }
     case 'unshare':
@@ -350,6 +357,11 @@ export function runCommand(session: Session, name: string, args: readonly string
   }
 }
 
+/** Whether Beluga handles this command, including its aliases and `/dialogue`, which Session.submit takes before the command list. */
+export function isBelugaCommand(name: string): boolean {
+  return name === 'dialogue' || COMMANDS.some((command) => command.name === name) || COMMAND_ALIASES.has(name);
+}
+
 /** Workspace commands act on the workspace you're looking at (or its project). */
 function runWorkspaceCommand(session: Session, name: string, args: readonly string[], channel: string): void {
   const ctl = session.workspaces;
@@ -364,7 +376,7 @@ function runWorkspaceCommand(session: Session, name: string, args: readonly stri
       session.workbench?.setScript(project.id, sub, rest.join(' '));
       return;
     }
-    const dir = rest.join(' ').replace(/^~(?=$|\/)/, process.env.HOME ?? '~');
+    const dir = fromHome(rest.join(' '));
     if (!dir || (sub !== 'add' && sub !== 'folder')) return session.toast('Usage: /project add <path>, /project folder <path>, /project setup <command> or /project run <command>', 'warn');
     void (sub === 'add' ? ctl.addProject(dir) : ctl.addFolder(dir));
     return;

@@ -39,13 +39,18 @@ export function untilLabel(until: number | undefined, now = Date.now()): string 
   return `until ${new Date(until).toLocaleDateString([], { weekday: 'long' })}`;
 }
 
-/** "Away · in a meeting", "Online", "Offline"; "Needs a Beluga update" when your Macs can't link because of it. */
+/** A status's emoji and note together ("🌮 at lunch"), or '' when it has neither. */
+export function statusText(p: Pick<Presence, 'emoji' | 'note'>): string {
+  return [p.emoji?.trim(), p.note?.trim()].filter(Boolean).join(' ');
+}
+
+/** "Away · 🌮 at lunch", "Online", "Offline"; "Needs a Beluga update" when your Macs can't link because of it. */
 export function presenceLine(p: Pick<PersonView, 'online' | 'presence' | 'update'>): string {
   if (p.update === 'them') return 'Offline to you · their Beluga needs an update';
   if (p.update === 'you') return 'Update Beluga to reach them';
   const state = shownState(p);
-  const note = state !== 'offline' ? p.presence.note?.trim() : undefined;
-  return [STATE_LABEL[state], note].filter(Boolean).join(' · ');
+  const status = state !== 'offline' ? statusText(p.presence) : '';
+  return [STATE_LABEL[state], status].filter(Boolean).join(' · ');
 }
 
 /** Their Beluga in words: "1.2.0", "1.1.0 · update needed", or "An older version" for Macs that don't say. */
@@ -59,7 +64,7 @@ export function belugaLine(p: Pick<PersonView, 'beluga' | 'update'>): string {
 /** Your status in words, as your sidebar and the menu bar say it ("Do Not Disturb until 3:30 PM"). */
 export function selfLine(presence: Presence, now = Date.now()): string {
   const until = untilLabel(presence.until, now);
-  return [CHOICE_LABEL[presence.state] + (until ? ` ${until}` : ''), presence.note?.trim()].filter(Boolean).join(' · ');
+  return [CHOICE_LABEL[presence.state] + (until ? ` ${until}` : ''), statusText(presence)].filter(Boolean).join(' · ');
 }
 
 // ---- how long a status lasts
@@ -92,10 +97,11 @@ export function untilOf(duration: Duration, now = Date.now()): number | undefine
 }
 
 /** The status to send: the state, the note (trimmed, kept to 140), and when it ends. */
-export function presenceFor(state: PresenceState, opts: { note?: string; duration?: Duration } = {}, now = Date.now()): Presence {
+export function presenceFor(state: PresenceState, opts: { note?: string; emoji?: string; duration?: Duration } = {}, now = Date.now()): Presence {
   const note = opts.note?.trim().slice(0, 140);
+  const emoji = opts.emoji?.trim().slice(0, 32);
   const until = state === 'online' ? undefined : untilOf(opts.duration ?? 'forever', now);
-  return { state, ...(note ? { note } : {}), ...(until ? { until } : {}) };
+  return { state, ...(note ? { note } : {}), ...(emoji ? { emoji } : {}), ...(until ? { until } : {}) };
 }
 
 // ---- invitations
@@ -273,6 +279,21 @@ export function mergeMessages(earlier: readonly MessageView[], latest: readonly 
   return [...earlier.filter((m) => !ids.has(m.id)), ...latest];
 }
 
+export { unreadLine, unreadSince } from '../../../../src/shared/unread.js';
+
+/** Close enough to the bottom of a log to count as there. */
+const BOTTOM_SLACK = 48;
+
+/**
+ * Whether a log keeps following the bottom after it scrolled (`before`: where it was): at the
+ * bottom it does; scrolled up, it stops; pushed by what grew under it (pictures loading), as it was.
+ */
+export function keepsFollowing(was: boolean, before: number, now: { readonly top: number; readonly height: number; readonly client: number }): boolean {
+  if (now.height - now.top - now.client < BOTTOM_SLACK) return true;
+  if (now.top < before) return false;
+  return was;
+}
+
 // ---- away when idle
 
 /** Minutes without using the Mac before your status turns to Away by itself. */
@@ -284,7 +305,42 @@ export const IDLE_AWAY_MS = 10 * 60_000;
  */
 export function idleStep(opts: { readonly presence: Presence; readonly idleMs: number; readonly autoAway: boolean; readonly threshold?: number }): 'away' | 'online' | undefined {
   const threshold = opts.threshold ?? IDLE_AWAY_MS;
-  if (!opts.autoAway && opts.presence.state === 'online' && opts.idleMs >= threshold) return 'away';
+  if (opts.presence.state === 'online' && opts.idleMs >= threshold) return 'away';
   if (opts.autoAway && opts.presence.state === 'away' && opts.idleMs < threshold) return 'online';
   return undefined;
+}
+
+/**
+ * Where the watcher remembers that it made you Away. Your status itself is kept by the core, so
+ * this has to outlive the window too: after a reload or a relaunch you still come back Online.
+ */
+export const IDLE_AWAY_KEY = 'beluga.idleAway';
+
+type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+const localStore = (): KeyStore | undefined => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Whether your Away is the watcher's doing (not one you chose). */
+export function wasIdleAway(store: KeyStore | undefined = localStore()): boolean {
+  try {
+    return store?.getItem(IDLE_AWAY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Mark Away as the watcher's (true) or yours (false: a status you picked is never undone). */
+export function rememberIdleAway(on: boolean, store: KeyStore | undefined = localStore()): void {
+  try {
+    if (on) store?.setItem(IDLE_AWAY_KEY, '1');
+    else store?.removeItem(IDLE_AWAY_KEY);
+  } catch {
+    // Storage full or blocked: the watcher just won't bring you back this time.
+  }
 }

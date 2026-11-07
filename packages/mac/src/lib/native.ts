@@ -69,7 +69,11 @@ export function runMenuItem(id: string, client: SocketClient, ui: UiStore, actio
       return actions.run({ type: 'new_chat', projectId: newChatProject(state) });
     case 'new-worktree':
       if (project?.root) actions.run({ type: 'new_worktree', projectId: project.id });
-      else client.store.dispatch({ type: 'toast', text: 'Add a project first (File › Add Project…)', level: 'warn' });
+      else {
+        // A worktree needs a project: offer to add one, the way Add Project does.
+        client.store.dispatch({ type: 'toast', text: 'A worktree needs a project: add one first', level: 'warn' });
+        actions.run({ type: 'add_project' });
+      }
       return;
     case 'add-project':
       return actions.run({ type: 'add_project' });

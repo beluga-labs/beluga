@@ -14,7 +14,8 @@ import { sameDeep } from '../lib/stable.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { RoomStatus } from '../dialogs/native/RoomPopover.js';
 import { PhoneMark } from '../phone/Phone.js';
-import { Projects, ProjectsAddMenu } from './ProjectTree.js';
+import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
+import { Projects, ProjectsAddMenu, showArchivedOf } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
 import { WorkspaceRow } from './workspace-row.js';
 import { UnreadSection } from './UnreadSection.js';
@@ -33,6 +34,8 @@ import { SelfBar } from '../network/StatusMenu.js';
 import { UpdatePill } from '../components/UpdatePill.js';
 import s from './Sidebar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
+import { CallPill } from '../call/CallLayer.js';
+import { AppMenu } from './AppMenu.js';
 
 /**
  * The sidebar's top: three places, always. The rest are a click away without a row of their
@@ -111,7 +114,14 @@ export function Sidebar() {
   return (
     <nav ref={drop.ref} className={cx(s.sidebar, drop.over && s.dropping)} aria-label="Sidebar">
       <div className={s.titlebar} data-tauri-drag-region>
-        <span className={s.trafficSpace} data-tauri-drag-region />
+        {/* The traffic lights' place; in a browser, which has no menu bar, the menu bar's button (Settings and the rest). */}
+        {inApp() ? (
+          <span className={s.trafficSpace} data-tauri-drag-region />
+        ) : (
+          <span className={s.appMenu}>
+            <AppMenu />
+          </span>
+        )}
         <UsageButton />
         <IconButton icon="sidebar" label="Hide sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: false })} />
       </div>
@@ -156,7 +166,16 @@ export function Sidebar() {
           <>
             <UnreadSection />
 
-            <Section id="chats" title="Chats" action={<IconButton icon="plus" label="New chat (not tied to a project)" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}>
+            <Section
+              id="chats"
+              title="Chats"
+              action={
+                <>
+                  <ChatsMenu />
+                  <IconButton icon="plus" label="New chat (not tied to a project)" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />
+                </>
+              }
+            >
               {liveChats.map((w) => (
                 <WorkspaceRow key={w.id} ws={w} indent={0} />
               ))}
@@ -178,10 +197,31 @@ export function Sidebar() {
         <GroupsSection />
       </div>
       </SidebarSearch>
+      {/* The call you're in, while you look at something else (BLG-706). */}
+      <CallPill />
       <UpdatePill />
       <SidebarFooter />
       <SelfBar />
     </nav>
+  );
+}
+
+/**
+ * The Chats header's •••: archived chats stay out of the sidebar, so this is the way to them
+ * (the Overview's Archived list, narrowed to Chats), as a project's own menu has Show Archived.
+ */
+function ChatsMenu() {
+  const actions = useActions();
+  const chats = useApp((st) => {
+    const p = st.projects.find((x) => !x.root);
+    return p ? { id: p.id, archived: p.workspaces.filter((w) => w.archived).length } : undefined;
+  }, sameDeep);
+  if (!chats?.archived) return null;
+  const items: ActionItem[] = [{ label: `Show Archived (${chats.archived})`, icon: 'archive', onSelect: () => showArchivedOf(actions.run, chats.id) }];
+  return (
+    <ActionsDropdown items={items}>
+      <IconButton icon="more" label="Chats Options" />
+    </ActionsDropdown>
   );
 }
 

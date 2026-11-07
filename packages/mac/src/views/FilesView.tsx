@@ -13,6 +13,7 @@ import { SCROLL_ROOT } from '../components/markdown/md-dom.js';
 import { type ReaderMode, hasRenderedLook, initialMode } from './reader/reader-model.js';
 import { SearchField, SearchResults } from './SharedSearch.js';
 import s from './files.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 export { LANG, ext } from './reader/reader-model.js';
 
@@ -102,7 +103,7 @@ export function useRowItems(): (row: BrowserRow, onOpen: () => void) => ActionIt
     };
     return [
       { label: row.dir ? 'Open Folder' : 'Open', icon: row.dir ? 'folder' : 'file', onSelect: onOpen },
-      ...(local ? [{ label: 'Show in Finder', icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
+      ...(local ? [{ label: revealLabel(), icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
       { label: 'Copy Path', icon: 'copy', separate: true, onSelect: () => void copyText(local ?? mentionOf(state, at)).then(() => say('Copied the path')) },
       { label: 'Mention in Chat', icon: 'chat', onSelect: mention },
       ...(row.dir ? [] : [{ label: 'Save a Copy…', icon: 'download' as const, separate: true, onSelect: () => void saveFile(client, at) }]),

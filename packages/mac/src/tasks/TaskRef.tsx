@@ -24,7 +24,7 @@ const tipOf = (issue: Issue): string => `${issue.key} · ${STATUS_INFO[issue.sta
 
 function Missing({ taskKey, block, label }: { taskKey: string; block?: boolean; label?: 'worktree' | 'plan' }) {
   return (
-    <Tip label={label ? `No ${label} ${taskKey} here: deleted, or on someone else’s Mac` : `No task ${taskKey} on this board: deleted, or on someone else's`}>
+    <Tip label={label ? `No ${label} ${taskKey} here: deleted, or on someone else’s computer` : `No task ${taskKey} on this board: deleted, or on someone else's`}>
       <span className={block ? r.missingRow : r.missing}>
         <span className={r.key}>{taskKey}</span>
         <span>not found</span>

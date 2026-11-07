@@ -150,3 +150,25 @@ test('New Plan from the home: with no goal the sheet opens in this project; with
   await openHome(page);
   await expect(page.getByRole('region', { name: 'Plans' }).getByRole('button', { name: /^Export orders accountants/ })).toBeVisible();
 });
+
+test('the home shows the latest few tasks and GitHub issues, each opening, with the way to all of them (BLG-625)', async ({ page }) => {
+  await openHome(page);
+  const tasks = page.getByRole('region', { name: 'Tasks' });
+  // The demo's board has more open tasks, and its pretend GitHub more open issues: three of each.
+  await expect(tasks.getByRole('listitem')).toHaveCount(3);
+  const issues = page.getByRole('region', { name: 'Issues' });
+  await expect(issues.getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
+  if (process.env.BELUGA_SHOTS) {
+    await page.waitForTimeout(600);
+    await page.evaluate(() => document.querySelector('[aria-label="Tasks"]')?.scrollIntoView({ block: 'start' }));
+    await page.getByRole('main').screenshot({ path: `${process.env.BELUGA_SHOTS}/home-tasks-issues.png` });
+  }
+  // A row opens its task; Show All Tasks opens the board on this project.
+  const first = tasks.getByRole('button').filter({ hasNotText: 'Show All Tasks' }).first();
+  const title = (await first.getAttribute('aria-label'))!.replace(/^[A-Z]+-\d+: /, '').replace(/, [^,]+$/, '');
+  await first.click();
+  await expect(page.getByRole('main').getByText(title).first()).toBeVisible();
+  await openHome(page);
+  await page.getByRole('region', { name: 'Tasks' }).getByRole('button', { name: 'Show All Tasks' }).click();
+  await expect(page.getByRole('tablist', { name: 'Show' })).toBeVisible();
+});

@@ -1,13 +1,16 @@
+import { baseName, sepOf } from '@beluga/shared/os-path.js';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DotMatrix } from '../components/DotMatrix.js';
 import { Icon } from '../components/Icon.js';
 import { ProjectIcon } from '../components/ProjectIcon.js';
 import { Button, Segmented, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { inApp } from '../lib/boot.js';
+import { canPickFolders, inApp, webServed } from '../lib/boot.js';
 import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { pickFolders } from '../lib/projects.js';
 import s from './add-project.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 interface Found {
   readonly path: string;
@@ -25,6 +28,12 @@ const ago = (ts: number): string => {
 
 type Mode = 'add' | 'new';
 
+/** A folder you added here: on its way (adding takes a moment), in, or why it couldn't be. */
+type Row = { readonly kind: 'adding'; readonly init?: boolean } | { readonly kind: 'added' } | { readonly kind: 'failed'; readonly error: string; readonly canInit?: boolean };
+
+/** Suggestions shown before you filter (Filter searches every one found). */
+const NEWEST = 24;
+
 /**
  * Add projects the Mac way: drop folders on it, choose them in the Open panel, or pick from the
  * git projects already on this Mac (most recently worked on first). Or start a new one.
@@ -41,7 +50,7 @@ export function AddProjectSheet() {
   const hidden = useApp((st) => st.hiddenProjects.join('\n'));
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
   const [found, setFound] = useState<Found[] | undefined>();
-  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
+  const [rows, setRows] = useState<ReadonlyMap<string, Row>>(new Map());
   const [filter, setFilter] = useState('');
   const [typed, setTyped] = useState('');
   const [over, setOver] = useState(false);
@@ -52,16 +61,29 @@ export function AddProjectSheet() {
   useEffect(() => {
     if (!open) return;
     setMode(asked === 'new' ? 'new' : 'add');
-    setAdded(new Set());
+    setRows(new Map());
     setRevealed(new Set());
     setFilter('');
     setFound(undefined);
     void api.projects.suggest().then(setFound, () => setFound([]));
   }, [open, asked]);
 
+  const mark = (path: string, row: Row): void => setRows((m) => new Map(m).set(path, row));
+  // Each folder shows Adding… on its row at once, then Added or what went wrong.
   const add = async (paths: readonly string[]): Promise<void> => {
-    for (const p of paths) await api.projects.add(p);
-    setAdded((a) => new Set([...a, ...paths]));
+    await Promise.all(
+      paths.map(async (p) => {
+        mark(p, { kind: 'adding' });
+        const res = await api.projects.add(p).catch((err: unknown) => ({ error: errorText(err) }));
+        mark(p, res.error ? { kind: 'failed', error: res.error, canInit: 'canInit' in res && res.canInit } : { kind: 'added' });
+      }),
+    );
+  };
+  // A plain folder: git there, what's in it in a first commit, and it's added.
+  const initGit = async (p: string): Promise<void> => {
+    mark(p, { kind: 'adding', init: true });
+    const res = await api.projects.initGit(p).catch((err: unknown) => ({ error: errorText(err) }));
+    mark(p, res.error ? { kind: 'failed', error: res.error } : { kind: 'added' });
   };
 
   // Folders dropped anywhere on the window while this is open are added.
@@ -96,11 +118,13 @@ export function AddProjectSheet() {
     const known = new Set(roots.split('\n'));
     const q = filter.trim().toLowerCase();
     const listed = new Set((found ?? []).map((f) => f.path));
-    const hiddenOnly = found ? [...hiddenSet, ...revealed].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: p.split('/').filter(Boolean).pop() ?? p, changed: 0 })) : [];
-    return [...hiddenOnly, ...(found ?? [])]
-      .filter((f) => !known.has(f.path) || added.has(f.path) || revealed.has(f.path))
+    // Folders you dropped, chose or typed (not among the suggestions) and hidden projects come first.
+    const extra = found ? [...rows.keys(), ...hiddenSet, ...revealed].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: baseName(p) || p, changed: 0 })) : [];
+    const newest = (found ?? []).filter((f, i) => q || i < NEWEST || rows.has(f.path));
+    return [...extra, ...newest]
+      .filter((f) => !known.has(f.path) || rows.has(f.path) || revealed.has(f.path))
       .filter((f) => !q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
-  }, [found, filter, roots, added, hiddenSet, revealed]);
+  }, [found, filter, roots, rows, hiddenSet, revealed]);
 
   const choose = async (): Promise<void> => {
     const picked = await pickFolders('Add projects');
@@ -143,10 +167,10 @@ export function AddProjectSheet() {
               >
                 <Icon name="folder" size={22} />
                 <div className={s.dropText}>
-                  <strong>Drop project folders here</strong>
+                  <strong>{webServed() ? 'Choose a project folder where Beluga runs' : 'Drop project folders here'}</strong>
                   <span>A git project, or a folder full of them (new ones in it show up too).</span>
                 </div>
-                {inApp() ? (
+                {canPickFolders() ? (
                   <Button variant="primary" onClick={() => void choose()}>
                     Choose Folders…
                   </Button>
@@ -154,8 +178,8 @@ export function AddProjectSheet() {
               </div>
 
               <div className={s.listHead}>
-                <span>On this Mac</span>
-                <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label="Filter projects on this Mac" />
+                <span>On {thisComputer()}</span>
+                <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label={`Filter projects on ${thisComputer()}`} />
               </div>
               <div className={s.list} role="list">
                 {found === undefined ? (
@@ -164,18 +188,31 @@ export function AddProjectSheet() {
                   <div className={s.note}>{filter ? `Nothing called “${filter}”.` : 'No other git projects in ~/Projects, ~/Developer, ~/code and the like.'}</div>
                 ) : (
                   shown.map((f) => {
-                    const done = added.has(f.path) || revealed.has(f.path);
+                    const row = rows.get(f.path);
+                    const done = row?.kind === 'added' || revealed.has(f.path);
                     const wasHidden = hiddenSet.has(f.path) || revealed.has(f.path);
+                    const when = wasHidden ? 'hidden' : f.changed ? ago(f.changed) : undefined;
                     return (
-                      <div key={f.path} className={s.item} role="listitem" onDoubleClick={() => !done && void (wasHidden ? show(f.path) : add([f.path]))}>
+                      <div key={f.path} className={s.item} role="listitem" onDoubleClick={() => !done && !row && void (wasHidden ? show(f.path) : add([f.path]))}>
                         <ProjectIcon id={`path:${f.path}`} name={f.name} size={26} />
                         <span className={s.itemText}>
                           <span className={s.itemName}>{f.name}</span>
-                          <span className={s.itemPath}>
-                            {short(f.path)} · {wasHidden ? 'hidden' : ago(f.changed)}
-                          </span>
+                          {row?.kind === 'failed' ? (
+                            <span className={s.itemError} role="alert">
+                              {row.error}
+                            </span>
+                          ) : (
+                            <span className={s.itemPath}>
+                              {short(f.path)}
+                              {when ? ` · ${when}` : ''}
+                            </span>
+                          )}
                         </span>
-                        {done ? (
+                        {row?.kind === 'adding' ? (
+                          <span className={s.adding}>
+                            <DotMatrix size={12} /> {row.init ? 'Setting up git…' : 'Adding…'}
+                          </span>
+                        ) : done ? (
                           <span className={s.added}>
                             <Icon name="check" size={12} /> {wasHidden ? 'Showing' : 'Added'}
                           </span>
@@ -183,9 +220,13 @@ export function AddProjectSheet() {
                           <Button size="small" onClick={() => void show(f.path)} aria-label={`Show ${f.name}`}>
                             Show
                           </Button>
+                        ) : row?.kind === 'failed' && row.canInit ? (
+                          <Button size="small" onClick={() => void initGit(f.path)} aria-label={`Set up git in ${f.name}`}>
+                            Set Up Git
+                          </Button>
                         ) : (
                           <Button size="small" onClick={() => void add([f.path])}>
-                            Add
+                            {row?.kind === 'failed' ? 'Try Again' : 'Add'}
                           </Button>
                         )}
                       </div>
@@ -208,8 +249,8 @@ export function AddProjectSheet() {
                   Add
                 </Button>
                 <span className={s.flex} />
-                <Button variant={added.size || revealed.size ? 'primary' : 'quiet'} onClick={close}>
-                  {added.size || revealed.size ? 'Done' : 'Cancel'}
+                <Button variant={rows.size || revealed.size ? 'primary' : 'quiet'} onClick={close}>
+                  {rows.size || revealed.size ? 'Done' : 'Cancel'}
                 </Button>
               </form>
             </>
@@ -262,7 +303,7 @@ function NewProject({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const where = parent ? `${short(parent).replace(/\/$/, '')}/${name.trim() || 'name'}` : undefined;
+  const where = parent ? `${short(parent).replace(/[\\/]+$/, '')}${sepOf(parent)}${name.trim() || 'name'}` : undefined;
   return (
     <form
       className={s.newForm}
@@ -278,7 +319,7 @@ function NewProject({ onDone }: { onDone: () => void }) {
       <div className={s.field}>
         <span>In</span>
         <div className={s.whereRow}>
-          {inApp() ? (
+          {canPickFolders() ? (
             <>
               <span className={s.whereText}>
                 <Icon name="folder" size={13} /> {parent ? short(parent) : 'Your code folder'}

@@ -4,6 +4,7 @@ import type { DraftContext, TaskDraft } from './task-drafter.js';
 import type { AgentRef, ClaudeAnswer, ClaudeQuestion, FsEntry, PeerInfo, Usage } from '../protocol.js';
 import type { UsageUpdate } from './usage.js';
 import type { StepRecord } from '../shared/steps.js';
+import type { ArgsRuntime } from '../shared/agent-args.js';
 
 /** How far a request may reach on the owner's computer. */
 export type AccessScope = 'folder' | 'full';
@@ -28,6 +29,8 @@ export interface AgentRunInput {
   readonly onAnswered?: (text: string) => void;
   /** Asked by a guest invited into one project: the room tools (other people, their files, the room chat) are off. */
   readonly guest?: boolean;
+  /** A friend's run with the board (BLG-701): which board tools ask you first ('writes': changes; 'all': every one). */
+  readonly boardAsks?: 'writes' | 'all';
   readonly signal: AbortSignal;
   readonly onEvent: (kind: 'text' | 'tool' | 'progress' | 'sub' | 'context' | 'compact' | 'usage', text: string) => void;
   /**
@@ -66,6 +69,11 @@ export interface AgentRunInput {
    * that runs commands without asking Beluga first (Codex) asks for each one instead.
    */
   readonly askBeforeCommands?: boolean;
+  /**
+   * Your own run: your flags for the agent's command line, by runtime (Settings › Agents › Launch
+   * flags; shared/agent-args.ts). Never set on a friend's or a guest's run.
+   */
+  readonly launchArgs?: Readonly<Partial<Record<ArgsRuntime, readonly string[]>>>;
   /**
    * Your own Claude wants a .env file (policy.ts 'secret'): ask you, even when nothing else would.
    * Without it (a friend's request, a task from outside) .env files are refused like every secret.
@@ -120,6 +128,8 @@ export interface AgentRunInput {
   readonly sentinelBrief?: string;
   /** Your own runs: dashboards and the numbers sentinels keep (server `beluga_dashboard`; sentinel_measure inside a run). */
   readonly dashboardTools?: DashboardTools;
+  /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
+  readonly callNotesTools?: CallNotesTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
   readonly dialogue?: import('./dialogue-tools.js').DialogueTurnTools;
 }
@@ -161,6 +171,10 @@ export interface SentinelTools {
   update(ref: string, patch: import('../core/sentinel/tool-draft.js').ToolPatch): string | Promise<string>;
   /** Delete it (through your approval: never in ALWAYS_OK). */
   remove(ref: string): string;
+  /** Its runs, newest first: id, when, how it ended, its line, whether its agent's chat is kept (BLG-577). */
+  runs(ref: string): string;
+  /** Delete some of its runs' chats, or the runs themselves (through your approval, always) → what was done. */
+  deleteRuns(ref: string, which: { readonly runs?: readonly string[]; readonly state?: string; readonly before?: string }, what: 'chat' | 'run'): Promise<string>;
   /** This conversation changes that sentinel (sentinel.ask): its id. */
   readonly asking?: string;
 }
@@ -550,4 +564,14 @@ export interface RoomBridge {
   readonly gateway?: import('./gateway-tools.js').GatewayBridge;
   /** The same tools bound to one conversation (a run's: chat, asks and their answers go there). */
   inChannel?(channel: string): RoomBridge;
+}
+
+/** Call notes as tools (core/calls/notes-tools.ts): each answers in words an agent reads. */
+export interface CallNotesTools {
+  /** The calls with notes, newest first. */
+  list(limit?: number): string;
+  /** Where something was said: the call, the time into it, who, and the words around it. */
+  search(query: string, call?: string, limit?: number): string;
+  /** A page of one call, from a turn (`from`) or a time into it (`at`: "12:30", or minutes). */
+  read(call: string, opts?: { readonly from?: number; readonly at?: string | number; readonly limit?: number }): string;
 }

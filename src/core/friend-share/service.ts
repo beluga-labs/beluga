@@ -23,7 +23,7 @@ import { type FriendShareInput, type FriendSharing, historyFor, saidBy } from '.
 import { COPY_TTL_MS, cloneFrom, cloneFromBundle, cloneUrl, copiesHome, copyTarget, packProject } from './copy.js';
 import { ShareCourier, type ShareMesh } from './courier.js';
 import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } from './fork.js';
-import { HISTORY_ITEMS, HISTORY_TEXT, type ShareMsg } from './protocol.js';
+import { HISTORY_TEXT, HISTORY_TEXT_LONG, type ShareMsg, historyPageOf } from './protocol.js';
 
 /**
  * Sharing with friends over the network, with nobody hosting (docs/network.md, "Sharing with
@@ -82,15 +82,19 @@ interface FolderGrant {
 }
 
 /** Room messages that may travel over a friend's link, and only about what you share. */
-const KINDS = new Set<Body['kind']>(['chat', 'agent_request', 'agent_event', 'agent_question', 'agent_answer', 'fs_list', 'fs_read', 'fs_fetch', 'fs_search', 'ws_diff', 'fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result', 'fs_changed', 'ws_roster', 'ws_leave', 'ws_handoff', 'ws_handoff_result']);
+const KINDS = new Set<Body['kind']>(['chat', 'chat_react', 'agent_request', 'agent_event', 'agent_question', 'agent_answer', 'fs_list', 'fs_read', 'fs_fetch', 'fs_search', 'ws_diff', 'fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result', 'fs_changed', 'ws_roster', 'ws_leave', 'ws_handoff', 'ws_handoff_result', 'ws_handoff_check', 'ws_handoff_check_result']);
 const RESULTS = new Set<Body['kind']>(['fs_list_result', 'fs_read_result', 'fs_chunk', 'fs_search_result', 'ws_diff_result']);
 /** A Claude's steps as they stream only go to who's linked now; these wait for an offline Mac. */
 const KEPT_EVENTS = new Set(['queued', 'awaiting_approval', 'started', 'done', 'error', 'denied', 'answered']);
 const INBOUND_KEPT = 500;
+/** How long a "do you have this repository?" before a handoff waits for its answer. */
+const CHECK_TTL_MS = 60_000;
 /** A friend's worktree's conversation kept on your Mac (the pages you scrolled back to, and what's said since). */
 const HISTORY_KEPT = 2000;
 /** How long each message of a fork's conversation may be. */
-const FORK_TEXT = 20_000;
+const FORK_TEXT = HISTORY_TEXT_LONG;
+/** A fork's progress as it comes over goes to the screens at most this often. */
+const FORK_PROGRESS_MS = 250;
 const ICON_MAX = 120_000;
 
 const wsOf = (channel: string | undefined): string | undefined => (channel?.startsWith('ws:') ? channel.slice(3) : undefined);
@@ -130,6 +134,9 @@ export class FriendShares implements FriendSharing {
   private readonly handoffsOut = new Map<string, string>();
   /** Handoffs a friend offered you over the network, to answer them the same way (hid → them). */
   private readonly handoffsIn = new Map<string, string>();
+  /** "Do you have this repository?" asked of a friend outside your room before a handoff, and asked of you (reqId → them, BLG-614). */
+  private readonly checksOut = new Map<string, string>();
+  private readonly checksIn = new Map<string, string>();
   /** The names you gave forks you asked for (their worktree's id → name). */
   private readonly forkNames = new Map<string, string>();
 
@@ -311,7 +318,7 @@ export class FriendShares implements FriendSharing {
         if (had?.sig === sig && !fresh.length) continue;
         changed = true;
         if (had?.sig !== sig) this.courier.send(peerId, msg, { reliable: true, key: `project:${projectId}` });
-        for (const w of fresh) this.courier.send(peerId, { k: 'history', ws: w.id, ...this.historyPage(w.id) }, { reliable: true });
+        for (const w of fresh) this.courier.send(peerId, { k: 'history', ws: w.id, ...this.historyPage(w.id, peerId) }, { reliable: true });
         this.sent = { ...this.sent, [peerId]: { ...this.sent[peerId], [projectId]: { sig, ws: worktrees.map((w) => w.id) } } };
       }
     }
@@ -378,9 +385,10 @@ export class FriendShares implements FriendSharing {
    * A page of a worktree's conversation, the newest before `before` (or the newest of all): from
    * what's saved on disk and what's said this session, so the whole of it can be scrolled back to.
    */
-  private historyPage(wsId: string, before = Infinity): { items: HistoryItem[]; more: boolean } {
-    const all = this.historyOf(wsId, HISTORY_TEXT).filter((h) => h.ts < before);
-    return { items: all.slice(-HISTORY_ITEMS), more: all.length > HISTORY_ITEMS };
+  private historyPage(wsId: string, to: string, before = Infinity): { items: HistoryItem[]; more: boolean } {
+    // A Mac from before long messages refuses a page with one over 4,000 characters: cut them for it.
+    const long = this.opts.mesh.belugaOf(to)?.can.includes('share.history.long') ?? false;
+    return historyPageOf(this.historyOf(wsId, long ? HISTORY_TEXT_LONG : HISTORY_TEXT).filter((h) => h.ts < before));
   }
 
   /** All of a worktree's conversation, each message up to `max` characters. */
@@ -395,7 +403,7 @@ export class FriendShares implements FriendSharing {
       // Only what's on screen, then.
     }
     const ids = new Set(live.map((l) => l.id));
-    return historyFor([...saved.filter((l) => !ids.has(l.id)), ...live], channel, (id) => peerName(state, id), Number.MAX_SAFE_INTEGER)
+    return historyFor([...saved.filter((l) => !ids.has(l.id)), ...live], channel, (id) => peerName(state, id), Number.MAX_SAFE_INTEGER, max)
       .filter((h) => h.text.trim())
       .map((h) => ({ from: h.from.slice(0, 120), text: h.text.slice(0, max), ts: Math.max(0, Math.floor(h.ts)), byAgent: h.byAgent }));
   }
@@ -417,6 +425,7 @@ export class FriendShares implements FriendSharing {
     // A folder shared with a friend over the network: its own `folder` message says so (see syncFolders).
     if (body.kind === 'share_offer') return mesh.isFriend(to) && (this.folders[body.name]?.peers.includes(to) || !this.state.peers.some((p) => p.peerId === to)) ? true : undefined;
     if (body.kind === 'ws_handoff' || body.kind === 'ws_handoff_result') return this.routeHandoff(to, body);
+    if (body.kind === 'ws_handoff_check' || body.kind === 'ws_handoff_check_result') return this.routeHandoffCheck(to, body);
     if (!KINDS.has(body.kind) || !mesh.isFriend(to)) return undefined;
     if (!this.about(to, body)) return undefined;
     // Who's in a shared worktree goes with the project's own message.
@@ -424,8 +433,9 @@ export class FriendShares implements FriendSharing {
     const ws = 'channel' in body ? wsOf(body.channel) : undefined;
     const theirs = ws ? this.receivedWs(ws) : undefined;
     // In a friend's worktree, its owner passes what you say on to the others.
-    if (body.kind === 'chat' && theirs && theirs.owner !== to) return true;
-    const reliable = body.kind === 'chat' || body.kind === 'agent_request' || body.kind === 'agent_question' || body.kind === 'agent_answer' || (body.kind === 'agent_event' && KEPT_EVENTS.has(body.event));
+    // A reaction to a message there (BLG-702) goes the same way.
+    if ((body.kind === 'chat' || body.kind === 'chat_react') && theirs && theirs.owner !== to) return true;
+    const reliable = body.kind === 'chat' || body.kind === 'chat_react' || body.kind === 'agent_request' || body.kind === 'agent_question' || body.kind === 'agent_answer' || (body.kind === 'agent_event' && KEPT_EVENTS.has(body.event));
     const went = this.courier.send(to, { k: 'body', b: body }, { reliable });
     if (body.kind === 'agent_request' && !went) this.dispatch({ type: 'fshare_delivery', id: body.requestId, state: 'waiting' });
     return reliable ? true : went;
@@ -459,6 +469,29 @@ export class FriendShares implements FriendSharing {
     }, COPY_TTL_MS).unref();
     this.courier.send(to, { k: 'body', b: body }, { reliable: true });
     return true;
+  }
+
+  /** The quick "do you have this repository?" before a handoff goes the same way as the handoff would (BLG-614). */
+  private routeHandoffCheck(to: string, body: Extract<BodyInput, { kind: 'ws_handoff_check' | 'ws_handoff_check_result' }>): boolean | undefined {
+    const { mesh } = this.opts;
+    if (!mesh.isFriend(to)) return undefined;
+    if (body.kind === 'ws_handoff_check_result') {
+      if (this.checksIn.get(body.reqId) !== to) return undefined;
+      this.checksIn.delete(body.reqId);
+      return this.courier.send(to, { k: 'body', b: body }, { reliable: false });
+    }
+    if (this.state.peers.some((p) => p.peerId === to)) return undefined;
+    if (cannotTake('', mesh.belugaOf(to), 'share.handoff', mesh.isLinked(to))) return false;
+    // Only asked of someone reachable now: an offline friend's handoff simply waits for them, as before.
+    if (!this.courier.send(to, { k: 'body', b: body }, { reliable: false })) return false;
+    this.remember(this.checksOut, body.reqId, to);
+    return true;
+  }
+
+  /** Remember who a request went to (or came from) for a while, to match their answer. */
+  private remember(map: Map<string, string>, key: string, peerId: string): void {
+    map.set(key, peerId);
+    setTimeout(() => map.delete(key), CHECK_TTL_MS).unref();
   }
 
   /** Is this message about something shared between you and `peerId` over the network? */
@@ -529,7 +562,7 @@ export class FriendShares implements FriendSharing {
       case 'history':
         return this.onHistory(from, m);
       case 'history_request':
-        if (this.grantedTo(m.ws, from)) this.courier.send(from, { k: 'history', ws: m.ws, before: m.before, ...this.historyPage(m.ws, m.before) }, { reliable: false });
+        if (this.grantedTo(m.ws, from)) this.courier.send(from, { k: 'history', ws: m.ws, before: m.before, ...this.historyPage(m.ws, from, m.before) }, { reliable: false });
         return;
       case 'body':
         return this.onBody(from, m, got.id);
@@ -562,6 +595,14 @@ export class FriendShares implements FriendSharing {
     if ('channel' in body && body.channel !== undefined && !mine && !theirs) return;
     if (body.kind === 'ws_roster' || body.kind === 'ws_leave') return;
     if (body.kind === 'ws_handoff' && !this.tookHandoff(from, body)) return;
+    if (body.kind === 'ws_handoff_check') {
+      if (this.checksIn.has(body.reqId)) return;
+      this.remember(this.checksIn, body.reqId, from);
+    }
+    if (body.kind === 'ws_handoff_check_result') {
+      if (this.checksOut.get(body.reqId) !== from) return;
+      this.checksOut.delete(body.reqId);
+    }
     if (body.kind === 'ws_handoff_result') {
       if (this.handoffsOut.get(body.hid) !== from) return;
       this.handoffsOut.delete(body.hid);
@@ -569,7 +610,7 @@ export class FriendShares implements FriendSharing {
     let author = from;
     if (m.as) {
       // Only a worktree's owner passes on what others said in it.
-      if (body.kind !== 'chat' || !theirs || m.as === this.opts.mesh.peerId) return;
+      if ((body.kind !== 'chat' && body.kind !== 'chat_react') || !theirs || m.as === this.opts.mesh.peerId) return;
       author = m.as;
     }
     if (body.kind === 'agent_request' && (!mine || body.project)) return;
@@ -587,7 +628,9 @@ export class FriendShares implements FriendSharing {
     if (RESULTS.has(body.kind) && !this.related(from)) return;
     void session.receiveFromFriend(author, body, frameId);
     // What someone says in your worktree goes on to the others in it.
-    if (body.kind === 'chat' && mine && !m.as && session.sharing.canPost(from, body.channel ?? '')) {
+    // Reactions too (BLG-702), from anyone who sees it (viewers may react, not post).
+    const passOn = body.kind === 'chat' ? session.sharing.canPost(from, body.channel ?? '') : body.kind === 'chat_react' && session.sharing.canSee(from, body.channel);
+    if (passOn && mine && !m.as) {
       for (const peer of Object.keys(session.sharing.members(ws!))) if (peer !== from) this.courier.send(peer, { k: 'body', b: body, as: from }, { reliable: true });
     }
   }
@@ -777,7 +820,7 @@ export class FriendShares implements FriendSharing {
         this.opts.session.shareService.remove(share);
         void fs.rm(dir, { recursive: true, force: true });
       }, COPY_TTL_MS).unref();
-      this.courier.send(from, { k: 'fork_ready', ws: wsId, share, size }, { reliable: true });
+      this.courier.send(from, { k: 'fork_ready', ws: wsId, share, size, files: meta.changed + meta.scratch }, { reliable: true });
       const what = [meta.changed ? `${meta.changed} uncommitted ${meta.changed === 1 ? 'file' : 'files'}` : '', meta.scratch ? 'Scratch' : '', 'the conversation'].filter(Boolean).join(', ');
       this.dispatch({ type: 'system', channel: `ws:${wsId}`, text: `${name} forked this worktree to their Mac (its commits, ${what}). This one stays as it is.` });
     } catch (err) {
@@ -791,14 +834,22 @@ export class FriendShares implements FriendSharing {
     const rec = this.receivedWs(m.ws);
     const ctl = this.opts.session.workspaces;
     if (!rec || rec.owner !== from || !ctl || this.state.forks[m.ws]?.state !== 'asking' || m.size > MAX_DOWNLOAD_BYTES) return;
-    this.setFork(m.ws, { state: 'copying' });
+    const files = m.files !== undefined ? { files: m.files } : {};
+    this.setFork(m.ws, { state: 'copying', received: 0, total: m.size, ...files });
     this.incoming.set(m.share, from);
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'beluga-fork-'));
     let made: { root: string; branch: string } | undefined;
+    let shown = 0;
+    const progress = (received: number, total: number): void => {
+      const now = Date.now();
+      if (received < total && now - shown < FORK_PROGRESS_MS) return;
+      shown = now;
+      this.setFork(m.ws, { state: 'copying', received, total, ...files });
+    };
     try {
       const project = await this.localProjectOf(rec);
       if (!project) throw new Error(`${rec.name} isn’t on this Mac any more`);
-      const bytes = await fetchBytes({ owner: from, share: m.share, path: 'fork.tgz' }, (to, b) => this.opts.session.files.request(to, b), MAX_DOWNLOAD_BYTES);
+      const bytes = await fetchBytes({ owner: from, share: m.share, path: 'fork.tgz' }, (to, b) => this.opts.session.files.request(to, b), MAX_DOWNLOAD_BYTES, progress);
       const got = await unpackFork(bytes, tmp);
       const name = this.forkNames.get(m.ws) || clean(got.meta.name) || 'fork';
       const branch = await ctl.manager.freeBranchName(project.root, name);
@@ -939,8 +990,8 @@ export class FriendShares implements FriendSharing {
     const rec = ws ? this.receivedWs(ws) : undefined;
     if (!rec || !ws) return;
     let item: HistoryItem | undefined;
-    if (action.type === 'chat') item = { from: peerName(this.state, action.from), text: action.text.slice(0, HISTORY_TEXT), ts: action.ts, byAgent: action.byAgent };
-    if (action.type === 'agent_event' && action.event === 'done' && action.text.trim()) item = { from: agentLabel(action.agent, peerName(this.state, action.owner), false), text: action.text.slice(0, HISTORY_TEXT), ts: action.ts, byAgent: true };
+    if (action.type === 'chat') item = { from: peerName(this.state, action.from), text: action.text.slice(0, HISTORY_TEXT_LONG), ts: action.ts, byAgent: action.byAgent };
+    if (action.type === 'agent_event' && action.event === 'done' && action.text.trim()) item = { from: agentLabel(action.agent, peerName(this.state, action.owner), false), text: action.text.slice(0, HISTORY_TEXT_LONG), ts: action.ts, byAgent: true };
     if (!item) return;
     const history = [...(rec.history[ws] ?? []), item].slice(-HISTORY_KEPT);
     this.received = { ...this.received, [keyOf(rec.owner, rec.id)]: { ...rec, history: { ...rec.history, [ws]: history } } };

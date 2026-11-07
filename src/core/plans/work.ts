@@ -149,7 +149,16 @@ export class PlansWork {
 
   /** A plan's own conversation, made quietly (the demo's plan), with what was said there saved (as after a restart: it loads when it's opened). */
   async homeFor(projectId: string, title: string, said?: (channel: string) => readonly LogItem[]): Promise<string | undefined> {
-    const chat = await this.deps.controller?.newChat(projectId, `Plan: ${title}`, undefined, { quiet: true });
+    return this.savedChat(projectId, `Plan: ${title}`, said);
+  }
+
+  /** A milestone's checker conversation with what it said (the demo's passed milestone): its workspace id. */
+  async checkerFor(projectId: string, title: string, said: (channel: string) => readonly LogItem[]): Promise<string | undefined> {
+    return (await this.savedChat(projectId, `Check: ${title}`.slice(0, 40), said))?.slice(WS.length);
+  }
+
+  private async savedChat(projectId: string, name: string, said?: (channel: string) => readonly LogItem[]): Promise<string | undefined> {
+    const chat = await this.deps.controller?.newChat(projectId, name, undefined, { quiet: true });
     if (!chat) return undefined;
     if (said) this.deps.controller?.manager.saveHistory(chat.id, said(`${WS}${chat.id}`));
     return `${WS}${chat.id}`;

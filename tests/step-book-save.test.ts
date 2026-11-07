@@ -19,10 +19,11 @@ const { StepBook } = await import('../src/core/step-book.js');
 
 const rec = (id: string, extra: Partial<StepRecord> = {}): StepRecord => ({ id, kind: 'tool', tool: 'Bash', title: `Bash ${id}`, status: 'done', startedAt: 1, input: { command: id }, output: `out ${id}`, ...extra });
 const saved = (dir: string): { version: number; steps: StepRecord[] } => JSON.parse(readFileSync(path.join(dir, readdirSync(dir).find((f) => f.endsWith('.json'))!), 'utf8'));
-/** Waits on the disk, not on timers (they're faked in some tests). */
+/** Waits on the disk, not on timers (they're faked in some tests); by the clock, as a slow disk (Windows) takes more turns. */
 const tick = () => new Promise((r) => setImmediate(r));
-const until = async (ok: () => boolean): Promise<void> => {
-  for (let i = 0; i < 5_000 && !ok(); i++) await tick();
+const until = async (ok: () => boolean, ms = 10_000): Promise<void> => {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await tick();
 };
 
 let dir: string;
@@ -60,6 +61,8 @@ describe('saving a run’s steps (BLG-407)', () => {
     expect(saved(dir).steps.map((s) => s.id)).toEqual(['a', 'b', 'c']);
     for (let i = 0; i < 200; i++) await tick();
     expect(saved(dir).steps.map((s) => s.id)).toEqual(['a', 'b', 'c']);
+    // The write in flight is let go: its file goes (a moment later on Windows, whose scanner can hold it).
+    await until(() => !readdirSync(dir).some((f) => f.endsWith('.tmp')));
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
     expect(new StepBook(dir).page('k').steps).toHaveLength(3);
   });
@@ -104,6 +107,24 @@ describe('saving a run’s steps (BLG-407)', () => {
     rmSync(file);
     again.flush('k');
     expect(readFileSync(file, 'utf8')).toBe(text);
+  });
+
+  it('lets go of the least recently used big runs past its memory budget, and reads them back whole', () => {
+    const book = new StepBook(dir);
+    const big = 'x'.repeat(2_500_000);
+    for (const k of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) book.put(k, rec(`${k}-step`, { output: big }));
+    const inMemory = (book as unknown as { runs: Map<string, unknown> }).runs;
+    expect(inMemory.size).toBeLessThan(6);
+    expect(inMemory.has('r6')).toBe(true);
+    expect(inMemory.has('r1')).toBe(false);
+    expect(book.get('r1', 'r1-step')?.output).toBe(big);
+  });
+
+  it('keeps every run in memory when it has nowhere to save them', () => {
+    const book = new StepBook();
+    const big = 'x'.repeat(2_500_000);
+    for (const k of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) book.put(k, rec(`${k}-step`, { output: big }));
+    expect(book.get('r1', 'r1-step')?.output).toBe(big);
   });
 
   it('still keeps only the newest runs on disk', async () => {

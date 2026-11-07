@@ -11,6 +11,7 @@ import { followed, isFresh, timeAgo } from '../layout/panel/scratch-model.js';
 import { type Places, howLabel, outputsKey, placeOf } from './outputs-model.js';
 import s from './agent-outputs.module.css';
 import { everyWhileShown } from '../lib/window-active.js';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * A sub-agent's Outputs: what it made or looked at while it worked (screenshots, test output,
@@ -119,7 +120,7 @@ function Preview({ sessionId, agentId, item, places, onClose }: { sessionId: str
         </span>
         <span className={s.flex} />
         <IconButton icon="external" label="Open With Its App" onClick={() => void openWithDefaultApp(client, item.path)} />
-        <IconButton icon="folder" label="Show in Finder" onClick={() => void revealInFinder(client, item.path)} />
+        <IconButton icon="folder" label={revealLabel()} onClick={() => void revealInFinder(client, item.path)} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={onClose} />
       </div>
       {dir ? <div className={cx(s.previewPath, 'selectable')} title={item.path}>{dir}</div> : null}
@@ -234,7 +235,7 @@ export function AgentOutputs({ sessionId, agentId, list, cwd }: { sessionId: str
               { value: 'pinned', label: 'Picked', hint: 'Stay on the file you picked' },
             ]}
           />
-          {list.scratch ? <IconButton icon="folder" label="Show Its Folder in Finder" onClick={() => void revealInFinder(client, list.scratch!)} /> : null}
+          {list.scratch ? <IconButton icon="folder" label={revealLabel('Its Folder')} onClick={() => void revealInFinder(client, list.scratch!)} /> : null}
         </div>
         <div ref={listRef} className={s.list} role="listbox" aria-label="Outputs" tabIndex={0} onKeyDown={onKey}>
           {files.map((f) => {

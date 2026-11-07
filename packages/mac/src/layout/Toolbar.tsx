@@ -33,6 +33,8 @@ import { PrivateMark, shareWithTeamItems } from '../team/Team.js';
 import s from './Toolbar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { sentinelSubtitle } from '../sentinel/sentinel-model.js';
+import { CallButton } from '../call/CallStrip.js';
+import { AppMenu } from './AppMenu.js';
 
 /** Room the title keeps, and the window buttons on the right (search, bell, panel). */
 const TITLE_MIN = 210;
@@ -66,6 +68,7 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
   const prefs = usePrefs();
   const view = useApp((st) => st.view);
   // A plan's page has no panel: its chat is its right side (the plan's header shows and hides it, ⌥⌘0 too).
+  // Nor do the pages that have the whole window (Tasks, a task, Sentinel): there the button isn't shown.
   const fits = panelFits(view);
   // Only what every view needs: search, what's new, the panel. The terminal (⌘J) is a panel tab,
   // and everything you can do is ⌘K and the menu bar.
@@ -73,6 +76,8 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
     <header ref={headerRef} className={cx(s.toolbar, !prefs.sidebar && s.noSidebar)} data-tauri-drag-region>
       {prefs.sidebar ? null : (
         <span className={s.lead}>
+          {/* The sidebar's menu-bar button (a browser's), beside it while the sidebar is hidden. */}
+          <AppMenu />
           <IconButton icon="sidebar" label="Show sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: true })} />
         </span>
       )}
@@ -84,18 +89,20 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
         {center}
       </div>
       <div className={s.right}>
-        {/* Whatever still doesn't fit is cut here, never the window buttons: the panel's toggle always shows. */}
+        {/* Whatever still doesn't fit is cut here, never the window buttons: the panel's toggle always shows where there's a panel. */}
         {right ? <div className={s.extra}>{right}</div> : null}
         <SearchButton />
         <NotificationBell />
-        <IconButton
-          icon="panelRight"
-          label={!fits ? (view.kind === 'plan' ? 'No panel on a plan’s page: its chat is beside the plan' : 'No panel here: this page has the whole window') : prefs.inspector ? 'Hide the panel' : 'Show the panel: changes, files, terminal, info'}
-          {...(fits ? { keys: shortcutKeys('toggle-inspector') } : {})}
-          active={fits && prefs.inspector}
-          disabled={!fits}
-          onClick={() => togglePanel(view)}
-        />
+        {/* No panel here, no button for it: a button that can only say so is nothing to click. */}
+        {fits ? (
+          <IconButton
+            icon="panelRight"
+            label={prefs.inspector ? 'Hide the panel' : 'Show the panel: changes, files, terminal, info'}
+            keys={shortcutKeys('toggle-inspector')}
+            active={prefs.inspector}
+            onClick={() => togglePanel(view)}
+          />
+        ) : null}
       </div>
     </header>
   );
@@ -277,7 +284,7 @@ export function Toolbar() {
           <span className={s.meta}>
             {`${owner}'s ${w?.project ?? 'project'} ·`}
             <Icon name={agentMark(w?.agent)} size={11} />
-            {`${agentLabel(w?.agent, owner, false, { model: true })} on their Mac · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
+            {`${agentLabel(w?.agent, owner, false, { model: true })} on their computer · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
           </span>
         }
         center={
@@ -311,7 +318,8 @@ export function Toolbar() {
 
   if (view.kind === 'room') {
     const solo = state.peers.length <= 1;
-    return <Shell headerRef={headerRef} title={solo ? 'Chat' : state.room} subtitle={<span className={s.meta}>{solo ? 'You and your agent' : `${state.peers.length} people · everyone’s agent can join in`}</span>} />;
+    // A call in the room (BLG-716): once there's someone to call.
+    return <Shell headerRef={headerRef} title={solo ? 'Chat' : state.room} subtitle={<span className={s.meta}>{solo ? 'You and your agent' : `${state.peers.length} people · everyone’s agent can join in`}</span>} right={solo ? undefined : <CallButton id="room" label="the Room" />} />;
   }
 
   if (view.kind === 'draft' || view.kind === 'draft_worktree') {

@@ -7,6 +7,7 @@ import { colorsFor, foundLabel, hasLook, importPatch, importSummary } from '../l
 import { fontStack, hasFont, looksDark } from '../lib/terminal-look.js';
 import { Group, Row, Select } from './settings-controls.js';
 import t from './terminal-settings.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Bringing another terminal's look into Beluga's (BLG-212): Settings › Terminal › Import from…,
@@ -155,12 +156,12 @@ export function ImportGroup() {
         label="Import from"
         detail={
           found === undefined
-            ? 'Looking for other terminals on this Mac…'
+            ? `Looking for other terminals on ${thisComputer()}…`
             : choices.length
               ? 'Colours, font, cursor and the rest, from a terminal you use. You see it before it changes anything.'
               : others.length
                 ? `${others.map((f) => f.name).join(', ')}: on their standard settings, nothing to bring.`
-                : 'No other terminal’s settings on this Mac (Ghostty, iTerm2, Terminal, Alacritty, kitty, WezTerm, Warp).'
+                : `No other terminal’s settings on ${thisComputer()} (Ghostty, iTerm2, Terminal, Alacritty, kitty, WezTerm, Warp).`
         }
       >
         <Select

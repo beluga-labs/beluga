@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { Button, cx } from '../components/ui.js';
 import s from './showcase.module.css';
+import { yourComputer } from '../lib/os-words.js';
 
 /**
  * What Sentinel can do, shown before it's explained (BLG-334): a few short scenes that play like a
@@ -145,7 +146,7 @@ export const SLIDES: readonly Slide[] = [
   {
     id: 'board',
     icon: 'gauge',
-    line: 'Your numbers on one board, and on your Mac’s desktop as widgets',
+    line: `Your numbers on one board, and on ${yourComputer()}’s desktop as widgets`,
     prompt: 'Look at my projects and put the numbers that matter on a board: sales, sign-ups, how fast the site answers, open pull requests. Set up what keeps them fresh every morning, and tell me how to put them on my desktop as widgets.',
     ms: 7000,
     scene: () => (

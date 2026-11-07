@@ -14,16 +14,46 @@ export interface Endpoint {
   readonly token: string;
 }
 
-/** Where the daemon is: the app's own sidecar (asked through Tauri), or the dev server's bridge. */
+let served = false;
+/**
+ * This page came from the daemon's web port (`beluga web`): a browser, maybe on another computer.
+ * Its stand-ins for the app's native bits (docs/web.md): a folder picker over the server's
+ * folders, uploads for what you drop or pick, downloads for what you save or show.
+ */
+export const webServed = (): boolean => served;
+/** The app's folder picker, or the browser's stand-in for it. */
+export const canPickFolders = (): boolean => inApp() || served;
+
+/** What a browser's hello carries where the token goes: the web port lets it in by its session, never a token. */
+export const WEB_HELLO_TOKEN = 'browser-session-cookie';
+
+/** The socket of the page's own origin (the daemon's web port, src/daemon/web.ts). */
+export const webSocketUrl = (loc: Pick<Location, 'protocol' | 'host'>): string => `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`;
+
+/**
+ * Where the daemon is: the app's own sidecar (asked through Tauri), the daemon's web port that
+ * served this page (`beluga web`: same origin, its session cookie), or the dev server's bridge.
+ */
 export async function endpoint(): Promise<Endpoint> {
   if (inApp()) {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke<Endpoint>('daemon_endpoint');
   }
-  const res = await fetch('/__beluga/endpoint');
-  const body = (await res.json()) as Endpoint & { error?: string };
+  const res = await fetch('/__beluga/endpoint', { cache: 'no-store' });
+  const body = (await res.json()) as Partial<Endpoint> & { error?: string; web?: boolean; signedOut?: boolean };
+  // This browser was revoked (or never let in): the page itself becomes the Ask for a link page.
+  if (res.status === 401 && body.signedOut) {
+    location.reload();
+    throw new Error('This browser is signed out of Beluga');
+  }
   if (!res.ok || body.error) throw new Error(body.error ?? 'Beluga is not running');
-  return body;
+  if (body.web) {
+    served = true;
+    document.documentElement.dataset.web = 'true';
+    return { url: webSocketUrl(location), token: WEB_HELLO_TOKEN };
+  }
+  if (!body.url || !body.token) throw new Error('Beluga is not running');
+  return { url: body.url, token: body.token };
 }
 
 /** What only this window can do for Beluga: its clipboard, notifications, links and text size. */
