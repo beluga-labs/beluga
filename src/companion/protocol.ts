@@ -407,8 +407,7 @@ export const TurnView = z.object({
   outputs: z.array(OutputView).max(50).optional(),
   endTs: ts.optional(),
   /**
-   * 1.44 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
- * 1.43 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
+   * 1.43 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
    * title, the agent, and its words. Drawn above the turn as a card, never as your message.
    */
   origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), prose: ProseView }).optional(),
@@ -598,9 +597,20 @@ export const ConvView = z.object({
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
   outputs: z.array(OutputView).max(100).optional(),
-  /** Your messages waiting for Claude here, in run order: Steer one (host.promote) or remove it (host.cancelQueued) by `id`. */
+  /** What waits for your agent here, in run order: your messages, and messages from your other chats (`origin`). Steer one (host.promote) or remove it (host.cancelQueued) by `id`. */
   /** `waiting`: why it hasn't started though nothing runs here (your Claude works in as many conversations as it may at once). */
-  queue: z.array(z.object({ id, text: z.string().max(300), waiting: z.string().max(300).optional() })).max(20).optional(),
+  queue: z
+    .array(
+      z.object({
+        id,
+        text: z.string().max(300),
+        waiting: z.string().max(300).optional(),
+        /** 1.44: an agent in another chat sent it, not you: its chat's ref and title, and the agent. */
+        origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64) }).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
   /** 1.3: a worktree of yours: it can be merged from the phone (companion.mergeCheck, companion.merge). */
   mergeable: z.boolean().optional(),
   /** 1.3: where its merge stands: merging, conflicts (files by name), Claude resolving them, Claude done (check again), merged, or blocked (why). */

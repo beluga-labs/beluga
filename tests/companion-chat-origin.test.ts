@@ -3,7 +3,7 @@ import { phoneMay } from '../src/companion/coverage.js';
 import { waitingNeeds } from '../src/companion/needs-you.js';
 import { convTurns, convView } from '../src/companion/views.js';
 import { queueIn } from '../src/ui/compose.js';
-import { COMPANION_PROTO, ConvView, SINCE, TurnView } from '../src/companion/protocol.js';
+import { COMPANION_PROTO, ConvView, NeedsYou, SINCE, TurnView, viewSchema } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { ChatOrigin } from '../src/protocol.js';
 
@@ -90,3 +90,40 @@ describe('a queued message from another chat', () => {
     expect(ConvView.shape.queue.safeParse([{ id: 'a', text: 'b' }]).success).toBe(true);
   });
 });
+
+describe('what the phone keeps after it parses a view (BLG-289)', () => {
+  const ctx = { macName: 'Mac', refs: { output: () => undefined } } as never;
+
+  it('the conv view keeps the queue row’s origin', () => {
+    const parsed = viewSchema('conv:ws:tgt' as never).parse(convView(storeWithQueue().getState(), ctx, 'conv:ws:tgt' as never)) as ConvView;
+    expect(parsed.queue).toEqual([
+      { id: 'from-chat', text: 'Please check', origin: { ref: ORIGIN.ref, title: 'Fix the login', agent: 'Codex' } },
+      { id: 'mine', text: 'My words' },
+    ]);
+  });
+
+  it('the conv view keeps the turn’s origin', () => {
+    const parsed = viewSchema('conv:ws:tgt' as never).parse(convView(storeWith().getState(), ctx, 'conv:ws:tgt' as never)) as ConvView;
+    expect(parsed.turns[0]!.origin).toMatchObject({ ref: ORIGIN.ref, title: 'Fix the login', agent: 'Codex', prose: { text: expect.stringContaining('Please check') } });
+  });
+
+  it('the chain decision keeps its kind and its Continue and Stop', () => {
+    const store = storeWith();
+    store.dispatch({ type: 'approval_add', approval: { id: 'q1', kind: 'chain', title: 'Agents sent 4 messages between these chats.', detail: 'x', channel: 'ws:src', askedAt: 1, timeoutMs: 60_000, once: true } });
+    const need = NeedsYou.parse(waitingNeeds(store.getState()).find((n) => n.id === 'approval:q1'));
+    expect(need).toMatchObject({ kind: 'decision', title: 'Agents sent 4 messages between these chats.' });
+    expect(need.actions.map((a) => [a.label, a.method, a.args])).toEqual([
+      ['Continue', 'host.answerApproval', ['yes', 'q1']],
+      ['Stop', 'host.answerApproval', ['no', 'q1']],
+    ]);
+  });
+});
+
+/** A busy chat with a message from another chat and one of yours waiting. */
+function storeWithQueue() {
+  const store = new Store({ ...initialState('room', 'auto'), selfId: ME });
+  store.dispatch({ type: 'agent_event', owner: ME, requestId: 'busy', requester: ME, event: 'started', text: '', ts: 1, channel: 'ws:tgt' });
+  store.dispatch({ type: 'agent_event', owner: ME, requestId: 'from-chat', requester: ME, event: 'queued', text: 'Please check', ts: 2, channel: 'ws:tgt', fromChat: { origin: ORIGIN, text: 'Please check' } });
+  store.dispatch({ type: 'agent_event', owner: ME, requestId: 'mine', requester: ME, event: 'queued', text: 'My words', ts: 3, channel: 'ws:tgt' });
+  return store;
+}
