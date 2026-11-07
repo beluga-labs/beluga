@@ -455,8 +455,7 @@ export class WorkspaceController {
     const fresh = this.ensureLoaded(id);
     // A worktree from another tool re-reads its conversation each time (it may have gone on there) until you talk in it here.
     if (fresh && !ws.sessionId && (!fresh.saved || (ws.external && this.onlyImported(`${WS_PREFIX}${id}`)))) void this.importConversation(ws.id, ws.path, `${WS_PREFIX}${id}`);
-    // A chat with a Claude session but nothing saved here (a main folder's conversation that was only Claude Code's): its transcript.
-    else if (fresh && !fresh.saved && ws.kind === 'chat' && ws.sessionId && ws.projectRoot) void this.importConversation(ws.id, ws.path, `${WS_PREFIX}${id}`, ws.sessionId);
+    else if (fresh && !fresh.saved) void this.importSessionTranscript(ws);
     this.deps.intend({ type: 'navigate', view: { kind: 'workspace', id, tab }, ...(req ? { req } : {}) });
     if (tab === 'review') void this.loadReview(id);
   }
@@ -509,6 +508,12 @@ export class WorkspaceController {
       // No transcript to show: the conversation simply starts fresh.
       return false;
     }
+  }
+
+  /** A chat with a Claude session but nothing saved here (a main folder's conversation that was only Claude Code's): its transcript. */
+  private async importSessionTranscript(ws: Workspace): Promise<boolean> {
+    if (ws.kind !== 'chat' || !ws.sessionId || !ws.projectRoot) return false;
+    return this.importConversation(ws.id, ws.path, `${WS_PREFIX}${ws.id}`, ws.sessionId);
   }
 
   /** Nothing said in this conversation yet except what came from Claude Code's transcript. */
@@ -891,8 +896,11 @@ export class WorkspaceController {
   async regenerateTitle(id: string): Promise<RenameResult> {
     const ws = this.deps.manager.find(id);
     if (!ws || ws.kind !== 'chat') throw new Error('Select a chat to regenerate its title');
-    this.ensureLoaded(id);
-    const content = recentChatContent(this.deps.store.getState().log, `${WS_PREFIX}${id}`);
+    const channel = `${WS_PREFIX}${id}`;
+    const fresh = this.ensureLoaded(id);
+    // Open runs its transcript fallback only on the first load, so leave that load to it (unless a message came meanwhile: it must still save).
+    if (fresh && !fresh.saved && !(await this.importSessionTranscript(ws)) && this.onlyImported(channel)) this.loaded.delete(channel);
+    const content = recentChatContent(this.deps.store.getState().log, channel);
     if (!content) throw new Error('This chat has no content for a title');
     const generated = await this.deps.titleChat?.(content);
     const title = generated ? cleanPlanTitle(generated) : undefined;
