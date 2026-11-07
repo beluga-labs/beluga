@@ -327,8 +327,6 @@ export interface PlansSlice {
 }
 
 export const KEEP_PLAN_ACTIVITY = 200;
-export const MAX_MILESTONES = 12;
-export const MAX_PLAN_TASKS = 80;
 export const DEFAULT_PARALLEL = 3;
 export const MAX_PARALLEL = 8;
 

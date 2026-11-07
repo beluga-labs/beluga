@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 42 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -109,11 +109,13 @@ export const COMPANION_PROTO = { major: 1, minor: 42 } as const;
  * or taking yours off (`network.messages.react`); the same on the room's and workspaces' chat turns
  * (`TurnView.reactions` / `reactable`, `ConvView.quick`, `session.react`). An older Mac leaves them
  * out: no reactions.
- * 1.42 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
+ * 1.42 (BLG-757): a run stopped by your usage limit says when Beluga tells it to continue on its
+ * own (`TurnView.resumesAt`). An older Mac leaves it out.
+ * 1.43 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
  * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Snooze, Wake and Un-settle
  * from the phone (`triage.*`). An older Mac or phone never sees them: Work stays one list by project.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, triage: 42 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, triage: 43 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -419,6 +421,12 @@ export const TurnView = z.object({
    * files go back too) or a chat. Only a message whose words show here whole (no code in it).
    */
   edit: z.object({ ws: id, kind: z.enum(['worktree', 'chat']) }).optional(),
+  /**
+   * 1.42 (BLG-757): a run that stopped on your usage limit: when Beluga tells it to continue on its
+   * own (shared/auto-continue.ts), said under its card. Changed only on the Mac (a setting). An older
+   * Mac leaves it out.
+   */
+  resumesAt: ts.optional(),
   /** 1.41 (BLG-702): a person's message in the room's or a workspace's chat: its emoji reactions (`session.react` changes yours). */
   reactions: z.array(ChatReactionView).max(20).optional(),
   /** 1.41: it takes reactions (a message of the room's or a workspace's chat, not an earlier line). */
@@ -460,13 +468,13 @@ export const ConvSummary = z.object({
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
   fresh: z.number().int().min(0).optional(),
-  /** 1.42: in Work while `chatCategories` is on: its category, none for what has none (the room). */
+  /** 1.43: in Work while `chatCategories` is on: its category, none for what has none (the room). */
   category: z.enum(['active', 'working', 'snoozed', 'settled']).optional(),
-  /** 1.42: when a snoozed chat wakes. */
+  /** 1.43: when a snoozed chat wakes. */
   snoozedUntil: ts.optional(),
-  /** 1.42: why a settled chat settled. */
+  /** 1.43: why a settled chat settled. */
   settledWhy: z.enum(['you', 'pr_merged', 'merged_here', 'idle']).optional(),
-  /** 1.42: a snooze ended, and it shows Back until you open it. */
+  /** 1.43: a snooze ended, and it shows Back until you open it. */
   back: z.literal(true).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;

@@ -28,6 +28,7 @@ import { shortVersion } from '../net/mesh/features.js';
 import type { MessageView, PersonView } from '../net/mesh/views.js';
 import { type Reaction, quickReactions } from '../shared/reactions.js';
 import { chatReactions, reactableChannel } from '../core/chat-reactions.js';
+import { resumeOf } from '../core/auto-continue.js';
 import { chatPeople, claudePill, offlineNote, waitingIn, waitingLabel } from '../core/chat-people.js';
 import { type AgentRef, CLAUDE_AGENT, type Profile, defaultAgentOf } from '../protocol.js';
 import { providerCards } from '../ui/usage-cards.js';
@@ -682,7 +683,10 @@ export function convTurns(state: DomainState, ctx: ViewContext, named: string, o
   const outputs = task ? [] : outputsOf(ctx, conv);
   const cc = ccAgents(state, channel);
   const pictures = (p: ProseView) => withPictures(p, ctx.refs, 'cwd' in conv ? conv.cwd : undefined);
-  const all = task ? taskTurns(state, ctx, task) : withLateOutputs(withSteers(state, itemsOf(state, channel)).flatMap(({ item, steer }) => (turnOf(state, item, outputs, cc, steer, pictures) ?? [])), outputs);
+  const turned = task ? taskTurns(state, ctx, task) : withLateOutputs(withSteers(state, itemsOf(state, channel)).flatMap(({ item, steer }) => (turnOf(state, item, outputs, cc, steer, pictures) ?? [])), outputs);
+  // A run stopped by your usage limit: when it continues on its own (1.42).
+  const resume = task ? undefined : resumeOf(state, channel, Date.now());
+  const all = resume ? turned.map((t) => (t.id === resume.id ? { ...t, resumesAt: resume.at } : t)) : turned;
   const end = opts.before ? all.findIndex((t) => t.id === opts.before) : all.length;
   const upto = end < 0 ? all.length : end;
   const limit = opts.limit ?? VIEW_TURNS;
