@@ -208,6 +208,13 @@ export function whenWords(when: ScheduleWhen, opts: ClockOpts = {}): string {
   return scheduleWords(asTrigger(when));
 }
 
+/** When it runs, inside a sentence ("every day at 21:00"). A once time says its date, because it can be far away. */
+export function whenInSentence(when: ScheduleWhen, opts: ClockOpts = {}): string {
+  if (when.kind === 'once') return `once on ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', ...(opts.tz ? { timeZone: opts.tz } : {}) }).format(new Date(when.at))} at ${clock(when.at, opts)}`;
+  const words = whenWords(when, opts);
+  return words.charAt(0).toLowerCase() + words.slice(1);
+}
+
 /** The chat line of a run. */
 export function runLine(title: string, run: { readonly due: number; readonly slots: number; readonly missed: number }, opts: ClockOpts = {}): string {
   const parts = [`Scheduled run · ${title} · due ${clock(run.due, opts)}`];

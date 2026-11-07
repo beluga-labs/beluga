@@ -22,8 +22,9 @@ import {
   type Decision,
   type ScheduleOutcome,
   type ScheduleView,
+  whenInSentence,
 } from './model.js';
-import { ScheduleInputSchema, SchedulePatchSchema, type Schedule } from './schema.js';
+import { ScheduleInputSchema, SchedulePatchSchema, type Schedule, type ScheduleWhen } from './schema.js';
 import { ScheduleFile } from './store.js';
 
 /**
@@ -116,6 +117,11 @@ export class Schedules {
     return scheduleView(s, this.deps.now(), this.clockOpts());
   }
 
+  /** When it runs, inside a sentence. */
+  whenInSentence(when: ScheduleWhen): string {
+    return whenInSentence(when, this.clockOpts());
+  }
+
   /** A new schedule in a chat. It throws a message the user can act on. */
   create(channel: string, input: unknown): Schedule {
     const parsed = ScheduleInputSchema.parse(input);
@@ -165,10 +171,10 @@ export class Schedules {
   }
 
   /** Turn it on or off. On is refused while the chat can't have one, or a once time has passed. */
-  setEnabled(id: string, on: boolean): Schedule {
+  setEnabled(id: string, on: boolean, pausedBy = 'Paused by you'): Schedule {
     const s = this.need(id);
     const now = this.deps.now();
-    if (!on) return this.replace(pauseSchedule(s, 'Paused by you', now));
+    if (!on) return this.replace(pauseSchedule(s, pausedBy, now));
     if (s.enabled) return s;
     const refused = this.refusal(s.channel) ?? checkWhen(s.when, now);
     if (refused) throw new Error(refused);
@@ -198,6 +204,11 @@ export class Schedules {
   briefFor(channel: string, requestId: string): string | undefined {
     const s = this.items.find((x) => x.channel === channel && x.running?.requestId === requestId);
     return s?.running ? scheduleBrief(s.title, s.running, this.clockOpts()) : undefined;
+  }
+
+  /** This chat can have a schedule now. */
+  fits(channel: string): boolean {
+    return this.deps.check(channel).kind === 'ok';
   }
 
   /** The setting, for the API: it refuses every method while this is false. */

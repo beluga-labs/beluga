@@ -74,12 +74,14 @@ export interface AgentHostDeps {
   readonly board?: (channel: string, from: string, opts: { readonly plan: boolean; readonly friend?: import('./board/work.js').BoardFriend }) => import('./board/work.js').RunBoard | undefined;
   /** The Sentinel chat (core/sentinel/chat.ts, your own runs): where its Claude runs, its own folder and session. */
   readonly sentinelChat?: (channel: string, from: string) => AgentPlace | undefined;
-  /** What a tool that always asks you (policy ALWAYS_ASK_YOU: deleting a sentinel or a dashboard) says on its card, in words. */
-  readonly confirmTool?: (toolName: string, input: Record<string, unknown>) => { readonly title: string; readonly detail: string } | undefined;
+  /** What a tool that always asks you (policy ALWAYS_ASK_YOU: deleting a sentinel or a dashboard, changing a schedule) says on its card, in words. */
+  readonly confirmTool?: (toolName: string, input: Record<string, unknown>, channel: string) => { readonly title: string; readonly detail: string } | undefined;
   /** Sentinels (your own runs): their tools, and a sentinel run's brief in its Claude step's conversation (core/sentinel). */
   readonly sentinel?: (channel: string, from: string) => { readonly tools: import('../agent/types.js').SentinelTools; readonly dashboard?: import('../agent/types.js').DashboardTools; readonly brief: string; readonly inRun: boolean } | undefined;
   /** A schedule's run (core/schedule, your own runs): what Claude is told, for this one request. */
   readonly schedule?: (channel: string, requestId: string) => string | undefined;
+  /** The schedules of a chat as tools (core/schedule, your own runs). `requestId`: a schedule's own run gets fewer. */
+  readonly scheduleTools?: (channel: string, requestId?: string) => { readonly tools: import('../agent/types.js').ScheduleTools; readonly brief: string } | undefined;
   /** A plan's home conversation (your own runs): its plan tools and what Claude is told about the plan (core/plans). */
   readonly plans?: (channel: string, from: string) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string } | undefined;
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
@@ -1211,6 +1213,8 @@ export class AgentHost {
       // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools (it makes tasks).
       const sentinel = from === this.selfId && !place?.syncMain ? this.deps.sentinel?.(body.channel, from) : undefined;
       const scheduleBrief = from === this.selfId ? this.deps.schedule?.(body.channel, body.requestId) : undefined;
+      // A friend's or a guest's request never gets them, whoever's chat it runs in.
+      const scheduling = from === this.selfId && !place?.syncMain ? this.deps.scheduleTools?.(body.channel, body.requestId) : undefined;
       const noBoard = place?.syncMain || (place?.askOnly && plans?.tools && !sentinel?.inRun);
       // A friend's run gets its repo's board too, as their trust allows (BLG-701; see boardAccess).
       const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
@@ -1261,6 +1265,7 @@ export class AgentHost {
         ...(callNotes ? { callNotesTools: callNotes } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         ...(scheduleBrief ? { scheduleBrief } : {}),
+        ...(scheduling ? { scheduleTools: scheduling.tools, scheduleToolsBrief: scheduling.brief } : {}),
         prompt: this.promptOf(body),
         ...this.promptIdOf(body),
         requesterName,
@@ -1378,6 +1383,8 @@ export class AgentHost {
     const phone = this.deps.phone?.(scratch ? path.join(place.cwd, scratch) : undefined);
     const board = this.deps.board?.(channel, this.selfId, { plan: false });
     const setup = worktree && channel.startsWith('ws:') ? this.deps.setup?.(channel) : undefined;
+    // The tool host mounts them for the terminal too, under the same approvals. A terminal is never a scheduled run.
+    const scheduling = this.deps.scheduleTools?.(channel);
     const requestId = `term-${randomUUID()}`;
     this.deps.questions.track(requestId, this.selfId, channel);
     return agent.terminal(
@@ -1400,6 +1407,7 @@ export class AgentHost {
         ...(board?.tools ? { board: board.tools } : {}),
         ...(board?.brief ? { taskBrief: board.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
+        ...(scheduling ? { scheduleTools: scheduling.tools, scheduleToolsBrief: scheduling.brief } : {}),
         ...(setup ? { setup } : {}),
         ...this.modelFor(place.model, place.agent, place.effort),
         ownerMcp: true,
@@ -1476,9 +1484,9 @@ export class AgentHost {
       const answer = await this.ask('tool', `Your agent wants to use your phone (${toolName.replace('mcp__beluga_phone__', '')})`, JSON.stringify(input).slice(0, 2000), requester, channel);
       return answer !== 'no';
     }
-    // Deleting a sentinel or a dashboard asks you first, even when your Claude never asks otherwise: once, no Always.
+    // Deleting a sentinel or a dashboard, or changing a schedule, asks you first, even when your Claude never asks otherwise: once, no Always.
     if (requester === this.selfId && ALWAYS_ASK_YOU.has(toolName)) {
-      const words = this.deps.confirmTool?.(toolName, input);
+      const words = this.deps.confirmTool?.(toolName, input, channel);
       const answer = await this.ask('tool', words?.title ?? `Your agent wants to use ${toolName}`, words?.detail ?? JSON.stringify(input), requester, channel, { once: true });
       return answer !== 'no';
     }
