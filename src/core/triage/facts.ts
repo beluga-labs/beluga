@@ -1,4 +1,6 @@
 import { type DomainState, type LogItem, isRunning } from '../store.js';
+import { autoContinueFor, limitResumeAt } from '../../shared/auto-continue.js';
+import { decodeFailure } from '../../shared/run-failure.js';
 import { planById } from '../plans/model.js';
 import { planConversations } from '../plans/owner.js';
 import { type HandSource, type TriageFacts, handRaisedOf } from './model.js';
@@ -8,12 +10,15 @@ import { type HandSource, type TriageFacts, handRaisedOf } from './model.js';
  * `ws:<id>`, or `plan:<id>`, which stands for all the plan's conversations. Browser-safe.
  */
 
-export type FactSource = Pick<DomainState, 'log' | 'approvals' | 'questions' | 'claudeCode' | 'plans' | 'board'>;
+export type FactSource = Pick<DomainState, 'log' | 'approvals' | 'questions' | 'claudeCode' | 'plans' | 'board' | 'prefs'>;
 
 interface RunFacts {
   readonly running: boolean;
   readonly waiting: readonly string[];
+  /** When its latest failed run ended, a usage-limit stop left out. */
   readonly failedAt?: number;
+  /** Its latest usage-limit stop: when it ended, and when Beluga sends it on (shared/auto-continue.ts). */
+  readonly limit?: { readonly at: number; readonly resumeAt: number };
   readonly lastAt?: number;
 }
 
@@ -30,10 +35,11 @@ export function channelsOf(state: Pick<DomainState, 'plans' | 'board'>, key: str
 
 export function handSourceOf(state: FactSource, key: string): HandSource {
   const channels = channelsOf(state, key);
-  const runs = channels.flatMap((c) => runsOf(state.log).get(c) ?? []);
-  const failed = runs.flatMap((r) => r.failedAt ?? []);
+  const runs = channels.map((c) => [c, runsOf(state.log).get(c)] as const);
+  // A usage-limit stop that Beluga continues by itself doesn't need you; one it won't continue does.
+  const failed = runs.flatMap(([c, r]) => [...(r?.failedAt !== undefined ? [r.failedAt] : []), ...(r?.limit && autoContinueFor(state.prefs, c, r.limit.resumeAt).kind !== 'scheduled' ? [r.limit.at] : [])]);
   return {
-    openIds: [...state.approvals.filter((a) => a.channel !== undefined && channels.includes(a.channel)).map((a) => a.id), ...state.questions.filter((q) => q.channel !== undefined && channels.includes(q.channel)).map((q) => q.qid), ...runs.flatMap((r) => r.waiting)],
+    openIds: [...state.approvals.filter((a) => a.channel !== undefined && channels.includes(a.channel)).map((a) => a.id), ...state.questions.filter((q) => q.channel !== undefined && channels.includes(q.channel)).map((q) => q.qid), ...runs.flatMap(([, r]) => r?.waiting ?? [])],
     planStuck: key.startsWith('plan:') && planStuck(state, key.slice(5)),
     ...(failed.length ? { failedAt: Math.max(...failed) } : {}),
   };
@@ -67,11 +73,16 @@ function runsOf(log: readonly LogItem[]): ReadonlyMap<string, RunFacts> {
       out.set(item.channel, { ...was, lastAt: item.ts });
       continue;
     }
+    const ended = item.endTs ?? item.lastAt ?? item.ts;
+    const failure = item.status === 'error' ? decodeFailure(item.text) : undefined;
+    const limit = failure?.kind === 'usage_limit' ? { at: ended, resumeAt: limitResumeAt(failure, ended) } : was.limit;
+    const failedAt = item.status === 'error' && failure?.kind !== 'usage_limit' ? ended : was.failedAt;
     out.set(item.channel, {
       running: was.running || isRunning(item.status),
       waiting: item.status === 'awaiting_approval' ? [...was.waiting, item.id] : was.waiting,
       lastAt: item.ts,
-      ...(item.status === 'error' ? { failedAt: item.endTs ?? item.lastAt ?? item.ts } : was.failedAt !== undefined ? { failedAt: was.failedAt } : {}),
+      ...(failedAt !== undefined ? { failedAt } : {}),
+      ...(limit ? { limit } : {}),
     });
   }
   runIndex.set(log, out);

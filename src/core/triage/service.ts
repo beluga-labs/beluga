@@ -56,6 +56,8 @@ export class TriageService {
   private pruned = false;
   private lastAuto = 0;
   private readonly offs: Array<() => void> = [];
+  /** Beluga sends a prompt in your name now (the Continue after a usage limit): its message isn't yours. */
+  private unprompted = false;
 
   constructor(private readonly deps: TriageServiceDeps) {
     this.prev = deps.store.getState();
@@ -96,6 +98,16 @@ export class TriageService {
 
   setAutoSettle(channel: string, on: boolean): void {
     this.apply(this.keyOf(channel), { kind: 'auto_settle', on });
+  }
+
+  /** Runs `send`, a prompt Beluga sends in your name by itself: its message doesn't end a snooze or a settle. Its turn still counts. */
+  automatic<T>(send: () => T): T {
+    this.unprompted = true;
+    try {
+      return send();
+    } finally {
+      this.unprompted = false;
+    }
   }
 
   private onAction(action: Action): void {
@@ -174,6 +186,7 @@ export class TriageService {
     const mine = action.from === (self?.peerId ?? state.selfId);
     const at = action.ts;
     if (action.byAgent) return this.apply(key, { kind: 'agent_text', at });
+    if (mine && this.unprompted) return;
     if (mine) return this.apply(key, { kind: 'own_message', at });
     this.apply(key, { kind: self && mentionOf(self.name).test(action.text) ? 'mention' : 'person_message', at });
   }

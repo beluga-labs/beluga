@@ -20,7 +20,7 @@ import { leaveNetwork, networkSwitch } from '../core/network.js';
 import { launchBoard } from '../core/board/launch.js';
 import { launchDialogues } from '../core/dialogues/launch.js';
 import { launchSentinel } from '../core/sentinel/launch.js';
-import { launchTriage } from '../core/triage/launch.js';
+import { launchTriage, sendAutomatic } from '../core/triage/launch.js';
 import { AutoContinue } from '../core/auto-continue.js';
 import { launchAssistant } from '../core/assistant/launch.js';
 import { launchChat } from '../core/chat/launch.js';
@@ -393,7 +393,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopSentinel = launchSentinel({ session, store, demo: Boolean(demo) });
     // A run that stopped on your usage limit is told to continue once the limit resets (shared/auto-continue.ts).
     if (opts.network) {
-      const auto = new AutoContinue({ store, ask: (prompt, channel) => session.askOwnClaude(prompt, channel, true), warn: (text) => console.warn(text) });
+      const auto = new AutoContinue({ store, ask: (prompt, channel) => sendAutomatic(session, () => session.askOwnClaude(prompt, channel, true)), warn: (text) => console.warn(text) });
       stopAutoContinue = () => auto.stop();
     }
     // "Your Mac": one conversation with your Claude for the whole Mac, from the phone and the sidebar (core/assistant).

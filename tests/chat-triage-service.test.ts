@@ -13,6 +13,7 @@ import type { Plan } from '../src/core/plans/model.js';
 import { categoryOf } from '../src/core/triage/model.js';
 import { triageFacts } from '../src/core/triage/facts.js';
 import { PHONE } from '../src/companion/coverage.js';
+import { encodeFailure } from '../src/shared/run-failure.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
 
 const NOW = 1_800_000_000_000;
@@ -265,6 +266,43 @@ describe('messages and turns', () => {
     run(store, 'error', 'r2');
     expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
     expect(store.getState().triage[CH]?.backAt).toBe(NOW + 2_000);
+  });
+
+  it('a usage-limit stop that Beluga continues leaves a snooze; with auto-continue off it ends it', () => {
+    const limit = (store: Store, requestId: string) => {
+      run(store, 'started', requestId);
+      store.dispatch({ type: 'agent_event', owner: 'me', requestId, requester: 'me', event: 'error', text: encodeFailure({ kind: 'usage_limit', detail: 'limit' }, NOW), ts: Date.now(), channel: CH });
+    };
+    const store = makeStore();
+    start(store).snooze(CH, NOW + HOUR);
+    vi.setSystemTime(NOW + 500);
+    limit(store, 'r1');
+    expect(category(store)).toBe('snoozed');
+
+    const off = makeStore();
+    off.dispatch({ type: 'prefs', prefs: { autoContinue: false } });
+    start(off).snooze(CH, NOW + HOUR);
+    vi.setSystemTime(NOW + 1_000);
+    limit(off, 'r2');
+    expect(off.getState().triage[CH]?.snoozed).toBeUndefined();
+    expect(off.getState().triage[CH]?.backAt).toBe(NOW + 1_000);
+  });
+
+  it('the automatic Continue after a usage limit leaves a snooze; on a settled chat its turn gives Working', () => {
+    const store = makeStore();
+    const service = start(store);
+    service.snooze(CH, NOW + HOUR);
+    service.automatic(() => chat(store, 'me', 'Continue where you left off.'));
+    expect(category(store)).toBe('snoozed');
+
+    service.settle('ws:w2');
+    service.automatic(() => chat(store, 'me', 'Continue where you left off.', { channel: 'ws:w2' }));
+    expect(category(store, 'ws:w2')).toBe('settled');
+    run(store, 'started', 'r2', 'ws:w2');
+    expect(category(store, 'ws:w2')).toBe('working');
+
+    chat(store, 'me', 'Continue where you left off.');
+    expect(category(store)).toBe('active');
   });
 
   it('activity stores lastAt and clears holdIdle', () => {

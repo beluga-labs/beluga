@@ -41,3 +41,9 @@ export function needTriage(session: object): TriageService {
   if (!service) throw new Error('Chat categories need the Beluga app (its daemon): they are not available here.');
   return service;
 }
+
+/** Runs `send`, a prompt Beluga sends in your name by itself, so the session's triage doesn't take it for your message. */
+export function sendAutomatic<T>(session: object, send: () => T): T {
+  const service = services.get(session);
+  return service ? service.automatic(send) : send();
+}

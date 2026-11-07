@@ -379,7 +379,7 @@ export type CategoryEntry = UnreadEntry & {
   readonly sortAt: number;
 };
 
-type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId'>;
+type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId' | 'prefs'>;
 
 /** Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Snoozed by soonest wake, Settled by newest. */
 export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategory, readonly CategoryEntry[]>> {
