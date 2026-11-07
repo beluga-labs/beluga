@@ -25,6 +25,7 @@ import { type Conversation, isImportedItem } from '../agent/transcript.js';
 import type { Intent } from './intents.js';
 import { type OtherTools, OtherWorktrees } from './other-worktrees.js';
 import { MainSync } from './main-sync.js';
+import { SnoozeWake } from './snooze-wake.js';
 import { agentWorktreesFrom, cleanupText, removeAgentWorktrees } from './agent-worktree-cleanup.js';
 import { claudeHome } from './claude-code/launch.js';
 import { HistorySaver } from './history-saver.js';
@@ -173,6 +174,14 @@ export class WorkspaceController {
   readonly others: OtherWorktrees;
   /** Keeping main folders current: fetching, Update main, and Claude's sync runs. */
   readonly mainSync: MainSync;
+  /** Wakes snoozed conversations when their time comes. */
+  private readonly snoozes = new SnoozeWake({
+    projects: () => this.deps.manager.list,
+    wake: (ids) => {
+      for (const id of ids) this.deps.manager.setSnooze(id, undefined);
+      this.publish();
+    },
+  });
   /** Conversations whose next run may sync git in the main folder ("Let Claude handle it"), by workspace id. */
   private readonly syncRuns = new Map<string, { branch: string; upstream: string }>();
   /** Main-folder conversations that may edit one hidden worktree (a plan's Claude fixing a conflict there), by workspace id. */
@@ -283,6 +292,7 @@ export class WorkspaceController {
 
   stop(): void {
     if (this.envTimer) clearTimeout(this.envTimer);
+    this.snoozes.stop();
     this.unsubscribe();
     this.mainSync.stop();
     this.saver.stop();
@@ -302,7 +312,17 @@ export class WorkspaceController {
       }
     }
     this.publish();
+    this.snoozes.arm();
     this.checkEnvSoon();
+  }
+
+  /** Snooze a conversation until then (epoch ms), or wake it now (null). It wakes by itself when the time comes. */
+  snooze(id: string, until: number | null): void {
+    if (!this.deps.manager.find(id)) throw new Error('That conversation isn’t there anymore');
+    if (until !== null && until <= Date.now()) throw new Error('Pick a time that’s still ahead');
+    this.deps.manager.setSnooze(id, until ?? undefined);
+    this.publish();
+    this.snoozes.arm();
   }
 
   private envCheckedAt = 0;

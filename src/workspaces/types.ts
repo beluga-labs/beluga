@@ -106,6 +106,11 @@ export interface WorkspaceRecord {
    */
   readonly mergeWhenReady?: MergeWait;
   /**
+   * Snoozed until then (epoch ms, BLG-748): its news, failing checks and conflicts stay quiet in the
+   * sidebar, the Unread section, the Dock and on the desktop. Your agent's own asks still show.
+   */
+  readonly snoozedUntil?: number;
+  /**
    * A project's main checkout only: the chat its conversation from before became (BLG-70). The main
    * checkout is no conversation of its own; opening it opens that chat, or the project's home.
    */

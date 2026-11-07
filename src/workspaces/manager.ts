@@ -1255,6 +1255,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { mergeWhenReady: wait });
   }
 
+  /** Snooze a conversation until then (epoch ms), or wake it (undefined). */
+  setSnooze(id: string, until: number | undefined): void {
+    this.require(id);
+    this.patchRecord(id, { snoozedUntil: until });
+  }
+
   setModel(id: string, model: string | undefined): void {
     this.require(id);
     this.patchRecord(id, { model: model || undefined });

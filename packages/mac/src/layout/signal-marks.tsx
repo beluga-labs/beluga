@@ -48,6 +48,15 @@ export function DotMark({ tone, live, signal }: { tone: Parameters<typeof Dot>[0
   );
 }
 
+/** A snoozed conversation (BLG-748): a quiet moon in the same slot, nothing asking for you. */
+export function SnoozeMark() {
+  return (
+    <span className={cx(m.mark, m.snoozed)} data-signal="snoozed" aria-hidden="true">
+      <Icon name="moon" size={11} />
+    </span>
+  );
+}
+
 /**
  * A conversation's mark. `fallback`: what an idle row shows instead (its git state, say). `working`:
  * whose loader it shows at work (a worktree's own, teal and orbiting; Claude's otherwise).

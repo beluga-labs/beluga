@@ -1,6 +1,7 @@
 import type { AppState } from '@beluga/core/store.js';
 import type { Workspace } from '@beluga/workspaces/types.js';
 import { stateOf } from '@beluga/ui/workspace-models.js';
+import { SNOOZE_CHOICES, isSnoozed, snoozeLabel, snoozeUntil } from '@beluga/shared/snooze.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { cx } from '../components/ui.js';
@@ -9,7 +10,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { workspaceSignal } from './attention-model.js';
-import { DotMark, SignalMark, nameClass, signalClass } from './signal-marks.js';
+import { DotMark, SignalMark, SnoozeMark, nameClass, signalClass } from './signal-marks.js';
 import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
@@ -23,7 +24,7 @@ import o from './other-worktrees.module.css';
  * What a workspace's right-click menu offers: its toolbar's actions, named and drawn the same
  * (the shortcuts show for the workspace you're in, where they work).
  */
-export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<typeof useActions>['run'], rename?: () => void, regenerate?: { readonly run: () => void; readonly pending: boolean }): ActionItem[] {
+export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<typeof useActions>['run'], rename?: () => void, regenerate?: { readonly run: () => void; readonly pending: boolean }, snooze?: (until: number | null) => void): ActionItem[] {
   const { primary, icons, more } = toolbarActions(state, ws);
   const here = state.view.kind === 'workspace' && state.view.id === ws.id;
   const sections = inSections([...(primary ? [primary] : []), ...icons, ...more.flat()]);
@@ -31,6 +32,7 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
     { label: 'Open', icon: 'chevronRight', onSelect: () => run({ type: 'open_ws', id: ws.id }) },
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
     ...(ws.kind === 'chat' && regenerate ? [{ label: regenerate.pending ? 'Regenerating title…' : 'Regenerate title', icon: 'refresh' as const, disabled: regenerate.pending, onSelect: regenerate.run }] : []),
+    ...(snooze && ws.kind !== 'main' && !ws.archived ? [snoozeItem(ws, snooze)] : []),
     ...sections.flatMap((section) =>
       section.map((a, i) => ({
         label: a.label,
@@ -43,6 +45,17 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
       })),
     ),
   ];
+}
+
+/** Snooze ▸ how long, or Unsnooze while it's snoozed (BLG-748). */
+function snoozeItem(ws: Workspace, snooze: (until: number | null) => void): ActionItem {
+  if (isSnoozed(ws)) return { label: 'Unsnooze', icon: 'moon', hint: snoozeLabel(ws), onSelect: () => snooze(null) };
+  return { label: 'Snooze', icon: 'moon', onSelect: () => {}, submenu: SNOOZE_CHOICES.map((c) => ({ label: c.label, onSelect: () => snooze(snoozeUntil(c.value)) })) };
+}
+
+/** Snooze it (or wake it), saying so when it can't. */
+function snoozeWorkspace(client: ReturnType<typeof useBeluga>['client'], ws: Workspace, until: number | null): void {
+  client.api.workspaces.snooze(ws.id, until).catch((err: unknown) => toast(client, err instanceof Error ? err.message : 'Cannot snooze it', 'error'));
 }
 
 /** Chats, and worktrees of yours (a sub-agent's is Claude's): a worktree's branch takes the new name too. */
@@ -130,9 +143,10 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
     );
   }
   // Idle: its git state (uncommitted changes, ready to merge) as before.
-  const quiet = st.tone === 'warn' || st.tone === 'info' || st.tone === 'error' ? <DotMark tone={st.tone} /> : null;
+  // Snoozed: a quiet moon instead (what waits there shows when it wakes).
+  const quiet = signal.snoozed ? <SnoozeMark /> : st.tone === 'warn' || st.tone === 'info' || st.tone === 'error' ? <DotMark tone={st.tone} /> : null;
   return (
-    <ActionsContext items={() => workspaceItems(client.store.getState(), ws, actions.run, () => setRenaming(true), { run: () => void regenerateTitle(), pending: regenerating })}>
+    <ActionsContext items={() => workspaceItems(client.store.getState(), ws, actions.run, () => setRenaming(true), { run: () => void regenerateTitle(), pending: regenerating }, (until) => snoozeWorkspace(client, ws, until))}>
       <Row
         indent={indent}
         selected={selected}
