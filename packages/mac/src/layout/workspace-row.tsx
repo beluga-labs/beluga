@@ -16,6 +16,7 @@ import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import { outsideLocation } from './outside-model.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
+import { HarnessMark } from '../lineage/HarnessMark.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -65,11 +66,13 @@ const ARCHIVING: Record<NonNullable<AppState['archiving'][string]>, string> = {
   removing: 'Archiving: removing the folder',
 };
 
-/** A row's sub-agents, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
+/** A row's sub-agents and child threads, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
 export interface WorkspaceFold {
   readonly open: boolean;
   readonly count: number;
   readonly running: number;
+  /** What it holds, for the arrow's name: "sub-agents", "threads". */
+  readonly noun: string;
   /** "2 sub-agents · 1 running". */
   readonly summary: string;
   readonly toggle: () => void;
@@ -98,6 +101,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
     sameDeep,
   );
   const icon: IconName = ws.kind === 'chat' ? 'chat' : ws.kind === 'main' ? 'folder' : 'branch';
+  const mark = <HarnessMark ws={ws} />;
   // Being made: its page opens here (the core has nothing to open yet), with nothing to do on it until it's there.
   if (ws.pending) {
     return (
@@ -111,7 +115,12 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         label={ws.name}
         detail={`${ws.name}: making the worktree from ${ws.base ?? 'the latest origin'}…`}
         onClick={() => client.store.dispatch({ type: 'view', view: { kind: 'workspace', id: ws.id, tab: 'chat' } })}
-        trailing={<span className={s.making} role="progressbar" aria-label="Making the worktree" />}
+        trailing={
+          <>
+            <span className={s.making} role="progressbar" aria-label="Making the worktree" />
+            {mark}
+          </>
+        }
       />
     );
   }
@@ -134,7 +143,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
               <button
                 type="button"
                 className={s.agentFold}
-                aria-label={fold.open ? `Fold the sub-agents of ${ws.name}` : `Show the sub-agents of ${ws.name}`}
+                aria-label={fold.open ? `Fold the ${fold.noun} of ${ws.name}` : `Show the ${fold.noun} of ${ws.name}`}
                 title={fold.open ? `Fold away ${fold.summary}` : `Show ${fold.summary}`}
                 onClick={(e) => (e.stopPropagation(), fold.toggle())}
               >
@@ -175,7 +184,10 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         onClick={() => actions.run({ type: 'open_ws', id: ws.id })}
         trailing={
           archiving ? (
-            <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+            <>
+              <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+              {mark}
+            </>
           ) : (
             <>
               {/* Folded away: how many, quietly (and that one is at work, when the row says nothing else). */}
@@ -186,6 +198,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
                 </span>
               ) : null}
               <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+              {mark}
             </>
           )
         }

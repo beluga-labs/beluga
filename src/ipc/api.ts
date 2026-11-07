@@ -167,6 +167,8 @@ export const API = {
   'host.steerNow': args(id),
   // Stop your Claude in one conversation: → { stopped, returned: your queued prompts, in order }.
   'host.stopRun': args(channel),
+  // A person's Stop on one child thread, from the parent's panel.
+  'threads.stop': args(id),
   'host.cancelQueued': args(id),
   'host.reorderQueued': args(id, z.number().int().min(0).max(100)),
 

@@ -104,6 +104,10 @@ export const HANDLERS = {
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
   'host.stopRun': (s, channel) => stopChat(s, channel),
+  'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
+    if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
+    return HANDLERS['host.stopRun'](s, `ws:${id}`);
+  },
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 

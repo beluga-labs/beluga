@@ -46,6 +46,7 @@ export const PhoneCalls = {
   // Give a conversation its terminal drives back to the chat (BLG-534).
   'agentTerm.takeOver': entry('agentTerm.takeOver', done),
   'host.stopRun': entry('host.stopRun', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stop': entry('threads.stop', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
   'host.cancelQueued': entry('host.cancelQueued', done),
   'inbox.read': entry('inbox.read', done),
   'inbox.unread': entry('inbox.unread', done),
