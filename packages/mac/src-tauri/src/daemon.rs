@@ -6,7 +6,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use std::sync::{mpsc, OnceLock};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
@@ -19,7 +19,7 @@ const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a daemon gets to quit on its own before it's forced.
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long your shell gets to say what your PATH is.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 const SHELL_TIMEOUT: Duration = Duration::from_secs(4);
 const PATH_MARK: &str = "__BELUGA_PATH__";
 
@@ -190,7 +190,8 @@ fn outdated(running: Option<&str>, keep_alive: bool, bundled: Option<&str>) -> b
 }
 
 /// The process that started `pid` (1 once that one is gone), if it can be told. Windows doesn't
-/// hand orphans to a first process, so a daemon there is never taken for one left behind.
+/// hand orphans to a first process, but there a daemon stops by itself once the app that started
+/// it is gone (its input closes: stop-on-input.ts), so none is left behind.
 #[cfg(windows)]
 fn parent_of(_pid: u32) -> Option<u32> {
     None
@@ -204,7 +205,19 @@ fn parent_of(pid: u32) -> Option<u32> {
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    let parent: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    // A Linux desktop hands orphans to your session's systemd (a "subreaper"), not to process 1.
+    #[cfg(target_os = "linux")]
+    if adopted(std::fs::read_to_string(format!("/proc/{parent}/comm")).ok().as_deref()) {
+        return Some(1);
+    }
+    Some(parent)
+}
+
+/// Whether a process by this name only adopts orphans (systemd, for your session or the system).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn adopted(comm: Option<&str>) -> bool {
+    comm.is_some_and(|c| c.trim() == "systemd")
 }
 
 /// Whether a running daemon was left behind by a Mac app that's gone (it crashed, was force
@@ -222,7 +235,24 @@ fn reap(app: &AppHandle) -> Option<ExitStatus> {
     let mut slot = locked(&state.child);
     let status = slot.as_mut()?.try_wait().ok().flatten()?;
     *slot = None;
+    if !status.success() {
+        note_exit(&status);
+    }
     Some(status)
+}
+
+/// A daemon that died on its own (a crash, a kill), kept with the black box's incidents so a
+/// problem report says how it ended (src/core/blackbox/report.ts, BLG-673). Stopping it on
+/// purpose takes the child first, so never comes through here.
+fn note_exit(status: &ExitStatus) {
+    let dir = beluga_home().join("logs").join("incidents");
+    let at = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let note = serde_json::json!({ "kind": "exit", "at": at, "status": status.to_string() });
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join(format!("{at}-exit.json")), note.to_string());
+    }
 }
 
 fn running(app: &AppHandle) -> Option<Info> {
@@ -231,10 +261,39 @@ fn running(app: &AppHandle) -> Option<Info> {
 }
 
 /// Apps opened from Finder get a bare PATH; Beluga needs yours (git, gh, claude, node tools).
-/// Windows and Linux desktops start apps with your PATH already.
-#[cfg(not(target_os = "macos"))]
+/// Windows starts apps with your PATH already.
+#[cfg(windows)]
 async fn login_path() -> String {
     std::env::var("PATH").unwrap_or_default()
+}
+
+/// Linux desktops start apps with the session's PATH, without what your shell's profile adds
+/// (nvm, volta, ~/.local/bin, npm's global folder): your shell's first, then the rest.
+#[cfg(all(unix, not(target_os = "macos")))]
+async fn login_path() -> String {
+    static PATH: OnceLock<String> = OnceLock::new();
+    if let Some(path) = PATH.get() {
+        return path.clone();
+    }
+    let found = tauri::async_runtime::spawn_blocking(shell_path)
+        .await
+        .ok()
+        .flatten();
+    let session = std::env::var("PATH").unwrap_or_default();
+    PATH.get_or_init(|| merge_paths(found.as_deref().unwrap_or(""), &session))
+        .clone()
+}
+
+/// `first`'s folders, then `then`'s not already there.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+fn merge_paths(first: &str, then: &str) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    for dir in first.split(':').chain(then.split(':')) {
+        if !dir.is_empty() && !seen.contains(&dir) {
+            seen.push(dir);
+        }
+    }
+    seen.join(":")
 }
 
 #[cfg(target_os = "macos")]
@@ -252,9 +311,14 @@ async fn login_path() -> String {
 }
 
 /// Ask your login shell for its PATH, giving up (and stopping it) if it takes too long.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn shell_path() -> Option<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let fallback = if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/bash"
+    };
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| fallback.into());
     let script = format!("printf '{PATH_MARK}%s{PATH_MARK}' \"$PATH\"");
     let mut child = Command::new(shell)
         .args(["-ilc", &script])
@@ -286,7 +350,7 @@ fn shell_path() -> Option<String> {
 }
 
 /// The PATH between the markers (your shell's startup files may print other things too).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(windows, allow(dead_code))]
 fn parse_path(text: &str) -> Option<String> {
     let rest = &text[text.find(PATH_MARK)? + PATH_MARK.len()..];
     let path = rest[..rest.find(PATH_MARK)?].trim();
@@ -310,13 +374,21 @@ fn fallback_path() -> String {
         .unwrap_or_else(|_| "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin".into())
 }
 
+/// Past this the log is set aside as daemon.log.1 (src/daemon/files.ts LOG_LIMIT). The daemon
+/// trims it while it runs too (src/daemon/log-size.ts).
+const LOG_LIMIT: u64 = 5 * 1024 * 1024;
+
 fn log_file() -> Option<std::fs::File> {
     let dir = beluga_home().join("logs");
     std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("daemon.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_LIMIT) {
+        let _ = std::fs::rename(&path, dir.join("daemon.log.1"));
+    }
     std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("daemon.log"))
+        .open(path)
         .ok()
 }
 
@@ -363,6 +435,14 @@ fn dev_command() -> Result<Command, String> {
     Err("Beluga's engine is missing from this app. Please reinstall Beluga.".into())
 }
 
+/// The bundled Node's name beside the app (tauri.*.conf.json externalBin): on Linux the packages
+/// put it in /usr/bin, so it can't be a plain `node` there.
+const NODE_NAME: &str = if cfg!(target_os = "linux") {
+    "beluga-node"
+} else {
+    "node"
+};
+
 /// The Node binary and Beluga's bundled entry inside the app, when they're there.
 fn bundled(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     let resources = app.path().resource_dir().ok()?;
@@ -370,7 +450,7 @@ fn bundled(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     let node = std::env::current_exe()
         .ok()?
         .parent()?
-        .join(format!("node{}", std::env::consts::EXE_SUFFIX));
+        .join(format!("{NODE_NAME}{}", std::env::consts::EXE_SUFFIX));
     (script.exists() && node.exists()).then_some((node, script))
 }
 
@@ -379,7 +459,14 @@ async fn start(app: &AppHandle, args: &[String]) -> Result<Endpoint, String> {
     let (mut cmd, own_pid) = base_command(app)?;
     cmd.arg("daemon").arg("--keep-alive").args(args);
     cmd.env("PATH", login_path().await);
-    cmd.stdin(Stdio::null());
+    // Windows has no signal to ask it to finish: it stops cleanly once its input closes, when
+    // this app quits or crashes (src/daemon/stop-on-input.ts).
+    if cfg!(windows) {
+        cmd.stdin(Stdio::piped());
+        cmd.env("BELUGA_STOP_ON_INPUT_END", "1");
+    } else {
+        cmd.stdin(Stdio::null());
+    }
     // No console window for it on Windows.
     #[cfg(windows)]
     {
@@ -441,9 +528,18 @@ async fn start(app: &AppHandle, args: &[String]) -> Result<Endpoint, String> {
     Err("Beluga didn't start in time. See ~/.beluga/logs/daemon.log".into())
 }
 
+/// Ask a daemon we started to finish: a signal, or on Windows closing its input.
+fn ask_to_stop(child: &mut Child) {
+    if cfg!(windows) {
+        drop(child.stdin.take());
+    } else {
+        signal(child.id(), sig::TERM);
+    }
+}
+
 /// Ask a daemon we started to quit; force it if it doesn't.
 async fn terminate_child(mut child: Child) -> bool {
-    signal(child.id(), sig::TERM);
+    ask_to_stop(&mut child);
     let deadline = Instant::now() + STOP_TIMEOUT;
     while Instant::now() < deadline {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -490,6 +586,13 @@ async fn stop_running(app: &AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Stop the daemon before the Windows installer replaces the files it runs from (best effort:
+/// the installer says so if something still holds them).
+#[cfg(windows)]
+pub async fn stop_for_update(app: &AppHandle) {
+    let _ = stop_running(app).await;
 }
 
 /// Make sure Beluga runs, and say where it listens.
@@ -563,7 +666,7 @@ pub fn stop(app: &AppHandle) {
     let Some(mut child) = locked(&state.child).take() else {
         return;
     };
-    signal(child.id(), sig::TERM);
+    ask_to_stop(&mut child);
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -617,6 +720,15 @@ mod tests {
     }
 
     #[test]
+    fn shell_path_comes_first_then_the_rest_once() {
+        assert_eq!(
+            merge_paths("/home/me/.nvm/bin:/usr/bin", "/usr/bin:/bin:"),
+            "/home/me/.nvm/bin:/usr/bin:/bin"
+        );
+        assert_eq!(merge_paths("", "/usr/bin:/bin"), "/usr/bin:/bin");
+    }
+
+    #[test]
     fn replaces_only_a_kept_alive_daemon_of_another_version() {
         assert!(outdated(Some("0.4.0"), true, Some("0.5.0")));
         assert!(!outdated(Some("0.5.0"), true, Some("0.5.0")));
@@ -635,6 +747,10 @@ mod tests {
         assert!(!orphaned(true, None));
         // A daemon started by hand stays, even under launchd.
         assert!(!orphaned(false, Some(1)));
+        // Linux: your session's systemd takes orphans in.
+        assert!(adopted(Some("systemd\n")));
+        assert!(!adopted(Some("beluga\n")));
+        assert!(!adopted(None));
     }
 
     #[cfg(unix)]

@@ -107,7 +107,7 @@ function toolCommand(root: string, targets: readonly string[]): string | undefin
 }
 
 /** A sensible setup command from the files in the project (its Makefile's `setup`, else e.g. package-lock.json → npm install, plus each nested package of its own). */
-export function detectSetup(root: string): string | undefined {
+export function detectSetup(root: string, platform: NodeJS.Platform = process.platform): string | undefined {
   const tool = toolCommand(root, SETUP_TARGETS);
   if (tool) return tool;
   const own = installIn(root);
@@ -115,7 +115,8 @@ export function detectSetup(root: string): string | undefined {
   const nested = nestedPackages(root).map((dir) => `(cd ${dir} && ${installIn(path.join(root, dir))})`);
   const all = [...(own ? [own] : []), ...nested];
   if (all.length) return all.join(' && ');
-  if (existsSync(path.join(root, 'requirements.txt'))) return 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt';
+  // Windows: its Python is `python`, and a venv keeps its programs in Scripts\ (commands run in Git Bash there).
+  if (existsSync(path.join(root, 'requirements.txt'))) return platform === 'win32' ? 'python -m venv .venv && .venv/Scripts/pip install -r requirements.txt' : 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt';
   return undefined;
 }
 

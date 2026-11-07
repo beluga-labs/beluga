@@ -17,7 +17,7 @@ async function openTasks(page: Page): Promise<void> {
 async function allAsList(page: Page): Promise<void> {
   await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^All/ }).click();
   await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
-  const showAll = page.getByRole('button', { name: 'Show All' });
+  const showAll = page.getByRole('button', { name: 'Show All', exact: true });
   if (await showAll.isVisible()) await showAll.click();
 }
 
@@ -37,7 +37,7 @@ test('lists the demo’s tasks by status; scopes and the board', async ({ page }
   await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^All/ }).click();
   const list = page.getByRole('grid', { name: 'Tasks' });
   // Sub-tasks start tucked under their epic: open them out.
-  await page.getByRole('button', { name: 'Show All' }).click();
+  await page.getByRole('button', { name: 'Show All', exact: true }).click();
   await expect(list.getByRole('region', { name: 'In Review' })).toBeVisible();
   await expect(list.getByRole('row', { name: /Add auth to the payment routes, In Review/ })).toBeVisible();
   await expect(list.getByRole('row', { name: /Refund endpoint/ })).toContainText('Blocked by');
@@ -48,7 +48,12 @@ test('lists the demo’s tasks by status; scopes and the board', async ({ page }
   // What waits on what.
   await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'What Waits on What' }).click();
   await expect(main(page).locator('[data-ready="true"]')).toBeVisible({ timeout: 20_000 });
-  await expect(main(page).locator('.react-flow__node').filter({ hasText: 'Refund endpoint' })).toContainText('Blocked');
+  const refund = main(page).locator('.react-flow__node').filter({ hasText: 'Refund endpoint' });
+  await expect(refund).toContainText('Blocked');
+  // Its card has a fill and an edge, as in a conversation's graph.
+  const look = await refund.locator('div[data-kind="task"]').evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, ring: getComputedStyle(el).boxShadow }));
+  expect(look.bg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(look.ring).not.toBe('none');
   await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
 });
 
@@ -484,6 +489,91 @@ test('the board: a card picked up lifts, the column makes room, and it lands whe
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await expect(review).toContainText('Rate-limit the login endpoint');
+  await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
+});
+
+test('the board: a held card opens the columns the scope hides, and drops in one (BLG-679)', async ({ page }) => {
+  await openTasks(page);
+  if (!(await page.getByRole('button', { name: 'Board: bob-api' }).isVisible())) {
+    await page.getByRole('button', { name: /^Board: / }).click();
+    await page.getByRole('menuitem', { name: /bob-api/ }).click();
+  }
+  await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^Backlog/ }).click();
+  await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'Board' }).click();
+  const board = page.getByRole('list', { name: 'Board' });
+  const title = 'Preview environments for pull requests';
+  // Backlog shows one column; Ready isn't there until a card is held.
+  await expect(board.getByRole('listitem', { name: /^Ready/ })).toHaveCount(0);
+  const card = (await board.getByRole('button', { name: new RegExp(title) }).boundingBox())!;
+  await page.mouse.move(card.x + 30, card.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(card.x + 60, card.y + 30, { steps: 4 });
+  const ready = board.getByRole('listitem', { name: 'Ready', exact: true });
+  await expect(ready).toBeVisible();
+  await expect(ready).toContainText('Drop here');
+  await page.waitForTimeout(500);
+  const to = (await ready.boundingBox())!;
+  await page.mouse.move(to.x + 80, to.y + 80, { steps: 12 });
+  await expect(ready.locator('[data-gap]')).toBeVisible();
+  await page.mouse.up();
+  // It rests there, then the column folds away with it: the task left Backlog.
+  await expect(ready).toHaveCount(0);
+  await expect(board).not.toContainText(title);
+
+  // From Active, Backlog opens on the left without pushing the board: the edge scroll brings it in.
+  await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^Active/ }).click();
+  const readyCol = board.getByRole('listitem', { name: /^Ready, / });
+  const moved = (await readyCol.getByRole('button', { name: new RegExp(title) }).boundingBox())!;
+  const before = (await readyCol.boundingBox())!;
+  await page.mouse.move(moved.x + 30, moved.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(moved.x + 50, moved.y + 25, { steps: 4 });
+  const backlog = board.getByRole('listitem', { name: 'Backlog', exact: true });
+  await expect(backlog).toHaveCount(1);
+  await page.waitForTimeout(500);
+  expect(Math.abs((await readyCol.boundingBox())!.x - before.x)).toBeLessThan(2);
+  // Hold at the board's left edge until Backlog has scrolled in.
+  await page.mouse.move(before.x - 8, before.y + 120, { steps: 8 });
+  await expect.poll(async () => (await backlog.boundingBox())!.x, { timeout: 4000 }).toBeGreaterThan(before.x - 20);
+  const into = (await backlog.boundingBox())!;
+  await page.mouse.move(into.x + 120, into.y + 80, { steps: 6 });
+  await expect(backlog.locator('[data-gap]')).toBeVisible();
+  await page.mouse.up();
+  await expect(backlog).toHaveCount(0);
+  await expect(board).not.toContainText(title);
+  // Folded away, the board is back where it was.
+  await expect.poll(async () => Math.round((await readyCol.boundingBox())!.x)).toBe(Math.round(before.x));
+  await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^Backlog/ }).click();
+  await expect(board).toContainText(title);
+  await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
+});
+
+test('the board: a card’s avatar changes who it’s for, without opening the task (BLG-596)', async ({ page }) => {
+  await openTasks(page);
+  await page.getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: /^All/ }).click();
+  if (!(await page.getByRole('button', { name: 'Board: bob-api' }).isVisible())) {
+    await page.getByRole('button', { name: /^Board: / }).click();
+    await page.getByRole('menuitem', { name: /bob-api/ }).click();
+  }
+  await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'Board' }).click();
+  // Not bob's task: with no one else's task on it, the project reads as yours alone and avatars hide.
+  const card = page.getByRole('list', { name: 'Board' }).getByRole('button', { name: /Move secrets to the keychain/ });
+  const avatar = card.getByRole('button', { name: /^For .*Change who it's for$/ });
+  await avatar.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Click to change');
+  if (process.env.BELUGA_SHOTS) await page.screenshot({ path: `${process.env.BELUGA_SHOTS}/card-assignee-hover.png` });
+  await avatar.click();
+  const menu = page.getByRole('menu', { name: /Change who it's for/ });
+  await expect(menu).toBeVisible();
+  // The task didn't open: still on the board.
+  await expect(page.getByRole('textbox', { name: 'Title' })).toHaveCount(0);
+  if (process.env.BELUGA_SHOTS) await page.screenshot({ path: `${process.env.BELUGA_SHOTS}/card-assignee-menu.png` });
+  await menu.getByRole('menuitem', { name: /^No one/ }).click();
+  await expect(card.getByRole('button', { name: "For no one yet. Change who it's for" })).toBeVisible();
+  await card.getByRole('button', { name: /^For .*Change who it's for$/ }).click();
+  await page.getByRole('menu', { name: /Change who it's for/ }).getByRole('menuitem', { name: /^You/ }).click();
+  await expect(card.getByRole('button', { name: "For you. Change who it's for" })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Title' })).toHaveCount(0);
   await page.getByRole('tablist', { name: 'Display' }).getByRole('tab', { name: 'List' }).click();
 });
 

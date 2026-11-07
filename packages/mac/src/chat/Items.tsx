@@ -7,7 +7,9 @@ import { READS_AFTER_STEP, STEERED_IN, STOPPING_FOR, type SteeredMessage, isLimi
 import { CONTINUE_PROMPT, type RunFailure, decodeFailure, failureTitle } from '@beluga/shared/run-failure.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Button, Dot, Tip, claudeColor, cx, personColor } from '../components/ui.js';
-import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
+import { ActionsContext, ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
+import { openExternal } from '../lib/system.js';
+import { type SignInHow, signInChoices } from './sign-in-choices.js';
 import { sendSteerNow, stopClaude } from '../lib/commands.js';
 import { copyText } from '../lib/copy.js';
 import { useActions } from '../lib/actions.js';
@@ -36,6 +38,8 @@ import { EditPrompt } from './EditPrompt.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { PersonButton } from '../network/PersonProfile.js';
 import { KnockCard } from '../team/Team.js';
+import { useChatReactions } from './ChatReactions.js';
+import r from '../network/reactions.module.css';
 import s from './chat.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { revealTerminal } from '../lib/panel.js';
@@ -140,7 +144,7 @@ function Delivery({ request, channel }: { request: string; channel: string }) {
   return (
     <div className={s.steerWaiting} data-delivery={state} role="status">
       <Icon name={state === 'waiting' ? 'clock' : 'check'} size={11} />
-      <span>{state === 'waiting' ? `Waiting for ${owner}'s Mac · it goes when it's back` : 'Delivered'}</span>
+      <span>{state === 'waiting' ? `Waiting for ${owner}'s computer · it goes when it's back` : 'Delivered'}</span>
     </div>
   );
 }
@@ -163,11 +167,14 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
   const kind = useApp((st) => (wsId ? findWorkspace(st.projects, wsId)?.kind : undefined));
   const editable = Boolean(wsId) && (kind === 'worktree' || kind === 'chat') && !steer;
   const [editing, setEditing] = useState(false);
+  // Emoji reactions (BLG-702): the button a hover shows, and the chips under the message.
+  const reactions = useChatReactions(item, own);
   // Your own words: a tinted bubble on the right, no name or picture (it's plainly you).
   if (own)
     return (
       <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)), ...(editable ? { lead: [{ label: 'Edit Message', icon: 'pencil', onSelect: () => setEditing(true) }] } : {}) })}>
-        <div ref={row} className={cx(s.message, s.own, continued && s.continued, steer && s.unread)} data-mine="true" data-steer={steer ? 'waiting' : undefined}>
+        <div ref={row} className={cx(s.message, s.own, r.reactable, continued && s.continued, steer && s.unread)} data-mine="true" data-steer={steer ? 'waiting' : undefined} data-chat={item.id}>
+          {editing ? null : reactions.button}
           <div className={s.body}>
             {editing && wsId ? (
               <EditPrompt wsId={wsId} lineId={item.id} text={item.text} worktree={kind === 'worktree'} onClose={() => setEditing(false)} />
@@ -188,6 +195,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
               </div>
             ) : null}
             <ImageGrid images={images} />
+            {reactions.chips}
             {steer ? <SteerWaiting steer={steer} /> : null}
             {item.request && item.channel ? <Delivery request={item.request} channel={item.channel} /> : null}
           </div>
@@ -199,7 +207,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
   if (!item.byAgent)
     return (
       <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)) })}>
-        <div ref={row} className={cx(s.message, s.theirs, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} style={{ ['--person' as string]: personColor(item.from) }}>
+        <div ref={row} className={cx(s.message, s.theirs, r.reactable, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} data-chat={item.id} style={{ ['--person' as string]: personColor(item.from) }}>
+          {reactions.button}
           <div className={cx(s.gutter, s.gutterEnd)}>{ends ? (
               <PersonButton peerId={item.from} name={item.name}>
                 <Avatar name={item.name} id={item.from} size={26} />
@@ -222,6 +231,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
               </div>
             ) : null}
             <ImageGrid images={images} />
+            {reactions.chips}
             {steer ? <SteerWaiting steer={steer} /> : null}
           </div>
         </div>
@@ -229,7 +239,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
     );
   return (
     <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)) })}>
-      <div ref={row} className={cx(s.message, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined}>
+      <div ref={row} className={cx(s.message, r.reactable, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} data-chat={item.id}>
+        {reactions.button}
         <div className={s.gutter}>{continued ? null : <Avatar name={item.name} id={item.from} claude={item.byAgent} agent={item.agent} size={26} />}</div>
         <div className={s.body}>
           {continued ? null : (
@@ -251,6 +262,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
             )
           ) : null}
           <ImageGrid images={images} />
+          {reactions.chips}
           {steer ? <SteerWaiting steer={steer} /> : null}
         </div>
       </div>
@@ -446,14 +458,15 @@ function TurnCard({
   // The same session goes on, ahead of what queued behind the failed turn (that follows, in order).
   const resume = (): void =>
     void client.api.session.submit(`${item.channel === 'room' && group ? '@claude ' : ''}${CONTINUE_PROMPT}`, { channel: item.channel, urgent: true }).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
-  // Claude Code isn't signed in: Continue would fail the same way. Sign In runs `claude auth login` in a
-  // shell you can see (the worktree's own, else the Terminal's), and Claude goes on once it ends well.
-  const signIn = (): void => {
+  // Claude Code isn't signed in (or its sign-in expired): Continue would fail the same way. Sign In
+  // offers /login's choices; a Claude or Console account runs `claude auth login` in a shell you can
+  // see (the worktree's own, else the Terminal's), and Claude goes on once it ends well.
+  const signIn = (how: SignInHow): void => {
     const terminals = client.store.getState().terminals;
     const key = item.channel.startsWith('ws:') ? claimShell(item.channel.slice(3), terminals) : globalShellId(Math.max(0, ...Object.keys(terminals).filter(isGlobalShell).map(globalShellNumber)) + 1);
     ui.patch({ termKey: key });
     requestAnimationFrame(() => revealTerminal(client.store.getState(), true));
-    void client.api.workbench.signInClaude(key, item.channel).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
+    void client.api.workbench.signInClaude(key, item.channel, how).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
   };
   const hasSteps = item.steps.length > 0 || item.subagents.length > 0;
   const folded = answered && prefs.doneSteps === 'fold' && !steps.shown;
@@ -523,8 +536,20 @@ function TurnCard({
           {/* Sign In runs Claude Code's own login: only for a Claude run (Codex says how to sign in on its card). */}
           {limited && failure?.kind === 'signed_out' && (failure.runtime ?? 'claude') === 'claude' ? (
             <div className={s.limitActions}>
-              <Button size="small" icon="person" onClick={signIn} title="Sign in to Claude Code in your browser; then the run picks up where it stopped">
+              <ActionsDropdown items={signInChoices(signIn, (url) => void openExternal(url))} align="start">
+                <Button size="small" icon="person" title="Sign in to Claude Code again; then the run picks up where it stopped">
+                  Sign In
+                </Button>
+              </ActionsDropdown>
+            </div>
+          ) : limited && failure?.kind === 'signed_out' && failure.runtime === 'opencode' ? (
+            // OpenCode's model provider said no (a key expired, none set up): add one in Terminal (`opencode auth login`), then Continue.
+            <div className={s.limitActions}>
+              <Button size="small" icon="person" onClick={() => void client.api.workbench.agentSignIn('opencode').catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'))} title="Add or renew a model provider in Terminal (opencode auth login), then Continue">
                 Sign In
+              </Button>
+              <Button size="small" icon="play" onClick={resume} title={`Send “continue”: ${agentName(item.agent)} picks up where it stopped`}>
+                Continue
               </Button>
             </div>
           ) : limited ? (

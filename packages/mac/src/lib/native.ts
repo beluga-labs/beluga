@@ -1,3 +1,5 @@
+import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from './chat-links.js';
 import { useEffect } from 'react';
 import { inApp } from './boot.js';
 import type { Actions } from './actions.js';
@@ -68,7 +70,11 @@ export function runMenuItem(id: string, client: SocketClient, ui: UiStore, actio
       return actions.run({ type: 'new_chat', projectId: newChatProject(state) });
     case 'new-worktree':
       if (project?.root) actions.run({ type: 'new_worktree', projectId: project.id });
-      else client.store.dispatch({ type: 'toast', text: 'Add a project first (File › Add Project…)', level: 'warn' });
+      else {
+        // A worktree needs a project: offer to add one, the way Add Project does.
+        client.store.dispatch({ type: 'toast', text: 'A worktree needs a project: add one first', level: 'warn' });
+        actions.run({ type: 'add_project' });
+      }
       return;
     case 'add-project':
       return actions.run({ type: 'add_project' });
@@ -137,15 +143,23 @@ export function useNative(client: SocketClient, ui: UiStore, actions: Actions, o
       const a = await listen<string>('menu', (e) => fromMenu(e.payload, () => runMenuItem(e.payload, client, ui, actions)));
       // The same link can come both ways (live and from the launch buffer): handle it once.
       const handled = new Set<string>();
-      let lastBoard: { url: string; at: number } | undefined;
+      let lastClick: { url: string; at: number } | undefined;
       const open = (url: string): void => {
         // A widget's link, clicked as often as you like (the same one twice in a second is one click).
         const board = boardLinkOf(url);
         if (board) {
-          if (lastBoard?.url === url && Date.now() - lastBoard.at < 1000) return;
-          lastBoard = { url, at: Date.now() };
+          if (lastClick?.url === url && Date.now() - lastClick.at < 1000) return;
+          lastClick = { url, at: Date.now() };
           actions.run({ type: 'view', view: board.board ? { kind: 'dashboard', id: board.board } : { kind: 'sentinel' } });
           if (board.tile) setTimeout(() => document.dispatchEvent(new CustomEvent(SHOW_TILE, { detail: board.tile })), 300);
+          return;
+        }
+        // A chat's link, as often as you like. One that's malformed goes nowhere, as any unknown link.
+        if (url.startsWith(CHAT_LINK_PREFIX)) {
+          const ref = chatLinkOf(url);
+          if (!ref || (lastClick?.url === url && Date.now() - lastClick.at < 1000)) return;
+          lastClick = { url, at: Date.now() };
+          void openChatLink(client, actions, ref);
           return;
         }
         if (handled.has(url)) return;

@@ -1,6 +1,7 @@
 import type { AgentRef } from '../protocol.js';
 import type { Effort } from '../shared/settings-schema.js';
 import type { Status } from './git.js';
+import type { ForkOf } from './github.js';
 import type { DefaultBranch, FetchProblem } from './sync.js';
 import type { ProjectScripts, ResolvedScripts } from './scripts.js';
 
@@ -32,11 +33,33 @@ export interface UsageDay {
 
 export type WorkspaceKind = 'main' | 'worktree' | 'chat';
 
+/** What checking a pull request out in a worktree needs to know about it (BLG-633). */
+export interface PullHead {
+  readonly number: number;
+  /** Its head branch (headRefName). */
+  readonly branch: string;
+  /** For the worktree's name. */
+  readonly title?: string;
+  /** The branch it merges into: the worktree is compared with it. */
+  readonly base?: string;
+  /** Its branch is on a fork: fetched from GitHub's pull ref. */
+  readonly fork?: boolean;
+}
+
+/** What renaming a workspace did: its name, and a worktree's branch (`branchKept`: why it kept its name). */
+export interface RenameResult {
+  readonly name: string;
+  readonly branch?: string;
+  readonly branchKept?: 'pushed';
+}
+
 /** What we remember about a workspace between runs. */
 export interface WorkspaceRecord {
   readonly id: string;
   readonly projectRoot: string;
   readonly name: string;
+  /** The user set this name. Automatic titles must preserve it. */
+  readonly nameSetByUser?: boolean;
   readonly path: string;
   readonly kind: WorkspaceKind;
   readonly branch?: string;
@@ -51,6 +74,8 @@ export interface WorkspaceRecord {
   readonly sessionRuntime?: string;
   /** The agent picked for this workspace (unset: your default). */
   readonly agent?: AgentRef;
+  /** Switched quietly from this agent (its name, BLG-592): the recent conversation goes with your next message, then this clears. */
+  readonly carryFrom?: string;
   /** Set on forks until their first run, so Claude branches the parent's conversation. */
   readonly forkFromSession?: string;
   readonly forkedFrom?: string;
@@ -95,6 +120,17 @@ export interface MergeWait {
   readonly deleteBranch?: boolean;
 }
 
+/** What deleting a worktree would throw away that archiving keeps (BLG-617): commits only its branch has. */
+export interface DeletePlan {
+  readonly branch: string;
+  /** What "not merged" means: its base ("main"). */
+  readonly into: string;
+  /** Commits on neither `into` nor any remote. */
+  readonly unpushed: number;
+  /** The newest of them (subjects, at most 5). */
+  readonly subjects: readonly string[];
+}
+
 /** A workspace as shown in the UI: record + live git status. */
 export interface Workspace extends WorkspaceRecord {
   readonly projectId: string;
@@ -121,6 +157,8 @@ export interface Project {
   readonly scripts?: ResolvedScripts;
   /** The default branch (main or master) against its remote, and fetching it (see sync.ts). */
   readonly sync?: ProjectSync;
+  /** Origin is a GitHub fork: the original repository, and how far behind it the fork is (learned with gh after a fetch). */
+  readonly fork?: ForkOf;
 }
 
 /** How a project's default branch stands, plus Beluga's fetching of it. */

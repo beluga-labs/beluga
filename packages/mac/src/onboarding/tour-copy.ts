@@ -1,5 +1,6 @@
 import type { IconName } from '../components/Icon.js';
 import type { Step } from './onboarding-model.js';
+import { thisComputer } from '../lib/os-words.js';
 
 /** The tour's words, one idea a step. Every line says what the app really does. */
 export interface TourCopy {
@@ -36,8 +37,8 @@ export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
     eyebrow: 'Together',
     icon: 'people',
     title: 'Your agent, and your friends’ agents.',
-    body: 'Add friends and your agents work together. Yours asks theirs for what only their Mac has: a file, an account, a page they’re signed in to. They allow it, the result comes back, and yours carries on. Mac to Mac, end-to-end encrypted.',
-    points: ['Files, screenshots and errands between Macs', 'You approve, or trust a friend once', 'Invite to one project, or to everything'],
+    body: 'Add friends and your agents work together. Yours asks theirs for what only their computer has: a file, an account, a page they’re signed in to. They allow it, the result comes back, and yours carries on. Computer to computer, end-to-end encrypted.',
+    points: ['Files, screenshots and errands between computers', 'You approve, or trust a friend once', 'Invite to one project, or to everything'],
   },
   sentinel: {
     eyebrow: 'Sentinel',
@@ -58,7 +59,7 @@ export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
     icon: 'gauge',
     title: 'Know what every project earns.',
     body: 'Connect Stripe and each project shows its revenue right next to the work, kept up to date as sales come in.',
-    points: ['A read-only key, kept on this Mac', 'Per project and per month', 'In the currency you think in'],
+    points: [`A read-only key, kept on ${thisComputer()}`, 'Per project and per month', 'In the currency you think in'],
   },
   archive: {
     eyebrow: 'Archive',

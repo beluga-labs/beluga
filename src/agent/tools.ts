@@ -1,6 +1,7 @@
 import { tool, toolSuite } from './tool-kit.js';
 import { z } from 'zod';
 import type { RoomBridge, SetupTools } from './types.js';
+import { isFullPath } from '../core/home-path.js';
 import { type DialogueTurnTools, endDialogueToolDef } from './dialogue-tools.js';
 import { createGatewayToolDefs } from './gateway-tools.js';
 
@@ -31,6 +32,9 @@ export const ROOM_TOOL_NAMES = [
   'send_file',
   'write_report',
 ].map((n) => `mcp__beluga__${n}`);
+
+/** A file send_file can take: a full path (/…, or C:\… and \\server\… on Windows), or one from home (~/… or ~\…). */
+export const isSendablePath = (p: string): boolean => isFullPath(p) || /^~[\\/]/.test(p);
 
 export function createRoomToolDefs(bridge: RoomBridge) {
   return [
@@ -108,8 +112,8 @@ export function createRoomToolDefs(bridge: RoomBridge) {
             .string()
             .min(1)
             .max(4096)
-            .refine((p) => p.startsWith('/') || p.startsWith('~/'), 'Use a full path (/… or ~/…)')
-            .describe('Full path of the file on this computer (/… or ~/…)'),
+            .refine(isSendablePath, 'Use a full path (/…, C:\\… or ~/…)')
+            .describe('Full path of the file on this computer (/…, C:\\… on Windows, or ~/…)'),
           note: z.string().max(1000).optional(),
         },
         (a) => guarded(() => bridge.sendFile(a.peer, a.path, a.note)),

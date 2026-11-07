@@ -13,6 +13,7 @@ import { Bar, Shimmer, slotColor } from './parts.js';
 import { projectAnchor } from './StorageCard.js';
 import { type ProjectRow, type SortKey, type WsRow, ago, compact, formatCost } from './usage-model.js';
 import s from './usage.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 const SORTS: ReadonlyArray<{ value: SortKey; label: string; hint: string }> = [
   { value: 'size', label: 'Size', hint: 'Biggest on disk first' },
@@ -80,7 +81,7 @@ function Row({ r, state, scale, color, measured, now }: { r: WsRow; state: AppSt
   };
   const main = w.kind === 'main';
   return (
-    <ActionsContext items={() => workspaceItems(client.store.getState(), w, actions.run)}>
+    <ActionsContext items={() => workspaceItems(client.store.getState(), client, w, actions.run)}>
       <div role="row" tabIndex={0} aria-label={main ? 'Main folder' : w.name} className={s.row} onClick={open} onKeyDown={onKey}>
         <span role="cell" className={s.nameCell}>
           <span className={s.kind}>
@@ -116,7 +117,7 @@ function Row({ r, state, scale, color, measured, now }: { r: WsRow; state: AppSt
         </span>
         <Trailing when={r.lastActive ? ago(r.lastActive, now) : ''}>
           {r.archivable ? <IconButton icon="archive" label={`Archive ${w.name}…`} onClick={() => actions.run({ type: 'ws', id: w.id, action: 'archive' })} /> : null}
-          <IconButton icon="folder" label="Show in Finder" onClick={() => actions.run({ type: 'ws', id: w.id, action: 'finder' })} />
+          <IconButton icon="folder" label={revealLabel()} onClick={() => actions.run({ type: 'ws', id: w.id, action: 'finder' })} />
           <IconButton icon="forward" label={`Open ${w.name}`} onClick={open} />
         </Trailing>
       </div>
@@ -185,7 +186,7 @@ function ProjectHead({ p, scale, color, now }: { p: ProjectRow; scale: Scale; co
         </span>
       </span>
       <Trailing when={p.lastActive ? ago(p.lastActive, now) : ''}>
-        {main ? <IconButton icon="folder" label={`Show ${p.project.name} in Finder`} onClick={() => actions.run({ type: 'ws', id: main.id, action: 'finder' })} /> : null}
+        {main ? <IconButton icon="folder" label={revealLabel(p.project.name)} onClick={() => actions.run({ type: 'ws', id: main.id, action: 'finder' })} /> : null}
       </Trailing>
     </div>
   );

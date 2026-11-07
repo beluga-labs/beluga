@@ -36,6 +36,33 @@ export interface OwnSettings {
   readonly quietUntil: string | null;
 }
 
+/** Which system the app runs on: only the Mac says anything about Beluga's notifications. */
+export type NotifyOs = 'mac' | 'windows' | 'linux';
+
+/**
+ * When the system won't say whether banners are allowed: where to allow them, and where a banner
+ * shows. Windows has a settings page to open; Linux desktops each keep their own, so no button.
+ */
+const UNSAID: Readonly<Record<NotifyOs, { readonly detail: string; readonly where: string; readonly fix: string; readonly action?: AccessAction }>> = {
+  mac: {
+    detail: 'macOS doesn’t tell apps whether their banners are allowed. If the test’s banner doesn’t show at the top right of your screen, allow Beluga in Notification Settings.',
+    where: 'the banner shows at the top right of your screen for a few seconds (clicking in Beluga closes it at once)',
+    fix: 'No banner? Allow Beluga in Notification Settings, and check Do Not Disturb (the moon in the menu bar).',
+    action: 'notifications',
+  },
+  windows: {
+    detail: 'Windows doesn’t tell apps whether their notifications are allowed. If the test doesn’t show at the bottom right of your screen, allow Beluga in Notification Settings.',
+    where: 'it shows at the bottom right of your screen for a few seconds',
+    fix: 'Nothing? Allow Beluga in Notification Settings, and check Do Not Disturb.',
+    action: 'notifications',
+  },
+  linux: {
+    detail: 'Your desktop doesn’t tell apps whether their notifications are allowed. Send a test: if nothing shows, allow Beluga in your desktop’s notification settings.',
+    where: 'it shows where your desktop puts notifications, for a few seconds',
+    fix: 'Nothing? Allow Beluga in your desktop’s notification settings, and check Do Not Disturb.',
+  },
+};
+
 /** The line at the top of Settings › Notifications: how things stand, and what to do about it. */
 export interface NotifyStatus {
   readonly tone: 'ok' | 'warn' | 'muted';
@@ -73,14 +100,17 @@ function focusBlock(a: NotificationAccess): Block | null {
 const normalize = (a: NotificationAccess): NotificationAccess => (a.state === 'notAsked' ? { ...a, state: 'unknown', alerts: true, sound: true } : a);
 
 /** How things stand, from what macOS says and Beluga's own switches. */
-export function notifyStatus(raw: NotificationAccess | undefined, own: OwnSettings): NotifyStatus {
-  if (!raw) return { tone: 'muted', title: 'Checking…', detail: 'Asking macOS whether Beluga may notify you.' };
+export function notifyStatus(raw: NotificationAccess | undefined, own: OwnSettings, os: NotifyOs = 'mac'): NotifyStatus {
+  if (!raw) return { tone: 'muted', title: 'Checking…', detail: 'Asking whether Beluga may notify you.' };
   const a = normalize(raw);
   const mac = macBlock(a) ?? focusBlock(a);
   if (mac) return mac;
   if (!own.desktop) return { tone: 'muted', title: 'Desktop notifications are off', detail: 'Turn them on below. The bell in the toolbar still lists everything.' };
   if (own.quietUntil) return { tone: 'muted', title: 'Beluga’s Do Not Disturb is on', detail: `Banners are paused ${own.quietUntil}. The bell still fills.` };
-  if (a.state === 'unknown') return { tone: 'muted', title: 'Send a test to check', detail: 'macOS doesn’t tell apps whether their banners are allowed. If the test’s banner doesn’t show at the top right of your screen, allow Beluga in Notification Settings.', action: 'notifications' };
+  if (a.state === 'unknown') {
+    const { detail, action } = UNSAID[os];
+    return { tone: 'muted', title: 'Send a test to check', detail, ...(action ? { action } : {}) };
+  }
   const detail = 'macOS shows Beluga’s banners and plays their sound.';
   if (a.focus === 'off') return { tone: 'ok', title: 'Notifications are on', detail };
   return { tone: 'ok', title: 'Notifications are on', detail: `${detail} Do Not Disturb or another Focus can still hold them.` };
@@ -97,14 +127,15 @@ export interface TestOutcome {
  * After a test: whether the banner can have shown. When macOS seems fine, say where to look and
  * what can still hold it (a Focus macOS doesn't tell Beluga about).
  */
-export function testOutcome(raw: NotificationAccess, soundName: string | null): TestOutcome {
+export function testOutcome(raw: NotificationAccess, soundName: string | null, os: NotifyOs = 'mac'): TestOutcome {
   const a = normalize(raw);
   const heard = soundName ? ` You heard “${soundName}” here.` : '';
   const block = macBlock(a) ?? focusBlock(a);
   if (block) return { tone: 'warn', text: `${block.held}${heard}`, action: block.action };
   // macOS closes the banners of the app you're using as soon as you click in it.
-  const look = `Sent: the banner shows at the top right of your screen for a few seconds (clicking in Beluga closes it at once).${heard}`;
-  if (a.state === 'unknown') return { tone: 'ok', text: `${look} No banner? Allow Beluga in Notification Settings, and check Do Not Disturb (the moon in the menu bar).`, action: 'notifications' };
+  const unsaid = UNSAID[os];
+  const look = `Sent: ${unsaid.where}.${heard}`;
+  if (a.state === 'unknown') return { tone: 'ok', text: `${look} ${unsaid.fix}`, ...(unsaid.action ? { action: unsaid.action } : {}) };
   if (a.focus === 'off') return { tone: 'ok', text: look };
   return { tone: 'ok', text: `${look} Nothing? If Do Not Disturb or another Focus is on (the moon in the menu bar), macOS holds it in Notification Center.`, action: 'focus' };
 }

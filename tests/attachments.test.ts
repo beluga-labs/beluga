@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentLabel,
   chipText,
-  droppedImagePaths,
+  droppedImagePaths as dropped,
   expandChips,
   formatBytes,
   importImage,
@@ -46,8 +46,9 @@ describe('image chips', () => {
     expect(expandChips(`[image ${b.n}]`, 'me', undefined, [b.n], [1]).text).toBe(`[image ${b.n}]`);
   });
 
-  it('recognizes dragged-in image paths', () => {
+  it('recognizes dragged-in image paths (a Mac’s, where a backslash escapes)', () => {
     const exists = (p: string) => p.startsWith('/img/');
+    const droppedImagePaths = (text: string, has: (p: string) => boolean) => dropped(text, has, 'darwin');
     expect(droppedImagePaths('/img/My\\ Shot.png ', exists)).toEqual(['/img/My Shot.png']);
     expect(droppedImagePaths("'/img/a b.jpg' /img/c.gif", exists)).toEqual(['/img/a b.jpg', '/img/c.gif']);
     expect(droppedImagePaths('file:///img/x%20y.png', exists)).toEqual(['/img/x y.png']);

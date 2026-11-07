@@ -1,3 +1,6 @@
+import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from '../lib/chat-links.js';
+import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -36,6 +39,7 @@ import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
 import { goToCode } from '../lib/go-to-code.js';
 import s from './chat.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 
 function Code({ code, lang }: { code: string; lang?: string }) {
@@ -43,9 +47,9 @@ function Code({ code, lang }: { code: string; lang?: string }) {
   useEffect(() => {
     if (!lang) return;
     let alive = true;
-    void loadHighlighter().then((h) => {
-      if (!alive || !h.langs.has(lang)) return;
-      setHtml(h.codeToHtml(code, { lang, themes: { light: 'github-light', dark: 'github-dark-dimmed' } }));
+    void loadHighlighter().then(async (h) => {
+      const id = await h.language(lang);
+      if (alive && id) setHtml(h.codeToHtml(code, id));
     });
     return () => {
       alive = false;
@@ -81,7 +85,7 @@ function targetOf(href: string): LinkTarget {
     const at = rest.indexOf('/');
     return { kind: 'attachment', owner: rest.slice(0, at), file: rest.slice(at + 1), label: 'image' };
   }
-  if (href.startsWith('/') || href.startsWith('~')) return { kind: 'local', path: href, dir: href.endsWith('/') };
+  if (isAbsolutePath(href) || href.startsWith('~')) return { kind: 'local', path: href, dir: endsWithSep(href) };
   return { kind: 'href', href };
 }
 
@@ -92,9 +96,9 @@ function MdImage({ src, alt, all, local }: { src: string; alt: string; all: read
   // Someone else's message never makes this Mac read its own files (a path to your screenshot, say).
   if (source.kind === 'local' && !local) {
     return (
-      <span className={s.imageRef} title={`${source.path} (pictures on this Mac show only in your own and your agent’s messages)`}>
+      <span className={s.imageRef} title={`${source.path} (pictures on ${thisComputer()} show only in your own and your agent’s messages)`}>
         <Icon name="image" size={11} />
-        {alt || source.path.split('/').pop()}
+        {alt || baseName(source.path)}
       </span>
     );
   }
@@ -291,6 +295,12 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
               return;
             }
             actions.openLink({ kind: 'local', path: p, dir: p.endsWith('/'), ...(line ? { line: Number(line) } : {}) });
+            return;
+          }
+          // A chat's link opens in the app, never in a browser.
+          if (href.startsWith(CHAT_LINK_PREFIX)) {
+            const ref = chatLinkOf(href);
+            if (ref) void openChatLink(client, actions, ref);
             return;
           }
           actions.openLink(targetOf(href));

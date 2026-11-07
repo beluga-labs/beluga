@@ -104,6 +104,8 @@ export const calls = {
   addTask: (projectId: string, d: PhoneDraft & { more?: PhoneDraft[]; epic?: boolean }): Call =>
     make('companion.addTask', [{ projectId, ...d }], d.more?.length ? `Add ${d.more.length + 1} tasks` : `Add "${short(d.title)}"`),
   /** A live view's rows: the Mac runs its source (one your own Claude's view names) and sends the page. */
+  // 1.42: what a chat's address is now (its chip).
+  resolveChat: (ref: string): Call => make('chats.resolve', [ref], 'Chat link'),
   viewFetch: (a: { topic: Topic; turn: string; block: number; query: object; source?: object; confirm?: boolean; fresh?: boolean; text?: boolean }): Call => make('companion.viewFetch', [a as never], 'View rows'),
   /** Merging a worktree (its conversation): look first, merge, Claude resolves the conflicts. */
   mergeCheck: (topic: Topic): Call => make('companion.mergeCheck', [topic], 'Check the merge'),
@@ -143,6 +145,10 @@ export const calls = {
   deleteMessage: (topic: Topic, id: string, everyone: boolean): Call => make('network.messages.delete', [conversationOf(topic), id, everyone ? { everyone: true } : {}], 'Delete the message'),
   editMessage: (topic: Topic, id: string, text: string): Call => make('network.messages.edit', [conversationOf(topic), id, text], `Edit to "${short(text)}"`),
   clearChat: (topic: Topic): Call => make('network.clear', [conversationOf(topic)], 'Clear the chat'),
+  /** 1.41 (BLG-702): an emoji on a person's message in the room's or a workspace's chat (`on`), or yours taken off. */
+  reactTurn: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('session.react', [channelOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
+  /** 1.41 (BLG-702): put an emoji on a message (`on`) or take yours off. */
+  react: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('network.messages.react', [conversationOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
   /** 1.34 (BLG-466): a dialogue between agents: Stop it, or Continue? → yes. */
   dialogueStop: (id: string): Call => make('dialogues.stop', [id], 'Stop the dialogue'),
   dialogueContinue: (id: string): Call => make('dialogues.continue', [id], 'Continue the dialogue'),

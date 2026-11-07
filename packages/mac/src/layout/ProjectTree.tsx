@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import { Fragment, memo, useEffect, useMemo, useRef } from 'react';
 import type { Project } from '@beluga/workspaces/types.js';
 import { worktreeOrigin } from '@beluga/workspaces/origin.js';
@@ -11,7 +12,7 @@ import { EarningsPill } from '../components/EarningsPill.js';
 import { stripeMenuItem } from '../lib/earnings.js';
 import { Badge, Dot, IconButton, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { inApp } from '../lib/boot.js';
+import { inApp, webServed } from '../lib/boot.js';
 import { newEmptyGroup, useGroupEdit } from '../lib/group-edit.js';
 import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
@@ -84,14 +85,14 @@ function useIconItems(p: Project): readonly ActionItem[] {
       onSelect: () => {
         void pickImage(`An icon for ${p.name}`).then((image) => (image ? change(image) : undefined));
       },
-      disabled: !inApp(),
+      disabled: !inApp() && !webServed(),
     },
     { label: 'Use the Project’s Own Icon', onSelect: () => void change(undefined) },
   ];
 }
 
-/** The Overview, narrowed to a project's archived work. */
-function showArchivedOf(run: (a: UiAction) => void, projectId: string): void {
+/** The Overview, narrowed to a project's archived work (or the archived chats). */
+export function showArchivedOf(run: (a: UiAction) => void, projectId: string): void {
   setOverviewView({ filter: 'archived', project: projectId });
   run({ type: 'view', view: { kind: 'overview' } });
 }
@@ -323,7 +324,7 @@ function HiddenProjects() {
       />
       {open
         ? hidden.map((root) => {
-            const name = root.split('/').filter(Boolean).pop() ?? root;
+            const name = baseName(root) || root;
             return (
               <Row
                 key={root}

@@ -16,7 +16,7 @@ import { localRuntime } from '../agent/runtime/local.js';
 import { LOCAL_RUNTIME } from '../shared/local-endpoints.js';
 import type { LocalEndpoints } from './local-endpoints.js';
 import type { IncomingMessage, PeerClient } from '../net/peer-client.js';
-import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, defaultAgentOf, type FsEntry, MAX_TEXT, type PeerInfo, type Profile } from '../protocol.js';
+import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type PeerInfo, type Profile } from '../protocol.js';
 import { type UsageUpdate, withUsage } from '../agent/usage.js';
 import { dialoguesOf } from './dialogues/registry.js';
 import { agentName } from '../shared/agent-label.js';
@@ -55,9 +55,13 @@ import { type PeerRun, type ShellRunner, describeShellResult } from './peer-run.
 import type { GuestControl, ProjectInvites } from './project-invites.js';
 import type { GuestShell } from './guest-shell.js';
 import { type SharedDiff, guestMayDo } from './shared-diff.js';
+import { coalesce } from './coalesce.js';
+import { PowerSaver, paced } from './power-saver.js';
 import type { EnvVars } from './env-vars.js';
 import { gatewayOf } from './gateway/registry.js';
 import { receiveFriendOffer } from './friend-offers.js';
+import { onChatReact, reactInChat, type RoomReactDeps } from './room-reactions.js';
+import { receiveRoomCall } from './calls/launch.js';
 
 /** Bigger, smaller, or back to normal text. */
 export type ZoomDir = 'in' | 'out' | 'reset';
@@ -149,6 +153,10 @@ export interface RoomControl {
 type AgentWaiter = { peer: string; resolve: (text: string) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; mirror?: string };
 
 const USAGE_REFRESH_MS = 10 * 60_000;
+/** Reading usage starts a whole Claude Code: never two at once, at most once a minute (BLG-620). */
+const USAGE_MIN_GAP_MS = 60_000;
+/** While saving power (BLG-621): at most every half hour. */
+const USAGE_SAVING_GAP_MS = 30 * 60_000;
 const WORKSPACE_REFRESH_MS = 30_000;
 
 /**
@@ -195,6 +203,8 @@ export class Session {
   private readonly sentById = new Map<string, string>();
   private usageTimer?: NodeJS.Timeout;
   private usageFetched = false;
+  private readonly usageCheck = coalesce(() => this.readUsage(), () => (this.store.getState().powerSaving ? USAGE_SAVING_GAP_MS : USAGE_MIN_GAP_MS));
+  private powerSaver?: PowerSaver;
   /** The room welcomed you at least once (a later outage is "lost", not "can’t reach yet"). */
   private everConnected = false;
   readonly questions: QuestionBroker;
@@ -353,14 +363,16 @@ export class Session {
       (message) => this.system(message, 'warn'),
     );
     this.opts.client.connect();
+    this.powerSaver ??= new PowerSaver({ store: this.store });
     this.usageTimer = setInterval(() => void this.refreshUsage(), USAGE_REFRESH_MS);
     this.usageTimer.unref();
     this.workbench?.start();
     if (this.workspaces) {
       void this.workspaces.refresh().then(() => this.offerProjects());
-      this.projectsTimer = setInterval(() => this.offerProjects(), WORKSPACE_REFRESH_MS);
+      const saving = (): boolean => this.store.getState().powerSaving;
+      this.projectsTimer = setInterval(paced(WORKSPACE_REFRESH_MS, saving, () => this.offerProjects()), WORKSPACE_REFRESH_MS);
       this.projectsTimer.unref();
-      this.workspaceTimer = setInterval(() => void this.workspaces?.refresh(), WORKSPACE_REFRESH_MS);
+      this.workspaceTimer = setInterval(paced(WORKSPACE_REFRESH_MS, saving, () => void this.workspaces?.refresh()), WORKSPACE_REFRESH_MS);
       this.workspaceTimer.unref();
       // A quiet fetch of each project's remote every ~15 minutes (the project home's "fetched … ago").
       this.workspaces.mainSync.start();
@@ -376,6 +388,8 @@ export class Session {
     this.opts.client.close();
     await this.opts.shares.close();
     clearInterval(this.usageTimer);
+    this.usageCheck.stop();
+    this.powerSaver?.stop();
     clearInterval(this.workspaceTimer);
     this.workspaces?.stop();
     this.workbench?.stop();
@@ -569,20 +583,31 @@ export class Session {
    */
   sendChat(text: string, byAgent: boolean, channel = 'room', request?: string, steer = false): void {
     const agent = byAgent ? { agent: this.agentRef } : {};
+    // Its own id, the same in every copy, so reactions can name it (BLG-702).
+    const mid = randomUUID();
     if (channel !== 'room') {
       // Workspace conversations stay on this computer, plus the people you invited into them.
-      const id = randomUUID();
+      const id = chatMessageId(this.selfId, mid, '');
       this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent, channel, ...agent, ...(request ? { request } : {}), ...(steer ? { steer: true as const } : {}) });
-      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, ...agent }, { to });
+      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, mid, ...agent }, { to });
       return;
     }
     if (this.store.getState().self?.guest && !this.store.getState().peers.find((p) => p.peerId === this.selfId && !p.guest)) {
       this.toast("You came in with a link to a project, so there's no group chat here. Open it in Projects", 'warn');
       return;
     }
-    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, ...agent }, { keep: true })) {
+    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, mid, ...agent }, { keep: true })) {
       this.toast('Not connected, so the message was not sent', 'error');
     }
+  }
+
+  /** Put an emoji on a message of the group chat or a workspace chat, or take yours off (BLG-702). → its chips now. */
+  reactChat(channel: string, id: string, emoji: string, on?: boolean): ReturnType<typeof reactInChat> {
+    return reactInChat(this.reactDeps, channel, id, emoji, on);
+  }
+
+  private get reactDeps(): RoomReactDeps {
+    return { store: this.store, selfId: () => this.selfId, send: (body, opts) => this.send(body, opts), sharing: this.sharing, ensureLoaded: (wsId) => void this.workspaces?.ensureLoaded(wsId) };
   }
 
   /** Ask an agent (ours or a peer's) to do something. Returns the request id. */
@@ -1182,6 +1207,10 @@ export class Session {
         // Tasks between Claudes (core/gateway): sent to one person; the gateway checks who may say what.
         gatewayOf(this)?.onRoomFrame(from, body.frame);
         return;
+      case 'call':
+        // A call in the room's chat (core/calls): the call service checks who may say what.
+        receiveRoomCall(this, from, body.p);
+        return;
       case 'friend_offer':
         // Someone in the room wants to be friends on the network (BLG-202): shown, never acted on by itself.
         return receiveFriendOffer(this, from, body);
@@ -1209,6 +1238,10 @@ export class Session {
         return this.remote.onHandoff(from, body);
       case 'ws_handoff_result':
         return this.remote.onHandoffResult(from, body);
+      case 'ws_handoff_check':
+        return this.remote.onHandoffCheck(from, body);
+      case 'ws_handoff_check_result':
+        return this.remote.onHandoffCheckResult(from, body);
       case 'file_request':
         return this.remote.onFileRequest(from, body);
       case 'file_request_result':
@@ -1227,12 +1260,18 @@ export class Session {
         return this.sharing.onRoster(from, body);
       case 'ws_leave':
         return this.sharing.onLeave(from, body);
-      case 'chat':
+      case 'chat': {
         // Workspace chats only reach people in that workspace, and only contributors may post.
         if (body.channel !== 'room' && !this.sharing.canPost(from, body.channel)) return;
         if (body.channel?.startsWith('ws:')) this.workspaces?.ensureLoaded(body.channel.slice(3));
-        this.store.dispatch({ type: 'chat', id, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}) });
+        const chatId = chatMessageId(from, body.mid, id);
+        // The same message again (sent once more after a lost acknowledgement): it's here already.
+        if (body.mid && this.store.getState().log.some((l) => l.id === chatId && l.channel === body.channel)) return;
+        this.store.dispatch({ type: 'chat', id: chatId, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}) });
         return;
+      }
+      case 'chat_react':
+        return onChatReact(this.reactDeps, from, body);
       case 'focus':
         return this.onFocus(from, ts, body);
       case 'agent_request':
@@ -1254,6 +1293,8 @@ export class Session {
         this.files.settle(from, body.reqId, body);
         return;
       case 'fs_changed': {
+        // Previews of it (Changes, Files, Scratch) read it again: a rewritten picture shows the new one.
+        this.store.dispatch({ type: 'file_written', at: { owner: from, share: body.share, path: body.path }, ts: Date.now() });
         const viewer = this.store.getState().viewer;
         if (viewer && viewer.owner === from && viewer.share === body.share && viewer.path === body.path) {
           await this.files.loadViewer(viewer);
@@ -1312,7 +1353,8 @@ export class Session {
   /** Make the terminal's text bigger or smaller, without needing a keyboard shortcut. */
   async zoom(dir: ZoomDir): Promise<void> {
     if (!this.opts.zoom) return this.toast('Text size can only be changed from a terminal', 'warn');
-    const result = await this.opts.zoom(dir);
+    // No window open (a server): said, not thrown.
+    const result = await this.opts.zoom(dir).catch((err: unknown) => ({ ok: false, message: err instanceof Error ? err.message : String(err) }));
     this.toast(result.message, result.ok ? 'success' : 'warn');
   }
 
@@ -1408,8 +1450,12 @@ export class Session {
     this.updateProfile(withUsage(this.opts.client.currentProfile, agent, update));
   }
 
-  /** Ask the agent backend for fresh plan usage (no prompt is sent). */
-  async refreshUsage(): Promise<void> {
+  /** Ask the agent backend for fresh plan usage (no prompt is sent), joined with other asks around it. */
+  refreshUsage(): Promise<void> {
+    return this.usageCheck();
+  }
+
+  private async readUsage(): Promise<void> {
     const usage = await this.agent?.refreshUsage?.().catch(() => undefined);
     if (usage) this.updateUsage(usage, CLAUDE_AGENT);
   }
@@ -1453,7 +1499,7 @@ export class Session {
     this.sayWhoAnswers(from, body);
     // Your Claude asked from a workspace: follow the friend's Claude there (only from the one you asked).
     const channel = waiter?.mirror && waiter.peer === from && body.requester === this.selfId ? waiter.mirror : body.channel;
-    this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}) });
+    if (!this.workspaces?.deletedChannel(channel)) this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}) });
     if (!waiter || waiter.peer !== from || !['done', 'error', 'denied'].includes(body.event)) return;
     clearTimeout(waiter.timer);
     this.agentWaiters.delete(body.requestId);

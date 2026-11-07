@@ -27,6 +27,7 @@ import s from "../chat/composer.module.css";
 import k from "./plan-ask.module.css";
 import p from "./plans.module.css";
 import { shortcutKeys } from "../lib/shortcuts.js";
+import { chordLabel } from "../lib/shortcuts-model.js";
 
 const FOLD = { fold: true };
 const FOLD_QUIET = { fold: true, quietWorking: true };
@@ -382,7 +383,7 @@ export function PlanChat({
           <Tip
             label={
               busy
-                ? "Send now: your agent reads it at its next step (a long command is interrupted for it) · ⌥↩ queues it instead"
+                ? `Send now: your agent reads it at its next step (a long command is interrupted for it) · ${chordLabel("Alt+Enter")} queues it instead`
                 : "Send"
             }
             keys="↩"

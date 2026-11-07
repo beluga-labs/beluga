@@ -10,12 +10,14 @@ import { TaskBoard } from './TaskBoard.js';
 import { TaskList } from './TaskList.js';
 import { ProjectIcon } from '../components/ProjectIcon.js';
 import { PickMenu } from './PickMenu.js';
-import { type Display, SCOPES, ago, type Scope, assigneesIn, boardChoices, boardRepos, boardToShow, connected, doneCount, pickedRepos, reposLabel, scopeCounts, scoped, statusesFor, taskGraph, untucked } from './tasks-model.js';
+import { type Display, SCOPES, ago, type Scope, assigneesIn, boardChoices, boardRepos, boardToShow, connected, doneCount, pickedRepos, reposLabel, scopeCounts, scoped, statusesFor, taskGraph, untucked, workGoingOn } from './tasks-model.js';
 import { BoardMark, RepoStack, ShowingBoardProvider, useDeleteBoard } from './boards.js';
 import { useTaskFileDrop } from './use-task-drop.js';
 import { revealSubTasks, setTasksPrefs, useBoard, useSelfId, useSolo, useTaskActions, useTasksPrefs } from './use-tasks.js';
 import t from './tasks.module.css';
+import g from '../components/graph/graph.module.css';
 import { TeamOffers } from '../team/Team.js';
+import { NoProjects } from '../work/NoProjects.js';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 
@@ -82,10 +84,11 @@ export function TasksView() {
   // The Archive is a list: nothing in it moves or waits on anything.
   const display = archive ? 'list' : prefs.display;
   // Only tasks tied to others: the rest have nothing to show there.
-  const graph = useMemo(() => {
-    if (display !== 'graph') return undefined;
+  // It opens on the work going on (a busy board too big to read whole), else what's next.
+  const { graph, going } = useMemo(() => {
+    if (display !== 'graph') return { graph: undefined, going: [] };
     const tied = connected(board, issues);
-    return tied.length ? taskGraph(board, tied) : undefined;
+    return tied.length ? { graph: taskGraph(board, tied), going: workGoingOn(tied) } : { graph: undefined, going: [] };
   }, [display, board, issues]);
   // Linear sync and teams are a repo's: a board of its own has neither.
   const sync = project && here && !here.own ? board.sync?.[project] : undefined;
@@ -112,8 +115,8 @@ export function TasksView() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [project, newTask.projectId]);
 
-  if (!board.enabled) return <Empty icon="task" title="Tasks need the Beluga app" detail="Open Beluga for Mac to plan and track work here." />;
-  if (!projects.length || !here) return <Empty icon="task" title="No projects yet" detail="Tasks belong to a project. Add one from the sidebar, then plan its work here." />;
+  if (!board.enabled) return <Empty icon="task" title="Tasks need the Beluga app" detail="Open the Beluga app to plan and track work here." />;
+  if (!projects.length || !here) return <NoProjects icon="task" detail="Tasks belong to a project: a folder with your code. Add one, then plan its work here." />;
 
   const none = !board.issues.some((i) => showsOn(i, here.id));
   return (
@@ -233,7 +236,7 @@ export function TasksView() {
             { label: here.own ? 'About This Board…' : 'About This Project…', icon: 'book', onSelect: () => openSheet({ kind: 'project_context', projectId: here.id }) },
             ...(here.own ? [] : [{ label: sync ? 'Linear Sync…' : 'Sync with Linear…', icon: 'refresh' as const, onSelect: () => openSheet({ kind: 'task_sync', projectId: here.id }) }]),
             ...(sync ? [{ label: 'Sync Now', disabled: Boolean(sync.syncing), onSelect: () => void act(() => api.syncNow(project)) }] : []),
-            { label: 'Open a Task for Every New Worktree', separate: true, checked: board.autoTasks, onSelect: () => void act(() => api.setAutoTasks(!board.autoTasks)) },
+            { label: 'Agent Opens a Task for Worktree Work', separate: true, checked: board.autoTasks, onSelect: () => void act(() => api.setAutoTasks(!board.autoTasks)) },
             { label: 'Archive Done Tasks', icon: 'archive', separate: true, disabled: !doneCount(board, project), onSelect: () => void act(() => api.archiveDone(project), 'Done tasks are in the Archive') },
             { label: 'Show Canceled Tasks', separate: true, checked: !prefs.folded.includes('canceled'), onSelect: () => setTasksPrefs({ folded: prefs.folded.includes('canceled') ? prefs.folded.filter((s) => s !== 'canceled') : [...prefs.folded, 'canceled'] }) },
             ...(here.own ? [{ label: 'Delete Board…', icon: 'trash' as const, separate: true, danger: true, onSelect: () => deleteBoard(here.id) }] : []),
@@ -273,9 +276,9 @@ export function TasksView() {
         ) : display === 'graph' && !graph ? (
           <Empty icon="graph" title="Nothing waits on anything here" detail="Mark what blocks what, or add sub-tasks, on a task’s page: they show up here as a graph." />
         ) : display === 'graph' && graph ? (
-          <div className={t.graph}>
+          <div className={cx(t.graph, g.palette)}>
             <Suspense fallback={<div className={t.graphNote}>Laying out…</div>}>
-              <FlowGraph graph={graph} mode="full" localImages={false} openLabel="Open Task" onOpen={(id) => open({ id })} />
+              <FlowGraph key={`${project}:${prefs.scope}:${who}:${worktree}:${picked.join(',')}`} graph={graph} mode="full" localImages={false} openLabel="Open Task" onOpen={(id) => open({ id })} live pack startAt={going} />
             </Suspense>
           </div>
         ) : (

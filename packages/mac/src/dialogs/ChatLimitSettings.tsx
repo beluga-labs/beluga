@@ -1,3 +1,4 @@
+import { ASSISTANT_TITLE } from '@beluga/shared/assistant.js';
 import { CHAT_LIMIT_DEFAULT, CHAT_LIMIT_NONE, CHAT_LIMIT_PRESETS } from '@beluga/shared/chat-limit.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { Group, Row, Select } from './settings-controls.js';
@@ -17,7 +18,7 @@ export function ChatLimitSettings() {
     <Group title="Open chats">
       <Row
         label="Chats kept at once"
-        detail={saved === CHAT_LIMIT_NONE ? 'Your Mac and Sentinel keep as many chats as you start.' : `Your Mac and Sentinel each keep up to ${saved}. Past that, delete one or raise this.`}
+        detail={saved === CHAT_LIMIT_NONE ? `${ASSISTANT_TITLE} and Sentinel keep as many chats as you start.` : `${ASSISTANT_TITLE} and Sentinel each keep up to ${saved}. Past that, delete one or raise this.`}
       >
         <Select
           label="Open chats"

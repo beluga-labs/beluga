@@ -77,6 +77,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  white-space: nowrap;
   color: var(--claude);
   font-size: 0.86rem;
 }
@@ -105,19 +106,31 @@
   }
 }
 
-/* The row on top of a list while Claude works: where the next file will land. */
+/* The row on top of a list while Claude works: laid out like a file row (the list's inset), its size and time still to come. */
 .next {
   display: flex;
   align-items: center;
   gap: 8px;
   height: var(--row);
-  padding: 0 16px;
+  margin: 0 8px;
+  padding: 0 8px;
   color: var(--claude);
   font-size: 0.86rem;
+  white-space: nowrap;
 }
-.next .bar {
+.nextLabel {
   flex: 1;
-  max-width: 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nextSize {
+  flex: none;
+  width: 30px;
+}
+.nextAgo {
+  flex: none;
+  width: 22px;
 }
 
 /* A file that just arrived slides in. */

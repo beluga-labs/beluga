@@ -4,7 +4,7 @@ import { buildAskOnlyAppend, buildCommitAppend, buildKeepAppend, buildScratchApp
 import { buildSyncMainAppend } from './sync-main.js';
 import { buildTerminalAppend } from './terminal-prompt.js';
 import type { AgentRunInput } from './types.js';
-import { buildViewAppend } from './view-prompt.js';
+import { buildChatLinkAppend, buildViewAppend } from './view-prompt.js';
 
 /**
  * What Beluga adds to an agent's own instructions for one run: who it is in the room, graphs and
@@ -21,6 +21,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     buildSystemAppend(ownerName, agent) +
     buildGraphAppend(Boolean(input.terminal)) +
     buildViewAppend(Boolean(input.terminal)) +
+    (input.chatLink ? buildChatLinkAppend(input.chatLink) : '') +
     (input.taskBrief ?? '') +
     (input.planBrief ?? '') +
     (input.macBrief ?? '') +
@@ -32,7 +33,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     (worktree ? buildKeepAppend(agent) : '') +
     (worktree && !input.planBrief && !askOnly ? buildCommitAppend() : '') +
     (place?.shipped && !askOnly ? buildShippedAppend(place.shipped) : '') +
-    (askOnly ? (syncMain ? buildSyncMainAppend(askOnly.project, syncMain.branch, syncMain.upstream) : buildAskOnlyAppend(askOnly.project, Boolean(input.continueInWorktree))) : '') +
+    (askOnly ? (syncMain ? buildSyncMainAppend(askOnly.project, syncMain.branch, syncMain.upstream) : buildAskOnlyAppend(askOnly.project, Boolean(input.continueInWorktree), Boolean(input.board))) : '') +
     (input.terminal ? buildTerminalAppend() : '')
   );
 }

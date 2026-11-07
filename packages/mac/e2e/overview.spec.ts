@@ -14,6 +14,7 @@ async function expectOpened(page: Page, name: string): Promise<void> {
   await expect(page.getByRole('tablist', { name: 'Show' })).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole('main')).toContainText(name);
 }
+const composer = (page: Page) => page.locator('textarea:not(.xterm-helper-textarea):not([aria-label="Terminal input"])').first();
 const segment = (page: Page, name: string) => page.getByRole('tab', { name: new RegExp(`^${name}, \\d+$`) });
 
 async function overview(page: Page): Promise<void> {
@@ -187,4 +188,33 @@ test('archived work leaves the sidebar; the project menu shows it in the Overvie
   await row(page, 'webhook-retries').hover();
   await row(page, 'webhook-retries').getByRole('button', { name: /^Restore/ }).click();
   await expect(sidebar(page).getByRole('button', { name: 'webhook-retries', exact: true })).toBeVisible({ timeout: 15_000 });
+});
+
+test('the Chats header’s ••• shows archived chats in the Overview', async ({ page }) => {
+  const text = 'Plan the spring trip';
+  await sidebar(page).getByRole('button', { name: 'New chat (not tied to a project)' }).click();
+  await expect(composer(page)).toBeVisible();
+  await composer(page).fill(text);
+  await composer(page).press('Enter');
+  await expect(sidebar(page).getByRole('button', { name: text, exact: true })).toBeVisible({ timeout: 15_000 });
+  // Nothing archived yet: no ••• to open.
+  await expect(sidebar(page).getByRole('button', { name: 'Chats Options' })).toHaveCount(0);
+
+  await overview(page);
+  await segment(page, 'All').click();
+  await row(page, text).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /^Archive/ }).click();
+  const alert = page.getByRole('alertdialog', { name: new RegExp(`Archive “${text}”`) });
+  await expect(alert).toContainText('The chat leaves the sidebar');
+  await alert.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(row(page, text)).toHaveAccessibleName(`${text}, archived`, { timeout: 15_000 });
+  await expect(sidebar(page).getByRole('button', { name: text, exact: true })).toHaveCount(0);
+  await sidebar(page).getByRole('button', { name: 'Chats Options' }).click();
+  await page.getByRole('menuitem', { name: 'Show Archived (1)' }).click();
+  await expect(segment(page, 'Archived')).toHaveAttribute('aria-selected', 'true');
+  await expect(row(page, text)).toBeVisible();
+  // Put it back for the tests after this one.
+  await row(page, text).hover();
+  await row(page, text).getByRole('button', { name: /^Restore/ }).click();
+  await expect(sidebar(page).getByRole('button', { name: text, exact: true })).toBeVisible({ timeout: 15_000 });
 });

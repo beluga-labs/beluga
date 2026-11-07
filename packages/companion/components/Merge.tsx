@@ -200,7 +200,7 @@ const BRANCH_TONE: Record<string, { tone: Tone; Icon: typeof Check }> = {
 };
 
 /** Each step's icon (Claude's steps get Claude's sparkle). */
-const STEP_ICON: Record<string, LucideIcon> = { merge_pr: GitMerge, merge_auto: Clock, cancel_auto: X, merge_admin: GitMerge, merge: GitMerge, update_branch: RefreshCw, mark_ready: Check, open_pr: GitPullRequest, pr: GitPullRequest, pr_draft: GitPullRequest, commit: GitCommitHorizontal, continue_after_merge: GitBranch, archive: ArchiveIcon, delete: Trash2 };
+const STEP_ICON: Record<string, LucideIcon> = { merge_pr: GitMerge, merge_auto: Clock, cancel_auto: X, merge_admin: GitMerge, merge: GitMerge, update_branch: RefreshCw, mark_ready: Check, open_pr: GitPullRequest, pr: GitPullRequest, pr_draft: GitPullRequest, pr_original: GitPullRequest, commit: GitCommitHorizontal, continue_after_merge: GitBranch, archive: ArchiveIcon, delete: Trash2 };
 const iconOf = (s: BranchStepView): LucideIcon => (s.claude ? Sparkles : (STEP_ICON[s.id] ?? GitBranch));
 const toneOf = (s: BranchStepView): Tone => (s.danger ? 'rose' : s.claude ? 'peach' : s.id === 'archive' ? 'sky' : 'lavender');
 const bare = (label: string): string => label.replace(/…$/, '');
@@ -260,6 +260,9 @@ export function BranchBand({ topic, branch, canMerge, onMerge }: { readonly topi
   const line = next && !here && !steps.length ? `Next, on your Mac: ${bare(next.label)}${next.claude ? ' (your agent does it)' : ''}` : branch.detail;
   // The row itself opens every step (the next one too), under the branch's state.
   const all = [...(main ? [main] : []), ...others];
+  // Deleting asks with Archive first: it keeps the branch's commits and the conversation (BLG-617; the hint says what Delete loses).
+  const keep = asking?.id === 'delete' ? steps.find((s) => s.id === 'archive') : undefined;
+  const confirm = asking ? [...(keep ? [keep] : []), asking] : [];
   return (
     // No layout animation: on Android its snapshot drew as a black box, and a ghost of the old band under the chat.
     <Animated.View key={branch.kind} entering={FadeIn.duration(200)}>
@@ -314,7 +317,7 @@ export function BranchBand({ topic, branch, canMerge, onMerge }: { readonly topi
         visible={Boolean(asking)}
         onClose={() => setAsking(undefined)}
         title={asking?.danger ? 'This can’t be undone' : 'Your agent does this in the conversation'}
-        options={asking ? [{ Icon: iconOf(asking), label: bare(asking.label), sub: asking.hint, tone: toneOf(asking), onPress: () => run(asking) }] : []}
+        options={confirm.map((s) => ({ Icon: iconOf(s), label: bare(s.label), sub: s.hint, tone: toneOf(s), onPress: () => run(s) }))}
       />
     </Animated.View>
   );

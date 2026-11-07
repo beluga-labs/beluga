@@ -9,6 +9,7 @@ import { PRESET_FROM, TERMINAL_PRESETS } from '../lib/terminal-themes.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { Group, Row, Switch } from './settings-controls.js';
 import t from './terminal-settings.module.css';
+import { chordLabel } from '../lib/shortcuts-model.js';
 
 /** A theme's look in a few lines of a terminal, its own colours (Beluga's when it has none). */
 function ThemeCard({ name, colors, on, onPick, font }: { readonly name: string; readonly colors: TermColors | undefined; readonly on: boolean; readonly onPick: () => void; readonly font: string }) {
@@ -70,7 +71,7 @@ export function ViewGroup() {
   const prefs = usePrefs();
   return (
     <Group title="Advanced">
-      <Row label="Use Claude Code’s own terminal" detail={prefs.termView ? 'A conversation’s header shows Chat · Terminal · Both (⇧⌘T switches). Graphs, tables and tasks open beside the terminal from their links.' : 'Off: conversations are the chat. On, you can talk to Claude in Claude Code’s own terminal app instead, on the same conversation.'}>
+      <Row label="Use Claude Code’s own terminal" detail={prefs.termView ? `A conversation’s header shows Chat · Terminal · Both (${chordLabel('Shift+Cmd+T')} switches). Graphs, tables and tasks open beside the terminal from their links.` : 'Off: conversations are the chat. On, you can talk to Claude in Claude Code’s own terminal app instead, on the same conversation.'}>
         <Switch label="Use Claude Code’s own terminal" on={prefs.termView} onChange={(v) => setPrefs({ termView: v })} />
       </Row>
       {prefs.termView ? <Row label="Open conversations as" detail={prefs.convoDefault === 'chat' ? 'The chat, drawn. The header’s switch shows the terminal for one conversation.' : prefs.convoDefault === 'terminal' ? 'Your agent’s own terminal; graphs and tables open beside it from their links.' : 'Your agent’s terminal with the chat beside it.'}>
@@ -98,7 +99,7 @@ export function KeysGroup() {
   const rows = termKeyRows(termKeysOf(prefs.termKeys?.keys, prefs.termKeys?.from));
   return (
     <Group title="Keys in the terminal view">
-      <Row label="The terminal’s keys come first" detail={prefs.termKeysFirst ? 'While you type in the terminal, ⌘T, ⌘W, ⌘1… and the rest are the terminal’s, as in iTerm2 or Ghostty.' : 'Beluga’s shortcuts win; the terminal keeps only keys Beluga doesn’t use.'}>
+      <Row label="The terminal’s keys come first" detail={prefs.termKeysFirst ? `While you type in the terminal, ${['Cmd+T', 'Cmd+W', 'Cmd+1'].map(chordLabel).join(', ')}… and the rest are the terminal’s, as in iTerm2 or Ghostty.` : 'Beluga’s shortcuts win; the terminal keeps only keys Beluga doesn’t use.'}>
         <Switch label="The terminal’s keys come first" on={prefs.termKeysFirst} onChange={(v) => setPrefs({ termKeysFirst: v })} />
       </Row>
       <div className={t.keyList} role="list" aria-label="Terminal keys">

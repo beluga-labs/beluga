@@ -8,6 +8,7 @@ import { colorsFor, importSummary } from '../lib/terminal-import-model.js';
 import { hasFont } from '../lib/terminal-look.js';
 import { Rise, SPRING, Words } from './fx.js';
 import s from './onboarding.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 const KEEP = 'beluga';
 
@@ -40,7 +41,7 @@ export function TerminalStep() {
       </h2>
       <Rise delay={0.2} className={s.body}>
         {found === undefined
-          ? 'Looking for the terminals on this Mac…'
+          ? `Looking for the terminals on ${thisComputer()}…`
           : choices.length
             ? 'Bring its colours, font and cursor into Beluga’s terminal. It changes as you pick, and Settings › Terminal has it later.'
             : 'No other terminal here has settings to bring, so Beluga’s terminal keeps its own look. Settings › Terminal › Import from… can bring one in later.'}

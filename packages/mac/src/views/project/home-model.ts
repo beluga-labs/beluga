@@ -1,4 +1,5 @@
 import type { AppState } from '../../../../../src/core/store.js';
+import { type BoardState, type Issue, isArchived, isOpen, showsOn } from '../../../../../src/core/board/model.js';
 import { activityOf } from '../../../../../src/ui/workspace-models.js';
 import { worktreeOrigin } from '../../../../../src/workspaces/origin.js';
 import type { Project, ProjectSync, Workspace } from '../../../../../src/workspaces/types.js';
@@ -102,6 +103,25 @@ export function homeModel(state: Pick<AppState, 'log' | 'conflicts' | 'prs'>, pr
     archived,
     stats: { active: worktrees.length, ready: worktrees.filter((w) => isReady(state, w)).length, archived: archived.length },
   };
+}
+
+export interface HomeTasks {
+  /** A few open tasks, the most recently moved first. */
+  readonly shown: readonly Issue[];
+  /** How many are open. */
+  readonly open: number;
+  /** The board has any task for this repo at all (archived ones too): without, the section stays away. */
+  readonly any: boolean;
+}
+
+/**
+ * The project's board at a glance: the open tasks its repo's board shows (tasks from other boards
+ * that run here too), the most recently moved first, and how many are open.
+ */
+export function homeTasks(board: Pick<BoardState, 'issues'>, projectId: string, limit: number): HomeTasks {
+  const here = board.issues.filter((i) => showsOn(i, projectId));
+  const open = here.filter((i) => isOpen(i.status) && !isArchived(i)).sort((a, b) => b.updatedAt - a.updatedAt);
+  return { shown: open.slice(0, limit), open: open.length, any: here.length > 0 };
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 d ago". */

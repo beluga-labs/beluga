@@ -143,7 +143,7 @@ export const ImageNode = memo(function ImageNode({ data }: NodeProps<FlowNode>) 
   return (
     <div className={cx(g.card, g.imageCard, node.emphasis && g.emphasis)} data-kind="image">
       <Ends sides={data.sides} />
-      {local ? <Picture path={source.path} label={node.label} /> : <div className={g.noPicture}>{path ? 'Pictures from other Macs show as a name' : 'No picture'}</div>}
+      {local ? <Picture path={source.path} label={node.label} /> : <div className={g.noPicture}>{path ? 'Pictures from other computers show as a name' : 'No picture'}</div>}
       <div className={g.imageCaption}>
         <span className={g.label}>{node.label}</span>
         {node.sublabel ? <span className={g.sublabel}>{node.sublabel}</span> : null}

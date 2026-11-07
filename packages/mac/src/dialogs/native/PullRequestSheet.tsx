@@ -17,6 +17,7 @@ import type { NativeMenuProps } from './index.js';
 import { usePick } from './pick.js';
 import { openPrPage } from '../../pr/use-pr-conversation.js';
 import s from './menus.module.css';
+import { cmdReturn } from '../../lib/os-words.js';
 
 const STATE: Record<PullRequest['state'], string> = { OPEN: 'Open', CLOSED: 'Closed', MERGED: 'Merged' };
 const CHECKS: Record<PullRequest['checks'], { label: string; tone?: string; icon?: 'check' | 'x' | 'clock' }> = {
@@ -315,7 +316,7 @@ export function PullRequestSheet({ menu, close }: NativeMenuProps<'pr'>) {
       onCancel={close}
       footer={instructions}
     >
-      <Field label="Instructions" htmlFor="pr-note" hint="Optional: anything extra for this pull request. ⌘Return creates it.">
+      <Field label="Instructions" htmlFor="pr-note" hint={`Optional: anything extra for this pull request. ${cmdReturn()} creates it.`}>
         <TextArea id="pr-note" value={note} onChange={setNote} rows={3} placeholder="e.g. Open it as a draft and mention issue #42" />
       </Field>
     </FormSheet>

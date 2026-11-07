@@ -1,4 +1,4 @@
-import { defaultAgentOf } from '../protocol.js';
+import { defaultAgentOf, wsWireName } from '../protocol.js';
 import { placeAgent } from '../shared/agent-picker.js';
 import type { BodyInput, BodyOf, GuestCan, WsRole } from '../protocol.js';
 import { agentLabel } from '../shared/agent-label.js';
@@ -34,17 +34,19 @@ export interface SharingDeps {
 }
 
 const HISTORY_ITEMS = 60;
+/** How long each message of a room invite's history may be (the room's ws_invite takes no more). */
+const HISTORY_TEXT = 8000;
 const wsIdOf = (channel: string): string | undefined => (channel.startsWith('ws:') ? channel.slice(3) : undefined);
 
-/** A short, plain-text version of the recent conversation for someone joining. */
-export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
+/** A short, plain-text version of the recent conversation for someone joining: its last `limit` messages, each up to `max` characters. */
+export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS, max = HISTORY_TEXT): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
   return log
     .filter((l) => l.channel === channel && (l.type === 'chat' || (l.type === 'agent' && l.status === 'done')))
     .slice(-limit)
     .map((l) =>
       l.type === 'chat'
-        ? { from: nameOf(l.from), text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent }
-        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true },
+        ? { from: nameOf(l.from), text: l.text.slice(0, max), ts: l.ts, byAgent: l.byAgent }
+        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, max) : '', ts: l.ts, byAgent: true },
     );
 }
 
@@ -119,7 +121,7 @@ export class WorkspaceSharing {
     this.syncShare(wsId);
     const project = state.projects.find((p) => p.id === ws.projectId)?.name ?? '';
     const history = historyFor(state.log, `ws:${wsId}`, (id) => peerName(state, id));
-    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: ws.name, project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
+    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: wsWireName(ws.name), project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
     this.broadcastRoster(wsId);
     this.onChange?.();
     if (!opts.quiet) this.deps.toast(`${peer.name} ${role === 'contribute' ? 'can now work with you' : 'can now follow along'} in ${ws.name}`, 'success');

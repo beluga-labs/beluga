@@ -136,7 +136,7 @@ export function ConversationDetails({ id }: { id: string }) {
         <Panel title="Friend">
           <Field label="Name">{f.name}</Field>
           <Field label="Status">{presenceLine(f)}</Field>
-          <Field label="Connection">{!f.online ? 'Not connected' : f.via === 'relay' ? 'Through another member’s Mac' : 'Direct'}</Field>
+          <Field label="Connection">{!f.online ? 'Not connected' : f.via === 'relay' ? 'Through another member’s computer' : 'Direct'}</Field>
           <Field label="Beluga">{belugaLine(f)}</Field>
           <Field label="Added">{since(f.addedAt)}</Field>
         </Panel>

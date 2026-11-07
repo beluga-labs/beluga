@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { archiveWorktree, dropArchive, freeSpace, planArchive, readManifest, restoreWorktree } from '../src/workspaces/archive.js';
+import { archiveWorktree, dropArchive, freeSpace, planArchive, readManifest, restoreWorktree, sweepPartialArchives } from '../src/workspaces/archive.js';
+import { deletesSettled } from '../src/workspaces/others.js';
 import { regenRule, remakeSteps } from '../src/workspaces/regenerable.js';
 
 const sh = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
@@ -127,6 +128,42 @@ describe('a smart archive', () => {
     // Restored: the archive is gone with its ref.
     expect(readManifest(archives, 'w1')).toBeUndefined();
     expect(sh(repo, 'for-each-ref', 'refs/klaud/')).toBe('');
+  });
+
+  it('in a folder the project ignores whole, build output goes and the rest stays (BLG-612)', async () => {
+    put(path.join(wt, '.gitignore'), `${readFileSync(path.join(wt, '.gitignore'), 'utf8')}mobile/\n`);
+    put(path.join(wt, 'mobile/settings.gradle'), '');
+    put(path.join(wt, 'mobile/app/build.gradle'), 'android {}');
+    put(path.join(wt, 'mobile/app/src/Main.kt'), 'fun main() {}');
+    put(path.join(wt, 'mobile/local.properties'), 'sdk.dir=/x');
+    put(path.join(wt, 'mobile/app/build/out.bin'), 'b'.repeat(30_000));
+    put(path.join(wt, 'mobile/.gradle/cache.bin'), 'c'.repeat(30_000));
+    // A git repo of yours inside: never looked into.
+    put(path.join(wt, 'mobile/lib/.git/HEAD'), 'ref: refs/heads/main\n');
+    put(path.join(wt, 'mobile/lib/build.gradle'), '');
+    put(path.join(wt, 'mobile/lib/build/tracked.txt'), 'mine');
+    const plan = await planArchive(wt);
+    expect(plan.drop.map((d) => d.path)).toEqual(expect.arrayContaining(['mobile/app/build/', 'mobile/.gradle/']));
+    expect(plan.drop.map((d) => d.path)).not.toContain('mobile/lib/build/');
+    expect(plan.keep).toEqual(expect.arrayContaining(['mobile/app/src/', 'mobile/local.properties', 'mobile/lib/']));
+    expect(plan.remake).toContain('./gradlew build');
+
+    await archiveWorktree({ repo, dir: wt, id: 'm1', archivesDir: archives });
+    await restoreWorktree({ repo, dir: wt, id: 'm1', archivesDir: archives });
+    expect(readFileSync(path.join(wt, 'mobile/app/src/Main.kt'), 'utf8')).toBe('fun main() {}');
+    expect(readFileSync(path.join(wt, 'mobile/local.properties'), 'utf8')).toBe('sdk.dir=/x');
+    expect(readFileSync(path.join(wt, 'mobile/lib/build/tracked.txt'), 'utf8')).toBe('mine');
+    expect(existsSync(path.join(wt, 'mobile/app/build'))).toBe(false);
+    expect(existsSync(path.join(wt, 'mobile/.gradle'))).toBe(false);
+  });
+
+  it('a folder only your own ignore file hides keeps its build output too', async () => {
+    put(path.join(repo, '.git/info/exclude'), 'mine/\n');
+    put(path.join(wt, 'mine/build.gradle'), '');
+    put(path.join(wt, 'mine/build/out.bin'), 'b');
+    const plan = await planArchive(wt);
+    expect(plan.drop.map((d) => d.path)).not.toContain('mine/build/');
+    expect(plan.keep).toContain('mine/');
   });
 
   it('a clean worktree with nothing ignored but dependencies keeps no file at all', async () => {
@@ -263,6 +300,17 @@ describe('a smart archive', () => {
     await restoreWorktree({ repo, dir: wt, id: 'p1', archivesDir: archives });
     expect(readFileSync(path.join(wt, 'notes.md'), 'utf8')).toBe('mine\n');
     expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('SECRET=1\n');
+  });
+
+  it('throws away an archive cut short by a quit, and keeps finished ones', async () => {
+    await archiveWorktree({ repo, dir: wt, id: 'done1', archivesDir: archives });
+    put(path.join(archives, 'cut1.partial/kept.tar.xz'), 'half written');
+    put(path.join(archives, 'notes.partial.txt'), 'not an archive');
+    expect(await sweepPartialArchives(archives)).toBe(1);
+    await deletesSettled();
+    expect(readdirSync(archives).sort()).toEqual(['done1', 'notes.partial.txt']);
+    expect(readManifest(archives, 'done1')).toBeDefined();
+    expect(await sweepPartialArchives(path.join(base, 'nowhere'))).toBe(0);
   });
 
   it('a second archive never replaces one that’s there', async () => {

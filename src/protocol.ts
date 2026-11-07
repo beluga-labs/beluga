@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EmojiSchema } from './shared/reactions.js';
 
 /** Wire protocol version. Bump on breaking changes. */
 export const PROTOCOL_VERSION = 3;
@@ -8,6 +9,19 @@ export const MAX_FILE_BYTES = 512 * 1024;
 /** Downloads are sent in chunks small enough to fit comfortably in one frame. */
 export const CHUNK_BYTES = 256 * 1024;
 export const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+/** The longest workspace name `ws_invite` and `ws_handoff` carry. A name you give may be longer. */
+export const WS_NAME_MAX = 80;
+
+/** A workspace name cut to what `ws_invite` and `ws_handoff` carry, without splitting a character. */
+export function wsWireName(name: string): string {
+  if (name.length <= WS_NAME_MAX) return name;
+  let out = '';
+  for (const ch of name) {
+    if (out.length + ch.length > WS_NAME_MAX) break;
+    out += ch;
+  }
+  return out;
+}
 
 const shortStr = z.string().min(1).max(256);
 const relPath = z.string().max(4096);
@@ -39,11 +53,11 @@ export const NamedUsageWindow = UsageWindow.extend({ label: z.string().min(1).ma
 export type NamedUsageWindow = z.infer<typeof NamedUsageWindow>;
 
 /** Runtimes Beluga knows by name; others (a newer Mac's) still parse, as their id. */
-export const KNOWN_RUNTIMES = ['claude', 'codex', 'local'] as const;
+export const KNOWN_RUNTIMES = ['claude', 'codex', 'opencode', 'local'] as const;
 export type AgentRuntime = (typeof KNOWN_RUNTIMES)[number] | (string & {});
 
 /**
- * Which agent it is: its runtime ("claude", "codex", "local", …), the model when it's known
+ * Which agent it is: its runtime ("claude", "codex", "opencode", "local", …), the model when it's known
  * ("opus", "gpt-5", "qwen3"), and the name its owner gave it ("Claude", "Codex"). Screens say it
  * with shared/agent-label.ts; nothing assumes the agent is Claude.
  */
@@ -121,6 +135,30 @@ export const ChatBody = z.object({
   channel: Channel,
   /** With `byAgent`: which of their agents wrote it (an older Mac leaves it out: Claude). */
   agent: AgentRef.optional(),
+  /**
+   * BLG-702: the sender's own id for it, the same in every copy (a workspace chat goes to each person
+   * in a frame of its own), so a reaction can name it: it's `<from>:<mid>` everywhere. An older Mac
+   * sends none (its message keeps the frame's id) and drops it from ours.
+   */
+  mid: z.string().regex(/^[\w-]{8,64}$/).optional(),
+});
+
+/** A chat message's id as every copy of it has it: `<from>:<mid>`, or (from an older Mac) the frame's own. */
+export const chatMessageId = (from: string, mid: string | undefined, frameId: string): string => (mid ? `${from}:${mid}` : frameId);
+
+/**
+ * BLG-702: one person's emoji on a chat message (`to`: its id, see chatMessageId) put on (`on`) or
+ * taken off; `at` orders their changes to it (shared/reactions.ts: the newest wins, off wins a tie).
+ * In the room it's kept with its history (late joiners get it too); in a workspace it goes to the
+ * people in it, like a message. An older Mac doesn't know the kind and drops it.
+ */
+export const ChatReactBody = z.object({
+  kind: z.literal('chat_react'),
+  channel: Channel,
+  to: z.string().regex(/^[\w:+/=.-]{1,200}$/),
+  e: EmojiSchema,
+  on: z.boolean(),
+  at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 });
 
 export const FocusBody = z.object({
@@ -263,6 +301,8 @@ export const ReportBody = z.object({
 export const RoomClearedBody = z.object({ kind: z.literal('room_cleared') });
 /** The gateway (tasks between Claudes, core/gateway) over a room: one frame, to one person; it checks the frame itself. */
 export const GatewayBody = z.object({ kind: z.literal('gateway'), frame: z.unknown() });
+/** A call in the room's chat (core/calls, BLG-716): ringing, who's in, WebRTC setup, notes; sent to one person, checked there. */
+export const CallBody = z.object({ kind: z.literal('call'), p: z.unknown() });
 /**
  * Someone in the room wants to be friends on the Beluga network (BLG-202): a one-time friend
  * invitation made only for you. Accepting it pairs your Macs over the network. Older Macs drop it.
@@ -312,7 +352,7 @@ export type GuestCan = z.infer<typeof GuestCan>;
 export const WsInviteBody = z.object({
   kind: z.literal('ws_invite'),
   /** `agent`: the owner's agent that runs there (their pick for it, or their default; an older Mac leaves it out: Claude). */
-  ws: z.object({ id: z.string().regex(/^[\w:.-]{1,80}$/), name: z.string().max(80), project: z.string().max(80), branch: z.string().max(200).optional(), agent: AgentRef.optional() }),
+  ws: z.object({ id: z.string().regex(/^[\w:.-]{1,80}$/), name: z.string().max(WS_NAME_MAX), project: z.string().max(80), branch: z.string().max(200).optional(), agent: AgentRef.optional() }),
   role: WsRole,
   /** Set for people invited by link: watch, prompt or edit (for showing what they can do). */
   can: GuestCan.optional(),
@@ -344,14 +384,25 @@ export const WsRequestResultBody = z.object({ kind: z.literal('ws_request_result
 export const WsHandoffBody = z.object({
   kind: z.literal('ws_handoff'),
   hid: shortStr,
-  ws: z.object({ name: z.string().max(80), project: z.string().max(80), branch: z.string().max(200), base: z.string().max(200) }),
+  ws: z.object({ name: z.string().max(WS_NAME_MAX), project: z.string().max(80), branch: z.string().max(200), base: z.string().max(200) }),
   /** The project's origin URL, to find the same repository on the other computer. */
   remote: z.string().max(500),
   note: z.string().max(MAX_TEXT),
   history: historyItems,
   bundle: z.object({ share: z.string().regex(/^[\w.-]{1,64}$/), path: relPath, size: z.number().int().min(0) }).optional(),
 });
-export const WsHandoffResultBody = z.object({ kind: z.literal('ws_handoff_result'), hid: shortStr, ok: z.boolean(), error: z.string().max(500).optional() });
+/**
+ * Why a handoff can't (or didn't) go through, so the one handing off hears the real reason (BLG-614):
+ * they said no, they turned off work from friends, they don't have the repository, the branch name
+ * isn't allowed here, or getting the branch failed. Unknown codes from a newer Beluga read as `failed`.
+ */
+export const HandoffReason = z.enum(['declined', 'off', 'no_repo', 'bad_branch', 'failed']).catch('failed');
+export type HandoffReason = z.infer<typeof HandoffReason>;
+export const WsHandoffResultBody = z.object({ kind: z.literal('ws_handoff_result'), hid: shortStr, ok: z.boolean(), error: z.string().max(500).optional(), reason: HandoffReason.optional() });
+
+/** "Could you take this one over?" before anything is written or sent: do you have the same repository (BLG-614). */
+export const WsHandoffCheckBody = z.object({ kind: z.literal('ws_handoff_check'), reqId: shortStr, remote: z.string().max(500) });
+export const WsHandoffCheckResultBody = z.object({ kind: z.literal('ws_handoff_check_result'), reqId: shortStr, ok: z.boolean(), reason: HandoffReason.optional() });
 
 /** Ask for a file anywhere on someone's computer (they approve unless they fully trust you). */
 export const FileRequestBody = z.object({ kind: z.literal('file_request'), reqId: shortStr, path: z.string().min(1).max(4096), why: z.string().max(500).default('') });
@@ -475,11 +526,14 @@ export const Body = z.discriminatedUnion('kind', [
   WsRequestResultBody,
   WsHandoffBody,
   WsHandoffResultBody,
+  WsHandoffCheckBody,
+  WsHandoffCheckResultBody,
   FileRequestBody,
   FileRequestResultBody,
   FileOfferBody,
   RoomClearedBody,
   GatewayBody,
+  CallBody,
   FriendOfferBody,
   ShareOfferBody,
   AgentQuestionBody,
@@ -488,6 +542,7 @@ export const Body = z.discriminatedUnion('kind', [
   WsRosterBody,
   WsLeaveBody,
   ChatBody,
+  ChatReactBody,
   FocusBody,
   AgentRequestBody,
   AgentEventBody,

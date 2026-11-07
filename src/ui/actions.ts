@@ -1,5 +1,6 @@
 import type { AppState } from '../core/store.js';
 import type { Focus } from './keymap.js';
+import { COMPUTER } from '../shared/assistant.js';
 
 export interface ActionButton {
   readonly id: string;
@@ -33,7 +34,7 @@ function composeButtons(c: ComposeState | undefined): ActionButton[] {
     ...(c.typing && c.busy
       ? [
           { id: 'queue', text: 'Queue', key: '↵' },
-          { id: 'send-now', text: 'Send now', key: '⌥↵' },
+          { id: 'send-now', text: 'Send now', key: COMPUTER === 'mac' ? '⌥↵' : 'Alt+↵' },
         ]
       : []),
     ...(c.queued

@@ -20,8 +20,9 @@ function useTokens(rows: readonly CodeRow[], lang: string | undefined): Token[][
     setTokens(undefined);
     if (!lang) return;
     let alive = true;
-    void loadHighlighter().then((h) => {
-      if (alive && h.langs.has(lang)) setTokens(h.tokens(code, lang));
+    void loadHighlighter().then(async (h) => {
+      const id = await h.language(lang);
+      if (alive && id) setTokens(h.tokens(code, id));
     });
     return () => {
       alive = false;

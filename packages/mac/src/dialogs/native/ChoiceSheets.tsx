@@ -9,6 +9,7 @@ import { useMyAgentName } from '../../lib/agent-words.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import type { NativeMenuProps } from './index.js';
 import { usePick } from './pick.js';
+import { revealLabel, thisComputer } from '../../lib/os-words.js';
 
 /**
  * The model for one conversation (or for new ones): the models of the agent it runs on, the
@@ -72,7 +73,7 @@ export function WelcomeSheet({ menu, close }: NativeMenuProps<'welcome'>) {
       intro={
         <>
           <p>{others.length ? `${others.join(', ')} ${others.length === 1 ? 'is' : 'are'} here.` : 'Nobody else is here yet.'}</p>
-          <p>Friends can ask your {agent} for help. It runs on this Mac, on your own account, only in folders you share, and you always see what they ask.</p>
+          <p>Friends can ask your {agent} for help. It runs on {thisComputer()}, on your own account, only in folders you share, and you always see what they ask.</p>
         </>
       }
       submitLabel="Continue"
@@ -129,7 +130,7 @@ export function ArchivedSheet({ menu, close }: NativeMenuProps<'archived'>) {
             Read Conversation
           </button>
           <button type="button" className={f.linkButton} onClick={() => pick('a-finder')}>
-            Show Project in Finder
+            {revealLabel('Project')}
           </button>
           <button type="button" className={f.linkDanger} onClick={() => pick('a-delete')}>
             Delete…

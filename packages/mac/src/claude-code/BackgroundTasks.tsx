@@ -9,6 +9,7 @@ import { useApi, useBeluga } from '../lib/beluga.js';
 import { type TaskItem, taskLabel } from './background-model.js';
 import s from './background.module.css';
 import { everyWhileShown } from '../lib/window-active.js';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * Background commands and watches Claude or its agents started (a dev server, the full tests, a
@@ -91,7 +92,7 @@ function Output({ item, now }: { item: TaskItem; now: number }) {
         <span className={s.flex} />
         <IconButton icon="copy" label="Copy Command" onClick={() => void copyText(t.command)} />
         {out?.file ? <IconButton icon="external" label="Open Log With Its App" onClick={() => void openWithDefaultApp(client, out.file)} /> : null}
-        {out?.file ? <IconButton icon="folder" label="Show Log in Finder" onClick={() => void revealInFinder(client, out.file)} /> : null}
+        {out?.file ? <IconButton icon="folder" label={revealLabel('Log')} onClick={() => void revealInFinder(client, out.file)} /> : null}
       </div>
       <div className={cx(s.command, 'selectable')} title={t.command}>
         <span className={s.prompt}>$</span> {t.command}

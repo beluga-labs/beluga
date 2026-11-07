@@ -31,7 +31,8 @@ export async function findAdb(sys: SystemPort, home?: string): Promise<{ path: s
   };
   // `which` first, so a user's own install on PATH wins; then the usual spots.
   const which = await sys.exec('/usr/bin/which', ['adb'], 5_000).catch(() => undefined);
-  const onPath = which?.code === 0 ? which.stdout.trim().split('\n')[0]?.trim() : undefined;
+  // No `which` (Windows): adb by its name, found on PATH by the system itself.
+  const onPath = which?.code === 0 ? which.stdout.trim().split('\n')[0]?.trim() : which ? undefined : 'adb';
   for (const p of [...(onPath ? [onPath] : []), ...adbCandidates(home)]) {
     const found = await tryOne(p);
     if (found) return found;

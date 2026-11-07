@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import { Platform } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { AGENT_MARKS, AGENT_MARK_VIEWBOX, type AgentMark, runtimeMark } from '../../../src/shared/agent-marks';
 import { color as palette } from '../lib/theme';
@@ -12,9 +13,12 @@ export { agentMark, modelMark, runtimeMark } from '../../../src/shared/agent-mar
  * the brand's colour when it has one (Claude Code's orange), else the ink it's given (the text's,
  * by default). Always beside the agent's name, never instead of it.
  */
+/** Hidden from screen readers (the name beside it says it): the phone's own props, or the web's `aria-hidden` (react-native-svg hands props to the DOM `<svg>` as they are). */
+const HIDDEN = Platform.OS === 'web' ? { 'aria-hidden': true } : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const };
+
 export function AgentMarkIcon({ mark, size = 16, color }: { readonly mark: AgentMark; readonly size?: number; readonly color?: string }) {
   return (
-    <Svg width={size} height={size} viewBox={AGENT_MARK_VIEWBOX} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <Svg width={size} height={size} viewBox={AGENT_MARK_VIEWBOX} {...HIDDEN}>
       <Path d={AGENT_MARKS[mark].d} fill={AGENT_MARKS[mark].color ?? color ?? palette.text} {...(AGENT_MARKS[mark].evenOdd ? { fillRule: 'evenodd' as const, clipRule: 'evenodd' as const } : {})} />
     </Svg>
   );
@@ -39,11 +43,12 @@ export function markIcon(mark: AgentMark): IconLike {
 
 /**
  * An agent's mark when all the phone has is its name ("Your Codex", "mia's Claude", "Codex"):
- * the name says Codex or Claude, else `fallback` (a runtime, when known), else a local model's.
+ * the name says Codex, OpenCode or Claude, else `fallback` (a runtime, when known), else a local model's.
  * Only where the Mac sends no agent ref.
  */
 export function markOfName(name: string, fallback?: string): AgentMark {
   if (/\bcodex\b/i.test(name)) return 'codex';
+  if (/\bopencode\b/i.test(name)) return 'opencode';
   if (/\bclaude\b/i.test(name)) return 'claudeCode';
   if (/\blocal model\b/i.test(name)) return 'localModel';
   return fallback !== undefined ? runtimeMark(fallback) : 'localModel';
