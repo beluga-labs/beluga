@@ -34,9 +34,16 @@ async function startParent(page: Page, name: string, threads: string): Promise<v
 test.describe.configure({ mode: 'serial' });
 test.use({ video: process.env.BELUGA_SHOTS_DIR ? { mode: 'on', size: { width: 1440, height: 900 } } : 'off' });
 
-test('with threads off, a row has no mark', async ({ page }) => {
+test('with threads off, no row has a mark', async ({ page }) => {
+  test.setTimeout(90_000);
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
+  // A chat that is on the screen twice: in its project, and unread.
+  await startParent(page, 'e2e-off', 'none=claude:finish now');
+  await sidebar(page).getByRole('button', { name: 'Group chat', exact: true }).first().click();
+  await unfold(page);
+  await expect(sidebar(page).getByRole('button', { name: 'e2e-off', exact: true })).toBeVisible();
+  await expect(sidebar(page).getByRole('region', { name: 'Unread' }).getByRole('button', { name: /^e2e-off · / })).toBeVisible({ timeout: 40_000 });
   await expect(sidebar(page).locator('[data-harness]')).toHaveCount(0);
   await shot(page, 'flag-off');
 });
@@ -62,6 +69,15 @@ test('a row shows its harness, and children fold under their parent', async ({ p
   await expect(group.getByRole('button', { name: 'four', exact: true })).toBeVisible();
   await expect(group.getByRole('button', { name: 'three', exact: true }).locator('[data-harness="claude"]')).toBeVisible();
   await shot(page, 'sidebar-fold');
+
+  // Unread stays a flat list, each row with the same mark as in the project.
+  const unread = sidebar(page).getByRole('region', { name: 'Unread' });
+  await expect(unread.getByRole('button', { name: /^one · / }).locator('[data-harness="codex"]')).toBeVisible();
+  await expect(unread.getByRole('button', { name: /^two · / }).locator('[data-harness="opencode"]')).toBeVisible();
+  await expect(unread.getByRole('button', { name: /^three · / }).locator('[data-harness="claude"]')).toBeVisible();
+  await expect(unread.locator('[role="group"]')).toHaveCount(0);
+  await expect(unread.getByRole('button', { name: /^bob · / }).locator('[data-harness]')).toHaveCount(0);
+  await shot(page, 'unread-marks');
 
   await group.getByRole('button', { name: /^2 earlier$/ }).click();
   await expect(group.getByRole('button', { name: 'one', exact: true }).locator('[data-harness="codex"]')).toBeVisible();

@@ -16,9 +16,7 @@ import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import { outsideLocation } from './outside-model.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
-import { agentName } from '../lib/agent-words.js';
-import { harnessOf } from '../lineage/lineage-model.js';
-import { agentMark } from '@beluga/shared/agent-marks.js';
+import { HarnessMark } from '../lineage/HarnessMark.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -90,7 +88,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
   const { client } = useBeluga();
   const [renaming, setRenaming] = useState(false);
   // Only what the row shows: another conversation streaming doesn't draw it again (KLD-48).
-  const { selected, st, signal, where, archiving, harness } = useApp(
+  const { selected, st, signal, where, archiving } = useApp(
     (state) => ({
       selected: state.view.kind === 'workspace' && state.view.id === ws.id,
       st: stateOf(state, ws, 0),
@@ -99,17 +97,11 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
       where: outsideLocation(state, ws),
       // Being archived: how far along (it leaves the sidebar when done).
       archiving: state.archiving[ws.id],
-      // Which agent runs it (only with threads on): at the row's edge, one width whatever the row says.
-      harness: harnessOf(state, ws),
     }),
     sameDeep,
   );
   const icon: IconName = ws.kind === 'chat' ? 'chat' : ws.kind === 'main' ? 'folder' : 'branch';
-  const mark = harness ? (
-    <span className={s.harnessMark} title={agentName(harness)} data-harness={harness.runtime}>
-      <Icon name={agentMark(harness)} size={12} />
-    </span>
-  ) : null;
+  const mark = <HarnessMark ws={ws} />;
   // Being made: its page opens here (the core has nothing to open yet), with nothing to do on it until it's there.
   if (ws.pending) {
     return (
