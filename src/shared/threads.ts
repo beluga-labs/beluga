@@ -54,5 +54,13 @@ export interface ThreadLimits {
 export const THREAD_LIMITS_DEFAULT: ThreadLimits = { depth: 3, treeRunning: 8, treeLive: 30, macRunning: 16 };
 export const THREAD_LIMITS_MAX: ThreadLimits = { depth: 8, treeRunning: 64, treeLive: 500, macRunning: 128 };
 
-/** Where a person raises a limit (there is no screen for it yet). */
-export const THREAD_LIMITS_WHERE = 'threadLimits in Beluga’s settings.json';
+/** Where a person raises a limit. */
+export const THREAD_LIMITS_WHERE = 'Settings › Agent › Thread limits';
+
+/** The rows of that place, with the values each one offers. A refusal names the row. */
+export const THREAD_LIMIT_ROWS: ReadonlyArray<{ readonly key: keyof ThreadLimits; readonly label: string; readonly detail: string; readonly presets: readonly number[] }> = [
+  { key: 'depth', label: 'Levels of threads', detail: 'How deep a chat’s threads go: a thread that starts a thread is one level more.', presets: [1, 2, 3, 4, 5, 8] },
+  { key: 'treeRunning', label: 'Working at once in one chat’s tree', detail: 'Threads working or queued under one chat.', presets: [4, 8, 16, 32, 64] },
+  { key: 'treeLive', label: 'Kept in one chat’s tree', detail: 'Threads under one chat that are not archived.', presets: [10, 30, 100, 250, 500] },
+  { key: 'macRunning', label: 'Working at once on this computer', detail: 'Threads working or queued in all your chats.', presets: [8, 16, 32, 64, 128] },
+];

@@ -23,6 +23,7 @@ import { EnvironmentSettings } from './EnvironmentSettings.js';
 import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
+import { AgentThreadsSettings, ThreadLimitsSettings } from './AgentThreadsSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
 import { LaunchFlagsSettings } from './LaunchFlagsSettings.js';
@@ -392,6 +393,7 @@ function AgentPane() {
       <ContextSettings />
       <ParallelSettings />
       <ChatLimitSettings />
+      <ThreadLimitsSettings />
       <Group title="Scratch folder">
         <Row label="Give your agent a scratch folder" detail="Screenshots, JSON, logs and notes your agent makes while it works go to the workspace’s .beluga/scratch/ folder (kept out of git; never touches other tools’ .context/).">
           <Switch label="Scratch folder" on={p.scratchFolder} onChange={(v) => void api.session.setPrefs({ scratchFolder: v })} />
@@ -626,9 +628,18 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   phone: PhoneSettings,
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
-  advanced: WebAccessSettings,
+  advanced: Advanced,
   about: About,
 };
+
+function Advanced() {
+  return (
+    <>
+      <WebAccessSettings />
+      <AgentThreadsSettings />
+    </>
+  );
+}
 
 /** The app's own panes a browser has no use for (it has no menu bar icon). */
 const APP_ONLY: ReadonlySet<SettingsPane> = new Set(['menubar']);
