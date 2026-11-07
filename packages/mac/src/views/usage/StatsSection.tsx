@@ -7,7 +7,7 @@ import { Calendar } from './Calendar.js';
 import { Highlights, Hours } from './HoursCard.js';
 import { Card } from './parts.js';
 import { Share } from './ShareCard.js';
-import { type GroupBy, type Metric, type MetricDef, METRICS, calendar, change, groupRows, metricOf, rangeTotals } from './stats-model.js';
+import { type GroupBy, type Metric, type MetricDef, METRICS, asideOf, calendar, change, groupRows, metricOf, rangeTotals } from './stats-model.js';
 import { TrendChart, type TrendMode } from './TrendChart.js';
 import { trendOf } from './trend-model.js';
 import { type GotStats, usePicked } from './use-stats.js';
@@ -31,7 +31,23 @@ const BEFORE: Record<StatRange, string> = { week: 'the week before', month: 'the
 const STEP: Record<StatRange, string> = { week: 'a day', month: 'a day', year: 'a week', all: 'a month' };
 
 /** One number on the strip: pressing it shows it in the calendar and the ranking. */
-function StatCell({ m, totals, before, on, onPick, range }: { m: MetricDef; totals: ReturnType<typeof rangeTotals>['now']; before?: ReturnType<typeof rangeTotals>['now']; on: boolean; onPick: () => void; range: StatRange }) {
+function StatCell({
+  m,
+  totals,
+  before,
+  on,
+  onPick,
+  range,
+  noGitHub,
+}: {
+  noGitHub: boolean;
+  m: MetricDef;
+  totals: ReturnType<typeof rangeTotals>['now'];
+  before?: ReturnType<typeof rangeTotals>['now'];
+  on: boolean;
+  onPick: () => void;
+  range: StatRange;
+}) {
   const value = m.value(totals);
   const delta = before ? change(value, m.value(before)) : undefined;
   return (
@@ -42,7 +58,7 @@ function StatCell({ m, totals, before, on, onPick, range }: { m: MetricDef; tota
       </span>
       <span className={s.cellValue}>{m.format(value)}</span>
       <span className={s.cellAside}>
-        <span className={s.cellAsideText}>{m.aside(totals)}</span>
+        <span className={s.cellAsideText}>{asideOf(m, totals, noGitHub)}</span>
         {delta ? (
           <span className={cx(s.delta, delta.up ? s.deltaUp : s.deltaDown)} title={`Against ${BEFORE[range]}`}>
             {delta.text}
@@ -85,6 +101,8 @@ export function StatsSection({ state, got }: { state: AppState; got: GotStats })
   const rows = useMemo(() => groupRows(data, projects, by, m, range, now), [data, projects, by, m, range, now]);
   const since = data.since ? new Date(data.since).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' }) : undefined;
   const byWord = by === 'agent' ? 'agent' : 'project';
+  // Pull requests come from GitHub: without its CLI, say so instead of an empty chart.
+  const why = m.github && data.noGitHub ? 'Pull requests are counted with the GitHub CLI (gh). Sign in to it and they show up here.' : undefined;
   return (
     <section className={s.section} aria-label="Your stats">
       <header className={s.head}>
@@ -98,7 +116,7 @@ export function StatsSection({ state, got }: { state: AppState; got: GotStats })
       <div className={s.stripFit}>
         <div className={s.strip} role="tablist" aria-label="What to show">
           {METRICS.map((x) => (
-            <StatCell key={x.id} m={x} totals={totals.now} {...(totals.before ? { before: totals.before } : {})} on={x.id === metric} onPick={() => setMetric(x.id)} range={range} />
+            <StatCell key={x.id} m={x} totals={totals.now} {...(totals.before ? { before: totals.before } : {})} on={x.id === metric} onPick={() => setMetric(x.id)} range={range} noGitHub={Boolean(data.noGitHub)} />
           ))}
         </div>
       </div>
@@ -111,7 +129,7 @@ export function StatsSection({ state, got }: { state: AppState; got: GotStats })
         }
         aside={<Segmented label="Chart" value={mode} options={MODES} onChange={setMode} />}
       >
-        <TrendChart key={by} trend={trend} m={m} mode={mode} animate={`${range}|${metric}|${mode}`} />
+        <TrendChart key={by} trend={trend} m={m} mode={mode} animate={`${range}|${metric}|${mode}`} {...(why ? { why } : {})} />
       </Card>
       <Highlights stats={data} now={now} rows={rows} by={by} />
       <Card
@@ -121,12 +139,12 @@ export function StatsSection({ state, got }: { state: AppState; got: GotStats })
           </span>
         }
       >
-        <Calendar weeks={weeks} m={m} />
+        <Calendar weeks={weeks} m={m} {...(why ? { why } : {})} />
       </Card>
       <div className={s.pairFit}>
         <div className={cx(s.pair, s.pairEven)}>
           <Card title={`Share by ${byWord}`}>
-            <Share rows={rows} m={m} by={by} />
+            <Share rows={rows} m={m} by={by} {...(why ? { why } : {})} />
           </Card>
           <Card title="When you work">
             <Hours hours={data.hours} />

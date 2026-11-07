@@ -18,6 +18,10 @@ export interface MetricDef {
   readonly format: (n: number) => string;
   /** A small line under the number: what it amounts to, or what goes with it. */
   readonly aside: (t: Totals) => string;
+  /** What the small line says when there's nothing (unset: aside): never a row of zeros that means nothing. */
+  readonly empty?: (t: Totals) => string | undefined;
+  /** Counted from GitHub's pull requests: nothing without the GitHub CLI. */
+  readonly github?: true;
   /** Short, for a chart's axis (unset: format). */
   readonly axis?: (n: number) => string;
   /** What a day's number is in the calendar (the strip's own figure, for the PR metrics too). */
@@ -59,6 +63,7 @@ export const METRICS: readonly MetricDef[] = [
     format: duration,
     axis: hours,
     aside: (t) => (t.agentMs >= WORKDAY_MS / 2 ? `≈ ${about(t.agentMs / WORKDAY_MS)} workdays · ${plural(t.runs, 'run')}` : plural(t.runs, 'run')),
+    empty: () => 'No runs in this stretch',
     daily: 'agentMs',
   },
   {
@@ -69,6 +74,7 @@ export const METRICS: readonly MetricDef[] = [
     value: (t) => t.prompts,
     format: (n) => n.toLocaleString(),
     aside: (t) => `${compact(t.chars)} characters${t.prompts ? ` · ${Math.round(t.chars / t.prompts)} a prompt` : ''}`,
+    empty: () => 'None sent in this stretch',
     daily: 'prompts',
   },
   {
@@ -78,7 +84,8 @@ export const METRICS: readonly MetricDef[] = [
     color: 'var(--m-pasted)',
     value: (t) => t.pasted,
     format: compact,
-    aside: (t) => (t.pasted >= NOVEL / 2 ? `≈ ${about(t.pasted / NOVEL)} novels` : `≈ ${plural(Math.round(t.pasted / PAGE), 'page')} of text`),
+    aside: (t) => (t.pasted >= NOVEL / 2 ? `≈ ${about(t.pasted / NOVEL)} novels` : `≈ ${plural(Math.max(1, Math.round(t.pasted / PAGE)), 'page')} of text`),
+    empty: () => 'Nothing pasted in this stretch',
     daily: 'pasted',
   },
   {
@@ -90,6 +97,7 @@ export const METRICS: readonly MetricDef[] = [
     format: duration,
     axis: hours,
     aside: (t) => `≈ ${compact(Math.round((t.dictationMs / 60_000) * WORDS_PER_MIN))} words spoken`,
+    empty: () => 'Not used yet: the mic',
     daily: 'dictationMs',
   },
   {
@@ -102,10 +110,49 @@ export const METRICS: readonly MetricDef[] = [
     aside: (t) => `${t.archived.toLocaleString()} archived · ${plural(t.chats, 'chat')}`,
     daily: 'worktrees',
   },
-  { id: 'prsMerged', label: 'PRs merged', icon: 'merge', color: 'var(--m-prs)', value: (t) => t.prsMerged, format: (n) => n.toLocaleString(), aside: (t) => `${t.prsOpened.toLocaleString()} opened`, daily: 'prsMerged' },
-  { id: 'lines', label: 'Lines shipped', icon: 'diff', color: 'var(--m-lines)', value: (t) => t.linesAdded + t.linesRemoved, format: compact, aside: (t) => `+${compact(t.linesAdded)} −${compact(t.linesRemoved)} in merged PRs`, daily: 'linesAdded' },
-  { id: 'tokens', label: 'Tokens', icon: 'spark', color: 'var(--m-tokens)', value: (t) => t.tokens, format: compact, aside: (t) => `${formatCost(t.cost)} estimated`, daily: 'tokens' },
+  {
+    id: 'prsMerged',
+    label: 'PRs merged',
+    icon: 'merge',
+    color: 'var(--m-prs)',
+    value: (t) => t.prsMerged,
+    format: (n) => n.toLocaleString(),
+    aside: (t) => `${t.prsOpened.toLocaleString()} opened`,
+    empty: (t) => (t.prsOpened ? undefined : 'None from Beluga’s worktrees yet'),
+    github: true,
+    daily: 'prsMerged',
+  },
+  {
+    id: 'lines',
+    label: 'Lines shipped',
+    icon: 'diff',
+    color: 'var(--m-lines)',
+    value: (t) => t.linesAdded + t.linesRemoved,
+    format: compact,
+    aside: (t) => `+${compact(t.linesAdded)} −${compact(t.linesRemoved)} in merged PRs`,
+    empty: () => 'Counted from merged PRs',
+    github: true,
+    daily: 'linesAdded',
+  },
+  {
+    id: 'tokens',
+    label: 'Tokens',
+    icon: 'spark',
+    color: 'var(--m-tokens)',
+    value: (t) => t.tokens,
+    format: compact,
+    aside: (t) => (t.cost ? `${formatCost(t.cost)} estimated` : 'No cost counted'),
+    empty: () => 'None in this stretch',
+    daily: 'tokens',
+  },
 ];
+
+/** The small line under a number: what it amounts to, or (nothing yet) why, and how to get some. */
+export function asideOf(m: MetricDef, t: Totals, noGitHub: boolean): string {
+  if (m.value(t) > 0) return m.aside(t);
+  if (m.github && noGitHub) return 'Needs the GitHub CLI (gh)';
+  return m.empty?.(t) ?? m.aside(t);
+}
 
 export const metricOf = (id: Metric): MetricDef => METRICS.find((m) => m.id === id) ?? METRICS[0]!;
 

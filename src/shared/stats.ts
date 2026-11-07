@@ -87,6 +87,8 @@ export interface StatsSnapshot {
   readonly since: number;
   /** Plan windows, oldest first (the open ones last). */
   readonly plan?: readonly PlanWindow[];
+  /** The GitHub CLI isn't installed or signed in on this Mac: pull requests (and their lines) aren't counted. */
+  readonly noGitHub?: true;
   /** Still reading what came before (the first start): numbers will grow. */
   readonly backfilling?: boolean;
 }

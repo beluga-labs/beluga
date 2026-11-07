@@ -182,7 +182,8 @@ test('sessions: how much of each 5-hour session and each week you used', async (
   await expect(sessions.getByText(/% used/)).toBeVisible();
   await sessions.getByRole('tab', { name: 'Weekly' }).click();
   await expect(sessions.getByRole('list', { name: 'Weeks, the last six' }).getByRole('listitem')).toHaveCount(6);
+  // Codex here has 5-hour sessions only: nothing to switch between, so no switch.
   await sessions.getByRole('tab', { name: 'Codex' }).click();
-  await sessions.getByRole('tab', { name: '5-hour' }).click();
+  await expect(sessions.getByRole('tab', { name: '5-hour' })).toHaveCount(0);
   await expect(sessions.getByText(/of each session used/)).toBeVisible();
 });

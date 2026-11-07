@@ -76,25 +76,41 @@ function Timeline({ windows, kind, now, hover, onHover }: { windows: readonly Pl
   );
 }
 
+/** A window a provider's plan reports right now (some plans have no 5-hour session, an API key has neither). */
+export interface PlanLimit {
+  readonly runtime: string;
+  readonly kind: PlanKind;
+}
+
+const byClaudeFirst = (a: string, b: string): number => (a === 'claude' ? -1 : b === 'claude' ? 1 : a.localeCompare(b));
+
 /**
  * Sessions: how much of each plan window you used before it reset (Claude's 5-hour sessions and its
  * weeks, Codex's too), what you left on the table, and how often you ran out. Point at a window for
- * its times. Kept from when Beluga began counting (the plans don't say what came before).
+ * its times. Kept from when Beluga began counting (the plans don't say what came before). Only the
+ * agents and windows your plans have are offered; with none (an API key, a plan without limits)
+ * there's no card at all.
  */
-export function SessionsCard({ windows, now }: { windows: readonly PlanWindow[]; now: number }) {
-  const runtimes = useMemo(() => [...new Set(windows.map((w) => w.runtime))].sort((a, b) => (a === 'claude' ? -1 : b === 'claude' ? 1 : a.localeCompare(b))), [windows]);
-  const [kind, setKind] = usePicked<PlanKind>('beluga.sessions.kind', 'session', ['session', 'week']);
+export function SessionsCard({ windows, limits, now }: { windows: readonly PlanWindow[]; limits: readonly PlanLimit[]; now: number }) {
+  const known = useMemo(() => [...windows.map((w) => ({ runtime: w.runtime, kind: w.kind })), ...limits], [windows, limits]);
+  const runtimes = useMemo(() => [...new Set(known.map((k) => k.runtime))].sort(byClaudeFirst), [known]);
+  const [wanted, setKind] = usePicked<PlanKind>('beluga.sessions.kind', 'session', ['session', 'week']);
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const [hover, setHover] = useState<number | undefined>(undefined);
   const runtime = picked && runtimes.includes(picked) ? picked : (runtimes[0] ?? 'claude');
+  const kinds = KINDS.filter((k) => known.some((x) => x.runtime === runtime && x.kind === k.value));
+  const kind = kinds.some((k) => k.value === wanted) ? wanted : (kinds[0]?.value ?? 'session');
   const list = useMemo(() => windows.filter((w) => w.runtime === runtime && w.kind === kind && w.resetsAt >= now - SPAN[kind]), [windows, runtime, kind, now]);
+  if (!runtimes.length) return null;
   const sum = planSummary(windows, runtime, kind, now - SPAN[kind]);
+  const open = list.find((w) => w.open);
   const shown = hover !== undefined ? list[hover] : undefined;
   const name = RUNTIME_NAMES[runtime] ?? runtime;
+  const unit = kind === 'session' ? 'session' : 'week';
   const aside = (
     <>
-      {runtimes.length > 1 ? <Segmented label="Agent" value={runtime} options={runtimes.map((r) => ({ value: r, label: RUNTIME_NAMES[r] ?? r }))} onChange={setPicked} /> : null}
-      <Segmented label="Window" value={kind} options={KINDS} onChange={(k) => (setKind(k), setHover(undefined))} />
+      {runtimes.length > 1 ? <Segmented label="Agent" value={runtime} options={runtimes.map((r) => ({ value: r, label: RUNTIME_NAMES[r] ?? r }))} onChange={(r) => (setPicked(r), setHover(undefined))} /> : null}
+      {kinds.length > 1 ? <Segmented label="Window" value={kind} options={kinds} onChange={(k) => (setKind(k), setHover(undefined))} /> : null}
     </>
   );
   return (
@@ -105,21 +121,38 @@ export function SessionsCard({ windows, now }: { windows: readonly PlanWindow[];
         </p>
       ) : (
         <>
-          <div className={s.sessionsHero}>
-            <span className={s.sessionsValue}>{sum.windows ? `${Math.round(sum.used)}%` : '–'}</span>
-            <span className={s.sessionsUnit}>of each {kind === 'session' ? 'session' : 'week'} used, on average</span>
-          </div>
-          <div className={s.sessionsFacts}>
-            <span>
-              <strong>{sum.maxed}</strong> ran out
-            </span>
-            <span>
-              <strong>≈ {duration(sum.leftMs)}</strong> left unused
-            </span>
-            <span>
-              <strong>{sum.windows}</strong> {kind === 'session' ? 'sessions' : 'weeks'}
-            </span>
-          </div>
+          {sum.windows ? (
+            <>
+              <div className={s.sessionsHero}>
+                <span className={s.sessionsValue}>{Math.round(sum.used)}%</span>
+                <span className={s.sessionsUnit}>of each {unit} used, on average</span>
+              </div>
+              <div className={s.sessionsFacts}>
+                <span>
+                  <strong>{sum.maxed}</strong> ran out
+                </span>
+                <span>
+                  <strong>≈ {duration(sum.leftMs)}</strong> left unused
+                </span>
+                <span>
+                  <strong>{sum.windows}</strong> {kind === 'session' ? 'sessions' : 'weeks'}
+                </span>
+              </div>
+            </>
+          ) : (
+            // Only the one going now: what it has so far, and what comes once it resets.
+            <>
+              <div className={s.sessionsHero}>
+                <span className={s.sessionsValue}>{open ? `${Math.round(open.peak)}%` : '–'}</span>
+                <span className={s.sessionsUnit}>of this {unit} used so far</span>
+              </div>
+              <div className={s.sessionsFacts}>
+                <span>
+                  Once it resets, how much you used and what was left show here, {unit} after {unit}.
+                </span>
+              </div>
+            </>
+          )}
           <Timeline windows={list} kind={kind} now={now} {...(hover !== undefined ? { hover } : {})} onHover={setHover} />
           <div className={s.sessionsFoot}>
             {shown ? (

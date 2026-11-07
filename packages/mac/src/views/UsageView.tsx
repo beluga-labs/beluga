@@ -7,7 +7,9 @@ import { Breakdown } from './usage/Breakdown.js';
 import { CleanupCard } from './usage/CleanupCard.js';
 import { EarningsSummaryCard } from './usage/EarningsSummaryCard.js';
 import { PlanCard } from './usage/PlanCard.js';
-import { SessionsCard } from './usage/SessionsCard.js';
+import { type PlanLimit, SessionsCard } from './usage/SessionsCard.js';
+import { usagesOf } from '@beluga/agent/usage.js';
+import type { AppState } from '@beluga/core/store.js';
 import { StatsSection } from './usage/StatsSection.js';
 import { useStats } from './usage/use-stats.js';
 import { StorageCard } from './usage/StorageCard.js';
@@ -54,6 +56,12 @@ function useMeasure(): { measuring: boolean; measure: () => void } {
   return { measuring, measure };
 }
 
+/** The windows your plans report now: a 5-hour session, a week (an API key or a plan without limits: none). */
+function planLimits(state: AppState): PlanLimit[] {
+  const me = state.peers.find((p) => p.peerId === (state.self?.peerId ?? state.selfId)) ?? state.self;
+  return usagesOf(me).flatMap((u) => [...(u.fiveHour ? [{ runtime: u.agent.runtime, kind: 'session' as const }] : []), ...(u.week ? [{ runtime: u.agent.runtime, kind: 'week' as const }] : [])]);
+}
+
 /**
  * Usage: your Claude plan's limits (and friends'), what Claude used this week, what connected
  * projects earned (Stripe), your stats (prompts, agent time, worktrees, PRs, by project or agent), and the disk your worktrees take, by project; then every project and worktree side by side, with what
@@ -92,7 +100,7 @@ export function UsageView() {
           <div className={s.summary}>
             <PlanCard state={state} now={now} />
             <ActivityCard state={state} now={now} />
-            <SessionsCard windows={got.stats?.plan ?? []} now={got.at} />
+            <SessionsCard windows={got.stats?.plan ?? []} limits={planLimits(state)} now={got.at} />
             <EarningsSummaryCard />
           </div>
         </div>

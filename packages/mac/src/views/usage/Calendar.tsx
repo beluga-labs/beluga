@@ -7,7 +7,7 @@ import s from './stats.module.css';
 const dayName = (key: string): string => new Date(dayStart(key)).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
 /** The last year, a square a day, coloured by how much of the picked metric it had. */
-export function Calendar({ weeks, m }: { weeks: CalendarDay[][]; m: MetricDef }) {
+export function Calendar({ weeks, m, why }: { weeks: CalendarDay[][]; m: MetricDef; why?: string }) {
   const [hover, setHover] = useState<CalendarDay | undefined>(undefined);
   const months = weeks.map((w, i) => {
     const first = w.find((d) => d.key.endsWith('-01') || (i === 0 && d === w[0]));
@@ -38,7 +38,7 @@ export function Calendar({ weeks, m }: { weeks: CalendarDay[][]; m: MetricDef })
             <strong>{dayName(hover.key)}</strong> · {hover.value ? m.format(hover.value) : 'nothing'}
           </span>
         ) : (
-          <span>{total ? `${total} active days in the last year` : 'Nothing yet this year'}</span>
+          <span>{total ? `${total} active days in the last year` : (why ?? 'Nothing yet this year')}</span>
         )}
         <span className={s.legend} aria-hidden>
           Less

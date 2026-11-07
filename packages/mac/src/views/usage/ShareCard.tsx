@@ -53,9 +53,9 @@ function Donut({ rows, m, sum, hover, onHover }: { rows: readonly GroupRow[]; m:
 }
 
 /** Each project (or agent): a ring of their shares, and the list with a bar each; pointing at one lights it in both. */
-export function Share({ rows, m, by }: { rows: readonly GroupRow[]; m: MetricDef; by: GroupBy }) {
+export function Share({ rows, m, by, why }: { rows: readonly GroupRow[]; m: MetricDef; by: GroupBy; why?: string }) {
   const [hover, setHover] = useState<string | undefined>(undefined);
-  if (!rows.length) return <p className={s.quiet}>Nothing here for {m.label.toLowerCase()} yet.</p>;
+  if (!rows.length) return <p className={s.quiet}>{why ?? `Nothing here for ${m.label.toLowerCase()} in this stretch yet.`}</p>;
   const list = sliced(rows);
   const max = Math.max(1, ...list.map((r) => r.value));
   const sum = list.reduce((n, r) => n + r.value, 0);

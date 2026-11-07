@@ -371,6 +371,24 @@
   flex-direction: column;
   gap: 8px;
 }
+.hoursNone {
+  position: relative;
+}
+.hoursNone .hoursGrid {
+  opacity: 0.45;
+}
+.hoursEmpty {
+  position: absolute;
+  inset: 0 0 24px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 12%;
+  text-align: center;
+  color: var(--text-2);
+}
 .hoursGrid {
   display: flex;
   flex-direction: column;

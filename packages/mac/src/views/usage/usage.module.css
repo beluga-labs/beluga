@@ -347,6 +347,22 @@
   .earnCard {
     grid-column: 1 / -1;
   }
+  /*
+   * Which cards there are depends on you (Codex or a local model, friends, plan sessions): an odd
+   * one out before the earnings takes its row, so there's never a hole beside it.
+   */
+  .summary > :nth-last-child(2):nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+/* Three across: the earnings card, last, takes what's left of its row. */
+@container usage-summary (width >= 60rem) {
+  .summary > .earnCard:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+  .summary > .earnCard:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
 }
 /* Below 60rem the card is as wide as the row: room for both from 38rem (36rem inside its padding). */
 @container usage-summary (38rem <= width < 60rem) {

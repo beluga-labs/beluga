@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { emptyStats } from '../src/core/stats/file.js';
-import { demoStats } from '../src/core/stats/demo.js';
+import { demoStats, sparseDemoStats } from '../src/core/stats/demo.js';
+import { StatsCounter } from '../src/core/stats/counter.js';
+import { Store, initialState } from '../src/core/store.js';
 import { observePlan } from '../src/core/stats/tally.js';
 import { planSummary } from '../src/shared/stats.js';
 import { bucketsOf, smoothPath } from '../src/shared/stats-trend.js';
@@ -69,5 +71,29 @@ describe('the trend', () => {
     const ys = [...d.matchAll(/[\d.]+,(-?[\d.]+)/g)].map((m) => Number(m[1]));
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...ys)).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('when some of it isn’t there', () => {
+  it('a plan without a reset time (no session going) keeps nothing', () => {
+    const file = emptyStats(NOW);
+    expect(observePlan(file, [{ runtime: 'claude', kind: 'session', pct: 0 }], NOW)).toBe(file);
+  });
+
+  it('someone with only Claude, weeks but no 5-hour sessions, no GitHub and no dictation', () => {
+    const s = sparseDemoStats([{ id: 'p', name: 'app', root: '/a', base: 'main', workspaces: [] }], NOW);
+    const agents = new Set(Object.values(s.days).flatMap((d) => Object.values(d).flatMap((a) => Object.keys(a))));
+    expect([...agents]).toEqual(['claude']);
+    expect(Object.values(s.days).every((d) => Object.values(d).every((a) => !a.claude?.dictationMs))).toBe(true);
+    expect(s.prs).toEqual({});
+    expect(new Set(s.plan.map((w) => w.kind))).toEqual(new Set(['week']));
+  });
+
+  it('says when there’s no GitHub CLI, so pull requests read as not counted rather than none', () => {
+    const store = new Store(initialState('test', 'ask'));
+    const without = new StatsCounter({ store, file: null, historyDir: null, listPrs: null, noGitHub: true, now: () => NOW });
+    expect(without.snapshot().noGitHub).toBe(true);
+    const withIt = new StatsCounter({ store, file: null, historyDir: null, listPrs: async () => '[]', now: () => NOW });
+    expect(withIt.snapshot().noGitHub).toBeUndefined();
   });
 });

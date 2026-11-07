@@ -15,7 +15,7 @@ import { belugaHome } from '../home.js';
 import { chosenAgent } from '../settings.js';
 import type { Action, DomainState, LogItem, Store } from '../store.js';
 import { usagesOf } from '../../agent/usage.js';
-import { demoStats } from './demo.js';
+import { demoStats, sparseDemoStats } from './demo.js';
 import { type StatsFile, emptyStats, loadStats, saveStats, snapshotOf, statsPath } from './file.js';
 import { GH_PR_FIELDS, type PlanReading, addStats, belugaBranches, count, countPrompt, fromHistory, observePlan, observeWorkspaces, parseGhPrs, withPrs } from './tally.js';
 
@@ -33,6 +33,8 @@ export interface StatsCounterDeps {
   /** A project's pull requests as gh lists them (JSON); unset: gh itself; null: never ask. */
   readonly listPrs?: ((root: string) => Promise<string>) | null;
   readonly now?: () => number;
+  /** Say there's no GitHub CLI without asking (the sparse demo). */
+  readonly noGitHub?: boolean;
 }
 
 /** Write a few seconds after a change, so a busy minute is one write. */
@@ -45,10 +47,7 @@ const BACKFILL_AFTER_MS = 60_000;
 const PRS_EVERY_MS = 6 * 3_600_000;
 const PR_LIMIT = 300;
 
-const defaultListPrs = async (root: string): Promise<string> => {
-  if (!(await hasGh())) return '[]';
-  return runGh(['pr', 'list', '--state', 'all', '--author', '@me', '--limit', String(PR_LIMIT), '--json', GH_PR_FIELDS], root, 60_000);
-};
+const defaultListPrs = (root: string): Promise<string> => runGh(['pr', 'list', '--state', 'all', '--author', '@me', '--limit', String(PR_LIMIT), '--json', GH_PR_FIELDS], root, 60_000);
 
 export class StatsCounter {
   private data: StatsFile;
@@ -59,10 +58,13 @@ export class StatsCounter {
   /** Runs started and not finished: requestId → when. */
   private readonly running = new Map<string, number>();
   private backfilling = false;
+  /** gh isn't installed or signed in here (learned at the last backfill). */
+  private noGitHub: boolean;
   private seeded = false;
   private stopped = false;
 
   constructor(private readonly deps: StatsCounterDeps) {
+    this.noGitHub = Boolean(deps.noGitHub);
     const now = this.now();
     this.data = deps.file === null ? emptyStats(now) : loadStats(deps.file ?? statsPath(), now);
   }
@@ -91,7 +93,8 @@ export class StatsCounter {
 
   /** What the Usage tab shows. */
   snapshot(): StatsSnapshot {
-    return snapshotOf(this.data, this.backfilling);
+    const snap = snapshotOf(this.data, this.backfilling);
+    return this.noGitHub ? { ...snap, noGitHub: true } : snap;
   }
 
   /** A paste or a dictation the Mac saw. */
@@ -200,6 +203,9 @@ export class StatsCounter {
 
   private async readPrs(): Promise<void> {
     if (this.deps.listPrs === null) return;
+    // No GitHub CLI signed in: nothing to ask (the Usage tab says why its pull requests are empty).
+    this.noGitHub = !this.deps.listPrs && !(await hasGh());
+    if (this.noGitHub) return;
     const list = this.deps.listPrs ?? defaultListPrs;
     for (const p of this.deps.store.getState().projects) {
       if (this.stopped || !p.root) return;
@@ -280,8 +286,9 @@ export function statsOf(session: object): StatsCounter {
 }
 
 /** Start counting for the daemon. The demo keeps made-up stats in memory and never reads files or asks GitHub. */
-export function launchStats(host: { readonly session: object; readonly store: Store; readonly demo: boolean }): () => void {
-  const counter = new StatsCounter({ store: host.store, ...(host.demo ? { file: null, historyDir: null, listPrs: null, seed: demoStats } : {}) });
+export function launchStats(host: { readonly session: object; readonly store: Store; readonly demo: boolean; readonly sparse?: boolean }): () => void {
+  const seed = host.sparse ? sparseDemoStats : demoStats;
+  const counter = new StatsCounter({ store: host.store, ...(host.demo ? { file: null, historyDir: null, listPrs: null, seed, ...(host.sparse ? { noGitHub: true } : {}) } : {}) });
   counters.set(host.session, counter);
   counter.start();
   return () => counter.stop();

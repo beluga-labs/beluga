@@ -12,8 +12,10 @@ export function Hours({ hours }: { hours: readonly number[] }) {
   const max = Math.max(1, ...hours);
   const [hover, setHover] = useState<number | undefined>(undefined);
   const label = (i: number): string => `${DAYS[Math.floor(i / 24)]} ${new Date(2026, 0, 4, i % 24).toLocaleTimeString([], { hour: 'numeric' })}`;
+  const none = !hours.some((n) => n > 0);
   return (
-    <div className={s.hours} onMouseLeave={() => setHover(undefined)}>
+    <div className={cx(s.hours, none && s.hoursNone)} onMouseLeave={() => setHover(undefined)}>
+      {none ? <p className={s.hoursEmpty}>Your prompts fill this in: which days and hours you work most.</p> : null}
       <div className={s.hoursGrid} role="grid" aria-label="Prompts by weekday and hour">
         {DAYS.map((d, day) => (
           <div key={d} className={s.hoursRow} role="row">
@@ -65,7 +67,7 @@ export function Highlights({ stats, now, rows, by }: { stats: StatsSnapshot; now
     ...(longest > 1 ? [{ icon: 'star' as const, value: `${longest} days`, label: 'Longest streak' }] : []),
     ...(busiest ? [{ icon: 'calendar' as const, value: new Date(dayStart(busiest.key)).toLocaleDateString([], { month: 'short', day: 'numeric' }), label: `Busiest day, ${duration(busiest.value)} of agent time` }] : []),
     ...(hour ? [{ icon: 'clock' as const, value: hour.time, label: `Your busiest hour, on ${hour.day}` }] : []),
-    ...(top ? [{ icon: 'heart' as const, value: top.name, label: by === 'agent' ? 'Your top agent' : 'Your top project' }] : []),
+    ...(top && rows.length > 1 ? [{ icon: 'heart' as const, value: top.name, label: by === 'agent' ? 'Your top agent' : 'Your top project' }] : []),
   ];
   return (
     <ul className={s.badges} aria-label="Highlights">

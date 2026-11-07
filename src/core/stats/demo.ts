@@ -104,3 +104,21 @@ function demoPlan(now: number): StatsFile['plan'] {
     })
     .reverse();
 }
+
+/**
+ * Someone who has all but the extras (BELUGA_DEMO_STATS=sparse): only Claude, on a plan that has a
+ * week but no 5-hour session, no GitHub CLI (no pull requests), and never dictating.
+ */
+export function sparseDemoStats(projects: readonly Project[], now: number): Pick<StatsFile, 'days' | 'hours' | 'prs' | 'plan'> {
+  const full = demoStats(projects, now);
+  const days: StatsFile['days'] = {};
+  for (const [key, day] of Object.entries(full.days)) {
+    const kept: StatsFile['days'][string] = {};
+    for (const [root, agents] of Object.entries(day)) {
+      const { dictationMs: _, ...claude } = agents.claude ?? {};
+      if (agents.claude) kept[root] = { claude };
+    }
+    days[key] = kept;
+  }
+  return { days, hours: full.hours, prs: {}, plan: full.plan.filter((w) => w.runtime === 'claude' && w.kind === 'week') };
+}

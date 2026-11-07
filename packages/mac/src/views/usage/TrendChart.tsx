@@ -50,7 +50,7 @@ function linePath(high: readonly number[]): string {
  * step's numbers; press a name below to leave it out (or bring it back); point at a name to see
  * only its band. Share shows each one's part of every step instead of how much.
  */
-export function TrendChart({ trend, m, mode, animate }: { trend: Trend; m: MetricDef; mode: TrendMode; animate: string }) {
+export function TrendChart({ trend, m, mode, animate, why }: { trend: Trend; m: MetricDef; mode: TrendMode; animate: string; why?: string }) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [focus, setFocus] = useState<string | undefined>(undefined);
   const [hover, setHover] = useState<number | undefined>(undefined);
@@ -72,7 +72,7 @@ export function TrendChart({ trend, m, mode, animate }: { trend: Trend; m: Metri
     if (!r || n < 1) return;
     setHover(Math.max(0, Math.min(n - 1, Math.round(((e.clientX - r.left) / r.width) * (n - 1)))));
   };
-  if (!trend.series.length) return <p className={s.quiet}>Nothing yet for {m.label.toLowerCase()} in this stretch.</p>;
+  if (!trend.series.length) return <p className={s.quiet}>{why ?? `Nothing yet for ${m.label.toLowerCase()} in this stretch.`}</p>;
   const b = hover !== undefined ? trend.buckets[hover] : undefined;
   const at = hover !== undefined ? (n <= 1 ? 50 : (hover / (n - 1)) * 100) : 0;
   const stepTotal = hover !== undefined ? shown.reduce((t, x) => t + x.values[hover]!, 0) : 0;
