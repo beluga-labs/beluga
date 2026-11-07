@@ -90,7 +90,8 @@ describe('a smart archive', () => {
     put(path.join(wt, '.DS_Store'), 'finder');
     symlinkSync('src/app.ts', path.join(wt, 'link.ts'));
   });
-  // Archiving deletes the folder it set aside in the background: let that finish first, or the two deletes race (ENOTEMPTY).
+  // The folders an archive set aside are still being deleted in the background (a read-only one is made
+  // writable only once its first delete fails): deleting the same tree beside it fails with ENOTEMPTY.
   afterEach(async () => {
     await deletesSettled();
     rmSync(base, { recursive: true, force: true });

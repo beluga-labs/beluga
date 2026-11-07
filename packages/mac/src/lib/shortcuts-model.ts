@@ -145,7 +145,7 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
   def('ws-fork', 'Fork…', 'Workspace', []),
   def('ws-archive', 'Archive…', 'Workspace', ['Ctrl+Cmd+A']),
 
-  { id: 'composer-steer', label: 'Steer', section: 'Message box', keys: ['Alt+Enter'], scope: 'composer', hint: 'The agent reads it at its next step' },
+  { id: 'composer-steer', label: 'Steer', section: 'Message box', keys: ['Alt+Enter'], scope: 'composer', hint: 'The agent reads it at its next step. With Steer as your default it queues instead (Settings › General › Writing)' },
   { id: 'composer-send-now', label: 'Send Now', section: 'Message box', keys: ['Alt+Shift+Enter'], scope: 'composer', hint: 'Your steered message goes now; its step stops' },
   { id: 'composer-mode', label: 'Switch Acting and Planning', section: 'Message box', keys: ['Shift+Tab'], scope: 'composer' },
 
