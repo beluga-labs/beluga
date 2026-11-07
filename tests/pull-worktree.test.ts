@@ -115,6 +115,27 @@ describe('a pull request in a worktree', () => {
     expect((await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', fork: true }))!.id).toBe(ws!.id);
   });
 
+  it('a fork’s commits are on GitHub, so deleting it loses none of them; yours on top it warns about (BLG-746)', async () => {
+    const ws = await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
+    expect(await mgr.deletePlan(ws!.id)).toBeUndefined();
+    await mgr.refresh();
+    expect(mgr.find(ws!.id)?.status).toMatchObject({ ahead: 1 });
+    expect(mgr.find(ws!.id)?.status?.unpushed).toBeUndefined();
+    writeFileSync(path.join(ws!.path, 'mine.ts'), 'mine\n');
+    git(ws!.path, 'add', '.');
+    git(ws!.path, 'commit', '-q', '-m', 'mine');
+    expect(await mgr.deletePlan(ws!.id)).toMatchObject({ unpushed: 1, subjects: ['mine'] });
+    await mgr.remove(ws!.id);
+    expect(git(repo, 'for-each-ref', 'refs/beluga/pulls').trim()).toBe('');
+  });
+
+  it('a fork’s worktree made before its head was kept fetches it before warning', async () => {
+    const ws = await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', fork: true });
+    git(repo, 'update-ref', '-d', 'refs/beluga/pulls/7');
+    expect(await mgr.deletePlan(ws!.id)).toBeUndefined();
+    expect(git(repo, 'rev-parse', 'refs/beluga/pulls/7').trim()).toBe(git(repo, 'rev-parse', 'their-fork-branch').trim());
+  });
+
   it('puts a fork’s on pr-<n> when its branch’s name is taken here', async () => {
     git(repo, 'branch', '-q', 'patch-1');
     const ws = await ctl.openPull(pid(), { number: 7, branch: 'patch-1', fork: true });
