@@ -1749,6 +1749,11 @@ export class Workbench {
       this.deps.intend({ type: 'navigate', view: { kind: 'sentinel_chat', chat: sentinelChat } });
       return;
     }
+    // A chat with a friend or a group: its channel is the conversation's id (the Mac adds its tab).
+    if (hit.channel.startsWith('dm:') || hit.channel.startsWith('group:')) {
+      this.deps.intend({ type: 'navigate', view: { kind: 'conversation', id: hit.channel } });
+      return;
+    }
     if (!hit.channel.startsWith('ws:')) return;
     const id = hit.channel.slice(3);
     const shared = state.shared.find((w) => w.id === id);

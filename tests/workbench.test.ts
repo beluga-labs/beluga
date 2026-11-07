@@ -578,6 +578,21 @@ describe('models, usage, space and search', () => {
     expect(kay.screen.getState().view).toEqual({ kind: 'sentinel_chat', chat: 'c1' });
   });
 
+  it('opens a hit in a chat with a friend or a group as that conversation, as the sidebar does', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const say = (id: string, channel: string, text: string): void => kay.store.dispatch({ type: 'chat', id, from: 'me', text, ts: 8, byAgent: false, channel });
+    say('d', 'dm:peer123', 'a quince recipe');
+    kay.bench.search('quince');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'conversation', id: 'dm:peer123' });
+
+    say('g', 'group:g7', 'a loquat tree');
+    kay.bench.search('loquat');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'conversation', id: 'group:g7' });
+  });
+
   it('saves your own templates', async () => {
     hub = await startHub({ keys });
     const kay = await solo(repo());
