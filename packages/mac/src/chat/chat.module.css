@@ -528,6 +528,20 @@
   border-bottom: 0;
 }
 
+/* A file or folder named in the words (PathLink.tsx): its icon in front, a click opens it. */
+.markdown a.pathLink {
+  overflow-wrap: anywhere;
+}
+.markdown a.pathLink > svg {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -1px;
+  color: var(--text-2);
+}
+.markdown a.pathLink:hover > svg {
+  color: var(--accent);
+}
+
 /* A Markdown image that can't show here (a web one, someone else's local path). */
 .markdown .imageRef {
   display: inline-flex;

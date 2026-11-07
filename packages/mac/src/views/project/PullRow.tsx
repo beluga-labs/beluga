@@ -98,7 +98,9 @@ export const PullRow = memo(function PullRow({ projectId, pull }: { projectId: s
   const actions = useActions();
   const api = useApi();
   const { client } = useBeluga();
-  const ws = useApp((st) => st.projects.find((p) => p.id === projectId)?.workspaces.find((w) => w.kind === 'worktree' && !w.archived && w.branch === pull.branch)?.id);
+  // A fork's PR whose branch name was taken here is checked out as pr-<n> (as the daemon's openPull matches it).
+  const mine = (branch: string | undefined): boolean => branch === pull.branch || (Boolean(pull.fork) && branch === `pr-${pull.number}`);
+  const ws = useApp((st) => st.projects.find((p) => p.id === projectId)?.workspaces.find((w) => w.kind === 'worktree' && !w.archived && mine(w.branch))?.id);
   const onGitHub = (): void => actions.openLink({ kind: 'url', url: pull.url });
   const open = (): void => (ws ? actions.run({ type: 'open_ws', id: ws }) : onGitHub());
   // Its worktree's page opens at once while git fetches the branch; a failure says why in a toast.
