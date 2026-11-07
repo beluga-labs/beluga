@@ -47,13 +47,27 @@ describe('chatJumpState', () => {
     expect(chatJumpState(jump, 'ws:1', [], 1001)).toEqual({ state: 'wait' });
   });
 
-  it('ends the jump when the history is here and no row matches: it does not stay waiting', () => {
-    expect(chatJumpState({ ...jump, id: 'gone' }, 'ws:1', rows, 1001)).toEqual({ state: 'lost' });
-    expect(chatJumpState({ ...jump, ts: 25 }, 'ws:1', rows, 1001)).toEqual({ state: 'lost' });
+  it('says a message is lost only when it is older than the oldest row the chat has', () => {
+    expect(chatJumpState({ ...jump, id: 'gone', ts: 5 }, 'ws:1', rows, 1001)).toEqual({ state: 'lost' });
+    expect(chatJumpState({ ...jump, ts: 5 }, 'ws:1', rows, 1001)).toEqual({ state: 'lost' });
   });
 
-  it('ends the jump when no rows ever came', () => {
-    expect(chatJumpState(jump, 'ws:1', [], 1000 + 10_001)).toEqual({ state: 'lost' });
+  it('ends the jump quietly when a message the chat does not draw is no older than its rows', () => {
+    expect(chatJumpState({ ...jump, id: 'gone' }, 'ws:1', rows, 1001)).toEqual({ state: 'drop' });
+    expect(chatJumpState({ ...jump, ts: 25 }, 'ws:1', rows, 1001)).toEqual({ state: 'drop' });
+  });
+
+  it('ends the jump quietly when a message waits in the queue (the chat draws it above the box)', () => {
+    const channel = 'ws:1';
+    const said = (id: string, text: string, ts: number, request?: string): LogItem => ({ id, type: 'chat', channel, from: 'me', name: 'kay', text, ts, byAgent: false, ...(request ? { request } : {}) });
+    const card: LogItem = { id: 'card', type: 'agent', channel, subagents: [], requestId: 'r2', owner: 'me', ownerName: 'kay', requesterName: 'kay', status: 'queued', text: '', steps: [], ts: 21 };
+    const drawn = asSent([said('first', 'go', 10), said('queued', 'the pomelo message', 20, 'r2'), card], () => true);
+    expect(drawn.some((r) => r.id === 'queued')).toBe(false);
+    expect(chatJumpState({ channel, id: 'queued', ts: 20, at: 1000 }, channel, drawn, 1001)).toEqual({ state: 'drop' });
+  });
+
+  it('ends the jump quietly when no rows ever came: an empty chat is not a chat that lost its message', () => {
+    expect(chatJumpState(jump, 'ws:1', [], 1000 + 10_001)).toEqual({ state: 'drop' });
   });
 
   it('drops an old jump, even when its row is there: it is not what you just asked for', () => {

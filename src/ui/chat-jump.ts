@@ -11,12 +11,15 @@ export type ChatJumpState = { readonly state: 'none' | 'wait' | 'drop' | 'lost' 
 
 /**
  * What a conversation does about a jump: scroll to a row, wait for its history to land (it comes
- * whole, so any rows mean it's here), say the row is not there, or forget a jump from a while ago.
+ * whole, so any rows mean it's here), say the row is too old to be there, or forget the jump: one
+ * from a while ago, or one to a message the chat doesn't draw as a row (it waits in the queue,
+ * it's a note on a steered message, the chat is empty).
  */
 export function chatJumpState(jump: ChatJump | undefined, channel: string, rows: ReadonlyArray<{ readonly id: string; readonly ts: number }>, now: number): ChatJumpState {
   if (!jump || jump.channel !== channel) return { state: 'none' };
-  if (now - jump.at > JUMP_TTL_MS) return { state: rows.length ? 'drop' : 'lost' };
+  if (now - jump.at > JUMP_TTL_MS) return { state: 'drop' };
   if (!rows.length) return { state: 'wait' };
   const index = rows.findIndex((r) => (jump.id ? r.id === jump.id : r.ts === jump.ts));
-  return index < 0 ? { state: 'lost' } : { state: 'go', index };
+  if (index >= 0) return { state: 'go', index };
+  return rows.every((r) => jump.ts < r.ts) ? { state: 'lost' } : { state: 'drop' };
 }
