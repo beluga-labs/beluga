@@ -5,7 +5,7 @@ import type { Workspace } from '../src/workspaces/types.js';
 import type { CcAgent, CcSession } from '../src/core/claude-code/model.js';
 import type { SubAgent } from '../packages/mac/src/claude-code/subagents-model.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
-import { type FoldRow, type LineageRow, type LineageSource, capFold, foldNoun, foldRows, foldSummary, harnessOf, lineageView, openPath, orderRows, panelRows, threadNesting, threadStateOf } from '../packages/mac/src/lineage/lineage-model.js';
+import { type FoldRow, type LineageRow, type LineageSource, capFold, foldNoun, foldRows, foldSummary, harnessOf, lineageView, openPath, orderRows, panelRows, startedBy, threadNesting, threadSender, threadStarts, threadStateOf } from '../packages/mac/src/lineage/lineage-model.js';
 
 const thread = (parent: string, startedAt = 1, extra: Partial<ThreadRecord> = {}): ThreadRecord => ({ parent, parentTitle: 'parent', root: parent, depth: 1, task: 't', startedAt, owed: [], ...extra });
 const ws = (id: string, extra: Partial<Workspace> = {}): Workspace => ({ id, name: id, kind: 'chat', projectId: 'p', external: false, path: `/${id}`, projectRoot: '/p', createdAt: 1, ...extra }) as Workspace;
@@ -145,5 +145,31 @@ describe('the Lineage panel', () => {
     HANDLERS['threads.stop'](session as never, 'kid');
     expect(stopped).toEqual(['ws:kid']);
     expect(() => HANDLERS['threads.stop'](session as never, 'top')).toThrow('not a child thread');
+  });
+});
+
+describe('a child chat', () => {
+  const state = (workspaces: Workspace[], on = true): LineageSource => ({ ...source(workspaces, on), self: { defaultAgent: { runtime: 'claude', label: 'Claude' } } }) as LineageSource;
+  const top = ws('top', { name: 'Top chat' } as Partial<Workspace>);
+  const kid = ws('kid', { thread: { ...thread('ws:top', 7), parentTitle: 'Old title' }, agent: { runtime: 'codex', label: 'Codex' } as Workspace['agent'] });
+
+  it('says who started it, and a removed parent has no way to open', () => {
+    expect(startedBy(state([top, kid]), 'ws:kid')).toEqual({ title: 'Top chat', openId: 'top', gone: false });
+    expect(startedBy(state([kid]), 'ws:kid')).toEqual({ title: 'Old title', gone: true });
+    expect(startedBy(state([top]), 'ws:top')).toBeUndefined();
+    expect(startedBy(state([top, kid], false), 'ws:kid')).toBeUndefined();
+  });
+
+  it('labels only the messages the thread tools sent', () => {
+    const s = state([top, kid]);
+    expect(threadSender(s, { channel: 'ws:kid', byAgent: true, request: 'r1' })).toBe('Top chat');
+    expect(threadSender(s, { channel: 'ws:kid', byAgent: true })).toBeUndefined();
+    expect(threadSender(s, { channel: 'ws:kid', byAgent: false, request: 'r1' })).toBeUndefined();
+    expect(threadSender(s, { channel: 'ws:top', byAgent: true, request: 'r1' })).toBeUndefined();
+  });
+
+  it('gives its parent one line for each thread, none with threads off', () => {
+    expect(threadStarts(state([top, kid]), 'ws:top')).toEqual([{ id: 'kid', title: 'kid', ts: 7, mark: 'codex', agent: 'Codex' }]);
+    expect(threadStarts(state([top, kid], false), 'ws:top')).toEqual([]);
   });
 });

@@ -44,6 +44,17 @@ export interface LineageParent {
   readonly gone: boolean;
 }
 
+/** A chat's one line for a thread it started. */
+export interface ThreadStart {
+  readonly id: string;
+  readonly title: string;
+  readonly ts: number;
+  readonly mark: AgentMark;
+  readonly agent: string;
+  /** It has no page to open now. */
+  readonly archived?: true;
+}
+
 export interface LineageView {
   readonly parent?: LineageParent;
   readonly rows: readonly LineageRow[];
@@ -115,6 +126,36 @@ export function lineageView(state: LineageSource, ws: Workspace, agents: readonl
     running: rows.filter((r) => isThreadWorking(r.state)).length,
     stoppable: stopOrder(nodes, channel).map((n) => n.id).filter((id) => isThreadWorking(threadStateOf(state, byId.get(id)!) ?? 'done')),
   };
+}
+
+/** A child chat's line at its top: the chat that started it. Undefined: it is no thread, or threads are off. */
+export function startedBy(state: LineageSource, channel: string): LineageParent | undefined {
+  if (!state.prefs.agentThreads || !channel.startsWith(WS)) return undefined;
+  const all = state.projects.flatMap((p) => p.workspaces);
+  const ws = all.find((w) => w.id === channel.slice(WS.length));
+  return ws?.thread ? parentRow(state, ws, new Map(all.filter((w) => !w.archived).map((w) => [w.id, w]))) : undefined;
+}
+
+/**
+ * Who sent a message to a child, for its label: the parent's title. Only the thread tools send an
+ * agent's line with a request behind it; a child's own agent speaking in the chat has none.
+ */
+export function threadSender(state: LineageSource, item: { readonly channel?: string; readonly byAgent: boolean; readonly request?: string }): string | undefined {
+  if (!item.byAgent || !item.request || !item.channel) return undefined;
+  return startedBy(state, item.channel)?.title;
+}
+
+/** The threads a chat started, for its one compact line each, in start order. */
+export function threadStarts(state: Pick<LineageSource, 'prefs' | 'self' | 'projects'>, channel: string): ThreadStart[] {
+  if (!state.prefs.agentThreads) return [];
+  return state.projects
+    .flatMap((p) => p.workspaces)
+    .filter((w) => w.thread?.parent === channel)
+    .map((w) => {
+      const harness = w.agent ?? defaultAgentOf(state.self);
+      return { id: w.id, title: w.name, ts: w.thread!.startedAt, mark: agentMark(harness), agent: agentName(harness), ...(w.archived ? { archived: true as const } : {}) };
+    })
+    .sort((a, b) => a.ts - b.ts);
 }
 
 /** Needs you, then working, then finished: each in creation order, so a settled row stays where it is among its batch. */

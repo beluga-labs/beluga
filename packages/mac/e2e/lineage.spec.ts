@@ -109,3 +109,30 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
   await up.click();
   await expect(inspector.getByRole('button', { name: /^Open Five/ })).toBeVisible();
 });
+
+test('a child says who started it, and its first message is not yours', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await sidebar(page).getByRole('button', { name: 'e2e-parent', exact: true }).click();
+  // The parent's one line for each thread, with a way to it.
+  const line = page.locator('[data-thread-start]').filter({ hasText: 'Five' });
+  await expect(line).toBeVisible();
+  await shot(page, 'parent-line');
+  await line.getByRole('button', { name: 'Five' }).click();
+
+  await expect(page.locator('[data-started-by]')).toContainText('Started by e2e-parent');
+  await expect(page.locator('[data-sent-by]').first()).toHaveText('Sent by e2e-parent’s agent');
+  await expect(page.locator('[data-mine="true"]')).toHaveCount(0);
+  await shot(page, 'child-chat');
+
+  // A person's message in a child runs here, as in any chat.
+  await composer(page).fill('hello from a person');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-mine="true"]').filter({ hasText: 'hello from a person' })).toBeVisible();
+  await shot(page, 'child-person');
+
+  // The line opens the parent, and a person's turn woke nothing there.
+  await page.locator('[data-started-by]').getByRole('button', { name: 'e2e-parent' }).click();
+  await expect(page.locator('[data-started-by]')).toHaveCount(0);
+  await expect(page.locator('[data-thread-start]').filter({ hasText: 'Five' })).toBeVisible();
+});

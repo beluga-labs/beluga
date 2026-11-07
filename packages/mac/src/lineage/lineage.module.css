@@ -133,3 +133,47 @@
   flex-direction: column;
   gap: 2px;
 }
+/* A child's chat: who started it, above the conversation. */
+.startedBy,
+.startLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 0.88rem;
+}
+.startedBy {
+  flex: none;
+  justify-content: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.startLine {
+  padding: 3px 16px;
+}
+.startLine > span:first-child {
+  display: inline-flex;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.gone {
+  color: var(--text-2);
+}
+.sentBy {
+  color: var(--text-2);
+  font-weight: 600;
+}
