@@ -12,6 +12,8 @@ import {
   newSchedule,
   nextTime,
   overLimit,
+  pauseSchedule,
+  resumeSchedule,
   runLine,
   scheduleBrief,
   skipLine,
@@ -56,6 +58,8 @@ export interface SchedulesDeps {
   readonly notify: (event: NoticeEvent) => void;
 }
 
+/** Why a chat with a contributor has no schedule on: a run has your full scope and reads their words. */
+export const CONTRIBUTOR_REASON = 'Someone can contribute in this chat. A scheduled run has your full access and reads their messages, so it stays off while they can contribute.';
 const LIMIT_WORDS = `It passed the ${RUN_LIMIT_MS / 60_000}-minute time limit`;
 
 export class Schedules {
@@ -90,7 +94,7 @@ export class Schedules {
     const inOrder = [...this.items].sort((a, b) => dueOrder(a, now, opts) - dueOrder(b, now, opts));
     for (const { id } of inOrder) {
       const s = this.get(id);
-      if (!s?.enabled) continue;
+      if (!s?.enabled || !this.chatStillFits(s)) continue;
       const decision = decide(s, { busy: this.busy(s.channel) }, now, opts);
       if (decision.kind !== 'nothing') this.act(s, decision, now);
     }
@@ -119,6 +123,36 @@ export class Schedules {
     return made;
   }
 
+  /** Turn it on or off. On is refused while the chat can't have one, or a once time has passed. */
+  setEnabled(id: string, on: boolean): Schedule {
+    const s = this.need(id);
+    const now = this.deps.now();
+    if (!on) return this.replace(pauseSchedule(s, 'Paused by you', now));
+    if (s.enabled) return s;
+    const refused = this.refusal(s.channel) ?? checkWhen(s.when, now);
+    if (refused) throw new Error(refused);
+    return this.replace(resumeSchedule(s, now));
+  }
+
+  /** Before a chat is archived or deleted: nothing fires, and what's on the way stops. */
+  chatLeaving(channel: string, how: 'archive' | 'delete'): void {
+    this.pauseAll(channel, how === 'archive' ? 'This chat was archived' : 'This chat is being deleted', how === 'archive');
+    this.stopRuns(channel, how === 'archive' ? 'Stopped: its chat was archived' : 'Stopped: its chat was deleted');
+  }
+
+  /** A chat that's gone takes its schedules with it. */
+  chatGone(channel: string): void {
+    this.stopRuns(channel, 'Stopped: its chat was deleted');
+    if (!this.list(channel).length) return;
+    this.items = this.items.filter((s) => s.channel !== channel);
+    this.save();
+  }
+
+  /** Someone can now post here: every schedule of the chat pauses, in the role change itself. */
+  contributorJoined(channel: string): void {
+    this.pauseAll(channel, CONTRIBUTOR_REASON, true);
+  }
+
   /** What the agent is told for a schedule's request. Other requests in the chat get nothing. */
   briefFor(channel: string, requestId: string): string | undefined {
     const s = this.items.find((x) => x.channel === channel && x.running?.requestId === requestId);
@@ -130,6 +164,42 @@ export class Schedules {
     this.closed = true;
     for (const t of this.timers) clearInterval(t);
     this.timers.length = 0;
+  }
+
+  private need(id: string): Schedule {
+    const s = this.get(id);
+    if (!s) throw new Error('That schedule is not here any more.');
+    return s;
+  }
+
+  /** The race check of each decision: a chat that's gone removes the schedule, one that can't have it pauses it. */
+  private chatStillFits(s: Schedule): boolean {
+    const chat = this.deps.check(s.channel);
+    if (chat.kind === 'ok') return true;
+    if (chat.kind === 'gone') this.chatGone(s.channel);
+    if (chat.kind === 'refused') this.pauseAll(s.channel, chat.reason, true);
+    return false;
+  }
+
+  private pauseAll(channel: string, reason: string, sayIt: boolean): void {
+    for (const s of this.list(channel)) {
+      if (!s.enabled) continue;
+      this.replace(pauseSchedule(s, reason, this.deps.now()));
+      if (sayIt) this.say(channel, `Schedule · ${s.title} · paused: ${reason}`, 'warn');
+    }
+  }
+
+  /**
+   * Stop the runs of a chat. A request just asked reaches its lane a moment later (delivery is a
+   * setImmediate), where a cancel now can't find it, so it's cancelled again then.
+   */
+  private stopRuns(channel: string, note: string): void {
+    for (const s of this.list(channel)) {
+      const requestId = s.running?.requestId;
+      if (!requestId) continue;
+      this.deps.cancel(requestId, note);
+      setImmediate(() => this.deps.cancel(requestId, note));
+    }
   }
 
   private refusal(channel: string): string | undefined {
@@ -208,9 +278,10 @@ export class Schedules {
     return this.deps.busy(channel) || this.items.some((s) => s.channel === channel && s.running);
   }
 
-  private replace(next: Schedule): void {
+  private replace(next: Schedule): Schedule {
     this.items = this.items.map((s) => (s.id === next.id ? next : s));
     this.save();
+    return next;
   }
 
   private save(): void {
