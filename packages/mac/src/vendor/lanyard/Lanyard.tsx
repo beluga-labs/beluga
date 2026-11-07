@@ -1156,6 +1156,8 @@ const Lanyard = ({
         placeHanging(sim, layout, false);
       }
       render();
+      // Beluga: the card moved under a still pointer: whether it's over the card now.
+      if (lastPoint && !sim.grab && settingsRef.current.passThrough) passThroughAt(lastPoint);
       const resting = sim.calm > 1.2 && !sim.grab && current.breeze === 0;
       if (visible && !resting) raf = requestAnimationFrame(tick);
     };
@@ -1202,6 +1204,14 @@ const Lanyard = ({
     };
 
     const passes = () => !!settingsRef.current.passThrough;
+    // Beluga: where the pointer last was (passThrough), and whether the card is under it.
+    let lastPoint = null;
+    const passThroughAt = point => {
+      toPointer(point);
+      hovering = !!pickCard();
+      canvas.style.pointerEvents = hovering ? 'auto' : 'none';
+      setCursor(hovering ? 'grab' : '');
+    };
 
     const onPointerDown = event => {
       if (!settingsRef.current.interactive || event.button > 0) return;
@@ -1248,9 +1258,9 @@ const Lanyard = ({
       canvas.releasePointerCapture?.(event.pointerId);
       // Beluga: let go off the card, the pointer goes back to what's under the layer at once.
       if (passes()) {
-        toPointer(event);
-        hovering = event.pointerType !== 'touch' && !!pickCard();
-        canvas.style.pointerEvents = hovering ? 'auto' : 'none';
+        lastPoint = event.pointerType === 'touch' ? null : { clientX: event.clientX, clientY: event.clientY };
+        if (lastPoint) passThroughAt(lastPoint);
+        else canvas.style.pointerEvents = 'none';
       }
       setCursor(hovering && event.pointerType !== 'touch' ? 'grab' : '');
       start();
@@ -1265,10 +1275,8 @@ const Lanyard = ({
     // Beluga: with passThrough, the canvas lets the pointer through except over the card.
     const onPointerAnywhere = event => {
       if (!passes() || !visible || sim.grab || event.pointerType === 'touch') return;
-      toPointer(event);
-      hovering = !!pickCard();
-      canvas.style.pointerEvents = hovering ? 'auto' : 'none';
-      setCursor(hovering ? 'grab' : '');
+      lastPoint = { clientX: event.clientX, clientY: event.clientY };
+      passThroughAt(lastPoint);
     };
     if (passes()) canvas.style.pointerEvents = 'none';
     window.addEventListener('pointermove', onPointerAnywhere, { passive: true });
