@@ -190,3 +190,86 @@ test('the New Worktree box suggests commands and the project’s files', async (
   await task.press('Escape');
   await expect(list).toBeHidden();
 });
+
+/** A second connection to the demo daemon from the page (the app's own boot code), for driving it. */
+async function daemon<T>(page: Page, fn: string): Promise<T> {
+  return page.evaluate(
+    async (fn) => {
+      const w = window as unknown as { __refs?: Promise<unknown> };
+      w.__refs ??= import('/src/lib/boot.ts').then((m) => m.connect(m.capabilities(() => ({ ok: true, message: '' }))));
+      return new Function('c', `return (${fn})(c)`)(await w.__refs);
+    },
+    fn,
+  ) as Promise<T>;
+}
+
+/** With chat links on: a worktree that isn't a plan's, as "@" and its row name it. */
+async function chatLinksOn(page: Page): Promise<{ name: string; ref: string; id: string }> {
+  await page.goto('/');
+  await daemon(page, `(c) => c.api.session.setPrefs({ chatLinks: true })`);
+  return daemon(page, `(c) => { const s = c.store.getState(); const w = s.projects.flatMap((p) => p.workspaces).find((x) => x.kind === 'worktree' && !x.archived); return { name: w.name, id: w.id, ref: s.selfId + '/ws:' + w.id }; }`);
+}
+
+const options = (page: Page) => page.getByRole('listbox', { name: 'Suggestions' }).getByRole('option');
+
+test('"@" offers a chat by its title; the prompt holds the reference and the chat shows the chip', async ({ page }) => {
+  const { name, ref } = await chatLinksOn(page);
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  const box = page.getByRole('textbox', { name: 'Ask your Mac anything' });
+  await box.fill(`what happened in @${name}`);
+  const row = options(page).filter({ hasText: `@${name}` });
+  await expect(row).toBeVisible();
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Chats');
+  await row.click();
+  await expect(box).toHaveValue(`what happened in @${name} (chat: ${ref}) `);
+  await expect(page.locator(`[data-kind="chat"][data-mention="@${name} (chat: ${ref})"]`)).toBeAttached();
+  await expect(page.getByRole('group', { name: 'Chat mentioned' }).or(page.getByLabel('Chat mentioned'))).toContainText(name);
+  await page.screenshot({ path: path.join(import.meta.dirname, '../../../.beluga/scratch/20-chat-in-at-list.png') });
+  await box.press('Enter');
+  await expect(box).toHaveValue('');
+  // The words sent keep the reference, the chat draws the chip.
+  await expect.poll(() => daemon<string[]>(page, `(c) => c.store.getState().log.filter((l) => l.type === 'chat').map((l) => l.text)`)).toContainEqual(`what happened in @${name} (chat: ${ref})`);
+  await expect(page.locator('main').getByRole('button', { name: `Worktree ${name}` }).first()).toBeVisible();
+  await page.screenshot({ path: path.join(import.meta.dirname, '../../../.beluga/scratch/21-chat-chip-sent.png') });
+});
+
+test('a pasted chat link becomes a chip; Backspace takes the chip whole; plain paste keeps the link', async ({ page }) => {
+  const { name, ref, id } = await chatLinksOn(page);
+  const link = `beluga://chat/${ref.split('/')[0]}/${encodeURIComponent(`ws:${id}`)}`;
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  const box = page.getByRole('textbox', { name: 'Ask your Mac anything' });
+  await box.fill('');
+  await pasteText(box, link);
+  await expect(box).toHaveValue(`@${name} (chat: ${ref}) `);
+  await box.press('Backspace');
+  await expect(box).toHaveValue(`@${name} (chat: ${ref})`);
+  await box.press('Backspace');
+  await expect(box).toHaveValue('');
+  // In the middle of words, without their punctuation.
+  await pasteText(box, `see ${link}, please`);
+  await expect(box).toHaveValue(`see @${name} (chat: ${ref}), please`);
+});
+
+test('"@" doesn’t offer the chat you are in, or any with chat links off', async ({ page }) => {
+  const { name } = await chatLinksOn(page);
+  for (const project of ['bob-api', 'landing']) await sidebar(page).getByRole('button', { name: `Show what's in ${project}` }).first().click();
+  const shown = await daemon<string[]>(page, `(c) => c.store.getState().projects.flatMap((p) => p.workspaces).filter((w) => w.kind === 'worktree' && !w.archived).map((w) => w.name)`);
+  const here = await (async () => {
+    for (const w of shown) if (await sidebar(page).getByText(w, { exact: true }).count()) return w;
+    throw new Error('No worktree has a row');
+  })();
+  await sidebar(page).getByText(here, { exact: true }).first().click();
+  const box = page.getByRole('textbox', { name: `Tell Claude what to do in ${here}` });
+  await box.fill(`@${here}`);
+  await expect(options(page).filter({ hasText: `@${here}` }).filter({ hasText: 'Worktree' })).toHaveCount(0);
+  await daemon(page, `(c) => c.api.session.setPrefs({ chatLinks: false })`);
+  await box.fill(`@${name}`);
+  await expect(options(page).filter({ hasText: 'Worktree' })).toHaveCount(0);
+  // Off, the box leaves the paste alone (a synthetic one puts nothing in by itself).
+  const untouched = await box.evaluate((el) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', 'beluga://chat/peer-owner-0001/ws%3Awt-x');
+    return el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  expect(untouched).toBe(true);
+});

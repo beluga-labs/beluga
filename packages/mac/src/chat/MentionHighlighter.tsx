@@ -57,7 +57,9 @@ export function MentionHighlighter({
     () => splitMentions(text, world).flatMap(withImages),
     [text, world],
   );
-  const chips = pieces.some((p) => "ref" in p && p.ref.kind === "image");
+  const chips = pieces.some(
+    (p) => "ref" in p && (p.ref.kind === "image" || p.ref.kind === "chat"),
+  );
   useEffect(() => {
     const el = input.current;
     if (!el) return;
@@ -96,7 +98,7 @@ export function MentionHighlighter({
             data-kind={p.ref.kind}
             data-mention={p.raw}
           >
-            {p.raw}
+            {p.ref.kind === "chat" ? <ChatWords raw={p.raw} /> : p.raw}
           </mark>
         ) : (
           <span key={i}>{p.text}</span>
@@ -105,5 +107,16 @@ export function MentionHighlighter({
       {/* A last line that ends in a newline still takes its height. */}
       {"​"}
     </div>
+  );
+}
+
+/** A chat's mention: the title reads as words, its address stays quiet. */
+function ChatWords({ raw }: { raw: string }) {
+  const at = raw.lastIndexOf(" (chat: ");
+  return (
+    <>
+      {raw.slice(0, at)}
+      <span className={m.chatRef}>{raw.slice(at)}</span>
+    </>
   );
 }

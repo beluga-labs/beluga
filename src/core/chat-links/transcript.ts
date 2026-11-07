@@ -6,7 +6,7 @@ import { fenced } from '../gateway/result.js';
 import { isSecretPath } from '../shares.js';
 import type { DomainState, LogItem } from '../store.js';
 import { type ChatRefusal, chatAccessOf } from './access.js';
-import { resolveChat } from './resolve.js';
+import { addressableChats, resolveChat } from './resolve.js';
 
 /**
  * A chat as an agent reads it: from the LogItems, never from a harness's own files, so the answer
@@ -60,7 +60,7 @@ function listChats(deps: ChatToolsDeps, opts: Parameters<ChatTools['list']>[0]):
   const state = deps.state();
   const words = opts.query?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
   const latest = latestActivity(state.log);
-  const chats = candidates(state)
+  const chats = addressableChats(state)
     .filter((c) => chatAccessOf(state, { requester: deps.requester, ref: c.ref, action: 'read' }).allow)
     .map((c) => ({ ...c, chat: resolveChat(state, { owner: c.owner, channel: c.channel }) }))
     .filter(({ chat }) => (!opts.state || chat.state === opts.state) && words.every((w) => chat.title?.toLowerCase().includes(w)))
@@ -89,19 +89,6 @@ function readChat(deps: ChatToolsDeps, text: string, opts: Parameters<ChatTools[
 function refOf(text: string): string {
   const link = chatLinkOf(text.trim());
   return (link && formatChatRef(link)) ?? text.trim().replace(/^chat:/, '');
-}
-
-function candidates(state: DomainState): Array<{ ref: string; owner: string; channel: string; createdAt?: number }> {
-  const own: Array<{ owner: string; channel: string; createdAt?: number }> = [
-    ...state.projects.flatMap((p) => p.workspaces.filter((w) => w.kind !== 'main').map((w) => ({ owner: state.selfId, channel: `ws:${w.id}`, createdAt: w.createdAt }))),
-    ...state.assistant.chats.map((c) => ({ owner: state.selfId, channel: c.channel })),
-    ...(state.sentinel.chats?.chats ?? []).map((c) => ({ owner: state.selfId, channel: c.channel })),
-    ...state.shared.map((w) => ({ owner: w.owner, channel: `ws:${w.id}` })),
-  ];
-  return own.flatMap((c) => {
-    const ref = formatChatRef(c);
-    return ref ? [{ ...c, ref }] : [];
-  });
 }
 
 function latestActivity(log: readonly LogItem[]): Map<string, number> {

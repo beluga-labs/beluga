@@ -86,6 +86,15 @@
   box-shadow: 0 0 0 2px var(--bg-press);
 }
 
+.mark[data-kind='chat'] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.highlighter[data-ink] .chatRef {
+  color: var(--text-3);
+}
+
 .mark[data-kind='task'] {
   background: color-mix(in srgb, var(--info) 15%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 15%, transparent);

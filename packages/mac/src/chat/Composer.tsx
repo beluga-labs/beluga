@@ -5,7 +5,9 @@ import { type AppState, type View, channelOf, peerName } from '@beluga/core/stor
 import { localDirKey } from '@beluga/core/local-key.js';
 import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
-import { localDirOf, mentionDir, openTarget, suggest, type Suggestion } from '@beluga/ui/suggest.js';
+import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
+import { resolveChat } from '@beluga/core/chat-links/resolve.js';
+import { chatChipOf, chatLinksToMentions, chatMentionEndingAt } from '@beluga/shared/chat-ref.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
@@ -33,9 +35,9 @@ import { sendSteerNow, stopClaude } from '../lib/commands.js';
 import { useAttachments } from './use-attachments.js';
 import { MentionHighlighter } from './MentionHighlighter.js';
 import { useSuggestions } from './Suggestions.js';
-import { useMentionWorld, worktreeOf } from './Mention.js';
+import { useChatMentions, useMentionWorld, worktreeOf } from './Mention.js';
 import { useSkills } from './use-skills.js';
-import { MentionedTasks } from './MentionedTasks.js';
+import { MentionedChats, MentionedTasks } from './MentionedTasks.js';
 import { DictationStrip, MicButton } from './Dictation.js';
 import { dictatingInto, useDictation, useDictationTarget } from '../lib/dictation.js';
 import { ActionsDropdown } from '../components/SpecMenu.js';
@@ -185,7 +187,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // Images pasted, dropped or named by their path wait as thumbnails above the text, with an
   // "[image N]" where they go; other pasted files as chips (see use-attachments). They wait with
   // the words, so a new chat or worktree page keeps its own too.
-  const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }) });
+  // A chat's link pasted here becomes a chip (not in a friend's worktree: as "@" there, it names none).
+  const chipLinks = (text: string): string | undefined => (shared || !client.store.getState().prefs.chatLinks ? undefined : chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label));
+  const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }), chipLinks });
   // While Claude works, sending queues the message; "Steer" gives it to Claude at its next step.
   const queueing = compose.busy && (compose.typing || !buffer.trim());
   const plan = state.planMode[channel] === true;
@@ -263,6 +267,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   }, [wsId, atDir, state.selfId]);
   // "@BLG-24": a task on your board (not in a workspace someone shared with you: their Claude has its own).
   const mentionWorld = useMentionWorld(channel, { tasks: !shared, project: state.project });
+  // "@login": a chat of yours, or one shared with you (as tasks, not in a workspace someone shared with you).
+  const chats = useChatMentions(channel, !shared && typedMention(buffer) !== undefined);
   // "/fron…": Claude's skills and custom commands here, beside Beluga's commands.
   const skills = useSkills(channel, !shared && buffer.startsWith('/') && !buffer.includes(' '));
   // On Codex they're translated: each says what doesn't carry over (BLG-461).
@@ -287,11 +293,12 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             projects: state.projects.filter((p) => p.root),
             ...(wsId ? { entries: (dir: string) => state.dirCache[`${state.selfId}:${shareNameOf(wsId)}/${dir}`] } : {}),
             ...(mentionWorld.tasks ? { tasks: mentionWorld.tasks } : {}),
+            chats,
             skills,
             skillsOn,
             ...(canBtw ? {} : { without: ['btw'] }),
           }),
-    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, skills, skillsOn, canBtw, runtimes],
+    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, chats, skills, skillsOn, canBtw, runtimes],
   );
   const sug = useSuggestions(suggestions, buffer, (picked) => accept(picked));
 
@@ -466,6 +473,16 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     const modKey = e.metaKey || e.ctrlKey;
     if (sug.onKeyDown(e)) return;
     if (att.onRefKey(e)) return;
+    // Backspace right after a chat's chip takes it whole (its address is nothing to edit).
+    if (e.key === 'Backspace' && !modKey && !e.altKey && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+      const chip = mentionWorld.chatLinks ? chatMentionEndingAt(buffer, e.currentTarget.selectionStart) : undefined;
+      if (chip) {
+        e.preventDefault();
+        e.currentTarget.setSelectionRange(chip.start, chip.end);
+        document.execCommand('delete');
+        return;
+      }
+    }
     // Backspace in an empty side question: back to an ordinary message.
     if (aside && e.key === 'Backspace' && !buffer) {
       e.preventDefault();
@@ -587,6 +604,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
         ) : null}
         {att.waiting}
         <MentionedTasks text={buffer} world={mentionWorld} />
+        <MentionedChats text={buffer} world={mentionWorld} />
         <DictationStrip box={ref} />
         <div className={s.inputWrap}>
           <MentionHighlighter text={buffer} world={mentionWorld} input={ref} className={s.input ?? ""} />

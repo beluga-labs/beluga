@@ -148,7 +148,7 @@ export function PlanChip({ id }: { id: string }) {
   );
 }
 
-const CHAT_KIND: Readonly<Record<ResolvedChat['kind'], string>> = { worktree: 'Worktree', chat: 'Chat', assistant: 'Your Mac', sentinel: 'Sentinel' };
+export const CHAT_KIND: Readonly<Record<ResolvedChat['kind'], string>> = { worktree: 'Worktree', chat: 'Chat', assistant: 'Your Mac', sentinel: 'Sentinel' };
 
 /**
  * A chat by its address (`chat:<owner>/<channel>`): a pill with its current title, read from the
