@@ -1,7 +1,10 @@
-import type { AppState } from '../../../../src/core/store.js';
+import { type AppState, type LogItem, isRunning } from '../../../../src/core/store.js';
 import { type Plan, planTitle } from '../../../../src/core/plans/model.js';
 import { isLivePlan, isPlanOwned, planConversations, planOwnerOf } from '../../../../src/core/plans/owner.js';
 import { type Sentinel, sentinelChannels, sentinelOfChannel } from '../../../../src/core/sentinel/model.js';
+import { triageFacts } from '../../../../src/core/triage/facts.js';
+import { type ChatCategory, type ChatTriage, categoryOf, triageKey } from '../../../../src/core/triage/model.js';
+import { span } from '../../../../src/shared/clock.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Project, Workspace } from '../../../../src/workspaces/types.js';
 
@@ -304,6 +307,177 @@ export function unreadEntries(state: ListSource): UnreadEntry[] {
   return conversationEntries(state)
     .filter((e) => counts(e.signal))
     .sort((a, b) => rank(a) - rank(b) || b.ts - a.ts);
+}
+
+/** The sidebar's lists, top to bottom. The UI calls the Active category Inbox (the owner's choice); the code says `active`. */
+export const CATEGORY_ORDER: readonly ChatCategory[] = ['active', 'working', 'snoozed', 'settled'];
+export const CATEGORY_TITLES: Readonly<Record<ChatCategory, string>> = { active: 'Inbox', working: 'Working', snoozed: 'Snoozed', settled: 'Settled' };
+/** How many Settled rows show before "Show more". */
+export const SETTLED_PAGE = 50;
+
+/** What a row says at its right edge; words and times are read with the clock (statusWords). */
+export type RowStatus =
+  | { readonly kind: 'need'; readonly need: Need }
+  | { readonly kind: 'stopped' | 'back' | 'waiting' }
+  | { readonly kind: 'working'; readonly since: number }
+  | { readonly kind: 'age' | 'settled'; readonly at: number }
+  | { readonly kind: 'left'; readonly until: number };
+
+/** A conversation in one of the categories. */
+export type CategoryEntry = UnreadEntry & {
+  readonly category: ChatCategory;
+  /** Its triage record's key. None (a DM, a group, a sentinel's): it has no settle or snooze. */
+  readonly key?: string;
+  readonly status: RowStatus;
+  /** Bold: news, or a snooze that ended. */
+  readonly bold: boolean;
+  readonly pr?: number;
+  readonly handRaised: boolean;
+  /** What its list sorts on (see byCategory). */
+  readonly sortAt: number;
+};
+
+type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId'>;
+
+/** Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Snoozed by soonest wake, Settled by newest. */
+export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategory, readonly CategoryEntry[]>> {
+  const out: Record<ChatCategory, CategoryEntry[]> = { active: [], working: [], snoozed: [], settled: [] };
+  for (const e of conversationEntries(state)) {
+    const entry = categoryEntry(state, e);
+    out[entry.category].push(entry);
+  }
+  out.active.sort((a, b) => Number(b.handRaised) - Number(a.handRaised) || b.sortAt - a.sortAt);
+  out.working.sort((a, b) => b.sortAt - a.sortAt);
+  out.snoozed.sort((a, b) => a.sortAt - b.sortAt);
+  out.settled.sort((a, b) => b.sortAt - a.sortAt);
+  return out;
+}
+
+/** What a row's status says now; empty when its mark says it all (a conflict, failing checks) or there is no time to tell. */
+export function statusWords(status: RowStatus, now: number): string {
+  switch (status.kind) {
+    case 'need':
+      return NEED_LABELS[status.need];
+    case 'stopped':
+      return 'Stopped';
+    case 'back':
+      return 'Back';
+    case 'waiting':
+      return 'Waiting';
+    case 'working':
+      return `Working ${span(now - status.since)}`;
+    case 'left':
+      return `${span(status.until - now)} left`;
+    case 'age':
+    case 'settled':
+      return status.at ? span(now - status.at) : '';
+  }
+}
+
+/** A long list's rows: the first `limit`, and the one you're in wherever it is. */
+export function visibleRows<E extends { readonly channel: string }>(rows: readonly E[], limit: number, here: string | undefined): readonly E[] {
+  if (rows.length <= limit) return rows;
+  const shown = rows.slice(0, limit);
+  const open = rows.slice(limit).find((e) => e.channel === here);
+  return open ? [...shown, open] : shown;
+}
+
+/** The fold state when the setting changes: on, it saves yours and folds Projects and the quiet categories; off, it gives yours back. */
+export function foldsForCategories(on: boolean, folds: { readonly folded: readonly string[]; readonly foldedBeforeCategories: readonly string[] }): { folded: readonly string[]; foldedBeforeCategories: readonly string[] } {
+  if (!on) return { folded: folds.foldedBeforeCategories, foldedBeforeCategories: [] };
+  return { folded: [...new Set([...folds.folded, ...FOLDED_BY_CATEGORIES])], foldedBeforeCategories: folds.folded };
+}
+
+const NEED_LABELS: Readonly<Record<Need, string>> = { question: 'Input', approval: 'Approval', plan: 'Plan', stuck: 'Stuck', conflict: '', checks: '' };
+
+const FOLDED_BY_CATEGORIES = ['projects', 'working', 'snoozed', 'settled'];
+
+function categoryEntry(state: CategorySource, e: UnreadEntry): CategoryEntry {
+  const key = e.kind === 'workspace' || e.kind === 'shared' || e.kind === 'plan' ? triageKey(state, e.channel) : undefined;
+  const pr = prOf(state, e);
+  const tail = pr === undefined ? {} : { pr };
+  if (key === undefined) {
+    const handRaised = e.signal.level === 'needs';
+    return { ...e, category: 'active', status: e.signal.need ? { kind: 'need', need: e.signal.need } : { kind: 'age', at: e.ts }, bold: e.signal.unread > 0, handRaised, sortAt: e.ts, ...tail };
+  }
+  const record = state.triage[key];
+  const facts = triageFacts(state, key);
+  const category = categoryOf(record, facts);
+  const channels = e.kind === 'plan' ? e.channels : [e.channel];
+  const log = channels.map((c) => runIndexOf(state)(c));
+  const bold = e.signal.unread > 0 || (category === 'active' && record?.backAt !== undefined);
+  // What a snooze keeps quiet stays quiet on its row.
+  const signal = category === 'snoozed' && e.signal.need ? quietSignal(e.signal) : e.signal;
+  return { ...e, signal, category, key, status: statusOf(category, record, signal, log), bold, handRaised: facts.handRaised, sortAt: sortAtOf(category, record, e, log), ...tail };
+}
+
+function statusOf(category: ChatCategory, record: ChatTriage | undefined, signal: Signal, log: readonly RunMarks[]): RowStatus {
+  if (category === 'snoozed' && record?.snoozed) return { kind: 'left', until: record.snoozed.until };
+  if (category === 'settled' && record?.settled) return { kind: 'settled', at: record.settled.at };
+  if (signal.need) return { kind: 'need', need: signal.need };
+  if (log.some((x) => x.stopped)) return { kind: 'stopped' };
+  if (record?.backAt !== undefined) return { kind: 'back' };
+  const since = log.flatMap((x) => x.runningSince ?? []);
+  if (since.length) return log.every((x) => x.queued || x.runningSince === undefined) ? { kind: 'waiting' } : { kind: 'working', since: Math.min(...since) };
+  // A Claude Code session at work has no run in the log.
+  if (signal.working) return { kind: 'waiting' };
+  return { kind: 'age', at: Math.max(record?.lastAt ?? 0, ...log.map((x) => x.lastAt)) };
+}
+
+function sortAtOf(category: ChatCategory, record: ChatTriage | undefined, e: UnreadEntry, log: readonly RunMarks[]): number {
+  if (category === 'snoozed') return record?.snoozed?.until ?? 0;
+  if (category === 'settled') return record?.settled?.at ?? 0;
+  if (category === 'working') return Math.max(0, ...log.map((x) => x.sentAt));
+  return Math.max(record?.backAt ?? 0, record?.lastAt ?? 0, e.ts);
+}
+
+const quietSignal = (x: Signal): Signal => (x.unread ? { level: 'unread', unread: x.unread, working: x.working, tip: plural(x.unread, 'message') } : x.working ? { level: 'working', unread: 0, working: true, tip: 'Your agent is working' } : IDLE_SIGNAL);
+
+function prOf(state: Pick<AppState, 'prs'>, e: UnreadEntry): number | undefined {
+  if (e.kind === 'workspace') return state.prs[e.ws.id]?.number;
+  return e.kind === 'plan' ? e.plan.pr?.number : undefined;
+}
+
+/** What the log says of one channel for its category row. */
+interface RunMarks {
+  /** Your last message there. */
+  readonly sentAt: number;
+  readonly lastAt: number;
+  /** Its latest run failed. */
+  readonly stopped: boolean;
+  /** Since when a run goes on (or waits its turn). */
+  readonly runningSince?: number;
+  readonly queued: boolean;
+}
+
+const NO_MARKS: RunMarks = { sentAt: 0, lastAt: 0, stopped: false, queued: false };
+
+// The log is replaced, never changed, so one pass per log serves every row.
+const runMarks = new WeakMap<readonly LogItem[], ReadonlyMap<string, RunMarks>>();
+
+const runIndexOf = (state: Pick<AppState, 'log' | 'selfId'>): ((channel: string) => RunMarks) => {
+  let index = runMarks.get(state.log);
+  if (!index) {
+    index = indexRuns(state.log, state.selfId);
+    runMarks.set(state.log, index);
+  }
+  const marks = index;
+  return (channel) => marks.get(channel) ?? NO_MARKS;
+};
+
+function indexRuns(log: readonly LogItem[], self: string | undefined): ReadonlyMap<string, RunMarks> {
+  const out = new Map<string, RunMarks>();
+  for (const item of log) {
+    const was = out.get(item.channel) ?? NO_MARKS;
+    if (item.type !== 'agent') {
+      out.set(item.channel, { ...was, lastAt: item.ts, sentAt: item.type === 'chat' && item.from === self && !item.byAgent ? item.ts : was.sentAt });
+      continue;
+    }
+    const running = isRunning(item.status);
+    const { runningSince: _was, ...rest } = was;
+    out.set(item.channel, { ...rest, lastAt: item.ts, stopped: item.status === 'error', queued: running ? item.status === 'queued' : was.queued, ...(running ? { runningSince: was.runningSince ?? item.ts } : was.runningSince !== undefined ? { runningSince: was.runningSince } : {}) });
+  }
+  return out;
 }
 
 /**

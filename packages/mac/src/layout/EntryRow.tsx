@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, forwardRef, useEffect, useState } from 'react';
 import { type AppState, shownChannel } from '@beluga/core/store.js';
 import { planOf } from '@beluga/core/plans/owner.js';
 import { Icon } from '../components/Icon.js';
@@ -11,27 +11,39 @@ import { openDm, openGroup } from '../network/use-net.js';
 import { chatPlaceOf, iconOf } from '../sentinel/sentinel-model.js';
 import { IDLE_SIGNAL, type Signal, type UnreadEntry, planSignal, workspaceSignal } from './attention-model.js';
 import { SignalMark, nameClass, signalClass } from './signal-marks.js';
-import { Row } from './sidebar-parts.js';
+import { Row, type RowProps } from './sidebar-parts.js';
 import m from './signal.module.css';
 
 /** One conversation in a sidebar list, and opening it from there: the seam the Unread section and the categories share. */
 
 /** A list's rows, and the one you opened from it, which stays while you're in it. */
-export interface EntryList {
+export interface EntryList<E extends UnreadEntry = UnreadEntry> {
   /** Where you are, as an entry's channel. */
   readonly here: string | undefined;
-  readonly entries: readonly UnreadEntry[];
+  readonly entries: readonly E[];
   /** The one you opened, gone from the list, as it is now (read, it's plain); `at`: the place it had. */
-  readonly kept?: { readonly entry: UnreadEntry; readonly at: number };
+  readonly kept?: { readonly entry: E; readonly at: number };
   readonly ownerName: (id: string) => string;
-  readonly open: (e: UnreadEntry, at: number) => void;
+  readonly open: (e: E, at: number) => void;
 }
 
-export function EntryRow({ e, list, at, trailing }: { e: UnreadEntry; list: EntryList; at: number; trailing?: ReactNode }) {
+type EntryRowProps = Omit<RowProps, 'icon' | 'label' | 'selected' | 'onClick' | 'detail' | 'trailing' | 'className'> & {
+  e: UnreadEntry;
+  list: Pick<EntryList, 'here' | 'ownerName'> & { readonly open: (e: never, at: number) => void };
+  at: number;
+  trailing?: ReactNode;
+  /** Bold for something other than news (a snooze that ended). */
+  nameBold?: string | undefined;
+};
+
+/** It passes its ref and other props to its Row, so a right-click menu wrapped around it can attach. */
+export const EntryRow = forwardRef<HTMLDivElement, EntryRowProps>(function EntryRow({ e, list, at, trailing, nameBold, ...rest }, ref) {
   const selected = e.channel === list.here;
   const where = whereOf(e, list.ownerName);
   return (
     <Row
+      ref={ref}
+      {...rest}
       selected={selected}
       className={signalClass(e.signal, selected)}
       data-signal-row={e.signal.level}
@@ -44,24 +56,24 @@ export function EntryRow({ e, list, at, trailing }: { e: UnreadEntry; list: Entr
       }
       label={
         <>
-          <span className={nameClass(e.signal)}>{e.name}</span>
+          <span className={nameBold ?? nameClass(e.signal)}>{e.name}</span>
           {/* Drawn from the attribute: a hint for the eye, not more text to find (the tooltip says it). */}
           <span className={m.where} data-where={where} aria-hidden="true" />
         </>
       }
       detail={`${where} › ${e.name}${e.signal.tip ? `: ${e.signal.tip}` : ''}`}
-      onClick={() => list.open(e, at)}
+      onClick={() => list.open(e as never, at)}
       trailing={trailing ?? <SignalMark signal={e.signal} />}
     />
   );
-}
+});
 
 /** A list of `entriesOf(state)` you can open. The one you open stays in place, so the list doesn't jump under you. */
-export function useEntryList(entriesOf: (state: AppState) => readonly UnreadEntry[]): EntryList {
+export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState) => readonly E[]): EntryList<E> {
   const actions = useActions();
   const { client } = useBeluga();
   // The one you opened from here, and whether you've got there yet (opening it takes a moment).
-  const [kept, setKept] = useState<{ entry: UnreadEntry; at: number; arrived: boolean } | undefined>();
+  const [kept, setKept] = useState<{ entry: E; at: number; arrived: boolean } | undefined>();
   // Only what the list shows (not the whole state): drawn again when that changes, not on every streamed event (KLD-48).
   const { here, entries, stay, owners } = useApp((state) => {
     // Where you are: a plan counts as one place (its page, its conversation and its tasks' worktrees).
@@ -80,7 +92,7 @@ export function useEntryList(entriesOf: (state: AppState) => readonly UnreadEntr
       if (!kept.arrived) setKept({ ...kept, arrived: true });
     } else if (kept.arrived) setKept(undefined);
   }, [here, kept]);
-  const open = (e: UnreadEntry, at: number): void => {
+  const open = (e: E, at: number): void => {
     setKept({ entry: e, at, arrived: e.channel === here });
     if (e.kind === 'workspace') actions.run({ type: 'open_ws', id: e.ws.id });
     // The plan, with its conversation; at the task that waits on you, so answering is one click on.

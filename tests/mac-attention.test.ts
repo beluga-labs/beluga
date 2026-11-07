@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Action, AppState } from '../src/core/store.js';
 import type { CcSession } from '../src/core/claude-code/model.js';
 import type { Notice } from '../src/core/work-store.js';
+import type { ChatTriage } from '../src/core/triage/model.js';
 import { type ScreenAction, initialAppState, reduceApp } from '../src/client/screen.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
-import { dockCount, groupTally, groupWorking, needOf, projectTally, projectWorking, signalOf, tally, tallyTip, unreadEntries, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
+import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
 
 /** The sidebar's unread and needs-you marks (packages/mac/src/layout/attention-model.ts), and the core's unread counts behind them. */
 
@@ -186,5 +187,103 @@ describe('a folded project or group says Claude is working inside it', () => {
     expect(projectWorking(apply(base(), { type: 'claude_code', sessions: [session({ workspaceId: 'old' })] }), api)).toBe(false);
     expect(groupWorking(cc, [site, api])).toBe(true);
     expect(groupWorking(cc, [site])).toBe(false);
+  });
+});
+
+describe('the sidebar categories', () => {
+  const triage = (channel: string, record: ChatTriage): Action => ({ type: 'triage_set', channel, record });
+  const names = (list: readonly { readonly name: string }[]): string[] => list.map((e) => e.name);
+  const on = (): AppState => apply(base(), { type: 'prefs', prefs: { chatCategories: true } });
+
+  it("calls the Active category Inbox and leaves a project's main folder and archived chats out", () => {
+    expect(CATEGORY_TITLES.active).toBe('Inbox');
+    expect(names(categoriesOf(on()).active).sort()).toEqual(['How do deploys work?', 'add-auth', 'new-hero', 'webhooks']);
+  });
+
+  it('moves a running chat to Working and back to Active when its turn ends', () => {
+    let s = apply(on(), overview, run('started'));
+    expect(names(categoriesOf(s).working)).toEqual(['add-auth']);
+    expect(categoriesOf(s).working[0]!.status).toEqual({ kind: 'working', since: 5 });
+    s = apply(s, run('done'));
+    expect(names(categoriesOf(s).working)).toEqual([]);
+    expect(names(categoriesOf(s).active)).toContain('add-auth');
+  });
+
+  it("says Waiting for a queued run and Stopped for a failed one", () => {
+    expect(categoriesOf(apply(on(), run('queued'))).working[0]!.status).toEqual({ kind: 'waiting' });
+    const stopped = categoriesOf(apply(on(), run('started'), run('error'))).active.find((e) => e.name === 'add-auth')!;
+    expect(stopped.status).toEqual({ kind: 'stopped' });
+  });
+
+  it("a question brings a chat to Active with 'Input', from Working and from Snoozed, first in the list", () => {
+    const from = [apply(on(), run('started')), apply(on(), triage('ws:auth', { snoozed: { at: 1, until: 9_999, seen: [] } }))];
+    for (const s of from) {
+      const asked = categoriesOf(apply(s, question('q1', 'ws:auth')));
+      expect(asked.active[0]!.name).toBe('add-auth');
+      expect(statusWords(asked.active[0]!.status, 10)).toBe('Input');
+    }
+  });
+
+  it('a snoozed question stays quiet on its row, and a new one wakes it', () => {
+    let s = apply(on(), question('q1', 'ws:auth'), triage('ws:auth', { snoozed: { at: 1, until: 3_600_001, seen: ['q1'] } }));
+    const row = categoriesOf(s).snoozed[0]!;
+    expect(row.signal.level).toBe('idle');
+    expect(statusWords(row.status, 1)).toBe('1h left');
+    s = apply(s, question('q2', 'ws:auth'));
+    expect(names(categoriesOf(s).active)[0]).toBe('add-auth');
+  });
+
+  it('DMs and groups with news are in Active, with no key to settle or snooze them by', () => {
+    const friend = { peerId: 'b'.repeat(32), name: 'bob', online: true, presence: { state: 'online' as const }, addedAt: 0, unread: 2, last: { id: 'm', from: 'b', name: 'bob', text: 'yo', ts: 99, mine: false } };
+    const group = { id: 'g1', name: 'crew', active: true, unread: 1, last: { ts: 50 } };
+    const s = { ...on(), network: { ...on().network, enabled: true, friends: [friend], groups: [group] } } as unknown as AppState;
+    const news = categoriesOf(s).active.filter((e) => e.kind === 'dm' || e.kind === 'group');
+    expect(names(news)).toEqual(['bob', 'crew']);
+    expect(news.map((e) => e.key)).toEqual([undefined, undefined]);
+  });
+
+  it('sorts Snoozed by soonest wake and Settled by newest', () => {
+    const s = apply(
+      on(),
+      triage('ws:auth', { snoozed: { at: 1, until: 500, seen: [] } }),
+      triage('ws:hero', { snoozed: { at: 1, until: 200, seen: [] } }),
+      triage('ws:hooks', { settled: { at: 10, why: 'you' } }),
+      triage('ws:q', { settled: { at: 20, why: 'idle' } }),
+    );
+    expect(names(categoriesOf(s).snoozed)).toEqual(['new-hero', 'add-auth']);
+    expect(names(categoriesOf(s).settled)).toEqual(['How do deploys work?', 'webhooks']);
+    expect(statusWords(categoriesOf(s).settled[0]!.status, 20 + 49 * 60_000)).toBe('49m');
+  });
+
+  it('shows Back in bold until you open the chat', () => {
+    let s = apply(on(), overview, triage('ws:auth', { backAt: 7 }));
+    const back = categoriesOf(s).active[0]!;
+    expect([back.name, back.status.kind, back.bold]).toEqual(['add-auth', 'back', true]);
+    s = apply(s, view('auth'));
+    expect(categoriesOf(s).active.find((e) => e.name === 'add-auth')!.bold).toBe(false);
+  });
+
+  it('a Working chat sorts by the last message you sent', () => {
+    const said = (id: string, channel: string, ts: number): Action => ({ type: 'chat', id, from: 'me', text: 'go', ts, byAgent: false, channel });
+    const s = apply(on(), { type: 'identity', selfId: 'me', isHost: true }, said('a', 'ws:auth', 10), said('b', 'ws:hooks', 20), run('started'), run('started', 'ws:hooks', 'r2'));
+    expect(names(categoriesOf(s).working)).toEqual(['webhooks', 'add-auth']);
+  });
+
+  it('shows the first page of a long list, and the one you are in', () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ channel: `ws:${i}` }));
+    expect(visibleRows(rows, SETTLED_PAGE, undefined)).toHaveLength(SETTLED_PAGE);
+    expect(visibleRows(rows, SETTLED_PAGE, 'ws:999').at(-1)).toEqual({ channel: 'ws:999' });
+    expect(visibleRows(rows.slice(0, 3), SETTLED_PAGE, 'ws:1')).toHaveLength(3);
+  });
+
+  it('folds Projects and the quiet categories when turned on, and gives your folds back when turned off', () => {
+    const turned = foldsForCategories(true, { folded: ['chats'], foldedBeforeCategories: [] });
+    expect(turned.folded).toEqual(['chats', 'projects', 'working', 'snoozed', 'settled']);
+    expect(foldsForCategories(false, { folded: [...turned.folded, 'friends'], foldedBeforeCategories: turned.foldedBeforeCategories })).toEqual({ folded: ['chats'], foldedBeforeCategories: [] });
+  });
+
+  it('lists every conversation, not only those with news', () => {
+    expect(names(conversationEntries(base()))).toEqual(['How do deploys work?', 'add-auth', 'webhooks', 'new-hero']);
+    expect(unreadEntries(base())).toEqual([]);
   });
 });

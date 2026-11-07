@@ -63,6 +63,11 @@
 .sectionHead:hover .sectionChevron {
   opacity: 1;
 }
+.sectionCount {
+  margin-left: 5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
 .sectionAction {
   opacity: 0;
   transition: opacity var(--dur-fast);

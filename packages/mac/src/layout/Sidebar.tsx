@@ -18,6 +18,7 @@ import { Projects, ProjectsAddMenu } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
 import { WorkspaceRow } from './workspace-row.js';
 import { UnreadSection } from './UnreadSection.js';
+import { CategorySections } from './CategorySections.js';
 import { Row, Section } from './sidebar-parts.js';
 import { SidebarSearch } from './SidebarSearch.js';
 import { ActivityRow } from '../claude-code/Live.js';
@@ -90,7 +91,7 @@ export function Sidebar() {
   const actions = useActions();
   const drop = useFolderDrop();
   // Only what the sidebar itself shows: drawn again when that changes, not on every streamed event (KLD-48).
-  const { tabs, liveChats, view, badges } = useApp((state) => {
+  const { tabs, liveChats, view, badges, categories } = useApp((state) => {
     const news = overviewNews(state);
     const fresh = newShares(state);
     const badges: Partial<Record<string, { count: number; urgent?: boolean }>> = {
@@ -103,6 +104,7 @@ export function Sidebar() {
       liveChats: state.projects.find((p) => !p.root)?.workspaces.filter((w) => !w.archived) ?? [],
       view: state.view,
       badges,
+      categories: state.prefs.chatCategories,
     };
   }, sameDeep);
   const files = tabs.find((t) => t.kind === 'files');
@@ -148,14 +150,20 @@ export function Sidebar() {
           <RequestsNav whenAny />
         </section>
 
-        <UnreadSection />
+        {categories ? (
+          <CategorySections />
+        ) : (
+          <>
+            <UnreadSection />
 
-        <Section id="chats" title="Chats" action={<IconButton icon="plus" label="New chat (not tied to a project)" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}>
-          {liveChats.map((w) => (
-            <WorkspaceRow key={w.id} ws={w} indent={0} />
-          ))}
-          {liveChats.length ? null : <Row className={s.hintRow} icon={<Icon name="plus" size={13} />} label="Talk to your agent about anything" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}
-        </Section>
+            <Section id="chats" title="Chats" action={<IconButton icon="plus" label="New chat (not tied to a project)" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}>
+              {liveChats.map((w) => (
+                <WorkspaceRow key={w.id} ws={w} indent={0} />
+              ))}
+              {liveChats.length ? null : <Row className={s.hintRow} icon={<Icon name="plus" size={13} />} label="Talk to your agent about anything" onClick={() => actions.run({ type: 'new_chat', projectId: 'chats' })} />}
+            </Section>
+          </>
+        )}
 
         <Section id="projects" title="Projects" action={<ProjectsAddMenu />}>
           <Projects />
