@@ -129,14 +129,15 @@ function ChildRow({ row, now, onOpen, onStop }: { row: LineageRow; now: number; 
 
 /** The chat that started this one. A removed parent keeps its title and opens nothing. */
 function ParentRow({ parent, onOpen }: { parent: LineageParent; onOpen: (id: string) => void }) {
-  const word = parent.gone ? 'Removed' : parent.state ? THREAD_WORDS[parent.state] : '';
+  // An open chat with no run says Idle; a Your Mac chat's state isn't known here.
+  const word = parent.gone ? 'Removed' : parent.state ? THREAD_WORDS[parent.state] : parent.openId ? 'Idle' : '';
   const inner = (
     <>
       <span className={s.mark}>
         <Icon name="up" size={13} />
-        {parent.state ? (
+        {word && !parent.gone ? (
           <span className={s.dot}>
-            <Dot tone={DOT[parent.state]} />
+            <Dot tone={parent.state ? DOT[parent.state] : 'muted'} />
           </span>
         ) : null}
       </span>

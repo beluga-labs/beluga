@@ -13,7 +13,7 @@ export function StartedByLine({ channel }: { channel: string }) {
   return (
     <div className={s.startedBy} data-started-by="">
       <Icon name="up" size={11} />
-      <span>Started by</span>
+      <span>Started by </span>
       {parent.openId ? (
         <button type="button" className={s.link} onClick={() => actions.run({ type: 'open_ws', id: parent.openId! })}>
           {parent.title}
@@ -33,7 +33,7 @@ export function ThreadStartLine({ thread }: { thread: ThreadStart }) {
       <span title={thread.agent}>
         <Icon name={thread.mark} size={12} />
       </span>
-      <span>Started thread</span>
+      <span>Started thread </span>
       {thread.archived ? (
         <span className={s.gone}>{thread.title}</span>
       ) : (

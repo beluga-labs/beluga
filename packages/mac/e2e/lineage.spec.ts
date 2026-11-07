@@ -113,10 +113,13 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
 
   // A child shows its parent, which opens it.
   await row('five').getByRole('button', { name: /^Open five/ }).click();
+  await page.getByRole('tab', { name: 'Info', exact: true }).click();
   const up = inspector.getByRole('button', { name: 'Open the parent chat, e2e-parent' });
   await expect(up).toBeVisible();
+  await expect(inspector.locator('[data-lineage-row="parent"]')).toContainText('Idle');
   await shot(page, 'panel-child');
   await up.click();
+  await page.getByRole('tab', { name: 'Info', exact: true }).click();
   await expect(inspector.getByRole('button', { name: /^Open five/ })).toBeVisible();
 });
 
@@ -143,7 +146,7 @@ test('a child says who started it, and its first message is not yours', async ({
   await expect(page.locator('[data-mine="true"]').filter({ hasText: 'hello from a person' })).toBeVisible();
   await shot(page, 'child-person');
 
-  // The line opens the parent, and a person's turn woke nothing there.
+  // The line opens the parent (tests/threads-delivery.test.ts: a person's turn does not wake it).
   await page.locator('[data-started-by]').getByRole('button', { name: 'e2e-parent' }).click();
   await expect(page.locator('[data-started-by]')).toHaveCount(0);
   await expect(page.locator('[data-thread-start]').filter({ hasText: 'five' })).toBeVisible();
