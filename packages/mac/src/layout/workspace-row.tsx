@@ -18,7 +18,7 @@ import { Row } from './sidebar-parts.js';
 import { outsideLocation } from './outside-model.js';
 import { useChatSelection } from './chat-selection-view.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
-import { HarnessMark } from '../lineage/HarnessMark.js';
+import { HarnessMark } from '../threads/HarnessMark.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 

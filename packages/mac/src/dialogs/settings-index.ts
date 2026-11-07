@@ -279,7 +279,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Address', 'Where the browser opens Beluga.', 'url address link'],
     ['Let a browser in', 'A link that works once, for 10 minutes.', 'link browser login'],
   ]),
-  ...rows('advanced', 'Agent threads', [['Let your agents start threads', 'Child chats, each with its own agent.', 'threads child sub-agent lineage orchestrate']]),
+  ...rows('advanced', 'Agent threads', [['Let your agents start threads', 'Child chats, each with its own agent.', 'threads child sub-agent family orchestrate']]),
 
   // About
   ...rows('about', undefined, [

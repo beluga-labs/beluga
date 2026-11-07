@@ -8,7 +8,7 @@ import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { usePrefs } from '../lib/prefs.js';
-import { HarnessMark } from '../lineage/HarnessMark.js';
+import { HarnessMark } from '../threads/HarnessMark.js';
 import { openDm, openGroup } from '../network/use-net.js';
 import { chatPlaceOf, iconOf } from '../sentinel/sentinel-model.js';
 import { IDLE_SIGNAL, type Signal, type UnreadEntry, planSignal, unreadEntries, workspaceSignal } from './attention-model.js';

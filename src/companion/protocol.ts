@@ -112,10 +112,10 @@ export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
  * 1.42 (BLG-757): a run stopped by your usage limit says when Beluga tells it to continue on its
  * own (`TurnView.resumesAt`). An older Mac leaves it out.
  * 1.43 (BLG-172): child threads: each chat's harness and parent in Work (`ConvSummary.harness` /
- * `parent`), a chat's family (`ConvView.lineage`, Stop with `threads.stop`), which thread a need
+ * `parent`), a chat's family (`ConvView.threadFamily`, Stop with `threads.stop`), which thread a need
  * belongs to (`NeedsYou.thread`), and what archive and delete would take with them
  * (`BranchView.threads`, answered in `companion.branchStep`'s third argument). An older Mac leaves them
- * out: flat rows, no Lineage, no question. The phone sends the third argument only to a Mac with
+ * out: flat rows, no Threads sheet, no question. The phone sends the third argument only to a Mac with
  * SINCE.threads: an older Mac refuses an argument it doesn't know, so its children stay.
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, threads: 43 } as const;
@@ -541,8 +541,8 @@ export type BranchStepView = z.infer<typeof BranchStepView>;
 
 /** 1.6: where a worktree's branch stands, as the Mac's toolbar shows it (core/branch-state.ts), and its next step in words. */
 /** How many threads a step would touch, and how many of them work now (for the question's words). */
-export const ThreadFamilyView = z.object({ count: z.number().int().min(0), running: z.number().int().min(0) });
-export type ThreadFamilyView = z.infer<typeof ThreadFamilyView>;
+export const ThreadCountView = z.object({ count: z.number().int().min(0), running: z.number().int().min(0) });
+export type ThreadCountView = z.infer<typeof ThreadCountView>;
 
 export const BranchView = z.object({
   kind: z.string().max(40),
@@ -559,7 +559,7 @@ export const BranchView = z.object({
   /** 1.8: every step, the main one first (the Mac's toolbar button, then its menu); the phone does them with companion.branchStep. */
   steps: z.array(BranchStepView).max(20).optional(),
   /** 1.43: the threads archiving or deleting it would ask about. Unset: it has none. */
-  threads: z.object({ archive: ThreadFamilyView, delete: ThreadFamilyView }).optional(),
+  threads: z.object({ archive: ThreadCountView, delete: ThreadCountView }).optional(),
 });
 export type BranchView = z.infer<typeof BranchView>;
 
@@ -603,11 +603,11 @@ export type AgentPickerView = z.infer<typeof AgentPickerView>;
 const ThreadStateView = z.union([z.enum(['queued', 'running', 'needs_you', 'done', 'failed', 'stopped', 'interrupted']), z.string().max(20)]);
 
 /**
- * 1.43: a chat's family, the Mac's Lineage panel without its native sub-agents (the phone's strip has
+ * 1.43: a chat's family, the Mac's Threads panel without its native sub-agents (the phone's strip has
  * those): the chat that started it and the threads it started, most urgent first. Titles only, never
  * a thread's task or result.
  */
-export const LineageView = z.object({
+export const ThreadFamilyView = z.object({
   /** No `topic`: nothing to open (removed, or a Your Mac chat). `gone`: removed, and only its title stays. */
   parent: z.object({ title: z.string().max(300), topic: Topic.optional(), state: ThreadStateView.optional(), gone: z.boolean() }).optional(),
   children: z.array(z.object({ id, topic: Topic, title: z.string().max(300), state: ThreadStateView, working: z.boolean(), harness: AgentRefView })).max(100),
@@ -616,7 +616,7 @@ export const LineageView = z.object({
   /** Every working thread under this chat, each after its own children. */
   stoppable: z.array(id).max(200),
 });
-export type LineageView = z.infer<typeof LineageView>;
+export type ThreadFamilyView = z.infer<typeof ThreadFamilyView>;
 
 export const ConvView = z.object({
   topic: Topic,
@@ -630,7 +630,7 @@ export const ConvView = z.object({
   canSend: z.boolean(),
   working: z.boolean(),
   /** 1.43: its parent and child threads. Unset: it has neither, or threads are off. */
-  lineage: LineageView.optional(),
+  threadFamily: ThreadFamilyView.optional(),
   /** 1.3: its project's id and icon, everything its worktree made (scratch files, reports, its Claude's and sub-agents' outputs, newest first), and what of yours waits its turn. */
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),

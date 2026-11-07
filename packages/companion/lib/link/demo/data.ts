@@ -186,7 +186,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
       ],
       threads: { archive: { count: 3, running: 2 }, delete: { count: 3, running: 2 } },
     },
-    lineage: {
+    threadFamily: {
       chat: 'onboarding',
       children: [
         { id: 'pair-android', topic: 'conv:beluga.pair-android', title: 'Check pairing on Android', state: 'running', working: true, harness: { runtime: 'codex', label: 'Codex' } },
@@ -483,7 +483,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
   };
 
   // ---- child threads of the onboarding work (1.43): one still at work with its own child, one done.
-  const child = (topic: Topic, title: string, working: boolean, text: string, lineage: ConvView['lineage']): ConvView => ({
+  const child = (topic: Topic, title: string, working: boolean, text: string, threadFamily: ConvView['threadFamily']): ConvView => ({
     topic,
     title,
     project: 'beluga',
@@ -491,7 +491,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
     canSend: true,
     working,
     needsYou: [],
-    lineage,
+    threadFamily,
     turns: [{ id: `${topic}-t1`, who: 'claude', name: MY_AGENT_NAME, ts: now - 4 * MIN, ...(working ? { status: 'working' as const, step: text } : { status: 'done' as const, endTs: now - 2 * MIN }), prose: { text: working ? '' : text, code: [] } }],
   });
   const startedBy = (title: string, topic: Topic) => ({ title, topic, state: 'running', gone: false });

@@ -2,8 +2,8 @@ import { Icon } from '../components/Icon.js';
 import { useActions } from '../lib/actions.js';
 import { useApp } from '../lib/beluga.js';
 import { sameFields } from '../lib/stable.js';
-import { type ThreadStart, startedBy } from './lineage-model.js';
-import s from './lineage.module.css';
+import { type ThreadStart, startedBy } from './threads-model.js';
+import s from './threads.module.css';
 
 /** The top of a child's chat: who started it. It opens the parent; a removed parent keeps its title and opens nothing. */
 export function StartedByLine({ channel }: { channel: string }) {

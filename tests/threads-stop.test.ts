@@ -312,7 +312,7 @@ function real() {
 }
 
 describe('the real Stop', () => {
-  it('threads.stop, the phone\'s and the Lineage panel\'s: that child and those under it stop, its siblings go on', async () => {
+  it('threads.stop, the phone\'s and the Threads panel\'s: that child and those under it stop, its siblings go on', async () => {
     const t = real();
     const [kid, sibling] = await t.family();
     const grandchild = `ws:${idOf(await t.tools(kid!).start({ task: 'deep', title: 'deep' }))}`;

@@ -3,7 +3,7 @@ import { resetWords } from '../../../../src/shared/run-failure';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, Network, OctagonX, Plus, Send, Square, SquareTerminal, Trash2 } from 'lucide-react-native';
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
-import { LineageSheet, lineageSummary } from '../../components/Lineage';
+import { ThreadsSheet, threadsSummary } from '../../components/ThreadsSheet';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
 import { openOnMac } from '../../lib/mac';
@@ -112,7 +112,7 @@ export default function Conversation() {
   const all: OutputView[] = c ? (c.outputs ?? c.turns.flatMap((t) => [...(t.outputs ?? []), ...(t.subagents ?? []).flatMap((a) => a.outputs)])) : [];
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [lineageOpen, setLineageOpen] = useState(false);
+  const [threadsOpen, setThreadsOpen] = useState(false);
   // What waits its turn is in the queue above the composer, not a turn of its own.
   const turns = c ? c.turns.filter((t) => !(c.queue && t.who === 'claude' && t.status === 'queued')) : [];
   // A worktree (or chat folder) of yours has files to read and terminals to share with the Mac (1.7).
@@ -302,7 +302,7 @@ export default function Conversation() {
         </Sheet>
         {c?.mergeable ? <MergeSheet topic={topic} visible={mergeOpen} onClose={() => setMergeOpen(false)} /> : null}
         <EditPromptSheet turn={editing} onClose={() => setEditing(undefined)} />
-        <LineageSheet lineage={c?.lineage} visible={lineageOpen} onClose={() => setLineageOpen(false)} />
+        <ThreadsSheet threadFamily={c?.threadFamily} visible={threadsOpen} onClose={() => setThreadsOpen(false)} />
         <Options
           visible={Boolean(reacting)}
           onClose={() => setReacting(undefined)}
@@ -347,7 +347,7 @@ export default function Conversation() {
             { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !c?.agent || !store.supports('agentPicker'), onPress: () => setPicking(true) },
             { Icon: Plus, label: 'New chat', sub: 'A fresh chat with your Mac, a new tab there too', tone: 'sky', hidden: !macChats, onPress: () => newMacChat((h) => router.replace(h as never)) },
             { Icon: Square, label: askedTask ? 'Stop asking' : 'Stop the agent', tone: 'rose', hidden: !c?.working, onPress: () => void store.call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic)) },
-            { Icon: Network, label: 'Lineage', sub: lineageSummary(c?.lineage), tone: 'lavender', hidden: !c?.lineage, onPress: () => setLineageOpen(true) },
+            { Icon: Network, label: 'Threads', sub: threadsSummary(c?.threadFamily), tone: 'lavender', hidden: !c?.threadFamily, onPress: () => setThreadsOpen(true) },
             { Icon: Images, label: 'Outputs', sub: all.length ? `${all.length} from this worktree` : 'Nothing yet', tone: 'sky', hidden: !all.length, onPress: () => setOutputsOpen(true) },
             { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: !c?.mergeable || !store.supports('merge') || Boolean(c?.branch), onPress: () => setMergeOpen(true) },
             { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: !hasFolder || !store.supports('files'), onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },

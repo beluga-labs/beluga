@@ -18,7 +18,7 @@ import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { Projects, ProjectsAddMenu, showArchivedOf } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
 import { WorkspaceWithAgents } from './SubAgents.js';
-import { threadNesting } from '../lineage/lineage-model.js';
+import { threadNesting } from '../threads/threads-model.js';
 import { ChatSelectionCount, SidebarChatSelection } from './chat-selection-view.js';
 import { UnreadSection } from './UnreadSection.js';
 import { Row, Section } from './sidebar-parts.js';

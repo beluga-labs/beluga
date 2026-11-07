@@ -5,7 +5,7 @@ import { useApp } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import s from '../layout/Sidebar.module.css';
 import { agentMark } from '@beluga/shared/agent-marks.js';
-import { harnessOf } from './lineage-model.js';
+import { harnessOf } from './threads-model.js';
 
 /** Which agent runs a chat, at a sidebar row's edge: one width whatever the row says. Nothing with threads off. */
 export function HarnessMark({ ws }: { ws: Pick<Workspace, 'agent' | 'kind'> }) {

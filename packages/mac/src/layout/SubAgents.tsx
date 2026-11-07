@@ -13,7 +13,7 @@ import { type Residue, type SubAgent, agentResidue, agentTitle, cappedAgents, is
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { useNow } from '../chat/Items.js';
 import { agoText } from '../views/project/home-model.js';
-import { type FoldRow, type ThreadChild, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf } from '../lineage/lineage-model.js';
+import { type FoldRow, type ThreadChild, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf } from '../threads/threads-model.js';
 import { sameDeep } from '../lib/stable.js';
 import { Row } from './sidebar-parts.js';
 import { WorkspaceRow, type WorkspaceFold } from './workspace-row.js';

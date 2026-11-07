@@ -112,7 +112,7 @@ export const calls = {
   resolve: (topic: Topic): Call => make('companion.resolve', [topic], 'Ask your agent to resolve'),
   /** 1.8: one of a worktree's branch steps (Archive, Squash and Merge, Fix with Claude…), as the Mac's toolbar does it. */
   branchStep: (topic: Topic, step: PhoneBranchStep, label: string, children?: ThreadChildren): Call => make('companion.branchStep', children ? [topic, step, children] : [topic, step], label),
-  /** 1.43: one child thread and those under it stop, as the Mac's Lineage panel does it. */
+  /** 1.43: one child thread and those under it stop, as the Mac's Threads panel does it. */
   stopThread: (id: string): Call => make('threads.stop', [id], 'Stop the thread'),
   stopThreads: (id: string): Call => make('threads.stopAll', [id], 'Stop the threads'),
   /** Your steered message Claude hasn't read yet, now: its step stops and it reads it next. */

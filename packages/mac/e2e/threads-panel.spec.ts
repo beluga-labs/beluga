@@ -105,8 +105,8 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
   await sidebar(page).getByRole('button', { name: 'e2e-parent', exact: true }).click();
   await page.getByRole('tab', { name: 'Info', exact: true }).click();
   const inspector = page.getByRole('complementary', { name: 'Inspector' });
-  await expect(inspector.getByRole('heading', { name: 'Lineage · 2 running' })).toBeVisible();
-  const row = (title: string) => inspector.locator('[data-lineage-row]').filter({ has: page.getByRole('button', { name: new RegExp(`^Open ${title},`) }) });
+  await expect(inspector.getByRole('heading', { name: 'Threads · 2 running' })).toBeVisible();
+  const row = (title: string) => inspector.locator('[data-thread-row]').filter({ has: page.getByRole('button', { name: new RegExp(`^Open ${title},`) }) });
   await expect(row('four')).toHaveAttribute('data-state', 'running');
   await shot(page, 'panel-parent');
 
@@ -121,7 +121,7 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
   await page.keyboard.press('Enter');
   await expect(row('four')).toHaveAttribute('data-state', 'stopped', { timeout: 20_000 });
   await expect(row('five')).toHaveAttribute('data-state', 'running');
-  await expect(inspector.getByRole('heading', { name: 'Lineage · 1 running' })).toBeVisible();
+  await expect(inspector.getByRole('heading', { name: 'Threads · 1 running' })).toBeVisible();
   await expect(row('four').getByRole('button', { name: 'Stop four' })).toHaveCount(0);
   const report = page.getByText(/1 child thread reported: four \(stopped\)/);
   await expect(report).toBeVisible({ timeout: 20_000 });
@@ -132,17 +132,17 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
   await shot(page, 'panel-one-stopped');
 
   // Stop All needs no second action.
-  await inspector.getByRole('button', { name: 'Lineage actions' }).click();
+  await inspector.getByRole('button', { name: 'Thread actions' }).click();
   await page.getByRole('menuitem', { name: 'Stop All Running' }).click();
   await expect(row('five')).toHaveAttribute('data-state', 'stopped', { timeout: 20_000 });
-  await expect(inspector.getByRole('heading', { name: 'Lineage', exact: true })).toBeVisible();
+  await expect(inspector.getByRole('heading', { name: 'Threads', exact: true })).toBeVisible();
 
   // A child shows its parent, which opens it.
   await row('five').getByRole('button', { name: /^Open five/ }).click();
   await page.getByRole('tab', { name: 'Info', exact: true }).click();
   const up = inspector.getByRole('button', { name: 'Open the parent chat, e2e-parent' });
   await expect(up).toBeVisible();
-  await expect(inspector.locator('[data-lineage-row="parent"]')).toContainText('Idle');
+  await expect(inspector.locator('[data-thread-row="parent"]')).toContainText('Idle');
   await shot(page, 'panel-child');
   await up.click();
   await page.getByRole('tab', { name: 'Info', exact: true }).click();
@@ -193,7 +193,7 @@ test('a child whose parent was deleted stands on its own: Removed, with no way t
   await expect(parent).toHaveCount(0, { timeout: 20_000 });
   await sidebar(page).getByRole('button', { name: 'five', exact: true }).click();
   await page.getByRole('tab', { name: 'Info', exact: true }).click();
-  const up = page.getByRole('complementary', { name: 'Inspector' }).locator('[data-lineage-row="parent"]');
+  const up = page.getByRole('complementary', { name: 'Inspector' }).locator('[data-thread-row="parent"]');
   await expect(up).toContainText('Removed');
   await expect(up.getByRole('button')).toHaveCount(0);
 });

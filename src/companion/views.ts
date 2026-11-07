@@ -29,7 +29,7 @@ import { chatReactions, reactableChannel } from '../core/chat-reactions.js';
 import { resumeOf } from '../core/auto-continue.js';
 import { chatPeople, claudePill, offlineNote, waitingIn, waitingLabel } from '../core/chat-people.js';
 import { type AgentRef, CLAUDE_AGENT, type Profile, defaultAgentOf } from '../protocol.js';
-import { threadNesting } from '../ui/thread-lineage.js';
+import { threadNesting } from '../ui/thread-tree.js';
 import { providerCards } from '../ui/usage-cards.js';
 import {
   type BranchView,
@@ -70,7 +70,7 @@ import {
 import { HIDDEN_STEP, humanizeDoing, humanizeStep, plainLine, stepWords, stripCode } from './strip.js';
 import { withMath } from './math-svg.js';
 import { agentRefView, chatTopic, clip, convTopic, dashboardTopic, myId, nameOf, needsYou, planTopic, progressOf, sentinelTopic, taskTopic } from './needs-you.js';
-import { familyOf, lineageOf, threadRowOf } from './lineage.js';
+import { familyOf, threadFamilyOf, threadRowOf } from './thread-family.js';
 
 export { chatTopic, convTopic, dashboardTopic, planTopic, sentinelTopic, taskTopic } from './needs-you.js';
 export { needsYou };
@@ -716,7 +716,7 @@ export function convView(state: DomainState, ctx: ViewContext, topic: Topic): Co
     outputs: outputs.slice(0, 100),
     ...(queue.length ? { queue } : {}),
     ...mergeOf(state, ctx, channel),
-    ...lineageOf(state, channel),
+    ...threadFamilyOf(state, channel),
     ...(plan && planT ? { plan: planBand(state, plan, planT) } : {}),
     ...waitingOf(state, channel),
     ...pickerOf(state, channel, conv?.mine ?? false),

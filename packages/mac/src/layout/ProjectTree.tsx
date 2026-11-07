@@ -27,7 +27,7 @@ import { type Entry, type Place, type Target, keyOfEntry, stepOf, useArrange, us
 import { OutsideWorktrees } from './OtherWorktrees.js';
 import { ProjectAgents, WorkspaceWithAgents, useAgentOrigins, useCcSessions } from './SubAgents.js';
 import { hasRowsInside } from './project-rows.js';
-import { threadNesting } from '../lineage/lineage-model.js';
+import { threadNesting } from '../threads/threads-model.js';
 import { type Tally, groupTally, groupWorking, projectPlans, projectTally, projectWorking, tallyTip } from './attention-model.js';
 import { TallyMark } from './signal-marks.js';
 import { Row } from './sidebar-parts.js';

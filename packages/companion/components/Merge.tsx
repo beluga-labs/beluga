@@ -5,7 +5,7 @@ import { ActivityIndicator, Linking, ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { calls } from '../lib/link/calls';
 import type { ThreadChildren } from '../../../src/shared/threads';
-import type { BranchStepView, BranchView, MergeCheckView, MergeView, PhoneBranchStep, ThreadFamilyView, Topic } from '../lib/link/protocol';
+import type { BranchStepView, BranchView, MergeCheckView, MergeView, PhoneBranchStep, ThreadCountView, Topic } from '../lib/link/protocol';
 import { openOnMac } from '../lib/mac';
 import { store } from '../lib/store';
 import { color } from '../lib/theme';
@@ -221,7 +221,7 @@ export function BranchBand({ topic, branch, canMerge, onMerge }: { readonly topi
   const [asking, setAsking] = useState<BranchStepView | undefined>();
   const [busy, setBusy] = useState<string | undefined>();
   const [too, setToo] = useState(false);
-  const familyOf = (step: BranchStepView | undefined): ThreadFamilyView | undefined => (step?.id === 'archive' ? branch.threads?.archive : step?.id === 'delete' ? branch.threads?.delete : undefined);
+  const familyOf = (step: BranchStepView | undefined): ThreadCountView | undefined => (step?.id === 'archive' ? branch.threads?.archive : step?.id === 'delete' ? branch.threads?.delete : undefined);
   const resolve = () => {
     haptic.commit();
     void store.call(calls.resolve(topic), { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
