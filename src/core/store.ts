@@ -17,6 +17,7 @@ import { type ClaudeCodeAction, type ClaudeCodeSlice, initialClaudeCode, reduceC
 import { type GatewayAction, type GatewaySlice, initialGateway, reduceGateway } from './gateway/model.js';
 import { type FriendShareAction, type FriendShareSlice, initialFriendShare, reduceFriendShare } from './friend-share-store.js';
 import { type BoardAction, type BoardSlice, initialBoard, reduceBoard } from './board/model.js';
+import type { ScheduleView } from './schedule/model.js';
 import { FIRST_SENTINEL_CHAT, type SentinelAction, type SentinelSlice, initialSentinel, reduceSentinel, sentinelChatChannel } from './sentinel/model.js';
 import { type PlansAction, type PlansSlice, initialPlans, isPlanHome, reducePlans } from './plans/model.js';
 import { type DialoguesAction, type DialoguesSlice, initialDialogues, reduceDialogues } from './dialogues/model.js';
@@ -145,6 +146,8 @@ export interface ScheduleMark {
   readonly title: string;
   readonly prompt: string;
   readonly due: number;
+  /** Not a run: the line that says failures paused it, which offers Resume. */
+  readonly paused?: boolean;
 }
 
 export interface DialogueMark {
@@ -296,6 +299,8 @@ export interface Prefs {
   /** What new worktrees' branches start with (`beluga/`; empty: none). */
   readonly branchPrefix: string;
   readonly contextMeter: boolean;
+  /** Schedules in a chat (core/schedule): the daemon's tick, the API and what the window shows of them. */
+  readonly chatSchedules: boolean;
   /** Compact a conversation on its own when its context passes `autoCompactAt` percent. */
   readonly autoCompact: boolean;
   readonly autoCompactAt: number;
@@ -541,6 +546,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly powerSaving: boolean;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
+  /** Every schedule on this computer (core/schedule), as screens see it. */
+  readonly schedules: readonly ScheduleView[];
 }
 
 /** What one screen shows: where it is, its tabs and dialogs, and its own cursors and scroll positions. */
@@ -645,6 +652,8 @@ export type Action =
   | { type: 'identity'; selfId: string; isHost: boolean; home?: string }
   /** Your paired phones (never keys) and the pairing open now (src/companion/host.ts). */
   | { type: 'companion'; companion: CompanionSlice['companion'] }
+  /** Schedules changed (core/schedule): all of them, as the service keeps them. */
+  | { type: 'schedules'; items: readonly ScheduleView[] }
   /** Your Mac's chats changed (one made, opened or deleted; core/assistant). */
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
@@ -683,6 +692,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoSetup: true,
   branchPrefix: BRANCH_PREFIX_DEFAULT,
   contextMeter: true,
+  chatSchedules: false,
   autoCompact: false,
   autoCompactAt: AUTO_COMPACT_DEFAULT,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
@@ -755,6 +765,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialTeam,
     companion: { devices: [] },
     assistant: NO_ASSISTANT_CHATS,
+    schedules: [],
   };
 }
 
@@ -1271,6 +1282,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'board_sync':
     case 'board_off':
       return { ...state, ...reduceBoard(state, action) };
+    case 'schedules':
+      return { ...state, schedules: action.items };
     case 'sentinel_init':
     case 'sentinel_put':
     case 'sentinel_remove':

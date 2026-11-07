@@ -33,6 +33,50 @@ describe('the off switch', () => {
   });
 });
 
+describe('what the screens see', () => {
+  it('keeps the shared state in step with every change, with status and next time', { timeout: 20_000 }, async () => {
+    h.launch();
+    const channel = await h.chat();
+    expect(h.store.getState().schedules).toEqual([]);
+    const made = call('schedule.create', channel, EVERY_MINUTE) as { id: string };
+    expect(h.store.getState().schedules).toMatchObject([{ id: made.id, channel, status: 'never', next: h.clock.now + MIN }]);
+    call('schedule.setEnabled', made.id, false);
+    expect(h.store.getState().schedules).toMatchObject([{ id: made.id, enabled: false, pausedReason: 'Paused by you' }]);
+    expect(h.store.getState().schedules[0]).not.toHaveProperty('next');
+    call('schedule.remove', made.id);
+    expect(h.store.getState().schedules).toEqual([]);
+  });
+
+  it('shows saved schedules as soon as the service starts', { timeout: 20_000 }, async () => {
+    h.launch();
+    const channel = await h.chat();
+    call('schedule.create', channel, EVERY_MINUTE);
+    h.stopService();
+    h.store.dispatch({ type: 'schedules', items: [] });
+    h.launch();
+    expect(h.store.getState().schedules).toMatchObject([{ channel, title: 'Check' }]);
+  });
+
+  it('marks the line that says failures paused it, so it can offer Resume', { timeout: 20_000 }, async () => {
+    h.launch();
+    const channel = await h.chat();
+    h.script.run = () => Promise.reject(new Error('No network'));
+    const made = call('schedule.create', channel, EVERY_MINUTE) as { id: string };
+    for (let i = 0; i < 3; i++) {
+      call('schedule.runNow', made.id);
+      await waitFor(() => (h.store.getState().schedules[0]?.failures ?? 0) === i + 1);
+    }
+    const line = h.store.getState().log.find((l) => l.type === 'system' && l.schedule?.paused);
+    expect(line).toMatchObject({ channel, level: 'warn', schedule: { id: made.id, title: 'Check', paused: true } });
+  });
+
+  it('carries the setting chatSchedules as a pref', () => {
+    expect(h.store.getState().prefs.chatSchedules).toBe(false);
+    h.session.setPrefs({ chatSchedules: true });
+    expect(h.store.getState().prefs.chatSchedules).toBe(true);
+  });
+});
+
 describe('create', () => {
   it('returns a schedule with its status and next time', { timeout: 20_000 }, async () => {
     h.launch();
@@ -191,5 +235,7 @@ describe('the surfaces', () => {
     const ctx = { peers: [], selfId: 'me' };
     expect(suggest('/schedule p', ctx).map((s) => s.value)).toEqual(['/schedule pause ']);
     expect(suggest('/sched', ctx).map((s) => s.value)).toContain('/schedule ');
+    // Return on the command alone sends it, instead of picking "pause".
+    expect(suggest('/schedule ', ctx)[0]).toMatchObject({ value: '/schedule', enter: 'submit' });
   });
 });

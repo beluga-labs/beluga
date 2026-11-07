@@ -22,9 +22,9 @@ export interface ScheduleTrigger {
   readonly missed: 'catch-up' | 'skip';
 }
 
-/** When a schedule runs, in one sentence: the words every feature with a schedule shows. */
-export function scheduleWords(trigger: ScheduleTrigger): string {
-  const at = clockText(trigger.at);
+/** When a schedule runs, in one sentence: the words every feature with a schedule shows. `showAt`: how its "HH:MM" reads. */
+export function scheduleWords(trigger: ScheduleTrigger, showAt: (at: string) => string = clockText): string {
+  const at = showAt(trigger.at);
   switch (trigger.every) {
     case 'hours': {
       const n = trigger.hours ?? 1;

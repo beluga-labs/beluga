@@ -45,6 +45,7 @@ export function launchSchedules(host: SchedulesHost): () => void {
     wait: (requestId) => claude.wait(requestId),
     cancel: (requestId, note) => claude.cancel(requestId, note),
     notify: (event) => session.notifier.notify(event),
+    publish: (items) => void store.dispatch({ type: 'schedules', items }),
   });
   attachSchedules(session, schedules);
   const offWorktree = session.workspaces?.onWorktree((event) => {
