@@ -26,6 +26,7 @@ import { UsageLimitSettings } from './UsageLimitSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
+import { ExternalAgentsSettings } from './ExternalAgentsSettings.js';
 import { LaunchFlagsSettings } from './LaunchFlagsSettings.js';
 import { LocalModelsSettings } from './LocalModelsSettings.js';
 import { EarningsSettings } from './EarningsSettings.js';
@@ -637,6 +638,7 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   environment: EnvironmentSettings,
   people: People,
   phone: PhoneSettings,
+  external: ExternalAgentsSettings,
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
   advanced: WebAccessSettings,

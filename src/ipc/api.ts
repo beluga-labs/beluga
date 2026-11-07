@@ -15,6 +15,7 @@ import { WEB_API } from './web-api.js';
 import { DIAGNOSTICS_API } from './diagnostics-api.js';
 import { CLAUDE_CODE_API } from './claude-code-api.js';
 import { STEPS_API } from './steps-api.js';
+import { EXTERNAL_API } from './external-api.js';
 import { GATEWAY_API } from './gateway-api.js';
 import { BOARD_API } from './board-api.js';
 import { CI_API } from './ci-api.js';
@@ -472,6 +473,7 @@ export const API = {
   ...DIAGNOSTICS_API,
   ...CLAUDE_CODE_API,
   ...STEPS_API,
+  ...EXTERNAL_API,
   ...GATEWAY_API,
   // ---- tasks: the board, its tasks and their briefs (board-api.ts)
   ...BOARD_API,

@@ -14,6 +14,7 @@ import { LiveStrip } from '../claude-code/Live.js';
 import { SharedStrip } from '../layout/PeopleHere.js';
 import { EnvStrip } from './project/EnvAsks.js';
 import { TaskStrip } from '../tasks/TaskStrip.js';
+import { DrivenStrip } from '../chat/DrivenStrip.js';
 import { PrStrip } from '../chat/PrStrip.js';
 import { PlanStrip } from '../plans/PlanStrip.js';
 import { useWorktreeFlag } from './worktree-info-state.js';
@@ -143,6 +144,7 @@ export function ChatView() {
       {view.kind === 'assistant' ? <AssistantTabs /> : null}
       {view.kind === 'workspace' ? <PlanStrip workspaceId={view.id} /> : null}
       {view.kind === 'workspace' ? <TaskStrip workspaceId={view.id} /> : null}
+      {view.kind === 'workspace' ? <DrivenStrip workspaceId={view.id} /> : null}
       {view.kind === 'workspace' ? <PrStrip workspaceId={view.id} /> : null}
       {view.kind === 'workspace' ? <SharedStrip wsId={view.id} /> : null}
       {view.kind === 'workspace' ? <EnvStrip workspaceId={view.id} /> : null}

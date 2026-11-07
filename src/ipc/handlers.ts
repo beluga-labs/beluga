@@ -22,6 +22,7 @@ import { WEB_HANDLERS } from './web-handlers.js';
 import { DIAGNOSTICS_HANDLERS } from './diagnostics-handlers.js';
 import { CLAUDE_CODE_HANDLERS } from './claude-code-handlers.js';
 import { STEPS_HANDLERS } from './steps-handlers.js';
+import { EXTERNAL_HANDLERS } from './external-handlers.js';
 import { GATEWAY_HANDLERS } from './gateway-handlers.js';
 import { BOARD_HANDLERS } from './board-handlers.js';
 import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
@@ -394,6 +395,7 @@ export const HANDLERS = {
   ...DIAGNOSTICS_HANDLERS,
   ...CLAUDE_CODE_HANDLERS,
   ...STEPS_HANDLERS,
+  ...EXTERNAL_HANDLERS,
   ...GATEWAY_HANDLERS,
   ...BOARD_HANDLERS,
   ...SENTINEL_HANDLERS,

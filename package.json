@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.6.2",
   "description": "Beluga's engine: what the Mac app (packages/mac) runs in the background. Not published.",
+  "bin": {
+    "beluga": "dist/cli.js"
+  },
   "homepage": "https://github.com/kayraucklnc/beluga#readme",
   "repository": {
     "type": "git",
@@ -33,6 +36,7 @@
     "@hyperswarm/secret-stream": "^6.9.2",
     "@lydell/node-pty": "1.2.0-beta.15",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@ratel-ai/sdk": "0.12.0",
     "@resvg/resvg-js": "^2.6.2",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^6.0.0",

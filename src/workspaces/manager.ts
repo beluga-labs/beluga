@@ -1283,6 +1283,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { agent: undefined, model: undefined, effort: undefined, ...agentFields(agent) });
   }
 
+  /** An external agent started this chat. */
+  setStartedBy(id: string, agent: { readonly id: string; readonly name: string }): void {
+    this.require(id);
+    this.patchRecord(id, { startedByAgent: agent });
+  }
+
   /** After a quiet switch, the agent it came from (BLG-592); undefined once its recent conversation went along. */
   setCarry(id: string, from: string | undefined): void {
     this.require(id);

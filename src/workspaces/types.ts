@@ -94,6 +94,8 @@ export interface WorkspaceRecord {
   readonly handedTo?: string;
   /** Came from a friend's handoff (their name). */
   readonly handedFrom?: string;
+  /** An external agent started it: its grant's id and name, for the label and for what it may do here. */
+  readonly startedByAgent?: { readonly id: string; readonly name: string };
   /** A conversation started for one job: 'sync_main' is Claude bringing the main folder up to date. */
   readonly purpose?: 'sync_main';
   /** You carried on after this PR merged (Continue After Merge): it and older ones are done, so the branch can have a new one. */

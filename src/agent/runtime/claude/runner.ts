@@ -245,7 +245,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
                   const kept = input.env?.KLAUD_WORKTREE ? keptBashInput(hookInput.tool_name, scratched ?? toolInput, keptLog) : undefined;
                   const patched = kept ?? scratched;
                   const allow = (reason: string) => (patched ? { hookSpecificOutput: { ...verdict('allow', reason).hookSpecificOutput, updatedInput: patched } } : verdict('allow', reason));
-                  if (decision === 'allow') return patched ? allow('Allowed by Beluga.') : {};
+                  if (decision === 'allow' && !input.asksFirst?.(hookInput.tool_name)) return patched ? allow('Allowed by Beluga.') : {};
                   if (decision === 'secret') return (await input.canUseSecret?.(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', SECRET_DECLINED);
                   return (await input.canUseTool(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', 'The machine owner declined this action.');
                 },

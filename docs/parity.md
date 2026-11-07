@@ -266,6 +266,18 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `companion.voice` | – the phone only: Settings › Voice, which of the Mac's voice models are here or coming (the Mac app has no microphone) |
 | `companion.voicePrepare` | – the phone only: Settings › Voice, get a model on the Mac now |
 | `companion.transcribe` | – the phone only: the Ask sheet's microphone, On your Mac: the recording written down here and deleted |
+| `external.status` | Settings › External agents, and `beluga mcp status` |
+| `external.setEnabled` | Settings › External agents, and `beluga mcp on` / `off` |
+| `external.setRoute` | Settings › External agents › On your tailnet and Public address, and `beluga mcp on --tailscale` / `--public` |
+| `external.pairingCode` | Settings › External agents › Make a code, and `beluga mcp pair` |
+| `external.localToken` | `beluga mcp token`, with its card on the Mac |
+| `external.agents` | Settings › External agents: the list, and `beluga mcp agents` |
+| `external.revoke` | Settings › External agents › Revoke, and `beluga mcp revoke` |
+| `external.resume` | Settings › External agents › Resume, and `beluga mcp resume` |
+| `external.stopAgent` | The driven-by strip, Settings › External agents › Stop, and the phone's External agents |
+| `external.stopAll` | Settings › External agents › Stop All, and the phone's External agents |
+| `external.setPaused` | Settings › External agents › Pause All |
+| `external.activity` | Settings › External agents › Activity, and the phone's External agents |
 | `voice.models` | Settings › Voice: the models on this Mac, here or coming |
 | `voice.prepare` | Settings › Voice › Get now |
 | `voice.load` | – asked by a call's window now and then: how busy this Mac is, to decide who writes down whose words (BLG-718) |

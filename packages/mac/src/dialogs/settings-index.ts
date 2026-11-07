@@ -17,6 +17,7 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
   { id: 'environment', label: 'Environment', icon: 'lock', keywords: 'env .env variables secrets api keys' },
   { id: 'people', label: 'People & access', icon: 'people', keywords: 'friends trust network permissions' },
   { id: 'phone', label: 'Phone', icon: 'phone', keywords: 'android iphone mobile companion' },
+  { id: 'external', label: 'External agents', icon: 'bot', keywords: 'mcp grokbot claude code codex pairing code token oauth remote' },
   { id: 'voice', label: 'Voice', icon: 'mic', keywords: 'dictation speech microphone talk transcribe' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command', keywords: 'shortcuts keys hotkeys bindings' },
   { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser' },
