@@ -171,6 +171,17 @@ function General() {
             ]}
           />
         </Row>
+        <Row label="Send during a turn" detail="Queue waits for the turn to finish. Steer sends to the current turn. The secondary action uses the other choice. Agents that cannot steer always queue.">
+          <Select
+            label="Send during a turn"
+            value={prefs.sendDuringTurn}
+            onChange={(v) => setPrefs({ sendDuringTurn: v })}
+            options={[
+              { value: 'queue', label: 'Queue' },
+              { value: 'steer', label: 'Steer' },
+            ]}
+          />
+        </Row>
         <Row label="Show times next to messages">
           <Switch label="Times" on={prefs.timestamps} onChange={(v) => setPrefs({ timestamps: v })} />
         </Row>

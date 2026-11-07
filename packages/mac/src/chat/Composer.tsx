@@ -51,6 +51,7 @@ import d from './draft.module.css';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { projectOfView } from '../tasks/use-tasks.js';
+import { sendAction } from './send-action.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -186,8 +187,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // "[image N]" where they go; other pasted files as chips (see use-attachments). They wait with
   // the words, so a new chat or worktree page keeps its own too.
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }) });
-  // While Claude works, sending queues the message; "Steer" gives it to Claude at its next step.
+  // During a turn, the preference selects the main action. The secondary action uses the other choice.
   const queueing = compose.busy && (compose.typing || !buffer.trim());
+  const canSteer = useApp((st) => runtimeHas(runtimeHere(st.projects.flatMap((p) => p.workspaces).find((w) => `ws:${w.id}` === channel)?.agent, st.self), 'steer'));
+  const mainAction = sendAction(prefs.sendDuringTurn, { busy: true, canSteer });
+  const otherAction = sendAction(prefs.sendDuringTurn, { busy: true, canSteer, secondary: true });
+  const actionTip = (action: string): string => action === 'steer'
+    ? `Steer: ${agentHere} reads this at its next step, without stopping`
+    : canSteer ? `Queue: this waits for ${agentHere}'s current turn to finish` : `Queue: ${agentHere} cannot steer. This waits for the current turn to finish`;
   const plan = state.planMode[channel] === true;
   // Plan with Tasks: this conversation is a plan's home (milestones and tasks, approved onto the board).
   const homePlan = planForHome(state.plans, channel);
@@ -384,7 +391,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     }
     actions.submit(text, urgent);
   };
-  const send = (urgent = false): void => {
+  const send = (secondary = false): void => {
+    const urgent = sendAction(prefs.sendDuringTurn, { busy: queueing, canSteer, secondary }) === 'steer';
     const typed = buffer.trim();
     if (aside) {
       if (!typed) return;
@@ -486,7 +494,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       sendSteerNow(client, unread.request);
       return;
     }
-    // ⌥↩: steer (Claude reads it at its next step).
+    // ⌥↩ uses the other send action during a turn.
     if (isShortcut('composer-steer', e)) {
       e.preventDefault();
       send(true);
@@ -671,17 +679,17 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             </Tip>
           ) : queueing ? (
             <div className={cx(s.split, buffer.trim() && s.splitReady)} role="group" aria-label={`${agentHere} is working`}>
-              <Tip label={`${agentHere} is working: this waits its turn in the queue`} keys={sendKeys}>
-                <button type="button" className={s.splitMain} aria-label="Queue" onClick={() => send(false)} disabled={!buffer.trim()}>
-                  <Icon name="clock" size={12} />
-                  <span className={s.chipLabel}>Queue</span>
+              <Tip label={actionTip(mainAction)} keys={sendKeys}>
+                <button type="button" className={s.splitMain} aria-label={upFirst(mainAction)} onClick={() => send(false)} disabled={!buffer.trim()}>
+                  <Icon name={mainAction === 'steer' ? 'send' : 'clock'} size={12} />
+                  <span className={s.chipLabel}>{upFirst(mainAction)}</span>
                 </button>
               </Tip>
-              <Tip label={`Steer: ${agentHere} reads this at its next step, without stopping`} keys={shortcutKeys('composer-steer')}>
+              {canSteer ? <Tip label={actionTip(otherAction)} keys={shortcutKeys('composer-steer')}>
                 <button type="button" className={s.splitAlt} onClick={() => send(true)} disabled={!buffer.trim()}>
-                  Steer
+                  {upFirst(otherAction)}
                 </button>
-              </Tip>
+              </Tip> : null}
             </div>
           ) : (
             <Tip label={prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`} keys={prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter')}>
@@ -697,12 +705,13 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       <div className={s.legend}>
         {queueing ? (
           <>
-            <Kbd>{sendKeys}</Kbd> queue ·{shortcutKeys('composer-steer') ? (
+            <Kbd>{sendKeys}</Kbd> {mainAction} ·{canSteer && shortcutKeys('composer-steer') ? (
               <>
                 {' '}
-                <Kbd>{shortcutKeys('composer-steer')}</Kbd> steer ·
+                <Kbd>{shortcutKeys('composer-steer')}</Kbd> {otherAction} ·
               </>
             ) : null}
+            {!canSteer ? ' This agent cannot steer. Messages queue. · ' : null}
             {unread && shortcutKeys('composer-send-now') ? (
               <>
                 {' '}

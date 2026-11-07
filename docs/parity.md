@@ -636,8 +636,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 
 | What | Core | Mac |
 |---|---|---|
-| Queue a message (the default while your agent works) | `session.submit` | Return · the split button's **Queue** |
-| Steer: the agent reads it at its next step without stopping (a run that can't take it: stop it, run this next) | `session.submit` with `urgent` | Option+Return · the split button's **Steer** |
+| Choose the default send action during a turn (Mac only) | Mac preference | Settings › General › Writing › **Send during a turn** · Queue (default) or Steer |
+| Queue a message | `session.submit` | Return when Queue is the default, Option+Return when Steer is the default · **Queue** |
+| Steer: the agent reads it at its next step without stopping | `session.submit` with `urgent` | Return when Steer is the default, Option+Return when Queue is the default · **Steer** · agents without steering always queue |
 | What waits, in run order (text, who asked) | `queueIn` (`src/ui/compose.ts`), the prompt comes with the `queued` event | the queue above the box |
 | Run a waiting message now (steering, as above) | `host.promote` | queue › Steer |
 | A steered message the agent hasn't read yet: sent, not read (its card is a note till the agent reads it: `READS_AFTER_STEP`, `STOPPING_FOR`, then `STEERED_IN` or its own turn) | `steerWaiting` (`src/shared/claude-notices.ts`), the message's `request` | your message dimmed, a clock and “Sent · waiting for the agent to read it” |
@@ -657,7 +658,7 @@ What an agent run does on each runtime (BLG-461, OpenCode BLG-686). A cell is **
 | Start a run in a worktree or chat, answers streamed | `session.submit`, `workspaces.startWorktree`, `workspaces.startChat` | pass | pass (`codex app-server`, a thread per place) | pass (`opencode acp`, a session per place) |
 | Pick the agent and model, hand a live conversation off | `/model`, `workbench.setAgent`, `workbench.setModel`, `/handoff` | pass | pass (models from `model/list`, efforts per model; a handoff starts a new thread with the conversation carried) | pass (models from `opencode models`, efforts from each model's variants; a handoff starts a new session with the conversation carried) |
 | Continue a conversation later | `canResume` | pass | pass (`thread/resume`; one that can't be opened starts afresh and says so) | pass (`session/resume`; one that can't be opened starts afresh and says so) |
-| Queue and steer while it works | `host.promote`, `canSteer` | pass | pass (`turn/steer`) | pass (one prompt at a time: a message sent while it works waits for its own turn, and Steer Now stops the turn to read it, since `canSteer` is false) |
+| Queue and steer while it works | `host.promote`, `canSteer` | pass | pass (`turn/steer`) | pass (`missing:steer`: the composer always queues, one prompt at a time; Steer Now on an existing message stops the turn to read it) |
 | Stop, Send now | `host.stopRun`, `host.steerNow`, `/stop`, `canInterrupt` | pass | pass (`turn/interrupt`, then the process) | pass (`session/cancel`, then the process) |
 | Approve or deny a command or an edit | `host.answerApproval`, `canGateEveryTool` | pass (every tool through the PreToolUse hook) | pass (what leaves its sandbox asks you through the same gate; inside it, the sandbox confines it) | pass (every tool call asks Beluga first: Beluga's config makes each of its permissions, every agent's, "ask", judged by the same gate as Claude's) |
 | .env files and secrets stay out | `env.claudeDotenv`, `hasSandbox` | pass (policy.ts per call) | pass (its permissions profile denies them: `runtime/codex/sandbox.ts`) | pass (policy.ts per call, as Claude's) |
