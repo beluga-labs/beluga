@@ -321,22 +321,33 @@ export class Schedules {
     this.ask(this.replace({ ...started, blindRuns: 1 }), transcript ? carriedPrompt(EARLIER_SESSION, transcript, started.prompt) : started.prompt);
   }
 
-  private ask(s: Schedule, prompt = s.prompt): void {
+  /** The session is gone. This run starts again once, in a new session with the recent chat, and that counts as no failure. */
+  private retryInNewSession(s: Schedule): void {
+    const transcript = this.deps.transcript(s.channel);
+    this.deps.forget(s.channel);
+    this.say(s.channel, `Schedule · ${s.title} · its session could not be resumed, so this run starts again in a new session`, 'warn');
+    const { requestId: _failed, ...running } = s.running!;
+    this.ask(this.replace({ ...s, running, compactFailures: 0, blindRuns: 0 }), transcript ? carriedPrompt(EARLIER_SESSION, transcript, s.prompt) : s.prompt, true);
+  }
+
+  private ask(s: Schedule, prompt = s.prompt, retried = false): void {
     const requestId = this.deps.ask(prompt, s.channel);
     if (!requestId) return this.end(s.id, { kind: 'failed', error: 'Your agent could not be asked in this chat' });
     this.replace({ ...s, running: { ...s.running!, requestId } });
     this.deps.wait(requestId).then(
       () => this.end(s.id, { kind: 'ok' }),
-      (err: unknown) => this.endWithError(s.id, requestId, err),
+      (err: unknown) => this.endWithError(s.id, requestId, err, retried),
     );
   }
 
-  private endWithError(id: string, requestId: string, err: unknown): void {
+  private endWithError(id: string, requestId: string, err: unknown, retried: boolean): void {
     if (this.closed) return;
     if (this.overTime.delete(requestId)) return this.end(id, { kind: 'failed', error: LIMIT_WORDS });
     const text = err instanceof Error ? err.message : String(err);
     const failure = decodeFailure(text);
     if (failure?.kind === 'stopped' || /^Stopped\b/.test(text)) return this.end(id, { kind: 'interrupted' });
+    const s = this.get(id);
+    if (failure?.staleSession && !retried && s?.running?.requestId === requestId && this.chatStillFits(s)) return this.retryInNewSession(s);
     this.end(id, { kind: 'failed', error: text, ...(failure?.kind === 'usage_limit' ? { usageLimit: true } : {}) });
   }
 
