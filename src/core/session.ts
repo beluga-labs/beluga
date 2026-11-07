@@ -1052,20 +1052,24 @@ export class Session {
       return;
     }
     if (opts.fresh && channel.startsWith('ws:')) {
-      this.workspaces?.forgetConversation(channel.slice(3));
-      this.store.dispatch({ type: 'context_reset', channel });
-      this.host.forgetContext(channel);
+      this.startFresh(channel);
       this.toast('Cleared. Your agent starts a fresh conversation here', 'success');
       return;
     }
     if (opts.fresh && isAssistant(channel)) {
-      assistantOf(this)?.forget(channel);
-      this.store.dispatch({ type: 'context_reset', channel });
-      this.host.forgetContext(channel);
+      this.startFresh(channel);
       this.toast(`Cleared. ${ASSISTANT_TITLE} starts a fresh conversation`, 'success');
       return;
     }
     this.toast(channel.startsWith('ws:') || isAssistant(channel) ? 'Messages cleared. Your agent still remembers the conversation' : 'Cleared on your screen', 'success');
+  }
+
+  /** A worktree chat or a Your Mac chat starts a new agent conversation on its next run. The chat stays. */
+  startFresh(channel: string): void {
+    if (channel.startsWith('ws:')) this.workspaces?.forgetConversation(channel.slice(3));
+    else if (isAssistant(channel)) assistantOf(this)?.forget(channel);
+    this.store.dispatch({ type: 'context_reset', channel });
+    this.host.forgetContext(channel);
   }
 
   findPeer(name: string): PeerInfo | undefined {

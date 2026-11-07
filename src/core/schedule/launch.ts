@@ -1,3 +1,4 @@
+import { transcriptOf } from '../agent-switch.js';
 import { assistantOf } from '../assistant/registry.js';
 import { belugaHome } from '../home.js';
 import { isPlanHome } from '../plans/model.js';
@@ -46,6 +47,10 @@ export function launchSchedules(host: SchedulesHost): () => void {
     cancel: (requestId, note) => claude.cancel(requestId, note),
     notify: (event) => session.notifier.notify(event),
     publish: (items) => void store.dispatch({ type: 'schedules', items }),
+    fill: (channel) => session.host.contextFill(channel),
+    compact: (channel, instructions) => session.host.compactNow(channel, instructions),
+    forget: (channel) => session.startFresh(channel),
+    transcript: (channel) => transcriptOf(store.getState().log, channel),
   });
   attachSchedules(session, schedules);
   const offWorktree = session.workspaces?.onWorktree((event) => {
