@@ -75,6 +75,9 @@ export function isDescendant(nodes: readonly ThreadNode[], ancestor: string, id:
   return false;
 }
 
+/** A result that still has to reach the parent. A thread with another owed turn reports when that turn ends. */
+export const isReportable = (thread: ThreadRecord): boolean => Boolean(thread.outcome && !thread.outcome.delivered && !thread.owed.length);
+
 /** Why one more thread does not fit, in words for the agent: the numbers, what frees a slot, where to raise it. */
 export function threadLimitProblem(counts: ThreadCounts, limits: ThreadLimits): string | undefined {
   const raise = (name: keyof ThreadLimits): string => `A person can raise ${name} in ${THREAD_LIMITS_WHERE}.`;

@@ -7,7 +7,8 @@ import { type ThreadRecord, type ThreadState } from '../../shared/threads.js';
 import { CHATS_PROJECT } from '../../workspaces/manager.js';
 import type { Project, Workspace } from '../../workspaces/types.js';
 import { type Action, type Store, isRunning } from '../store.js';
-import { type ThreadLive, type ThreadNode, capSummary, deriveThreadState, isDescendant, stopOrder, subtree, threadEndOf, threadLimitProblem, threadMessagePrompt, threadTaskPrompt } from './model.js';
+import { ThreadDelivery, type ParentPlace } from './delivery.js';
+import { type ThreadLive, type ThreadNode, capSummary, deriveThreadState, isDescendant, isReportable, stopOrder, subtree, threadEndOf, threadLimitProblem, threadMessagePrompt, threadTaskPrompt } from './model.js';
 
 /**
  * Child threads: what the thread tools do, with limits, scope and harness choice enforced here.
@@ -35,6 +36,11 @@ export interface ThreadServiceDeps {
   readonly runsAgent: (agent: AgentRef) => boolean;
   /** Whether a runtime takes a message into a running turn (undefined: your default agent's). */
   readonly canSteer: (runtime: string | undefined) => boolean;
+  /** Run a parent with its batch of results. The chat shows `line` first. */
+  readonly wake: (channel: string, prompt: string, line: string, requestId: string) => void;
+  /** Whether a Your Mac chat still exists. */
+  readonly hasMacChat: (channel: string) => boolean;
+  readonly wakeMs?: number;
 }
 
 interface Waiter {
@@ -51,8 +57,23 @@ export class ThreadService {
   private readonly reserved = new Map<string, number>();
   private readonly waiters = new Set<Waiter>();
   private readonly offAction: () => void;
+  private readonly delivery: ThreadDelivery;
 
   constructor(private readonly deps: ThreadServiceDeps) {
+    this.delivery = new ThreadDelivery({
+      selfId: deps.selfId,
+      nodes: () => this.nodes(),
+      place: (parent) => this.placeOf(parent),
+      busy: (parent) => this.liveMap().has(parent),
+      describe: (n) => {
+        const ws = deps.find(n.id);
+        return { title: ws?.name ?? n.id, agent: ws?.agent?.label ?? 'default agent' };
+      },
+      setThread: deps.setThread,
+      owe: (parent, requestId) => this.owe(parent, requestId),
+      wake: deps.wake,
+      ...(deps.wakeMs !== undefined ? { wakeMs: deps.wakeMs } : {}),
+    });
     this.offAction = deps.store.onAction((action) => this.onAction(action));
   }
 
@@ -67,8 +88,23 @@ export class ThreadService {
     };
   }
 
+  /**
+   * After a restart: a turn that was owed has no run behind it now, so it is interrupted. Nothing
+   * starts it again: the parent gets the report once and decides. Call it when the workspaces are loaded.
+   */
+  recover(): void {
+    const live = this.liveMap();
+    const at = Date.now();
+    for (const n of this.nodes()) {
+      if (!n.thread.owed.length || live.has(n.channel)) continue;
+      this.deps.setThread(n.id, { ...n.thread, owed: [], outcome: { state: 'interrupted', summary: 'Beluga stopped during this turn, so the turn did not finish. Beluga did not start it again. Use thread_message to continue it.', at, delivered: n.thread.stopped?.by === 'agent' } });
+    }
+    this.delivery.recover();
+  }
+
   stop(): void {
     this.offAction();
+    this.delivery.stop();
     for (const w of [...this.waiters]) w.end();
   }
 
@@ -254,15 +290,11 @@ export class ThreadService {
     const live = this.liveMap();
     const under = subtree(this.nodes(), caller);
     if (!under.some((n) => live.has(n.channel))) return true;
-    return under.some((n) => live.get(n.channel)?.needsYou || this.reportable(n.thread));
-  }
-
-  private reportable(thread: ThreadRecord): boolean {
-    return Boolean(thread.outcome && !thread.outcome.delivered && !thread.owed.length);
+    return under.some((n) => live.get(n.channel)?.needsYou || isReportable(n.thread));
   }
 
   private claim(n: ThreadNode): boolean {
-    if (!this.reportable(n.thread)) return false;
+    if (!isReportable(n.thread)) return false;
     this.deps.setThread(n.id, { ...n.thread, outcome: { ...n.thread.outcome!, delivered: true } });
     return true;
   }
@@ -345,8 +377,25 @@ export class ThreadService {
     return live;
   }
 
+  private placeOf(parent: string): ParentPlace {
+    if (isAssistant(parent)) return this.deps.hasMacChat(parent) ? 'here' : 'gone';
+    const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
+    if (!ws) return 'gone';
+    // A thread that was stopped stays stopped: a child's result does not start it again.
+    return ws.archived || ws.thread?.stopped ? 'held' : 'here';
+  }
+
+  /** A wake of a parent that is a thread itself is an agent's turn, so its answer goes up the chain. */
+  private owe(channel: string, requestId: string): void {
+    const ws = channel.startsWith(WS) ? this.deps.find(channel.slice(WS.length)) : undefined;
+    if (!ws?.thread) return;
+    this.sent.add(requestId);
+    this.deps.setThread(ws.id, { ...ws.thread, owed: [...ws.thread.owed, requestId] });
+  }
+
   private onAction(action: Action): void {
     if (action.type === 'agent_event') this.settle(action);
+    this.delivery.onAction(action);
     for (const w of [...this.waiters]) w.check();
   }
 
@@ -363,11 +412,15 @@ export class ThreadService {
     const by = thread.stopped?.by;
     // Owed: the parent gets it, unless the parent's side stopped it. A person's turn: nothing new is owed, and a result on its way stays on its way.
     const delivered = owedTurn ? end.state === 'stopped' && by === 'agent' : (thread.outcome?.delivered ?? true);
-    this.deps.setThread(id, {
-      ...thread,
+    // A turn that ended on its own means someone carried the thread on: the old stop no longer holds.
+    const { stopped: _stopped, ...rest } = thread;
+    const next: ThreadRecord = {
+      ...(end.state === 'stopped' ? thread : rest),
       owed: thread.owed.filter((r) => r !== action.requestId),
       outcome: { state: end.state, summary: end.summary, at: action.ts, delivered },
       ...(end.state === 'stopped' && !by ? { stopped: { by: 'person' as const, at: action.ts } } : {}),
-    });
+    };
+    this.deps.setThread(id, next);
+    if (isReportable(next)) this.delivery.resultSaved(next.parent);
   }
 }

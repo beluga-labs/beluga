@@ -524,8 +524,8 @@ export class AgentHost {
   }
 
   /** Run your Claude for someone else in one of your workspaces (they were invited to work there). */
-  runFor(from: string, channel: string, prompt: string, plan = false): void {
-    const body: BodyOf<'agent_request'> = { kind: 'agent_request', requestId: randomUUID(), prompt: prompt.slice(0, MAX_TEXT), viaAgent: false, channel, urgent: false, plan };
+  runFor(from: string, channel: string, prompt: string, plan = false, requestId: string = randomUUID()): void {
+    const body: BodyOf<'agent_request'> = { kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent: false, channel, urgent: false, plan };
     this.deps.questions.track(body.requestId, this.selfId, channel);
     void this.onAgentRequest(from, body);
   }

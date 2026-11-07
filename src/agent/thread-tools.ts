@@ -12,6 +12,12 @@ export const THREAD_TOOL_NAMES = ['thread_start', 'thread_status', 'thread_messa
 
 const THREAD_ID = z.string().min(1).max(80).describe('The id that thread_start or thread_status returned');
 const TEXT_MAX = 32_000;
+/**
+ * Codex asks for an approval on a tool with no hints, and Beluga's Codex runner refuses that request.
+ * These tools stay inside your own chats and pass Beluga's own gate per call (agent/tool-host.ts).
+ */
+const CHANGES_ONLY_CHATS = { annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } };
+const READS = { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } };
 
 export function createThreadToolDefs(threads: ThreadTools) {
   return [
@@ -36,6 +42,7 @@ export function createThreadToolDefs(threads: ThreadTools) {
         key: z.string().min(1).max(120).optional().describe('A request key. A second call from this chat with the same key returns the same thread and starts no second run'),
       },
       (a) => guarded(() => threads.start({ ...a, ...(a.agent ? { agent: a.agent } : {}) })),
+      CHANGES_ONLY_CHATS,
     ),
     tool(
       'thread_status',
@@ -45,6 +52,7 @@ export function createThreadToolDefs(threads: ThreadTools) {
         wait_sec: z.number().int().min(1).max(600).optional().describe('How many seconds to wait. Do not set this to get the state now'),
       },
       (a) => guarded(() => threads.status({ ...(a.id ? { id: a.id } : {}), ...(a.wait_sec ? { waitSec: a.wait_sec } : {}) })),
+      READS,
     ),
     tool(
       'thread_message',
@@ -55,6 +63,7 @@ export function createThreadToolDefs(threads: ThreadTools) {
         mode: z.enum(['queue', 'steer']).optional().describe('queue (default), or steer to send it now'),
       },
       (a) => guarded(() => threads.message({ id: a.id, text: a.text, ...(a.mode ? { mode: a.mode } : {}) })),
+      CHANGES_ONLY_CHATS,
     ),
     tool(
       'thread_stop',
@@ -64,6 +73,7 @@ export function createThreadToolDefs(threads: ThreadTools) {
         reason: z.string().min(1).max(500).optional().describe('Why you stop it. The chat of the thread shows this'),
       },
       (a) => guarded(() => threads.stop({ id: a.id, ...(a.reason ? { reason: a.reason } : {}) })),
+      CHANGES_ONLY_CHATS,
     ),
   ];
 }

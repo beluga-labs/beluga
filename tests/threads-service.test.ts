@@ -61,6 +61,8 @@ function setup(over: Partial<ThreadServiceDeps> = {}) {
     stopRun: (channel) => void stops.push(channel),
     runsAgent: (agent) => agent.runtime !== 'local',
     canSteer: (runtime) => runtime !== 'noSteer',
+    wake: () => undefined,
+    hasMacChat: () => true,
     ...over,
   };
   const service = new ThreadService(deps);
@@ -575,6 +577,10 @@ describe('who gets the tools', () => {
     await t.ask(ME);
     await waitFor(() => t.runs.length === 1);
     expect(t.runs[0]!.threadTools).toBeUndefined();
+  });
+
+  it('each tool says it is safe, or Codex asks an approval that Beluga refuses', () => {
+    for (const def of createThreadToolDefs(threadTools as never)) expect(def.annotations).toMatchObject({ destructiveHint: false, openWorldHint: false });
   });
 
   it('the policy allows the four tools without a prompt', () => {

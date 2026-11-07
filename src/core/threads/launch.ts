@@ -1,3 +1,4 @@
+import { assistantOf } from '../assistant/registry.js';
 import type { Session } from '../session.js';
 import { ThreadService } from './service.js';
 
@@ -30,8 +31,15 @@ export function launchThreads(session: Session): () => void {
     stopRun: (channel) => void session.host.stopRun(channel),
     runsAgent: (agent) => session.runsAgent(agent),
     canSteer: (runtime) => session.canSteer(runtime),
+    wake: (channel, prompt, line, requestId) => {
+      session.store.dispatch({ type: 'system', text: line, channel });
+      session.host.runFor(session.selfId, channel, prompt, session.store.getState().planMode[channel] === true, requestId);
+    },
+    hasMacChat: (channel) => Boolean(assistantOf(session)?.chats().chats.some((c) => c.channel === channel)),
   });
   all.set(session, service);
+  // What a restart left: reports still on their way, and turns that no run finishes now.
+  void controller.refresh().then(() => service.recover()).catch(() => undefined);
   return () => {
     all.delete(session);
     service.stop();
