@@ -281,7 +281,7 @@ chats do the same on a person's turn (`TurnView.reactions`, `reactable`, `ConvVi
 1.42 (BLG-172) brings child threads to the phone (`SINCE.threads`). With Agent threads on, each row of
 Work shows its chat's harness mark and a child sits under its parent (`ConvSummary.harness`, `parent`;
 a kept child, or one whose parent is gone, is a row of its own). A chat's ••• › Lineage opens its parent
-and children with their live state, and Stop on each one at work (`ConvView.lineage`, `threads.stop`):
+and children with their live state, and Stop on each one at work (`ConvView.lineage`, `threads.stop`, `threads.stopAll`):
 the Mac's own stop, so those under it stop too. The sheet carries titles and states only, never a
 thread's task or result, and native sub-agents stay on the conversation's strip. A need in a child names
 it (`NeedsYou.thread`). Archive and Delete ask once about a chat's threads, with the Mac's defaults:

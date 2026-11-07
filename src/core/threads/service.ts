@@ -111,8 +111,14 @@ export class ThreadService {
    * own run stays with its caller (see stopChat). Answers how many threads stopped.
    */
   stopTree(channel: string): number {
+    this.stopCounts.set(channel, (this.stopCounts.get(channel) ?? 0) + 1);
+    return this.stopUnder(channel);
+  }
+
+  /** A person's Stop All Running: as stopTree, for the threads under the chat. The chat's own turn goes on, and can start more. */
+  stopUnder(channel: string): number {
     const order = stopOrder(this.nodes(), channel);
-    for (const c of [channel, ...order.map((n) => n.channel)]) this.stopCounts.set(c, (this.stopCounts.get(c) ?? 0) + 1);
+    for (const n of order) this.stopCounts.set(n.channel, (this.stopCounts.get(n.channel) ?? 0) + 1);
     const { stopped } = this.stopNodes(order, 'person', 'Stopped by a person, with its parent chat.');
     // Results not yet delivered stay on the record: thread_status and the child's chat have them.
     for (const n of subtree(this.nodes(), channel)) this.claim(n);

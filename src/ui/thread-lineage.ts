@@ -1,7 +1,6 @@
 import { isPlanOwned } from '../core/plans/owner.js';
 import type { AppState } from '../core/store.js';
 import { type ThreadLive, type ThreadNode, deriveThreadState, subtree } from '../core/threads/model.js';
-import { isAssistant } from '../shared/assistant.js';
 import { type ThreadState, isThreadWorking } from '../shared/threads.js';
 import type { Workspace } from '../workspaces/types.js';
 import { isRunning } from './format.js';
@@ -65,7 +64,7 @@ export function threadNesting(state: Pick<AppState, 'prefs' | 'projects' | 'plan
 
 /** The workspace `id` of a thread's parent chat, when its parent is a workspace chat at all. */
 export function parentIdOf(ws: Pick<Workspace, 'thread'>): string | undefined {
-  const parent = ws.thread?.parent;
+  const parent = ws.thread?.parentGone ? undefined : ws.thread?.parent;
   return parent?.startsWith(WS) ? parent.slice(WS.length) : undefined;
 }
 
@@ -83,11 +82,12 @@ export function threadStateOf(state: LiveSource, ws: Workspace): ThreadState | u
 }
 
 /** The chat that started a thread. `byId`: the chats that are live. */
-export function threadParent(state: LiveSource, ws: Workspace, byId: ReadonlyMap<string, Workspace>): LineageParent {
+export function threadParent(state: LiveSource & Pick<AppState, 'assistant'>, ws: Workspace, byId: ReadonlyMap<string, Workspace>): LineageParent {
   const thread = ws.thread!;
   const id = parentIdOf(ws);
   const parent = id === undefined ? undefined : byId.get(id);
-  if (!parent) return { title: thread.parentTitle, gone: !isAssistant(thread.parent) };
+  // A Your Mac parent has no workspace: it is there while its chat is.
+  if (!parent) return { title: thread.parentTitle, gone: !state.assistant.chats.some((c) => c.channel === thread.parent) };
   const stateNow = parent.thread ? threadStateOf(state, parent) : activityOf(state.log, `${WS}${parent.id}`).running ? 'running' : undefined;
   return { title: parent.name, openId: parent.id, gone: false, ...(stateNow ? { state: stateNow } : {}) };
 }

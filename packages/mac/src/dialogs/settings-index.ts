@@ -25,6 +25,9 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
 
 type Entry = SettingEntry<SettingsPane>;
 
+/** Shown with agent threads on (see SettingsSearch). */
+export const THREAD_LIMITS_GROUP = 'Thread limits';
+
 /** The rows of one group of a pane: `[label, detail?, keywords?]`. */
 const rows = (pane: SettingsPane, group: string | undefined, list: ReadonlyArray<readonly [string, string?, string?]>): Entry[] =>
   list.map(([label, detail, keywords]) => ({ pane, label, ...(group ? { group } : {}), ...(detail ? { detail } : {}), ...(keywords ? { keywords } : {}) }));
@@ -98,7 +101,7 @@ export const SETTINGS: readonly Entry[] = [
   ]),
   ...rows('claude', 'Working at once', [['Conversations your agent works in at once', 'Past it, a message waits its turn.', 'parallel concurrency limit queue simultaneous runs']]),
   ...rows('claude', 'Open chats', [['Chats kept at once', 'How many chats Your Mac and Sentinel keep as tabs.', 'chat limit tabs sentinel']]),
-  ...rows('claude', 'Thread limits', [
+  ...rows('claude', THREAD_LIMITS_GROUP, [
     ['Levels of threads', 'How deep a chat’s threads go.', 'thread depth child sub-agent limit'],
     ['Working at once in one chat’s tree', 'Threads working under one chat.', 'thread running tree limit'],
     ['Kept in one chat’s tree', 'Threads under one chat that are not archived.', 'thread archived tree limit'],

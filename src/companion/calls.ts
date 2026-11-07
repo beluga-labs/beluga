@@ -47,6 +47,7 @@ export const PhoneCalls = {
   'agentTerm.takeOver': entry('agentTerm.takeOver', done),
   'host.stopRun': entry('host.stopRun', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
   'threads.stop': entry('threads.stop', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stopAll': entry('threads.stopAll', z.object({ stopped: z.number() }).passthrough().optional()),
   'host.cancelQueued': entry('host.cancelQueued', done),
   'inbox.read': entry('inbox.read', done),
   'inbox.unread': entry('inbox.unread', done),

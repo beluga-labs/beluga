@@ -169,7 +169,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `host.sendNext` | ✓ Send Now on a queued message (runs it next, never interrupting) |
 | `host.steerNow` | ✓ Send now on a steered message the agent hasn't read yet · ⇧⌥↩ (stops its step, your message is next) |
 | `host.stopRun` | ■ Stop beside Queue/Steer · ⌘. · Conversation › Stop the Agent · Stop on a running answer |
-| `threads.stop` | Right panel › Lineage › Stop on a running thread · Stop All Running; on the phone, a chat's ••• › Lineage › Stop or Stop all running |
+| `threads.stop` | Right panel › Lineage › Stop on a running thread; on the phone, a chat's ••• › Lineage › Stop |
+| `threads.stopAll` | Right panel › Lineage › ••• › Stop All Running; on the phone, a chat's ••• › Lineage › Stop all running |
 | `host.cancelQueued` | ✓ |
 | `host.reorderQueued` | ✓ queue tray ↑ ↓ |
 | `inbox.read` | ✓ |

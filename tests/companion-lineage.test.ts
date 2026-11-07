@@ -136,9 +136,9 @@ describe('archive and delete from the phone', () => {
     const { s, archive, remove } = session();
     expect(parseArgs('companion.branchStep', [topic, 'archive'])).toEqual([topic, 'archive']);
     await branchStep(s as never, topic, 'archive');
-    expect(archive).toHaveBeenCalledWith('top', false, {});
+    expect(archive).toHaveBeenCalledWith('top');
     await branchStep(s as never, topic, 'delete');
-    expect(remove).toHaveBeenCalledWith('top', {});
+    expect(remove).toHaveBeenCalledWith('top');
   });
 
   it('the view says what each would touch, with the Mac’s counts', () => {

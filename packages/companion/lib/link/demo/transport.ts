@@ -558,6 +558,11 @@ export class DemoTransport implements Transport {
         this.stopThread(str(0));
         return ok({ stopped: true, returned: [] });
       }
+      case 'threads.stopAll': {
+        const under = [...w.convs.values()].find((c) => c.lineage?.chat === str(0))?.lineage?.stoppable ?? [];
+        for (const thread of under) this.stopThread(thread);
+        return ok({ stopped: under.length });
+      }
       // 1.30 (BLG-429): delete, edit and clear in a direct chat.
       case 'network.messages.delete':
       case 'network.messages.edit':

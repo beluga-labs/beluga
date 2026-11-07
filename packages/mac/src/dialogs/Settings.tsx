@@ -393,7 +393,7 @@ function AgentPane() {
       <ContextSettings />
       <ParallelSettings />
       <ChatLimitSettings />
-      <ThreadLimitsSettings />
+      {p.agentThreads ? <ThreadLimitsSettings /> : null}
       <Group title="Scratch folder">
         <Row label="Give your agent a scratch folder" detail="Screenshots, JSON, logs and notes your agent makes while it works go to the workspace’s .beluga/scratch/ folder (kept out of git; never touches other tools’ .context/).">
           <Switch label="Scratch folder" on={p.scratchFolder} onChange={(v) => void api.session.setPrefs({ scratchFolder: v })} />

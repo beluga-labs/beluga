@@ -28,7 +28,7 @@ import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
 import { plansOf } from '../core/plans/registry.js';
-import { stopChat } from '../core/threads/launch.js';
+import { stopChat, stopThreadsUnder } from '../core/threads/launch.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
@@ -108,6 +108,7 @@ export const HANDLERS = {
     if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
     return HANDLERS['host.stopRun'](s, `ws:${id}`);
   },
+  'threads.stopAll': (s, id) => stopThreadsUnder(s, id),
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 
