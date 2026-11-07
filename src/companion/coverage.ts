@@ -556,7 +556,7 @@ export const PHONE: Record<Method, Side> = {
   'agentTerm.open': 'mac',
   'agentTerm.visual': 'mac',
   'agentTerm.takeOver': 'phone',
-  // Schedules in a chat: the Mac's for now; the phone reads them in a later change.
+  // Schedules in a chat: the phone reads them, runs one now, pauses and resumes. Making, editing and removing are the Mac's.
   'schedule.list': 'phone',
   'schedule.create': 'mac',
   'schedule.update': 'mac',

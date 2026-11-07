@@ -903,6 +903,14 @@ export class DemoTransport implements Transport {
           });
           w.convs.set(c.topic, { ...c, schedules: { ...c.schedules, items } });
           this.touch(c.topic);
+          // A run ends a moment later, as a quick one does.
+          if (method === 'schedule.runNow') {
+            this.later(2500, () => {
+              const now = w.convs.get(c.topic);
+              if (now?.schedules) w.convs.set(c.topic, { ...now, schedules: { ...now.schedules, items: now.schedules.items.map((s) => (s.id === str(0) && s.status === 'running' ? { ...s, status: 'ok' as const } : s)) } });
+              this.touch(c.topic);
+            });
+          }
         }
         return ok(null);
       }
