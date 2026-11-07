@@ -155,6 +155,7 @@ export class TriageService {
         return;
       }
       case 'projects':
+        this.reminded(prev);
         this.prune();
         this.seed();
         return;
@@ -189,6 +190,15 @@ export class TriageService {
     if (mine && this.unprompted) return;
     if (mine) return this.apply(key, { kind: 'own_message', at });
     this.apply(key, { kind: self && mentionOf(self.name).test(action.text) ? 'mention' : 'person_message', at });
+  }
+
+  /** A Remind Me Later whose time came (workspace-controller.ts clears it and reminds you) brings its chat back. */
+  private reminded(prev: DomainState): void {
+    const now = this.now();
+    const still = new Set(this.state().projects.flatMap((p) => p.workspaces).filter((w) => w.remindAt !== undefined).map((w) => w.id));
+    for (const ws of prev.projects.flatMap((p) => p.workspaces)) {
+      if (ws.remindAt !== undefined && ws.remindAt <= now && !still.has(ws.id)) this.applyIn(`ws:${ws.id}`, { kind: 'reminded', at: now });
+    }
   }
 
   private onRun(action: Extract<Action, { type: 'agent_event' }>, prev: DomainState): void {

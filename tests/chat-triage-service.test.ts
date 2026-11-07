@@ -398,6 +398,21 @@ describe('the wake timer', () => {
   });
 });
 
+describe('Remind Me Later', () => {
+  it('its reminder brings a settled or snoozed chat back to the Inbox with Back', () => {
+    const store = makeStore(true, [project(ws('w1', { remindAt: NOW + HOUR }), ws('w2', { remindAt: NOW + HOUR }))]);
+    const service = start(store);
+    service.settle(CH);
+    service.snooze('ws:w2', NOW + 5 * HOUR);
+    vi.setSystemTime(NOW + HOUR);
+    store.dispatch({ type: 'projects', projects: [project(ws('w1'), ws('w2'))] });
+    for (const key of [CH, 'ws:w2']) {
+      expect(category(store, key)).toBe('active');
+      expect(store.getState().triage[key]?.backAt).toBe(NOW + HOUR);
+    }
+  });
+});
+
 describe('notifications', () => {
   const inbox = (store: Store) => store.getState().inbox.map((n) => n.title);
 
@@ -820,6 +835,14 @@ describe('auto-settle', () => {
       store.dispatch({ type: 'attention', attention: { shown: [], visible: [], files: false, front: true } });
       pass(9);
       expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+
+    it('a pending Remind Me Later stops it', () => {
+      const { store } = idleStore();
+      store.dispatch({ type: 'projects', projects: [project(ws('w1', { remindAt: NOW + 7 * DAY }), ws('w2'))] });
+      pass();
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      expect(store.getState().triage['ws:w2']?.settled?.why).toBe('idle');
     });
 
     it('autoSettle false stops it', () => {

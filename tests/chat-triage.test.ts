@@ -98,6 +98,15 @@ describe('the transition table', () => {
     expect(categoryOf(next, busy)).toBe('working');
   });
 
+  it('Settled or Snoozed, a Remind Me Later reminder: Active with backAt', () => {
+    for (const record of [settled, snoozed]) {
+      const next = applyTriage(record, { kind: 'reminded', at: AT });
+      expect(next.backAt).toBe(AT);
+      expect(next.lastAt).toBe(AT);
+      expect(categoryOf(next, idle)).toBe('active');
+    }
+  });
+
   it('Snoozed, hand raised: Active with backAt', () => {
     const next = applyTriage(snoozed, { kind: 'hand_raised', at: AT });
     expect(next.snoozed).toBeUndefined();

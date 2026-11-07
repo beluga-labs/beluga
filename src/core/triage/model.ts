@@ -51,6 +51,8 @@ export type TriageEvent =
   | { readonly kind: 'unsettle' }
   | { readonly kind: 'snooze'; readonly at: number; readonly until: number; readonly seen: readonly string[] }
   | { readonly kind: 'wake'; readonly at: number }
+  /** Remind Me Later's time came: the chat comes back like a wake, from a settle too. */
+  | { readonly kind: 'reminded'; readonly at: number }
   | { readonly kind: 'own_message'; readonly at: number }
   | { readonly kind: 'answer'; readonly at: number }
   | { readonly kind: 'mention'; readonly at: number }
@@ -124,6 +126,8 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
       return { ...without(was, 'settled', 'backAt'), snoozed: { at: event.at, until: event.until, seen: event.seen } };
     case 'wake':
       return was.snoozed ? { ...touched(without(was, 'snoozed'), event.at), backAt: event.at } : was;
+    case 'reminded':
+      return { ...touched(without(was, 'snoozed', 'settled'), event.at), backAt: event.at };
     case 'own_message':
     case 'answer':
       return touched(without(was, 'snoozed', 'settled', 'backAt'), event.at);
