@@ -29,8 +29,10 @@ export function AssistantNav() {
   }, sameDeep);
   const { client } = useBeluga();
   const linkable = useApp((s) => s.prefs.chatLinks);
+  const open = useApp((s) => activeAssistantChannel(s.assistant));
   const row = (
     <Row
+      data-chat-row={open}
       icon={<Icon name="laptop" size={14} />}
       label={ASSISTANT_TITLE}
       detail={signal.tip || `Ask ${yourComputer()} anything: screenshots, what’s running, start a worktree or a task. Several chats as tabs; the open one is on your phone too`}

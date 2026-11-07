@@ -102,7 +102,7 @@ export interface Attachments {
  * `text`/`setText`: the words in the box (the composer keeps them in the window's UI state, the
  * plan chat in its own).
  */
-export function useAttachments({ channel, box, text, setText }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void }): Attachments {
+export function useAttachments({ channel, box, text, setText, chipLinks }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void; chipLinks?: (text: string) => string | undefined }): Attachments {
   const { client } = useBeluga();
   const api = useApi();
   const selfId = client.store.getState().selfId;
@@ -276,6 +276,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
       words += pasted.slice(from);
       if (box.current) insertText(box.current, words, at);
     },
+    chipLinks,
   );
 
   /** The waiting images full size (the lightbox: Esc or a click outside closes), from image `n`. */

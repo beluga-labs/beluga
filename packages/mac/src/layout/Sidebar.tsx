@@ -17,6 +17,7 @@ import { PhoneMark } from '../phone/Phone.js';
 import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { Projects, ProjectsAddMenu, showArchivedOf } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
+import { useChatDrag } from './chat-drag.js';
 import { WorkspaceRow } from './workspace-row.js';
 import { UnreadSection } from './UnreadSection.js';
 import { Row, Section } from './sidebar-parts.js';
@@ -91,6 +92,7 @@ function useFolderDrop(): { ref: React.RefObject<HTMLElement | null>; over: bool
 export function Sidebar() {
   const actions = useActions();
   const drop = useFolderDrop();
+  useChatDrag();
   // Only what the sidebar itself shows: drawn again when that changes, not on every streamed event (KLD-48).
   const { tabs, liveChats, view, badges } = useApp((state) => {
     const news = overviewNews(state);

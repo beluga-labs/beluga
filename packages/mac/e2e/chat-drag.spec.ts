@@ -1,0 +1,214 @@
+import { expect, test, type Locator, type Page } from './fixtures.js';
+
+/**
+ * Dragging a chat's row onto a chat (layout/chat-drag.ts): a chip goes in the target's draft and
+ * nothing is sent. Esc cancels; the same chat, the room and a chat links off do nothing.
+ */
+
+// A slower hand and a video for the proof (CHAT_DRAG_VIDEO=1).
+const filming = Boolean(process.env.CHAT_DRAG_VIDEO);
+test.use({ video: filming ? { mode: 'on', size: { width: 1440, height: 900 } } : 'off' });
+const STEPS = filming ? 30 : 8;
+const pause = async (page: Page): Promise<void> => {
+  if (filming) await page.waitForTimeout(700);
+};
+
+const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
+const ghost = (page: Page) => page.locator('[data-chat-ghost]');
+
+/** A second connection to the demo daemon from the page (the app's own boot code), for driving it. */
+async function daemon<T>(page: Page, fn: string): Promise<T> {
+  return page.evaluate(
+    async (fn) => {
+      const w = window as unknown as { __drag?: Promise<unknown> };
+      w.__drag ??= import('/src/lib/boot.ts').then((m) => m.connect(m.capabilities(() => ({ ok: true, message: '' }))));
+      return new Function('c', `return (${fn})(c)`)(await w.__drag);
+    },
+    fn,
+  ) as Promise<T>;
+}
+
+/** The sidebar's own rows for two worktrees (a plan's stay off it), with chat links set as asked. */
+async function setUp(page: Page, chatLinks = true): Promise<{ self: string; a: Worktree; b: Worktree }> {
+  await page.goto('/');
+  await daemon(page, `(c) => c.api.session.setPrefs({ chatLinks: ${chatLinks} })`);
+  for (const project of ['bob-api', 'landing']) {
+    const unfold = sidebar(page).getByRole('button', { name: `Show what's in ${project}` }).first();
+    if (await unfold.isVisible()) await unfold.click();
+  }
+  const { self, all } = await daemon<{ self: string; all: Worktree[] }>(page, `(c) => { const s = c.store.getState(); return { self: s.selfId, all: s.projects.flatMap((p) => p.workspaces).filter((w) => w.kind === 'worktree' && !w.archived).map((w) => ({ id: w.id, name: w.name })) }; }`);
+  const rows: Worktree[] = [];
+  for (const w of all) if (await rowOf(page, w).count()) rows.push(w);
+  if (rows.length < 2) throw new Error(`Two worktrees with rows are needed, among: ${all.map((w) => w.name).join(', ')}`);
+  return { self, a: rows[0]!, b: rows[1]! };
+}
+
+interface Worktree {
+  readonly id: string;
+  readonly name: string;
+}
+
+const rowOf = (page: Page, w: Worktree) => sidebar(page).locator(`[data-chat-row="ws:${w.id}"]`).first();
+const boxIn = (page: Page, w: Worktree) => page.getByRole('textbox', { name: `Tell Claude what to do in ${w.name}` });
+const chip = (self: string, w: Worktree): string => `@${w.name} (chat: ${self}/ws:${w.id})`;
+const sent = (page: Page): Promise<number> => daemon<number>(page, `(c) => c.store.getState().log.filter((l) => l.type === 'chat' && !l.byAgent).length`);
+
+/** Pick a row up and hold it over `to`, as a hand would. */
+async function lift(page: Page, row: Locator, to: Locator): Promise<void> {
+  const from = (await row.boundingBox())!;
+  const over = (await to.boundingBox())!;
+  await page.mouse.move(from.x + 60, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 64, from.y + from.height / 2 + 6, { steps: 3 });
+  await page.mouse.move(over.x + over.width / 2, over.y + over.height / 2, { steps: STEPS });
+  await pause(page);
+}
+
+test('a row dropped on the open composer: a chip at the cursor, nothing sent', async ({ page }) => {
+  const { self, a, b } = await setUp(page);
+  await rowOf(page, a).click();
+  const box = boxIn(page, a);
+  await box.fill('compare this with');
+  await box.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 12));
+  const before = await sent(page);
+  await pause(page);
+  await lift(page, rowOf(page, b), box);
+  await expect(ghost(page)).toHaveText(b.name);
+  await expect(page.locator('[data-chat-box]')).toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(box).toHaveValue(`compare this ${chip(self, b)} with`);
+  await expect(page.getByLabel('Chat mentioned')).toContainText(b.name);
+  await expect(ghost(page)).toHaveCount(0);
+  await pause(page);
+  expect(await sent(page)).toBe(before);
+  // Still where it was: the drop opens nothing.
+  await expect(box).toBeVisible();
+  await box.fill('');
+});
+
+test('a row dropped on the open chat’s log: the same', async ({ page }) => {
+  const { self, a, b } = await setUp(page);
+  await rowOf(page, a).click();
+  const box = boxIn(page, a);
+  await box.fill('');
+  await lift(page, rowOf(page, b), page.locator('main').first());
+  await page.mouse.up();
+  await expect(box).toHaveValue(`${chip(self, b)} `);
+  await box.fill('');
+});
+
+test('a row dropped on another row: that row lights up, its chat opens with the chip in its draft', async ({ page }) => {
+  const { self, a, b } = await setUp(page);
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  const before = await sent(page);
+  await lift(page, rowOf(page, a), rowOf(page, b));
+  await expect(rowOf(page, b)).toHaveClass(/over/);
+  await page.mouse.up();
+  const box = boxIn(page, b);
+  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await pause(page);
+  expect(await sent(page)).toBe(before);
+  // The chip stays with that chat's draft, not with the others.
+  await rowOf(page, a).click();
+  await expect(boxIn(page, a)).toHaveValue('');
+  await rowOf(page, b).click();
+  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await box.fill('');
+});
+
+test('Your Mac’s row is a target and a source', async ({ page }) => {
+  const { self, a } = await setUp(page);
+  await rowOf(page, a).click();
+  const mac = sidebar(page).locator('[data-chat-row^="mac:assistant"]');
+  await lift(page, rowOf(page, a), mac);
+  await page.mouse.up();
+  const macBox = page.getByRole('textbox', { name: 'Ask your Mac anything' });
+  await expect(macBox).toHaveValue(`${chip(self, a)} `);
+  await macBox.fill('');
+  await lift(page, mac, rowOf(page, a));
+  await page.mouse.up();
+  await expect(boxIn(page, a)).toHaveValue(new RegExp(`\\(chat: ${self}/mac:assistant[^)]*\\) $`));
+  await boxIn(page, a).fill('');
+});
+
+test('a plan’s row takes a drop in its own chat, on its page, and can be dragged', async ({ page }) => {
+  const { self, a } = await setUp(page);
+  const home = await daemon<string>(page, `(c) => c.store.getState().plans.plans.find((x) => x.status === 'active' && x.home.startsWith('ws:')).home`);
+  const row = sidebar(page).locator(`[data-slot^="project:"] [data-chat-row="${home}"]`).first();
+  await lift(page, rowOf(page, a), row);
+  await page.mouse.up();
+  const box = page.getByRole('complementary', { name: 'Conversation' }).getByRole('textbox', { name: 'Message your agent about the plan' });
+  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await box.fill('');
+  await rowOf(page, a).click();
+  await lift(page, row, boxIn(page, a));
+  await page.mouse.up();
+  await expect(boxIn(page, a)).toHaveValue(new RegExp(`\\(chat: ${self}/${home}\\) $`));
+  await boxIn(page, a).fill('');
+});
+
+test('Esc cancels; the row still opens its chat afterwards', async ({ page }) => {
+  const { a, b } = await setUp(page);
+  await rowOf(page, a).click();
+  const box = boxIn(page, a);
+  await box.fill('keep me');
+  await lift(page, rowOf(page, b), box);
+  await page.keyboard.press('Escape');
+  await expect(ghost(page)).toHaveCount(0);
+  await expect(page.locator('[data-chat-box]')).not.toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(box).toHaveValue('keep me');
+  await box.fill('');
+  await rowOf(page, b).click();
+  await expect(boxIn(page, b)).toBeVisible();
+  await expect(boxIn(page, b)).toHaveValue('');
+});
+
+test('the same chat and the room refuse: no highlight, no chip', async ({ page }) => {
+  const { a, b } = await setUp(page);
+  await rowOf(page, a).click();
+  const box = boxIn(page, a);
+  await box.fill('');
+  // Its own composer, and its own row.
+  await lift(page, rowOf(page, a), box);
+  await expect(page.locator('[data-chat-box]')).not.toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(box).toHaveValue('');
+  await lift(page, rowOf(page, a), rowOf(page, a));
+  await expect(rowOf(page, a)).not.toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(box).toHaveValue('');
+  // The room: its row and its box.
+  const room = sidebar(page).getByRole('button', { name: 'Group chat' });
+  await lift(page, rowOf(page, b), room);
+  await expect(room).not.toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(box).toBeVisible();
+  await room.click();
+  const roomBox = page.locator('main textarea:not(.xterm-helper-textarea)').last();
+  await roomBox.fill('');
+  await lift(page, rowOf(page, b), roomBox);
+  await page.mouse.up();
+  await expect(roomBox).toHaveValue('');
+});
+
+test('a press on a chat row in a project doesn’t move the project', async ({ page }) => {
+  const { a } = await setUp(page);
+  const order = (): Promise<string[]> => sidebar(page).locator('[data-drag^="project:"]').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-drag')!));
+  const before = await order();
+  const first = sidebar(page).locator('[data-drag^="project:"]').first();
+  await lift(page, rowOf(page, a), first);
+  await page.mouse.up();
+  expect(await order()).toEqual(before);
+});
+
+test('with chat links off nothing starts a drag', async ({ page }) => {
+  const { a, b } = await setUp(page, false);
+  await rowOf(page, a).click();
+  const box = boxIn(page, a);
+  await box.fill('');
+  await lift(page, rowOf(page, b), box);
+  await expect(ghost(page)).toHaveCount(0);
+  await page.mouse.up();
+  await expect(box).toHaveValue('');
+});

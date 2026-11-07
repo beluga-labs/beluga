@@ -1,5 +1,5 @@
 import { FIRST_CHAT, assistantChatOf, assistantChatTitle } from '../../shared/assistant.js';
-import { type ChatRef, parseChatRef } from '../../shared/chat-ref.js';
+import { type ChatRef, formatChatRef, parseChatRef } from '../../shared/chat-ref.js';
 import { FIRST_SENTINEL_CHAT, sentinelChatOf, sentinelChatTitle } from '../sentinel/model.js';
 import { type DomainState, type View, busyChannels } from '../store.js';
 
@@ -65,6 +65,30 @@ export function resolveChatWhenKnown(store: { getState(): DomainState; subscribe
     const stop = store.subscribe(() => {
       if (answer()?.state !== 'loading') finish();
     });
+  });
+}
+
+/** Every chat here that has an address: your own (not a main folder) and the ones shared with you. */
+export function addressableChats(state: DomainState): Array<{ ref: string; owner: string; channel: string; createdAt?: number }> {
+  const all: Array<{ owner: string; channel: string; createdAt?: number }> = [
+    ...state.projects.flatMap((p) => p.workspaces.filter((w) => w.kind !== 'main').map((w) => ({ owner: state.selfId, channel: `${WS}${w.id}`, createdAt: w.createdAt }))),
+    ...state.assistant.chats.map((c) => ({ owner: state.selfId, channel: c.channel })),
+    ...(state.sentinel.chats?.chats ?? []).map((c) => ({ owner: state.selfId, channel: c.channel })),
+    ...state.shared.map((w) => ({ owner: w.owner, channel: `${WS}${w.id}` })),
+  ];
+  return all.flatMap((c) => {
+    const ref = formatChatRef(c);
+    return ref ? [{ ...c, ref }] : [];
+  });
+}
+
+/** What "@" offers to name in the chat `here`: your chats and the shared ones, not `here` itself and none that's gone or archived. */
+export function chatsToMention(state: DomainState, here: string): Array<{ readonly title: string; readonly ref: string; readonly kind: ResolvedChat['kind']; readonly ownership: ResolvedChat['ownership'] }> {
+  return addressableChats(state).flatMap((c) => {
+    if (c.owner === state.selfId && c.channel === here) return [];
+    const chat = resolveChat(state, { owner: c.owner, channel: c.channel });
+    if (!chat.title || chat.state === 'archived' || chat.state === 'removed') return [];
+    return [{ title: chat.title, ref: c.ref, kind: chat.kind, ownership: chat.ownership }];
   });
 }
 

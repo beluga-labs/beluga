@@ -70,4 +70,69 @@ export function chatLinkAnswer(chat: { readonly state: string; readonly ownershi
   return { opens: true };
 }
 
+/**
+ * A chat named in a message's words: "@Title (chat: <ref>)", the same shape as "@BLG-24 (task: …)".
+ * The title is what the words read as; a chip always shows the chat's title of now.
+ */
+const CHAT_MENTION = /(^|[\s({"'“])@([^\n@()]{1,100}?) \(chat: ([^\s()]+)\)/gu;
+/** A chat's link standing on its own in text (as CHAT_MENTION's lead: not in a word, a URL or a Markdown link). */
+const CHAT_LINK_IN_TEXT = /(?<![^\s({"'“])(?<!\]\()beluga:\/\/chat\/[\w-]+\/[^\s)\]}"'”>,;]+/g;
+const CHAT_TITLE_LENGTH = 60;
+
+export interface ChatMention {
+  readonly start: number;
+  readonly end: number;
+  readonly raw: string;
+  readonly title: string;
+  /** The ref as text. */
+  readonly ref: string;
+}
+
+/** The words for a chat, or undefined when it has no address. The title loses what would end the mention early. */
+export function chatMention(title: string, ref: ChatRef): string | undefined {
+  const text = formatChatRef(ref);
+  if (!text) return undefined;
+  const clean = title.replace(/[@()\s]+/g, ' ').trim().slice(0, CHAT_TITLE_LENGTH).trim();
+  return `@${clean || 'Chat'} (chat: ${text})`;
+}
+
+/** A draft with chat words put in at `caret`, standing apart from what's around them. */
+export function withChatWords(text: string, caret: number, words: string): { readonly text: string; readonly caret: number } {
+  const before = text.slice(0, caret);
+  const after = text.slice(caret);
+  const upTo = `${before}${before && !/\s$/.test(before) ? ' ' : ''}${words}${/^\s/.test(after) ? '' : ' '}`;
+  return { text: `${upTo}${after}`, caret: upTo.length };
+}
+
+/** Each chat the words name, in order. A ref that isn't a chat's stays words. */
+export function chatMentionsIn(text: string): ChatMention[] {
+  return [...text.matchAll(CHAT_MENTION)].flatMap((m) => {
+    if (!parseChatRef(m[3]!)) return [];
+    const start = m.index + m[1]!.length;
+    const raw = m[0].slice(m[1]!.length);
+    return [{ start, end: start + raw.length, raw, title: m[2]!, ref: m[3]! }];
+  });
+}
+
+/** The chat mention that ends right at `caret`, to take out whole. */
+export function chatMentionEndingAt(text: string, caret: number): { readonly start: number; readonly end: number } | undefined {
+  const hit = chatMentionsIn(text.slice(0, caret)).find((c) => c.end === caret);
+  return hit && { start: hit.start, end: hit.end };
+}
+
+/** Pasted words with each chat link as a mention; undefined when no link is one. */
+export function chatLinksToMentions(text: string, titleOf: (ref: ChatRef) => string): string | undefined {
+  let changed = false;
+  const words = text.replace(CHAT_LINK_IN_TEXT, (found) => {
+    const link = found.replace(/[.!?:]+$/, '');
+    const ref = chatLinkOf(link);
+    const mention = ref && chatMention(titleOf(ref), ref);
+    if (!mention) return found;
+    changed = true;
+    return `${mention}${found.slice(link.length)}`;
+  });
+  if (!changed) return undefined;
+  return words.endsWith(')') ? `${words} ` : words;
+}
+
 const isChatRef = (ref: ChatRef): boolean => OWNER.test(ref.owner) && isAddressableChannel(ref.channel);

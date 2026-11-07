@@ -9,7 +9,8 @@ import { candidatePaths, imagePathsIn, pathsInPaste, pickPaths } from './paste-p
  * spaces, ~/…, or a file:// URL; one or more, one per line) is checked with Beluga, and when
  * every one is a file here the box attaches them instead of the words. In other text, each
  * image's path (plain, quoted or “smart quoted”) becomes that image and the words stay.
- * Anything else, and ⌘⇧V (Edit › Paste as Plain Text), pastes the text as it is.
+ * A chat's link becomes a chip, where the box takes them. Anything else, and ⌘⇧V (Edit › Paste as
+ * Plain Text), pastes the text as it is.
  */
 
 export type { PathInfo };
@@ -65,18 +66,22 @@ export interface ImageInText {
  * the cursor was, when the paste is only their paths; `onText` gets other text that names images
  * here, with where they are in it, to put in the box (at `at`) with the images in place of their
  * paths. Text naming no file here goes into the box unchanged. Returns true when it took the
- * paste (the caller doesn't handle it then).
+ * paste (the caller doesn't handle it then). `chipLinks`: the words with each chat link as a chip,
+ * undefined when none is (or this box takes none).
  */
 export function usePastePaths(
   ref: RefObject<HTMLTextAreaElement | null>,
   onFiles: (files: readonly PathInfo[], at: number) => void,
   onText?: (text: string, images: readonly ImageInText[], at: { start: number; end: number }) => void,
+  chipLinks?: (text: string) => string | undefined,
 ): (e: React.ClipboardEvent<HTMLTextAreaElement>) => boolean {
   const api = useApi();
   const latest = useRef(onFiles);
   latest.current = onFiles;
   const latestText = useRef(onText);
   latestText.current = onText;
+  const latestLinks = useRef(chipLinks);
+  latestLinks.current = chipLinks;
   return (e) => {
     const plain = Date.now() - plainKeyAt < ECHO_MS;
     if (plain) {
@@ -90,6 +95,12 @@ export function usePastePaths(
       return false;
     }
     const text = e.clipboardData.getData('text/plain');
+    const chips = text ? latestLinks.current?.(text) : undefined;
+    if (chips && ref.current) {
+      e.preventDefault();
+      insertText(ref.current, chips);
+      return true;
+    }
     const paths = text ? pathsInPaste(text) : undefined;
     const el = ref.current;
     const spots = !paths && text && latestText.current ? imagePathsIn(text) : [];
