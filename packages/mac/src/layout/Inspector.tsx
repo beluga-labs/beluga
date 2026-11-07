@@ -22,7 +22,7 @@ import { teammatesOf } from '@beluga/core/team/model.js';
 import { shownState } from '../network/net-model.js';
 import { openDm } from '../network/use-net.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
-import { ScheduleSection } from '../schedule/ScheduleSection.js';
+import { ScheduleSection, SharedScheduleSection } from '../schedule/ScheduleSection.js';
 import { scheduleChannel } from '../schedule/schedule-model.js';
 import { Panel } from './InspectorPanel.js';
 import s from './Inspector.module.css';
@@ -359,6 +359,7 @@ export function Inspector() {
           <>
             {view.kind === 'project' ? <ProjectTeam projectId={view.id} /> : null}
             {macChat ? <ScheduleSection channel={macChat} /> : null}
+            {view.kind === 'shared' ? <SharedScheduleSection owner={view.owner} id={view.id} /> : null}
             <Room />
           </>
         )}

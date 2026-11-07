@@ -38,11 +38,19 @@ export interface Harness {
   /** Stop the service as a daemon stop does. */
   stopService(): void;
   clock: { now: number };
+  /** A second person's daemon in the same room, with its own schedules. It uses the same settings. */
+  person(name: string): Promise<Person>;
   /** The system lines of a channel. */
   lines(channel: string): string[];
   /** What the fake agent does on each run: a promise it holds, or an answer. */
   script: { run: (input: AgentRunInput) => Promise<string> };
   close(): Promise<void>;
+}
+
+export interface Person {
+  readonly session: Session;
+  readonly store: Store;
+  readonly client: PeerClient;
 }
 
 export async function harness(): Promise<Harness> {
@@ -103,6 +111,7 @@ export async function harness(): Promise<Harness> {
 
   const clock = { now: Date.UTC(2026, 10, 7, 12, 0) };
   let stop: (() => void) | undefined;
+  const people: Array<() => Promise<void>> = [];
   return {
     session,
     store,
@@ -125,8 +134,24 @@ export async function harness(): Promise<Harness> {
       stop?.();
       stop = undefined;
     },
+    person: async (name) => {
+      const theirStore = new Store(initialState('test', 'ask'));
+      const theirClient = new PeerClient({ url: `ws://127.0.0.1:${hub.port}`, keys, profile: { name, shares: [], agent: true }, reconnect: false });
+      const theirs = new Session({ client: theirClient, store: theirStore, shares: new ShareService([]), agentCwd: base, createAgent: (): AgentBackend => ({ nameTask: async () => 'task', run: async () => 'done' }) });
+      const theirScreen = attach(theirs);
+      theirs.start();
+      await waitFor(() => theirStore.getState().self, 4000);
+      const off = launchSchedules({ session: theirs, store: theirStore, demo: true, now: () => clock.now, tickMs: 0 });
+      people.push(async () => {
+        off();
+        theirScreen.close?.();
+        await theirs.stop();
+      });
+      return { session: theirs, store: theirStore, client: theirClient };
+    },
     lines: (channel) => store.getState().log.flatMap((l) => (l.channel === channel && l.type === 'system' ? [l.text] : [])),
     close: async () => {
+      for (const leave of people) await leave();
       stop?.();
       screen.close?.();
       await session.stop();

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { ScheduleView } from '@beluga/core/schedule/model.js';
+import { peerName } from '@beluga/core/store.js';
+import type { GuestSchedule } from '@beluga/protocol.js';
 import { Icon } from '../components/Icon.js';
 import { Button, Dot, Tip } from '../components/ui.js';
 import { Switch } from '../dialogs/settings-controls.js';
@@ -9,10 +11,11 @@ import { openSettings } from '../lib/native-routes.js';
 import { openSheet } from '../lib/sheets.js';
 import { sameDeep } from '../lib/stable.js';
 import { useClock } from '../lib/window-active.js';
-import { rowStatus, scheduleLine, scheduleProblem, statusTone, statusWords } from './schedule-model.js';
+import { guestLine, rowStatus, scheduleLine, scheduleProblem, statusTone, statusWords } from './schedule-model.js';
 import c from './schedule.module.css';
 
 const NONE: readonly ScheduleView[] = [];
+const NONE_SHARED: readonly GuestSchedule[] = [];
 const LINE_EVERY_MS = 30_000;
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -33,6 +36,47 @@ export function ScheduleSection({ channel }: { channel: string }) {
       {items.map((item) => (
         <ScheduleRow key={item.id} item={item} now={now} />
       ))}
+    </Panel>
+  );
+}
+
+/** The same section in a chat someone shared with you: what wakes it, with no controls, because their computer runs it. */
+export function SharedScheduleSection({ owner, id }: { owner: string; id: string }) {
+  const items = useApp((st) => st.sharedSchedules[id] ?? NONE_SHARED, sameDeep);
+  const ownerName = useApp((st) => peerName(st, owner));
+  const now = useClock(items.length > 0, LINE_EVERY_MS);
+  if (!items.length) return null;
+  return (
+    <Panel title={items.length > 1 ? `Schedules · ${items.length}` : 'Schedules'}>
+      <div className={c.where}>Runs on {ownerName}’s computer</div>
+      {items.map((item) => {
+        const line = guestLine(item, now);
+        return (
+          <div key={item.id} className={c.row} data-schedule={item.title} data-status={item.status}>
+            <Tip label={statusWords(item.status)}>
+              <span className={c.mark}>
+                <Icon name="clock" size={14} />
+                <span className={c.markDot}>
+                  <Dot tone={statusTone(item.status)} live={item.status === 'running'} />
+                </span>
+              </span>
+            </Tip>
+            <div className={c.body}>
+              <Tip label={item.prompt}>
+                <div className={c.title}>{item.title}</div>
+              </Tip>
+              <Tip label={line}>
+                <div className={c.line}>{line}</div>
+              </Tip>
+              {item.pausedReason ? (
+                <div className={c.problem} role="status">
+                  {item.pausedReason}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
     </Panel>
   );
 }

@@ -1,6 +1,7 @@
 import { findWorkspace } from '../../../../src/ui/workspace-models.js';
-import { runExtras, type ScheduleStatus, type ScheduleView } from '../../../../src/core/schedule/model.js';
+import { rowStatus, runExtras, type RowStatus, type ScheduleView } from '../../../../src/core/schedule/model.js';
 import type { Schedule, ScheduleInput, ScheduleWhen } from '../../../../src/core/schedule/schema.js';
+import type { GuestSchedule } from '../../../../src/protocol.js';
 import type { AppState } from '../../../../src/core/store.js';
 import { ASSISTANT_TITLE, activeAssistantChannel, assistantChannel, isAssistant } from '../../../../src/shared/assistant.js';
 import { type ScheduleTrigger, scheduleWords } from '../../../../src/shared/schedule/trigger.js';
@@ -13,7 +14,7 @@ const HOUR = 60 * MINUTE;
 /** The sidebar has one row for all of Your Mac's chats. */
 export const MAC_CHATS = 'mac';
 
-export type RowStatus = ScheduleStatus | 'paused';
+export { rowStatus, type RowStatus };
 export type DotTone = 'ok' | 'warn' | 'error' | 'info' | 'claude' | 'muted';
 export type WhenKind = ScheduleWhen['kind'];
 
@@ -85,13 +86,6 @@ export function chatMarks(items: readonly ScheduleView[]): Readonly<Record<strin
   return map;
 }
 
-/** What a row's dot says. A run under way shows first; a once schedule that ran is off without being paused. */
-export function rowStatus(s: ScheduleView): RowStatus {
-  if (s.status === 'running') return 'running';
-  if (!s.enabled && (s.pausedReason || s.when.kind !== 'once' || !s.last)) return 'paused';
-  return s.status;
-}
-
 export function statusTone(status: RowStatus): DotTone {
   switch (status) {
     case 'never':
@@ -160,6 +154,12 @@ export function scheduleLine(s: ScheduleView, now: number, words: TimeWords = SY
   const status = rowStatus(s);
   const state = status === 'running' ? 'running now' : status === 'paused' ? 'paused' : s.pending ? 'waiting for the chat' : s.next !== undefined ? nextIn(s.next, now) : s.enabled ? '' : 'done';
   return state ? `${whenLabel(s.when, words)} · ${state}` : whenLabel(s.when, words);
+}
+
+/** A guest's row line: the owner's words for when, then what it does next. */
+export function guestLine(s: GuestSchedule, now: number): string {
+  const state = s.status === 'running' ? 'running now' : s.status === 'paused' ? 'paused' : s.status === 'waiting' ? 'waiting for the chat' : s.next !== undefined ? nextIn(s.next, now) : s.enabled ? '' : 'done';
+  return state ? `${s.sentence} · ${state}` : s.sentence;
 }
 
 /** The reason a row shows under its line: why it failed or was paused. Your own pause needs no reason. */

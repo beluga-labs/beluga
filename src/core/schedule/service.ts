@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { NoticeEvent } from '../notify.js';
 import { carriedPrompt } from '../agent-switch.js';
 import { decodeFailure } from '../../shared/run-failure.js';
+import type { GuestSchedule } from '../../protocol.js';
 import type { ScheduleMark } from '../store.js';
 import {
   MAX_BLIND_RUNS,
@@ -14,6 +15,7 @@ import {
   clock,
   compactInstructions,
   decide,
+  guestSchedule,
   newSchedule,
   nextTime,
   overLimit,
@@ -136,6 +138,11 @@ export class Schedules {
   /** What a screen shows of it. */
   view(s: Schedule): ScheduleView {
     return scheduleView(s, this.deps.now(), this.clockOpts());
+  }
+
+  /** What people who follow this chat see of its schedules: nothing while the setting is off. */
+  forGuests(channel: string): readonly GuestSchedule[] {
+    return this.deps.enabled() ? this.list(channel).map((s) => guestSchedule(this.view(s), this.clockOpts())) : [];
   }
 
   /** When it runs, inside a sentence. */
