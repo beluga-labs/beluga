@@ -7,6 +7,16 @@ const all = new WeakMap<object, ThreadService>();
 
 export const threadsOf = (session: object): ThreadService | undefined => all.get(session);
 
+/**
+ * A person's Stop in a chat, from the Mac or the phone: the threads under it stop too. Only this
+ * entry cascades. A steer, the watchdog, archive and Your Mac stop a run on the host, and the
+ * children go on.
+ */
+export function stopChat(session: Session, channel: string): ReturnType<Session['host']['stopRun']> {
+  const threads = threadsOf(session)?.stopTree(channel) ?? 0;
+  return session.host.stopRun(channel, { threads });
+}
+
 /** Start child threads for the daemon (core/threads). Its runs get the tools only with prefs.agentThreads on. */
 export function launchThreads(session: Session): () => void {
   const controller = session.workspaces;
@@ -28,7 +38,7 @@ export function launchThreads(session: Session): () => void {
       session.sendChat(o.shown, true, channel, requestId, o.urgent && session.host.runningIn(channel));
       session.requestAgent(session.selfId, prompt, false, channel, o.urgent, undefined, requestId);
     },
-    stopRun: (channel) => void session.host.stopRun(channel),
+    stopRun: (channel) => void session.host.stopRun(channel, { quiet: true }),
     runsAgent: (agent) => session.runsAgent(agent),
     canSteer: (runtime) => session.canSteer(runtime),
     wake: (channel, prompt, line, requestId) => {
