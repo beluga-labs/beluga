@@ -77,6 +77,11 @@ export function PlanChat({
     setTextState(next);
   };
   const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const focus = (): void => box.current?.focus();
+    document.addEventListener("beluga:focus-composer", focus);
+    return () => document.removeEventListener("beluga:focus-composer", focus);
+  }, []);
   // The box burns here as in every message box (Settings › Fire & Confetti).
   const form = useRef<HTMLFormElement>(null);
   const fire = usePrefs().maxFire;

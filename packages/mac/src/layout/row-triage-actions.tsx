@@ -135,9 +135,9 @@ function snooze(client: Client, run: Run, channel: string, until: number): void 
   });
 }
 
-const wake = (client: Client, channel: string): Promise<boolean> => call(client, () => client.api.triage.wake(channel));
+export const wake = (client: Client, channel: string): Promise<boolean> => call(client, () => client.api.triage.wake(channel));
 
-const unsettle = (client: Client, channel: string): Promise<boolean> => call(client, () => client.api.triage.unsettle(channel));
+export const unsettle = (client: Client, channel: string): Promise<boolean> => call(client, () => client.api.triage.unsettle(channel));
 
 /** Opens the chat and puts you in its message box. It doesn't change the category: sending does. */
 function workAgain(client: Client, run: Run, channel: string): void {
@@ -145,7 +145,15 @@ function workAgain(client: Client, run: Run, channel: string): void {
   const entry = conversationEntries(state).find((e) => e.channel === channel);
   if (entry) openEntry(entry, run, client);
   else if (channel.startsWith('ws:')) run({ type: 'open_ws', id: channel.slice(3) });
-  setTimeout(() => document.dispatchEvent(new CustomEvent('beluga:focus-composer')), 40);
+  focusComposerSoon();
+}
+
+/** The box can arrive after the chat opens (a plan's page loads its conversation first): ask until a box has the focus, for at most about two seconds. */
+function focusComposerSoon(tries = 50): void {
+  setTimeout(() => {
+    document.dispatchEvent(new CustomEvent('beluga:focus-composer'));
+    if (tries > 1 && document.activeElement?.tagName !== 'TEXTAREA') focusComposerSoon(tries - 1);
+  }, 40);
 }
 
 /** Settling or snoozing the chat you're in moves you on; with no row left, you stay. */

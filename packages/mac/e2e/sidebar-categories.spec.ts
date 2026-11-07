@@ -181,4 +181,40 @@ test.describe('with the setting on', () => {
     await expect(composer(page)).toHaveAttribute('placeholder', /add-auth/);
     await expect(composer(page)).toBeFocused();
   });
+
+  test('Work Again on a plan row opens the plan and puts you in its message box', async ({ page }) => {
+    await sidebar(page).getByRole('button', { name: /^Card checkout for launch ·/ }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Work Again' }).click();
+    await expect(page.getByRole('textbox', { name: 'Message your agent about the plan' })).toBeFocused();
+  });
+
+  test('a Wake or an Un-settle that fails from the line above the message box says so', async ({ page }) => {
+    await page.routeWebSocket(/.*/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const frame = typeof message === 'string' && message.startsWith('{') ? (JSON.parse(message) as { t?: string; id?: string; method?: string }) : undefined;
+        if (frame?.t === 'call' && (frame.method === 'triage.wake' || frame.method === 'triage.unsettle')) ws.send(JSON.stringify({ t: 'result', id: frame.id, ok: false, error: `Refused ${frame.method}` }));
+        else server.send(message);
+      });
+    });
+    await page.reload();
+    const line = page.getByRole('status', { name: 'Chat category' });
+
+    await inList(page, 'Inbox', 'new-hero').hover();
+    await page.getByRole('button', { name: 'Snooze new-hero' }).click();
+    await page.getByRole('menuitem', { name: /^In 1 hour/ }).click();
+    await unfold(page, 'Snoozed');
+    await inList(page, 'Snoozed', 'new-hero').click();
+    await line.getByRole('button', { name: 'Wake' }).click();
+    await expect(page.getByText('Refused triage.wake')).toBeVisible();
+    await expect(inList(page, 'Snoozed', 'new-hero')).toBeVisible();
+
+    await inList(page, 'Inbox', 'webhook-retries').hover();
+    await page.getByRole('button', { name: 'Settle webhook-retries' }).click();
+    await unfold(page, 'Settled');
+    await inList(page, 'Settled', 'webhook-retries').click();
+    await line.getByRole('button', { name: 'Un-settle' }).click();
+    await expect(page.getByText('Refused triage.unsettle')).toBeVisible();
+    await expect(inList(page, 'Settled', 'webhook-retries')).toBeVisible();
+  });
 });

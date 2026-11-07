@@ -2,7 +2,8 @@ import { categoryOf, triageKey } from '@beluga/core/triage/model.js';
 import { triageFacts } from '@beluga/core/triage/facts.js';
 import { Button } from '../components/ui.js';
 import { settledWords, wakeWords } from '../layout/attention-model.js';
-import { useApi, useApp } from '../lib/beluga.js';
+import { unsettle, wake } from '../layout/row-triage-actions.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { useClock } from '../lib/window-active.js';
 import s from './TriageLine.module.css';
@@ -12,7 +13,7 @@ import s from './TriageLine.module.css';
  * back. The box itself works the same in every category: sending brings the chat back.
  */
 export function TriageLine({ channel }: { channel: string }) {
-  const api = useApi();
+  const { client } = useBeluga();
   const line = useApp((state) => {
     const key = state.prefs.chatCategories ? triageKey(state, channel) : undefined;
     if (!key) return undefined;
@@ -28,11 +29,11 @@ export function TriageLine({ channel }: { channel: string }) {
     <div className={s.line} role="status" aria-label="Chat category">
       <span className={s.words}>{line.kind === 'settled' ? settledWords(line.settled, line.idleDays, now) : `Snoozed until ${wakeWords(line.until, now)}`}</span>
       {line.kind === 'settled' ? (
-        <Button size="small" onClick={() => void api.triage.unsettle(channel)}>
+        <Button size="small" onClick={() => void unsettle(client, channel)}>
           Un-settle
         </Button>
       ) : (
-        <Button size="small" onClick={() => void api.triage.wake(channel)}>
+        <Button size="small" onClick={() => void wake(client, channel)}>
           Wake
         </Button>
       )}
