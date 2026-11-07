@@ -172,7 +172,7 @@ describe('launching the agent’s terminal', () => {
       expect(launch.args.join(' ')).not.toContain(token);
       expect(launch.args.join(' ')).not.toContain('BELUGA_TOOLS_TOKEN');
       expect(launch.args.join(' ')).toContain('mcp__beluga');
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
       // Never in the worktree: its scratch folder shows on your screens and to friends sharing it.
       expect(file.startsWith(home + path.sep)).toBe(true);
 

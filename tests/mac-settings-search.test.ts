@@ -131,6 +131,7 @@ const PANE_SOURCES: Record<string, string> = {
   environment: read('dialogs/EnvironmentSettings.tsx'),
   people: [s('People'), read('network/NetworkSettings.tsx'), read('gateway/AccessSettings.tsx')].join('\n'),
   phone: read('phone/Phone.tsx'),
+  external: read('dialogs/ExternalAgentsSettings.tsx'),
   voice: read('dialogs/VoiceSettings.tsx'),
   keyboard: read('dialogs/KeyboardSettings.tsx'),
   advanced: read('dialogs/WebAccessSettings.tsx'),
@@ -138,7 +139,7 @@ const PANE_SOURCES: Record<string, string> = {
 };
 
 /** Literal labels the search leaves out: placeholders, not settings. */
-const NOT_SETTINGS = new Set(['None']);
+const NOT_SETTINGS = new Set(['None', 'Nothing yet']);
 
 /** The literal `<Row label="…">` labels and `<Group title="…">` titles of a source. */
 function literals(src: string): { rows: string[]; groups: string[] } {

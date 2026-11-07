@@ -298,7 +298,8 @@ describe('a run an external agent starts', () => {
     expect(CODEX_TRUST_TABLE.map((r) => r.origin)).not.toContain('external');
   });
 
-  it('on Codex at trusted the sandbox holds: home denied, a .env outside is out of reach, your tools off, core environment', async () => {
+  // Not on Windows: POSIX paths in the fixtures.
+  it.skipIf(process.platform === 'win32')('on Codex at trusted the sandbox holds: home denied, a .env outside is out of reach, your tools off, core environment', async () => {
     const work = '/Users/me/work/project';
     const trusted = await fixture('trusted').started();
     expect(originOf(trusted)).toBe('agent');

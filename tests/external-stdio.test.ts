@@ -53,9 +53,12 @@ describe('beluga mcp stdio', () => {
     const answered = await client.callTool({ name: 'beluga_capabilities', arguments: {} });
     expect(JSON.stringify(answered.content)).toContain('trusted');
 
-    const command = execFileSync('ps', ['-o', 'args=', '-p', String(transport.pid)], { encoding: 'utf8' });
-    expect(command).toContain('mcp stdio');
-    expect(command).not.toContain(token);
+    // Windows has no ps: the token goes by the environment there too, and this check is for macOS and Linux.
+    if (process.platform !== 'win32') {
+      const command = execFileSync('ps', ['-o', 'args=', '-p', String(transport.pid)], { encoding: 'utf8' });
+      expect(command).toContain('mcp stdio');
+      expect(command).not.toContain(token);
+    }
 
     expect(service.grants.list()).toMatchObject([{ id: grant.id, name: 'Local model', route: 'local', level: 'trusted' }]);
 

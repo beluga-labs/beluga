@@ -122,7 +122,7 @@ describe('GrantFile', () => {
     const store = make();
     const { grant, token } = store.create(newGrant());
     const second = store.addToken(grant.id) ?? '';
-    expect(mode(file())).toBe(0o600);
+    if (process.platform !== 'win32') expect(mode(file())).toBe(0o600);
     const text = readFileSync(file(), 'utf8');
     expect(text).not.toContain(token);
     expect(text).not.toContain(second);
@@ -237,12 +237,12 @@ describe('AuditFile', () => {
   it('writes one JSON line per decision, 0600, and restores the mode if it was opened up', () => {
     const log = new AuditFile({ file: file(), now });
     log.append(entry());
-    expect(mode(file())).toBe(0o600);
+    if (process.platform !== 'win32') expect(mode(file())).toBe(0o600);
     log.append(entry());
     expect(readFileSync(file(), 'utf8').trimEnd().split('\n').map((l) => JSON.parse(l).tool)).toEqual(['beluga_chat_send', 'beluga_chat_send']);
     chmodSync(file(), 0o644);
     log.append(entry());
-    expect(mode(file())).toBe(0o600);
+    if (process.platform !== 'win32') expect(mode(file())).toBe(0o600);
   });
 
   it('keeps no raw argument value and no args key in the raw file', () => {
@@ -271,7 +271,7 @@ describe('AuditFile', () => {
     const log = new AuditFile({ file: file(), now, maxBytes: 600 });
     for (let i = 0; i < 6; i++) log.append(entry({ tool: `tool-${i}` }));
     expect(statSync(file()).size).toBeLessThanOrEqual(600);
-    expect(mode(`${file()}.1`)).toBe(0o600);
+    if (process.platform !== 'win32') expect(mode(`${file()}.1`)).toBe(0o600);
     const tools = log.recent(100).map((r) => r.tool);
     expect(tools[0]).toBe('tool-5');
     expect(tools.length).toBeGreaterThan(2);

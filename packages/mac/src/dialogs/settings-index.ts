@@ -237,6 +237,26 @@ export const SETTINGS: readonly Entry[] = [
   ]),
 
   // Phone
+  ...rows('external', undefined, [
+    ['Let other agents connect', 'Turn on the MCP server for agents outside Beluga.', 'mcp server listener on off'],
+    ['Pause all agents', 'Refuses every agent and keeps their grants.', 'pause refuse'],
+    ['MCP URL', 'The address to give an MCP client.', 'url copy address'],
+  ]),
+  group('external', 'Connect an agent', 'Make a pairing code: what it may do, and where.', 'pair pairing code connect'),
+  ...rows('external', 'Connect an agent', [
+    ['For an agent outside this Mac', 'A hosted agent, or one on another computer.', 'remote hosted tailscale public'],
+    ['What it may do', 'Its level: ask each time, trusted or full trust.', 'level trust'],
+    ['Full trust for this code', 'An explicit choice for a remote agent.', 'remote full warning'],
+    ['All projects and chats', 'Or choose what it reaches.', 'projects reach scope'],
+    ['Your chats with no project', 'Chats outside any project.', 'chats standalone'],
+    ['Direct messages', 'It reads and sends yours.', 'dm messages friends'],
+    ['Groups', 'It reads and sends in your groups.', 'groups'],
+    ['Pairing code', 'Works once, for 10 minutes.', 'code'],
+  ]),
+  group('external', 'Connected agents', 'Each agent with a grant: stop or revoke it.', 'revoke stop agents grants'),
+  ...rows('external', 'Connected agents', [['Stop all agents', 'Ends their runs now. Their grants stay.', 'stop all']]),
+  group('external', 'Activity', 'What agents did, and who decided.', 'audit log activity'),
+  ...rows('external', 'Activity', [['Show', 'All, allowed, asked or refused.', 'filter']]),
   group('phone', 'On the cable', 'A phone plugged into this computer.', 'usb cable adb plugged'),
   group('phone', 'Your phones', 'Paired phones, and Remove.', 'devices paired remove'),
   ...rows('phone', undefined, [

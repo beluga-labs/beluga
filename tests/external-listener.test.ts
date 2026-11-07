@@ -4,7 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { z } from 'zod';
 import type { ExternalToolDef } from '../src/external/adapters/mcp-tools.js';
 import { ExternalService, type ExternalServiceOptions } from '../src/external/service.js';
@@ -110,7 +110,8 @@ describe('turning the listener on and off', () => {
     expect(config.enabled).toBe(true);
   });
 
-  it('keeps its config private to you', async () => {
+  // Windows has no POSIX file modes.
+  it.skipIf(process.platform === 'win32')('keeps its config private to you', async () => {
     await started();
     expect(statSync(path.join(dir, 'external.json')).mode & 0o777).toBe(0o600);
   });
@@ -304,7 +305,7 @@ describe('the tool wrapper', () => {
 
 describe('one grant book', () => {
   it('has a single place that opens it, and no CLI path does', () => {
-    const all = execSync("git ls-files 'src/*.ts'", { encoding: 'utf8' }).split('\n').filter(Boolean);
+    const all = execFileSync('git', ['ls-files', 'src/*.ts'], { encoding: 'utf8' }).split('\n').filter(Boolean);
     const opening = all.filter((f) => /new GrantFile\(/.test(readFileSync(f, 'utf8')));
     expect(opening).toEqual(['src/external/service.ts']);
     const makingService = all.filter((f) => /new ExternalService\(/.test(readFileSync(f, 'utf8')));
