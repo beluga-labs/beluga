@@ -73,6 +73,10 @@ export const ScheduleSchema = z.object({
   last: z.enum(['ok', 'failed', 'interrupted']).optional(),
   lastError: z.string().optional(),
   failures: z.number().int().min(0).default(0),
+  /** Compactions in a row that failed before a run. */
+  compactFailures: z.number().int().min(0).optional(),
+  /** Runs in this session in a row whose runtime reported no context numbers. */
+  blindRuns: z.number().int().min(0).optional(),
   pending: SchedulePendingSchema.optional(),
   running: ScheduleRunningSchema.optional(),
 });

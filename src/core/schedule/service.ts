@@ -1,14 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { NoticeEvent } from '../notify.js';
+import { carriedPrompt } from '../agent-switch.js';
 import { decodeFailure } from '../../shared/run-failure.js';
 import type { ScheduleMark } from '../store.js';
 import {
+  MAX_BLIND_RUNS,
+  MAX_COMPACT_FAILURES,
   RUN_LIMIT_MS,
   applyDecision,
   applyEdit,
   applyEnd,
   checkWhen,
   clock,
+  compactInstructions,
   decide,
   newSchedule,
   nextTime,
@@ -60,10 +64,22 @@ export interface SchedulesDeps {
   readonly wait: (requestId: string) => Promise<string>;
   readonly cancel: (requestId: string, note: string) => void;
   readonly notify: (event: NoticeEvent) => void;
+  /** How full the chat's conversation is against the threshold. `unknown`: its runtime reported no numbers. */
+  readonly fill: (channel: string) => 'past' | 'under' | 'unknown';
+  /** Compact the chat in its lane. `refused`: it did not run to its end (Codex compacts itself), and that is no failure. */
+  readonly compact: (channel: string, instructions: string) => Promise<'done' | 'refused' | 'failed'>;
+  /** The chat's next run starts a new session. The chat stays. */
+  readonly forget: (channel: string) => void;
+  /** The recent conversation in plain lines, for a new session. */
+  readonly transcript: (channel: string) => string;
 }
 
 /** Why a chat with a contributor has no schedule on: a run has your full scope and reads their words. */
 export const CONTRIBUTOR_REASON = 'Someone can contribute in this chat. A scheduled run has your full access and reads their messages, so it stays off while they can contribute.';
+const COMPACT_FAILED = 'Compacting this chat failed';
+const COMPACT_PAUSE = 'Compacting this chat failed twice, so the schedule is paused. Clear the chat, or give the schedule a fresh session for each run';
+/** Who a carried transcript comes from, in carriedPrompt's words. */
+const EARLIER_SESSION = 'an earlier session';
 const LIMIT_WORDS = `It passed the ${RUN_LIMIT_MS / 60_000}-minute time limit`;
 
 export class Schedules {
@@ -71,6 +87,8 @@ export class Schedules {
   private items: Schedule[];
   /** Runs this daemon cancelled for the time limit. */
   private readonly overTime = new Set<string>();
+  /** Schedules whose chat is leaving while they compact, with no request to cancel yet: they must not ask. */
+  private readonly noAsk = new Set<string>();
   private readonly timers: Array<ReturnType<typeof setInterval>> = [];
   private closed = false;
   private recovered = false;
@@ -203,7 +221,7 @@ export class Schedules {
   /** What the agent is told for a schedule's request. Other requests in the chat get nothing. */
   briefFor(channel: string, requestId: string): string | undefined {
     const s = this.items.find((x) => x.channel === channel && x.running?.requestId === requestId);
-    return s?.running ? scheduleBrief(s.title, s.running, this.clockOpts()) : undefined;
+    return s?.running ? scheduleBrief(s.title, s.running, this.clockOpts(), s.context) : undefined;
   }
 
   /** This chat can have a schedule now. */
@@ -252,6 +270,7 @@ export class Schedules {
    */
   private stopRuns(channel: string, note: string): void {
     for (const s of this.list(channel)) {
+      if (s.running && !s.running.requestId) this.noAsk.add(s.id);
       const requestId = s.running?.requestId;
       if (!requestId) continue;
       this.deps.cancel(requestId, note);
@@ -273,28 +292,79 @@ export class Schedules {
 
   private fire(s: Schedule, decision: Extract<Decision, { kind: 'run' }>, now: number): void {
     this.say(s.channel, runLine(s.title, decision, this.clockOpts()), 'info', { id: s.id, title: s.title, prompt: s.prompt, due: decision.due });
-    const started = applyDecision(s, decision, now);
-    this.replace(started);
-    const requestId = this.deps.ask(s.prompt, s.channel);
+    const started = this.replace(applyDecision(s, decision, now));
+    if (started.context === 'fresh') {
+      this.deps.forget(started.channel);
+      return this.ask(started);
+    }
+    const fill = this.deps.fill(started.channel);
+    if (fill === 'past') return void this.compactFirst(started);
+    if (fill === 'unknown') return this.askBlind(started);
+    this.ask(started.blindRuns ? this.replace({ ...started, blindRuns: 0 }) : started);
+  }
+
+  /** Past the threshold: compact in the lane, then ask. A chat that left meanwhile gets no run. */
+  private async compactFirst(started: Schedule): Promise<void> {
+    const outcome = await this.deps.compact(started.channel, compactInstructions(started));
+    const s = this.get(started.id);
+    if (this.closed || !s?.running || s.running.startedAt !== started.running?.startedAt) return;
+    if (this.noAsk.has(s.id) || !this.chatStillFits(s)) return this.end(s.id, { kind: 'interrupted' });
+    // A summary that is still past the threshold would compact again on each run.
+    if (outcome === 'failed' || (outcome === 'done' && this.deps.fill(s.channel) === 'past')) return this.compactFailed(s);
+    this.ask(outcome === 'done' ? this.replace({ ...s, compactFailures: 0, blindRuns: 0 }) : s);
+  }
+
+  /** The run goes on after the first failure, and the schedule pauses at the second. */
+  private compactFailed(s: Schedule): void {
+    const compactFailures = (s.compactFailures ?? 0) + 1;
+    if (compactFailures >= MAX_COMPACT_FAILURES) return this.end(s.id, { kind: 'failed', error: COMPACT_FAILED, pause: COMPACT_PAUSE });
+    this.say(s.channel, `Schedule · ${s.title} · ${COMPACT_FAILED.toLowerCase()}. This run goes on.`, 'warn');
+    this.ask(this.replace({ ...s, compactFailures }));
+  }
+
+  /** A runtime that reports no numbers can't say when it's full: after MAX_BLIND_RUNS runs, a new session with the recent chat. */
+  private askBlind(started: Schedule): void {
+    const blindRuns = (started.blindRuns ?? 0) + 1;
+    if (blindRuns <= MAX_BLIND_RUNS) return this.ask(this.replace({ ...started, blindRuns }));
+    const transcript = this.deps.transcript(started.channel);
+    this.deps.forget(started.channel);
+    this.say(started.channel, `Schedule · ${started.title} · this run starts a new session after ${MAX_BLIND_RUNS} runs, because this agent reports no context use`);
+    this.ask(this.replace({ ...started, blindRuns: 1 }), transcript ? carriedPrompt(EARLIER_SESSION, transcript, started.prompt) : started.prompt);
+  }
+
+  /** The session is gone. This run starts again once, in a new session with the recent chat, and that counts as no failure. */
+  private retryInNewSession(s: Schedule): void {
+    const transcript = this.deps.transcript(s.channel);
+    this.deps.forget(s.channel);
+    this.say(s.channel, `Schedule · ${s.title} · its session could not be resumed, so this run starts again in a new session`, 'warn');
+    const { requestId: _failed, ...running } = s.running!;
+    this.ask(this.replace({ ...s, running, compactFailures: 0, blindRuns: 0 }), transcript ? carriedPrompt(EARLIER_SESSION, transcript, s.prompt) : s.prompt, true);
+  }
+
+  private ask(s: Schedule, prompt = s.prompt, retried = false): void {
+    const requestId = this.deps.ask(prompt, s.channel);
     if (!requestId) return this.end(s.id, { kind: 'failed', error: 'Your agent could not be asked in this chat' });
-    this.replace({ ...started, running: { ...started.running!, requestId } });
+    this.replace({ ...s, running: { ...s.running!, requestId } });
     this.deps.wait(requestId).then(
       () => this.end(s.id, { kind: 'ok' }),
-      (err: unknown) => this.endWithError(s.id, requestId, err),
+      (err: unknown) => this.endWithError(s.id, requestId, err, retried),
     );
   }
 
-  private endWithError(id: string, requestId: string, err: unknown): void {
+  private endWithError(id: string, requestId: string, err: unknown, retried: boolean): void {
     if (this.closed) return;
     if (this.overTime.delete(requestId)) return this.end(id, { kind: 'failed', error: LIMIT_WORDS });
     const text = err instanceof Error ? err.message : String(err);
     const failure = decodeFailure(text);
     if (failure?.kind === 'stopped' || /^Stopped\b/.test(text)) return this.end(id, { kind: 'interrupted' });
+    const s = this.get(id);
+    if (failure?.staleSession && !retried && s?.running?.requestId === requestId && this.chatStillFits(s)) return this.retryInNewSession(s);
     this.end(id, { kind: 'failed', error: text, ...(failure?.kind === 'usage_limit' ? { usageLimit: true } : {}) });
   }
 
   private end(id: string, outcome: ScheduleOutcome): void {
     const s = this.get(id);
+    this.noAsk.delete(id);
     if (!s || this.closed) return;
     const next = applyEnd(s, outcome, this.deps.now());
     this.replace(next);
