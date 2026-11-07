@@ -8,7 +8,7 @@ import type { PhoneBranchStep } from './protocol.js';
  * (core/branch-state.ts), done the Mac's own way. One-click ones (archive, merge the PR, update
  * it) say how they went; the ones Claude does start in the worktree's conversation, where the
  * phone follows them. Merging into the main folder keeps its own sheet (companion.mergeCheck /
- * merge), and opening the PR is the phone's browser: neither comes here. `children` (1.43) answers
+ * merge), and opening the PR is the phone's browser: neither comes here. `children` (1.44) answers
  * the question about a chat's threads, for archive and delete only; left out, they stay, as on the Mac.
  */
 

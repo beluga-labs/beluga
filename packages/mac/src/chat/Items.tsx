@@ -12,7 +12,7 @@ import { Avatar, Button, Dot, Tip, claudeColor, cx, personColor } from '../compo
 import { ActionsContext, ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { openExternal } from '../lib/system.js';
 import { type SignInHow, signInChoices } from './sign-in-choices.js';
-import { sendSteerNow, stopClaude } from '../lib/commands.js';
+import { cancelSteer, sendSteerNow, stopClaude } from '../lib/commands.js';
 import { copyText } from '../lib/copy.js';
 import { useActions } from '../lib/actions.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
@@ -112,23 +112,32 @@ function Folding({ children }: { children: ReactNode }) {
 
 /**
  * Under a message you steered in that Claude hasn't read yet: sent, not read, and (while it waits
- * for Claude's next step) Send now. Once Claude reads it the line goes and the message reads as any other.
+ * for Claude's next step) Send now or Cancel. Once Claude reads it the line goes and the message
+ * reads as any other; cancelled, the message goes and its words are back in the box.
  */
-function SteerWaiting({ steer }: { steer: SteeredMessage }) {
-  const { client } = useBeluga();
+function SteerWaiting({ steer, channel }: { steer: SteeredMessage; channel: string }) {
+  const { client, ui } = useBeluga();
   const stopping = steer.waiting === 'stopping';
   const agent = useMyAgentName();
   return (
     <div className={s.steerWaiting} data-steer-waiting={steer.waiting} role="status">
       <Icon name="clock" size={11} />
-      <span>{stopping ? `Sent · ${agent} is stopping its step to read it` : `Sent · waiting for ${agent} to read it`}</span>
+      <span>{stopping ? `Sent · ${agent} is stopping its step to read it` : `Sent · ${agent} reads it after its current step`}</span>
       {stopping ? null : (
-        <Tip label={`Stop ${agent}’s current step so it reads this now`} keys={shortcutKeys('composer-send-now')}>
-          <button type="button" className={s.steerNow} onClick={() => sendSteerNow(client, steer.request)}>
-            <Icon name="send" size={10} />
-            Send now
-          </button>
-        </Tip>
+        <>
+          <Tip label={`Stop ${agent}’s current step so it reads this now`} keys={shortcutKeys('composer-send-now')}>
+            <button type="button" className={s.steerNow} onClick={() => sendSteerNow(client, steer.request)}>
+              <Icon name="send" size={10} />
+              Send now
+            </button>
+          </Tip>
+          <Tip label={`Take it back before ${agent} reads it: its words go back in the box`}>
+            <button type="button" className={s.steerNow} data-steer-cancel onClick={() => cancelSteer({ client, ui }, steer.request, channel)}>
+              <Icon name="x" size={10} />
+              Cancel
+            </button>
+          </Tip>
+        </>
       )}
     </div>
   );
@@ -202,7 +211,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
             ) : null}
             <ImageGrid images={images} />
             {reactions.chips}
-            {steer ? <SteerWaiting steer={steer} /> : null}
+            {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
             {item.request && item.channel ? <Delivery request={item.request} channel={item.channel} /> : null}
           </div>
         </div>
@@ -238,7 +247,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
             ) : null}
             <ImageGrid images={images} />
             {reactions.chips}
-            {steer ? <SteerWaiting steer={steer} /> : null}
+            {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
           </div>
         </div>
       </ActionsContext>
@@ -275,7 +284,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
           ) : null}
           <ImageGrid images={images} />
           {reactions.chips}
-          {steer ? <SteerWaiting steer={steer} /> : null}
+          {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
         </div>
       </div>
     </ActionsContext>

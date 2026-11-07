@@ -82,7 +82,7 @@ export default function Work() {
                     const st = statusIcon(c.needsYou ? 'waiting' : c.status);
                     const signal = c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null;
                     return (
-                      // A child sits under its parent, one step in (1.43).
+                      // A child sits under its parent, one step in (1.44).
                       <View key={c.topic} style={{ paddingLeft: depth * CHILD_INDENT }}>
                         <Row
                           first={i === 0}

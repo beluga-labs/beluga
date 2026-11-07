@@ -75,7 +75,7 @@ import { familyOf, threadFamilyOf, threadRowOf } from './thread-family.js';
 export { chatTopic, convTopic, dashboardTopic, planTopic, sentinelTopic, taskTopic } from './needs-you.js';
 export { needsYou };
 import { ASSISTANT_CHANNEL, ASSISTANT_TITLE, activeAssistantChannel, assistantChatTitle, isAssistant } from '../shared/assistant.js';
-import { STEERED_IN, type SteeredMessage, asSent, steeredMessages, steerWaiting } from '../shared/claude-notices.js';
+import { STEERED_IN, TAKEN_BACK, type SteeredMessage, asSent, steeredMessages, steerWaiting } from '../shared/claude-notices.js';
 import { slotWaitDetail } from '../shared/run-slots.js';
 import type { DocKey } from './files.js';
 
@@ -562,7 +562,7 @@ function summaryOf(state: DomainState, conv: Conversation, waiting: ReadonlySet<
   const running = agents.filter((a) => isRunning(a.status));
   const lastAgent = agents.at(-1);
   // A note about a steered message ("reads this after its current step") isn't the last thing said.
-  const last = [...items].reverse().find((l) => (l.type === 'chat' || (l.type === 'agent' && !steerWaiting(l) && l.text !== STEERED_IN)) && (l.type === 'chat' ? l.text : l.text || l.prompt));
+  const last = [...items].reverse().find((l) => (l.type === 'chat' || (l.type === 'agent' && !steerWaiting(l) && l.text !== STEERED_IN && l.text !== TAKEN_BACK)) && (l.type === 'chat' ? l.text : l.text || l.prompt));
   const lastText = last?.type === 'chat' ? last.text : last?.type === 'agent' ? last.text || last.prompt || '' : '';
   const status: ConvSummary['status'] = waiting.has(topic) ? 'waiting' : running.length ? 'working' : lastAgent && (lastAgent.status === 'error' || lastAgent.status === 'denied') ? 'failed' : 'idle';
   const lastAt = Math.max(0, ...items.map((l) => (l.type === 'agent' ? (l.lastAt ?? l.endTs ?? l.ts) : l.ts)));

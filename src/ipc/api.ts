@@ -165,11 +165,14 @@ export const API = {
 
   // ---- your Claude's queue and approvals
   'host.answerApproval': args(Answer, id),
-  'host.promote': args(id),
+  // Steer a waiting message now: read at the agent's next step. `interrupt` (a plan's Steer Now): a long command or a stuck turn is stopped for it.
+  'host.promote': args(id, opt(z.object({ interrupt: opt(bool) }))),
   // Send a waiting message next, never interrupting (Send Now).
   'host.sendNext': args(id),
   // Send now a message steered into the running turn that Claude hasn't read yet: its step stops, your message is next (BLG-54).
   'host.steerNow': args(id),
+  // Cancel a message steered into the running turn that Claude hasn't read yet: → { cancelled, prompt: its words, for the box }.
+  'host.cancelSteer': args(id),
   // Stop your Claude in one conversation: → { stopped, returned: your queued prompts, in order }.
   'host.stopRun': args(channel),
   // A person's Stop on one child thread, from the parent's panel.

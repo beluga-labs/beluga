@@ -35,7 +35,7 @@ export interface DemoWorld {
   usage: UsageView[];
   needs: NeedsYou[];
   convs: Map<string, ConvView>;
-  /** What a real Mac adds to Work's rows (1.43): each chat's mark, and the chat a child sits under. */
+  /** What a real Mac adds to Work's rows (1.44): each chat's mark, and the chat a child sits under. */
   threadRows: Readonly<Record<string, Partial<Pick<ConvSummary, 'harness' | 'parent'>>>>;
   projects: { id: string; name: string; convs: string[] }[];
   files: Map<string, DemoFile>;
@@ -482,7 +482,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
     ],
   };
 
-  // ---- child threads of the onboarding work (1.43): one still at work with its own child, one done.
+  // ---- child threads of the onboarding work (1.44): one still at work with its own child, one done.
   const child = (topic: Topic, title: string, working: boolean, text: string, threadFamily: ConvView['threadFamily']): ConvView => ({
     topic,
     title,

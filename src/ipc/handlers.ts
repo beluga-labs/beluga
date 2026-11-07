@@ -100,9 +100,10 @@ export const HANDLERS = {
   },
 
   'host.answerApproval': (s, answer, id) => s.answerApproval(answer, id),
-  'host.promote': (s, requestId) => s.host.promote(requestId),
+  'host.promote': (s, requestId, opts) => s.host.promote(requestId, opts),
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
+  'host.cancelSteer': (s, requestId) => s.host.cancelSteer(requestId),
   'host.stopRun': (s, channel) => stopChat(s, channel),
   'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
     if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');

@@ -12,7 +12,7 @@ import { Sheet } from './Sheet';
 import { Button, haptic, IconBadge, Press, T, type Tone, toneInk } from './ui';
 
 /**
- * A chat's family (1.43), the Mac's Threads panel: the chat that started it, the threads it started,
+ * A chat's family (1.44), the Mac's Threads panel: the chat that started it, the threads it started,
  * how each is doing and Stop on the ones at work. Stopping one stops those under it too. A thread's
  * work stays in its own conversation, a tap away. Native sub-agents are on the conversation's strip.
  */

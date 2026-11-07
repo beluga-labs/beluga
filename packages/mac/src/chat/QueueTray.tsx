@@ -36,7 +36,7 @@ const STEERING_MS = 8_000;
 function SteerButton({ steering, blocked, steerKey, onSteer }: { steering: boolean; blocked?: string; steerKey?: string; onSteer: () => void }) {
   const { client } = useBeluga();
   return (
-    <Tip label={blocked ?? (steering ? 'Steering: sending it to your agent now' : 'Steer: your agent reads this now (a long command is interrupted for it)')} keys={blocked ? undefined : steerKey}>
+    <Tip label={blocked ?? (steering ? 'Steering: sending it to your agent now' : 'Steer: your agent reads this after its current step, without stopping it')} keys={blocked ? undefined : steerKey}>
       <button
         type="button"
         className={cx(s.now, (blocked || steering) && s.nowOff, steering && s.steering)}
