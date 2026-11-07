@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { resolveChat, resolveChatText, resolveChatWhenKnown } from '../src/core/chat-links/resolve.js';
 import { type DomainState, initialState } from '../src/core/store.js';
+import { ChatResolveResult, PhoneCalls } from '../src/companion/calls.js';
+import { phoneMay } from '../src/companion/coverage.js';
 import { assistantChannel } from '../src/shared/assistant.js';
 import { formatChatRef } from '../src/shared/chat-ref.js';
 
@@ -240,5 +242,31 @@ describe('before the first scan of the projects', () => {
     const store = storeOf(scanning());
     expect((await resolveChatWhenKnown(store, text, 5))?.state).toBe('loading');
     expect(store.listeners()).toBe(0);
+  });
+});
+
+describe('what the phone gets', () => {
+  const on = { prefs: { ...initialState('room').prefs, chatLinks: true } };
+
+  it('may call it, with a ref as text', () => {
+    expect(phoneMay('chats.resolve')).toBe(true);
+    expect(PhoneCalls['chats.resolve'].args.safeParse([formatChatRef(own('ws:wt-1'))]).success).toBe(true);
+    expect(PhoneCalls['chats.resolve'].args.safeParse([]).success).toBe(false);
+  });
+
+  it.each([
+    ['idle', own('ws:wt-1'), stateWith(on)],
+    ['archived', own('ws:wt-2'), stateWith(on)],
+    ['working', own('ws:wt-1'), stateWith({ ...on, log: [agentAt('ws:wt-1', 'started')] })],
+    ['removed', own('ws:wt-gone'), stateWith(on)],
+    ['loading', own('ws:wt-1'), stateWith({ ...on, projects: [], projectsLoaded: false })],
+    ['removed', { owner: FRIEND, channel: 'ws:wt-1' }, stateWith(on)],
+  ] as const)('reads a %s answer by its own schema', (expected, ref, state) => {
+    const got = ChatResolveResult.parse(JSON.parse(JSON.stringify(resolveChat(state, ref))));
+    expect(got?.state).toBe(expected);
+  });
+
+  it('reads chat links off as nothing', () => {
+    expect(ChatResolveResult.parse(null)).toBeNull();
   });
 });
