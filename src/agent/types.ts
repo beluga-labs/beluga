@@ -439,6 +439,12 @@ export interface Steer {
    * when Claude read it already, or the run couldn't be interrupted.
    */
   readonly force?: (followUp: FollowUp, note: string) => Promise<boolean>;
+  /**
+   * Take back a message already steered in (this steer took it) that Claude hasn't read yet: it
+   * leaves Claude Code's queue and is never read nor answered. Resolves false when Claude read it
+   * already (or is reading it); rejects when the agent can't take messages back.
+   */
+  readonly cancel?: (followUp: FollowUp) => Promise<boolean>;
 }
 
 export interface AgentPlace {
@@ -518,6 +524,8 @@ export interface AgentBackend {
   nameTask?(prompt: string): Promise<string>;
   /** A short name for a new plan from its goal (a small model names it; undefined when it couldn't). */
   titlePlan?(goal: string): Promise<string | undefined>;
+  /** A title from recent chat content. The call does not use the chat session. */
+  titleChat?(content: string): Promise<string | undefined>;
   /** Answer in a friends' chat from its history (one turn, no tools; core/chat/claude.ts). */
   answerChat?(req: ChatAnswerRequest): Promise<string>;
   /** A side question about a conversation (/btw): a fork of its session, no tools, nothing kept (agent/btw.ts). */

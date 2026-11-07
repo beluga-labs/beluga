@@ -1,7 +1,7 @@
 import type { ThreadChildren } from '../../../src/shared/threads';
-import type { ConvSummary, ThreadFamilyView } from './link/protocol';
+import type { ConvSummary, ThreadCountView } from './link/protocol';
 
-/** Child threads as the phone lists them and asks about them (1.42). Pure: no React. */
+/** Child threads as the phone lists them and asks about them (1.44). Pure: no React. */
 
 export interface ConvRow {
   readonly conv: ConvSummary;
@@ -35,13 +35,13 @@ export function nestRows(convs: readonly ConvSummary[]): ConvRow[] {
  * The answer an archive or a delete sends. Undefined: nothing was asked, and the call stays as it
  * was. An older Mac refuses an argument it doesn't know, and keeps the children anyway.
  */
-export function branchChildren(supported: boolean, family: ThreadFamilyView | undefined, too: boolean): ThreadChildren | undefined {
+export function branchChildren(supported: boolean, family: ThreadCountView | undefined, too: boolean): ThreadChildren | undefined {
   if (!supported || !family?.count) return undefined;
   return too ? 'with' : 'keep';
 }
 
 /** The one question about a chat's threads, in the Mac's words (ThreadsChoice.tsx). */
-export function threadsQuestion(action: 'archive' | 'delete', family: ThreadFamilyView): { readonly label: string; readonly detail: string } {
+export function threadsQuestion(action: 'archive' | 'delete', family: ThreadCountView): { readonly label: string; readonly detail: string } {
   const them = `its ${family.count} ${family.count === 1 ? 'thread' : 'threads'}`;
   const working = family.running ? ` ${family.running} ${family.running === 1 ? 'is' : 'are'} working now and would stop.` : '';
   const keep = 'Unticked, they stay as chats of their own and keep working.';

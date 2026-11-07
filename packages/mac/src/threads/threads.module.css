@@ -1,4 +1,4 @@
-/* The Lineage panel: one hover background across a row; Stop takes the timer's place. */
+/* The Threads panel: one hover background across a row; Stop takes the timer's place. */
 .list {
   display: flex;
   flex-direction: column;

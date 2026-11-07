@@ -31,7 +31,7 @@ const family = () => [ws('top', { agent: codex }), ws('kid', { thread: thread('w
 describe('the protocol', () => {
   it('raises the minor and gates threads in SINCE', () => {
     expect(COMPANION_PROTO.minor).toBeGreaterThanOrEqual(SINCE.threads);
-    expect(SINCE.threads).toBe(42);
+    expect(SINCE.threads).toBe(44);
   });
 });
 
@@ -60,35 +60,35 @@ describe('Work', () => {
   });
 });
 
-describe('a chat’s Lineage', () => {
+describe('a chat’s Threads', () => {
   it('for a parent: its children, the most urgent first, and every working thread to stop, deepest first', () => {
     const st = state([...family(), ws('later', { thread: thread('ws:top', 9, { outcome: { state: 'done', summary: 'Ran `rm -rf`', at: 10, delivered: true } }) })], true, { log: [running('ws:kid'), running('ws:grand')] as never });
-    const { lineage } = conv(st, 'top');
-    expect(lineage?.parent).toBeUndefined();
-    expect(lineage?.children.map((c) => [c.id, c.state, c.working])).toEqual([['kid', 'running', true], ['later', 'done', false]]);
-    expect(lineage?.children[0]).toMatchObject({ topic: 'conv:ws:kid', title: 'kid chat' });
-    expect(lineage?.stoppable).toEqual(['grand', 'kid']);
+    const { threadFamily } = conv(st, 'top');
+    expect(threadFamily?.parent).toBeUndefined();
+    expect(threadFamily?.children.map((c) => [c.id, c.state, c.working])).toEqual([['kid', 'running', true], ['later', 'done', false]]);
+    expect(threadFamily?.children[0]).toMatchObject({ topic: 'conv:ws:kid', title: 'kid chat' });
+    expect(threadFamily?.stoppable).toEqual(['grand', 'kid']);
   });
 
   it('for a child: the parent to open, with its live state', () => {
-    const { lineage } = conv(state(family(), true, { log: [running('ws:top')] as never }), 'kid');
-    expect(lineage?.parent).toEqual({ title: 'top chat', topic: 'conv:ws:top', gone: false, state: 'running' });
-    expect(lineage?.children.map((c) => c.id)).toEqual(['grand']);
+    const { threadFamily } = conv(state(family(), true, { log: [running('ws:top')] as never }), 'kid');
+    expect(threadFamily?.parent).toEqual({ title: 'top chat', topic: 'conv:ws:top', gone: false, state: 'running' });
+    expect(threadFamily?.children.map((c) => c.id)).toEqual(['grand']);
   });
 
   it('for a gone parent: its title in words, nothing to open', () => {
-    const { lineage } = conv(state([ws('kid', { thread: thread('ws:top') })]), 'kid');
-    expect(lineage?.parent).toEqual({ title: 'Old title', gone: true });
+    const { threadFamily } = conv(state([ws('kid', { thread: thread('ws:top') })]), 'kid');
+    expect(threadFamily?.parent).toEqual({ title: 'Old title', gone: true });
   });
 
   it('carries no code: a thread’s task and result stay off the phone', () => {
     const st = state([ws('top'), ws('kid', { thread: thread('ws:top', 1, { outcome: { state: 'done', summary: 'Ran `rm -rf`', at: 2, delivered: true } }) })]);
-    expect(JSON.stringify(conv(st, 'top').lineage)).not.toMatch(/rm -rf|SECRET/);
+    expect(JSON.stringify(conv(st, 'top').threadFamily)).not.toMatch(/rm -rf|SECRET/);
   });
 
   it('is unset with threads off, and for a chat with no family', () => {
-    expect(conv(state(family(), false), 'top').lineage).toBeUndefined();
-    expect(conv(state([ws('alone')]), 'alone').lineage).toBeUndefined();
+    expect(conv(state(family(), false), 'top').threadFamily).toBeUndefined();
+    expect(conv(state([ws('alone')]), 'alone').threadFamily).toBeUndefined();
   });
 });
 

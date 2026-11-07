@@ -100,9 +100,10 @@ export const HANDLERS = {
   },
 
   'host.answerApproval': (s, answer, id) => s.answerApproval(answer, id),
-  'host.promote': (s, requestId) => s.host.promote(requestId),
+  'host.promote': (s, requestId, opts) => s.host.promote(requestId, opts),
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
+  'host.cancelSteer': (s, requestId) => s.host.cancelSteer(requestId),
   'host.stopRun': (s, channel) => stopChat(s, channel),
   'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
     if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
@@ -185,6 +186,7 @@ export const HANDLERS = {
     const { mediaType, bytes } = await s.files.readImageFile(at);
     return { mediaType, data: bytes.toString('base64') };
   },
+  'files.version': (s, at) => s.files.fileVersion(at),
   'files.read': (s, at) => s.files.readFile(at),
 
   'workspaces.open': (s, id, tab, o) => ctl(s)?.open(id, tab, o?.req),
@@ -220,6 +222,8 @@ export const HANDLERS = {
   'workspaces.setGroup': (s, projectId, group) => ctl(s)?.setGroup(projectId, group),
   'workspaces.renameGroup': (s, from, to) => ctl(s)?.renameGroup(from, to),
   'workspaces.rename': (s, id, name) => ctl(s)?.rename(id, name),
+  'workspaces.regenerateTitle': (s, id) => ctl(s)?.regenerateTitle(id),
+  'workspaces.remindLater': (s, id, at) => ctl(s)?.remindLater(id, at ?? null),
   'workspaces.ungroup': (s, name) => ctl(s)?.ungroup(name),
   'workspaces.arrange': (s, item, place) => ctl(s)?.arrange(item, place ?? {}) ?? false,
   'workspaces.newGroup': (s, name, opts) => ctl(s)?.newGroup(name, opts ?? {}),
@@ -260,6 +264,8 @@ export const HANDLERS = {
   'workbench.openPr': (s, id) => bench(s)?.openPr(id),
   'workbench.mergePr': (s, id, opts) => bench(s)?.mergePr(id, opts),
   'workbench.prStep': (s, id, step) => bench(s)?.prStep(id, step),
+  'workbench.pushPr': (s, id) => bench(s)?.pushPr(id),
+  'workbench.rerunChecks': (s, id) => bench(s)?.rerunChecks(id),
   'workbench.prConversation': (s, id) => bench(s)?.prConversation(id),
   'workbench.prPost': (s, id, post) => bench(s)?.prPost(id, post),
   'workbench.addressPrComments': (s, id, thread) => bench(s)?.addressPrComments(id, thread),

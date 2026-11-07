@@ -24,7 +24,7 @@ import { openDm } from '../network/use-net.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import s from './Inspector.module.css';
 import { fileManager } from '../lib/os-words.js';
-import { LineageSection } from '../lineage/LineageSection.js';
+import { ThreadsSection } from '../threads/ThreadsSection.js';
 import { Panel } from './inspector-parts.js';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -180,7 +180,7 @@ function WorkspaceDetails({ id }: { id: string }) {
   const project = state.projects.find((p) => p.id === ws.projectId);
   return (
     <>
-      <LineageSection id={id} />
+      <ThreadsSection id={id} />
       <Panel title="This workspace">
         <Field label="State">
           <span className={s[`tone_${st.tone}`]}>{st.label}</span>

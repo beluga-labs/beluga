@@ -1,8 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
+import { resetWords } from '../../../../src/shared/run-failure';
 import { KeyboardLift } from '../../components/KeyboardLift';
-import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, Network, OctagonX, Plus, Send, Square, SquareTerminal, Trash2 } from 'lucide-react-native';
+import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, Network, OctagonX, Plus, Send, Square, SquareTerminal, Trash2, Undo2 } from 'lucide-react-native';
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
-import { LineageSheet, lineageSummary } from '../../components/Lineage';
+import { ThreadsSheet, threadsSummary } from '../../components/ThreadsSheet';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
 import { openOnMac } from '../../lib/mac';
@@ -85,12 +86,15 @@ export default function Conversation() {
   const [menu, setMenu] = useState(false);
   /** A steered message of yours Claude hasn't read yet, long-pressed: its sheet offers Send now. */
   const [unread, setUnread] = useState<TurnView | undefined>();
+  // A steered message you took back: its words, back in the box.
+  const [refill, setRefill] = useState<{ text: string; key: number } | undefined>();
   /** Your message, long-pressed to edit it (1.28): Rewind Here or New Fork. */
   const [editing, setEditing] = useState<TurnView | undefined>();
   const [picking, setPicking] = useState(false);
   const canEdit = useSupports('editPrompt');
   // 1.41 (BLG-702): a person's message in the room's or a workspace's chat takes emoji reactions.
   const reacts = useSupports('reactions');
+  const supportsCancel = useSupports('cancelSteer');
   const [reacting, setReacting] = useState<TurnView | undefined>();
   const react = (t: TurnView, emoji: string, on: boolean): void => void store.call(calls.reactTurn(topic, t.id, emoji, on), { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
   const chipsOf = (t: TurnView) => (reacts && t.reactions?.length ? <ReactionChips reactions={t.reactions} mine={t.who === 'you'} onToggle={(e, on) => react(t, e, on)} onWho={(text) => store.toast({ text, tone: 'info' })} /> : null);
@@ -111,7 +115,7 @@ export default function Conversation() {
   const all: OutputView[] = c ? (c.outputs ?? c.turns.flatMap((t) => [...(t.outputs ?? []), ...(t.subagents ?? []).flatMap((a) => a.outputs)])) : [];
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [lineageOpen, setLineageOpen] = useState(false);
+  const [threadsOpen, setThreadsOpen] = useState(false);
   // What waits its turn is in the queue above the composer, not a turn of its own.
   const turns = c ? c.turns.filter((t) => !(c.queue && t.who === 'claude' && t.status === 'queued')) : [];
   // A worktree (or chat folder) of yours has files to read and terminals to share with the Mac (1.7).
@@ -243,6 +247,7 @@ export default function Conversation() {
           </ScrollView>
           {c?.terminal ? <TerminalBand label={c.terminal.label} onTakeOver={() => void store.call(calls.takeOver(topic)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))} /> : null}
           <Composer
+            {...(refill ? { refill } : {})}
             placeholder={c?.waiting ?? (c?.working ? 'What’s next for your agent…' : 'Reply to your agent…')}
             working={c?.working}
             // The room: "@codex", "@bob:codex" as you type @ (BLG-520).
@@ -301,7 +306,7 @@ export default function Conversation() {
         </Sheet>
         {c?.mergeable ? <MergeSheet topic={topic} visible={mergeOpen} onClose={() => setMergeOpen(false)} /> : null}
         <EditPromptSheet turn={editing} onClose={() => setEditing(undefined)} />
-        <LineageSheet lineage={c?.lineage} visible={lineageOpen} onClose={() => setLineageOpen(false)} />
+        <ThreadsSheet threadFamily={c?.threadFamily} visible={threadsOpen} onClose={() => setThreadsOpen(false)} />
         <Options
           visible={Boolean(reacting)}
           onClose={() => setReacting(undefined)}
@@ -336,6 +341,24 @@ export default function Conversation() {
                 if (request) void store.call(calls.steerNow(request)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
               },
             },
+            {
+              Icon: Undo2,
+              label: 'Cancel',
+              sub: 'Takes it back before your agent reads it; its words go back in the box',
+              tone: 'rose',
+              hidden: !supportsCancel,
+              onPress: () => {
+                const request = unread?.steer?.request;
+                if (!request) return;
+                void store
+                  .call(calls.cancelSteer(request))
+                  .then((r) => {
+                    const back = r as { cancelled?: boolean; prompt?: string } | undefined;
+                    if (back?.cancelled && back.prompt) setRefill({ text: back.prompt, key: Date.now() });
+                  })
+                  .catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+              },
+            },
           ]}
         />
         <Options
@@ -346,7 +369,7 @@ export default function Conversation() {
             { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !c?.agent || !store.supports('agentPicker'), onPress: () => setPicking(true) },
             { Icon: Plus, label: 'New chat', sub: 'A fresh chat with your Mac, a new tab there too', tone: 'sky', hidden: !macChats, onPress: () => newMacChat((h) => router.replace(h as never)) },
             { Icon: Square, label: askedTask ? 'Stop asking' : 'Stop the agent', tone: 'rose', hidden: !c?.working, onPress: () => void store.call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic)) },
-            { Icon: Network, label: 'Lineage', sub: lineageSummary(c?.lineage), tone: 'lavender', hidden: !c?.lineage, onPress: () => setLineageOpen(true) },
+            { Icon: Network, label: 'Threads', sub: threadsSummary(c?.threadFamily), tone: 'lavender', hidden: !c?.threadFamily, onPress: () => setThreadsOpen(true) },
             { Icon: Images, label: 'Outputs', sub: all.length ? `${all.length} from this worktree` : 'Nothing yet', tone: 'sky', hidden: !all.length, onPress: () => setOutputsOpen(true) },
             { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: !c?.mergeable || !store.supports('merge') || Boolean(c?.branch), onPress: () => setMergeOpen(true) },
             { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: !hasFolder || !store.supports('files'), onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },
@@ -375,7 +398,7 @@ export default function Conversation() {
   );
 }
 
-/** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now); else long-press edits it (1.28). */
+/** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now, or Cancel from 1.43); else long-press edits it (1.28). */
 function YourTurn({ t, onLongPress, chips }: { t: TurnView; onLongPress?: (() => void) | undefined; chips?: React.ReactNode }) {
   const waiting = t.steer?.waiting;
   return (
@@ -387,7 +410,7 @@ function YourTurn({ t, onLongPress, chips }: { t: TurnView; onLongPress?: (() =>
       {waiting ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, marginRight: 4 }}>
           <Clock color={color.text2} size={12} />
-          <T v="caption">{waiting === 'stopping' ? 'Sent · your agent is stopping its step to read it' : 'Sent · waiting for your agent to read it'}</T>
+          <T v="caption">{waiting === 'stopping' ? 'Sent · your agent is stopping its step to read it' : 'Sent · your agent reads it after its current step'}</T>
         </View>
       ) : (
         <T v="caption" style={{ marginTop: 4, marginRight: 4 }}>
@@ -497,6 +520,15 @@ function ClaudeTurn({ t, all, onAgent, topic, runtime, chips }: { t: TurnView; a
           {t.status === 'failed' ? <CircleX color={color.error} size={14} /> : <OctagonX color={color.text2} size={14} />}
           <T v="caption" c={t.status === 'failed' ? color.error : color.text2}>
             {t.status === 'failed' ? 'Failed' : 'Stopped'}
+          </T>
+        </View>
+      ) : null}
+      {t.resumesAt ? (
+        // 1.42 (BLG-757): stopped on your usage limit; Beluga tells it to continue once the limit resets.
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Clock color={color.text2} size={14} />
+          <T v="caption" c={color.text2}>
+            Continues on its own at {resetWords(t.resumesAt)}
           </T>
         </View>
       ) : null}

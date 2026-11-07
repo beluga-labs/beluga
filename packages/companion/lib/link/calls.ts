@@ -75,8 +75,8 @@ export const calls = {
   cancelTask: (id: string): Call => make('gateway.cancel', [id], 'Stop asking'),
   forgetTask: (id: string): Call => make('gateway.forget', [id], 'Remove'),
   /**
-   * While Claude works, as the Mac's composer: Steer gives it your words now (at its next step; a
-   * long command is interrupted for it), Queue lets it finish first. The same `session.submit` the
+   * While Claude works, as the Mac's composer: Steer gives it your words at its next step (never
+   * stopping it), Queue lets it finish first. The same `session.submit` the
    * Mac sends (`urgent` for Steer).
    */
   steer: (topic: Topic, text: string): Call => make('session.submit', [text, { channel: channelOf(topic), urgent: true }], `Steer "${short(text)}"`),
@@ -112,11 +112,13 @@ export const calls = {
   resolve: (topic: Topic): Call => make('companion.resolve', [topic], 'Ask your agent to resolve'),
   /** 1.8: one of a worktree's branch steps (Archive, Squash and Merge, Fix with Claude…), as the Mac's toolbar does it. */
   branchStep: (topic: Topic, step: PhoneBranchStep, label: string, children?: ThreadChildren): Call => make('companion.branchStep', children ? [topic, step, children] : [topic, step], label),
-  /** 1.42: one child thread and those under it stop, as the Mac's Lineage panel does it. */
+  /** 1.44: one child thread and those under it stop, as the Mac's Threads panel does it. */
   stopThread: (id: string): Call => make('threads.stop', [id], 'Stop the thread'),
   stopThreads: (id: string): Call => make('threads.stopAll', [id], 'Stop the threads'),
   /** Your steered message Claude hasn't read yet, now: its step stops and it reads it next. */
   steerNow: (request: string): Call => make('host.steerNow', [request], 'Send now'),
+  /** 1.43: your steered message Claude hasn't read yet, taken back → { cancelled, prompt: its words, for the box }. */
+  cancelSteer: (request: string): Call => make('host.cancelSteer', [request], 'Cancel'),
   /** 1.28 (BLG-387): a message you sent, edited: the conversation rewinds to it ('here') or goes on in a new fork → where it went on. */
   editPrompt: (ws: string, turn: string, text: string, mode: 'here' | 'fork'): Call => make('workspaces.editPrompt', [ws, turn, text, mode], mode === 'here' ? 'Rewind and send' : 'Fork and send'),
   /** 1.7: a worktree's files, read-only: a folder ('' is the top), names that match, a page of a file. */

@@ -55,6 +55,7 @@ export const PHONE: Record<Method, Side> = {
   'host.sendNext': 'phone',
   // Your steered message Claude hasn't read yet, answered now: like Stop, phone-sized.
   'host.steerNow': 'phone',
+  'host.cancelSteer': 'phone',
   'host.stopRun': 'phone',
   // Stop one child thread: like Stop, phone-sized.
   'threads.stop': 'phone',
@@ -114,6 +115,7 @@ export const PHONE: Record<Method, Side> = {
   'files.closeViewer': 'mac',
   'files.readImage': 'mac',
   'files.readImageFile': 'mac',
+  'files.version': 'mac',
   'files.read': 'mac',
 
   // ---- projects and workspaces: a new chat in a project, and loading a conversation to read it
@@ -149,6 +151,8 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.setGroup': 'mac',
   'workspaces.renameGroup': 'mac',
   'workspaces.rename': 'mac',
+  'workspaces.regenerateTitle': 'mac',
+  'workspaces.remindLater': 'mac',
   'workspaces.ungroup': 'mac',
   'workspaces.arrange': 'mac',
   'workspaces.newGroup': 'mac',
@@ -191,6 +195,9 @@ export const PHONE: Record<Method, Side> = {
   'workbench.openPr': 'mac',
   'workbench.mergePr': 'mac',
   'workbench.prStep': 'mac',
+  // The phone pushes and re-runs through companion.branchStep (push, rerun_checks).
+  'workbench.pushPr': 'mac',
+  'workbench.rerunChecks': 'mac',
   'workbench.prConversation': 'mac',
   'workbench.prPost': 'mac',
   'workbench.addressPrComments': 'mac',

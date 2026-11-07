@@ -2,13 +2,13 @@ import { stopOrder } from '../core/threads/model.js';
 import type { DomainState } from '../core/store.js';
 import { defaultAgentOf } from '../protocol.js';
 import { isThreadWorking } from '../shared/threads.js';
-import { type ThreadNesting, threadFamily, threadNodes, threadParent, threadRank, threadStateOf } from '../ui/thread-lineage.js';
+import { type ThreadNesting, threadFamily, threadNodes, threadParent, threadRank, threadStateOf } from '../ui/thread-tree.js';
 import type { Workspace } from '../workspaces/types.js';
 import { agentRefView, clip, convTopic } from './needs-you.js';
-import type { BranchView, ConvSummary, ConvView, LineageView, Topic } from './protocol.js';
+import type { BranchView, ConvSummary, ConvView, ThreadFamilyView, Topic } from './protocol.js';
 
 /**
- * Child threads on the phone (1.42), read by the Mac's own rules (ui/thread-lineage.ts). With threads
+ * Child threads on the phone (1.44), read by the Mac's own rules (ui/thread-tree.ts). With threads
  * off a chat says nothing about them, as on the Mac, except what an archive or a delete would touch:
  * the records stay after the setting is turned off.
  */
@@ -23,8 +23,8 @@ export function threadRowOf(state: DomainState, channel: string, nesting: Thread
   return { harness: agentRefView(ws.agent ?? defaultAgentOf(state.self)), ...(parent ? { parent } : {}) };
 }
 
-/** A chat's family, for its Lineage sheet. */
-export function lineageOf(state: DomainState, channel: string): Pick<ConvView, 'lineage'> {
+/** A chat's family, for its Threads sheet. */
+export function threadFamilyOf(state: DomainState, channel: string): Pick<ConvView, 'threadFamily'> {
   const ws = own(state, channel);
   if (!ws || !state.prefs.agentThreads) return {};
   const live = state.projects.flatMap((p) => p.workspaces).filter((w) => !w.archived);
@@ -33,7 +33,7 @@ export function lineageOf(state: DomainState, channel: string): Pick<ConvView, '
   const byId = new Map(live.map((w) => [w.id, w]));
   const stateOf = (w: Workspace) => threadStateOf(state, w) ?? 'queued';
   const children = found.sort((a, b) => threadRank(stateOf(a)) - threadRank(stateOf(b)) || a.thread!.startedAt - b.thread!.startedAt).slice(0, 100);
-  const lineage: LineageView = {
+  const family: ThreadFamilyView = {
     ...(ws.thread ? { parent: parentOf(state, ws, byId) } : {}),
     children: children.flatMap((w) => {
       const topic = convTopic(`${WS}${w.id}`);
@@ -45,7 +45,7 @@ export function lineageOf(state: DomainState, channel: string): Pick<ConvView, '
       .slice(0, 200)
       .map((n) => n.id),
   };
-  return { lineage };
+  return { threadFamily: family };
 }
 
 /** What archiving or deleting this chat would ask about. Same counts as the Mac's dialogs. */
@@ -54,7 +54,7 @@ export function familyOf(state: DomainState, id: string): Pick<BranchView, 'thre
   return del.count ? { threads: { archive: threadFamily(state, id, 'archive'), delete: del } } : {};
 }
 
-function parentOf(state: DomainState, ws: Workspace, byId: ReadonlyMap<string, Workspace>): NonNullable<LineageView['parent']> {
+function parentOf(state: DomainState, ws: Workspace, byId: ReadonlyMap<string, Workspace>): NonNullable<ThreadFamilyView['parent']> {
   const p = threadParent(state, ws, byId);
   const topic: Topic | undefined = p.openId ? convTopic(`${WS}${p.openId}`) : undefined;
   return { title: clip(p.title, 300), gone: p.gone, ...(topic ? { topic } : {}), ...(p.state ? { state: p.state } : {}) };

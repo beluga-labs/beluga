@@ -20,7 +20,7 @@ export interface ThreadNesting {
   readonly under: ReadonlyMap<string, readonly Workspace[]>;
 }
 
-export interface LineageParent {
+export interface ThreadFamilyParent {
   readonly title: string;
   readonly state?: ThreadState;
   /** The chat to open. Unset: the parent is gone, or it is not a workspace chat. */
@@ -82,7 +82,7 @@ export function threadStateOf(state: LiveSource, ws: Workspace): ThreadState | u
 }
 
 /** The chat that started a thread. `byId`: the chats that are live. */
-export function threadParent(state: LiveSource & Pick<AppState, 'assistant'>, ws: Workspace, byId: ReadonlyMap<string, Workspace>): LineageParent {
+export function threadParent(state: LiveSource & Pick<AppState, 'assistant'>, ws: Workspace, byId: ReadonlyMap<string, Workspace>): ThreadFamilyParent {
   const thread = ws.thread!;
   const id = parentIdOf(ws);
   const parent = id === undefined ? undefined : byId.get(id);

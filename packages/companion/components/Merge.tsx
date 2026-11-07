@@ -1,11 +1,11 @@
 import { router } from 'expo-router';
-import { Archive as ArchiveIcon, ArrowRight, Check, CircleAlert, Clock, FileWarning, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest, Info, type LucideIcon, RefreshCw, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react-native';
+import { Archive as ArchiveIcon, ArrowRight, Check, CircleAlert, Clock, FileWarning, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest, Info, type LucideIcon, RefreshCw, Sparkles, Trash2, TriangleAlert, Upload, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { calls } from '../lib/link/calls';
 import type { ThreadChildren } from '../../../src/shared/threads';
-import type { BranchStepView, BranchView, MergeCheckView, MergeView, PhoneBranchStep, ThreadFamilyView, Topic } from '../lib/link/protocol';
+import type { BranchStepView, BranchView, MergeCheckView, MergeView, PhoneBranchStep, ThreadCountView, Topic } from '../lib/link/protocol';
 import { openOnMac } from '../lib/mac';
 import { store } from '../lib/store';
 import { color } from '../lib/theme';
@@ -202,7 +202,7 @@ const BRANCH_TONE: Record<string, { tone: Tone; Icon: typeof Check }> = {
 };
 
 /** Each step's icon (Claude's steps get Claude's sparkle). */
-const STEP_ICON: Record<string, LucideIcon> = { merge_pr: GitMerge, merge_auto: Clock, cancel_auto: X, merge_admin: GitMerge, merge: GitMerge, update_branch: RefreshCw, mark_ready: Check, open_pr: GitPullRequest, pr: GitPullRequest, pr_draft: GitPullRequest, pr_original: GitPullRequest, commit: GitCommitHorizontal, continue_after_merge: GitBranch, archive: ArchiveIcon, delete: Trash2 };
+const STEP_ICON: Record<string, LucideIcon> = { merge_pr: GitMerge, merge_auto: Clock, cancel_auto: X, merge_admin: GitMerge, merge: GitMerge, update_branch: RefreshCw, mark_ready: Check, open_pr: GitPullRequest, pr: GitPullRequest, pr_draft: GitPullRequest, pr_original: GitPullRequest, commit: GitCommitHorizontal, continue_after_merge: GitBranch, archive: ArchiveIcon, delete: Trash2, push: Upload, rerun_checks: RefreshCw };
 const iconOf = (s: BranchStepView): LucideIcon => (s.claude ? Sparkles : (STEP_ICON[s.id] ?? GitBranch));
 const toneOf = (s: BranchStepView): Tone => (s.danger ? 'rose' : s.claude ? 'peach' : s.id === 'archive' ? 'sky' : 'lavender');
 const bare = (label: string): string => label.replace(/…$/, '');
@@ -221,7 +221,7 @@ export function BranchBand({ topic, branch, canMerge, onMerge }: { readonly topi
   const [asking, setAsking] = useState<BranchStepView | undefined>();
   const [busy, setBusy] = useState<string | undefined>();
   const [too, setToo] = useState(false);
-  const familyOf = (step: BranchStepView | undefined): ThreadFamilyView | undefined => (step?.id === 'archive' ? branch.threads?.archive : step?.id === 'delete' ? branch.threads?.delete : undefined);
+  const familyOf = (step: BranchStepView | undefined): ThreadCountView | undefined => (step?.id === 'archive' ? branch.threads?.archive : step?.id === 'delete' ? branch.threads?.delete : undefined);
   const resolve = () => {
     haptic.commit();
     void store.call(calls.resolve(topic), { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
