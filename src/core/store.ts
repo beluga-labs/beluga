@@ -146,6 +146,9 @@ export interface ScheduleMark {
   readonly title: string;
   readonly prompt: string;
   readonly due: number;
+  /** How many slots this run stands for, and how many passed while the computer was off. Older saved lines have neither. */
+  readonly slots?: number;
+  readonly missed?: number;
   /** Not a run: the line that says failures paused it, which offers Resume. */
   readonly paused?: boolean;
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ScheduleView } from '../src/core/schedule/model.js';
 import { ScheduleInputSchema, type ScheduleWhen } from '../src/core/schedule/schema.js';
 import { initialState, type AppState } from '../src/core/store.js';
-import { MAC_CHATS, chatMarks, dueWords, draftOf, draftProblem, inputOf, isDirty, newDraft, nextIn, rowStatus, scheduleChannel, scheduleLine, scheduleProblem, statusTone, whenLabel, type RowStatus, type TimeWords } from '../packages/mac/src/schedule/schedule-model.js';
+import { MAC_CHATS, chatMarks, dueWords, draftOf, runWords, draftProblem, inputOf, isDirty, newDraft, nextIn, rowStatus, scheduleChannel, scheduleLine, scheduleProblem, statusTone, whenLabel, type RowStatus, type TimeWords } from '../packages/mac/src/schedule/schedule-model.js';
 
 const NOW = new Date(2026, 10, 7, 18, 0).getTime();
 const MIN = 60_000;
@@ -101,6 +101,21 @@ describe('the sidebar mark', () => {
 describe('the run line', () => {
   it('says when it was due, in the time format', () => {
     expect(dueWords(new Date(2026, 10, 7, 21, 0).getTime(), words)).toBe('due 21:00');
+  });
+});
+
+describe('the run line’s words', () => {
+  const due = new Date(2026, 10, 7, 21, 0).getTime();
+
+  it('adds the counts after the due time', () => {
+    expect(runWords({ due, slots: 3, missed: 0 }, words)).toEqual(['due 21:00', 'merged 3 slots']);
+    expect(runWords({ due, slots: 1, missed: 2 }, words)).toEqual(['due 21:00', 'missed 2 runs while this computer was off']);
+    expect(runWords({ due, slots: 3, missed: 2 }, words)).toEqual(['due 21:00', 'merged 3 slots', 'missed 2 runs while this computer was off']);
+  });
+
+  it('shows only the due time for a plain run, and for an old saved line with no counts', () => {
+    expect(runWords({ due, slots: 1, missed: 0 }, words)).toEqual(['due 21:00']);
+    expect(runWords({ due }, words)).toEqual(['due 21:00']);
   });
 });
 

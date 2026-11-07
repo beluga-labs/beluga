@@ -54,19 +54,19 @@ export function ScheduleControls({ value: t, onChange: set, hideMissed }: { valu
         </div>
       ) : null}
       {hideMissed ? null : (
-          <div className={s.controlRow}>
-            <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
-            <Select
-              label={`If my ${computerWord()} was asleep`}
-              size="small"
-              value={t.missed}
-              options={[
-                { value: 'catch-up', label: 'Run as soon as it wakes', description: 'Once, however many runs it missed' },
-                { value: 'skip', label: 'Skip that run', description: 'It waits for the next one' },
-              ]}
-              onChange={(missed) => set({ ...t, missed })}
-            />
-          </div>
+        <div className={s.controlRow}>
+          <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
+          <Select
+            label={`If my ${computerWord()} was asleep`}
+            size="small"
+            value={t.missed}
+            options={[
+              { value: 'catch-up', label: 'Run as soon as it wakes', description: 'Once, however many runs it missed' },
+              { value: 'skip', label: 'Skip that run', description: 'It waits for the next one' },
+            ]}
+            onChange={(missed) => set({ ...t, missed })}
+          />
+        </div>
       )}
     </>
   );

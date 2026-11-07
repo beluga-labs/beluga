@@ -105,7 +105,7 @@
   gap: 6px;
   min-height: 22px;
   min-width: 0;
-  max-width: 70%;
+  max-width: 85%;
   padding: 0 9px;
   border-radius: 11px;
   color: inherit;
@@ -120,10 +120,16 @@ button.runLabel:focus-visible {
   outline-offset: 1px;
 }
 .runTitle {
+  flex: none;
+  max-width: 40%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.runWords {
+  min-width: 0;
+  text-align: left;
 }
 .chev {
   flex: none;

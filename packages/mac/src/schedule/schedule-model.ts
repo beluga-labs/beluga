@@ -1,5 +1,5 @@
 import { findWorkspace } from '../../../../src/ui/workspace-models.js';
-import type { ScheduleStatus, ScheduleView } from '../../../../src/core/schedule/model.js';
+import { runExtras, type ScheduleStatus, type ScheduleView } from '../../../../src/core/schedule/model.js';
 import type { Schedule, ScheduleInput, ScheduleWhen } from '../../../../src/core/schedule/schema.js';
 import type { AppState } from '../../../../src/core/store.js';
 import { ASSISTANT_TITLE, activeAssistantChannel, assistantChannel, isAssistant } from '../../../../src/shared/assistant.js';
@@ -149,6 +149,11 @@ export function nextIn(next: number, now: number): string {
 
 /** The words on the run line beside its title: "due 21:00". */
 export const dueWords = (due: number, words: TimeWords = SYSTEM_TIME): string => `due ${words.time(due)}`;
+
+/** The words on a run line after its title: the due time, then what the run stands for. */
+export function runWords(run: { readonly due: number; readonly slots?: number; readonly missed?: number }, words: TimeWords = SYSTEM_TIME): string[] {
+  return [dueWords(run.due, words), ...runExtras(run)];
+}
 
 /** A row's line: "Every day at 21:00 · next in 3 h". */
 export function scheduleLine(s: ScheduleView, now: number, words: TimeWords = SYSTEM_TIME): string {

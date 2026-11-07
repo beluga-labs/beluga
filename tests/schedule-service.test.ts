@@ -92,6 +92,7 @@ describe('a schedule in a chat', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(h.runs).toHaveLength(2);
     expect(h.lines(channel).some((l) => l.endsWith('merged 5 slots'))).toBe(true);
+    expect(h.store.getState().log.find((l) => l.type === 'system' && l.schedule?.id === made.id)).toMatchObject({ schedule: { slots: 5, missed: 0 } });
   });
 
   it('lets a user message sent during a pending occurrence run first', { timeout: 20_000 }, async () => {

@@ -3,7 +3,7 @@ import type { LogItem, ScheduleMark } from '@beluga/core/store.js';
 import { Icon } from '../components/Icon.js';
 import { Button, cx } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
-import { dueWords } from './schedule-model.js';
+import { runWords } from './schedule-model.js';
 import c from './schedule.module.css';
 
 type ScheduleItem = Extract<LogItem, { type: 'system' }> & { readonly schedule: ScheduleMark };
@@ -25,7 +25,7 @@ function RunLine({ item }: { item: ScheduleItem }) {
         <button type="button" className={c.runLabel} aria-expanded={open} title={open ? 'Fold the prompt' : 'Show the prompt'} onClick={() => setOpen(!open)}>
           <Icon name="clock" size={11} />
           <span className={c.runTitle}>{m.title}</span>
-          <span>· {dueWords(m.due)}</span>
+          <span className={c.runWords}>· {runWords(m).join(' · ')}</span>
           <Icon name="chevronRight" size={9} className={cx(c.chev, open && c.chevOpen)} />
         </button>
       </div>

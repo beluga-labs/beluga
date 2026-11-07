@@ -294,7 +294,7 @@ export class Schedules {
   }
 
   private fire(s: Schedule, decision: Extract<Decision, { kind: 'run' }>, now: number): void {
-    this.say(s.channel, runLine(s.title, decision, this.clockOpts()), 'info', { id: s.id, title: s.title, prompt: s.prompt, due: decision.due });
+    this.say(s.channel, runLine(s.title, decision, this.clockOpts()), 'info', { id: s.id, title: s.title, prompt: s.prompt, due: decision.due, slots: decision.slots, missed: decision.missed });
     const started = this.replace(applyDecision(s, decision, now));
     if (started.context === 'fresh') {
       this.deps.forget(started.channel);
