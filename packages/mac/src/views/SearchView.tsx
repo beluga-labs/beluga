@@ -4,15 +4,14 @@ import { Empty, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { ActionsContext } from '../components/SpecMenu.js';
 import { copyText } from '../lib/copy.js';
-import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
+import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import s from './lists.module.css';
 
 /** Search every conversation (yours and the ones shared with you), and jump to a result. */
 export function SearchView() {
   const api = useApi();
   const actions = useActions();
-  const { client, ui } = useBeluga();
-  const from = useUi((u) => u.searchQuery);
+  const { client } = useBeluga();
   const search = useApp((st) => st.search);
   const [query, setQuery] = useState(search.query);
   const input = useRef<HTMLInputElement>(null);
@@ -24,12 +23,6 @@ export function SearchView() {
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [search.cursor]);
-  // The sidebar's field searches too: both show the same hits, so this box takes up its query.
-  useEffect(() => {
-    if (from === undefined) return;
-    setQuery(from);
-    ui.patch({ searchQuery: undefined });
-  }, [from, ui]);
   useEffect(() => {
     const t = setTimeout(() => void api.workbench.search(query), 120);
     return () => clearTimeout(t);

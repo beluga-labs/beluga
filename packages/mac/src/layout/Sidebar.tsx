@@ -22,7 +22,6 @@ import { ChatSelectionCount, SidebarChatSelection } from './chat-selection-view.
 import { UnreadSection } from './UnreadSection.js';
 import { CategorySections } from './CategorySections.js';
 import { Row, Section } from './sidebar-parts.js';
-import { SidebarSearch } from './SidebarSearch.js';
 import { ActivityRow } from '../claude-code/Live.js';
 import { FriendsSection, GroupsSection } from '../network/NetworkSidebar.js';
 import { RequestsNav } from '../gateway/RequestsNav.js';
@@ -128,7 +127,6 @@ export function Sidebar() {
         <UsageButton />
         <IconButton icon="sidebar" label="Hide sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: false })} />
       </div>
-      <SidebarSearch>
       <div className={s.scroll}>
         <section className={s.section}>
           <AssistantNav />
@@ -201,7 +199,6 @@ export function Sidebar() {
         <FriendsSection />
         <GroupsSection />
       </div>
-      </SidebarSearch>
       {/* Below the lists, so the rows being Shift-clicked stay where they are as it opens. */}
       <ChatSelectionCount />
       {/* The call you're in, while you look at something else (BLG-706). */}
