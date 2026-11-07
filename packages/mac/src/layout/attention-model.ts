@@ -396,6 +396,15 @@ export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategor
   return out;
 }
 
+/**
+ * The Inbox's rows, and the chats put off with Remind Me Later (BLG-748) that fold under its Later row:
+ * until they remind you, as in the Chats list. One that asks you something stays a row.
+ */
+export function splitInbox(active: readonly CategoryEntry[], now = Date.now()): { readonly rows: readonly CategoryEntry[]; readonly later: readonly Workspace[] } {
+  const puttingOff = (e: CategoryEntry): boolean => e.kind === 'workspace' && !e.handRaised && remindPending(e.ws, now);
+  return { rows: active.filter((e) => !puttingOff(e)), later: active.flatMap((e) => (e.kind === 'workspace' && puttingOff(e) ? [e.ws] : [])).sort((a, b) => a.remindAt! - b.remindAt!) };
+}
+
 /** A worktree made outside Beluga that nobody talked in has no chat to sort: the Projects list has it. With news or a run it still shows. */
 const isQuietOutside = (e: UnreadEntry): boolean => e.kind === 'workspace' && e.ws.kind === 'worktree' && e.ws.external && !e.ws.archived && !counts(e.signal) && !e.signal.working;
 

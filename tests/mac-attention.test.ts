@@ -5,7 +5,7 @@ import type { Notice } from '../src/core/work-store.js';
 import type { ChatTriage } from '../src/core/triage/model.js';
 import { type ScreenAction, initialAppState, reduceApp } from '../src/client/screen.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
-import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, nextActive, settledWords, wakeWords, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
+import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, nextActive, settledWords, splitInbox, wakeWords, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
 
 /** The sidebar's unread and needs-you marks (packages/mac/src/layout/attention-model.ts), and the core's unread counts behind them. */
 
@@ -208,6 +208,17 @@ describe('the sidebar categories', () => {
     const news = all({ ...withIt(on()), unread: { 'ws:agent-a3f9': 2 } }).find((e) => e.name === 'agent-a3f9');
     expect(news?.category).toBe('active');
     expect(news?.key).toBeUndefined();
+  });
+
+  it('folds a chat put off with Remind Me Later under Later in the Inbox, until it asks something', () => {
+    const later = (state: AppState): AppState => ({ ...state, projects: state.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'auth' ? { ...w, remindAt: 9_000 } : w)) })) });
+    const split = splitInbox(categoriesOf(later(on())).active, 1_000);
+    expect(names(split.rows)).not.toContain('add-auth');
+    expect(split.later.map((w) => w.name)).toEqual(['add-auth']);
+    expect(splitInbox(categoriesOf(later(on())).active, 10_000).later).toEqual([]);
+    const asks = splitInbox(categoriesOf(apply(later(on()), question('q1', 'ws:auth'))).active, 1_000);
+    expect(names(asks.rows)).toContain('add-auth');
+    expect(asks.later).toEqual([]);
   });
 
   it('moves a running chat to Working and back to Active when its turn ends', () => {

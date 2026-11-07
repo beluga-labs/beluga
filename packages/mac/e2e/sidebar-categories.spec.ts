@@ -218,3 +218,34 @@ test.describe('with the setting on', () => {
     await expect(inList(page, 'Settled', 'webhook-retries')).toBeVisible();
   });
 });
+
+test('Inbox folds a chat put off with Remind Me Later, and its header shows archived chats', async ({ page }) => {
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  await setCategories(page, true);
+  await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible();
+
+  await sidebar(page).getByRole('button', { name: 'Projects' }).click();
+  const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
+  if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  // The project's page is in (it takes focus as it comes, which would close a menu).
+  await expect(page.getByText('What do you want to do in bob-api?')).toBeVisible({ timeout: 30_000 });
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Remind Me Later' }).hover();
+  await page.getByRole('menuitem', { name: 'In 1 Hour' }).click();
+  await expect(inList(page, 'Inbox', 'add-auth')).toHaveCount(0);
+  await expect(list(page, 'Inbox').getByRole('button', { name: 'Later, 1' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('inbox-later.png') });
+
+  await expect(list(page, 'Inbox').getByRole('button', { name: 'Chats Options' })).toHaveCount(0);
+  const text = 'Plan the spring trip';
+  await list(page, 'Inbox').getByRole('button', { name: 'New chat (not tied to a project)' }).click();
+  await composer(page).fill(text);
+  await composer(page).press('Enter');
+  const chat = sidebar(page).getByRole('button', { name: new RegExp(`^${text} ·`) });
+  await expect(inList(page, 'Inbox', text)).toBeVisible({ timeout: 30_000 });
+  await chat.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /^Archive/ }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: /^Archive/ }).click();
+  await expect(list(page, 'Inbox').getByRole('button', { name: 'Chats Options' })).toBeVisible();
+});
