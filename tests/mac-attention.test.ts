@@ -5,7 +5,7 @@ import type { Notice } from '../src/core/work-store.js';
 import type { ChatTriage } from '../src/core/triage/model.js';
 import { type ScreenAction, initialAppState, reduceApp } from '../src/client/screen.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
-import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
+import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, nextActive, settledWords, wakeWords, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
 
 /** The sidebar's unread and needs-you marks (packages/mac/src/layout/attention-model.ts), and the core's unread counts behind them. */
 
@@ -285,5 +285,54 @@ describe('the sidebar categories', () => {
   it('lists every conversation, not only those with news', () => {
     expect(names(conversationEntries(base()))).toEqual(['How do deploys work?', 'add-auth', 'webhooks', 'new-hero']);
     expect(unreadEntries(base())).toEqual([]);
+  });
+
+  it('goes to the next Active row after this one, and to none when it was the last', () => {
+    const s = apply(on(), overview);
+    const order = names(categoriesOf(s).active);
+    expect(nextActive(s, `ws:auth`)?.name).toBe(order[order.indexOf('add-auth') + 1] ?? order[order.indexOf('add-auth') - 1]);
+    const last = apply(s, triage('ws:q', { settled: { at: 1, why: 'you' } }), triage('ws:hooks', { settled: { at: 1, why: 'you' } }), triage('ws:hero', { settled: { at: 1, why: 'you' } }));
+    expect(nextActive(last, 'ws:auth')).toBeUndefined();
+  });
+
+  it('says why a chat is Settled, and names the merged PR', () => {
+    const at = 1_000;
+    const now = at + 49 * 60_000;
+    expect(settledWords({ at, why: 'pr_merged', pr: 12 }, 3, now)).toBe('Settled 49m ago: PR #12 merged');
+    expect(settledWords({ at, why: 'you' }, 3, now)).toBe('Settled by you');
+    expect(settledWords({ at, why: 'idle' }, 3, now)).toBe('Settled: idle for 3 days');
+    expect(settledWords({ at, why: 'merged_here' }, 3, now)).toBe('Settled 49m ago: merged into main here');
+  });
+
+  it('says when a snooze ends in local time, with its day when it is not today', () => {
+    const now = new Date(2026, 10, 7, 14, 0).getTime();
+    expect(wakeWords(new Date(2026, 10, 7, 15, 30).getTime(), now)).toBe('15:30');
+    expect(wakeWords(new Date(2026, 10, 9, 9, 0).getTime(), now)).toBe('Mon 09:00');
+  });
+
+  describe('the Dock and the tallies', () => {
+    const snoozedNews = (s: AppState): AppState => apply(s, overview, run('done'), triage('ws:auth', { snoozed: { at: 1, until: 9_999, seen: [] } }));
+
+    it('a snoozed chat with unread messages adds nothing while the setting is on', () => {
+      const s = snoozedNews(on());
+      expect(s.unread['ws:auth']).toBe(1);
+      expect(dockCount(s)).toBe(0);
+      expect(projectTally(s, api).unread).toBe(0);
+    });
+
+    it('is as today while the setting is off', () => {
+      const s = snoozedNews(base());
+      expect(dockCount(s)).toBe(1);
+      expect(projectTally(s, api).unread).toBe(1);
+    });
+
+    it('a chat that is Back counts once, with or without news', () => {
+      expect(dockCount(apply(on(), overview, triage('ws:auth', { backAt: 7 })))).toBe(1);
+      expect(dockCount(apply(on(), overview, run('done'), triage('ws:auth', { backAt: 7 })))).toBe(1);
+    });
+
+    it('a new question on a snoozed chat counts', () => {
+      expect(dockCount(apply(snoozedNews(on()), question('q9', 'ws:auth')))).toBe(1);
+    });
   });
 });

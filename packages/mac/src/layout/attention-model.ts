@@ -4,7 +4,7 @@ import { isLivePlan, isPlanOwned, planConversations, planOwnerOf } from '../../.
 import { type Sentinel, sentinelChannels, sentinelOfChannel } from '../../../../src/core/sentinel/model.js';
 import { triageFacts } from '../../../../src/core/triage/facts.js';
 import { type ChatCategory, type ChatTriage, categoryOf, triageKey } from '../../../../src/core/triage/model.js';
-import { span } from '../../../../src/shared/clock.js';
+import { hhmm, span } from '../../../../src/shared/clock.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Project, Workspace } from '../../../../src/workspaces/types.js';
 
@@ -117,11 +117,27 @@ const projectConversations = (state: Pick<Source, 'plans' | 'board' | 'sentinel'
 /** A project's live plans (each one item, however many tasks it runs). */
 export const projectPlans = (state: Pick<Source, 'plans'>, p: Project): readonly Plan[] => state.plans.plans.filter((x) => x.projectId === p.id && isLivePlan(x));
 
-const projectSignals = (state: Source, p: Project): Signal[] => [...projectConversations(state, p).map((w) => workspaceSignal(state, w)), ...projectPlans(state, p).map((x) => planSignal(state, x))];
+/** With the categories on, a snoozed chat adds nothing: not to a project's tally, not to the Dock. */
+type QuietSource = Source & Pick<AppState, 'triage' | 'prefs' | 'projects' | 'shared'>;
 
-export const projectTally = (state: Source, p: Project): Tally => tally(projectSignals(state, p));
+const isSnoozed = (state: QuietSource, channel: string): boolean => {
+  if (!state.prefs.chatCategories) return false;
+  const key = triageKey(state, channel);
+  return key !== undefined && categoryOf(state.triage[key], triageFacts(state, key)) === 'snoozed';
+};
 
-export const groupTally = (state: Source, projects: readonly Project[]): Tally => tally(projects.flatMap((p) => projectSignals(state, p)));
+const projectSignals = (state: QuietSource, p: Project): Signal[] => [
+  ...projectConversations(state, p)
+    .filter((w) => !isSnoozed(state, `ws:${w.id}`))
+    .map((w) => workspaceSignal(state, w)),
+  ...projectPlans(state, p)
+    .filter((x) => !isSnoozed(state, `plan:${x.id}`))
+    .map((x) => planSignal(state, x)),
+];
+
+export const projectTally = (state: QuietSource, p: Project): Tally => tally(projectSignals(state, p));
+
+export const groupTally = (state: QuietSource, projects: readonly Project[]): Tally => tally(projects.flatMap((p) => projectSignals(state, p)));
 
 const NEED_WORDS: Record<Need, string> = {
   approval: 'needs your approval',
@@ -388,6 +404,35 @@ export function foldsForCategories(on: boolean, folds: { readonly folded: readon
   return { folded: [...new Set([...folds.folded, ...FOLDED_BY_CATEGORIES])], foldedBeforeCategories: folds.folded };
 }
 
+/** The next Active row after this chat: where you go when you settle or snooze the open one. */
+export function nextActive(state: CategorySource, channel: string): CategoryEntry | undefined {
+  const active = categoriesOf(state).active;
+  const rest = active.filter((e) => e.channel !== channel);
+  return rest[Math.max(0, active.findIndex((e) => e.channel === channel))] ?? rest.at(-1);
+}
+
+/** Why a chat is Settled, in the line above its composer. */
+export function settledWords(settled: NonNullable<ChatTriage['settled']>, idleDays: number, now: number): string {
+  const ago = `Settled ${span(now - settled.at)} ago`;
+  switch (settled.why) {
+    case 'you':
+      return 'Settled by you';
+    case 'pr_merged':
+      return `${ago}: PR ${settled.pr === undefined ? '' : `#${settled.pr} `}merged`;
+    case 'merged_here':
+      return `${ago}: merged into main here`;
+    case 'idle':
+      return `Settled: idle for ${idleDays} day${idleDays === 1 ? '' : 's'}`;
+  }
+}
+
+/** When a snooze ends, in local time: "15:30" today, else with its day ("Mon 09:00"). */
+export function wakeWords(at: number, now: number): string {
+  const day = new Date(at);
+  const sameDay = day.toDateString() === new Date(now).toDateString();
+  return sameDay ? hhmm(at) : `${day.toLocaleDateString('en-US', { weekday: 'short' })} ${hhmm(at)}`;
+}
+
 const NEED_LABELS: Readonly<Record<Need, string>> = { question: 'Input', approval: 'Approval', plan: 'Plan', stuck: 'Stuck', conflict: '', checks: '' };
 
 const FOLDED_BY_CATEGORIES = ['projects', 'working', 'snoozed', 'settled'];
@@ -494,9 +539,10 @@ export function workingCount(state: Pick<AppState, 'log' | 'selfId'>): number {
  * many messages or questions it holds), plus unread notifications and waiting approvals that
  * aren't about one of those, plus people at the door. Nothing is counted twice.
  */
-export function dockCount(state: ListSource & Pick<AppState, 'inbox' | 'knocks'>): number {
-  const entries = unreadEntries(state);
-  const listed = new Set(entries.flatMap((e) => (e.kind === 'plan' || e.kind === 'sentinel' ? e.channels : [e.channel])));
+export function dockCount(state: ListSource & QuietSource & Pick<AppState, 'inbox' | 'knocks'>): number {
+  const { entries, quiet } = dockEntries(state);
+  const channelsOf = (e: UnreadEntry): readonly string[] => (e.kind === 'plan' || e.kind === 'sentinel' ? e.channels : [e.channel]);
+  const listed = new Set([...entries.flatMap(channelsOf), ...quiet.flatMap(channelsOf)]);
   const inListed = (channel: string | undefined): boolean => channel !== undefined && listed.has(channel);
   const covered = new Set([...state.approvals.filter((a) => inListed(a.channel)).map((a) => a.id), ...state.questions.filter((q) => inListed(q.channel)).map((q) => q.qid)]);
   // A sentinel run's conversation counts only while it needs you (its entry, above): its notices never.
@@ -504,4 +550,13 @@ export function dockCount(state: ListSource & Pick<AppState, 'inbox' | 'knocks'>
   const noted = new Set(notices.flatMap((n) => (n.ref === undefined ? [] : [n.ref])));
   const waiting = [...state.approvals.map((a) => a.id), ...state.questions.map((q) => q.qid)].filter((id) => !covered.has(id) && !noted.has(id)).length;
   return entries.length + notices.length + waiting + state.knocks.length;
+}
+
+/** What the Dock counts one each, and what it stays quiet about. With the categories on, a snoozed chat counts for nothing and a chat that's Back counts once. */
+function dockEntries(state: ListSource & QuietSource): { readonly entries: readonly UnreadEntry[]; readonly quiet: readonly UnreadEntry[] } {
+  if (!state.prefs.chatCategories) return { entries: unreadEntries(state), quiet: [] };
+  const all = conversationEntries(state);
+  const key = (e: UnreadEntry): string => triageKey(state, e.channel) ?? e.channel;
+  const quiet = all.filter((e) => isSnoozed(state, e.channel));
+  return { entries: all.filter((e) => !quiet.includes(e) && (counts(e.signal) || state.triage[key(e)]?.backAt !== undefined)), quiet };
 }

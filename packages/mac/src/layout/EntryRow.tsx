@@ -76,12 +76,10 @@ export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState)
   const [kept, setKept] = useState<{ entry: E; at: number; arrived: boolean } | undefined>();
   // Only what the list shows (not the whole state): drawn again when that changes, not on every streamed event (KLD-48).
   const { here, entries, stay, owners } = useApp((state) => {
-    // Where you are: a plan counts as one place (its page, its conversation and its tasks' worktrees).
-    const inPlan = state.view.kind === 'plan' ? state.view.id : state.view.kind === 'workspace' ? planOf(state, state.view.id)?.id : undefined;
     const entries = entriesOf(state);
-    const shown = shownChannel(state.view);
+    const place = hereOf(state);
     // In a sentinel run's chat that needs you: that's its entry.
-    const here = inPlan ? `plan:${inPlan}` : (sentinelHere(entries, shown) ?? shown);
+    const here = place?.startsWith('plan:') ? place : (sentinelHere(entries, place) ?? place);
     const keep = kept && kept.entry.channel === here && !entries.some((e) => e.channel === here) ? kept.entry : undefined;
     return { here, entries, stay: keep ? { ...keep, signal: nowOf(state, keep) } : undefined, owners: Object.fromEntries(state.peers.map((p) => [p.peerId, p.name])) };
   }, sameDeep);
@@ -94,20 +92,30 @@ export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState)
   }, [here, kept]);
   const open = (e: E, at: number): void => {
     setKept({ entry: e, at, arrived: e.channel === here });
-    if (e.kind === 'workspace') actions.run({ type: 'open_ws', id: e.ws.id });
-    // The plan, with its conversation; at the task that waits on you, so answering is one click on.
-    else if (e.kind === 'plan') actions.run({ type: 'view', view: { kind: 'plan', id: e.plan.id, ...(e.at?.task ? { task: e.at.task } : {}) } });
-    // The run's chat, where it waits on you.
-    else if (e.kind === 'sentinel') {
-      const place = chatPlaceOf(e.at);
-      if (place?.kind === 'workspace') actions.run({ type: 'open_ws', id: place.id, tab: 'chat' });
-      else if (place) actions.run({ type: 'view', view: { kind: 'assistant', ...(place.chat ? { chat: place.chat } : {}) } });
-      else actions.run({ type: 'view', view: { kind: 'sentinel_run', runId: e.runId } });
-    } else if (e.kind === 'shared') actions.run({ type: 'open_shared', owner: e.owner, id: e.id, tab: 'chat' });
-    else if (e.kind === 'dm') openDm(client, e.peerId);
-    else openGroup(client, e.groupId);
+    openEntry(e, actions.run, client);
   };
   return { here, entries, ...(stay && kept ? { kept: { entry: stay, at: kept.at } } : {}), ownerName: (id) => owners[id] ?? 'Shared', open };
+}
+
+/** Where you are, as a channel: a plan counts as one place (its page, its conversation and its tasks' worktrees). */
+export function hereOf(state: AppState): string | undefined {
+  const inPlan = state.view.kind === 'plan' ? state.view.id : state.view.kind === 'workspace' ? planOf(state, state.view.id)?.id : undefined;
+  return inPlan ? `plan:${inPlan}` : shownChannel(state.view);
+}
+
+export function openEntry(e: UnreadEntry, run: ReturnType<typeof useActions>['run'], client: ReturnType<typeof useBeluga>['client']): void {
+  if (e.kind === 'workspace') run({ type: 'open_ws', id: e.ws.id });
+  // The plan, with its conversation; at the task that waits on you, so answering is one click on.
+  else if (e.kind === 'plan') run({ type: 'view', view: { kind: 'plan', id: e.plan.id, ...(e.at?.task ? { task: e.at.task } : {}) } });
+  // The run's chat, where it waits on you.
+  else if (e.kind === 'sentinel') {
+    const place = chatPlaceOf(e.at);
+    if (place?.kind === 'workspace') run({ type: 'open_ws', id: place.id, tab: 'chat' });
+    else if (place) run({ type: 'view', view: { kind: 'assistant', ...(place.chat ? { chat: place.chat } : {}) } });
+    else run({ type: 'view', view: { kind: 'sentinel_run', runId: e.runId } });
+  } else if (e.kind === 'shared') run({ type: 'open_shared', owner: e.owner, id: e.id, tab: 'chat' });
+  else if (e.kind === 'dm') openDm(client, e.peerId);
+  else openGroup(client, e.groupId);
 }
 
 function EntryIcon({ e }: { e: UnreadEntry }) {

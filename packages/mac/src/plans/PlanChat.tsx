@@ -1,3 +1,4 @@
+import { TriageLine } from "../chat/TriageLine.js";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { queueIn } from "@beluga/ui/compose.js";
 import { activityOf } from "@beluga/ui/workspace-models.js";
@@ -305,6 +306,7 @@ export function PlanChat({
           </button>
         </div>
       ) : null}
+      <TriageLine channel={channel} />
       <div className={p.chatCompose}>
       {sug.list}
       <form

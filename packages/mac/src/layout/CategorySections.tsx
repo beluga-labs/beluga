@@ -2,10 +2,14 @@ import { useState } from 'react';
 import type { ChatCategory } from '@beluga/core/triage/model.js';
 import { Icon } from '../components/Icon.js';
 import { IconButton, cx } from '../components/ui.js';
+import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
 import { useActions } from '../lib/actions.js';
+import { useBeluga } from '../lib/beluga.js';
 import { useClock } from '../lib/window-active.js';
 import { CATEGORY_ORDER, CATEGORY_TITLES, type CategoryEntry, SETTLED_PAGE, categoriesOf, statusWords, visibleRows } from './attention-model.js';
-import { type EntryList, EntryRow, useEntryList } from './EntryRow.js';
+import { type EntryList, EntryRow, openEntry, useEntryList } from './EntryRow.js';
+import { RowTriageTools, SnoozeCustomSheet, triageItems } from './row-triage-actions.js';
+import { workspaceItems } from './workspace-row.js';
 import { SignalMark } from './signal-marks.js';
 import { Row, Section } from './sidebar-parts.js';
 import s from './Sidebar.module.css';
@@ -51,14 +55,17 @@ export function CategorySections() {
           </div>
         );
       })}
+      <SnoozeCustomSheet />
     </>
   );
 }
 
 function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list: EntryList<CategoryEntry>; now: number }) {
+  const actions = useActions();
+  const { client } = useBeluga();
   const words = statusWords(e.status, now);
   const loud = e.status.kind === 'need' || e.status.kind === 'back' || e.status.kind === 'stopped';
-  return (
+  const row = (
     <EntryRow
       e={e}
       at={at}
@@ -67,15 +74,27 @@ function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list:
       nameBold={e.bold ? m.unreadName : undefined}
       trailing={
         <>
-          {e.pr === undefined ? null : <span className={m.status}>#{e.pr}</span>}
-          {words ? (
-            <span className={cx(m.status, loud && m.statusLoud)} data-status={e.status.kind}>
-              {words}
-            </span>
-          ) : null}
+          {e.key ? <RowTriageTools e={e} /> : null}
+          <span className={s.rowStatus}>
+            {e.pr === undefined ? null : <span className={m.status}>#{e.pr}</span>}
+            {words ? (
+              <span className={cx(m.status, loud && m.statusLoud)} data-status={e.status.kind}>
+                {words}
+              </span>
+            ) : null}
+          </span>
           <SignalMark signal={e.signal} />
         </>
       }
     />
   );
+  // A DM, a group, a sentinel's chat: nothing to do from here.
+  return e.key ? <ActionsContext items={() => menuOf(e, actions.run, client)}>{row}</ActionsContext> : row;
+}
+
+/** A category row's right-click menu: the workspace row's own, or Open with the category's items. */
+function menuOf(e: CategoryEntry, run: ReturnType<typeof useActions>['run'], client: ReturnType<typeof useBeluga>['client']): ActionItem[] {
+  const state = client.store.getState();
+  if (e.kind === 'workspace') return workspaceItems(state, e.ws, run, client);
+  return [{ label: 'Open', icon: 'chevronRight', onSelect: () => openEntry(e, run, client) }, ...triageItems(state, e.channel, run, client)];
 }
