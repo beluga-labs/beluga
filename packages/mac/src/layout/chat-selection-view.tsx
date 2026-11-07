@@ -1,9 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Workspace } from '@beluga/workspaces/types.js';
 import { type ActionItem } from '../components/SpecMenu.js';
 import { toast, useBeluga } from '../lib/beluga.js';
 import { openSheet } from '../lib/sheets.js';
-import { chatBulkActions, chatCount, chatSelectionStore, retainVisibleChats, visibleChatIds } from './chat-selection.js';
+import { chatBulkActions, chatCount, chatJoins, chatSelectionStore, joinValue, retainVisibleChats, visibleChatIds } from './chat-selection.js';
 import { toolbarActions } from './toolbar-actions.js';
 import s from './Sidebar.module.css';
 
@@ -28,6 +28,23 @@ export function SidebarChatSelection({ children }: { children: ReactNode }) {
     id: row.dataset.chatId!,
     folded: Boolean(row.closest('[data-chats-folded="true"]')),
   }))), []);
+  // Selected rows that touch on screen become one box (Sidebar.module.css): each row says which sides go on.
+  // Set on the rows themselves, so joining doesn't draw every row again.
+  const join = useCallback((): void => {
+    const rows = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-chat-id]') ?? []);
+    const chosen = new Set(store.get().selection.ids);
+    const joins = chatJoins(rows.filter((row) => chosen.has(row.dataset.chatId!)).map((row) => {
+      const box = row.getBoundingClientRect();
+      return { id: row.dataset.chatId!, top: box.top, bottom: box.bottom };
+    }));
+    for (const row of rows) {
+      const value = joinValue(joins.get(row.dataset.chatId!));
+      if ((row.dataset.chatJoin ?? '') === value) continue;
+      if (value) row.dataset.chatJoin = value;
+      else delete row.dataset.chatJoin;
+    }
+  }, [store]);
+  useLayoutEffect(join, [selection.ids, join]);
   useEffect(() => {
     const click = (event: MouseEvent): void => {
       const target = event.target;
@@ -38,7 +55,10 @@ export function SidebarChatSelection({ children }: { children: ReactNode }) {
     const key = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') store.clear();
     };
-    const observer = new MutationObserver(() => store.retain(visible()));
+    const observer = new MutationObserver(() => {
+      store.retain(visible());
+      join();
+    });
     if (root.current) observer.observe(root.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-chat-id', 'data-chats-folded'] });
     document.addEventListener('click', click, true);
     document.addEventListener('keydown', key, true);
@@ -47,7 +67,7 @@ export function SidebarChatSelection({ children }: { children: ReactNode }) {
       document.removeEventListener('click', click, true);
       document.removeEventListener('keydown', key, true);
     };
-  }, [store, visible]);
+  }, [store, visible, join]);
 
   const items = useCallback((): readonly ActionItem[] => {
     const current = retainVisibleChats(store.get().selection, visible());
@@ -112,11 +132,19 @@ export const useChatSelection = (): SidebarSelection | undefined => useContext(S
 
 export function ChatSelectionCount() {
   const selection = useChatSelection();
-  if (!selection?.ids.length) return null;
+  const count = selection?.ids.length ?? 0;
+  // The last count stays while the bar folds away.
+  const [shown, setShown] = useState(count);
+  if (count && count !== shown) setShown(count);
+  if (!selection) return null;
   return (
-    <div className={s.chatSelection} role="status" aria-live="polite">
-      <span>{chatCount(selection.ids.length)} selected{selection.busy ? ' · Working…' : ''}</span>
-      <button type="button" onClick={selection.clear} disabled={selection.busy} aria-label="Clear chat selection">Clear</button>
+    <div className={s.chatSelection} data-open={count > 0} role="status" aria-live="polite" aria-hidden={!count}>
+      <div className={s.chatSelectionFold}>
+        <div className={s.chatSelectionBar}>
+          <span>{chatCount(shown)} selected{selection.busy ? ' · Working…' : ''}</span>
+          <button type="button" onClick={selection.clear} disabled={selection.busy || !count} tabIndex={count ? 0 : -1} aria-label="Clear chat selection">Clear</button>
+        </div>
+      </div>
     </div>
   );
 }

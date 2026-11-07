@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chatCount, chatSelectionStore, clearChatSelection, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
+import { chatCount, chatJoins, chatSelectionStore, joinValue, clearChatSelection, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
 
 describe('sidebar chat selection', () => {
   it('selects downward in visible sidebar order', () => {
@@ -134,5 +134,28 @@ describe('the sidebar selection during a batch', () => {
     stop();
     store.clear();
     expect(calls).toBe(3);
+  });
+});
+
+describe('selected rows as one box', () => {
+  it('joins rows that touch on screen and leaves a row with a gap above it on its own', () => {
+    const joins = chatJoins([
+      { id: 'a', top: 0, bottom: 28 },
+      { id: 'b', top: 28, bottom: 56 },
+      { id: 'c', top: 56, bottom: 84 },
+      // A worktree row sits between c and d.
+      { id: 'd', top: 112, bottom: 140 },
+    ]);
+    expect(['a', 'b', 'c', 'd'].map((id) => joinValue(joins.get(id)))).toEqual(['down', 'up down', 'up', '']);
+  });
+
+  it('ignores sub-pixel rounding and the order rows come in', () => {
+    const joins = chatJoins([
+      { id: 'low', top: 28.5, bottom: 56.5 },
+      { id: 'high', top: 0, bottom: 28 },
+    ]);
+    expect(joinValue(joins.get('high'))).toBe('down');
+    expect(joinValue(joins.get('low'))).toBe('up');
+    expect(joinValue(undefined)).toBe('');
   });
 });

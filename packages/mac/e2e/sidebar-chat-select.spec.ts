@@ -51,6 +51,11 @@ test('Shift+click selects a range, a click elsewhere keeps its start, and Archiv
   await chat(ours[2]!).click({ modifiers: ['Shift'] });
   await expect(status).toContainText('3 chats selected');
   await expect(sidebar(page).locator('[data-chat-selected]')).toHaveCount(3);
+  // One box: open at the inner edges, closed at the outer ones.
+  await expect(chat(ours[0]!)).toHaveAttribute('data-chat-join', 'down');
+  await expect(chat(ours[1]!)).toHaveAttribute('data-chat-join', 'up down');
+  await expect(chat(ours[2]!)).toHaveAttribute('data-chat-join', 'up');
+  await expect(chat(ours[3]!)).not.toHaveAttribute('data-chat-join');
   await shot(page, 'chat-select-1-range');
 
   // One confirmation and one message for the three.

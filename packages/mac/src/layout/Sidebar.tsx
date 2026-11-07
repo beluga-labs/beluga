@@ -159,7 +159,6 @@ export function Sidebar() {
           <RequestsNav whenAny />
         </section>
 
-        <ChatSelectionCount />
         <UnreadSection />
 
         <Section
@@ -192,6 +191,8 @@ export function Sidebar() {
         <FriendsSection />
         <GroupsSection />
       </div>
+      {/* Below the lists, so the rows being Shift-clicked stay where they are as it opens. */}
+      <ChatSelectionCount />
       {/* The call you're in, while you look at something else (BLG-706). */}
       <CallPill />
       <UpdatePill />
