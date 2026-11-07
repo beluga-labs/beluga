@@ -25,7 +25,13 @@ async function turnOn(page: Page): Promise<void> {
   await expect(sidebar(page)).toBeVisible();
   await page.keyboard.press('Meta+,');
   await settings(page).getByRole('button', { name: 'Agent', exact: true }).click();
-  await settings(page).getByRole('switch', { name: 'Schedules in chats' }).click();
+  // On by default. The switch turns them off and on again.
+  const on = settings(page).getByRole('switch', { name: 'Schedules in chats' });
+  await expect(on).toBeChecked();
+  await on.click();
+  await expect(on).not.toBeChecked();
+  await on.click();
+  await expect(on).toBeChecked();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(settings(page)).toBeHidden();
