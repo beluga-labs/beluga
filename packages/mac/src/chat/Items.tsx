@@ -591,9 +591,9 @@ function LimitResume({ channel, failure, stoppedAt, agent, onContinue }: { chann
   const when = resetWords(at, now);
   if (auto.kind === 'scheduled') {
     const dontSend: ActionItem[] = [
-      { label: 'Not in This Chat', icon: 'chat', onSelect: () => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, true) }, 'This chat waits for you to press Continue') },
-      { label: 'Not This Session', icon: 'pause', hint: 'Every chat, until this limit resets', onSelect: () => set({ autoContinueSkip: sessionSkip(at) }, `Nothing continues on its own until ${when}`) },
-      { label: 'Turn Off Everywhere', icon: 'x', separate: true, hint: 'Settings › Agent › Usage limits', onSelect: () => set({ autoContinue: false }, 'Turned off: agents wait for you to press Continue') },
+      { label: 'For This Session', icon: 'pause', hint: 'Every chat, until this limit resets', onSelect: () => set({ autoContinueSkip: sessionSkip(at) }, `Nothing continues on its own until ${when}`) },
+      { label: 'Never in This Chat', icon: 'chat', onSelect: () => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, true) }, 'This chat waits for you to press Continue') },
+      { label: 'Everywhere', icon: 'x', separate: true, hint: 'Settings › Agent › Usage limits', onSelect: () => set({ autoContinue: false }, 'Turned off: agents wait for you to press Continue') },
     ];
     return (
       <div className={cx(s.limitActions, s.limitResume)}>

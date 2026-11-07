@@ -26,10 +26,10 @@ test('the limit card says when it continues, and Don’t Send turns it off for t
 
   await page.getByRole('button', { name: 'Don’t Send', exact: true }).click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByRole('menuitem', { name: /Not This Session/ })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: /Turn Off Everywhere/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /For This Session/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Everywhere/ })).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/usage-limit-scheduled.png` });
-  await menu.getByRole('menuitem', { name: /Not in This Chat/ }).click();
+  await menu.getByRole('menuitem', { name: /Never in This Chat/ }).click();
 
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
   const undo = page.getByRole('button', { name: /^Send at / });
