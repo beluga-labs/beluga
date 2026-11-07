@@ -27,6 +27,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     (input.phoneBrief ?? '') +
     (input.sentinelBrief ?? '') +
     (input.scheduleBrief ?? '') +
+    (input.scheduleToolsBrief ?? '') +
     (input.dialogue?.brief ?? '') +
     (input.setup && !askOnly ? input.setup.brief : '') +
     (input.scratchDir ? buildScratchAppend(input.scratchDir) : '') +
