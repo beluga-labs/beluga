@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -109,11 +109,12 @@ export const COMPANION_PROTO = { major: 1, minor: 43 } as const;
  * or taking yours off (`network.messages.react`); the same on the room's and workspaces' chat turns
  * (`TurnView.reactions` / `reactable`, `ConvView.quick`, `session.react`). An older Mac leaves them
  * out: no reactions.
+ * 1.44 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
  * 1.43 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
  * 1.42 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
  * An older Mac has no such call: the phone shows the token as code.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, chatLinks: 42, chatOrigin: 43 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, chatLinks: 42, chatOrigin: 43, queuedOrigin: 44 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -406,7 +407,8 @@ export const TurnView = z.object({
   outputs: z.array(OutputView).max(50).optional(),
   endTs: ts.optional(),
   /**
-   * 1.43 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
+   * 1.44 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
+ * 1.43 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
    * title, the agent, and its words. Drawn above the turn as a card, never as your message.
    */
   origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), prose: ProseView }).optional(),

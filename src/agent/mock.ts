@@ -476,6 +476,8 @@ async function mockReadChat(input: AgentRunInput, tools: NonNullable<AgentRunInp
   }
 }
 
+/** Works until it's stopped: holds a chat busy for as long as a test needs (e2e/chat-send.spec.ts). */
+const HOLD_CHAT = /^hold this chat$/i;
 const CHAT_SEND = /^send to (\S+): (.+)$/m;
 
 /** Sends what a message says to send, waits for the answer, and says what came back. */
@@ -859,6 +861,10 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     if (input.planTools && !/^\/compact/.test(input.prompt.trim())) return mockPlanning(input, input.planTools, pace);
     // A message that names another chat (see explainChatMentions): it reads that chat, as real Claude may.
     if (input.chatTools && CHAT_NOTE.test(input.prompt)) return mockReadChat(input, input.chatTools, pace);
+    if (HOLD_CHAT.test(input.prompt.trim())) {
+      input.onEvent('tool', 'Bash npm run test:all');
+      await sleep(3_600_000, input.signal);
+    }
     if (input.chatTools && CHAT_SEND.test(input.prompt)) return mockSendChat(input, input.chatTools, pace);
     // A main folder is questions only: a change request moves to a new worktree, as real Claude is told to.
     if (input.place?.askOnly && WANTS_CHANGE.test(input.prompt)) {

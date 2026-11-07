@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { phoneMay } from '../src/companion/coverage.js';
 import { waitingNeeds } from '../src/companion/needs-you.js';
-import { convTurns } from '../src/companion/views.js';
-import { COMPANION_PROTO, SINCE, TurnView } from '../src/companion/protocol.js';
+import { convTurns, convView } from '../src/companion/views.js';
+import { queueIn } from '../src/ui/compose.js';
+import { COMPANION_PROTO, ConvView, SINCE, TurnView } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { ChatOrigin } from '../src/protocol.js';
 
@@ -58,5 +59,34 @@ describe('a chain at a limit on the phone', () => {
       { label: 'Stop', tone: 'danger', method: 'host.answerApproval', args: ['no', 'q1'] },
     ]);
     expect(phoneMay('host.answerApproval')).toBe(true);
+  });
+});
+
+describe('a queued message from another chat', () => {
+  function queued() {
+    const store = new Store({ ...initialState('room', 'auto'), selfId: ME });
+    store.dispatch({ type: 'agent_event', owner: ME, requestId: 'busy', requester: ME, event: 'started', text: '', ts: 1, channel: 'ws:tgt' });
+    store.dispatch({ type: 'agent_event', owner: ME, requestId: 'from-chat', requester: ME, event: 'queued', text: 'Please check', ts: 2, channel: 'ws:tgt', fromChat: { origin: ORIGIN, text: 'Please check' } });
+    store.dispatch({ type: 'agent_event', owner: ME, requestId: 'mine', requester: ME, event: 'queued', text: 'My words', ts: 3, channel: 'ws:tgt' });
+    return store.getState();
+  }
+
+  it('the Mac’s queue carries the origin, and your own row has the same fields as before', () => {
+    const [from, mine] = queueIn(queued(), 'ws:tgt', ME);
+    expect(from).toMatchObject({ requestId: 'from-chat', prompt: 'Please check', origin: { ref: ORIGIN.ref, title: 'Fix the login' } });
+    expect(mine).toEqual({ requestId: 'mine', prompt: 'My words', by: expect.any(String), claude: expect.any(String), yours: true });
+  });
+
+  it('the phone’s queue row is drawn from the origin, and your own row has the same fields as before', () => {
+    const queue = convView(queued(), { macName: 'Mac', refs: { output: () => undefined } } as never, 'conv:ws:tgt' as never).queue!;
+    expect(queue).toEqual([
+      { id: 'from-chat', text: 'Please check', origin: { ref: ORIGIN.ref, title: 'Fix the login', agent: 'Codex' } },
+      { id: 'mine', text: 'My words' },
+    ]);
+    expect(SINCE.queuedOrigin).toBeLessThanOrEqual(COMPANION_PROTO.minor);
+  });
+
+  it('an older phone reads a row without the field', () => {
+    expect(ConvView.shape.queue.safeParse([{ id: 'a', text: 'b' }]).success).toBe(true);
   });
 });

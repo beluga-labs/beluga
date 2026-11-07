@@ -453,6 +453,7 @@ function DialogueTurn({ d }: { d: NonNullable<TurnView['dialogue']> }) {
 
 /** A message from an agent in another chat (1.43): a card with its source, never your bubble. */
 function FromChatCard({ origin, topic, turn }: { origin: NonNullable<TurnView['origin']>; topic: Topic; turn: string }) {
+  const on = useSupports('chatLinks');
   const ref = parseChatRef(origin.ref);
   return (
     <View style={{ gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: color.hairline, backgroundColor: color.code }}>
@@ -460,7 +461,7 @@ function FromChatCard({ origin, topic, turn }: { origin: NonNullable<TurnView['o
         <T v="caption" style={{ fontWeight: '600' }}>
           From
         </T>
-        {ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
+        {on && ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
         <T v="caption">· {origin.agent}, an agent</T>
       </View>
       <Prose prose={origin.prose} at={{ topic, turn }} />

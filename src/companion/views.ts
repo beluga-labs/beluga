@@ -822,13 +822,13 @@ function branchViewOf(state: DomainState, ws: Workspace): BranchView | undefined
   };
 }
 
-/** Your messages waiting for your Claude in a conversation, in run order (the Mac's queue tray, src/ui/compose.ts queueIn). */
+/** What waits for your Claude in a conversation, in run order (the Mac's queue tray, src/ui/compose.ts queueIn): your messages, and messages from your other chats. */
 function queueOf(state: DomainState, channel: string): NonNullable<ConvView['queue']> {
   const me = myId(state);
   return state.log
     .filter((l): l is AgentItem => l.type === 'agent' && l.channel === channel && l.status === 'queued' && l.owner === me && (l.requester !== undefined ? l.requester === me : l.requesterName === l.ownerName))
     .slice(0, 20)
-    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}) }));
+    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}), ...(l.origin ? { origin: { ref: clip(l.origin.ref, 400), title: clip(l.origin.title, 200), agent: clip(l.origin.agent.label, 64) } } : {}) }));
 }
 
 const planState = (plan: Plan, progress: PlanProgress): string => (plan.status === 'active' && plan.paused ? 'paused' : plan.status === 'active' && progress.next.kind === 'done' ? 'done' : plan.status);

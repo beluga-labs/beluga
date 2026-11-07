@@ -4,7 +4,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { mayBeCommand } from '../src/agent/runtime/claude/skill-plugins.js';
 import { mapSlash } from '../src/agent/runtime/codex/skills.js';
-import { chatMessagePrompt } from '../src/core/chat-links/message-prompt.js';
+import { chatMessageAsker, chatMessagePrompt } from '../src/core/chat-links/message-prompt.js';
+import { asSent, steeredMessages } from '../src/shared/claude-notices.js';
 import { summaryOf, wordsOf } from '../src/shared/steps.js';
 import { createChatTools } from '../src/agent/chat-tools.js';
 import { decideTool } from '../src/agent/policy.js';
@@ -576,5 +577,82 @@ describe('a chain at a limit asks you (BLG-150)', () => {
     expect(t.card('mine')?.status).toBe('queued');
     await expect(from.send(refOf('ws:s1'), 'x', {})).rejects.toThrow(/^chain_stopped:/);
     t.h.stopAgent();
+  });
+});
+
+describe('a message from a chat in the queue (BLG-277)', () => {
+  it('a title with $name is escaped everywhere the run reads it, with the ref and the words', () => {
+    const o: ChatOrigin = { ref: refOf(SOURCE), title: '$pineapple-probe', agent: { runtime: 'codex', label: '$agent-skill' }, chainId: 'c', hop: 1, messageId: 'm' };
+    const prompt = chatMessagePrompt(o, 'and $deploy');
+    expect(prompt).not.toMatch(/\$[A-Za-z_]/);
+    expect(prompt.replace(/\u200b/g, '')).toContain('“$pineapple-probe”');
+    expect(chatMessageAsker(o)).not.toMatch(/\$[A-Za-z_]/);
+  });
+
+  it('the run’s whole prompt is covered, and it is asked for by that title escaped', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await from.send(refOf(TARGET), 'look at $deploy', {});
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(t.runsIn(TARGET)[0]).not.toMatch(/\$[A-Za-z_]/);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('steered from the queue: it keeps its header and fence, and shows its card after it runs', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'please look', {}));
+    expect(t.card(id)).toMatchObject({ status: 'queued', origin: { ref: refOf(SOURCE) }, prompt: 'please look' });
+    expect(t.h.promote(id)).toBe(true);
+    const prompt = t.steered[0]!.prompt;
+    expect(prompt.startsWith('[Beluga: this message comes from another chat.')).toBe(true);
+    expect(prompt).toMatch(/<chat_data from="[^"]*">\nplease look\n<\/chat_data>/);
+    expect(t.steered[0]!.requesterName).toMatch(/an agent in another chat/);
+    t.steered[0]!.onFolded?.();
+    const items = t.store.getState().log.filter((l) => l.channel === TARGET);
+    // The chat keeps its card: the note about a message is hidden only for a message with a bubble.
+    expect(steeredMessages(asSent(items, () => true)).notes.has(t.card(id)!.id)).toBe(false);
+    expect(asSent(items, () => true).some((l) => l.type === 'agent' && l.requestId === id)).toBe(true);
+    expect(t.card(id)).toMatchObject({ status: 'done', origin: { ref: refOf(SOURCE) }, prompt: 'please look' });
+    expect(t.store.getState().log.filter((l) => l.type === 'chat' && l.channel === TARGET)).toEqual([]);
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('steered with no turn to take it: its own run has the header too', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'please look', {}));
+    t.live.status = { lastEventAt: Date.now() - 6 * 60_000, between: false };
+    expect(t.h.promote(id)).toBe(true);
+    await waitFor(() => t.runsIn(TARGET).length === 2);
+    expect(t.runsIn(TARGET)[1]!.startsWith('[Beluga:')).toBe(true);
+    expect(t.card(id)?.origin).toBeDefined();
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('Stop never puts its words in your box: your own come back, and the sender hears', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'agent words', {}));
+    await t.say(TARGET, 'mine', 'my words');
+    expect(t.h.stopRun(TARGET).returned).toEqual(['my words']);
+    expect(parsed(await from.wait(id, 0)).state).toBe('lost');
+    expect(t.store.getState().log.some((l) => l.type === 'system' && l.channel === SOURCE && /lost/.test(l.text))).toBe(true);
+    await t.end(SOURCE);
+  });
+
+  it('the watchdog never sends its words along as yours: it keeps its place and runs after', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await t.working(TARGET);
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'agent words', {}));
+    await t.say(TARGET, 'mine', 'my words');
+    expect(await t.h.takeOver(TARGET)).toEqual(['my words']);
+    await waitFor(() => t.runsIn(TARGET).some((p) => p.includes('agent words')));
+    expect(t.card(id)?.status).toBe('started');
+    await t.end(SOURCE, TARGET);
   });
 });

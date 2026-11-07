@@ -30,7 +30,7 @@ import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
-import { chatMessageAsker, chatMessagePrompt } from './chat-links/message-prompt.js';
+import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
 import { ChatSendService, type Delivered } from './chat-links/service.js';
 import { chatToolsOf } from './chat-links/transcript.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
@@ -506,7 +506,8 @@ export class AgentHost {
       run.abort();
     }
     await this.idle(channel);
-    const mine = lane.waiting.filter((w) => w.from === this.selfId && !w.compact);
+    // A message from another chat isn't yours to send along as your words: it keeps its place.
+    const mine = lane.waiting.filter((w) => w.from === this.selfId && !w.compact && !w.body.origin);
     lane.waiting = lane.waiting.filter((w) => !mine.includes(w));
     lane.held = undefined;
     for (const { from, body } of mine) this.emitAgent(body.requestId, from, 'done', 'Sent along with Beluga’s wake-up', body.channel);
@@ -668,15 +669,21 @@ export class AgentHost {
     for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
     this.deps.questions.cancelChannel(channel);
     lane.waiting = lane.waiting.filter((w) => w.from !== this.selfId);
-    for (const { from, body, compact } of mine) if (!compact) this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+    for (const { from, body, compact } of mine) {
+      if (compact) continue;
+      this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+      if (body.origin) this.chatSends.lost(body.requestId, 'The owner stopped the agent in that chat');
+    }
     if (lane.current) {
       lane.stopping = true;
       lane.current.abort();
     }
-    const n = mine.filter((w) => !w.compact).length;
+    // A message from another chat is dropped, never put in your box as your words.
+    const yours = mine.filter((w) => !w.compact && !w.body.origin);
+    const n = yours.length;
     const back = n ? ` · ${n} queued message${n === 1 ? '' : 's'} back in the box` : '';
     this.toast(`Stopped your agent here${back}`, 'success');
-    return { stopped: true, returned: mine.filter((w) => !w.compact).map((w) => w.body.prompt) };
+    return { stopped: true, returned: yours.map((w) => w.body.prompt) };
   }
 
   /**
@@ -1652,7 +1659,9 @@ export class AgentHost {
     // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
     const prompt = this.readsChats(from) ? explainChatMentions(tasks) : tasks;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
-    return this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
+    const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
+    // What was added to a message from another chat names no skill either (a task's title, the carried chat).
+    return body.origin ? withoutSkillMentions(whole) : whole;
   }
 
   private recentChat(channel = 'room'): string[] {
