@@ -52,6 +52,7 @@ export const SETTINGS: readonly Entry[] = [
   ]),
   ...rows('general', 'Writing', [
     ['Send with', 'Return or Command-Return sends a message.', 'enter return send message newline new line keyboard'],
+    ['Send during a turn', 'Queue waits for the turn to finish. Steer sends to the current turn.', 'queue steer enter return send message running busy interrupt default'],
     ['Show times next to messages', undefined, 'timestamps time clock'],
     ["The agent's steps once it answers", 'Fold them away, or keep them showing.', 'fold steps tools collapse expand show steps'],
   ]),
