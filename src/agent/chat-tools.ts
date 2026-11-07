@@ -9,6 +9,8 @@ import type { ChatTools } from './types.js';
  */
 
 const limit = z.number().int().min(1).max(200).optional();
+/** An own Codex run asks about each MCP tool that does not say it only reads, and Beluga rejects that question. */
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 
 function guarded(fn: () => string): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
@@ -28,6 +30,7 @@ export function createChatTools(chats: ChatTools) {
         'Find chats on this computer and chats shared with you, newest activity first. Each chat has ref, link, title, kind, state and lastActivity. Use the ref with read_chat.',
         { query: z.string().min(1).max(200).optional().describe('Only chats with these words in the title'), state: z.enum(['idle', 'working', 'archived']).optional(), limit },
         (a) => guarded(() => chats.list({ ...(a.query ? { query: a.query } : {}), ...(a.state ? { state: a.state } : {}), ...(a.limit ? { limit: a.limit } : {}) })),
+        { annotations: READ_ONLY },
       ),
       tool(
         'read_chat',
@@ -39,6 +42,7 @@ export function createChatTools(chats: ChatTools) {
           limit,
         },
         (a) => guarded(() => chats.read(a.ref, { ...(a.view ? { view: a.view } : {}), ...(a.after ? { after: a.after } : {}), ...(a.limit ? { limit: a.limit } : {}) })),
+        { annotations: READ_ONLY },
       ),
     ],
   });

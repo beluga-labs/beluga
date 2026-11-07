@@ -385,6 +385,22 @@ describe('the tools everywhere else', () => {
   });
 });
 
+describe('what the tool list says', () => {
+  // An own Codex run asks about each MCP tool that does not say it is read-only, and that answer ends in a rejection.
+  it.each(['list_chats', 'read_chat'])('%s says it only reads, in the list a client gets', async (name) => {
+    const client = new Client({ name: 'test', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await sdkServer(createChatTools(tools(stateWith()))).instance.connect(b);
+    await client.connect(a);
+    try {
+      const listed = (await client.listTools()).tools.find((t) => t.name === name);
+      expect(listed?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: false });
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('the same answer on every harness', () => {
   const host = new ToolHost({ command: process.execPath, args: ['--import', 'tsx', path.join(ROOT, 'src/cli.ts')] });
   afterAll(() => host.close());
