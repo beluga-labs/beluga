@@ -10,6 +10,12 @@ export type ThreadState = 'queued' | 'running' | 'needs_you' | ThreadEnd;
 /** The states where a thread's turn has ended (a status wait ends on these, and on needs_you). */
 export const THREAD_ENDS: readonly ThreadEnd[] = ['done', 'failed', 'stopped', 'interrupted'];
 
+/** A thread's state in words, on both screens. */
+export const THREAD_WORDS: Readonly<Record<ThreadState, string>> = { queued: 'Queued', running: 'Running', needs_you: 'Needs you', done: 'Done', failed: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted' };
+
+/** A thread that is not settled: its row stays in view, whatever the cap. */
+export const isThreadWorking = (state: ThreadState): boolean => state === 'queued' || state === 'running' || state === 'needs_you';
+
 export interface ThreadOutcome {
   readonly state: ThreadEnd;
   readonly summary: string;
