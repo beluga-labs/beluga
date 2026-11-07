@@ -207,6 +207,12 @@ export function skipLine(title: string, skip: { readonly slot: number; readonly 
   return skip.why === 'busy' ? `${line} because this chat was busy` : line;
 }
 
+/** What the agent is told about a turn a schedule started. */
+export function scheduleBrief(title: string, run: { readonly due: number; readonly startedAt: number }, opts: ClockOpts = {}): string {
+  const name = title.replace(/\s+/g, ' ');
+  return `\n\nA schedule started this turn. No person sent the message of this turn. The schedule is "${name}". The run was due at ${clock(run.due, opts)} and started at ${clock(run.startedAt, opts)}. This turn continues the conversation of this chat. Do the work that the message asks for. If there is nothing new, report that in one line.\n`;
+}
+
 /** "21:00", in local time. */
 export function clock(ms: number, opts: ClockOpts = {}): string {
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(opts.tz ? { timeZone: opts.tz } : {}) }).format(new Date(ms));
