@@ -254,6 +254,8 @@ test('a chat already put off folds under Later in Inbox, Snooze is the only new 
   await expect(list(page, 'Inbox').getByRole('button', { name: 'Chats Options' })).toHaveCount(0);
   const text = 'Plan the spring trip';
   await list(page, 'Inbox').getByRole('button', { name: 'New chat (not tied to a project)' }).click();
+  // The new chat's box, not the project page's that it replaces.
+  await expect(page.getByText('Nothing is created until you send the first message')).toBeVisible();
   await composer(page).fill(text);
   await composer(page).press('Enter');
   const chat = sidebar(page).getByRole('button', { name: new RegExp(`^${text} ·`) });
