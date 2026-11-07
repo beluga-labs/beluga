@@ -201,39 +201,6 @@ const LOW_POWER_OPTIONS: ReadonlyArray<{ value: LowPower; label: string }> = [
 const IDLE_DAYS: readonly number[] = [0, 1, 3, 7, 14, 30];
 const idleWords = (days: number): string => (days === 0 ? 'Never' : `After ${days} day${days === 1 ? '' : 's'}`);
 
-/** How the sidebar lists conversations: Unread and Chats, or the categories. Your folds come back when it's off. */
-function SidebarCategories() {
-  const api = useApi();
-  const prefs = usePrefs();
-  const p = useApp((st) => st.prefs);
-  const turn = (on: boolean): void => {
-    setPrefs(foldsForCategories(on, prefs));
-    void api.session.setPrefs({ chatCategories: on });
-  };
-  const days = [...new Set([...IDLE_DAYS, p.settleIdleDays])].sort((a, b) => a - b);
-  return (
-    <>
-      <Row label="Sidebar categories" detail="Sort chats into Inbox, Working, Snoozed and Settled, in place of Unread and Chats.">
-        <Switch label="Sidebar categories" on={p.chatCategories} onChange={turn} />
-      </Row>
-      {p.chatCategories ? (
-        <>
-          <Row label="Settle when a pull request merges" detail="The chat moves to Settled when its pull request merges.">
-            <Switch label="Settle when a pull request merges" on={p.settleOnMerge} onChange={(v) => void api.session.setPrefs({ settleOnMerge: v })} />
-          </Row>
-          <Row label="Settle idle chats" detail="A chat with no activity for this long moves to Settled. An open pull request stops it.">
-            <Select label="Settle idle chats" value={String(p.settleIdleDays)} onChange={(v) => void api.session.setPrefs({ settleIdleDays: Number(v) })} options={days.map((d) => ({ value: String(d), label: idleWords(d) }))} />
-          </Row>
-        </>
-      ) : (
-        <Row label="Unread in the sidebar" detail="Conversations that finished or need you, listed at the top while there are any.">
-          <Switch label="Unread in the sidebar" on={prefs.unreadSection} onChange={(v) => setPrefs({ unreadSection: v })} />
-        </Row>
-      )}
-    </>
-  );
-}
-
 function Appearance() {
   const prefs = useChosenPrefs();
   const api = useApi();
@@ -242,6 +209,13 @@ function Appearance() {
   const savingNote = saving ? 'Off while Low Power mode saves power.' : undefined;
   const theme = themeFor(useDocTheme(), prefs);
   const themeAccent = theme.accent !== undefined;
+  const daemonPrefs = useApp((st) => st.prefs);
+  const idleChoices = [...new Set([...IDLE_DAYS, daemonPrefs.settleIdleDays])].sort((x, y) => x - y);
+  // Your folds come back when it's off.
+  const turnCategories = (on: boolean): void => {
+    setPrefs(foldsForCategories(on, prefs));
+    void api.session.setPrefs({ chatCategories: on });
+  };
   return (
     <>
       <Group>
@@ -301,7 +275,23 @@ function Appearance() {
             ]}
           />
         </Row>
-        <SidebarCategories />
+        <Row label="Sidebar categories" detail="Sort chats into Inbox, Working, Snoozed and Settled, in place of Unread and Chats.">
+          <Switch label="Sidebar categories" on={daemonPrefs.chatCategories} onChange={turnCategories} />
+        </Row>
+        {daemonPrefs.chatCategories ? (
+          <>
+            <Row label="Settle when a pull request merges" detail="The chat moves to Settled when its pull request merges.">
+              <Switch label="Settle when a pull request merges" on={daemonPrefs.settleOnMerge} onChange={(v) => void api.session.setPrefs({ settleOnMerge: v })} />
+            </Row>
+            <Row label="Settle idle chats" detail="A chat with no activity for this long moves to Settled. An open pull request stops it.">
+              <Select label="Settle idle chats" value={String(daemonPrefs.settleIdleDays)} onChange={(v) => void api.session.setPrefs({ settleIdleDays: Number(v) })} options={idleChoices.map((d) => ({ value: String(d), label: idleWords(d) }))} />
+            </Row>
+          </>
+        ) : (
+          <Row label="Unread in the sidebar" detail="Conversations that finished or need you, listed at the top while there are any.">
+            <Switch label="Unread in the sidebar" on={prefs.unreadSection} onChange={(v) => setPrefs({ unreadSection: v })} />
+          </Row>
+        )}
         <Row label="Sidebar width">
           <input className={s.slider} type="range" min={200} max={360} step={4} value={prefs.sidebarWidth} onChange={(e) => setPrefs({ sidebarWidth: Number(e.target.value) })} />
         </Row>
