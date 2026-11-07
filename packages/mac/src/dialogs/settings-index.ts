@@ -236,7 +236,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Invite link', undefined, 'invite copy link new link'],
   ]),
 
-  // Phone
+  // External agents
   ...rows('external', undefined, [
     ['Let other agents connect', 'Turn on the MCP server for agents outside Beluga.', 'mcp server listener on off'],
     ['Pause all agents', 'Refuses every agent and keeps their grants.', 'pause refuse'],
@@ -257,6 +257,8 @@ export const SETTINGS: readonly Entry[] = [
   ...rows('external', 'Connected agents', [['Stop all agents', 'Ends their runs now. Their grants stay.', 'stop all']]),
   group('external', 'Activity', 'What agents did, and who decided.', 'audit log activity'),
   ...rows('external', 'Activity', [['Show', 'All, allowed, asked or refused.', 'filter']]),
+
+  // Phone
   group('phone', 'On the cable', 'A phone plugged into this computer.', 'usb cable adb plugged'),
   group('phone', 'Your phones', 'Paired phones, and Remove.', 'devices paired remove'),
   ...rows('phone', undefined, [

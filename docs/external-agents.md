@@ -212,7 +212,7 @@ It takes effect at once: its next call gets a 401, its runs stop, and what it ha
 
 ## Removing this feature
 
-The feature comes out in one change, with the build and the existing tests still passing. This list was proven in a throwaway worktree (BLG-272): with all of it removed and staged, typecheck has no errors at the root, in the Mac app and in the phone app (beyond the phone's known errors from `src/net` and `archive-git.ts`, which `upstream/main` has too), `npm run build` passes, and `tests/boundaries`, `tests/parity` and `tests/companion-coverage` pass. `tests/boundaries` keeps `src/external` in its list of core folders.
+The feature comes out in one change, with the build and the existing tests still passing. This list was proven in a throwaway worktree (BLG-272, again at the head in BLG-290): with all of it removed and staged, typecheck has no errors at the root, in the Mac app and in the phone app (beyond the phone's known errors from `src/net` and `archive-git.ts`, which `upstream/main` has too), `npm run build` passes, and `tests/boundaries`, `tests/parity` and `tests/companion-coverage` pass. `tests/boundaries` keeps `src/external` in its list of core folders.
 
 Delete these files:
 
@@ -229,9 +229,10 @@ Remove these lines:
 - `src/daemon/core.ts`: the `launchExternal` import, `stopExternal` and its two uses, and the comment above the launch.
 - `src/cli/main.ts`: the `mcp` and `chat` cases. `src/cli/args.ts`: the `mcp` and `chat` commands.
 - `src/companion/coverage.ts`: the `external.*` rows. `src/companion/calls.ts`: the `external.*` entries and their comment.
-- `packages/mac/src/dialogs/Settings.tsx`: the import and the `external` pane. `packages/mac/src/dialogs/settings-index.ts`: its row. `packages/mac/src/lib/settings-search.ts`: `'external'` in `SettingsPane`. `packages/mac/src/views/ChatView.tsx`: `DrivenStrip` and its line.
+- `packages/mac/src/dialogs/Settings.tsx`: the import and the `external` pane. `packages/mac/src/dialogs/settings-index.ts`: the `external` pane entry (line 20) and the `// External agents` block of search rows: `rows('external', …)` with Let other agents connect, Pause all agents and MCP URL; the groups Connect an agent, Connected agents and Activity, each with its `rows('external', …)`. `packages/mac/src/lib/settings-search.ts`: `'external'` in `SettingsPane`. `packages/mac/src/views/ChatView.tsx`: `DrivenStrip` and its line.
 - `packages/companion/app/settings.tsx`: the External agents row and `supportsAgents`. `packages/companion/lib/link/calls.ts`: the `external*` calls. `packages/companion/lib/link/demo/transport.ts`: the `external.*` cases.
 - `docs/parity.md`: the `external.*` rows.
+- `tests/mac-settings-search.test.ts`: the `external` line in `PANE_SOURCES`. `'Nothing yet'` in `NOT_SETTINGS` can stay.
 
 What stays, harmless with no caller:
 
