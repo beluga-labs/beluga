@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sendAction } from '../packages/mac/src/chat/send-action.js';
+import { otherKeyShortcut, otherKeySteers, sendAction, sendsUrgent, steerBlockNote } from '../packages/mac/src/chat/send-action.js';
 import { DEFAULT_PREFS } from '../packages/mac/src/lib/prefs.js';
 import { runtimeHas } from '../src/shared/runtime-fallbacks.js';
 
@@ -39,6 +39,40 @@ describe('the Mac send action', () => {
   ] as const)('sends normally outside a turn with default=%s and secondary=%s', (preferred, secondary) => {
     expect(sendAction(preferred, { busy: false, canSteer: true, secondary })).toBe('send');
     expect(sendAction(preferred, { busy: false, canSteer: false, secondary })).toBe('send');
+  });
+
+  it.each([
+    ['queue', false, false],
+    ['queue', true, true],
+    ['steer', false, true],
+    ['steer', true, false],
+  ] as const)('during a turn with default=%s and secondary=%s, it goes first in line: %s', (preferred, secondary, expected) => {
+    expect(sendsUrgent(preferred, { busy: true, canSteer: true, secondary })).toBe(expected);
+    expect(sendsUrgent(preferred, { busy: true, canSteer: false, secondary })).toBe(false);
+  });
+
+  it('keeps ⌥↩ first in line outside a turn when Queue is the default, as before the preference', () => {
+    expect(sendsUrgent('queue', { busy: false, canSteer: true, secondary: true })).toBe(true);
+    expect(sendsUrgent('queue', { busy: false, canSteer: false, secondary: true })).toBe(true);
+    expect(sendsUrgent('queue', { busy: false, canSteer: true })).toBe(false);
+    expect(sendsUrgent('steer', { busy: false, canSteer: true })).toBe(false);
+    expect(sendsUrgent('steer', { busy: false, canSteer: true, secondary: true })).toBe(false);
+  });
+
+  it('shows ⌥↩ as a steer key only where it steers', () => {
+    expect(otherKeySteers('queue', true)).toBe(true);
+    expect(otherKeySteers('steer', true)).toBe(false);
+    expect(otherKeySteers('queue', false)).toBe(false);
+  });
+
+  it('names ⌥↩ in Settings by what it does with the default', () => {
+    expect(otherKeyShortcut('queue').label).toBe('Steer');
+    expect(otherKeyShortcut('steer').label).toBe('Queue');
+  });
+
+  it('says why a message queues in Plan First or on an agent that cannot steer', () => {
+    expect(steerBlockNote('plan')).toMatch(/Plan First/);
+    expect(steerBlockNote('agent')).toMatch(/cannot steer/);
   });
 
   it('queues on OpenCode and permits steering on Claude and Codex', () => {

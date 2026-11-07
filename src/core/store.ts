@@ -77,6 +77,8 @@ export type LogItem =
       readonly request?: string;
       /** Sent to steer the turn your Claude is on (⌥↩): sent but not read until Claude reads it (see shared/claude-notices.ts steeredMessages). */
       readonly steer?: true;
+      /** Sent while your agent works in this conversation (↩ queues it): it waits in the queue, not the chat, until its card says otherwise (see shared/claude-notices.ts asSent). */
+      readonly queued?: true;
       /** A turn of a chaired dialogue (core/dialogues): which one, and its number (0: a person's interjection). */
       readonly dialogue?: DialogueMark;
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
@@ -584,7 +586,7 @@ export type Action =
   | { type: 'hosting'; hosting: Hosting }
   | { type: 'welcome'; self: PeerInfo }
   | { type: 'peers'; peers: readonly PeerInfo[] }
-  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; agent?: AgentRef; dialogue?: DialogueMark }
+  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; dialogue?: DialogueMark }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
   | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
@@ -1010,6 +1012,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
           ...(action.byAgent && action.agent ? { agent: action.agent } : {}),
           ...(action.request ? { request: action.request } : {}),
           ...(action.steer ? { steer: true as const } : {}),
+          ...(action.queued ? { queued: true as const } : {}),
           ...(action.dialogue ? { dialogue: action.dialogue } : {}),
         }),
       }, action.channel ?? 'room', true);

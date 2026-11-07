@@ -51,7 +51,8 @@ import d from './draft.module.css';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { projectOfView } from '../tasks/use-tasks.js';
-import { sendAction } from './send-action.js';
+import { sendAction, sendsUrgent, steerBlockNote } from './send-action.js';
+import { useSteerBlock } from './use-steer.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -189,12 +190,15 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }) });
   // During a turn, the preference selects the main action. The secondary action uses the other choice.
   const queueing = compose.busy && (compose.typing || !buffer.trim());
-  const canSteer = useApp((st) => runtimeHas(runtimeHere(st.projects.flatMap((p) => p.workspaces).find((w) => `ws:${w.id}` === channel)?.agent, st.self), 'steer'));
+  // Plan First and agents that can't steer queue with either key (a plan message would stop the turn).
+  const steerBlock = useSteerBlock(channel);
+  const canSteer = !steerBlock;
   const mainAction = sendAction(prefs.sendDuringTurn, { busy: true, canSteer });
   const otherAction = sendAction(prefs.sendDuringTurn, { busy: true, canSteer, secondary: true });
   const actionTip = (action: string): string => action === 'steer'
     ? `Steer: ${agentHere} reads this at its next step, without stopping`
-    : canSteer ? `Queue: this waits for ${agentHere}'s current turn to finish` : `Queue: ${agentHere} cannot steer. This waits for the current turn to finish`;
+    : steerBlock === 'plan' ? `Queue: in Plan First, this waits for ${agentHere}'s current turn to finish`
+    : steerBlock ? `Queue: ${agentHere} cannot steer. This waits for the current turn to finish` : `Queue: this waits for ${agentHere}'s current turn to finish`;
   const plan = state.planMode[channel] === true;
   // Plan with Tasks: this conversation is a plan's home (milestones and tasks, approved onto the board).
   const homePlan = planForHome(state.plans, channel);
@@ -392,7 +396,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     actions.submit(text, urgent);
   };
   const send = (secondary = false): void => {
-    const urgent = sendAction(prefs.sendDuringTurn, { busy: queueing, canSteer, secondary }) === 'steer';
+    const urgent = sendsUrgent(prefs.sendDuringTurn, { busy: queueing, canSteer, secondary });
     const typed = buffer.trim();
     if (aside) {
       if (!typed) return;
@@ -494,7 +498,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       sendSteerNow(client, unread.request);
       return;
     }
-    // ⌥↩ uses the other send action during a turn.
+    // ⌥↩ uses the other send action during a turn (outside one, with Queue as the default, it goes first in line).
     if (isShortcut('composer-steer', e)) {
       e.preventDefault();
       send(true);
@@ -711,7 +715,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 <Kbd>{shortcutKeys('composer-steer')}</Kbd> {otherAction} ·
               </>
             ) : null}
-            {!canSteer ? ' This agent cannot steer. Messages queue. · ' : null}
+            {steerBlock ? ` ${steerBlockNote(steerBlock)} · ` : null}
             {unread && shortcutKeys('composer-send-now') ? (
               <>
                 {' '}
