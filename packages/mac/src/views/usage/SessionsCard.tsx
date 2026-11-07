@@ -114,7 +114,8 @@ export function SessionsCard({ windows, limits, now }: { windows: readonly PlanW
     </>
   );
   return (
-    <Card label="Plan sessions" title={kind === 'session' ? 'Sessions' : 'Weeks'} aside={aside}>
+    <Card label="Plan sessions" title={kind === 'session' ? 'Sessions' : 'Weeks'}>
+      {runtimes.length > 1 || kinds.length > 1 ? <div className={s.sessionsSwitches}>{aside}</div> : null}
       {!list.length ? (
         <p className={s.quiet}>
           Beluga keeps your {name} plan’s {kind === 'session' ? '5-hour sessions' : 'weeks'} from now on: each shows here with how much of it you used.

@@ -187,3 +187,43 @@ test('sessions: how much of each 5-hour session and each week you used', async (
   await expect(sessions.getByRole('tab', { name: '5-hour' })).toHaveCount(0);
   await expect(sessions.getByText(/of each session used/)).toBeVisible();
 });
+
+test('your card: a title earned from your stats, and the others to wear', async ({ page }) => {
+  await openUsage(page);
+  // The whole window: no panel beside Usage.
+  await expect(page.locator('aside[aria-label="Panel"]')).toHaveAttribute('aria-hidden', 'true');
+  const card = page.getByRole('region', { name: 'Your card' });
+  const title = card.getByRole('heading', { level: 1 });
+  await expect(title).toBeVisible();
+  await expect(card.getByText(/^Because: /)).toBeVisible();
+  // The 3D pass hangs on its lanyard.
+  await expect(card.locator('canvas')).toBeVisible();
+  // Wear another title, and go back.
+  const first = await title.textContent();
+  const chip = card.getByRole('button', { name: 'Code God' });
+  await chip.click();
+  await expect(title).toHaveText('Code God');
+  await card.getByRole('button', { name: `Back to ${first}` }).click();
+  await expect(title).toHaveText(first!);
+});
+
+test('your recap: a slide at a time, keys and clicks, your title at the end', async ({ page }) => {
+  await openUsage(page);
+  await page.getByRole('button', { name: 'Play Your Recap' }).click();
+  const recap = page.getByRole('dialog', { name: 'Your recap' });
+  await expect(recap.getByText('Your Beluga, so far')).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(recap.getByText('Your agents worked for')).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(recap.getByText('Your Beluga, so far')).toBeVisible();
+  // The last bar: your title, and the way out.
+  const bars = recap.getByRole('tablist', { name: 'Slides' }).getByRole('tab');
+  await bars.last().click();
+  await expect(recap.getByText('All of which makes you')).toBeVisible();
+  await recap.getByRole('button', { name: 'Back to Your Stats' }).click();
+  await expect(recap).toHaveCount(0);
+  // Esc leaves too.
+  await page.getByRole('button', { name: 'Play Your Recap' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Your recap' })).toHaveCount(0);
+});

@@ -11,6 +11,8 @@ import { type PlanLimit, SessionsCard } from './usage/SessionsCard.js';
 import { usagesOf } from '@beluga/agent/usage.js';
 import type { AppState } from '@beluga/core/store.js';
 import { StatsSection } from './usage/StatsSection.js';
+import { YourCard } from './usage/YourCard.js';
+import { Chapter } from './usage/parts.js';
 import { useStats } from './usage/use-stats.js';
 import { StorageCard } from './usage/StorageCard.js';
 import { type SortKey, cleanups, projectRows } from './usage/usage-model.js';
@@ -96,18 +98,23 @@ export function UsageView() {
   return (
     <div className={s.page}>
       <div className={s.inner}>
-        <div className={s.summaryFit}>
-          <div className={s.summary}>
-            <PlanCard state={state} now={now} />
-            <ActivityCard state={state} now={now} />
-            <SessionsCard windows={got.stats?.plan ?? []} limits={planLimits(state)} now={got.at} />
-            <EarningsSummaryCard />
+        {got.stats ? <YourCard state={state} stats={got.stats} now={got.at} /> : <div className={s.heroWait} aria-hidden />}
+        <Chapter title="Right now" sub="Your plans and how much is left, your agents this week, and what your projects earned.">
+          <div className={s.summaryFit}>
+            <div className={s.summary}>
+              <PlanCard state={state} now={now} />
+              <ActivityCard state={state} now={now} />
+              <SessionsCard windows={got.stats?.plan ?? []} limits={planLimits(state)} now={got.at} />
+              <EarningsSummaryCard />
+            </div>
           </div>
-        </div>
+        </Chapter>
         <StatsSection state={state} got={got} />
-        <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
-        {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
-        <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />
+        <Chapter title="Your disk" sub="The room your worktrees take, what’s safe to put away, and every project side by side.">
+          <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
+          {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
+          <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />
+        </Chapter>
       </div>
     </div>
   );

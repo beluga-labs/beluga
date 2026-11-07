@@ -1,12 +1,14 @@
 /*
- * Usage: cards on top (plan, this week, disk), a "free up space" suggestion, then the breakdown.
+ * Usage: your card on top, then chapters with room between them (right now, what you did, your
+ * rhythm, your disk). The whole window: no panel beside it (lib/panel-model.ts).
  * Project colours: eight categorical slots (validated for colour-blind separation, light and
  * dark each picked for their surface), given in sidebar order; text never wears them.
  */
 .page {
   flex: 1;
   overflow: auto;
-  padding: 20px 28px 40px;
+  padding: 28px 40px 72px;
+  container: usage-page / inline-size;
   --card: var(--bg-sunken);
   --card-line: var(--hairline);
   --track: rgba(0, 0, 0, 0.06);
@@ -37,11 +39,63 @@
   --series-chats: #75757c;
 }
 .inner {
-  max-width: 68rem;
+  max-width: 74rem;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 64px;
+}
+@container usage-page (width < 46rem) {
+  .inner {
+    gap: 44px;
+  }
+}
+/* Where your card goes while your stats come (a moment): its room, so nothing jumps. */
+.heroWait {
+  min-height: 580px;
+  border-radius: 22px;
+  background: var(--card);
+}
+
+/* ------------------------------------------------------------ chapters */
+
+.chapter {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.chapterHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+  margin-bottom: 4px;
+}
+.chapterTitles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+}
+.chapterTitle {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.chapterSub {
+  margin: 0;
+  max-width: 44rem;
+  color: var(--text-3);
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+.chapterAside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .muted {
   color: var(--text-3);
@@ -74,7 +128,7 @@
 .summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  gap: 18px;
 }
 @container usage-summary (width >= 39rem) {
   .summary {
@@ -93,8 +147,8 @@
 }
 .card {
   min-width: 0;
-  padding: 14px 16px 16px;
-  border-radius: var(--radius-l);
+  padding: 18px 22px 22px;
+  border-radius: 18px;
   background: var(--card);
   box-shadow: inset 0 0 0 0.5px var(--card-line);
 }
@@ -107,7 +161,7 @@
 }
 .cardTitle {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-2);
 }

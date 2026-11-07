@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icon.js';
 import { Segmented, cx } from '../../components/ui.js';
 import { Calendar } from './Calendar.js';
 import { Highlights, Hours } from './HoursCard.js';
-import { Card } from './parts.js';
+import { Card, Chapter } from './parts.js';
 import { Share } from './ShareCard.js';
 import { type GroupBy, type Metric, type MetricDef, METRICS, asideOf, calendar, change, groupRows, metricOf, rangeTotals } from './stats-model.js';
 import { TrendChart, type TrendMode } from './TrendChart.js';
@@ -105,52 +105,57 @@ export function StatsSection({ state, got }: { state: AppState; got: GotStats })
   const why = m.github && data.noGitHub ? 'Pull requests are counted with the GitHub CLI (gh). Sign in to it and they show up here.' : undefined;
   return (
     <section className={s.section} aria-label="Your stats">
-      <header className={s.head}>
-        <div className={s.titles}>
-          <h2 className={s.title}>Your stats</h2>
-          <span className={s.since}>{failed ? 'Couldn’t get your stats from Beluga' : data.backfilling ? 'Counting what came before…' : since ? `Since ${since}` : 'Counting from today'}</span>
-        </div>
-        <Segmented label="Group by" value={by} options={GROUPS} onChange={setBy} />
-        <Segmented label="Range" value={range} options={RANGES} onChange={setRange} />
-      </header>
-      <div className={s.stripFit}>
-        <div className={s.strip} role="tablist" aria-label="What to show">
-          {METRICS.map((x) => (
-            <StatCell key={x.id} m={x} totals={totals.now} {...(totals.before ? { before: totals.before } : {})} on={x.id === metric} onPick={() => setMetric(x.id)} range={range} noGitHub={Boolean(data.noGitHub)} />
-          ))}
-        </div>
-      </div>
-      <Card
-        label={`${m.label} over time`}
-        title={
-          <span className={s.cardTitle}>
-            <Icon name="chartArea" size={13} /> {m.label} by {byWord}, {STEP[range]} at a time
-          </span>
-        }
-        aside={<Segmented label="Chart" value={mode} options={MODES} onChange={setMode} />}
-      >
-        <TrendChart key={by} trend={trend} m={m} mode={mode} animate={`${range}|${metric}|${mode}`} {...(why ? { why } : {})} />
-      </Card>
-      <Highlights stats={data} now={now} rows={rows} by={by} />
-      <Card
-        title={
-          <span className={s.cardTitle}>
-            <Icon name="calendar" size={13} /> {m.label} every day, the last year
-          </span>
+      <Chapter
+        title="What you did"
+        sub={failed ? 'Couldn’t get your stats from Beluga' : data.backfilling ? 'Counting what came before…' : since ? `Counted since ${since}. Press a number to see it below.` : 'Counting from today. Press a number to see it below.'}
+        aside={
+          <>
+            <Segmented label="Group by" value={by} options={GROUPS} onChange={setBy} />
+            <Segmented label="Range" value={range} options={RANGES} onChange={setRange} />
+          </>
         }
       >
-        <Calendar weeks={weeks} m={m} {...(why ? { why } : {})} />
-      </Card>
-      <div className={s.pairFit}>
-        <div className={cx(s.pair, s.pairEven)}>
-          <Card title={`Share by ${byWord}`}>
-            <Share rows={rows} m={m} by={by} {...(why ? { why } : {})} />
-          </Card>
-          <Card title="When you work">
-            <Hours hours={data.hours} />
-          </Card>
+        <div className={s.stripFit}>
+          <div className={s.strip} role="tablist" aria-label="What to show">
+            {METRICS.map((x) => (
+              <StatCell key={x.id} m={x} totals={totals.now} {...(totals.before ? { before: totals.before } : {})} on={x.id === metric} onPick={() => setMetric(x.id)} range={range} noGitHub={Boolean(data.noGitHub)} />
+            ))}
+          </div>
         </div>
-      </div>
+        <Card
+          label={`${m.label} over time`}
+          title={
+            <span className={s.cardTitle}>
+              <Icon name="chartArea" size={14} /> {m.label} by {byWord}, {STEP[range]} at a time
+            </span>
+          }
+          aside={<Segmented label="Chart" value={mode} options={MODES} onChange={setMode} />}
+        >
+          <TrendChart key={by} trend={trend} m={m} mode={mode} animate={`${range}|${metric}|${mode}`} {...(why ? { why } : {})} />
+        </Card>
+      </Chapter>
+      <Chapter title="Your rhythm" sub={`Streaks, your year and your week, and who did what part of the ${m.label.toLowerCase()}.`}>
+        <Highlights stats={data} now={now} rows={rows} by={by} />
+        <Card
+          title={
+            <span className={s.cardTitle}>
+              <Icon name="calendar" size={14} /> {m.label} every day, the last year
+            </span>
+          }
+        >
+          <Calendar weeks={weeks} m={m} {...(why ? { why } : {})} />
+        </Card>
+        <div className={s.pairFit}>
+          <div className={cx(s.pair, s.pairEven)}>
+            <Card title={`Share by ${byWord}`}>
+              <Share rows={rows} m={m} by={by} {...(why ? { why } : {})} />
+            </Card>
+            <Card title="When you work">
+              <Hours hours={data.hours} />
+            </Card>
+          </div>
+        </div>
+      </Chapter>
     </section>
   );
 }

@@ -6,7 +6,7 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 64px;
   --m-time: var(--worktree);
   --m-prompts: var(--series-1);
   --m-pasted: var(--series-4);
@@ -63,16 +63,12 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
-  border-radius: var(--radius-l);
+  border-radius: 18px;
   overflow: hidden;
   background: var(--card-line);
   box-shadow: inset 0 0 0 0.5px var(--card-line);
 }
-@container stats-strip (width >= 64rem) {
-  .strip {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-}
+
 @container stats-strip (width < 34rem) {
   .strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -85,7 +81,7 @@
   align-items: flex-start;
   gap: 3px;
   min-width: 0;
-  padding: 12px 14px 13px;
+  padding: 18px 20px 20px;
   border: 0;
   background: var(--card);
   color: var(--text);
@@ -134,7 +130,7 @@
   color: var(--m);
 }
 .cellValue {
-  font-size: 1.55rem;
+  font-size: 2.05rem;
   font-weight: 650;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -181,7 +177,7 @@
 .pair {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 18px;
 }
 @container stats-pair (width >= 46rem) {
   .pair {
@@ -422,8 +418,8 @@
 /* A row of badges on the page itself (no card): a soft icon, a big figure, what it is. */
 .badges {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -431,10 +427,10 @@
 .badge {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  padding: 9px 12px;
-  border-radius: var(--radius-l);
+  padding: 14px 16px;
+  border-radius: 16px;
   background: var(--card);
   box-shadow: inset 0 0 0 0.5px var(--card-line);
   animation: rankIn 360ms var(--ease-out) both;
@@ -455,7 +451,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 650;
 }
 .badgeText span {
@@ -509,7 +505,7 @@
 }
 .trendBox {
   position: relative;
-  height: 210px;
+  height: 260px;
   cursor: crosshair;
 }
 .trendSvg {
@@ -773,6 +769,13 @@
 
 /* ------------------------------------------------------------ sessions */
 
+/* Which agent and which window: under the title (the card can be a third of the row). */
+.sessionsSwitches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -2px 0 12px;
+}
 .sessionsHero {
   display: flex;
   align-items: baseline;

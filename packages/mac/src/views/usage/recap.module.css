@@ -1,0 +1,286 @@
+/*
+ * Your recap (Recap.tsx): the whole window in the slide's pastel, soft solid shapes drifting
+ * behind, one big number at a time. No glow, no neon; reduced motion keeps everything still.
+ */
+.recap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--c) 26%, var(--bg));
+  color: var(--text);
+  outline: none;
+  transition: background 600ms var(--ease-out);
+  animation: open 360ms var(--ease-out) both;
+}
+:global([data-theme='dark']) .recap {
+  background: color-mix(in srgb, var(--c) 22%, var(--bg));
+}
+@keyframes open {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+.shapes > span {
+  position: absolute;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c) 30%, transparent);
+  transition: background 600ms var(--ease-out);
+  animation: drift 18s ease-in-out infinite alternate;
+}
+.shapes > span:nth-child(1) {
+  width: 46vmax;
+  height: 46vmax;
+  top: -18vmax;
+  right: -12vmax;
+}
+.shapes > span:nth-child(2) {
+  width: 30vmax;
+  height: 30vmax;
+  bottom: -12vmax;
+  left: -8vmax;
+  animation-duration: 23s;
+}
+.shapes > span:nth-child(3) {
+  width: 14vmax;
+  height: 14vmax;
+  bottom: 18%;
+  right: 16%;
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+  animation-duration: 15s;
+}
+@keyframes drift {
+  to {
+    transform: translate(3vmax, 2vmax) scale(1.06);
+  }
+}
+.top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 24px 0 96px;
+}
+.progress {
+  flex: 1;
+  display: flex;
+  gap: 5px;
+}
+.segment {
+  flex: 1;
+  height: 16px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.segment > span {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+.segmentFill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0.75;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.segmentDone::after {
+  transform: scaleX(1);
+}
+.segmentNow::after {
+  animation: fill linear forwards;
+  animation-duration: inherit;
+}
+.segmentNow {
+  animation-duration: inherit;
+}
+.segmentHeld::after {
+  animation-play-state: paused;
+}
+@keyframes fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+.stage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8vw 6vh;
+  cursor: pointer;
+  user-select: none;
+}
+.slide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(54rem, 100%);
+}
+.slide > * {
+  animation: rise 700ms var(--ease-out) both;
+}
+.slide > :nth-child(2) {
+  animation-delay: 80ms;
+}
+.slide > :nth-child(3) {
+  animation-delay: 220ms;
+}
+.slide > :nth-child(4) {
+  animation-delay: 380ms;
+}
+.slide > :nth-child(5) {
+  animation-delay: 520ms;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+.icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--c) 34%, var(--bg));
+  color: color-mix(in srgb, var(--c) 70%, var(--text));
+}
+.lead {
+  margin: 8px 0 0;
+  font-size: clamp(1.3rem, 2.4vw, 1.9rem);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.big {
+  margin: 0;
+  font-size: clamp(3.4rem, 9vw, 7.5rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.after {
+  margin-left: 0.18em;
+  font-size: 0.42em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-2);
+}
+.note {
+  margin: 6px 0 0;
+  max-width: 40rem;
+  font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(36rem, 100%);
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bars > li {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  animation: rise 600ms var(--ease-out) both;
+}
+.barName {
+  font-size: 1.05rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+.barTrack {
+  height: 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  overflow: hidden;
+}
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--b);
+  transform-origin: left;
+  animation: grow 900ms var(--ease-out) both;
+  animation-delay: inherit;
+}
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+.barValue {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+}
+/* The last slide: your pass, swinging at the right. */
+.pass {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 38vw;
+  cursor: grab;
+  animation: rise 900ms var(--ease-out) 400ms both;
+}
+/* Room for the pass: the words keep to the left. */
+.stageWithPass {
+  justify-content: flex-start;
+  padding-right: 64vw;
+}
+.stageWithPass .big {
+  font-size: clamp(2.6rem, 5.4vw, 5.2rem);
+}
+@media (max-width: 900px) {
+  .pass {
+    display: none;
+  }
+  .stageWithPass {
+    justify-content: center;
+    padding-right: 8vw;
+  }
+}
+.end {
+  position: absolute;
+  right: 32px;
+  bottom: 28px;
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .recap,
+  .shapes > span,
+  .slide > *,
+  .bars > li,
+  .barFill {
+    animation: none;
+  }
+}
