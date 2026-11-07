@@ -169,7 +169,7 @@ export const PhoneCalls = {
   'companion.transcribe': entry('companion.transcribe', TranscriptView),
   // Sentinel (docs/sentinel.md): Run Now, Pause / Resume, a sentinel's runs, one run with its
   // report, and Merge / Not Now on a run waiting for you.
-  // 1.42 (BLG-97): your chat's schedules: read them, run one now, pause and resume.
+  // 1.43 (BLG-97): your chat's schedules: read them, run one now, pause and resume.
   'schedule.list': entry('schedule.list', done),
   'schedule.setEnabled': entry('schedule.setEnabled', done),
   'schedule.runNow': entry('schedule.runNow', done),

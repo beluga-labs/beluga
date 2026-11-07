@@ -887,7 +887,7 @@ export class DemoTransport implements Transport {
         const report = a.status === 'running' ? undefined : a.status === 'failed' ? 'It stopped before it finished: the emulator went away.' : `**Done.** ${a.steps.at(-1) ?? 'Finished'}.\n\n- ${a.steps.slice(0, 3).join('\n- ')}\n\n[[code:0]]`;
         return ok({ id: a.id, timeline, count: a.count ?? timeline.length, ...(report ? { result: { text: report, code: report.includes('[[code:0]]') ? [{ lang: 'ts', lines: 4 }] : [] } } : {}) });
       }
-      // 1.42 (BLG-97): a chat's schedules.
+      // 1.43 (BLG-97): a chat's schedules.
       case 'schedule.list':
         return ok([...w.convs.values()].flatMap((c) => c.schedules?.items ?? []));
       case 'schedule.runNow':
