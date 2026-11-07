@@ -19,7 +19,7 @@ function backend() {
   const agent: AgentBackend = {
     async run(input: AgentRunInput) {
       chains.push(() => input.chatTools!.chain());
-      if (input.prompt !== 'slow') return 'done';
+      if (!input.prompt.includes('slow')) return 'done';
       return new Promise<string>((resolve, reject) => {
         input.signal.addEventListener('abort', () => reject(new Error('aborted')));
         const steer: Steer = Object.assign(
