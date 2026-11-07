@@ -1,3 +1,4 @@
+import type { ChatRef } from '../shared/chat-ref.js';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -329,6 +330,11 @@ export class AgentHost {
   }
 
   /** Why this conversation's runtime can't be compacted by Beluga (Codex compacts itself); undefined when it can. */
+  /** A run's own address, with prefs.chatLinks on (the prompt teaches the chat chip with it). */
+  private chatLinkOf(channel: string): { chatLink?: ChatRef } {
+    return this.store.getState().prefs.chatLinks ? { chatLink: { owner: this.selfId, channel } } : {};
+  }
+
   private noCompact(channel: string): string | undefined {
     if (this.deps.terminalDriving?.(channel)) return TERMINAL_DRIVING;
     return fallbackFor(this.deps.agentRef?.(channel).runtime, 'compact');
@@ -1242,6 +1248,7 @@ export class AgentHost {
       const runPlace = plans?.tools && place?.askOnly && !place.syncMain ? withoutAskOnly(place) : place;
       const final = await Promise.race([gone, exited, agent.run({
         ...(scratch ? { scratchDir: scratch } : {}),
+        ...this.chatLinkOf(body.channel),
         ...(board?.tools ? { board: board.tools } : {}),
         ...(board?.brief ? { taskBrief: board.brief } : {}),
         ...(board?.needsDefinition && board.planApproved ? { planTask: { needsDefinition: board.needsDefinition, approved: board.planApproved } } : {}),
@@ -1373,6 +1380,7 @@ export class AgentHost {
     return agent.terminal(
       {
         terminal: true,
+        ...this.chatLinkOf(channel),
         prompt,
         requesterName,
         viaAgent: false,

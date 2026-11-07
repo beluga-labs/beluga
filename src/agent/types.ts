@@ -1,3 +1,4 @@
+import type { ChatRef } from '../shared/chat-ref.js';
 import type { ChatAnswerRequest } from '../core/chat/claude-prompt.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from './setup-fixer.js';
 import type { DraftContext, TaskDraft } from './task-drafter.js';
@@ -51,6 +52,8 @@ export interface AgentRunInput {
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */
   readonly scratchDir?: string;
+  /** This chat's address, with prefs.chatLinks on: the run learns the chat chip (view-prompt.ts). */
+  readonly chatLink?: ChatRef;
   /** Where to run: a workspace folder with its own Claude conversation. Defaults to the room's folder. */
   readonly place?: AgentPlace;
   /** The conversation this run answers in: its room tools (send_chat, asks) post there. */

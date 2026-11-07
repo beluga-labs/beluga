@@ -1,8 +1,7 @@
 import { FIRST_CHAT, assistantChatOf, assistantChatTitle } from '../../shared/assistant.js';
 import { type ChatRef, parseChatRef } from '../../shared/chat-ref.js';
-import { busyChannels } from '../board/work.js';
 import { FIRST_SENTINEL_CHAT, sentinelChatOf, sentinelChatTitle } from '../sentinel/model.js';
-import type { DomainState, View } from '../store.js';
+import { type DomainState, type View, busyChannels } from '../store.js';
 
 /**
  * What a chat's address (shared/chat-ref.ts) is now. It reads the records, not what the sidebar

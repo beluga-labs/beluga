@@ -50,4 +50,11 @@ export function chatLinkOf(url: string): ChatRef | undefined {
   }
 }
 
+/** What a chat's chip shows and whether it opens, from what chats.resolve says of it now. Never a saved title. */
+export function chatChipOf(chat: { readonly title?: string | undefined; readonly state: string; readonly ownership: string }): { readonly label: string; readonly opens: boolean } {
+  if (chat.ownership === 'unknown') return { label: 'Private chat', opens: false };
+  if (chat.state === 'removed') return { label: 'Chat removed', opens: false };
+  return { label: chat.title ?? 'Chat', opens: true };
+}
+
 const isChatRef = (ref: ChatRef): boolean => OWNER.test(ref.owner) && isAddressableChannel(ref.channel);

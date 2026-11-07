@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { chatLink, chatLinkOf, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
+import { runInstructions } from '../src/agent/run-instructions.js';
+import type { AgentRunInput } from '../src/agent/types.js';
+import { buildChatLinkAppend } from '../src/agent/view-prompt.js';
+import { chatChipOf, chatLink, chatLinkOf, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
+import { readInline } from '../src/shared/render/inline-model.js';
 
 const OWNER = 'pK3-x_Q9aZ01bC2dE3fG4hI5jK6lM7nO';
 
@@ -61,5 +65,48 @@ describe('a ref as a link', () => {
     'not a link',
   ])('reads nothing from %s', (url) => {
     expect(chatLinkOf(url)).toBeUndefined();
+  });
+});
+
+describe('a chat as an inline element', () => {
+  it.each(ADDRESSABLE)('reads chat:<owner>/%s', (channel) => {
+    expect(readInline(`chat:${OWNER}/${channel}`)).toEqual({ kind: 'chat', ref: { owner: OWNER, channel } });
+  });
+
+  it.each(['chat:nonsense', `chat:${OWNER}/room`, `chat:${OWNER}/dm:${OWNER}`, `chat:${OWNER}/group:x`, `chat:${OWNER}/draft`, 'chat:'])('stays code: %s', (text) => {
+    expect(readInline(text)).toBeUndefined();
+  });
+});
+
+describe('what a chip shows', () => {
+  it('shows the current title and opens', () => {
+    expect(chatChipOf({ title: 'add-auth', state: 'idle', ownership: 'own' })).toEqual({ label: 'add-auth', opens: true });
+    expect(chatChipOf({ title: 'old-work', state: 'archived', ownership: 'own' })).toEqual({ label: 'old-work', opens: true });
+    expect(chatChipOf({ title: 'theirs', state: 'working', ownership: 'shared' })).toEqual({ label: 'theirs', opens: true });
+  });
+
+  it('says a removed chat is removed and opens nothing', () => {
+    expect(chatChipOf({ state: 'removed', ownership: 'own' })).toEqual({ label: 'Chat removed', opens: false });
+  });
+
+  it('says another person’s chat is private, with no title, and opens nothing', () => {
+    expect(chatChipOf({ title: 'never shown', state: 'removed', ownership: 'unknown' })).toEqual({ label: 'Private chat', opens: false });
+  });
+});
+
+describe('the prompt', () => {
+  it('teaches the chip with this chat’s own ref', () => {
+    const said = buildChatLinkAppend({ owner: OWNER, channel: 'ws:wt-1' });
+    expect(said).toContain(`chat:${OWNER}/ws:wt-1`);
+  });
+
+  it('teaches nothing for a chat with no address', () => {
+    expect(buildChatLinkAppend({ owner: OWNER, channel: 'room' })).toBe('');
+  });
+
+  it('adds nothing to the run while the flag is off', () => {
+    const input = { prompt: 'x', cwd: '/tmp' } as unknown as AgentRunInput;
+    expect(runInstructions(input, 'me')).not.toContain('chat:<owner>');
+    expect(runInstructions({ ...input, chatLink: { owner: OWNER, channel: 'ws:wt-1' } }, 'me')).toContain(`chat:${OWNER}/ws:wt-1`);
   });
 });

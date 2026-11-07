@@ -9,6 +9,9 @@ import { PriorityIcon, StatusIcon } from './marks.js';
 import { useTaskActions } from './use-tasks.js';
 import { useActions } from '../lib/actions.js';
 import { planTitle } from '@beluga/core/plans/model.js';
+import { type ResolvedChat, resolveChat } from '@beluga/core/chat-links/resolve.js';
+import { type ChatRef, chatChipOf } from '@beluga/shared/chat-ref.js';
+import { openChatView } from '../lib/chat-links.js';
 import r from './task-ref.module.css';
 
 /**
@@ -139,6 +142,42 @@ export function PlanChip({ id }: { id: string }) {
         <Icon name="graph" size={12} />
         <span className={r.key}>Plan</span>
         <span className={r.chipTitle}>{planTitle(plan)}</span>
+        <Icon name="arrowRight" size={10} className={r.chipGo} />
+      </button>
+    </Tip>
+  );
+}
+
+const CHAT_KIND: Readonly<Record<ResolvedChat['kind'], string>> = { worktree: 'Worktree', chat: 'Chat', assistant: 'Your Mac', sentinel: 'Sentinel' };
+
+/**
+ * A chat by its address (`chat:<owner>/<channel>`): a pill with its current title, read from the
+ * records as chats.resolve reads them; a click opens it. With prefs.chatLinks off it's the code it was.
+ */
+export function ChatChip({ target, raw }: { target: ChatRef; raw: string }) {
+  // Text, not the object: a pick built fresh each time never settles (#185, as WorktreeChip above).
+  const picked = useApp((s) => (s.prefs.chatLinks ? JSON.stringify(resolveChat(s, target)) : undefined));
+  const chat = useMemo(() => (picked ? (JSON.parse(picked) as ResolvedChat) : undefined), [picked]);
+  const actions = useActions();
+  if (!chat) return <code>{raw}</code>;
+  const chip = chatChipOf(chat);
+  const { view } = chat;
+  if (!chip.opens || !view) {
+    return (
+      <Tip label={chat.ownership === 'unknown' ? 'A chat on someone else’s computer that isn’t shared with you' : 'This chat is gone: deleted, or its worktree was removed'}>
+        <span className={r.missing}>
+          <Icon name={chat.ownership === 'unknown' ? 'lock' : 'chat'} size={12} />
+          <span>{chip.label}</span>
+        </span>
+      </Tip>
+    );
+  }
+  return (
+    <Tip label={`${CHAT_KIND[chat.kind]} · ${chip.label}${chat.state === 'idle' ? '' : ` (${chat.state})`}. Click to open`}>
+      <button type="button" className={r.chip} onClick={() => openChatView(actions, view)} aria-label={`${CHAT_KIND[chat.kind]} ${chip.label}`}>
+        <Icon name={chat.kind === 'worktree' ? 'branch' : 'chat'} size={12} />
+        <span className={r.key}>{CHAT_KIND[chat.kind]}</span>
+        <span className={r.chipTitle}>{chip.label}</span>
         <Icon name="arrowRight" size={10} className={r.chipGo} />
       </button>
     </Tip>

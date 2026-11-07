@@ -441,6 +441,13 @@ export const channelOf = (view: View): string =>
           ? 'draft'
           : 'room';
 
+/** Conversations where a Claude is working right now. */
+export function busyChannels(log: readonly LogItem[]): Set<string> {
+  const last = new Map<string, string>();
+  for (const l of log) if (l.type === 'agent') last.set(l.channel, l.status);
+  return new Set([...last].filter(([, s]) => s === 'queued' || s === 'awaiting_approval' || s === 'started' || s === 'answered').map(([c]) => c));
+}
+
 /** The conversation a view shows, if any (Overview, Search, Terminal… show none, so the chat's unread count stays). */
 export const shownChannel = (view: View): string | undefined =>
   view.kind === 'conversation' ? view.id : view.kind === 'room' || view.kind === 'workspace' || view.kind === 'shared' || view.kind === 'assistant' || view.kind === 'sentinel_chat' ? channelOf(view) : undefined;
