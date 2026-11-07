@@ -123,7 +123,7 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
     case 'snooze':
       return { ...without(was, 'settled', 'backAt'), snoozed: { at: event.at, until: event.until, seen: event.seen } };
     case 'wake':
-      return was.snoozed ? { ...without(was, 'snoozed'), backAt: event.at } : was;
+      return was.snoozed ? { ...touched(without(was, 'snoozed'), event.at), backAt: event.at } : was;
     case 'own_message':
     case 'answer':
       return touched(without(was, 'snoozed', 'settled', 'backAt'), event.at);

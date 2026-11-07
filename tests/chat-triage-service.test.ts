@@ -292,6 +292,19 @@ describe('messages and turns', () => {
 });
 
 describe('the wake timer', () => {
+  it('a snooze longer than the idle days wakes to Active with Back, and the idle days start again', () => {
+    const store = makeStore();
+    const service = start(store);
+    store.dispatch({ type: 'projects', projects: store.getState().projects });
+    service.snooze(CH, NOW + 7 * 24 * HOUR);
+    vi.advanceTimersByTime(7 * 24 * HOUR + 2 * 60_000);
+    expect(category(store)).toBe('active');
+    expect(store.getState().triage[CH]?.backAt).toBeDefined();
+    expect(notices).toHaveLength(1);
+    vi.advanceTimersByTime(4 * 24 * HOUR);
+    expect(category(store)).toBe('settled');
+  });
+
   it('ends a snooze on time, with Back and one notice', () => {
     const store = makeStore();
     start(store).snooze(CH, NOW + 45_000);

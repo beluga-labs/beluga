@@ -304,3 +304,11 @@ describe('the store', () => {
     expect(next.unread).toEqual({ 'ws:b': 1 });
   });
 });
+
+describe('a snapshot from a daemon before triage', () => {
+  it('still takes an attention change', () => {
+    const { triage: _none, ...older } = initialState('room', 'ask');
+    const next = reduceDomain(older as ReturnType<typeof initialState>, { type: 'attention', attention: { ...older.attention, shown: ['ws:w1'] } });
+    expect(next.attention.shown).toEqual(['ws:w1']);
+  });
+});

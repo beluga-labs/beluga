@@ -219,13 +219,9 @@ test.describe('with the setting on', () => {
   });
 });
 
-test('Inbox folds a chat put off with Remind Me Later, and its header shows archived chats', async ({ page }) => {
+test('a chat already put off folds under Later in Inbox, Snooze is the only new way to put off, and the header shows archived chats', async ({ page }) => {
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
-  await setCategories(page, true);
-  await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible();
-
-  await sidebar(page).getByRole('button', { name: 'Projects' }).click();
   const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
   if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
   // The project's page is in (it takes focus as it comes, which would close a menu).
@@ -233,9 +229,25 @@ test('Inbox folds a chat put off with Remind Me Later, and its header shows arch
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Remind Me Later' }).hover();
   await page.getByRole('menuitem', { name: 'In 1 Hour' }).click();
+  await setCategories(page, true);
   await expect(inList(page, 'Inbox', 'add-auth')).toHaveCount(0);
-  await expect(list(page, 'Inbox').getByRole('button', { name: 'Later, 1' })).toBeVisible();
+  const later = list(page, 'Inbox').getByRole('button', { name: 'Later, 1' });
+  await expect(later).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('inbox-later.png') });
+
+  // A chat not put off offers Snooze, and no Remind Me Later.
+  await sidebar(page).getByRole('button', { name: 'Projects' }).click();
+  const other = sidebar(page).getByRole('button', { name: 'webhook-retries', exact: true });
+  await other.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Snooze' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Remind Me Later' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // The one put off can still come back.
+  await later.click();
+  await row.first().click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: /Show Again Now/ })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await expect(list(page, 'Inbox').getByRole('button', { name: 'Chats Options' })).toHaveCount(0);
   const text = 'Plan the spring trip';

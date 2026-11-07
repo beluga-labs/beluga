@@ -994,10 +994,10 @@ function attend(state: DomainState, attention: Attention): DomainState {
   return { ...state, attention, unread, seenShares, triage: withoutBack(state, fresh) };
 }
 
-/** Opening a chat that woke from a snooze ends its Back state. */
+/** Opening a chat that woke from a snooze ends its Back state. `triage` is absent in a snapshot from an older daemon. */
 function withoutBack(state: DomainState, opened: readonly string[]): DomainState['triage'] {
   const keys = new Set(opened.map((c) => triageKey(state, c)));
-  const back = Object.entries(state.triage).filter(([key, record]) => record.backAt !== undefined && keys.has(key));
+  const back = Object.entries(state.triage ?? {}).filter(([key, record]) => record.backAt !== undefined && keys.has(key));
   if (!back.length) return state.triage;
   return { ...state.triage, ...Object.fromEntries(back.map(([key, { backAt: _gone, ...record }]) => [key, record])) };
 }

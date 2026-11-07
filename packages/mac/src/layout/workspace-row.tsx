@@ -35,7 +35,8 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
     ...triageItems(state, `ws:${ws.id}`, run, client),
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
     ...(ws.kind === 'chat' && regenerate ? [{ label: regenerate.pending ? 'Regenerating title…' : 'Regenerate title', icon: 'refresh' as const, disabled: regenerate.pending, onSelect: regenerate.run }] : []),
-    ...(remindLater && ws.kind !== 'main' && !ws.archived ? [laterItem(ws, remindLater)] : []),
+    // With the sidebar categories on, Snooze is the way to put a chat off: only one already put off can come back here.
+    ...(remindLater && ws.kind !== 'main' && !ws.archived && (!state.prefs.chatCategories || remindPending(ws)) ? [laterItem(ws, remindLater)] : []),
     ...sections.flatMap((section) =>
       section.map((a, i) => ({
         label: a.label,

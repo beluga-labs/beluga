@@ -506,7 +506,7 @@ export type HomeView = z.infer<typeof HomeView>;
 
 export const WorkView = z.object({
   projects: z.array(z.object({ id, name: z.string().max(200), conversations: z.array(ConvSummary).max(200), /** 1.3: its icon's checksum (companion.icon). */ icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional() })).max(200),
-  /** 1.42: `chatCategories` is on: the phone sorts by `ConvSummary.category`. */
+  /** 1.43: `chatCategories` is on: the phone sorts by `ConvSummary.category`. */
   categories: z.literal(true).optional(),
 });
 export type WorkView = z.infer<typeof WorkView>;
