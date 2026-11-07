@@ -64,6 +64,47 @@ test('a hit in a worktree opens that worktree at its message', async ({ page }) 
   await expect(jumped(page)).toContainText('remember the mulberry key');
 });
 
+test('a hit on a message that waited in the queue opens at that message', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  const row = sidebar(page).getByRole('button', { name: 'webhook-retries', exact: true });
+  await sidebar(page).getByRole('button', { name: 'bob-api' }).first().waitFor();
+  if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await row.click();
+  await composer(page).fill('Take a deep dive into the codebase');
+  await composer(page).press('Enter');
+  const split = page.getByRole('group', { name: 'Claude is working' });
+  await expect(split).toBeVisible();
+  await composer(page).fill('the pomelo question');
+  await split.getByRole('button', { name: 'Queue' }).click();
+  const tray = page.getByRole('region', { name: 'Queued messages' });
+  await expect(tray.getByRole('listitem')).toHaveText([/the pomelo question/]);
+  // It left the queue and ran: the chat draws it where it ran, not when it was typed.
+  await expect(tray).toBeHidden({ timeout: 90_000 });
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+
+  await searchFor(page, 'pomelo');
+  await expect(composer(page)).toHaveAttribute('placeholder', /webhook-retries/);
+  await expect(jumped(page)).toContainText('the pomelo question');
+});
+
+test('a hit older than what the chat keeps says so, and the chat stays at its latest messages', async ({ page }) => {
+  await page.goto('/');
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  await page.getByRole('button', { name: 'New chat with Your Mac' }).click();
+  const dir = macFolder();
+  let chat = '';
+  await expect.poll(() => (chat = (JSON.parse(readFileSync(path.join(dir, 'chats.json'), 'utf8')) as { active: string }).active)).not.toBe('main');
+  const channel = `mac:assistant:${chat}`;
+  const items = Array.from({ length: 1200 }, (_, i) => ({ id: `m${i}`, type: 'chat', channel, from: 'me', name: 'kay', text: i === 5 ? 'the ancient quince note' : `line ${i} of a very long chat`, ts: 1_000_000 + i, byAgent: false }));
+  writeFileSync(path.join(dir, 'chats', chat, 'history.json'), JSON.stringify(items));
+
+  await searchFor(page, 'quince');
+  await expect(page.getByText('That message is too old to show here. The chat shows its latest messages.')).toBeVisible();
+  await expect(page.getByText('line 1199 of a very long chat')).toBeInViewport();
+  await expect(jumped(page)).toHaveCount(0);
+});
+
 test('a hit in a chat shared with you opens that chat at its message', async ({ page }) => {
   await page.goto('/');
   await expect(sidebar(page).getByRole('button', { name: 'bob-api, shared by bob' })).toBeVisible();

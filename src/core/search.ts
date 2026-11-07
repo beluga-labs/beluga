@@ -35,7 +35,7 @@ export function searchConversations(query: string, sources: readonly SearchSourc
       const at = Math.max(0, lower.indexOf(words[0]!));
       // A shared chat's earlier message arrived later than it was said: the chat draws it at `said.ts`.
       const ts = (item.type === 'system' && item.said?.ts) || item.ts;
-      hits.push({ channel: source.channel, place: source.place, who: found.who, text: found.text, at, ts, ...(source.archived ? { archived: true } : {}) });
+      hits.push({ channel: source.channel, place: source.place, who: found.who, text: found.text, at, ts, ...(item.id ? { id: item.id } : {}), ...(source.archived ? { archived: true } : {}) });
     }
   }
   return hits.sort((a, b) => b.ts - a.ts).slice(0, MAX_HITS);
