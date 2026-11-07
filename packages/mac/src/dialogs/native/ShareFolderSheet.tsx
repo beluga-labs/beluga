@@ -1,8 +1,9 @@
+import { baseName as lastPart, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { useState } from 'react';
 import type { MyShare } from '@beluga/core/store.js';
 import { Icon } from '../../components/Icon.js';
 import { Avatar, Button, cx } from '../../components/ui.js';
-import { inApp } from '../../lib/boot.js';
+import { canPickFolders, inApp } from '../../lib/boot.js';
 import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { pickFolders } from '../../lib/projects.js';
 import type { MenuKind } from '@beluga/ui/menus.js';
@@ -20,8 +21,8 @@ export function presetShareWith(...peerIds: string[]): void {
   preset = peerIds;
 }
 
-const norm = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') : p);
-const baseName = (p: string): string => norm(p).split('/').pop() || p;
+const norm = (p: string): string => (p.length > 1 && !/^[A-Za-z]:[\\/]$/.test(p) ? p.replace(/[\\/]+$/, '') : p);
+const baseName = (p: string): string => lastPart(p) || p;
 /** A long path with its middle left out: "/private/var/…/beluga-demo-4y/landing". */
 const shortPath = (p: string): string => (p.length > 56 ? `${p.slice(0, 18)}…${p.slice(-36)}` : p);
 
@@ -55,9 +56,9 @@ export function ShareFolderSheet({ menu, close }: { readonly menu: Extract<MenuK
     setPath(tilde(home, p));
     setTyping(false);
   };
-  const dir = path.trim() === '~' ? home : path.trim().startsWith('~/') ? `${home}${path.trim().slice(1)}` : path.trim();
+  const dir = path.trim() === '~' ? home : /^~[\\/]/.test(path.trim()) ? `${home}${path.trim().slice(1)}` : path.trim();
   const existing = mine.find((x) => norm(x.root) === norm(dir));
-  const ready = dir.startsWith('/') && (who === 'all' || only.size > 0);
+  const ready = isAbsolutePath(dir) && (who === 'all' || only.size > 0);
   const suggestions = projects.filter((p) => p.root && !mine.some((x) => norm(x.root) === norm(p.root))).slice(0, 8);
   const nameOf = (id: string): string => people.find((p) => p.peerId === id)?.name ?? 'someone who left';
 
@@ -109,8 +110,8 @@ export function ShareFolderSheet({ menu, close }: { readonly menu: Extract<MenuK
             <span className={f.pathIcon}>
               <Icon name="folder" size={14} />
             </span>
-            <input id="share-path" className={cx(s.input, f.path)} value={path} placeholder={inApp() ? 'Choose a folder, or type its path' : '~/path/to/folder'} spellCheck={false} aria-label="Folder path" autoFocus={!inApp()} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), share())} />
-            {inApp() ? <Button onClick={() => void choose()}>Choose…</Button> : null}
+            <input id="share-path" className={cx(s.input, f.path)} value={path} placeholder={canPickFolders() ? 'Choose a folder, or type its path' : '~/path/to/folder'} spellCheck={false} aria-label="Folder path" autoFocus={!inApp()} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), share())} />
+            {canPickFolders() ? <Button onClick={() => void choose()}>Choose…</Button> : null}
           </div>
         ) : (
           <div className={f.folder} aria-label={`Folder: ${path}`}>
@@ -121,7 +122,7 @@ export function ShareFolderSheet({ menu, close }: { readonly menu: Extract<MenuK
               <strong>{baseName(dir)}</strong>
               <span title={path}>{shortPath(path)}</span>
             </span>
-            {inApp() ? (
+            {canPickFolders() ? (
               <Button size="small" onClick={() => void choose()}>
                 Choose…
               </Button>

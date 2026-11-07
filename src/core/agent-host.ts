@@ -71,7 +71,7 @@ export interface AgentHostDeps {
   /** Guests invited into one project only (not the whole room). */
   readonly isGuest?: (peerId: string) => boolean;
   /** The task board for a run in this conversation (your own runs): its tools and the task's brief. */
-  readonly board?: (channel: string, from: string, opts: { readonly plan: boolean }) => import('./board/work.js').RunBoard | undefined;
+  readonly board?: (channel: string, from: string, opts: { readonly plan: boolean; readonly friend?: import('./board/work.js').BoardFriend }) => import('./board/work.js').RunBoard | undefined;
   /** The Sentinel chat (core/sentinel/chat.ts, your own runs): where its Claude runs, its own folder and session. */
   readonly sentinelChat?: (channel: string, from: string) => AgentPlace | undefined;
   /** What a tool that always asks you (policy ALWAYS_ASK_YOU: deleting a sentinel or a dashboard) says on its card, in words. */
@@ -83,6 +83,8 @@ export interface AgentHostDeps {
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
   readonly assistant?: (channel: string, from: string) => { readonly place: AgentPlace; readonly tools: MacTools; readonly brief: string } | undefined;
   /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
+  /** The notes of calls you were in (core/calls, BLG-715), as tools for your own runs. */
+  readonly callNotes?: () => import('../agent/types.js').CallNotesTools | undefined;
   readonly phone?: (scratchDir?: string) => { readonly tools: import('../agent/types.js').PhoneTools; readonly brief: string; readonly env?: Record<string, string> } | undefined;
   /** How freely Claude may use the phone now (off · ask · use · full), for the owner-approval gate. */
   /** Your own worktree runs: the project's setup, and Claude's tool to correct it (core/workbench). */
@@ -206,6 +208,8 @@ const QUIT_SETTLE_MS = 2_000;
 /** A message in a conversation its terminal is driving (BLG-534). */
 export const TERMINAL_DRIVING = 'The terminal is driving this conversation: type there, or Take over to talk here.';
 const STOPPED_FOR_YOU = 'Your agent didn’t stop when asked, so its run was stopped for your message';
+/** Said when an agent that can't read a message mid-turn (OpenCode) had its turn stopped to read yours. */
+const STOPPED_TO_READ = 'Stopped to read your message';
 
 
 /**
@@ -578,6 +582,28 @@ export class AgentHost {
   }
 
   /**
+   * A conversation's worktree is going (deleted or archived): everything your Claude has there
+   * ends, quietly, whoever asked for it. Its run stops (its approvals denied, its questions
+   * skipped) and what waits there is dropped, saying `why`. Resolves once nothing runs there, so
+   * no card lands in a conversation that's gone and no Claude works in a folder that's gone.
+   */
+  endIn(channel: string, why: string): Promise<void> {
+    const lane = this.lanes.get(channel);
+    if (!lane || (!lane.current && !lane.waiting.length)) return Promise.resolve();
+    for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
+    this.deps.questions.cancelChannel(channel);
+    const dropped = lane.waiting;
+    lane.waiting = [];
+    for (const { from, body, compact } of dropped) if (!compact) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    if (lane.current) {
+      lane.interruptedBy = 'beluga';
+      lane.interruptNote = why;
+      lane.current.abort();
+    }
+    return this.idle(channel);
+  }
+
+  /**
    * Stop your Claude in one conversation only. Its current run there stops (whoever asked for
    * it), and that run's waiting tool approvals are denied and its questions skipped. Your own
    * messages still waiting there come out of the queue: their prompts are returned in queue order
@@ -679,13 +705,15 @@ export class AgentHost {
     const plan = steer ? planSteer(steer.status?.(), Date.now()) : undefined;
     const emit = (event: BodyOf<'agent_event'>['event'], text = ''): void => this.emitAgent(body.requestId, from, event, text, body.channel);
     if (steer && plan?.kind === 'steer' && this.steerIn(lane, item, steer)) return;
-    if (steer?.interrupt && plan?.kind === 'interrupt') {
+    // An agent that can't take a message into its running turn (OpenCode: one prompt at a time) stops the turn for it instead.
+    const note = plan?.kind === 'interrupt' ? plan.note : plan?.kind === 'steer' && steer?.interrupt && !steer.status?.().between ? STOPPED_TO_READ : undefined;
+    if (steer?.interrupt && note) {
       const run = lane.current;
       const followUp = this.followUp(lane, item);
       // Sent, not read yet: Claude's step is being stopped for it (its turn starts once it is).
       emit('text', STOPPING_FOR);
       const interrupting: Promise<void> = steer
-        .interrupt(followUp, plan.note)
+        .interrupt(followUp, note)
         .catch(() => false)
         .then((ok) => {
           if (lane.interrupting === interrupting) lane.interrupting = undefined;
@@ -1051,6 +1079,17 @@ export class AgentHost {
     return this.deps.workspaces?.manager.list.find((p) => p.root && p.name === name)?.root;
   }
 
+  /**
+   * What a friend's run may do with your board (BLG-701), by how much you trust them: Full trust
+   * uses it freely, like you; Trusted reads freely and asks you before a change; Ask me each time
+   * asks for every look too. Blocked, or a guest invited by link: no board.
+   */
+  private boardAccess(from: string): 'free' | 'writes' | 'all' | undefined {
+    if (this.deps.isGuest?.(from)) return undefined;
+    const level = trustOf(this.store.getState(), from);
+    return level === 'full' ? 'free' : level === 'trusted' ? 'writes' : level === 'ask' ? 'all' : undefined;
+  }
+
   private async authorizeRequest(from: string, body: BodyOf<'agent_request'>): Promise<boolean> {
     if (from === this.selfId) return true;
     const state = this.store.getState();
@@ -1153,14 +1192,20 @@ export class AgentHost {
       const scratch = place && !place.askOnly && this.store.getState().prefs.scratchFolder && (await ensureScratch(place.cwd)) ? SCRATCH_DIR : undefined;
       // Your phone (core/phone): your own runs can drive it; a screenshot lands in this run's scratch.
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
+      // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
+      const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
-      // Not for guests, nor in a main folder (questions only) unless planning there: a run doing a task gets it, and the tools to keep it true.
-      // (In a plan's conversation, planning is the plan's: no single task to define.)
+      // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
+      // folder's chat too (BLG-626): the board is Beluga's, not a file there, so the folder stays read-only.
+      // Not while syncing main, nor in a plan's conversation there (planning is the plan's: no single task to define).
       const planFirst = body.plan && !plans?.tools;
-      // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools even in a main folder (it makes tasks there).
+      // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools (it makes tasks).
       const sentinel = from === this.selfId && !place?.syncMain ? this.deps.sentinel?.(body.channel, from) : undefined;
-      const board = (place?.askOnly && !sentinel?.inRun && (!planFirst || place.syncMain)) || from !== this.selfId ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst });
+      const noBoard = place?.syncMain || (place?.askOnly && plans?.tools && !sentinel?.inRun);
+      // A friend's run gets its repo's board too, as their trust allows (BLG-701; see boardAccess).
+      const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
+      const board = noBoard || (from !== this.selfId && !friendBoard) ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst && from === this.selfId, ...(friendBoard ? { friend: { id: from, name: requesterName } } : {}) });
       // A run stopped but not ending (wedged, or never started: no Claude Code yet) has its Claude
       // Code killed after a moment (at once when it's gone already), then is left behind so what
       // comes next in the conversation starts (BLG-402): never while its Claude Code could still
@@ -1204,6 +1249,7 @@ export class AgentHost {
         ...(plans?.brief ? { planBrief: plans.brief } : {}),
         ...(mac ? { macTools: mac.tools, macBrief: mac.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
+        ...(callNotes ? { callNotesTools: callNotes } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         prompt: this.promptOf(body),
         ...this.promptIdOf(body),
@@ -1214,6 +1260,7 @@ export class AgentHost {
         channel: body.channel,
         scope: from === this.selfId ? 'full' : reachOf(this.store.getState(), from),
         ...(from !== this.selfId && this.deps.isGuest?.(from) ? { guest: true } : {}),
+        ...(board?.tools && friendBoard && friendBoard !== 'free' ? { boardAsks: friendBoard } : {}),
         signal: controller.signal,
         onEvent: (kind, text) => {
           this.compactor.observe(body.channel, kind, text);
@@ -1257,6 +1304,8 @@ export class AgentHost {
         ...this.modelFor(place?.model, place?.agent ?? named, place?.effort),
         // Your MCP servers (your logins: Figma, Linear…) are for runs you asked for, never a friend's.
         ...(from === this.selfId ? { ownerMcp: true } : {}),
+        // Your own flags for `claude` and `codex` (Settings › Agents), never on a friend's run.
+        ...(from === this.selfId ? this.launchArgs() : {}),
         // Your variables can hold secrets: only runs you asked for get them, never a friend's.
         // Your own runs also get adb on PATH (and ANDROID_SERIAL) when a phone is set up, so Bash can drive it (BLG-174).
         ...(from === this.selfId && (this.deps.envFor || phone?.env) ? { env: { ...this.deps.envFor?.(body.channel, place?.cwd), ...(phone?.env ?? {}), ...tag } } : worktree ? { env: tag } : {}),
@@ -1317,7 +1366,7 @@ export class AgentHost {
     const tag: Record<string, string> = worktree ? belugaEnvBoth('WORKTREE', worktree) : {};
     const scratch = !place.askOnly && this.store.getState().prefs.scratchFolder && (await ensureScratch(place.cwd)) ? SCRATCH_DIR : undefined;
     const phone = this.deps.phone?.(scratch ? path.join(place.cwd, scratch) : undefined);
-    const board = place.askOnly ? undefined : this.deps.board?.(channel, this.selfId, { plan: false });
+    const board = this.deps.board?.(channel, this.selfId, { plan: false });
     const setup = worktree && channel.startsWith('ws:') ? this.deps.setup?.(channel) : undefined;
     const requestId = `term-${randomUUID()}`;
     this.deps.questions.track(requestId, this.selfId, channel);
@@ -1344,6 +1393,7 @@ export class AgentHost {
         ...(setup ? { setup } : {}),
         ...this.modelFor(place.model, place.agent, place.effort),
         ownerMcp: true,
+        ...this.launchArgs(),
         env: { ...this.deps.envFor?.(channel, place.cwd), ...(phone?.env ?? {}), ...tag },
       },
       sink,
@@ -1378,6 +1428,12 @@ export class AgentHost {
       ...(opts.defaultModel ? this.modelFor(opts.place?.model, opts.place?.agent, opts.place?.effort) : {}),
     });
     return { text, tokens };
+  }
+
+  /** Your launch flags per runtime (Settings › Agents › Launch flags), when you set any. */
+  private launchArgs(): Pick<AgentRunInput, 'launchArgs'> {
+    const { claudeArgs, codexArgs } = this.store.getState().prefs;
+    return claudeArgs.length || codexArgs.length ? { launchArgs: { claude: claudeArgs, codex: codexArgs } } : {};
   }
 
   /**
@@ -1473,7 +1529,9 @@ export class AgentHost {
   /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
   private promptOf(body: BodyOf<'agent_request'>): string {
     const board = this.store.getState().board;
-    return board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    const prompt = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
+    return this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
   }
 
   private recentChat(channel = 'room'): string[] {

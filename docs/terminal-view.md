@@ -19,8 +19,8 @@ conversation yourself (the header's switch, ⇧⌘T) opens it at once.
 The terminal runs Claude Code's own terminal app (the copy Beluga downloaded) in the worktree, on
 the conversation the chat has: `--resume <session>`; a new conversation gets `--session-id` up
 front; a fork `--fork-session`. A local model runs in the same Claude Code, pointed at its
-endpoint, so its conversations get the same terminal. Codex's conversations stay in the chat (the
-switch isn't offered there). The worktree is trusted in Claude Code first (as its own "Yes, I trust
+endpoint, so its conversations get the same terminal. Codex's and OpenCode's conversations stay in
+the chat (the switch isn't offered there). The worktree is trusted in Claude Code first (as its own "Yes, I trust
 this folder" does), so the terminal opens straight on the conversation, its prompt at the bottom.
 
 Only one side drives at a time. While the terminal is open, a message in the chat (on the Mac or
@@ -30,6 +30,11 @@ until that turn ends the chat shows, with a banner (the terminal opens here when
 **Stop and Open** ends it now), and the terminal opens by itself once it's done. If a message given
 to the terminal can't go there (a turn already running, a Codex conversation), it goes to the chat
 as any message does.
+
+A terminal nothing shows (no window, no phone) for 20 minutes rests: if Claude wrote nothing in
+that time, its last turn ended and no shell runs under it (a command, a dev server), its Claude
+Code stops (each one holds a few hundred MB) and the conversation is the chat's again. Shown again,
+it resumes the same conversation (`AgentTerminals.restIfIdle`, `REST_AFTER_MS`).
 
 What's said in the terminal comes back to the chat as it's written: Beluga reads Claude Code's own
 transcript (`~/.claude/projects/…/<session>.jsonl`) from where it was when the terminal opened, and

@@ -21,11 +21,13 @@ import { sentinelGraph } from '../core/sentinel/workflow.js';
 import { widgetSnapshot } from '../core/sentinel/widgets.js';
 import { COMPARE, changeText, deltaOf, formatMetric } from '../core/sentinel/metrics.js';
 import type { Workspace } from '../workspaces/types.js';
-import { type PlanView as PlanProgress, planView } from '../core/plans/progress.js';
+import { type MilestoneView, type PlanView as PlanProgress, agentNowWords, liveFrom, planView } from '../core/plans/progress.js';
 import { triageFacts } from '../core/triage/facts.js';
 import { categoryOf, triageKey } from '../core/triage/model.js';
 import { shortVersion } from '../net/mesh/features.js';
 import type { MessageView, PersonView } from '../net/mesh/views.js';
+import { type Reaction, quickReactions } from '../shared/reactions.js';
+import { chatReactions, reactableChannel } from '../core/chat-reactions.js';
 import { chatPeople, claudePill, offlineNote, waitingIn, waitingLabel } from '../core/chat-people.js';
 import { type AgentRef, CLAUDE_AGENT, type Profile, defaultAgentOf } from '../protocol.js';
 import { providerCards } from '../ui/usage-cards.js';
@@ -91,11 +93,12 @@ const PICTURE = /!\[([^\]\n]*)\]\((?:<([^>\n]+)>|([^)\s]+))\)/g;
 export function withPictures(prose: ProseView, refs: ViewContext['refs'], cwd?: string): ProseView {
   if (!prose.text.includes('![')) return prose;
   const text = prose.text.replace(PICTURE, (all, alt: string, angled: string | undefined, bare: string | undefined) => {
-    let p = (angled ?? bare ?? '').replace(/^file:\/\//, '').replace(/^~(?=\/)/, process.env.HOME ?? '~');
+    // file:///C:/x is C:/x on Windows; ~ is your home there too (USERPROFILE: Windows has no $HOME).
+    let p = (angled ?? bare ?? '').replace(/^file:\/\//, '').replace(/^\/(?=[A-Za-z]:[\\/])/, '').replace(/^~(?=[\\/])/, () => process.env.HOME || process.env.USERPROFILE || '~');
     try {
       p = decodeURI(p);
     } catch {}
-    const out = p.startsWith('/') ? refs.output(p, cwd ? { cwd } : {}) : undefined;
+    const out = p.startsWith('/') || /^[A-Za-z]:[\\/]|^\\\\/.test(p) ? refs.output(p, cwd ? { cwd } : {}) : undefined;
     return out?.kind === 'image' ? `![${alt}](${out.ref})` : all;
   });
   return text === prose.text ? prose : { ...prose, text };
@@ -200,9 +203,9 @@ const openAssistant = (state: DomainState): Conversation => {
   return assistantConversations(state).find((c) => c.channel === channel) ?? { channel, title: ASSISTANT_TITLE, mine: true };
 };
 
-/** Your Mac's chats for the phone's list (1.14): in tab order, each titled by its tab. */
+/** Your Mac's chats for the phone's list (1.14): in tab order, each titled by its tab; a sentinel run's are on its run (BLG-566). */
 function macChatSummaries(state: DomainState, waiting: ReadonlySet<string>, ctx?: ViewContext): ConvSummary[] {
-  return state.assistant.chats.slice(0, 40).flatMap((c) => summaryOf(state, { channel: c.channel, title: assistantChatTitle(c.channel, state.log, 60), mine: true }, waiting, ctx) ?? []);
+  return state.assistant.chats.filter((c) => !c.auto).slice(0, 40).flatMap((c) => summaryOf(state, { channel: c.channel, title: assistantChatTitle(c.channel, state.log, 60), mine: true }, waiting, ctx) ?? []);
 }
 
 /**
@@ -439,7 +442,8 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
     const who = item.byAgent ? 'claude' : item.from === me ? 'you' : 'friend';
     const prose = who === 'claude' ? pictures(proseOf(item.text)) : proseOf(item.text);
     const edit = who === 'you' && !steer ? editOf(state, item.channel, item.text, prose) : undefined;
-    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}) };
+    const reactions = reactableChannel(item.channel) ? chipsView(state, chatReactions(item), me) : undefined;
+    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}), ...(reactableChannel(item.channel) ? { reactable: true } : {}), ...(reactions ? { reactions } : {}) };
   }
   if (item.type === 'system') {
     // Earlier lines of a shared workspace's conversation ("bob: …") read as that person's turn.
@@ -640,6 +644,12 @@ export function workView(state: DomainState, ctx?: ViewContext): WorkView {
     entry.conversations.push({ ...s, ...triageFields(state, c.channel) });
     byProject.set(key, entry);
   }
+  // Every project of yours, even one with nothing in it yet (one just added on a server): the Ask
+  // sheet starts the first worktree there. Not Chats, which is no project (BLG-675).
+  for (const p of state.projects) {
+    if (!p.root || byProject.has(p.id)) continue;
+    byProject.set(p.id, { id: clip(p.id, 200), name: clip(p.name, 200), conversations: [], ...iconOf(ctx, p.id) });
+  }
   const lastOf = (p: { conversations: ConvSummary[] }): number => Math.max(0, ...p.conversations.map((c) => c.lastAt ?? 0));
   return {
     projects: [...byProject.values()]
@@ -721,6 +731,7 @@ export function convView(state: DomainState, ctx: ViewContext, topic: Topic): Co
     ...pickerOf(state, channel, conv?.mine ?? false),
     ...tagsOf(state, channel),
     ...terminalOf(state, channel),
+    ...(reactableChannel(channel) ? { quick: quickRow(state) } : {}),
   };
 }
 
@@ -848,10 +859,26 @@ export function plansView(state: DomainState): PlansView {
   };
 }
 
+/** What a milestone's agent is doing right now (1.40), and its conversation: nothing while it isn't at work. */
+function agentNowOf(m: MilestoneView): { readonly agentNow?: { text: string; asking?: true; topic?: Topic } } {
+  const w = agentNowWords(m, 0);
+  if (!w || !m.agent) return {};
+  const topic = convTopic(`ws:${m.agent.worktree}`);
+  return { agentNow: { text: clip(w.sub && !w.onCard ? `${w.label} · ${w.sub}` : w.label, 300), ...(w.asking ? { asking: true as const } : {}), ...(topic ? { topic } : {}) } };
+}
+
+/** A milestone's checker conversation (1.39), while its workspace is there (archived ones too: the check is kept). */
+function checkerOfMilestone(state: DomainState, checker: string | undefined): { readonly checker?: Topic } {
+  if (!checker || !state.projects.some((p) => p.workspaces.some((w) => w.id === checker))) return {};
+  const topic = convTopic(`ws:${checker}`);
+  return topic ? { checker: topic } : {};
+}
+
 export function planPageView(state: DomainState, id: string): PlanView | undefined {
   const plan = state.plans.plans.find((p) => p.id === id);
   if (!plan) return undefined;
-  const progress = progressOf(state, plan);
+  // Live (who's at work in each worktree): a running task says so, and so does each milestone's agent.
+  const progress = planView(plan, state.board, liveFrom(state));
   const home = convTopic(plan.home);
   const goal = (plan.body ?? plan.draft)?.goal;
   const topic = planTopic(plan.id);
@@ -885,6 +912,8 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
       }),
       ...(m.dependsOn.length ? { dependsOn: m.dependsOn.slice(0, 20).map((d) => clip(d, 200)) } : {}),
       ...(m.autonomy !== plan.autonomy ? { autonomy: m.autonomy } : {}),
+      ...checkerOfMilestone(state, m.run.checker),
+      ...agentNowOf(m),
     })),
     autonomy: plan.autonomy,
     ...(plan.paused ? { paused: true } : {}),
@@ -1229,7 +1258,8 @@ function sentinelRunView(s: SentinelState, sn: Sentinel, r: RunSummary, ctx?: Vi
   const step = live && isLive(r.state) ? sn.steps.find((st) => st.id === live)?.name : undefined;
   const report = r.report ? ctx?.refs.output(r.report, r.endedAt !== undefined ? { ts: r.endedAt } : {}) : undefined;
   // Its Claude's conversation (the live one first): a workspace chat or Your Mac's, the ones the phone opens.
-  const chats = r.steps.filter((x) => x.channel && /^(ws:|mac:assistant)/.test(x.channel));
+  // A chat its sentinel put away (BLG-566) isn't offered; its worktree's always is.
+  const chats = r.steps.filter((x) => x.channel && /^(ws:|mac:assistant)/.test(x.channel) && (!r.putAway || x.channel === `ws:${r.worktreeId}`));
   const chat = (chats.find((x) => x.state === 'running') ?? chats.at(-1))?.channel;
   return {
     id: clip(r.id, 200),
@@ -1309,6 +1339,28 @@ export function chatsView(state: DomainState): ChatsView {
   return { chats: [...dms, ...groups].sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0)).slice(0, 600) };
 }
 
+/** Whose a reaction is, in words: "You", or their name as this Mac knows it. */
+function reactorName(state: DomainState, peerId: string): string {
+  if (peerId === myId(state) || peerId === state.network.self?.peerId) return 'You';
+  const net = state.network;
+  return state.peers.find((p) => p.peerId === peerId)?.name ?? net.friends.find((f) => f.peerId === peerId)?.name ?? net.groups.flatMap((g) => g.members).find((p) => p.peerId === peerId)?.name ?? 'someone';
+}
+
+/** 1.41 (BLG-702): a message's reactions as the phone draws them (`me`: your id where they're kept). */
+function chipsView(state: DomainState, reactions: readonly Reaction[] | undefined, me: string): ChatMessageView['reactions'] {
+  if (!reactions?.length) return undefined;
+  return reactions.slice(0, 20).map((r) => ({ emoji: r.emoji, count: r.by.length, mine: r.by.includes(me), who: r.by.slice(0, 20).map((p) => clip(reactorName(state, p), 100)) }));
+}
+
+const reactionsView = (state: DomainState, m: MessageView): ChatMessageView['reactions'] => chipsView(state, m.reactions, state.network.self?.peerId ?? myId(state));
+
+/** Your quick row: the emojis you use most anywhere (friends' chats, the room, workspaces), then the defaults. */
+function quickRow(state: DomainState): string[] {
+  const inLog = state.log.flatMap((l) => (l.type === 'chat' && l.reacts?.length ? [{ reactions: chatReactions(l) }] : []));
+  const me = [myId(state), state.network.self?.peerId].filter((x): x is string => Boolean(x));
+  return quickReactions([...Object.values(state.network.messages).flat(), ...inLog], me);
+}
+
 function messageView(state: DomainState, ctx: ViewContext, m: MessageView): ChatMessageView {
   const files = (m.files ?? []).flatMap((f) => {
     const here = state.network.files?.[f.sha];
@@ -1327,6 +1379,7 @@ function messageView(state: DomainState, ctx: ViewContext, m: MessageView): Chat
     ...(m.edited ? { edited: m.edited } : {}),
     ...(m.mine && !m.claude && !m.task && m.conversation.startsWith('dm:') && text === m.text && text.trim() ? { editable: true } : {}),
     ...(files.length ? { files: files.slice(0, 20) } : {}),
+    ...(m.reactions?.length ? { reactions: reactionsView(state, m) } : {}),
     ...(offerOf(state, m) ? { offer: offerOf(state, m) } : {}),
     ...(chatTaskOf(state, m) ? { task: chatTaskOf(state, m) } : {}),
   };
@@ -1383,6 +1436,7 @@ export function chatView(state: DomainState, ctx: ViewContext, topic: Topic): Ch
   const people = chatPeopleOf(state, conversation, dm, group);
   const waiting = waitingIn({ conversation, tasks: state.gateway.tasks, approvals: state.approvals });
   const note = offlineNote(people);
+  const unread = dm ? dm.unread : group?.active ? group.unread : 0;
   return {
     topic,
     name: clip(dm?.name ?? group?.name ?? 'Chat', 100),
@@ -1393,6 +1447,8 @@ export function chatView(state: DomainState, ctx: ViewContext, topic: Topic): Ch
     members: chatMembers(state, dm, group, people),
     ...(waiting.length ? { waiting: waiting.slice(0, 10).map((w) => ({ text: clip(waitingLabel(w), 300), you: w.on === 'you', ...(w.target.kind === 'task' ? { task: clip(w.target.id, 200) } : {}) })) } : {}),
     ...(note ? { note: clip(note, 200) } : {}),
+    ...(unread ? { unread } : {}),
+    quick: quickRow(state),
   };
 }
 
@@ -1428,14 +1484,17 @@ export function peopleView(state: DomainState): PeopleView {
   return {
     people: state.network.friends.slice(0, 600).map((f) => {
       const peer = state.peers.find((p) => p.peerId === f.peerId);
-      const usage = usageViews(peer, defaultAgentOf(peer))[0];
       const card = state.gateway.cards[f.peerId];
+      // In your room: their room profile's; else what their card shares with you (BLG-597).
+      const inRoom = Boolean(peer?.usage || peer?.usages?.length);
+      const usage = usageViews(inRoom ? peer : card?.usages?.length ? { usages: [...card.usages] } : undefined, defaultAgentOf(peer))[0];
       const chat = chatTopic(`dm:${f.peerId}`);
       return {
         peerId: clip(f.peerId, 200),
         name: clip(f.name, 64),
         presence: f.online ? f.presence.state : 'offline',
         ...(f.presence.note ? { note: clip(f.presence.note, 200) } : {}),
+        ...(f.presence.emoji ? { emoji: clip(f.presence.emoji, 32) } : {}),
         ...(usage ? { usage } : {}),
         offers: [...(card?.claude ? ['claude'] : []), ...(card?.offers ?? [])].slice(0, 20),
         ...(chat ? { chat } : {}),

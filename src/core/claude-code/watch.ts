@@ -13,6 +13,7 @@ import { type PageOptions, TranscriptTracker } from './sessions.js';
 import type { StepRecord } from '../../shared/steps.js';
 import type { Facts } from './transcript.js';
 import { isUnder } from '../../shared/path-inside.js';
+import { paced } from '../power-saver.js';
 
 /**
  * Watches the transcripts Claude Code writes (~/.claude/projects/<folder>/<session>.jsonl, and
@@ -220,7 +221,11 @@ export class ClaudeCodeWatcher {
 
   start(): void {
     void this.scan().then(() => this.poll());
-    this.timers.push(setInterval(() => this.poll(), this.opts.pollMs ?? 2000), setInterval(() => this.requestScan(), this.opts.scanMs ?? 10_000));
+    // Low Power mode (BLG-621): both run less often (a write still wakes a look through the folder watch).
+    const saving = (): boolean => this.opts.store.getState().powerSaving;
+    const pollMs = this.opts.pollMs ?? 2000;
+    const scanMs = this.opts.scanMs ?? 10_000;
+    this.timers.push(setInterval(paced(pollMs, saving, () => this.poll()), pollMs), setInterval(paced(scanMs, saving, () => this.requestScan()), scanMs));
     for (const t of this.timers) t.unref?.();
     // Projects found or changed: sessions map to their workspaces again.
     let projects = this.opts.store.getState().projects;

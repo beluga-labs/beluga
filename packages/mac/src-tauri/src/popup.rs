@@ -107,8 +107,9 @@ fn ensure<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         let w = window.clone();
         let _ = app.run_on_main_thread(move || float_over_everything(&w));
     }
+    // Windows and Linux give every new window the app's menu bar: not this small card.
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = window.remove_menu();
     Ok(())
 }
 
@@ -128,7 +129,7 @@ const FLOAT_LEVEL: isize = 101;
 /// with Beluga hidden or in the Dock, and it never hides when Beluga isn't the active app. It
 /// still never takes the keyboard (the window isn't focusable). Needs no macOS permission.
 #[cfg(target_os = "macos")]
-fn float_over_everything<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+pub(crate) fn float_over_everything<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
     let Ok(ptr) = window.ns_window() else {

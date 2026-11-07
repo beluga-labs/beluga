@@ -30,7 +30,12 @@ export const assistantTitleFor = (kind: ComputerKind): string => (kind === 'wind
 export const ASSISTANT_TITLE = assistantTitleFor(COMPUTER);
 
 /** The computer in a sentence: "this Mac", "this PC", "this computer". */
-export const THIS_COMPUTER = COMPUTER === 'windows' ? 'this PC' : COMPUTER === 'linux' ? 'this computer' : 'this Mac';
+export const thisComputerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'this PC' : kind === 'linux' ? 'this computer' : 'this Mac');
+export const THIS_COMPUTER = thisComputerFor(COMPUTER);
+
+/** Where your files are shown (BLG-629): Finder on a Mac, File Explorer on Windows, Files on Linux. */
+export const fileManagerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'File Explorer' : kind === 'linux' ? 'Files' : 'Finder');
+export const FILE_MANAGER = fileManagerFor(COMPUTER);
 
 /** The first chat: the one conversation there was before BLG-102, keeping its channel `mac:assistant`. */
 export const FIRST_CHAT = 'main';
@@ -56,7 +61,12 @@ export interface AssistantChat {
   readonly id: string;
   readonly channel: string;
   readonly createdAt: number;
+  /** Beluga's own (BLG-568: a sentinel's run or ask): found from its run, not a tab of yours (BLG-566), not counted in Open chats. */
+  readonly auto?: true;
 }
+
+/** Your own chats, the tabs: Beluga's own are shown only while open (Open Chat on a sentinel's run). */
+export const tabChats = (a: AssistantChats): readonly AssistantChat[] => a.chats.filter((c) => !c.auto || c.id === a.active);
 
 /** Your Mac's chats, in tab order, and the one open (persisted in ~/.beluga/assistant/chats.json). */
 export interface AssistantChats {

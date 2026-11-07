@@ -10,8 +10,10 @@ import { Avatar, Button, Dot } from '../components/ui.js';
 import { revealInFinder } from '../lib/files.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { openRequest } from './request-native.js';
+import { TaskStep } from './TaskStep.js';
 import a from './access.module.css';
 import s from './gateway.module.css';
+import { fileManager, revealLabel, yourComputer } from '../lib/os-words.js';
 
 /**
  * One task between Claudes, as a card: in the conversation your Claude asked from (sent →
@@ -91,7 +93,7 @@ function Shot({ task, name, path }: { task: TaskView; name: string; path: string
     };
   }, [task.id, name]);
   return (
-    <button type="button" className={a.shot} aria-label={`Screenshot ${name}: show in Finder`} title={name} onClick={() => void revealInFinder(client, path)}>
+    <button type="button" className={a.shot} aria-label={`Screenshot ${name}: show in ${fileManager()}`} title={name} onClick={() => void revealInFinder(client, path)}>
       {url ? <img src={url} alt={name} draggable={false} /> : null}
     </button>
   );
@@ -145,7 +147,7 @@ function Result({ task }: { task: TaskView }) {
               <div key={f.name} className={s.file}>
                 <Icon name="file" size={13} />
                 {f.path ? (
-                  <button type="button" onClick={() => void revealInFinder(client, f.path!)} title="Show in Finder">
+                  <button type="button" onClick={() => void revealInFinder(client, f.path!)} title={revealLabel()}>
                     {f.name}
                   </button>
                 ) : (
@@ -272,7 +274,7 @@ function Confirm({ task }: { task: TaskView }) {
   return (
     <>
       {editing ? <textarea className={s.edit} aria-label="What to ask" value={text} onChange={(e) => setText(e.target.value)} autoFocus /> : <div className={`${s.ask} selectable`}>{task.ask}</div>}
-      <div className={s.hint}>Your agent wants to send this, so it asks you first. Always lets it ask {task.peerName} without checking from now on (it doesn’t change what they may do on your Mac).</div>
+      <div className={s.hint}>Your agent wants to send this, so it asks you first. Always lets it ask {task.peerName} without checking from now on (it doesn’t change what they may do on {yourComputer()}).</div>
       <div className={s.actions}>
         <Button variant="primary" onClick={() => call('send it', api.gateway.confirm(task.id, true, editing && text.trim() !== task.ask ? text : undefined))}>
           Ask {task.peerName}
@@ -339,10 +341,7 @@ export const TaskCard = memo(function TaskCard({ task, inChat }: { task: TaskVie
           {live && task.steps.length ? (
             <div className={s.steps} aria-label="Steps">
               {task.steps.slice(-4).map((step, i) => (
-                <div key={i} className={s.step}>
-                  <Icon name="chevronRight" size={10} />
-                  <span>{step}</span>
-                </div>
+                <TaskStep key={i} line={step} owner={sent ? task.peerName : undefined} className={s.step} />
               ))}
             </div>
           ) : null}

@@ -187,6 +187,15 @@ describe('who a worktree’s Share sheet lists (BLG-340)', () => {
     expect(shareRowDetail(rows[1]!, false)).toBe('Works with your agent across the whole project');
     expect(shareRowDetail(rows[2]!, false)).toBe('Not in this worktree');
   });
+
+  it('a friend shared with over the network is a member too, and still changed and removed over the network (BLG-623)', () => {
+    const state = {
+      ...base,
+      members: { w1: { [ata.peerId]: 'view' } },
+      projectShares: { p1: { [ata.peerId]: { role: 'view', only: ['w1'] } } },
+    } as unknown as typeof base;
+    expect(worktreeShareRows(state, 'w1').slice(0, 1).map((r) => [r.name, r.via, r.access, r.wholeProject])).toEqual([['ata', 'network', 'view', false]]);
+  });
 });
 
 describe('who a worktree can be handed to (BLG-341)', () => {

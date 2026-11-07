@@ -1,4 +1,5 @@
-import { FPS, ICON_H, ICON_W, type SpoutLook, spoutFrames } from './spout.js';
+import { FPS, ICON_H, ICON_W, type SpoutLook, TRAY_INK_OFF_MAC, spoutFrames } from './spout.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 /** One SVG as PNG bytes, the size it says. */
 async function png(svg: string): Promise<number[]> {
@@ -16,6 +17,6 @@ async function png(svg: string): Promise<number[]> {
 
 /** The spout's frames as the menu bar takes them: PNGs, and how long each shows. */
 export async function spoutPngs(look: SpoutLook): Promise<{ frames: number[][]; frameMs: number }> {
-  const frames = await Promise.all(spoutFrames(look).map(png));
+  const frames = await Promise.all(spoutFrames(look, undefined, keyPlatform() === 'mac' ? '#000' : TRAY_INK_OFF_MAC).map(png));
   return { frames, frameMs: Math.round(1000 / FPS) };
 }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Options, SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 import { fillArguments, findSkill } from '../../../core/claude-code/skills.js';
@@ -46,6 +46,16 @@ function prune(root: string, keep: string): void {
 }
 
 /**
+ * `to` showing what's at `from`: a link. Windows only lets an administrator make a plain link, so
+ * there a folder gets a junction (anyone may make one) and a file is copied.
+ */
+export function linkEntry(from: string, to: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform !== 'win32') return symlinkSync(from, to);
+  if (statSync(from).isDirectory()) symlinkSync(from, to, 'junction');
+  else copyFileSync(from, to);
+}
+
+/**
  * A plugin folder under `root` that links `src`'s entries `keep` allows, with its manifest minus
  * hooks and servers, named `name`. The same sources make the same folder (reused, never rebuilt
  * under a run that reads it). Undefined: nothing to bring, or it couldn't be made.
@@ -66,7 +76,7 @@ export function shadowPlugin(src: string, name: string, keep: (entry: string) =>
     const tmp = `${dir}.tmp-${randomUUID()}`;
     mkdirSync(path.join(tmp, '.claude-plugin'), { recursive: true });
     writeFileSync(path.join(tmp, '.claude-plugin', 'plugin.json'), JSON.stringify(manifest, null, 2));
-    for (const entry of entries) symlinkSync(path.join(path.resolve(src), entry), path.join(tmp, entry));
+    for (const entry of entries) linkEntry(path.join(path.resolve(src), entry), path.join(tmp, entry));
     try {
       renameSync(tmp, dir);
     } catch {

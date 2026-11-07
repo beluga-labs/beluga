@@ -6,6 +6,7 @@ import { mentionsSecret } from '../agent/policy.js';
 import { type BodyInput, type BodyOf, MAX_SHELL_OUTPUT, MAX_SHELL_SECONDS } from '../protocol.js';
 import { ATTACHMENT_SHARE } from './attachments.js';
 import { tilde } from './paths.js';
+import { posixSh } from '../terminal/pty.js';
 import { killTree, ownGroup } from './process-tree.js';
 import { expandPath } from './remote-work.js';
 import { type ShareService, isSecretPath } from './shares.js';
@@ -44,8 +45,51 @@ export function keepTail(text: string, max = MAX_SHELL_OUTPUT): { text: string; 
 export { tilde };
 
 const BASE_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TZ'];
-/** The few environment variables a friend's command gets (never tokens or keys). */
-export const baseEnv = (): Record<string, string> => Object.fromEntries(BASE_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k] as string]] : [])));
+/** What Windows itself needs for programs to start and find their folders (none of it a secret). */
+const WINDOWS_ENV = [
+  'SystemRoot',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'USERNAME',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'ProgramData',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'ProgramW6432',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'NUMBER_OF_PROCESSORS',
+  'PROCESSOR_ARCHITECTURE',
+  'OS',
+];
+
+/**
+ * The few environment variables a friend's command gets (never tokens or keys). Windows names
+ * them in any letter case (its PATH is often "Path"), so there they're found that way.
+ */
+export function baseEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  const win = platform === 'win32';
+  const value = (name: string): string | undefined => env[name] ?? (win ? Object.entries(env).find(([k]) => k.toUpperCase() === name.toUpperCase())?.[1] : undefined);
+  return Object.fromEntries([...BASE_ENV, ...(win ? WINDOWS_ENV : [])].flatMap((k) => {
+    const v = value(k);
+    return v ? [[k, v]] : [];
+  }));
+}
+
+/**
+ * The shell a friend's command runs in: /bin/sh; on Windows Git Bash when it's there (Claude writes
+ * commands for sh, as Claude Code itself runs them there), else cmd.
+ */
+export function peerShell(command: string, platform: NodeJS.Platform = process.platform, findSh: () => string | undefined = posixSh): { readonly file: string; readonly args: readonly string[] } {
+  if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', command] };
+  const sh = findSh();
+  return sh ? { file: sh, args: ['-c', command] } : { file: 'cmd.exe', args: ['/d', '/s', '/c', command] };
+}
 
 /**
  * Run a command in a non-interactive shell: no input (stdin is closed), output capped (tail
@@ -54,12 +98,11 @@ export const baseEnv = (): Record<string, string> => Object.fromEntries(BASE_ENV
 export const runShell: ShellRunner = (command, cwd, timeoutMs) =>
   new Promise((resolve) => {
     const started = Date.now();
-    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command];
+    const { file: shell, args } = peerShell(command);
     let out = '';
     let truncated = false;
     let timedOut = false;
-    const child = spawn(shell, args, {
+    const child = spawn(shell, [...args], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: ownGroup(),

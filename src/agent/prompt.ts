@@ -95,11 +95,11 @@ export function buildScratchAppend(dir: string): string {
 /**
  * A worktree's run: what it leaves running is stopped when the turn ends, unless kept on purpose (see
  * workspaces/test-procs.ts). Claude Code's Bash call is rewritten to detach a kept one (keptBashInput);
- * Codex's commands can't be, so Codex is told to detach it itself (nohup, output to a file, `&`).
+ * Codex's and OpenCode's commands can't be, so they're told to detach it themselves (nohup, output to a file, `&`).
  */
 export function buildKeepAppend(agent: AgentRef = CLAUDE_AGENT): string {
   const how =
-    agent.runtime === 'codex'
+    agent.runtime === 'codex' || agent.runtime === 'opencode'
       ? [
           'BELUGA_KEEP=1 in front, detached with its output in a file, e.g.',
           '`BELUGA_KEEP=1 nohup npm run dev > .beluga/dev.log 2>&1 &` (so your command returns at once),',
@@ -181,8 +181,9 @@ export function buildAgentScratchNote(dir: string): string {
 /**
  * For runs in a project's main folder: questions only. A request to change anything moves the
  * conversation to a new worktree (continue_in_worktree) instead of being refused or attempted.
+ * With the board (BLG-626), its tasks are made and changed right here: they aren't files in the folder.
  */
-export function buildAskOnlyAppend(project: string, canMove: boolean): string {
+export function buildAskOnlyAppend(project: string, canMove: boolean, board = false): string {
   return [
     '',
     `IMPORTANT: You're in the main folder of ${project}. It's read-only: you can read files, run read-only`,
@@ -198,6 +199,12 @@ export function buildAskOnlyAppend(project: string, canMove: boolean): string {
           "Questions (explain, find, review, compare) you answer here as usual.",
         ].join('\n')
       : 'If a change is wanted, say so and ask the owner of this computer to continue in a new worktree.',
+    ...(board
+      ? [
+          'The task board is not in this folder: making, changing, commenting on or moving tasks (mcp__beluga_board__*) is',
+          'fine right here and never needs a worktree. Do it yourself when asked; only work on the code itself moves.',
+        ]
+      : []),
   ].join('\n');
 }
 

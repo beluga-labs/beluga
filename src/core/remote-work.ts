@@ -3,7 +3,7 @@ import { promises as fs, rmSync } from 'node:fs';
 import os from 'node:os';
 import { tilde } from './paths.js';
 import path from 'node:path';
-import { type BodyInput, type BodyOf, defaultAgentOf, MAX_DOWNLOAD_BYTES } from '../protocol.js';
+import { type BodyInput, type BodyOf, type HandoffReason, defaultAgentOf, MAX_DOWNLOAD_BYTES, wsWireName } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { git } from '../workspaces/git.js';
 import { cannotTake } from '../net/mesh/features.js';
@@ -47,11 +47,14 @@ export interface RemoteWorkDeps {
   readonly downloadDir?: string;
   /** How long a request waits for the other person (default 6 minutes: approvals take time). */
   readonly waitMs?: number;
+  /** How long "do you have this repository?" waits before a handoff goes ahead anyway (default 8 seconds). */
+  readonly checkWaitMs?: number;
 }
 
 type Waiter = { peer: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
 const OUTBOX_TTL_MS = 15 * 60_000;
+const NO_REMOTE = 'This project has no origin remote, so the other computer could not find the same repository';
 /** A handoff's branch waits longer: a friend outside the room may be offline when it's offered (BLG-341). */
 const HANDOFF_TTL_MS = 60 * 60_000;
 const AUTO_ACCEPT_BYTES = 50 * 1024 * 1024;
@@ -86,6 +89,42 @@ export async function sweepOutbox(now = Date.now()): Promise<number> {
   return removed;
 }
 const NOTE_TIMEOUT_MS = 5 * 60_000;
+/** Nobody approves the check before a handoff, so its answer comes quickly or not at all (an older Beluga). */
+const CHECK_WAIT_MS = 8_000;
+
+/** What a handoff is about, to say why it didn't go through. */
+export interface HandoffWhat {
+  /** Who it was handed to. */
+  readonly who: string;
+  readonly project: string;
+  readonly remote: string;
+}
+
+/** An older Beluga only sends its error's words: read the reason back out of them. */
+function legacyReason(error = ''): HandoffReason {
+  if (/don't have that repository/i.test(error)) return 'no_repo';
+  if (/turned off work from friends/i.test(error)) return 'off';
+  if (/branch name is not allowed/i.test(error)) return 'bad_branch';
+  if (!error.trim() || /^declined$/i.test(error.trim())) return 'declined';
+  return 'failed';
+}
+
+/** Why a handoff didn't (or can't) go through, in words for the one handing off (BLG-614). */
+export function handoffProblem(reason: HandoffReason | undefined, error: string | undefined, what: HandoffWhat): string {
+  const { who, project } = what;
+  switch (reason ?? legacyReason(error)) {
+    case 'no_repo':
+      return `${who} doesn't have ${project || 'this repository'} on their Mac. Ask them to clone ${what.remote || 'it'} and add it to Beluga, then hand it off again`;
+    case 'off':
+      return `${who} has turned off work from friends (Settings › Workspaces › Friends may start work here)`;
+    case 'bad_branch':
+      return `${who}'s Beluga didn't accept this branch's name. Rename the branch, then hand it off again`;
+    case 'declined':
+      return `${who} said no to taking it over`;
+    default:
+      return `${who}'s Beluga couldn't set it up${error?.trim() ? `: ${error.trim()}` : ''}`;
+  }
+}
 
 export const handoffNotePrompt = (to: string): string =>
   `${to} is taking over this workspace on their own computer, with their own agent. Write a short handoff note for them in Markdown: ` +
@@ -119,7 +158,7 @@ export class RemoteWork {
   /** Workspaces you asked friends to start, opened as soon as they're shared with you. */
   private readonly opening = new Set<string>();
   /** Handoffs you offered (hid → your workspace and who gets it). */
-  private readonly handoffs = new Map<string, { wsId: string; to: string; share?: string }>();
+  private readonly handoffs = new Map<string, { wsId: string; to: string; project: string; remote: string; share?: string }>();
   /** People your Claude is waiting on: files they send are saved without asking. */
   private readonly expecting = new Map<string, number>();
   private readonly received = new Map<string, number[]>();
@@ -157,12 +196,12 @@ export class RemoteWork {
     return `${this.name(peerId)} (#${peerId.slice(0, 6)})`;
   }
 
-  private wait<T>(id: string, peer: string): Promise<T> {
+  private wait<T>(id: string, peer: string, ms = this.deps.waitMs ?? 6 * 60_000): Promise<T> {
     const answer = new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(id);
         reject(new Error(`${this.name(peer)} did not answer in time`));
-      }, this.deps.waitMs ?? 6 * 60_000);
+      }, ms);
       timer.unref?.();
       this.waiters.set(id, { peer, resolve: resolve as (v: unknown) => void, reject, timer });
     });
@@ -405,10 +444,19 @@ export class RemoteWork {
     }
     const remote = await ctl.manager.remoteOf(ws.projectId);
     if (!remote) {
-      this.deps.toast('This project has no origin remote, so the other computer could not find the same repository', 'warn');
+      this.deps.toast(NO_REMOTE, 'warn');
       return false;
     }
     const channel = `ws:${wsId}`;
+    const project = ctl.manager.list.find((p) => p.id === ws.projectId);
+    // Before a note is written or anything is committed or sent: can they take it at all (BLG-614)?
+    const checked = await this.checkHandoff(peerId, remote);
+    if (checked && !checked.ok) {
+      const problem = handoffProblem(checked.reason, undefined, { who: to, project: project?.name ?? '', remote });
+      this.deps.store.dispatch({ type: 'system', text: `Not handed off: ${problem}.`, channel, level: 'warn' });
+      this.deps.toast(problem, 'warn');
+      return false;
+    }
     ctl.open(wsId);
     this.deps.toast(`${agentName(defaultAgentOf(this.deps.store.getState().self))} is writing a handoff note for ${to}…`);
     let note: string;
@@ -435,14 +483,13 @@ export class RemoteWork {
         return false;
       }
     }
-    const project = ctl.manager.list.find((p) => p.id === ws.projectId);
     const history = this.state.log
       .filter((l) => l.channel === channel && (l.type === 'chat' || (l.type === 'agent' && l.status === 'done')))
       .slice(-60)
       .map((l) => (l.type === 'chat' ? { from: l.name, text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent } : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true }));
-    this.handoffs.set(hid, { wsId, to: peerId, share: bundle?.share });
+    this.handoffs.set(hid, { wsId, to: peerId, project: project?.name ?? '', remote, share: bundle?.share });
     const sent = this.deps.send(
-      { kind: 'ws_handoff', hid, ws: { name: ws.name, project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
+      { kind: 'ws_handoff', hid, ws: { name: wsWireName(ws.name), project: project?.name ?? '', branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main' }, remote, note: note.slice(0, 60_000), history, ...(bundle ? { bundle } : {}) },
       { to: peerId },
     );
     if (!sent) {
@@ -451,6 +498,55 @@ export class RemoteWork {
     }
     this.deps.store.dispatch({ type: 'system', text: `Offered ${ws.name} to ${to}. Waiting for them to accept…`, channel });
     return true;
+  }
+
+  /**
+   * Can this worktree go to them? Asked when the Hand Off sheet opens, before anything is written or
+   * sent: who they are, and whether their Mac has the same repository (BLG-614). `ok` when their
+   * Beluga doesn't answer (older, or offline): the handoff then goes as it always did.
+   */
+  async canHandOff(wsId: string, peerId: string): Promise<{ ok: boolean; why?: string }> {
+    const ctl = this.deps.controller;
+    const ws = ctl?.manager.find(wsId);
+    if (!ctl || !ws || ws.kind !== 'worktree' || !ws.branch) return { ok: false, why: 'Only worktrees can be handed off' };
+    const why = this.cannotHandOff(peerId);
+    if (why) return { ok: false, why };
+    const remote = await ctl.manager.remoteOf(ws.projectId);
+    if (!remote) return { ok: false, why: NO_REMOTE };
+    const checked = await this.checkHandoff(peerId, remote);
+    if (!checked || checked.ok) return { ok: true };
+    const project = ctl.manager.list.find((p) => p.id === ws.projectId);
+    return { ok: false, why: handoffProblem(checked.reason, undefined, { who: this.name(peerId), project: project?.name ?? '', remote }) };
+  }
+
+  /** Ask their Beluga whether it could take a handoff of `remote`; undefined when it doesn't answer. */
+  private async checkHandoff(peerId: string, remote: string): Promise<{ ok: boolean; reason?: HandoffReason } | undefined> {
+    const reqId = randomUUID();
+    const answer = this.wait<BodyOf<'ws_handoff_check_result'>>(reqId, peerId, this.deps.checkWaitMs ?? CHECK_WAIT_MS);
+    if (!this.deps.send({ kind: 'ws_handoff_check', reqId, remote }, { to: peerId })) {
+      this.cancelWait(reqId);
+      return undefined;
+    }
+    try {
+      const res = await answer;
+      return { ok: res.ok, ...(res.reason ? { reason: res.reason } : {}) };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Could you take a handoff of this repository? Says only yes or why not; nothing is approved or started. */
+  async onHandoffCheck(from: string, body: BodyOf<'ws_handoff_check'>): Promise<void> {
+    const reply = (ok: boolean, reason?: HandoffReason) => this.deps.send({ kind: 'ws_handoff_check_result', reqId: body.reqId, ok, ...(reason ? { reason } : {}) }, { to: from });
+    if (trustOf(this.state, from) === 'blocked') return void reply(false, 'declined');
+    const ctl = this.deps.controller;
+    if (!ctl || this.state.prefs.friendWorktrees === 'off') return void reply(false, 'off');
+    const project = await ctl.manager.projectForRemote(body.remote).catch(() => undefined);
+    reply(Boolean(project), project ? undefined : 'no_repo');
+  }
+
+  onHandoffCheckResult(from: string, body: BodyOf<'ws_handoff_check_result'>): void {
+    this.settle(from, body.reqId, body);
   }
 
   /** Why a handoff can't reach them: someone in your room always can; a friend outside it over the network (BLG-341). */
@@ -486,23 +582,28 @@ export class RemoteWork {
   }
 
   async onHandoff(from: string, body: BodyOf<'ws_handoff'>): Promise<void> {
-    const reply = (ok: boolean, error?: string) => this.deps.send({ kind: 'ws_handoff_result', hid: body.hid, ok, ...(error ? { error } : {}) }, { to: from });
+    // The words stay for an older Beluga that only reads them; a newer one says it from `reason`.
+    const reply = (ok: boolean, reason?: HandoffReason, error?: string) =>
+      this.deps.send({ kind: 'ws_handoff_result', hid: body.hid, ok, ...(reason ? { reason } : {}), ...(error ? { error } : {}) }, { to: from });
     const ctl = this.deps.controller;
     const who = this.name(from);
-    if (!ctl || this.state.prefs.friendWorktrees === 'off') return void reply(false, 'they turned off work from friends');
-    if (!safeRef(body.ws.branch) || !safeRef(body.ws.base) || !/^[\w-]{1,64}$/.test(body.hid)) return void reply(false, 'that branch name is not allowed');
+    if (!ctl || this.state.prefs.friendWorktrees === 'off') return void reply(false, 'off', 'they turned off work from friends');
+    if (!safeRef(body.ws.branch) || !safeRef(body.ws.base) || !/^[\w-]{1,64}$/.test(body.hid)) return void reply(false, 'bad_branch', 'that branch name is not allowed');
+    // Without the repository there's nothing to approve: say so, to you and to them, before asking.
+    const project = await ctl.manager.projectForRemote(body.remote);
+    if (!project) {
+      const what = clean(body.ws.project) || 'that repository';
+      this.deps.notify({ kind: 'people', title: `${who} wanted to hand you ${clean(body.ws.name)}`, body: `You don't have ${what} here. Clone ${clean(body.remote)} and add it to Beluga, then ask ${who} to hand it off again` });
+      this.deps.toast(`${who} wanted to hand you ${clean(body.ws.name)}, but you don't have ${what} here. Clone ${clean(body.remote)}, then ask them again`, 'warn');
+      return void reply(false, 'no_repo', `${this.state.self?.name ?? 'they'} don't have that repository cloned`);
+    }
     const note = clean(body.note);
     const ok = await this.allowed(
       from,
       `${this.who(from)} wants to hand ${clean(body.ws.name)} (${clean(body.ws.project)}) over to you`,
       `You get their branch, the chat so far and this handoff note, in a new worktree. ${this.yours(true)} continues it, with what ${who} is allowed to do here.\n\n${note.slice(0, 3000)}${note.length > 3000 ? `\n… (${note.length - 3000} more characters)` : ''}`,
     );
-    if (!ok) return void reply(false, 'declined');
-    const project = await ctl.manager.projectForRemote(body.remote);
-    if (!project) {
-      this.deps.toast(`You don't have ${clean(body.ws.project)} here. Clone ${clean(body.remote)}, then ask ${who} again`, 'warn');
-      return void reply(false, `${this.state.self?.name ?? 'they'} don't have that repository cloned`);
-    }
+    if (!ok) return void reply(false, 'declined', 'declined');
     let branch: string | undefined;
     try {
       branch = await ctl.manager.freeBranchName(project.root, body.ws.name);
@@ -545,7 +646,7 @@ export class RemoteWork {
       // Don't leave a half-made branch behind.
       if (branch && !ctl.manager.list.some((p) => p.workspaces.some((w) => w.branch === branch))) await git(project.root, ['branch', '-D', branch]).catch(() => undefined);
       this.deps.toast(`Couldn't take over ${clean(body.ws.name)}: ${message}`, 'error');
-      reply(false, message.slice(0, 400));
+      reply(false, 'failed', message.slice(0, 400));
     }
   }
 
@@ -556,8 +657,9 @@ export class RemoteWork {
     const who = this.name(from);
     const channel = `ws:${offer.wsId}`;
     if (!body.ok) {
-      this.deps.store.dispatch({ type: 'system', text: `${who} didn't take it over: ${clean(body.error ?? 'declined')}`, channel, level: 'warn' });
-      this.deps.toast(`${who} didn't take over the workspace`, 'warn');
+      const problem = handoffProblem(body.reason, clean(body.error ?? ''), { who, project: offer.project, remote: offer.remote });
+      this.deps.store.dispatch({ type: 'system', text: `Not handed off: ${problem}.`, channel, level: 'warn' });
+      this.deps.toast(problem, 'warn');
       if (offer.share) this.deps.shares.remove(offer.share);
       return;
     }

@@ -3,16 +3,20 @@ import { chmod, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { type PtyProcess, type TerminalManager, listShells, scriptShell } from '../terminal/index.js';
-import { type ShellChoice, shellArgs } from '../shared/shells.js';
+import { type PtyProcess, type TerminalManager, defaultShell, listShells, scriptShell } from '../terminal/index.js';
+import { type ShellChoice, commandArgs, shellArgs } from '../shared/shells.js';
 import type { EnvPlace } from './env-vars.js';
 import { systemOpen } from './os-open.js';
+import { editorCommand } from './editor-command.js';
+import { tilde } from './paths.js';
 import type { WorkspaceManager } from '../workspaces/manager.js';
 import type { Workspace } from '../workspaces/types.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
 import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
-import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, unpushedCommits } from '../workspaces/pr.js';
+import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
+import { prTargetOf } from '../workspaces/github.js';
+import { prOnOriginal } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from '../agent/setup-fixer.js';
@@ -36,6 +40,7 @@ import { sentinelChatOf } from './sentinel/model.js';
 import { ASSISTANT_TITLE, assistantChatOf, assistantChatTitle, isAssistant } from '../shared/assistant.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import type { RuntimeChoice } from '../shared/agent-runtimes.js';
+import type { HandoffMode } from '../shared/agent-handoff.js';
 import { type GitFixId, type GitSetup, type GitTrouble, explainGitTrouble, httpsRemoteOf, troubleLine } from '../shared/git-trouble.js';
 
 export interface WorkbenchDeps {
@@ -61,7 +66,7 @@ export interface WorkbenchDeps {
   /** Models your Claude Code offers (asked once). */
   readonly listModels?: () => Promise<readonly ModelChoice[] | undefined>;
   /** Another runtime on a live conversation hands it off (core/agent-switch.ts, BLG-447); unset: a plain switch. */
-  readonly switchAgent?: (channel: string, agent: AgentRef | undefined) => Promise<unknown>;
+  readonly switchAgent?: (channel: string, agent: AgentRef | undefined, mode?: HandoffMode) => Promise<unknown>;
   /** The agent picker's runtimes: which run on this Mac, and why the others don't (BLG-446). */
   readonly listRuntimes?: () => readonly RuntimeChoice[];
   /** Whether each runtime that can say so is ready here (Codex: installed, signed in) and its models (BLG-455). */
@@ -168,6 +173,10 @@ export function fixFailedPrompt(kind: 'setup' | 'run', command: string, code: nu
 
 export { shellId, setupId, runId, githubId, globalShellId, isGlobalShell, globalShellNumber, globalShellDir } from '../shared/terminal-keys.js';
 import { agentTermId, githubId, runId, setupId, shellId, isGlobalShell, globalShellNumber, cleanTerminalName } from '../shared/terminal-keys.js';
+import { pace, paced } from './power-saver.js';
+
+/** How soon cmd ends when it couldn't find your editor (Windows). */
+const EDITOR_MISSING_MS = 3000;
 
 /**
  * What changed about a pull request that's worth telling you. A PR showing up is only news
@@ -209,7 +218,7 @@ export interface GitHubOutcome {
 }
 
 /** What to do again once a fix worked: Create PR (as a draft), Merge into its base, or nothing (say it's fixed). */
-export type GitRetry = 'pr' | 'pr_draft' | 'merge_base' | 'none';
+export type GitRetry = 'pr' | 'pr_draft' | 'pr_original' | 'merge_base' | 'none';
 
 /** How long a terminal step (installing gh, logging in) may take before Beluga stops waiting for it. */
 const GITHUB_STEP_MS = 15 * 60_000;
@@ -229,6 +238,8 @@ async function inPool(tasks: ReadonlyArray<() => Promise<void>>, limit: number):
 const macChatPlace = (channel: string, items: readonly LogItem[]): string => `${ASSISTANT_TITLE} › ${assistantChatTitle(channel, items)}`;
 
 const samePr = (a: PullRequest | undefined, b: PullRequest | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** "https://github.com/kay/app/pull/12" → "https://github.com/kay/app": which repository a PR is on. */
+const repoOfPr = (url: string): string => url.replace(/\/pull\/\d+.*$/, '').toLowerCase();
 
 /** All an error said (a push's whole output, not just its line). */
 const rawOf = (err: unknown): string => (err && typeof err === 'object' && 'raw' in err && typeof err.raw === 'string' ? err.raw : err instanceof Error ? err.message : String(err));
@@ -313,7 +324,7 @@ export class Workbench {
     void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
     void this.checkRuntimes();
     setTimeout(() => void this.measureDisk(), 3000).unref();
-    this.diskTimer = setInterval(() => void this.measureDisk(), DISK_EVERY_MS);
+    this.diskTimer = setInterval(paced(DISK_EVERY_MS, () => this.deps.store.getState().powerSaving, () => void this.measureDisk()), DISK_EVERY_MS);
     this.diskTimer.unref();
     this.prTimer = setInterval(() => void this.pollPrs(), PR_TICK_MS);
     this.prTimer.unref();
@@ -343,12 +354,15 @@ export class Workbench {
     this.deps.toast(`New conversations use ${label}`, 'success');
   }
 
-  /** Pick the agent for one conversation (undefined: your default); every run from there uses it. */
-  setAgent(channel: string, agent: AgentRef | undefined): boolean {
+  /**
+   * Pick the agent for one conversation (undefined: your default); every run from there uses it.
+   * `mode`: when the new agent can't read the session, switch quietly or have the old one write a note (BLG-592).
+   */
+  setAgent(channel: string, agent: AgentRef | undefined, mode?: HandoffMode): boolean {
     const id = channel.startsWith('ws:') ? channel.slice(3) : undefined;
     if (!id || !this.manager.find(id)) return false;
-    // Another runtime on a live conversation is a handoff (the old agent's note seeds the new one), never a silent swap.
-    if (this.deps.switchAgent) void this.deps.switchAgent(channel, agent).finally(() => void this.deps.controller.refresh());
+    // Another runtime on a live conversation is a handoff (a note, or the recent conversation with your next message), never a silent swap.
+    if (this.deps.switchAgent) void this.deps.switchAgent(channel, agent, mode).finally(() => void this.deps.controller.refresh());
     else {
       this.manager.setAgent(id, agent);
       void this.deps.controller.refresh();
@@ -379,7 +393,10 @@ export class Workbench {
     const prompt = buildPrPrompt({ branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', projectPrompt: project?.scripts?.prPrompt, extra });
     if (!this.deps.store.getState().prs[ws.id]) this.prAsked.add(ws.id);
     this.deps.controller.open(ws.id);
-    this.deps.askClaude(prompt, `ws:${ws.id}`);
+    const ask = (): void => this.deps.askClaude(prompt, `ws:${ws.id}`);
+    // Its last PR went to a fork's original: this one goes to the fork, as the menu says (before the run reads where gh points).
+    if (prTargetOf(ws.path, ws.branch)) void setPrTarget(ws.path, ws.branch, undefined).catch(() => undefined).finally(ask);
+    else ask();
     this.deps.toast(`${this.agent()} is preparing the pull request…`);
   }
 
@@ -387,7 +404,7 @@ export class Workbench {
    * Create PR, straight away and without Claude: commits anything left (as the branch's name),
    * pushes, and opens a pull request titled from the commits (`gh pr create`).
    */
-  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean } = {}): Promise<GitHubOutcome> {
+  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean; readonly original?: boolean } = {}): Promise<GitHubOutcome> {
     const fail = (message: string): { ok: false; message: string } => {
       this.deps.toast(message, 'error');
       return { ok: false, message };
@@ -401,11 +418,14 @@ export class Workbench {
       if (state !== 'ok') return this.troubleOr(ws, new Error(state === 'missing' ? 'The GitHub CLI (gh) isn’t installed' : 'The GitHub CLI isn’t logged in: gh auth login'), 'GitHub didn’t open the pull request');
       this.deps.store.dispatch({ type: 'gh', ok: true });
     }
+    // Create PR on the original (BLG-727): into the repository the project's origin was forked from.
+    const fork = opts.original ? this.manager.list.find((p) => p.id === ws.projectId)?.fork : undefined;
+    if (opts.original && !fork) return fail('This project’s origin isn’t a fork on GitHub, so there’s no original to open it on');
     if (this.creatingPr.has(id)) return { ok: false, message: 'The pull request is already being opened' };
     this.creatingPr.add(id);
     const branch = ws.branch;
     try {
-      this.deps.toast(`Opening a pull request for ${branch}…`);
+      this.deps.toast(`Opening a pull request for ${branch}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}…`);
       try {
         if ((ws.status?.changed ?? 0) > 0) await this.manager.commitAll(id, titleOfBranch(branch));
       } catch (err) {
@@ -416,7 +436,7 @@ export class Workbench {
       const text = prFromCommits(branch, subjects);
       let pr: PullRequest;
       try {
-        pr = await (this.deps.createPr ?? createPr)(ws.path, { base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}) });
+        pr = await (this.deps.createPr ?? createPr)(ws.path, { base: fork?.branch ?? base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}), ...(fork ? { to: fork } : {}) });
       } catch (err) {
         return this.troubleOr(ws, err, 'GitHub didn’t open the pull request');
       }
@@ -424,7 +444,7 @@ export class Workbench {
       this.pushedAt.set(id, this.now());
       this.deps.store.dispatch({ type: 'pr', id, pr });
       void this.deps.controller.refresh();
-      const message = `Opened PR #${pr.number}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
+      const message = `Opened PR #${pr.number}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
       this.deps.toast(message, 'success');
       return { ok: true, message };
     } finally {
@@ -513,7 +533,7 @@ export class Workbench {
     const draft = retry === 'pr_draft';
     const again = (https = false): Promise<GitHubOutcome> => {
       if (retry === 'merge_base') return this.mergeToBase(id, https ? { https: true } : {});
-      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(https ? { https: true } : {}) });
+      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(retry === 'pr_original' ? { original: true } : {}), ...(https ? { https: true } : {}) });
       const message = 'GitHub is set up: try it again';
       this.deps.toast(message, 'success');
       return Promise.resolve({ ok: true, message });
@@ -586,13 +606,14 @@ export class Workbench {
   /**
    * Claude Code isn't signed in on this Mac: `claude auth login` in one of your shells (`key`, a
    * global shell the screen picked, so it shows it), and once it ends well the Claude that stopped
-   * in `channel` goes on where it left off.
+   * in `channel` goes on where it left off. `how`: a Claude subscription (the default) or an
+   * Anthropic Console account, the first two of Claude Code's own /login choices.
    */
-  async signInClaude(key: string, channel: string): Promise<{ ok: boolean; message: string }> {
+  async signInClaude(key: string, channel: string, how: 'claudeai' | 'console' = 'claudeai'): Promise<{ ok: boolean; message: string }> {
     if (!isGlobalShell(key)) return { ok: false, message: 'That isn’t one of your shells' };
     const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
     this.closeTerminal(key);
-    const session = this.openSession(key, { path: ws?.path ?? os.homedir() }, `${shQuote(claudeCodeCommand())} auth login`);
+    const session = this.openSession(key, { path: ws?.path ?? os.homedir() }, `${shQuote(claudeCodeCommand())} auth login --${how}`);
     if (!session) return { ok: false, message: 'There’s no terminal here to run it in' };
     this.deps.store.dispatch({ type: 'terminal_name', id: key, name: 'Claude sign-in' });
     this.deps.toast('Sign in to Claude in your browser…');
@@ -615,7 +636,7 @@ export class Workbench {
     return { ok: true, message };
   }
 
-  /** The branch a worktree's PRs go into ("main"). */
+  /** The branch a worktree's PRs go into ("main"): its base on origin (a PR on a fork's original says its own in createPr). */
   private prBase(ws: Workspace): string {
     const project = this.manager.list.find((p) => p.id === ws.projectId);
     const base = (ws.base ?? project?.base ?? 'origin/main').replace(/^origin\//, '');
@@ -628,7 +649,8 @@ export class Workbench {
     const pr = this.deps.store.getState().prs[id];
     if (!ws || !pr) return;
     this.deps.controller.open(id);
-    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws)), `ws:${id}`);
+    const fork = prOnOriginal(this.manager.list.find((p) => p.id === ws.projectId)?.fork, pr);
+    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws), fork ? { url: fork.url, branch: fork.branch } : undefined), `ws:${id}`);
     this.deps.toast(`${this.agent()} is resolving PR #${pr.number}’s conflicts…`);
   }
 
@@ -952,7 +974,8 @@ export class Workbench {
         // Merge When Ready waits on it: looked at often, so it merges soon after its checks pass.
         const every = ws.mergeWhenReady && prs[ws.id]?.state === 'OPEN' ? PR_FAST_MS : prCadence(prs[ws.id], this.pushedAt.get(ws.id), now);
         if (every === undefined) return false;
-        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : every);
+        // Low Power mode (BLG-621): looked at less often, unless you came back to the window or pushed.
+        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : pace(every, this.deps.store.getState().powerSaving));
       });
       if (due.length) await this.lookUpPrs(due, false);
     } finally {
@@ -1007,7 +1030,10 @@ export class Workbench {
     for (const ws of list) byProject.set(ws.projectId, [...(byProject.get(ws.projectId) ?? []), ws]);
     const later: Workspace[] = [];
     const tasks: Array<() => Promise<void>> = [];
-    for (const group of byProject.values()) {
+    for (const all of byProject.values()) {
+      // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch));
+      tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
         continue;
@@ -1034,7 +1060,9 @@ export class Workbench {
   /** gh's answer for a worktree's branch: keep it, and tell you what changed. */
   private gotPr(ws: Workspace, found: PullRequest | undefined, quiet: boolean): void {
     // A PR you carried on after (Continue After Merge) is done: the branch waits for its next one.
-    const pr = found && ws.prDone !== undefined && found.number <= ws.prDone ? undefined : found;
+    // Numbers only compare within one repository (a fork's and its original's both have a #5).
+    const sameRepo = !ws.prShipped?.url || !found || repoOfPr(ws.prShipped.url) === repoOfPr(found.url);
+    const pr = found && ws.prDone !== undefined && sameRepo && found.number <= ws.prDone ? undefined : found;
     const before = this.deps.store.getState().prs[ws.id];
     if (!samePr(before, pr)) this.deps.store.dispatch({ type: 'pr', id: ws.id, pr });
     void this.settleMergeWait(ws, pr);
@@ -1050,12 +1078,36 @@ export class Workbench {
   /** Open your PR instructions in your editor (created with the built-in text the first time). */
   editPrPrompt(): void {
     const file = ensurePrPromptFile();
+    const opened = (): void => {
+      this.deps.store.dispatch({ type: 'pr_custom', custom: true });
+      this.deps.toast(`Opened ${tilde(file)}. Save it; the next PR uses it`, 'success');
+    };
+    // The system's own way to open it: when there's no editor to start, or yours didn't start.
+    const openHere = (): void => {
+      (this.deps.open ?? systemOpen)(file);
+      opened();
+    };
     const editor = process.env.VISUAL ?? '';
-    if (/\b(code|cursor|subl|zed|mate|gedit|kate)\b/.test(editor)) spawn(editor, [file], { stdio: 'ignore', detached: true }).on('error', () => undefined).unref();
-    else if (process.platform === 'darwin') spawn('open', ['-t', file], { stdio: 'ignore', detached: true }).on('error', () => undefined).unref();
-    else (this.deps.open ?? systemOpen)(file);
-    this.deps.store.dispatch({ type: 'pr_custom', custom: true });
-    this.deps.toast(`Opened ${file.replace(process.env.HOME ?? '', '~')}. Save it; the next PR uses it`, 'success');
+    if (/\b(code|cursor|subl|zed|mate|gedit|kate)\b/.test(editor)) {
+      const how = editorCommand(editor, file);
+      const child = spawn(how.command, [...how.args], { stdio: 'ignore', detached: true, shell: how.shell, windowsHide: true });
+      child.once('spawn', opened);
+      child.once('error', openHere);
+      // Through cmd (Windows) it always starts: cmd ending at once with an error means the editor
+      // wasn't found, so the system opens it. (An editor run with --wait ends much later.)
+      if (how.shell) {
+        const started = Date.now();
+        child.once('exit', (code) => {
+          if (code !== 0 && Date.now() - started < EDITOR_MISSING_MS) (this.deps.open ?? systemOpen)(file);
+        });
+      }
+      child.unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', ['-t', file], { stdio: 'ignore', detached: true })
+        .once('spawn', opened)
+        .once('error', openHere)
+        .unref();
+    } else openHere();
   }
 
   resetPrPrompt(): void {
@@ -1081,7 +1133,8 @@ export class Workbench {
       rows: size.rows,
       env,
       ...(shell ? { shell } : {}),
-      ...(command ? { args: ['-l', '-c', command], title: command } : { args: shellArgs({ login: prefs.shellLogin, extra: prefs.shellArgs }) }),
+      // PowerShell and cmd (Windows) take neither -l nor -c: each shell gets the arguments it knows.
+      ...(command ? { args: commandArgs(shell ?? defaultShell(), command), title: command } : { args: shellArgs({ login: prefs.shellLogin, extra: prefs.shellArgs, shell: shell ?? defaultShell() }) }),
     });
     this.deps.store.dispatch({ type: 'terminal', id: key, title: session.title });
     // A setup is over in a moment: only shells and the run command are worth a restart later.
@@ -1650,6 +1703,8 @@ export class Workbench {
       if (channel === 'draft') continue;
       const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
       const shared = channel.startsWith('ws:') ? state.shared.find((w) => w.id === channel.slice(3)) : undefined;
+      // A workspace that's gone (deleted, its project removed): nothing to open, so nothing to find.
+      if (channel.startsWith('ws:') && !ws && !shared) continue;
       const items = state.log.filter((l) => l.channel === channel);
       sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? (state.peers.length > 1 ? 'Group chat' : 'Chat') : isAssistant(channel) ? macChatPlace(channel, items) : channel, items, archived: ws?.archived });
     }

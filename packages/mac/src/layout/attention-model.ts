@@ -359,6 +359,7 @@ type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId'>;
 export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategory, readonly CategoryEntry[]>> {
   const out: Record<ChatCategory, CategoryEntry[]> = { active: [], working: [], snoozed: [], settled: [] };
   for (const e of conversationEntries(state)) {
+    if (isQuietOutside(e)) continue;
     const entry = categoryEntry(state, e);
     out[entry.category].push(entry);
   }
@@ -368,6 +369,9 @@ export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategor
   out.settled.sort((a, b) => b.sortAt - a.sortAt);
   return out;
 }
+
+/** A worktree made outside Beluga that nobody talked in has no chat to sort: the Projects list has it. With news or a run it still shows. */
+const isQuietOutside = (e: UnreadEntry): boolean => e.kind === 'workspace' && e.ws.kind === 'worktree' && e.ws.external && !e.ws.archived && !counts(e.signal) && !e.signal.working;
 
 /** What a row's status says now; empty when its mark says it all (a conflict, failing checks) or there is no time to tell. */
 export function statusWords(status: RowStatus, now: number): string {

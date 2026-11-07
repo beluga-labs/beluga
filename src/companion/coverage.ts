@@ -32,6 +32,7 @@ export const PHONE: Record<Method, Side> = {
   'session.unshareFolder': 'mac',
   'session.follow': 'mac',
   'session.clearChat': 'mac',
+  'session.react': 'phone',
   'session.removePerson': 'mac',
   'session.newInviteLink': 'mac',
   'session.setRoomOpen': 'mac',
@@ -92,6 +93,7 @@ export const PHONE: Record<Method, Side> = {
   'invites.remove': 'mac',
   'remote.requestWorktree': 'mac',
   'remote.handoff': 'mac',
+  'remote.canHandOff': 'mac',
 
   // ---- diffs, shells, files by path: code, never on the phone
   'diff.load': 'mac',
@@ -117,7 +119,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.refresh': 'mac',
   'workspaces.newWorktree': 'mac',
   'workspaces.newChat': 'mac',
-  'workspaces.startChat': 'phone',
+  'workspaces.startChat': 'phone', // Includes the optional first-message plan mode.
   'workspaces.startWorktree': 'phone',
   'workspaces.branches': 'mac',
   'workspaces.fork': 'mac',
@@ -126,6 +128,8 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.archive': 'mac',
   'workspaces.restore': 'mac',
   'workspaces.archivePlan': 'mac',
+  // The phone's Delete step carries the same warning in its hint (core/branch-state.ts, from status.unpushed).
+  'workspaces.deletePlan': 'mac',
   'workspaces.freeSpace': 'mac',
   'workspaces.remove': 'mac',
   'workspaces.commit': 'mac',
@@ -141,6 +145,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.openInFinder': 'mac',
   'workspaces.setGroup': 'mac',
   'workspaces.renameGroup': 'mac',
+  'workspaces.rename': 'mac',
   'workspaces.ungroup': 'mac',
   'workspaces.arrange': 'mac',
   'workspaces.newGroup': 'mac',
@@ -229,11 +234,13 @@ export const PHONE: Record<Method, Side> = {
   'projects.setIcon': 'mac',
   'projects.add': 'mac',
   'projects.addFolder': 'mac',
+  'projects.initGit': 'mac',
   'projects.suggest': 'mac',
   'projects.create': 'mac',
   'projects.newHome': 'mac',
   'projects.iconAt': 'mac',
   'local.listDirs': 'mac',
+  'local.browse': 'mac',
   'local.openFolder': 'mac',
   'local.statFiles': 'mac',
 
@@ -283,6 +290,7 @@ export const PHONE: Record<Method, Side> = {
   'network.read': 'phone',
   'network.messages.delete': 'phone',
   'network.messages.edit': 'phone',
+  'network.messages.react': 'phone',
   'network.clear': 'phone',
 
   'stripe.connect': 'mac',
@@ -291,12 +299,25 @@ export const PHONE: Record<Method, Side> = {
 
   // ---- supporting Beluga: the star and coffee asks are the Mac's (they open web pages there)
   'support.answer': 'mac',
+  'diagnostics.report': 'mac',
+
+  // ---- browsers on the web port (BLG-650): let in and revoked from the Mac's Settings or `beluga web`
+  'web.link': 'mac',
+  'web.sessions.list': 'mac',
+  'web.sessions.revoke': 'mac',
+  'web.stop': 'mac',
+  'web.public': 'mac',
+  'web.tailscale': 'mac',
+  'web.ways': 'mac',
+  'web.download': 'mac',
 
   // ---- Your Mac's chats (BLG-102): since 1.14 the phone lists them, starts one and deletes one
   // (it's chatting). Which tab is open is the Mac's: the phone opens any chat without moving it.
   'assistant.newChat': 'phone',
   'assistant.openChat': 'mac',
   'assistant.deleteChat': 'phone',
+  // Its scratch folder as the Mac's Scratch tab shows it (the phone has it already, as Your Mac's outputs).
+  'assistant.scratch': 'mac',
 
   // ---- Claude Code's sessions: what its agents made (outputs, background logs), not their steps' code
   'claudeCode.steps': 'mac',
@@ -305,7 +326,7 @@ export const PHONE: Record<Method, Side> = {
   'claudeCode.outputs': 'phone',
   'claudeCode.output': 'phone',
   'claudeCode.taskOutput': 'phone',
-  'claudeCode.skills': 'mac',
+  'claudeCode.skills': 'mac', // Includes skill discovery in a draft's folder.
   'claudeCode.mcpServers': 'mac',
   'claudeCode.mcpSignIn': 'mac',
   'claudeCode.mcpSignedIn': 'mac',
@@ -405,6 +426,8 @@ export const PHONE: Record<Method, Side> = {
   // phone too (BLG-170): until its screen exists, a task made from one shows on the phone's board.
   'issues.list': 'mac',
   'issues.get': 'mac',
+  'issues.pulls': 'mac',
+  'issues.openPull': 'mac',
   'issues.investigate': 'mac',
   'issues.fix': 'mac',
   'issues.toTask': 'mac',
@@ -445,6 +468,8 @@ export const PHONE: Record<Method, Side> = {
   'git.moveAndUpdate': 'mac',
   'git.switchToDefault': 'mac',
   'git.askClaude': 'mac',
+  'git.syncFork': 'mac',
+  'git.syncForkWithClaude': 'mac',
   'git.github': 'mac',
   'git.githubRepo': 'mac',
   'git.log': 'mac',
@@ -517,6 +542,19 @@ export const PHONE: Record<Method, Side> = {
   'voice.models': 'mac',
   'voice.prepare': 'mac',
   'voice.transcribe': 'mac',
+  'voice.load': 'mac',
+  // Calls (BLG-706): the Mac's window makes the sound. The phone answers one on your Mac, declines
+  // it, or hangs up; starting one, muting, sharing and the WebRTC setup are the Mac's.
+  'calls.start': 'mac',
+  'calls.join': 'phone',
+  'calls.leave': 'phone',
+  'calls.decline': 'phone',
+  'calls.set': 'mac',
+  'calls.signal': 'mac',
+  'calls.list': 'mac',
+  // Call notes (BLG-715): written down by the Mac's window, kept and read on the Mac.
+  'calls.notes': 'mac',
+  'calls.forgetNotes': 'mac',
   // Settings › Terminal › Import from…, and the welcome's terminal step: Mac settings only.
   'terminalImport.detect': 'mac',
   // The agent's own terminal in a conversation (BLG-534) opens on the Mac, and its visuals open
@@ -536,6 +574,7 @@ export const PHONE: Record<Method, Side> = {
   'sentinel.create': 'mac',
   'sentinel.update': 'mac',
   'sentinel.remove': 'mac',
+  'sentinel.runDelete': 'mac',
   'sentinel.duplicate': 'mac',
   'sentinel.stop': 'mac',
   // Claude changing a sentinel (the page's box, Describe it) is the Mac's: the phone has no editor.

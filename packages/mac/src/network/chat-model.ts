@@ -8,6 +8,7 @@ import type { Issue } from '../../../../src/core/board/model.js';
 import { isOpen } from '../../../../src/core/board/model.js';
 import type { TeamState } from '../../../../src/core/team/model.js';
 import { sharedTasks } from '../../../../src/core/team/mentions.js';
+import { yourComputer } from '../lib/os-words.js';
 
 /**
  * What the chats say and decide, as plain functions (no React, no daemon): whose Claude a
@@ -48,8 +49,8 @@ export interface ChannelSuggestion extends Suggestion {
 
 const COMMANDS: ReadonlyArray<{ name: ChannelCommand; hint: string; when?: 'others' | 'admin' }> = [
   { name: 'claude', hint: 'Your agent answers this message' },
-  { name: 'claudes', hint: 'Everyone’s agent answers, each from their own Mac', when: 'others' },
-  { name: 'files', hint: 'Send files from your Mac…' },
+  { name: 'claudes', hint: 'Everyone’s agent answers, each from their own computer', when: 'others' },
+  { name: 'files', hint: `Send files from ${yourComputer()}…` },
   { name: 'add-people', hint: 'Add people to this channel…', when: 'admin' },
 ];
 
@@ -76,9 +77,9 @@ export function channelSuggestions(text: string, ctx: { people: readonly Member[
   if (typed === undefined) return [];
   const before = text.slice(0, text.length - typed.length - 1);
   const options = [
-    { label: 'Your agent', insert: '@claude', hint: 'answers here, from your Mac' },
-    ...ctx.people.map((p) => ({ label: `${p.name}’s agent`, insert: `@claude:${handle(p.name)}`, hint: `answers from ${p.name}’s Mac` })),
-    ...(ctx.people.length ? [{ label: 'Everyone’s agent', insert: '@claudes', hint: 'each answers from their own Mac' }] : []),
+    { label: 'Your agent', insert: '@claude', hint: `answers here, from ${yourComputer()}` },
+    ...ctx.people.map((p) => ({ label: `${p.name}’s agent`, insert: `@claude:${handle(p.name)}`, hint: `answers from ${p.name}’s computer` })),
+    ...(ctx.people.length ? [{ label: 'Everyone’s agent', insert: '@claudes', hint: 'each answers from their own computer' }] : []),
     ...ctx.people.filter((p) => handle(p.name)).map((p) => ({ label: p.name, insert: `@${handle(p.name)}`, hint: 'the person, not their agent' })),
   ];
   const t = typed.toLowerCase();

@@ -51,7 +51,7 @@ describe('top tabs', () => {
     expect(m.lines[0]!.find((seg) => seg.text.includes('Terminal'))?.inverse).toBe(true);
     expect(text(m.lines)[0]).not.toContain('⌥');
     expect(m.zones[5]?.hint).toContain(tabKey(6));
-    expect(tabKey(3, 'darwin')).toBe('⌥3');
+    expect(tabKey(3, 'mac')).toBe('⌥3');
     expect(tabKey(3, 'linux')).toBe('Alt+3');
   });
 

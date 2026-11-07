@@ -6,8 +6,12 @@
 //! keeping Beluga's daemon running. Everything Beluga does happens in the daemon.
 
 mod daemon;
+mod export;
 mod focus;
 mod menu;
+mod call_float;
+mod call_overlay;
+mod shared_window;
 mod popup;
 #[cfg(target_os = "macos")]
 mod power;
@@ -68,9 +72,16 @@ fn take_pending_links(state: tauri::State<'_, AppState>) -> Vec<String> {
 /// makes the blur solid by itself.
 #[cfg(target_os = "macos")]
 fn window_vibrancy(window: &tauri::WebviewWindow, on: bool) {
-    use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+    use window_vibrancy::{
+        apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+    };
     if on {
-        let _ = apply_vibrancy(window, NSVisualEffectMaterial::Sidebar, Some(NSVisualEffectState::FollowsWindowActiveState), None);
+        let _ = apply_vibrancy(
+            window,
+            NSVisualEffectMaterial::Sidebar,
+            Some(NSVisualEffectState::FollowsWindowActiveState),
+            None,
+        );
     } else {
         let _ = clear_vibrancy(window);
     }
@@ -166,7 +177,24 @@ fn system_idle_seconds() -> Option<f64> {
         let secs = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
         secs.is_finite().then_some(secs)
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the last input anywhere in this session, against the time since it started (both
+    // wrap after 49 days, together). SAFETY: a struct of the size the call is told, and a pure query.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO {
+            cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+            dwTime: 0,
+        };
+        if unsafe { GetLastInputInfo(&mut info) } == 0 {
+            return None;
+        }
+        let ms = unsafe { GetTickCount() }.wrapping_sub(info.dwTime);
+        Some(f64::from(ms) / 1000.0)
+    }
+    // Linux: X11 and Wayland each keep it to themselves; nothing reliable to ask.
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         None
     }
@@ -249,7 +277,7 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state)
                 // The request pop-up places itself (and is never restored visible).
-                .with_denylist(&[popup::LABEL])
+                .with_denylist(&[popup::LABEL, call_float::LABEL, call_overlay::LABEL])
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -257,6 +285,8 @@ pub fn run() {
         .manage(updater::Updates::default())
         .manage(requests::TrayState::default())
         .manage(popup::PopupState::default())
+        .manage(call_float::CallFloatState::default())
+        .manage(call_overlay::CallOverlayState::default())
         .manage(AppState {
             lock: tokio::sync::Mutex::new(()),
             child: Mutex::new(None),
@@ -279,9 +309,18 @@ pub fn run() {
             popup::request_popup_resize,
             popup::request_popup_dismiss,
             popup::request_popup_action,
+            call_float::set_call_float,
+            call_float::call_float_state,
+            call_float::call_float_action,
+            call_float::call_float_resize,
+            call_float::call_float_drag,
+            call_float::call_float_pointer,
+            call_overlay::set_call_overlay,
+            call_overlay::call_overlay_state,
             system_idle_seconds,
             take_pending_links,
             focus_window,
+            export::save_export,
             sounds::sound_install,
             sounds::sound_prune,
             sounds::sound_play_system,
@@ -350,6 +389,18 @@ pub fn run() {
                     let _ = links.emit("deep-link", url.to_string());
                 }
             });
+            // On Windows and Linux a link that starts Beluga comes as an argument, read before the
+            // handler above was there: keep it for the window too. An AppImage registers itself.
+            #[cfg(not(target_os = "macos"))]
+            {
+                if std::env::var_os("APPIMAGE").is_some() {
+                    let _ = app.deep_link().register_all();
+                }
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let state = app.state::<AppState>();
+                    daemon::locked(&state.pending_links).extend(urls.iter().map(|u| u.to_string()));
+                }
+            }
             // Start Beluga's daemon right away, so the window has something to show.
             tauri::async_runtime::spawn(async move {
                 let _ = daemon::ensure(&handle, &[]).await;

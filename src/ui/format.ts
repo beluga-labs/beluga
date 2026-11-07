@@ -4,6 +4,7 @@ import { type Line, type Seg, formatDuration, lineWidth, pad, plain, truncate, w
 import { SPINNER, colorFor, glyph, theme } from './theme.js';
 import { SLOT_WAIT_TITLE, slotWaitDetail } from '../shared/run-slots.js';
 import { agentLabel } from '../shared/agent-label.js';
+import { pathParts, sepIn } from '../shared/os-path.js';
 
 export interface RenderOptions {
   readonly selfId?: string;
@@ -26,8 +27,8 @@ const SHELL_TAIL = 14;
 /** "/private/var/folders/…/beluga-demo/api" → "…/beluga-demo/api" (short paths stay as they are). */
 export const shortFolder = (p: string, max = 32): string => {
   if (p.length <= max) return p;
-  const parts = p.split('/').filter(Boolean);
-  return `…/${parts.slice(-2).join('/')}`;
+  const sep = sepIn(p);
+  return `…${sep}${pathParts(p).slice(-2).join(sep)}`;
 };
 
 const GROUP_GAP_MS = 3 * 60_000;

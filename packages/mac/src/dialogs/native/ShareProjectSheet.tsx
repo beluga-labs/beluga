@@ -6,20 +6,15 @@ import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { presenceOf } from '@beluga/core/friend-share-people.js';
 import { Select } from '../settings-controls.js';
 import { Section, Sheet, Tag } from './parts.js';
+import { ACCESS, type Access, SharePicker } from './SharePicker.js';
 import s from './sharing.module.css';
-
-type Access = WsRole | 'none';
-
-const ACCESS: ReadonlyArray<{ value: Access; label: string }> = [
-  { value: 'contribute', label: 'Can work here' },
-  { value: 'view', label: 'Can follow' },
-  { value: 'none', label: 'No access' },
-];
+import { thisComputer } from '../../lib/os-words.js';
 
 /**
  * Share with…: a project with friends over the network. Nobody hosts: it shows in each friend's
  * Projects with your avatar, its worktrees under it (new ones too), and stays while either of you
- * is offline. Each friend gets a role, changed in place, like a worktree's Share sheet.
+ * is offline. Like a worktree's Share sheet: pick a friend and what they can do (BLG-623), and who
+ * has it is listed with their level, changed or removed in place.
  */
 export function ShareProjectSheet({ projectId, close }: { readonly projectId: string; readonly close: () => void }) {
   const api = useApi();
@@ -29,7 +24,14 @@ export function ShareProjectSheet({ projectId, close }: { readonly projectId: st
   const network = useApp((st) => st.network);
   const peers = useApp((st) => st.peers);
   if (!project) return null;
-  const friends = network.friends;
+  const friends = network.friends.filter((f) => grants?.[f.peerId]);
+  const candidates = network.friends
+    .filter((f) => !grants?.[f.peerId])
+    .map((f) => {
+      const why = cannotTake(f.name, f.beluga, 'share.project', f.online);
+      return { peerId: f.peerId, name: f.name, ...(why ? { why } : {}) };
+    });
+  const none = !network.enabled ? 'Turn on the Beluga network in Settings to share with your friends.' : network.friends.length ? 'All your friends have it.' : 'No friends yet. Add a friend first, then share with them here.';
   const set = (peerId: string, access: Access): void => {
     const done = access === 'none' ? api.sharing.unshareFriend({ peerId, projectId }) : api.sharing.shareWithFriend({ peerId, projectId, role: access });
     void done.catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'warn'));
@@ -50,14 +52,16 @@ export function ShareProjectSheet({ projectId, close }: { readonly projectId: st
         </>
       }
     >
-      <Section title="Friends">
-        <div className={s.list} role="list" aria-label="Friends">
+      <Section title="Share with">
+        <SharePicker candidates={candidates} onShare={set} none={none} />
+      </Section>
+      <Section title="Friends with access">
+        <div className={s.list} role="list" aria-label="Friends with access">
           {friends.map((f) => {
             const access: Access = grants?.[f.peerId]?.role ?? 'none';
             const only = grants?.[f.peerId]?.only;
             const presence = presenceOf({ network, peers }, f.peerId);
-            const why = access === 'none' ? cannotTake(f.name, f.beluga, 'share.project', f.online) : undefined;
-            const detail = why ?? (access === 'contribute' ? 'Talks to your agent in its worktrees' : access === 'view' ? 'Follows along, read-only' : 'Not shared with them');
+            const detail = access === 'contribute' ? 'Talks to your agent in its worktrees' : 'Follows along, read-only';
             return (
               <div key={f.peerId} role="listitem" className={s.item}>
                 <Avatar name={f.name} id={f.peerId} size={24} />
@@ -71,10 +75,10 @@ export function ShareProjectSheet({ projectId, close }: { readonly projectId: st
               </div>
             );
           })}
-          {friends.length ? null : <div className={s.empty}>{network.enabled ? 'No friends yet. Add a friend first, then share with them here.' : 'Turn on the Beluga network in Settings to share with friends.'}</div>}
+          {friends.length ? null : <div className={s.empty}>Not shared with anyone yet.</div>}
         </div>
       </Section>
-      <p className={s.hint}>Your agent does the work, on this Mac. Risky steps still ask you, unless you fully trust the person asking.</p>
+      <p className={s.hint}>Your agent does the work, on {thisComputer()}. Risky steps still ask you, unless you fully trust the person asking.</p>
     </Sheet>
   );
 }

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Button, Segmented, Tip, cx } from '../components/ui.js';
 import { toast, useBeluga } from '../lib/beluga.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import s from './edit-prompt.module.css';
 
 type Mode = 'here' | 'fork';
@@ -69,7 +69,7 @@ export function EditPrompt({ wsId, lineId, text, worktree, onClose }: { wsId: st
       : worktree
         ? 'Goes on in a new worktree from this point. This one stays as it is.'
         : 'Goes on in a new chat from this point. This one stays as it is.';
-  const keys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const keys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   return (
     <div className={cx(s.edit, busy && s.busy)} data-edit-prompt="">
       <textarea

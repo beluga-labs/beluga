@@ -4,7 +4,7 @@ import { Kbd, Tip, cx } from '../components/ui.js';
 import { accelLabel } from '../lib/dictation-model.js';
 import { cancelDictation, dictatingInto, dictationWave, errorIn, finishDictation, gettingLine, type Phrase, toggleDictation, useDictation } from '../lib/dictation.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { useClock } from '../lib/window-active.js';
 import s from './dictation.module.css';
 
@@ -210,14 +210,14 @@ export function DictationStrip({ box }: { readonly box: React.RefObject<HTMLText
               <Kbd>↩</Kbd> {prefs.voiceSend ? 'send' : 'write it in'} ·{' '}
               {prefs.voiceSend ? null : (
                 <>
-                  <Kbd>{mod()}↩</Kbd> send ·{' '}
+                  <Kbd>{chordLabel('Cmd+Enter')}</Kbd> send ·{' '}
                 </>
               )}
               <Kbd>esc</Kbd>
             </>
           ) : send ? null : (
             <>
-              <Kbd>{mod()}↩</Kbd> send it too
+              <Kbd>{chordLabel('Cmd+Enter')}</Kbd> send it too
             </>
           )}
         </span>

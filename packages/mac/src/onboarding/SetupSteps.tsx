@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { STARTERS, type FireLook, DEFAULT_FIRE, presetOf, starterOf } from '../chat/fire-look.js';
@@ -8,17 +8,23 @@ import { Switch } from '../dialogs/settings-controls.js';
 import { previewRequestPopup } from '../gateway/request-native.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { askNotificationPermission, openNotificationSettings, useNotificationAccess } from '../lib/sounds/access.js';
-import { ACCENTS, type Accent, type UiPrefs, getPrefs, setPrefs, usePrefs } from '../lib/prefs.js';
+import { ACCENTS, type Accent, type UiPrefs, baseNow, getPrefs, pickTheme, setPrefs, usePrefs } from '../lib/prefs.js';
+import { type AppTheme, THEMES, themeFor } from '../lib/themes.js';
+import { useDocTheme } from '../components/markdown/use-doc-theme.js';
 import { EASE_OUT, Rise, SPRING, Words } from './fx.js';
 import { Glass } from './Glass.js';
 import s from './onboarding.module.css';
+import { cmdReturn, notificationSettings, returnName, systemSettingsName } from '../lib/os-words.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 type Appearance = UiPrefs['appearance'];
 
-/** A tiny Beluga window in one look: sidebar, a conversation, the box you type in. */
-function MiniApp({ look }: { readonly look: 'light' | 'dark' }) {
+/** A tiny Beluga window in one theme's colours: sidebar, a conversation, the box you type in. */
+function MiniApp({ theme }: { readonly theme: AppTheme }) {
+  const k = theme.colors;
+  const vars = { '--m-bg': k.bg, '--m-side': k.sidebar, '--m-line': `color-mix(in srgb, ${k.text3} 40%, ${k.bg})`, '--m-strong': `color-mix(in srgb, ${k.text2} 45%, ${k.bg})`, '--m-claude': k.claude } as CSSProperties;
   return (
-    <span className={s.mini} data-look={look}>
+    <span className={s.mini} data-look={theme.base} style={vars}>
       <span className={s.miniSide}>
         <i />
         <i />
@@ -32,6 +38,44 @@ function MiniApp({ look }: { readonly look: 'light' | 'dark' }) {
         <span className={s.miniBox} />
       </span>
     </span>
+  );
+}
+
+/**
+ * The themes for the look showing (BLG-696): a swatch each, its own background with its accent at
+ * the centre, and the picked one's name beside them. Settings › Appearance has them all as windows.
+ */
+function ThemeRow({ prefs }: { readonly prefs: UiPrefs }) {
+  const base = useDocTheme();
+  const picked = themeFor(base, prefs);
+  const [hover, setHover] = useState<AppTheme>();
+  return (
+    <Rise delay={0.45} className={s.accentRow}>
+      <span className={cx(s.label, s.themeLabel)}>Theme</span>
+      <div className={s.swatches} role="radiogroup" aria-label={base === 'dark' ? 'Dark theme' : 'Light theme'} onMouseLeave={() => setHover(undefined)}>
+        {THEMES.filter((th) => th.base === base).map((th) => (
+          <motion.button
+            key={th.id}
+            type="button"
+            role="radio"
+            aria-label={th.name}
+            aria-checked={picked.id === th.id}
+            className={cx(s.swatch, s.themeSwatch)}
+            style={{ background: th.colors.bg, '--t-dot': th.accent ?? th.colors.text2, '--t-edge': th.colors.sidebar } as CSSProperties}
+            onClick={() => pickTheme(th.id)}
+            onMouseEnter={() => setHover(th)}
+            onFocus={() => setHover(th)}
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.92 }}
+          >
+            {picked.id === th.id ? <motion.span layoutId={`theme-ring-${base}`} className={s.swatchRing} transition={SPRING} /> : null}
+          </motion.button>
+        ))}
+      </div>
+      <span className={s.themeName} aria-live="polite">
+        {(hover ?? picked).name}
+      </span>
+    </Rise>
   );
 }
 
@@ -50,7 +94,7 @@ export function Look() {
         <Words text="Make it yours." />
       </h2>
       <Rise delay={0.2} className={s.body}>
-        Pick a look. It changes as you choose, and Settings has it whenever you want another.
+        Pick a look and a theme. It changes as you choose, and Settings has them whenever you want another.
       </Rise>
       <div className={s.looks} role="radiogroup" aria-label="Appearance">
         {LOOKS.map((l, i) => {
@@ -70,11 +114,11 @@ export function Look() {
             >
               {l.value === 'system' ? (
                 <span className={s.split}>
-                  <MiniApp look="light" />
-                  <MiniApp look="dark" />
+                  <MiniApp theme={themeFor('light', prefs)} />
+                  <MiniApp theme={themeFor('dark', prefs)} />
                 </span>
               ) : (
-                <MiniApp look={l.value} />
+                <MiniApp theme={themeFor(l.value, prefs)} />
               )}
               <span className={s.lookLabel}>
                 <span className={s.radio}>{on ? <motion.span layoutId="look-dot" className={s.radioDot} transition={SPRING} /> : null}</span>
@@ -84,15 +128,16 @@ export function Look() {
           );
         })}
       </div>
-      <Rise delay={0.5} className={s.accentRow}>
+      <ThemeRow prefs={prefs} />
+      <Rise delay={0.5} className={cx(s.accentRow, s.accentAfter)}>
         <span className={s.label}>Accent</span>
         <div className={s.swatches} role="radiogroup" aria-label="Accent">
-          {(Object.keys(ACCENTS) as Accent[]).map((a) => (
+          {(Object.keys(ACCENTS) as Accent[]).filter((a) => a !== 'theme' || themeFor(baseNow(prefs), prefs).accent).map((a) => (
             <motion.button
               key={a}
               type="button"
               role="radio"
-              aria-label={a === 'system' ? 'System accent' : a}
+              aria-label={a === 'system' ? 'System accent' : a === 'theme' ? `${themeFor(baseNow(prefs), prefs).name}’s own accent` : a}
               aria-checked={prefs.accent === a}
               className={s.swatch}
               style={{ background: a === 'system' ? 'conic-gradient(#3b82f6, #8b5cf6, #e11d48, #d97706, #059669, #3b82f6)' : ACCENTS[a] }}
@@ -197,6 +242,8 @@ export function Popups() {
   // What macOS says (checked again as you come back from System Settings).
   const { access, recheck } = useNotificationAccess();
   const state = access?.state;
+  // Where they wait once shown: Notification Center on a Mac and Windows; Linux desktops differ.
+  const kept = keyPlatform() === 'linux' ? '' : ', and stay in Notification Center';
   const ask = (): void => {
     setAsked('asking');
     void askNotificationPermission()
@@ -228,12 +275,12 @@ export function Popups() {
           label="Notifications too"
           detail={
             state === 'allowed'
-              ? 'Allowed. They reach you when popups are off, and stay in Notification Center.'
+              ? `Allowed. They reach you when popups are off${kept}.`
               : state === 'off'
-                ? 'Turned off for Beluga in System Settings › Notifications.'
+                ? `Turned off for Beluga in ${notificationSettings()}.`
                 : asked === 'done'
-                  ? 'Asked. You can change it in System Settings › Notifications.'
-                  : 'Optional. macOS asks once. They reach you when popups are off, and stay in Notification Center.'
+                  ? `Asked. You can change it in ${notificationSettings()}.`
+                  : `Optional.${keyPlatform() === 'mac' ? ' macOS asks once.' : ''} They reach you when popups are off${kept}.`
           }
         >
           {state === 'allowed' ? (
@@ -242,7 +289,7 @@ export function Popups() {
             </span>
           ) : state === 'off' ? (
             <button type="button" className={cx(s.input, s.rowButton)} onClick={() => void openNotificationSettings()}>
-              Open System Settings
+              Open {systemSettingsName()}
             </button>
           ) : (
             <button type="button" className={cx(s.input, s.rowButton)} disabled={asked !== 'no'} onClick={ask}>
@@ -311,8 +358,8 @@ export function Setup() {
             value={prefs.sendWith}
             onChange={(v) => setPrefs({ sendWith: v })}
             options={[
-              { value: 'enter', label: 'Return' },
-              { value: 'cmd-enter', label: '⌘ Return' },
+              { value: 'enter', label: returnName() },
+              { value: 'cmd-enter', label: cmdReturn(' ') },
             ]}
           />
         </SetupRow>

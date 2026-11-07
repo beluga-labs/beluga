@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Store } from '../store.js';
 import type { CcSession } from './model.js';
 import { placeOf } from './watch.js';
+import { paced } from '../power-saver.js';
 
 /**
  * Codex sessions running outside Beluga (the Codex app, `codex` in a terminal), for Activity like
@@ -139,7 +140,7 @@ export class CodexSessionsWatcher {
     this.scan();
     const every = this.opts.pollMs ?? 5_000;
     if (every > 0) {
-      this.timer = setInterval(() => this.scan(), every);
+      this.timer = setInterval(paced(every, () => this.opts.store.getState().powerSaving, () => this.scan()), every);
       this.timer.unref();
     }
   }

@@ -1,3 +1,4 @@
+import { baseName, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import type { Cell, Column, Row, View } from '@beluga/shared/view-spec.js';
 import { Icon } from '../Icon.js';
@@ -207,7 +208,7 @@ function Thumb({ src, local }: { src: string; local: boolean }) {
   const web = /^https:\/\//i.test(src);
   const [url, setUrl] = useState<string | undefined>(web ? src : undefined);
   useEffect(() => {
-    if (web || !local || !(src.startsWith('/') || src.startsWith('~/'))) return;
+    if (web || !local || !(isAbsolutePath(src) || /^~[\\/]/.test(src))) return;
     let alive = true;
     loadImage(client.api, { href: `local:${src}`, owner: '', file: '', local: src }, 'thumb').then(
       (u) => alive && setUrl(u),
@@ -217,5 +218,5 @@ function Thumb({ src, local }: { src: string; local: boolean }) {
       alive = false;
     };
   }, [src, local]);
-  return url ? <img className={v.thumb} src={url} alt="" loading="lazy" /> : <span className={cx(v.mono, v.nil)}>{src.split('/').pop()}</span>;
+  return url ? <img className={v.thumb} src={url} alt="" loading="lazy" /> : <span className={cx(v.mono, v.nil)}>{baseName(src)}</span>;
 }

@@ -71,7 +71,8 @@ const NO_RECORD: ChatTriage = {};
 
 /**
  * Which record speaks for a conversation: its own, or its plan's row. None for what has no category:
- * the room, Your Mac, friends' chats, a sentinel's chats, archived worktrees and a project's main folder.
+ * the room, Your Mac, friends' chats, a sentinel's chats, archived worktrees, a project's main folder
+ * and a worktree made outside Beluga that nobody talked in (a Claude Code sub-agent's left-over).
  */
 export function triageKey(state: TriageSource, channel: string): string | undefined {
   if (channel.startsWith('plan:')) return state.plans.plans.some((p) => `plan:${p.id}` === channel) ? channel : undefined;
@@ -80,7 +81,7 @@ export function triageKey(state: TriageSource, channel: string): string | undefi
   const plan = planOf(state, id);
   if (plan) return `plan:${plan.id}`;
   const own = state.projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
-  if (own) return own.archived || own.kind === 'main' ? undefined : channel;
+  if (own) return own.archived || own.kind === 'main' || own.external ? undefined : channel;
   return state.shared.some((w) => w.id === id) ? channel : undefined;
 }
 

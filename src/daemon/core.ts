@@ -7,6 +7,8 @@ import type { AgentRuntime, RuntimeId } from '../agent/runtime/types.js';
 import { createMockBackend } from '../agent/mock.js';
 import { createCodexRuntime } from '../agent/runtime/codex/index.js';
 import { ScriptedCodex } from '../agent/runtime/codex/scripted.js';
+import { createOpenCodeRuntime } from '../agent/runtime/opencode/index.js';
+import { ScriptedOpenCode } from '../agent/runtime/opencode/scripted.js';
 import { findConversation } from '../agent/runtime/claude/claude-sessions.js';
 import { otherTools } from '../agent/other-tools.js';
 import { copyNative, pasteText } from '../core/clipboard.js';
@@ -21,6 +23,7 @@ import { launchSentinel } from '../core/sentinel/launch.js';
 import { launchTriage } from '../core/triage/launch.js';
 import { launchAssistant } from '../core/assistant/launch.js';
 import { launchChat } from '../core/chat/launch.js';
+import { launchCalls } from '../core/calls/launch.js';
 import { launchGateway } from '../core/gateway/launch.js';
 import { launchFriendShares } from '../core/friend-share/launch.js';
 import { launchEarnings } from '../core/stripe-launch.js';
@@ -63,6 +66,13 @@ interface Room {
 }
 
 const roomInvite = (room: Room): string | undefined => (room.reach ? encodeInvite({ ...room.reach, secret: room.secret }) : undefined);
+
+/** The demo's OpenCode: ready, with the scripted one's models. */
+function demoOpenCode(): AgentRuntime {
+  const scripted = new ScriptedOpenCode({ stepMs: 600 });
+  const models = scripted.models.map((m) => ({ value: m.value, label: m.name.split('/').at(-1) ?? m.name, description: m.value.split('/')[0] ?? '', ...(m.efforts.length ? { efforts: m.efforts } : {}) }));
+  return createOpenCodeRuntime({ connect: scripted.connect, resolve: async () => undefined, status: async () => ({ state: 'ready', models }) });
+}
 
 let claudeWithStatus: AgentRuntime | undefined;
 /** The runtimes, Claude's saying whether it's signed in (a local model's side calls go to Claude only then, BLG-503). */
@@ -306,8 +316,9 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     createAgent: demo
       ? (bridge) => createMockBackend(bridge, Number(belugaEnv('DEMO_PACE')) || 2.6) // unhurried, so you can watch workspaces run side by side
       : undefined,
-    // The demo's Codex: the real Codex runtime over a scripted app-server, so a worktree can run on it (BLG-462).
-    ...(demo ? { alsoRuntimes: [createCodexRuntime({ connect: new ScriptedCodex({ stepMs: 600 }).connect })] } : {}),
+    // The demo's Codex and OpenCode: the real runtimes over a scripted app-server and a scripted
+    // `opencode acp`, so a worktree can run on either (BLG-462, BLG-686).
+    ...(demo ? { alsoRuntimes: [createCodexRuntime({ connect: new ScriptedCodex({ stepMs: 600 }).connect }), demoOpenCode()] } : {}),
     // Your agent through the runtime seam (agent/runtime): Claude, the only one registered yet.
     ...(!demo && config.agent
       ? {
@@ -344,6 +355,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   let stopClaudeCode = (): void => undefined;
   let stopGateway = (): void => undefined;
   let stopChat = (): void => undefined;
+  let stopCalls = (): void => undefined;
   let stopFriendShares = (): void => undefined;
   let stopBoard = (): void => undefined;
   let stopDialogues = (): void => undefined;
@@ -365,6 +377,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopGateway = launchGateway({ session, store, demo: Boolean(demo) });
     // Chats: files shared Mac to Mac, Claudes called into a conversation, your main channel.
     if (opts.network) stopChat = launchChat({ session, store, demo: Boolean(demo) });
+    // Calls in a conversation with friends: ringing, who's in, and WebRTC setup between windows (core/calls).
+    if (opts.network) stopCalls = launchCalls({ session, store, demo: Boolean(demo) });
     // Projects, worktrees and folders shared with friends over the network, nobody hosting.
     if (opts.network) stopFriendShares = launchFriendShares({ session, store, demo: Boolean(demo) });
     // Tasks (the board): opened by worktrees, moved by pull requests, kept true by Claude.
@@ -414,6 +428,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     closeAllTunnels();
     await leaveNetwork(session);
     stopGateway();
+    stopCalls();
     stopChat();
     stopFriendShares();
     stopAssistant();

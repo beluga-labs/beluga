@@ -1,4 +1,5 @@
 import type { Access, ClaudeWhere, StepKind, TriggerKind } from '../../../../src/core/sentinel/model.js';
+import { computerWord } from '../lib/os-words.js';
 
 /**
  * The tour's Sentinel step (BLG-362): a few real sentinels, each said in a sentence (when, what,
@@ -38,7 +39,7 @@ export const TOUR_SENTINELS: readonly TourSentinel[] = [
     when: 'Every day at 7:00',
     steps: [
       { kind: 'claude', detail: 'Write a brief of what changed', where: 'project' },
-      { kind: 'notify', detail: 'On the Mac and the phone' },
+      { kind: 'notify', detail: `On the ${computerWord()} and the phone` },
     ],
     access: 'look',
     report: { title: 'Morning brief', line: '3 pull requests merged, 1 test failing, 2 new issues' },

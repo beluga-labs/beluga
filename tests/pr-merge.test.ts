@@ -294,4 +294,31 @@ describe('Create PR without Claude', () => {
     expect(manager.commitAll).not.toHaveBeenCalled();
     expect(store.getState().prs.auth?.number).toBe(9);
   });
+
+  it('opens it on the fork’s original, into the original’s default branch, when asked', async () => {
+    const store = new Store(initialState('t', 'ask'));
+    const ws = { id: 'auth', name: 'auth', kind: 'worktree', branch: 'beluga/add-auth', base: 'origin/main', path: '/code/auth', projectId: 'p1', status: { changed: 0, ahead: 1, behind: 0 } };
+    const fork = { host: 'github.com', owner: 'rstagi', repo: 'app', url: 'https://github.com/rstagi/app', branch: 'trunk', forkBranch: 'main' };
+    const made: unknown[] = [];
+    const toasts: string[] = [];
+    exec.impl = (cmd, args) => (cmd === 'git' && args[0] === 'log' ? { stdout: 'Add session auth\n' } : { err: new Error('not mocked') });
+    const wb = (projects: unknown[]) =>
+      new Workbench({
+        store,
+        controller: { manager: { list: projects, find: (id: string) => (id === ws.id ? ws : undefined), commitAll: vi.fn() }, refresh: async () => undefined, open: () => undefined } as unknown as WorkspaceController,
+        notify: () => undefined,
+        toast: (text) => void toasts.push(text),
+        intend: () => undefined,
+        askClaude: () => undefined,
+        setPrefs: () => undefined,
+        remoteRef: () => undefined,
+        createPr: async (_dir, p) => (made.push(p), pr({ number: 301, title: p.title, url: 'https://github.com/rstagi/app/pull/301' })),
+      });
+    store.dispatch({ type: 'gh', ok: true });
+    expect(await wb([{ id: 'p1', workspaces: [ws], fork }]).quickPr('auth', { original: true })).toMatchObject({ ok: true, message: 'Opened PR #301 on rstagi/app: Add session auth' });
+    expect(made).toEqual([{ base: 'trunk', head: 'beluga/add-auth', title: 'Add session auth', body: '', to: fork }]);
+    // Not a fork: nothing is opened anywhere.
+    expect(await wb([{ id: 'p1', workspaces: [ws] }]).quickPr('auth', { original: true })).toMatchObject({ ok: false });
+    expect(made).toHaveLength(1);
+  });
 });

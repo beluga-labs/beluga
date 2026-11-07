@@ -9,7 +9,7 @@ import { useActions } from '../lib/actions.js';
 import { useApi, useBeluga } from '../lib/beluga.js';
 import { goToCode } from '../lib/go-to-code.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { agoWords } from '../issues/issues-model.js';
 import type { ConversationItem } from './use-pr-conversation.js';
 import s from './pr-conversation.module.css';
@@ -61,7 +61,7 @@ export function WriteBox({ placeholder, label, busyLabel, onSend, onCancel, auto
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   const ready = !busy && Boolean(body.trim());
   useLayoutEffect(() => {
     const el = box.current;

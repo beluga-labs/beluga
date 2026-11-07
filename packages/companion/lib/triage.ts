@@ -33,7 +33,8 @@ export function categorySections(projects: readonly Project[]): CategorySections
   const inCategory = (category: ConvSummary['category']) => all.filter((c) => c.category === category).sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0));
   const isActive = (c: ConvSummary) => !c.category || c.category === 'active';
   return {
-    active: projects.map((p) => ({ ...p, conversations: p.conversations.filter(isActive) })).filter((p) => p.conversations.length),
+    // A project that only had others moves out; one with nothing in it yet stays, for its first worktree.
+    active: projects.filter((p) => !p.conversations.length || p.conversations.some(isActive)).map((p) => ({ ...p, conversations: p.conversations.filter(isActive) })),
     working: inCategory('working'),
     snoozed: inCategory('snoozed'),
     settled: inCategory('settled'),

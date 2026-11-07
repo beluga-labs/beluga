@@ -11,6 +11,8 @@
  * keys of their own there (OFF_MAC_KEYS).
  */
 
+import { fileManagerFor } from '../../../../src/shared/assistant.js';
+
 export type KeyPlatform = 'mac' | 'windows' | 'linux';
 
 /** Which keyboard this window has. Off a window (the tests, Node) it's a Mac's. */
@@ -139,7 +141,8 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
   def('ws-merge', 'Merge…', 'Workspace', ['Shift+Cmd+M']),
   def('ws-run', 'Run', 'Workspace', ['Cmd+R']),
   def('ws-review', 'Ask Your Agent to Review…', 'Workspace', ['Shift+Cmd+R']),
-  def('ws-finder', 'Show in Finder', 'Workspace', []),
+  // As os-words' revealLabel (it imports this file, so the words are written out here).
+  def('ws-finder', platform === 'linux' ? 'Show in Folder' : `Show in ${fileManagerFor(platform)}`, 'Workspace', []),
   def('ws-fork', 'Fork…', 'Workspace', []),
   def('ws-archive', 'Archive…', 'Workspace', ['Ctrl+Cmd+A']),
 

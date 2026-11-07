@@ -200,6 +200,16 @@ describe('the sidebar categories', () => {
     expect(names(categoriesOf(on()).active).sort()).toEqual(['How do deploys work?', 'add-auth', 'new-hero', 'webhooks']);
   });
 
+  it('leaves out a quiet worktree nobody talked in, and shows one with news, with no actions', () => {
+    const outside = ws({ id: 'agent-a3f9', name: 'agent-a3f9', external: true, createdAt: 0, path: '/repo/.claude/worktrees/agent-a3f9' });
+    const withIt = (state: AppState): AppState => ({ ...state, projects: state.projects.map((p, i) => (i === 0 ? { ...p, workspaces: [...p.workspaces, outside] } : p)) });
+    const all = (state: AppState) => Object.values(categoriesOf(state)).flat();
+    expect(names(all(withIt(on())))).not.toContain('agent-a3f9');
+    const news = all({ ...withIt(on()), unread: { 'ws:agent-a3f9': 2 } }).find((e) => e.name === 'agent-a3f9');
+    expect(news?.category).toBe('active');
+    expect(news?.key).toBeUndefined();
+  });
+
   it('moves a running chat to Working and back to Active when its turn ends', () => {
     let s = apply(on(), overview, run('started'));
     expect(names(categoriesOf(s).working)).toEqual(['add-auth']);

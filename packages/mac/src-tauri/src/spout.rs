@@ -25,7 +25,7 @@ pub struct Spout(Mutex<Sender<Cmd>>);
 /// The menu-bar icon at rest (decoded once, the first time a spout ends; the same picture each time).
 fn rest() -> Option<Image<'static>> {
     static REST: OnceLock<Option<Image<'static>>> = OnceLock::new();
-    REST.get_or_init(|| Image::from_bytes(include_bytes!("../icons/tray.png")).ok()).clone()
+    REST.get_or_init(|| crate::menu::tray_picture().ok()).clone()
 }
 
 /// Start the player (once, at launch).
@@ -73,12 +73,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) {
                     // as a plain (untinted) image until a second call marks it a template, and the
                     // bar draws it in between, so the whale flickered on every frame (BLG-335).
                     for (i, f) in frames.iter().enumerate() {
-                        let _ = tray.set_icon_with_as_template(Some(f.clone()), true);
+                        let _ = tray.set_icon_with_as_template(Some(f.clone()), cfg!(target_os = "macos"));
                         // Keep to the clock, not to how long setting the icon took.
                         let due = started + frame * (i as u32 + 1);
                         thread::sleep(due.saturating_duration_since(Instant::now()));
                     }
-                    let _ = tray.set_icon_with_as_template(rest(), true);
+                    let _ = tray.set_icon_with_as_template(rest(), cfg!(target_os = "macos"));
                 }
                 // Spouts asked for while it played are the same spout.
                 while let Ok(c) = rx.try_recv() {

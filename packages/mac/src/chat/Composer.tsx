@@ -10,7 +10,7 @@ import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
 import { steeredMessages } from '@beluga/shared/claude-notices.js';
-import { fallbackFor, runtimeHere } from '@beluga/shared/runtime-fallbacks.js';
+import { fallbackFor, runtimeHas, runtimeHere } from '@beluga/shared/runtime-fallbacks.js';
 import { defaultAgentOf } from '@beluga/protocol.js';
 import { Icon } from '../components/Icon.js';
 import { Kbd, Tip, cx } from '../components/ui.js';
@@ -20,7 +20,8 @@ import { agentName, useAgentNameIn, useMyAgentName } from '../lib/agent-words.js
 import { sameDeep, sameFields } from '../lib/stable.js';
 import { getPrefs, usePrefs } from '../lib/prefs.js';
 import { sendsToTerminal } from '../lib/convo-mode.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
+import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
@@ -86,8 +87,8 @@ function placeholderOf(state: AppState, ui: { pending?: { kind: string; projectI
   }
   if (v.kind === 'draft_worktree') return `What should ${agent} work on in the new worktree?`;
   if (v.kind === 'search') return 'Search every conversation';
-  if (v.kind === 'assistant') return 'Ask your Mac anything';
-  if (v.kind === 'sentinel_chat') return 'Ask Sentinel: “what did my sentinels find?”, “watch my open pull requests”…';
+  if (v.kind === 'assistant') return `Ask ${yourComputer()} anything`;
+  if (v.kind === 'sentinel_chat') return 'Ask for a dashboard, a watcher or a pipeline: “chart my signups”, “tell me when my site is down”…';
   if (v.kind === 'workspace') {
     const ws = state.projects.flatMap((x) => x.workspaces).find((w) => w.id === v.id);
     if (ws?.askOnly) return `Ask about ${state.projects.find((x) => x.root && x.workspaces.includes(ws))?.name ?? 'this project'}…`;
@@ -117,13 +118,13 @@ function RunOnChip({ wsId, ownerName, value, onChange }: { wsId: string; ownerNa
     <ActionsDropdown
       align="start"
       items={[
-        { label: `${ownerName}’s Mac`, hint: 'Their agent, in their worktree', icon: 'people', checked: value === 'owner', onSelect: () => pick('owner') },
-        { label: 'This Mac', hint: 'Your agent, in your copy, on the same branch', icon: 'laptop', checked: value === 'here', onSelect: () => pick('here') },
+        { label: `${ownerName}’s computer`, hint: 'Their agent, in their worktree', icon: 'people', checked: value === 'owner', onSelect: () => pick('owner') },
+        { label: upFirst(thisComputer()), hint: 'Your agent, in your copy, on the same branch', icon: 'laptop', checked: value === 'here', onSelect: () => pick('here') },
       ]}
     >
-      <button type="button" className={cx(s.chip, value === 'here' && s.chipOn)} aria-label={`Runs on ${value === 'here' ? 'this Mac' : `${ownerName}’s Mac`}`}>
+      <button type="button" className={cx(s.chip, value === 'here' && s.chipOn)} aria-label={`Runs on ${value === 'here' ? thisComputer() : `${ownerName}’s computer`}`}>
         <Icon name={value === 'here' ? 'laptop' : 'people'} size={12} />
-        {value === 'here' ? 'This Mac' : `${ownerName}’s Mac`}
+        {value === 'here' ? upFirst(thisComputer()) : `${ownerName}’s computer`}
         <Icon name="chevronDown" size={9} />
       </button>
     </ActionsDropdown>
@@ -246,7 +247,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     setWorktreeState(choice);
   };
   // A side question (/btw): "/btw " turns the box into one; it's answered in the card above, never in the chat.
-  const canBtw = channel.startsWith('ws:') && !shared;
+  // Only where its agent has one (it forks the conversation's session: Claude's, OpenCode's; not Codex's).
+  const btwHere = useApp((st) => runtimeHas(runtimeHere(st.projects.flatMap((p) => p.workspaces).find((w) => `ws:${w.id}` === channel)?.agent, st.self), 'btw'));
+  const canBtw = channel.startsWith('ws:') && !shared && btwHere;
   const [asideIn, setAsideIn] = useState<string | undefined>(undefined);
   const aside = canBtw && asideIn === channel;
   const btwOpen = useApp((st) => Boolean(st.btw?.[channel]));
@@ -286,8 +289,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             ...(mentionWorld.tasks ? { tasks: mentionWorld.tasks } : {}),
             skills,
             skillsOn,
+            ...(canBtw ? {} : { without: ['btw'] }),
           }),
-    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, skills, skillsOn, runtimes],
+    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, skills, skillsOn, canBtw, runtimes],
   );
   const sug = useSuggestions(suggestions, buffer, (picked) => accept(picked));
 
@@ -349,7 +353,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     setWorktreeState({ name: '' });
     // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
     const terminal = Boolean(text.trim()) && sendsToTerminal(client.store.getState(), getPrefs(), 'draft', worktree.agent?.runtime);
-    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...(terminal ? { terminal } : {}) }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+    // Started in the mode the picker shows (Plan First or not).
+    const plan = client.store.getState().planMode.draft === true;
+    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...(terminal ? { terminal } : {}), ...(plan ? { plan } : {}) }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
   };
   const deliver = (text: string, urgent: boolean): void => {
     if (readOnly) return;
@@ -437,7 +443,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     set(current ? `${toClaude}\n${current}` : toClaude);
     ref.current?.focus();
   };
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   function accept(picked: Suggestion): void {
     if (picked.enter === 'submit') {
       ui.patch({ buffer: '', cursor: 0 });
@@ -452,7 +458,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     // Enter while an input method is composing (Japanese, Chinese…) picks the characters.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // Shift-Tab switches between acting and planning first, as in Claude Code (not focus).
-    if (isShortcut('composer-mode', e) && channel !== 'draft' && !shared && !planHome) {
+    if (isShortcut('composer-mode', e) && !shared && !planHome) {
       e.preventDefault();
       setMode(nextMode(mode));
       return;
@@ -613,7 +619,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 <Icon name="chevronDown" size={9} />
               </button>
             </ActionsDropdown>
-          ) : channel !== 'draft' && !shared ? (
+          ) : !shared ? (
             <ActionsDropdown
               align="start"
               items={(['act', 'plan', 'tasks'] as const)
@@ -629,7 +635,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           ) : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
-          {!shared && channel !== 'draft' ? <McpChip /> : null}
+          {!shared ? <McpChip /> : null}
           {burning && state.prefs.effort === 'max' ? (
             <Tip label={`Max effort: ${agentHere} thinks as hard as it can`}>
               <span className={m.tag}>
@@ -678,7 +684,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
               </Tip>
             </div>
           ) : (
-            <Tip label={prefs.sendWith === 'enter' ? 'Send · Shift+Return for a new line' : `Send · ${mod()}Return`} keys={prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`}>
+            <Tip label={prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`} keys={prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter')}>
               <button type="button" className={cx(s.send, buffer.trim() && s.sendReady)} onClick={() => send(false)} aria-label="Send" disabled={!buffer.trim()}>
                 <Icon name="send" size={14} />
               </button>

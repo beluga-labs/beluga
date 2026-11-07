@@ -259,17 +259,20 @@ export class TriageService {
     }
   }
 
-  /** When each chat without a time was last active: its last message, or when it was made. */
+  /**
+   * When each chat without a time was last active: its last message, or when it was made. A worktree
+   * Beluga didn't make has neither (createdAt 0), so its days count from now: 0 is never a time.
+   */
   private seed(): void {
     const state = this.state();
     const seeds = new Map<string, number>();
     for (const ws of state.projects.flatMap((p) => p.workspaces)) {
       const key = triageKey(state, `ws:${ws.id}`);
-      if (!key || state.triage[key]?.lastAt !== undefined) continue;
+      if (!key || state.triage[key]?.lastAt) continue;
       const at = Math.max(ws.createdAt, this.deps.history(ws.id).at(-1)?.ts ?? 0, lastLogAt(state.log, `ws:${ws.id}`) ?? 0);
       seeds.set(key, Math.max(at, seeds.get(key) ?? 0));
     }
-    for (const [key, lastAt] of seeds) this.set(key, { ...state.triage[key], lastAt });
+    for (const [key, lastAt] of seeds) this.set(key, { ...state.triage[key], lastAt: lastAt || this.now() });
   }
 
   private tick(): void {

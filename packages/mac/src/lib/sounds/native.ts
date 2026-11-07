@@ -1,6 +1,7 @@
 import { DEFAULT_SOUND, DEFAULT_VOLUME, NO_SOUND, type SoundChoice, type SoundPrefs, volumeOf } from '../../../../../src/shared/notify-sound.js';
 import { inApp } from '../boot.js';
-import { filesInUse, renderChoice, soundFileName, soundsInUse } from './catalog.js';
+import { keyPlatform } from '../shortcuts-model.js';
+import { filesInUse, playableHere, renderChoice, soundFileName, soundsInUse } from './catalog.js';
 import { playSound } from './player.js';
 import { SAMPLE_RATE } from './synth.js';
 import { testTone } from './test-sound.js';
@@ -39,7 +40,7 @@ async function install(choice: SoundChoice, volume: number): Promise<string | nu
  * `fallback` does; call it once the notification is shown).
  */
 export async function notificationSound(n: NoteSound): Promise<{ readonly sound?: string; readonly fallback?: () => void }> {
-  const tone = n.tone ?? (n.sound ? DEFAULT_SOUND : NO_SOUND);
+  const tone = playableHere(n.tone ?? (n.sound ? DEFAULT_SOUND : NO_SOUND), keyPlatform() === 'mac');
   const volume = n.volume ?? DEFAULT_VOLUME;
   if (tone.kind === 'none') return {};
   if (tone.kind === 'mac') return { sound: tone.id };

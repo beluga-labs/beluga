@@ -1,3 +1,4 @@
+import { underPart } from '@beluga/shared/path-inside.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { OutsideConversation } from '@beluga/core/workspace-controller.js';
 import { formatBytes } from '@beluga/shared/format.js';
@@ -24,7 +25,7 @@ const SEARCH_FROM = 8;
 /** Where a conversation ran, said from the folder looked in ("" when it's that folder). */
 function whereIn(dir: string, cwd: string, home: string): string {
   if (cwd === dir) return '';
-  return cwd.startsWith(`${dir}/`) ? cwd.slice(dir.length + 1) : tildePath(home, cwd);
+  return underPart(dir, cwd) ?? tildePath(home, cwd);
 }
 
 /**

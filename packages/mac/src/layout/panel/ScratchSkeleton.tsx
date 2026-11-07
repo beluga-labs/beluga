@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icon.js';
 import { Button, Empty, cx } from '../../components/ui.js';
 import { GHOST_WIDTHS } from './scratch-model.js';
 import k from './scratch.module.css';
+import { revealLabel } from '../../lib/os-words.js';
 
 /**
  * The Scratch tab before it has a listing: the list and the preview drawn in outline, softly
@@ -73,12 +74,12 @@ export function ScratchEmpty({ working, off, dir, onReveal }: ScratchEmptyProps)
             {working ? (
               <div className={k.emptyWorking} role="status">
                 <DotMatrix size={12} />
-                <span>Your agent is working · its files show up here as they’re saved</span>
+                <span>Your agent is working</span>
               </div>
             ) : null}
             {onReveal ? (
               <Button icon="folder" title={dir} onClick={onReveal}>
-              Show in Finder
+              {revealLabel()}
             </Button>
             ) : null}
           </>
@@ -88,13 +89,14 @@ export function ScratchEmpty({ working, off, dir, onReveal }: ScratchEmptyProps)
   );
 }
 
-/** On top of the list while Claude works: where its next file will land. */
+/** On top of the list while Claude works: a file row on its way, its size and time still to come. */
 export function NextFileRow() {
   return (
     <div className={cx(k.next, k.live)} role="status">
       <DotMatrix size={12} />
-      <span>Your agent is working</span>
-      <span className={k.bar} aria-hidden />
+      <span className={k.nextLabel}>Your agent is working</span>
+      <span className={cx(k.bar, k.nextSize)} aria-hidden />
+      <span className={cx(k.bar, k.nextAgo)} aria-hidden />
     </div>
   );
 }

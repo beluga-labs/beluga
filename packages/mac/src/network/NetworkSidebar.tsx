@@ -52,7 +52,7 @@ function Welcome() {
         <Avatar name="M" id="welcome-c" size={22} />
       </div>
       <div className={s.welcomeTitle}>Talk with friends directly</div>
-      <div className={s.welcomeText}>Messages and groups go straight from Mac to Mac, end-to-end encrypted. No server, no account.</div>
+      <div className={s.welcomeText}>Messages and groups go straight from computer to computer, end-to-end encrypted. No server, no account.</div>
       <div className={s.welcomeButtons}>
         <Button variant="primary" size="small" disabled={busy} onClick={() => void turnOn()}>
           {busy ? 'Turning On…' : 'Turn On'}
@@ -111,6 +111,7 @@ function FriendRow({ f, groups }: { f: FriendView; groups: readonly GroupView[] 
   const bits = useApp((st) => roomBits(st.peers, f.peerId, st.follow), sameDeep);
   const state = shownState(f);
   const note = state !== 'offline' ? f.presence.note?.trim() : undefined;
+  const emoji = state !== 'offline' ? f.presence.emoji?.trim() : undefined;
   const addTo = (g: GroupView): void => {
     client.api.network['groups.addMember'](g.id, f.peerId).then(
       () => say(`Added ${f.name} to ${g.name}`),
@@ -144,10 +145,15 @@ function FriendRow({ f, groups }: { f: FriendView; groups: readonly GroupView[] 
         label={
           <span className={s.who}>
             <span className={cx(s.whoName, f.unread > 0 && s.unreadName)}>{f.name}</span>
+            {emoji ? (
+              <span className={s.whoEmoji} aria-hidden>
+                {emoji}
+              </span>
+            ) : null}
             {note ? <span className={s.whoNote}>{note}</span> : null}
           </span>
         }
-        detail={`${f.name} · ${presenceLine(f)}${f.via === 'relay' ? ' · connected through another Mac' : ''}${roomLine}`}
+        detail={`${f.name} · ${presenceLine(f)}${f.via === 'relay' ? ' · connected through another computer' : ''}${roomLine}`}
         onClick={() => openDm(client, f.peerId)}
         trailing={
           <>
@@ -162,7 +168,7 @@ function FriendRow({ f, groups }: { f: FriendView; groups: readonly GroupView[] 
               </Tip>
             ) : null}
             {f.via === 'relay' && f.online ? (
-              <Tip label="Connected through another member’s Mac (still end-to-end encrypted)">
+              <Tip label="Connected through another member’s computer (still end-to-end encrypted)">
                 <span className={s.relay}>
                   <Icon name="link" size={11} />
                 </span>
@@ -399,7 +405,7 @@ export function GroupsSection() {
         {groups.map((g) => (
           <GroupRow key={g.id} g={g} />
         ))}
-        {groups.length ? null : <Row className={side.hintRow} icon={<Icon name="plus" size={13} />} label="New channel…" detail="A conversation with several friends, kept on everyone’s Mac" onClick={() => openNet({ kind: 'new_group' })} />}
+        {groups.length ? null : <Row className={side.hintRow} icon={<Icon name="plus" size={13} />} label="New channel…" detail="A conversation with several friends, kept on everyone’s computer" onClick={() => openNet({ kind: 'new_group' })} />}
       </div>
     </Section>
   );

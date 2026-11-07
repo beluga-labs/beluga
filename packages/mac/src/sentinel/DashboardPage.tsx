@@ -25,6 +25,7 @@ import { SHOW_TILE } from '../lib/widget-links.js';
 import { useSentinelActions, useSentinelState } from './use-sentinel.js';
 import n from './numbers.module.css';
 import { ASSISTANT_TITLE } from '@beluga/shared/assistant.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 /**
  * At a glance (docs/sentinel.md §10, BLG-300): the board on Sentinel's page. Anything your
@@ -584,7 +585,8 @@ function TileCell({ d, tile, state, source, movable, place, onSize, onPointerDow
           ...(output?.runId ? [{ label: 'Open the Run', icon: 'arrowRight' as const, separate: true, onSelect: () => a.openRun(output.runId) }] : []),
           ...(sentinelId && cap.state !== 'gone' ? [{ label: 'Open Its Sentinel', icon: 'sentinel' as const, ...(output?.runId ? {} : { separate: true }), onSelect: () => a.open(sentinelId) }] : []),
         ]),
-    ...(tile.kind === 'divider'
+    // Desktop widgets are macOS's (WidgetKit): only a Mac offers them.
+    ...(tile.kind === 'divider' || keyPlatform() !== 'mac'
       ? []
       : [
           {

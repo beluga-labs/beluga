@@ -100,6 +100,27 @@ export async function seedDemoPlan(store: Store, work: PlansWork, board: BoardWo
   travel(3 * DAY + 20 * HOUR);
   work.approve(plan.id);
   travel(2 * DAY + 16 * HOUR);
+  // Its checker (a Claude of its own) said why it passes; passing archives that conversation, kept for Open the Check.
+  const checked = Date.now() - 2 * DAY - 16 * HOUR;
+  const checker = await work.checkerFor(api.id, 'Test-mode foundations', (channel): LogItem[] => [
+    {
+      id: 'demo-plan-check',
+      type: 'agent',
+      channel,
+      subagents: [],
+      requestId: 'demo-plan-check',
+      owner: selfId,
+      ownerName: me,
+      requesterName: 'Beluga',
+      requester: selfId,
+      status: 'done',
+      text: 'Both pass criteria hold.\n\n1. `npm test` runs 24 payment tests covering card, 3-D Secure and declined cards.\n2. With the network off, the fixtures load and every payment test passes.',
+      steps: [],
+      ts: checked - 6 * 60_000,
+      endTs: checked,
+    },
+  ]);
+  if (checker) work.plans.setChecker(plan.id, 'foundations', checker);
   work.plans.recordCheck(plan.id, 'foundations', { by: claude, verdict: 'pass', notes: '1. ✓ 24 payment tests cover card, 3-D Secure and declined.\n2. ✓ Ran them with the network off: all pass.' });
   work.pilot.pass(plan.id, 'foundations', board.me());
   travel(0);

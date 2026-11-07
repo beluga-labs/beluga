@@ -73,6 +73,7 @@ import { sentinelGraph } from '@beluga/core/sentinel/workflow.js';
 import { GraphBlock } from '../components/graph/GraphBlock.js';
 import s from './sentinel.module.css';
 import { ASSISTANT_TITLE, THIS_COMPUTER } from '@beluga/shared/assistant.js';
+import { computerWord } from '../lib/os-words.js';
 
 /** The sentinel page's editor: When it runs, and its Steps. Everything saves as you change it. */
 
@@ -187,9 +188,9 @@ function ScheduleControls({ t, save }: { t: ScheduleTrigger; save: Save }) {
         </div>
       ) : null}
       <div className={s.controlRow}>
-        <span className={s.controlLabel}>If my Mac was asleep</span>
+        <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
         <Select
-          label="If my Mac was asleep"
+          label={`If my ${computerWord()} was asleep`}
           size="small"
           value={t.missed}
           options={[
@@ -427,7 +428,7 @@ function ClaudeFields({ step, item, change }: { step: ClaudeStep; item: Sentinel
         {/* Which agent and model does it (BLG-497): the run's chat or worktree runs it for this step. */}
         <Select label="Agent and model" size="small" value={stepAgentChoice(step)} options={agents} onChange={(v) => change(agentFields(v))} />
       </div>
-      {step.where === 'mac' && stepAgentChoice(step) ? <p className={s.hint}>On Your Mac, your default agent does it: pick In the project or In a new worktree for this one.</p> : null}
+      {step.where === 'mac' && stepAgentChoice(step) ? <p className={s.hint}>On {ASSISTANT_TITLE}, your default agent does it: pick In the project or In a new worktree for this one.</p> : null}
     </>
   );
 }
@@ -653,7 +654,7 @@ function MergeFields({ step, change }: { step: MergeStep; change: (patch: Partia
   };
   return (
     <>
-      <Checkbox checked={step.require.approval} onChange={setApproval} label="Ask me before merging" detail="A card on the Mac and your phone, with Merge and Not Now; unanswered for a day, the run stops" />
+      <Checkbox checked={step.require.approval} onChange={setApproval} label="Ask me before merging" detail={`A card on the ${computerWord()} and your phone, with Merge and Not Now; unanswered for a day, the run stops`} />
       <div className={s.controlRow}>
         <span className={s.controlLabel}>Merge as</span>
         <Select

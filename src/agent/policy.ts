@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isDotenvPath, isReceivedTaskFile, isSecretPath, realOf } from '../core/shares.js';
+import { expandHome } from '../core/home-path.js';
 import { isReadOnlyCommand } from './read-only.js';
 import { SourceSchema } from '../shared/view-spec.js';
 import { type ScriptPlan, planScript } from '../core/views/scripts.js';
@@ -36,13 +37,14 @@ const ALWAYS_OK = new Set([
   'mcp__beluga__end_dialogue',
   // The gateway's look-and-wait tools (core/gateway); ask_person and run_on ask, and the gateway checks trust itself.
   ...['who_can', 'wait_for', 'check', 'cancel', 'answer_question'].map((n) => `mcp__beluga__${n}`),
-  // The task board: only your own runs have it, and it only changes your tasks (each change is in their activity).
+  // The task board: your own runs, and a friend's you trust (BLG-701: only its repo's board, and a
+  // Trusted friend's changes ask you, see boardAsks); each change is in the task's activity.
   ...['task_define', 'task_get', 'task_list', 'task_create', 'board_create', 'task_update', 'task_brief_edit', 'task_note', 'task_relate', 'task_attach_proof'].map((n) => `mcp__beluga_board__${n}`),
   // Sentinels (core/sentinel): only your own runs have them; a new one starts paused until you turn it on,
-  // and a change to what one can do pauses it. sentinel_remove isn't here: deleting one asks you.
+  // and a change to what one can do pauses it. sentinel_remove and sentinel_delete_runs aren't here: deleting asks you.
   // sentinel_test and sentinel_try_source only read: a database read-only, a file, an address without your
   // variables; a command (or an address carrying a $VAR) waits for your yes.
-  ...['sentinel_stop', 'sentinel_list', 'sentinel_get', 'sentinel_create', 'sentinel_update', 'sentinel_run', 'sentinel_test', 'sentinel_try_source', 'sentinel_pause'].map((n) => `mcp__beluga_sentinel__${n}`),
+  ...['sentinel_stop', 'sentinel_list', 'sentinel_get', 'sentinel_create', 'sentinel_update', 'sentinel_run', 'sentinel_test', 'sentinel_try_source', 'sentinel_pause', 'sentinel_runs'].map((n) => `mcp__beluga_sentinel__${n}`),
   // Dashboards and numbers (core/sentinel, §10): only your own runs have them; they arrange your
   // dashboards' tiles and read the numbers (a tile removed takes nothing kept with it).
   // dashboard_remove isn't here: deleting a dashboard asks you.
@@ -60,12 +62,16 @@ const ALWAYS_OK = new Set([
   ...['phone_status', 'phone_screenshot', 'phone_screen', 'phone_apps', 'phone_info', 'phone_pull', 'phone_notifications', 'phone_macro_list'].map((n) => `mcp__beluga_phone__${n}`),
 ]);
 
+/** The board tools that only look. */
+const BOARD_LOOKS = new Set(['mcp__beluga_board__task_get', 'mcp__beluga_board__task_list']);
+const asksForBoard = (toolName: string, asks: 'writes' | 'all'): boolean => toolName.startsWith('mcp__beluga_board__') && (asks === 'all' || !BOARD_LOOKS.has(toolName));
+
 /**
  * Tools that delete something of yours for good (a sentinel, a dashboard, docs/sentinel.md §12):
  * your own Claude asks you first even when it otherwise never asks (Approvals › Never), once, with
  * no Always. The card reaches the phone as any approval does.
  */
-export const ALWAYS_ASK_YOU: ReadonlySet<string> = new Set(['mcp__beluga_sentinel__sentinel_remove', 'mcp__beluga_dashboard__dashboard_remove']);
+export const ALWAYS_ASK_YOU: ReadonlySet<string> = new Set(['mcp__beluga_sentinel__sentinel_remove', 'mcp__beluga_sentinel__sentinel_delete_runs', 'mcp__beluga_dashboard__dashboard_remove']);
 
 /**
  * Shell commands that mention credential stores are refused outright. A name counts when it isn't
@@ -114,9 +120,22 @@ export interface PolicyContext {
   readonly guest?: boolean;
   /** Your own Claude, on your own computer: a .env file asks you (Decision 'secret') instead of being refused. */
   readonly dotenv?: boolean;
+  /** A friend's run with the board (BLG-701): its changes ('writes') or every board tool ('all') ask you first. */
+  readonly boardAsks?: 'writes' | 'all';
 }
 
-const inside = (root: string, target: string): boolean => target === root || target.startsWith(root + path.sep);
+/**
+ * `target` is `root` or inside it. Windows paths match without regard to letter case, as Windows
+ * does (C:\Code\App and c:\code\app are one folder); a Mac and Linux compare them as they are.
+ */
+export const insideFolder = (root: string, target: string, platform: NodeJS.Platform = process.platform): boolean => {
+  const win = platform === 'win32';
+  const sep = win ? '\\' : '/';
+  const r = win ? root.toLowerCase() : root;
+  const t = win ? target.toLowerCase() : target;
+  return t === r || t.startsWith(r + sep);
+};
+const inside = (root: string, target: string): boolean => insideFolder(root, target);
 /** Inside a folder where it really is (links followed), so a link in a shared folder can't reach past it (BLG-414). */
 const within = (root: string, target: string): boolean => inside(realOf(path.resolve(root)), realOf(target));
 /** A secret by its name or by where it really is (a harmless-looking link to a key is still the key). */
@@ -185,10 +204,11 @@ function decideToolPlain(toolName: string, input: Record<string, unknown>, ctx: 
   const dotenv = ctx.dotenv === true && touchesDotenv(toolName, input, ctx);
   if (ctx.askOnly && changesMain(toolName, input, ctx)) return 'deny';
   if (ctx.guest && toolName.startsWith('mcp__beluga__')) return 'deny';
+  if (ctx.boardAsks && asksForBoard(toolName, ctx.boardAsks)) return 'ask';
   if (ALWAYS_OK.has(toolName)) return 'allow';
   // Sending a file reads it: same rules as Read (secrets never leave; outside shared folders asks).
   if (toolName === 'mcp__beluga__send_file') {
-    const raw = typeof input.path === 'string' ? input.path.replace(/^~(?=$|\/)/, process.env.HOME ?? '~') : '';
+    const raw = typeof input.path === 'string' ? expandHome(input.path) : '';
     // Only full paths: the same file is checked here and read when it's sent.
     if (!path.isAbsolute(raw)) return 'deny';
     const target = path.resolve(raw);
@@ -243,7 +263,7 @@ function decideShow(input: Record<string, unknown>, ctx: PolicyContext): Decisio
   if (source.kind === 'command') return mentionsSecret(source.command) ? 'deny' : ctx.askOnly && !isReadOnlyCommand(source.command) ? 'deny' : 'ask';
   if (source.kind === 'http') return Object.values(source.headers ?? {}).some((v) => /\$\{?[A-Za-z_]/.test(v)) ? 'ask' : 'allow';
   if (source.kind === 'postgres') return 'allow';
-  const target = resolveTarget(ctx.cwd, source.path.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
+  const target = resolveTarget(ctx.cwd, expandHome(source.path));
   if (secretAt(target)) return 'deny';
   if (ctx.roots.some((r) => within(r, target))) return 'allow';
   return ctx.scope === 'full' ? 'allow' : 'ask';
@@ -273,7 +293,8 @@ function changesMain(toolName: string, input: Record<string, unknown>, ctx: Poli
     return source.success && source.data.kind === 'command' && !mentionsSecret(source.data.command) && !isReadOnlyCommand(source.data.command);
   }
   // A file fetched from a friend may not land in the main folder.
-  if (toolName === 'mcp__beluga__get_peer_file') return typeof input.save_to === 'string' && inside(path.resolve(ctx.cwd), resolveTarget(ctx.cwd, input.save_to.replace(/^~(?=$|\/)/, process.env.HOME ?? '~')));
+  // Where it really is (links followed), and on Windows whatever the letter case (BLG-628).
+  if (toolName === 'mcp__beluga__get_peer_file') return typeof input.save_to === 'string' && within(ctx.cwd, resolveTarget(ctx.cwd, expandHome(input.save_to)));
   return false;
 }
 

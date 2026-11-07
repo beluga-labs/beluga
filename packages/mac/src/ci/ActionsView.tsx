@@ -20,6 +20,7 @@ import t from '../tasks/tasks.module.css';
 import s from './ci.module.css';
 import arr from '../lib/arrive.module.css';
 import { useLateArrival } from '../lib/last-seen.js';
+import { NoProjects } from '../work/NoProjects.js';
 
 type Page = 'runs' | 'workflows';
 
@@ -58,7 +59,7 @@ export function ActionsView() {
   if (!projects.length || !here || !projectId)
     return (
       <Ticking live={live}>
-        <Empty icon="pulse" title="No projects yet" detail="Actions come from a project’s GitHub repository. Add a project from the sidebar." />
+        <NoProjects icon="pulse" detail="Actions come from a project’s GitHub repository. Add a project to see them here." />
       </Ticking>
     );
 

@@ -138,7 +138,7 @@ describe('Work with chatCategories on', () => {
 
 describe('an older phone', () => {
   it('has the triage minor to check, a raised protocol', () => {
-    expect(SINCE.triage).toBe(38);
+    expect(SINCE.triage).toBe(42);
     expect(COMPANION_PROTO.minor).toBeGreaterThanOrEqual(SINCE.triage);
   });
 

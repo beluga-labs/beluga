@@ -7,6 +7,7 @@ import { YOUR_AGENT, useAgentEntries } from '../../components/agent-options.js';
 import { useMyAgent } from '../../lib/agent-words.js';
 import { agentForChoice, choiceForAgent } from '@beluga/ui/agent-choice.js';
 import { agentName } from '@beluga/shared/agent-label.js';
+import { cmdReturn } from '../../lib/os-words.js';
 
 /**
  * Continue a questions-only chat (a project's main folder) in a new worktree: what Claude should
@@ -63,7 +64,7 @@ export function ContinueSheet({ wsId, close }: { wsId: string; close: () => void
       onCancel={close}
       width={540}
     >
-      <Field label="Task" htmlFor="continue-task" hint="Empty: your agent goes ahead with what you discussed. ⌘Return continues.">
+      <Field label="Task" htmlFor="continue-task" hint={`Empty: your agent goes ahead with what you discussed. ${cmdReturn()} continues.`}>
         <TextArea id="continue-task" value={task} onChange={setTask} rows={4} placeholder="What should your agent change?" data-autofocus />
       </Field>
       <Field label="Based on" htmlFor="continue-base" hint="Origin branches are fetched first, so it starts from the latest.">

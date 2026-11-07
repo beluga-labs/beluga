@@ -2,23 +2,24 @@ import { useEffect, useState } from 'react';
 import { type Criterion, criteria } from '@beluga/core/board/criteria.js';
 import type { Plan } from '@beluga/core/plans/model.js';
 import { taskProof } from '@beluga/core/board/model.js';
-import type { MilestoneView, PlanView, TaskView } from '@beluga/core/plans/progress.js';
+import { FINISHED, type MilestoneView, type PlanView, type TaskView, taskOrder } from '@beluga/core/plans/progress.js';
 import { Markdown } from '../chat/Markdown.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { Button, IconButton, cx } from '../components/ui.js';
 import { openSheet } from '../lib/sheets.js';
 import { ProofItems } from '../tasks/TaskSections.js';
-import { type FlowStep, MILESTONE_STATE, branchFlow, taskWords } from './plans-model.js';
-import { TaskChatMark, TaskStateIcon, TonePill } from './marks.js';
+import { type FlowStep, MILESTONE_STATE, branchFlow, milestoneNowWords, taskWords } from './plans-model.js';
+import { LiveDot, TaskChatMark, TaskStateIcon, TonePill } from './marks.js';
 import { openDecision } from './plan-ask-model.js';
 import { PlanFeed } from './PlanFeed.js';
-import { useClock, usePlanActions } from './use-plans.js';
+import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { useMyAgent } from '../lib/agent-words.js';
 import type { AgentRef } from '@beluga/protocol.js';
 import { WaitingLine } from './WaitingLine.js';
 import p from './plans.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /** The details pane shows what the plan did when this is picked. */
 export const FEED = 'feed';
@@ -27,9 +28,9 @@ export const BRANCH = 'branch';
 
 /**
  * What you picked on the plan: a task (its goal, criteria, what it waits on, where it runs), a
- * milestone's gate, or the plan's feed (what it did). Its head (what it is, its state, Close) stays put while the rest scrolls under it.
+ * milestone (its agent at work, its tasks in order, its gate), or the plan's feed (what it did). Its head (what it is, its state, Close) stays put while the rest scrolls under it.
  */
-export function PlanDetails({ view, picked, canStart, onClose }: { view: PlanView; picked: string; canStart: boolean; onClose: () => void }) {
+export function PlanDetails({ view, picked, canStart, onPick, onClose }: { view: PlanView; picked: string; canStart: boolean; onPick: (id: string) => void; onClose: () => void }) {
   const feed = picked === FEED;
   const branch = picked === BRANCH;
   const gate = picked.startsWith('gate:') ? view.milestones.find((m) => `gate:${m.milestone.id}` === picked) : undefined;
@@ -58,7 +59,7 @@ export function PlanDetails({ view, picked, canStart, onClose }: { view: PlanVie
         <IconButton icon="x" label="Close" className={p.detailsClose} onClick={onClose} />
       </header>
       <div key={picked} className={p.detailsBody} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
-        {feed ? <PlanFeed plan={view.plan} /> : branch ? <BranchFlow view={view} /> : gate ? <GateDetails plan={view.plan} m={gate} /> : <TaskDetails view={view} t={task!} canStart={canStart} />}
+        {feed ? <PlanFeed plan={view.plan} /> : branch ? <BranchFlow view={view} /> : gate ? <GateDetails plan={view.plan} m={gate} onPick={onPick} /> : <TaskDetails view={view} t={task!} canStart={canStart} />}
       </div>
     </aside>
   );
@@ -277,10 +278,18 @@ function GateHead({ m }: { m: MilestoneView }) {
   );
 }
 
-function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
-  const { api, act } = usePlanActions();
+function GateDetails({ plan, m, onPick }: { plan: Plan; m: MilestoneView; onPick: (id: string) => void }) {
+  const { api, act, openWorktree } = usePlanActions();
   const check = m.run.check;
   const yours = plan.body && !plan.draft && (m.state === 'gate' || m.state === 'checking' || m.state === 'failed');
+  // Its checker's conversation (folded into the plan, off the sidebar): watched live, or read once it said.
+  const checker = useCheckerChat(m);
+  const openChecker = checker ? (
+    <Button size="small" icon="eye" variant={m.state === 'checking' ? 'plain' : 'quiet'} onClick={() => openWorktree(checker)}>
+      {m.state === 'checking' ? 'Watch the Check' : 'Open the Check'}
+      <TaskChatMark worktree={checker} />
+    </Button>
+  ) : null;
   const conflict = m.merging?.conflict;
   const failed = m.run.mergeFailed;
   return (
@@ -307,7 +316,7 @@ function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
                   </Button>
                 ) : null}
                 <Button size="small" icon="folder" onClick={() => void act(() => api.showConflict(plan.id))}>
-                  Show in Finder
+                  {revealLabel()}
                 </Button>
               </div>
             </>
@@ -336,8 +345,13 @@ function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
               Check Again
             </Button>
           ) : null}
+          {openChecker}
         </div>
+      ) : openChecker ? (
+        <div className={p.detailsActions}>{openChecker}</div>
       ) : null}
+      {m.state !== 'draft' && m.state !== 'later' ? <MilestoneAgentSection m={m} /> : null}
+      <MilestoneTasks m={m} onPick={onPick} />
       {m.milestone.goal ? (
         <section className={p.detailsSection}>
           <h4>Goal</h4>
@@ -366,5 +380,55 @@ function GateDetails({ plan, m }: { plan: Plan; m: MilestoneView }) {
         </section>
       ) : null}
     </>
+  );
+}
+
+/** Its one Claude: what it's doing right now (even between tasks), and its chat a click away. */
+function MilestoneAgentSection({ m }: { m: MilestoneView }) {
+  const { openWorktree } = usePlanActions();
+  const now = useClock(m.agentNow?.kind === 'working' || m.agentNow?.kind === 'command');
+  const words = milestoneNowWords(m, now);
+  if (!m.agent) return null;
+  const left = m.tasks.some((t) => t.worktree === m.agent!.worktree && !FINISHED.has(t.state));
+  return (
+    <section className={p.detailsSection} aria-label="Its agent">
+      <h4>Its agent</h4>
+      <p className={cx(p.agentNowLine, words && p[`tone_${words.tone}`])} data-agent-now={words ? 'live' : 'quiet'}>
+        {words ? words.tone === 'claude' ? <LiveDot /> : <Icon name="chat" size={12} /> : null}
+        <span>
+          {words ? words.label : left ? 'Not at work right now' : 'Done with its tasks'}
+          {words?.sub ? <span className={p.muted}> · {words.sub}</span> : null}
+        </span>
+      </p>
+      <div className={p.detailsActions}>
+        <Button size="small" icon="chat" variant={words?.tone === 'warn' ? 'primary' : 'plain'} onClick={() => openWorktree(m.agent!.worktree)}>
+          {words?.tone === 'warn' ? 'Answer' : 'Open Agent’s Chat'}
+          <TaskChatMark worktree={m.agent.worktree} />
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Its tasks in the order its agent does them, each where it stands: click one for its details. */
+function MilestoneTasks({ m, onPick }: { m: MilestoneView; onPick: (id: string) => void }) {
+  const tasks = taskOrder(m);
+  if (!tasks.length) return null;
+  return (
+    <section className={p.detailsSection} aria-label="Its tasks">
+      <h4>Tasks, in order</h4>
+      <ul className={p.msTaskList}>
+        {tasks.map((t) => (
+          <li key={t.task.id}>
+            <button type="button" className={p.msTaskRow} data-state={t.state} onClick={() => onPick(t.task.id)}>
+              <TaskStateIcon state={t.state} size={12} />
+              {t.issue?.key ? <span className={p.taskKey}>{t.issue.key}</span> : null}
+              <span className={p.msTaskTitle}>{t.task.title}</span>
+              <span className={p.msTaskState}>{t.queued ? 'Next up' : taskWords(t, 0).label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

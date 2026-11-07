@@ -209,6 +209,30 @@ describe('sharing a workspace', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(kay.runs).toHaveLength(0);
   });
+
+  // A name you give is up to 200 characters; the invite carries at most 80 (what older peers accept).
+  it.each([80, 81, 200])('invites with a name of %i characters: the friend gets it, cut to 80', async (n) => {
+    hub = await startHub({ keys });
+    const mgr = demo;
+    const kay = peer('kay', { workspaces: mgr });
+    const bob = peer('bob');
+    await room(kay, bob);
+    await kay.session.workspaces!.refresh();
+    // A worktree no other test looks for by name.
+    const ws = mgr.list.flatMap((p) => p.workspaces).find((w) => w.name === 'checkout-events')!;
+    const original = ws.name;
+    const long = 'x'.repeat(n);
+    mgr.rename(ws.id, long);
+    try {
+      await kay.session.workspaces!.refresh();
+      expect(kay.session.sharing.invite(ws.id, bob.session.selfId, 'view')).toBe(true);
+      const shared = await waitFor(() => bob.state().shared[0]);
+      expect(shared.name).toBe(long.slice(0, 80));
+      expect(mgr.list.flatMap((p) => p.workspaces).find((w) => w.id === ws.id)?.name).toBe(long);
+    } finally {
+      mgr.rename(ws.id, original);
+    }
+  });
 });
 
 describe('sharing a folder with one person', () => {

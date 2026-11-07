@@ -4,7 +4,7 @@ import { Checkbox } from '../components/Alert.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { Segmented, Tip, cx } from '../components/ui.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { useIssueActions } from './use-issues.js';
 import h from '../views/project-home.module.css';
 import d from '../chat/draft.module.css';
@@ -73,7 +73,7 @@ export function IssueComposer({ projectId, number, task }: { projectId: string; 
   // Claude still writing the task (Make a Task): working on it waits for its words, so not yet.
   const writing = Boolean(task?.drafting);
   const ready = !busy && !writing;
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
 
   useLayoutEffect(() => {
     const el = box.current;
