@@ -789,6 +789,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       await new Promise((r) => setTimeout(r, 400 * pace));
       return mockPlanTitle(goal);
     },
+    titleChat: async (content) => {
+      await new Promise((r) => setTimeout(r, 400 * pace));
+      const latest = content.split('\n\n').filter((part) => part.startsWith('User: ')).at(-1);
+      return cleanPlanTitle((latest ?? content).replace(/^User: /, ''));
+    },
     // A side question: a beat of thinking, then the answer word by word, as Claude streams it.
     btw: async (req) => {
       await sleep(900 * pace, req.signal);
@@ -822,6 +827,8 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     if (/^\/compact/.test(input.prompt.trim())) return context.compact(input, (ms) => sleep(ms * pace, input.signal));
     // Claude Code's sign-in ran out mid-run (BLG-589): the failed card offers Sign In's choices.
     if (/^sign-in expired$/i.test(input.prompt.trim())) throw new RunFailedError(classifyRun({ result: 'Failed to authenticate: Auth session expired and could not be refreshed', apiError: 'authentication_failed' }));
+    // Your plan's usage limit (BLG-757): the card says when Beluga continues it, two hours from now.
+    if (/^usage limit$/i.test(input.prompt.trim())) throw new RunFailedError({ kind: 'usage_limit', resetsAt: Date.now() + 2 * 60 * 60_000, detail: 'You’ve hit your limit' });
     // Updating main (the one thing a main-folder run may change): what real Claude would report.
     if (input.place?.syncMain) return mockSyncMain(input, input.place.syncMain, pace);
     // A sentinel's run (core/sentinel): its brief, before the main folder's "move it to a worktree".

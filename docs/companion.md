@@ -278,7 +278,7 @@ back, a long-press says who), and long-press on a message opens its sheet with y
 (`ChatView.quick`, the six you use most) on top (`network.messages.react`). The room's and workspaces'
 chats do the same on a person's turn (`TurnView.reactions`, `reactable`, `ConvView.quick`,
 `session.react`). An older Mac sends neither, and long-press stays as it was.
-1.42 (BLG-172) brings child threads to the phone (`SINCE.threads`). With Agent threads on, each row of
+1.43 (BLG-172) brings child threads to the phone (`SINCE.threads`). With Agent threads on, each row of
 Work shows its chat's harness mark and a child sits under its parent (`ConvSummary.harness`, `parent`;
 a kept child, or one whose parent is gone, is a row of its own). A chat's ••• › Lineage opens its parent
 and children with their live state, and Stop on each one at work (`ConvView.lineage`, `threads.stop`, `threads.stopAll`):

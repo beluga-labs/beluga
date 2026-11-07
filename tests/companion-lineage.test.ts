@@ -31,7 +31,7 @@ const family = () => [ws('top', { agent: codex }), ws('kid', { thread: thread('w
 describe('the protocol', () => {
   it('raises the minor and gates threads in SINCE', () => {
     expect(COMPANION_PROTO.minor).toBeGreaterThanOrEqual(SINCE.threads);
-    expect(SINCE.threads).toBe(42);
+    expect(SINCE.threads).toBe(43);
   });
 });
 

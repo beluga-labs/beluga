@@ -86,6 +86,10 @@ function at(item: LogItem, ts: number): LogItem {
 export function asSent(items: readonly LogItem[], inQueue: (card: AgentCard) => boolean): readonly LogItem[] {
   const hidden = new Set<string>();
   const ran = new Map<string, number>();
+  // Sent while the turn ran, its card not here yet: it's on its way to the queue, so it isn't a sent bubble for a moment.
+  const cards = new Set<string>();
+  for (const l of items) if (l.type === 'agent') cards.add(l.requestId);
+  for (const l of items) if (l.type === 'chat' && l.queued && l.request && !cards.has(l.request)) hidden.add(l.request);
   for (const l of items) {
     if (l.type !== 'agent' || !inQueue(l)) continue;
     if ((l.status === 'queued' && !l.slotWait) || (l.status === 'error' && l.queuedUntil !== undefined && NOT_SENT.test(l.text))) hidden.add(l.requestId);
