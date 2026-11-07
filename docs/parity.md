@@ -532,10 +532,10 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `ci.log` | ✓ a failed job on a run's page › Show the Log (its end, where it failed) |
 | `ci.rerun` | ✓ a run's page › Re-run Failed Jobs, and ⋯ › Re-run All Jobs; a run's right-click menu |
 | `ci.cancel` | ✓ a running run's page › Cancel Run (asks first); a running run's right-click menu |
-| `triage.settle` | ✓ the daemon's API, off until `chatCategories` is on: no screen calls it yet (the sidebar's categories come next in this plan) |
-| `triage.unsettle` | ✓ the daemon's API, off until `chatCategories` is on: no screen calls it yet |
-| `triage.snooze` | ✓ the daemon's API, off until `chatCategories` is on: no screen calls it yet |
-| `triage.wake` | ✓ the daemon's API, off until `chatCategories` is on: no screen calls it yet |
+| `triage.settle` | ✓ the daemon's API, off until `chatCategories` is on: the phone's Work tab, a chat's long-press sheet › Settle (the sidebar's categories come next in this plan) |
+| `triage.unsettle` | ✓ the daemon's API, off until `chatCategories` is on: the phone's Work tab, a chat's long-press sheet › Un-settle |
+| `triage.snooze` | ✓ the daemon's API, off until `chatCategories` is on: the phone's Work tab, a chat's long-press sheet › Snooze (In 1 hour, In 3 hours, Tomorrow 9:00, Next week) |
+| `triage.wake` | ✓ the daemon's API, off until `chatCategories` is on: the phone's Work tab, a chat's long-press sheet › Wake |
 | `triage.setAutoSettle` | ✓ the daemon's API, off until `chatCategories` is on: no screen calls it yet |
 | `team.answer` | ✓ the offer strip on a project's home and at the top of its Tasks (Team Up; ••• › Not Now, or Take Back while you wait for them); project ••• › Invite to Team ▸ (friends with the repository who aren't on the team, BLG-510); the phone's card (Team Up / Not Now) |
 | `team.ackAssignment` | ✓ Got It on the strip a task a teammate gave you shows on its page; the phone's card (Got It) |
