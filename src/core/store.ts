@@ -695,7 +695,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoSetup: true,
   branchPrefix: BRANCH_PREFIX_DEFAULT,
   contextMeter: true,
-  chatSchedules: false,
+  chatSchedules: true,
   autoCompact: false,
   autoCompactAt: AUTO_COMPACT_DEFAULT,
   parallelRuns: PARALLEL_RUNS_DEFAULT,

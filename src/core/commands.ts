@@ -7,6 +7,7 @@ import { defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { builtInInstead } from '../shared/skills.js';
 import { runScheduleCommand } from './schedule/command.js';
+import { schedulesOf } from './schedule/registry.js';
 
 /**
  * "~/x" (or "~\\x" on Windows) from your home folder. No node:os here (the screens load this file):
@@ -305,7 +306,8 @@ export function runCommand(session: Session, name: string, args: readonly string
       return;
     }
     case 'schedule':
-      return runScheduleCommand(session, args, channel);
+      // Off: the name isn't Beluga's, so it stays with a skill or command of that name.
+      return schedulesOf(session)?.isOn() ? runScheduleCommand(session, args, channel) : notBelugas(session, name, channel, raw);
     case 'plan': {
       session.setPlanMode(channel, arg ? arg !== 'off' : !state.planMode[channel]);
       return;
@@ -341,24 +343,28 @@ export function runCommand(session: Session, name: string, args: readonly string
       session.setPrefs({ theme: arg as ThemeName });
       session.toast(`Theme: ${arg}`, 'success');
       return;
-    default: {
-      // Claude Code's own commands (/context, /rewind…) do nothing as a message: say what Beluga has instead.
-      // …unless a skill or command of your own has that name: then it's yours.
-      const instead = builtInInstead(name);
-      if (instead) {
-        void session.ownSkill(name, channel).then((own) => {
-          if (own && raw) session.askOwnClaude(raw.trim().replace(/^:/, '/'), channel);
-          else session.toast(instead, 'info');
-        });
-        return;
-      }
-      if (raw && channel !== 'room' && session.workspaces?.inChannel(channel)) {
-        session.askOwnClaude(raw.trim().replace(/^:/, '/'), channel);
-        return;
-      }
-      session.toast(`Unknown command /${name}. Type /help (or // to send a message starting with /)`, 'warn');
-    }
+    default:
+      return notBelugas(session, name, channel, raw);
   }
+}
+
+/** A command Beluga doesn't have. */
+function notBelugas(session: Session, name: string, channel: string, raw?: string): void {
+  // Claude Code's own commands (/context, /rewind…) do nothing as a message: say what Beluga has instead.
+  // …unless a skill or command of your own has that name: then it's yours.
+  const instead = builtInInstead(name);
+  if (instead) {
+    void session.ownSkill(name, channel).then((own) => {
+      if (own && raw) session.askOwnClaude(raw.trim().replace(/^:/, '/'), channel);
+      else session.toast(instead, 'info');
+    });
+    return;
+  }
+  if (raw && channel !== 'room' && session.workspaces?.inChannel(channel)) {
+    session.askOwnClaude(raw.trim().replace(/^:/, '/'), channel);
+    return;
+  }
+  session.toast(`Unknown command /${name}. Type /help (or // to send a message starting with /)`, 'warn');
 }
 
 /** Whether Beluga handles this command, including its aliases and `/dialogue`, which Session.submit takes before the command list. */

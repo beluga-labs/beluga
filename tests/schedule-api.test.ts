@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCommand } from '../src/core/commands.js';
+import { loadSettings, Settings } from '../src/core/settings.js';
 import { PHONE } from '../src/companion/coverage.js';
+import { RunFailedError } from '../src/shared/run-failure.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
 import { suggest } from '../src/ui/suggest.js';
 import { waitFor } from './helpers.js';
@@ -24,6 +26,19 @@ const hold = (): void => {
 };
 
 describe('the off switch', () => {
+  it('leaves /schedule to the agent, as it was before the feature', { timeout: 20_000 }, async () => {
+    h.launch(false);
+    const channel = await h.chat();
+    const prompts: string[] = [];
+    h.script.run = async (input) => {
+      prompts.push(input.prompt);
+      return 'done';
+    };
+    runCommand(h.session, 'schedule', ['daily', 'report'], channel, '/schedule daily report');
+    await waitFor(() => prompts.length === 1);
+    expect(prompts[0]).toContain('/schedule daily report');
+  });
+
   it('refuses every method with a clear message', { timeout: 20_000 }, async () => {
     h.launch(false);
     const channel = await h.chat();
@@ -57,6 +72,22 @@ describe('what the screens see', () => {
     expect(h.store.getState().schedules).toMatchObject([{ channel, title: 'Check' }]);
   });
 
+  it('shows only the readable words of a failed run, in the line and the row', { timeout: 20_000 }, async () => {
+    h.launch();
+    const channel = await h.chat();
+    h.script.run = () => Promise.reject(new RunFailedError({ kind: 'signed_out', detail: 'Not logged in' }));
+    const made = call('schedule.create', channel, EVERY_MINUTE) as { id: string };
+    for (let i = 0; i < 3; i++) {
+      call('schedule.runNow', made.id);
+      await waitFor(() => (h.store.getState().schedules[0]?.failures ?? 0) === i + 1 || !h.store.getState().schedules[0]?.running);
+      await waitFor(() => !h.store.getState().schedules[0]?.running);
+    }
+    const line = h.store.getState().log.find((l) => l.type === 'system' && l.schedule?.paused) as { text: string };
+    expect(line.text).toContain('signed in');
+    expect(line.text).not.toContain('klaud-failure');
+    expect(h.store.getState().schedules[0]?.lastError).not.toContain('klaud-failure');
+  });
+
   it('marks the line that says failures paused it, so it can offer Resume', { timeout: 20_000 }, async () => {
     h.launch();
     const channel = await h.chat();
@@ -71,9 +102,19 @@ describe('what the screens see', () => {
   });
 
   it('carries the setting chatSchedules as a pref', () => {
-    expect(h.store.getState().prefs.chatSchedules).toBe(false);
-    h.session.setPrefs({ chatSchedules: true });
     expect(h.store.getState().prefs.chatSchedules).toBe(true);
+    h.session.setPrefs({ chatSchedules: false });
+    expect(h.store.getState().prefs.chatSchedules).toBe(false);
+  });
+
+  it('has schedules on in a new install, and the switch turns them off', () => {
+    expect(Settings.parse({}).chatSchedules).toBe(true);
+    const schedules = h.launch();
+    expect(schedules.isOn()).toBe(true);
+    h.session.setPrefs({ chatSchedules: false });
+    expect(loadSettings().chatSchedules).toBe(false);
+    expect(schedules.isOn()).toBe(false);
+    expect(() => call('schedule.list')).toThrow('Schedules are off');
   });
 });
 
@@ -216,7 +257,7 @@ describe('/schedule', () => {
     expect(s.get(b.id)?.enabled).toBe(true);
   });
 
-  it('says the feature is off instead of doing anything', { timeout: 20_000 }, async () => {
+  it('changes no schedule while the feature is off', { timeout: 20_000 }, async () => {
     const s = h.launch();
     const channel = await h.chat();
     const a = s.create(channel, EVERY_MINUTE);

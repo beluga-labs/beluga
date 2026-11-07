@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NoticeEvent } from '../notify.js';
 import { carriedPrompt } from '../agent-switch.js';
-import { decodeFailure } from '../../shared/run-failure.js';
+import { decodeFailure, failureText } from '../../shared/run-failure.js';
 import type { GuestSchedule } from '../../protocol.js';
 import type { ScheduleMark } from '../store.js';
 import {
@@ -369,7 +369,7 @@ export class Schedules {
     if (failure?.kind === 'stopped' || /^Stopped\b/.test(text)) return this.end(id, { kind: 'interrupted' });
     const s = this.get(id);
     if (failure?.staleSession && !retried && s?.running?.requestId === requestId && this.chatStillFits(s)) return this.retryInNewSession(s);
-    this.end(id, { kind: 'failed', error: text, ...(failure?.kind === 'usage_limit' ? { usageLimit: true } : {}) });
+    this.end(id, { kind: 'failed', error: failureText(text), ...(failure?.kind === 'usage_limit' ? { usageLimit: true } : {}) });
   }
 
   private end(id: string, outcome: ScheduleOutcome): void {
