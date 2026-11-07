@@ -13,8 +13,11 @@ export interface ResolvedChat {
   /** Its current title. Unset when it's gone, or not yours to read. */
   readonly title?: string;
   readonly kind: 'worktree' | 'chat' | 'assistant' | 'sentinel';
-  /** 'removed' also for a chat you can't see: nothing here to open. `ownership` tells the two apart. */
-  readonly state: 'idle' | 'working' | 'archived' | 'removed';
+  /**
+   * 'removed' also for a chat you can't see: nothing here to open. `ownership` tells the two apart.
+   * 'loading': a workspace of yours not found before the first scan of the projects is done.
+   */
+  readonly state: 'idle' | 'working' | 'archived' | 'removed' | 'loading';
   /** 'unknown': someone else's chat that isn't shared with you. */
   readonly ownership: 'own' | 'shared' | 'unknown';
   /** Where to go to open it. Unset when there is nowhere to go. */
@@ -24,12 +27,13 @@ export interface ResolvedChat {
 type Found = Pick<ResolvedChat, 'title' | 'kind' | 'view'> & { readonly archived?: boolean; readonly channel?: string };
 
 const WS = 'ws:';
+const FIRST_SCAN_WAIT_MS = 60_000;
 
 export function resolveChat(state: DomainState, ref: ChatRef): ResolvedChat {
   const ownership = ownershipOf(state, ref);
   if (ownership === 'unknown') return { ref, kind: kindOf(ref.channel), state: 'removed', ownership };
   const found = ownership === 'shared' ? sharedChat(state, ref) : ownChat(state, ref.channel);
-  if (!found) return { ref, kind: kindOf(ref.channel), state: 'removed', ownership };
+  if (!found) return { ref, kind: kindOf(ref.channel), state: ownership === 'own' && ref.channel.startsWith(WS) && !state.projectsLoaded ? 'loading' : 'removed', ownership };
   const { archived, channel, ...chat } = found;
   return { ref, ...chat, state: archived ? 'archived' : busyChannels(state.log).has(channel ?? ref.channel) ? 'working' : 'idle', ownership };
 }
@@ -42,6 +46,26 @@ export function resolveChatText(state: DomainState, text: string): ResolvedChat 
   if (!state.prefs.chatLinks) return undefined;
   const ref = parseChatRef(text);
   return ref && resolveChat(state, ref);
+}
+
+/**
+ * chats.resolve: the answer once it's known. A link can start the app, and the daemon with it, so
+ * the first scan of the projects may still run. Past `waitMs`, it answers that it's still loading.
+ */
+export function resolveChatWhenKnown(store: { getState(): DomainState; subscribe(listener: () => void): () => void }, text: string, waitMs = FIRST_SCAN_WAIT_MS): Promise<ResolvedChat | undefined> {
+  const answer = (): ResolvedChat | undefined => resolveChatText(store.getState(), text);
+  if (answer()?.state !== 'loading') return Promise.resolve(answer());
+  return new Promise((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer);
+      stop();
+      resolve(answer());
+    };
+    const timer = setTimeout(finish, waitMs);
+    const stop = store.subscribe(() => {
+      if (answer()?.state !== 'loading') finish();
+    });
+  });
 }
 
 function ownershipOf(state: DomainState, ref: ChatRef): ResolvedChat['ownership'] {

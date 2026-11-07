@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveChat, resolveChatText } from '../src/core/chat-links/resolve.js';
+import { resolveChat, resolveChatText, resolveChatWhenKnown } from '../src/core/chat-links/resolve.js';
 import { type DomainState, initialState } from '../src/core/store.js';
 import { assistantChannel } from '../src/shared/assistant.js';
 import { formatChatRef } from '../src/shared/chat-ref.js';
@@ -15,6 +15,7 @@ function stateWith(extra: Partial<Record<keyof DomainState, unknown>> = {}): Dom
   return {
     ...initialState('room'),
     selfId: ME,
+    projectsLoaded: true,
     projects: [
       {
         id: 'p1',
@@ -187,5 +188,57 @@ describe('resolveChatText, what the API answers', () => {
   it('answers nothing for a malformed ref', () => {
     expect(resolveChatText(on(), 'nonsense')).toBeUndefined();
     expect(resolveChatText(on(), `${ME}/room`)).toBeUndefined();
+  });
+});
+
+describe('before the first scan of the projects', () => {
+  const on = { prefs: { ...initialState('room').prefs, chatLinks: true } };
+  const scanning = (extra: Partial<Record<keyof DomainState, unknown>> = {}) => stateWith({ ...on, projects: [], projectsLoaded: false, ...extra });
+  const text = formatChatRef(own('ws:wt-1'))!;
+
+  /** A store as resolveChatWhenKnown reads one: state that changes, and who to tell. */
+  function storeOf(first: DomainState) {
+    let state = first;
+    const told = new Set<() => void>();
+    return {
+      getState: () => state,
+      subscribe: (fn: () => void) => (told.add(fn), () => void told.delete(fn)),
+      set: (next: DomainState) => ((state = next), told.forEach((fn) => fn())),
+      listeners: () => told.size,
+    };
+  }
+
+  it('does not call your worktree removed', () => {
+    expect(resolveChat(scanning(), own('ws:wt-1'))).toEqual({ ref: own('ws:wt-1'), kind: 'worktree', state: 'loading', ownership: 'own' });
+  });
+
+  it('is sure of what the records already say', () => {
+    expect(resolveChat(scanning(), own('mac:assistant')).state).toBe('idle');
+  });
+
+  it('says removed once the scan is done', () => {
+    expect(resolveChat(stateWith(on), own('ws:wt-gone')).state).toBe('removed');
+  });
+
+  it('does not wait for someone else’s chat', () => {
+    expect(resolveChat(scanning(), { owner: FRIEND, channel: 'ws:wt-1' }).ownership).toBe('unknown');
+  });
+
+  it('the API answers once the scan is done, with the chat', async () => {
+    const store = storeOf(scanning());
+    const answer = resolveChatWhenKnown(store, text);
+    store.set(stateWith(on));
+    expect((await answer)?.title).toBe('add-auth');
+    expect(store.listeners()).toBe(0);
+  });
+
+  it('the API answers at once when nothing is loading', async () => {
+    expect((await resolveChatWhenKnown(storeOf(stateWith(on)), text))?.title).toBe('add-auth');
+  });
+
+  it('the API stops waiting after a while, and says it is still loading', async () => {
+    const store = storeOf(scanning());
+    expect((await resolveChatWhenKnown(store, text, 5))?.state).toBe('loading');
+    expect(store.listeners()).toBe(0);
   });
 });

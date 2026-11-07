@@ -483,6 +483,8 @@ export interface MyShare {
 export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
   readonly room: string;
   readonly projects: readonly Project[];
+  /** The first scan of the projects is done: a workspace that isn't in `projects` now is really gone. */
+  readonly projectsLoaded: boolean;
   readonly projectGroups: readonly ProjectGroup[];
   /** The sidebar's top level in the order you arranged it: project roots and `group:<name>` (see workspaces/arrange.ts). */
   readonly projectOrder: readonly string[];
@@ -650,6 +652,7 @@ export type Action =
   /** Your paired phones (never keys) and the pairing open now (src/companion/host.ts). */
   | { type: 'companion'; companion: CompanionSlice['companion'] }
   /** Your Mac's chats changed (one made, opened or deleted; core/assistant). */
+  | { type: 'projects_loaded' }
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
@@ -741,6 +744,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     prefs: { ...DEFAULT_PREFS, ...prefs },
     powerSaving: (prefs.lowPower ?? DEFAULT_PREFS.lowPower) === 'always',
     selfId: '',
+    projectsLoaded: false,
     home: '',
     isHost: false,
     myShares: [],
@@ -1041,6 +1045,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     }
     case 'projects':
       return { ...state, projects: action.projects, projectGroups: action.groups ?? state.projectGroups, projectOrder: action.order ?? state.projectOrder, hiddenProjects: action.hidden ?? state.hiddenProjects };
+    case 'projects_loaded':
+      return state.projectsLoaded ? state : { ...state, projectsLoaded: true };
     case 'attention':
       return attend(state, action.attention);
     case 'my_shares':

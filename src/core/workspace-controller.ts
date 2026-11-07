@@ -287,18 +287,22 @@ export class WorkspaceController {
 
   /** Re-scan projects and publish them; every workspace's folder becomes a private share. */
   async refresh(): Promise<void> {
-    const projects = await this.deps.manager.refresh();
-    const members = this.deps.store.getState().members;
-    for (const p of projects) {
-      for (const w of p.workspaces) {
-        const name = shareNameOf(w.id);
-        // People you invited into a workspace can browse its folder; nobody else can.
-        const allowed = Object.keys(members[w.id] ?? {});
-        if (w.archived) this.deps.shares.remove(name);
-        else this.deps.shares.upsert({ name, root: w.path, writable: false, private: true, allowed });
+    try {
+      const projects = await this.deps.manager.refresh();
+      const members = this.deps.store.getState().members;
+      for (const p of projects) {
+        for (const w of p.workspaces) {
+          const name = shareNameOf(w.id);
+          // People you invited into a workspace can browse its folder; nobody else can.
+          const allowed = Object.keys(members[w.id] ?? {});
+          if (w.archived) this.deps.shares.remove(name);
+          else this.deps.shares.upsert({ name, root: w.path, writable: false, private: true, allowed });
+        }
       }
+      this.publish();
+    } finally {
+      if (!this.deps.store.getState().projectsLoaded) this.deps.store.dispatch({ type: 'projects_loaded' });
     }
-    this.publish();
     this.checkEnvSoon();
   }
 

@@ -54,6 +54,7 @@ export function chatLinkOf(url: string): ChatRef | undefined {
 export function chatChipOf(chat: { readonly title?: string | undefined; readonly state: string; readonly ownership: string }): { readonly label: string; readonly opens: boolean } {
   if (chat.ownership === 'unknown') return { label: 'Private chat', opens: false };
   if (chat.state === 'removed') return { label: 'Chat removed', opens: false };
+  if (chat.state === 'loading') return { label: 'Chat', opens: false };
   return { label: chat.title ?? 'Chat', opens: true };
 }
 
@@ -65,6 +66,7 @@ export function chatLinkAnswer(chat: { readonly state: string; readonly ownershi
   if (!chat) return { opens: false };
   if (chat.ownership === 'unknown') return { opens: false, say: 'This chat is on another computer.' };
   if (chat.state === 'removed') return { opens: false, say: 'This chat was removed.' };
+  if (chat.state === 'loading') return { opens: false };
   return { opens: true };
 }
 

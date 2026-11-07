@@ -90,6 +90,10 @@ describe('what a chip shows', () => {
     expect(chatChipOf({ state: 'removed', ownership: 'own' })).toEqual({ label: 'Chat removed', opens: false });
   });
 
+  it('names no chat and opens nothing until it knows', () => {
+    expect(chatChipOf({ state: 'loading', ownership: 'own' })).toEqual({ label: 'Chat', opens: false });
+  });
+
   it('says another person’s chat is private, with no title, and opens nothing', () => {
     expect(chatChipOf({ title: 'never shown', state: 'removed', ownership: 'unknown' })).toEqual({ label: 'Private chat', opens: false });
   });
@@ -125,6 +129,10 @@ describe('what opening a link does', () => {
 
   it('says a removed chat is removed, and stays', () => {
     expect(chatLinkAnswer({ state: 'removed', ownership: 'own' })).toEqual({ opens: false, say: 'This chat was removed.' });
+  });
+
+  it('says nothing of a chat it could not find out about', () => {
+    expect(chatLinkAnswer({ state: 'loading', ownership: 'own' })).toEqual({ opens: false });
   });
 
   it('does nothing at all with chat links off', () => {

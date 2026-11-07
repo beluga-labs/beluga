@@ -164,7 +164,7 @@ export function ChatChip({ target, raw }: { target: ChatRef; raw: string }) {
   const { view } = chat;
   if (!chip.opens || !view) {
     return (
-      <Tip label={chat.ownership === 'unknown' ? 'A chat on someone else’s computer that isn’t shared with you' : 'This chat is gone: deleted, or its worktree was removed'}>
+      <Tip label={chat.ownership === 'unknown' ? 'A chat on someone else’s computer that isn’t shared with you' : chat.state === 'loading' ? 'Beluga is still finding your projects' : 'This chat is gone: deleted, or its worktree was removed'}>
         <span className={r.missing}>
           <Icon name={chat.ownership === 'unknown' ? 'lock' : 'chat'} size={12} />
           <span>{chip.label}</span>
