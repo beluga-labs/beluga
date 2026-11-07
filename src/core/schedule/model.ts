@@ -1,3 +1,4 @@
+import { COMPACT_INSTRUCTIONS } from '../../shared/context-usage.js';
 import { dueNow, LATE_MS, nextRunAt } from '../../shared/schedule/clock.js';
 import { scheduleWords, type ScheduleTrigger } from '../../shared/schedule/trigger.js';
 import type { Schedule, ScheduleInput, SchedulePatch, ScheduleWhen } from './schema.js';
@@ -10,6 +11,10 @@ import type { Schedule, ScheduleInput, SchedulePatch, ScheduleWhen } from './sch
 export const RUN_LIMIT_MS = 60 * 60 * 1000;
 /** Failures in a row that pause a schedule (usage limits and interrupted runs don't count). */
 export const MAX_FAILURES = 3;
+/** Compactions in a row that fail before the schedule pauses. */
+export const MAX_COMPACT_FAILURES = 2;
+/** Runs one session may have when its runtime reports no context numbers: the next starts a new session. */
+export const MAX_BLIND_RUNS = 50;
 
 export type ScheduleStatus = 'never' | 'waiting' | 'running' | 'ok' | 'failed' | 'interrupted';
 
@@ -43,7 +48,7 @@ export type SkipWhy = 'busy' | 'missed';
 export type ScheduleOutcome =
   | { readonly kind: 'ok' }
   /** `usageLimit`: the plan ran out, so the next slot tries again and it doesn't count. */
-  | { readonly kind: 'failed'; readonly error: string; readonly usageLimit?: boolean }
+  | { readonly kind: 'failed'; readonly error: string; readonly usageLimit?: boolean; readonly pause?: string }
   /** The daemon stopped during the run: not the schedule's fault. */
   | { readonly kind: 'interrupted' };
 
@@ -134,6 +139,7 @@ export function applyEnd(schedule: Schedule, outcome: ScheduleOutcome, now: numb
     failures: failuresAfter(schedule.failures, outcome),
   };
   if (schedule.when.kind === 'once') return { ...ended, enabled: false };
+  if (outcome.kind === 'failed' && outcome.pause && schedule.enabled) return pauseSchedule(ended, outcome.pause, now);
   return ended.failures >= MAX_FAILURES && schedule.enabled ? pauseSchedule(ended, `Paused after ${MAX_FAILURES} failed runs in a row`, now) : ended;
 }
 
@@ -166,7 +172,7 @@ export function pauseSchedule(schedule: Schedule, reason: string, now: number): 
 
 /** On again: failures cleared, and the slots that passed while paused don't catch up. */
 export function resumeSchedule(schedule: Schedule, now: number): Schedule {
-  const { pausedReason: _reason, pending: _pending, ...rest } = schedule;
+  const { pausedReason: _reason, pending: _pending, compactFailures: _compacts, ...rest } = schedule;
   return { ...rest, enabled: true, failures: 0, updatedAt: now, ...(rest.when.kind === 'once' ? {} : { anchor: now }) };
 }
 
@@ -223,9 +229,17 @@ export function skipLine(title: string, skip: { readonly slot: number; readonly 
 }
 
 /** What the agent is told about a turn a schedule started. */
-export function scheduleBrief(title: string, run: { readonly due: number; readonly startedAt: number }, opts: ClockOpts = {}): string {
+export function scheduleBrief(title: string, run: { readonly due: number; readonly startedAt: number }, opts: ClockOpts = {}, context: Schedule['context'] = 'continue'): string {
   const name = title.replace(/\s+/g, ' ');
-  return `\n\nA schedule started this turn. No person sent the message of this turn. The schedule is "${name}". The run was due at ${clock(run.due, opts)} and started at ${clock(run.startedAt, opts)}. This turn continues the conversation of this chat. Do the work that the message asks for. If there is nothing new, report that in one line.\n`;
+  const session = context === 'fresh' ? 'This turn starts a new session, and only the recent chat lines come with it.' : 'This turn continues the conversation of this chat.';
+  return `\n\nA schedule started this turn. No person sent the message of this turn. The schedule is "${name}". The run was due at ${clock(run.due, opts)} and started at ${clock(run.startedAt, opts)}. ${session} Do the work that the message asks for. Keep the report short and do not restate earlier reports. If there is nothing new, report that in one line.\n`;
+}
+
+/** What a compaction before a scheduled run keeps, beside what every compaction keeps. */
+export function compactInstructions(schedule: Schedule): string {
+  const purpose = schedule.prompt.replace(/\s+/g, ' ').slice(0, 500);
+  const last = schedule.last ? ` The last run ended as ${schedule.last}${schedule.lastError ? `: ${schedule.lastError.replace(/\s+/g, ' ').slice(0, 300)}` : ''}.` : '';
+  return `${COMPACT_INSTRUCTIONS} A schedule named "${schedule.title.replace(/\s+/g, ' ')}" runs in this chat. Keep its purpose ("${purpose}"), the result of its last run and its open items.${last}`;
 }
 
 /** "21:00", in local time. */

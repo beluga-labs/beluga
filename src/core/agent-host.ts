@@ -150,6 +150,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Requests one person may have waiting for your Claude at once. */
 const MAX_QUEUED_PER_PERSON = 10;
 
+/** How a compaction someone waits for ended. `refused`: it did not run to its end, and nothing is wrong with the conversation. */
+export type CompactOutcome = 'done' | 'refused' | 'failed';
+
 /** A message waiting in a conversation. `askTo`: who gets Claude's questions. `compact`: not a message but compacting the conversation (Compact now, /compact). */
 interface Waiting {
   from: string;
@@ -157,6 +160,8 @@ interface Waiting {
   urgent?: boolean;
   askTo?: string;
   compact?: boolean;
+  /** Someone waits for this compaction's outcome (see compactNow). */
+  settle?: (outcome: CompactOutcome) => void;
 }
 
 /** The queue for one conversation (the room, or a workspace). */
@@ -297,7 +302,7 @@ export class AgentHost {
     this.compactor = new Compactor({
       store: deps.store,
       agent: () => this.agent,
-      place: (channel) => this.deps.workspaces?.place(channel),
+      place: (channel) => (isAssistant(channel) ? this.deps.assistant?.(channel, this.selfId)?.place : this.deps.workspaces?.place(channel)),
       emit: (requestId, kind, text, channel) => this.emitAgent(requestId, this.selfId, kind, text, channel),
       requesterName: () => peerName(this.store.getState(), this.selfId),
       modelFor: (place) => this.modelFor(place?.model, place?.agent, place?.effort),
@@ -330,6 +335,25 @@ export class AgentHost {
     void this.pump(lane);
   }
 
+  /**
+   * Compact a conversation for Beluga itself (a scheduled run), in its queue, and say how it ended.
+   * No toast: the caller decides what a refusal means. A held queue would never run it.
+   */
+  compactNow(channel: string, instructions = ''): Promise<CompactOutcome> {
+    if (!this.agent || this.noCompact(channel) || this.lanes.get(channel)?.held) return Promise.resolve('refused');
+    const lane = this.lane(channel);
+    const body: BodyOf<'agent_request'> = { kind: 'agent_request', requestId: `compact-${randomUUID()}`, prompt: instructions.slice(0, 2000), viaAgent: false, channel, urgent: false, plan: false };
+    return new Promise((settle) => {
+      lane.waiting.push({ from: this.selfId, body, compact: true, settle });
+      void this.pump(lane);
+    });
+  }
+
+  /** How full a conversation is against the threshold, whatever the setting says. */
+  contextFill(channel: string): 'past' | 'under' | 'unknown' {
+    return this.compactor.fill(channel);
+  }
+
   /** Why this conversation's runtime can't be compacted by Beluga (Codex compacts itself); undefined when it can. */
   private noCompact(channel: string): string | undefined {
     if (this.deps.terminalDriving?.(channel)) return TERMINAL_DRIVING;
@@ -342,12 +366,13 @@ export class AgentHost {
   }
 
   /** Compact in the conversation's queue, as its current run (so a new message waits for it). */
-  private async runCompaction(lane: Lane, auto: boolean, instructions = ''): Promise<void> {
+  private async runCompaction(lane: Lane, auto: boolean, instructions = ''): Promise<CompactOutcome> {
     const controller = new AbortController();
     lane.current = controller;
     lane.runFrom = this.selfId;
     try {
-      await this.compactor.run(lane.channel, auto ? 'auto' : 'manual', controller.signal, instructions);
+      const landed = await this.compactor.run(lane.channel, auto ? 'auto' : 'manual', controller.signal, instructions);
+      return landed ? 'done' : controller.signal.aborted ? 'refused' : 'failed';
     } finally {
       if (lane.current === controller) {
         lane.current = undefined;
@@ -584,7 +609,10 @@ export class AgentHost {
       const cancelled = lane.waiting;
       lane.waiting = [];
       lane.current?.abort();
-      for (const { from, body, compact } of cancelled) if (!compact) this.emitAgent(body.requestId, from, 'error', 'Cancelled by owner', body.channel);
+      for (const { from, body, compact, settle } of cancelled) {
+        settle?.('refused');
+        if (!compact) this.emitAgent(body.requestId, from, 'error', 'Cancelled by owner', body.channel);
+      }
     }
     this.toast('Stopping your agent everywhere (queued requests cancelled)', 'warn');
   }
@@ -602,7 +630,10 @@ export class AgentHost {
     this.deps.questions.cancelChannel(channel);
     const dropped = lane.waiting;
     lane.waiting = [];
-    for (const { from, body, compact } of dropped) if (!compact) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    for (const { from, body, compact, settle } of dropped) {
+      settle?.('refused');
+      if (!compact) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    }
     if (lane.current) {
       lane.interruptedBy = 'beluga';
       lane.interruptNote = why;
@@ -629,7 +660,10 @@ export class AgentHost {
     for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
     this.deps.questions.cancelChannel(channel);
     lane.waiting = lane.waiting.filter((w) => w.from !== this.selfId);
-    for (const { from, body, compact } of mine) if (!compact) this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+    for (const { from, body, compact, settle } of mine) {
+      settle?.('refused');
+      if (!compact) this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+    }
     if (lane.current) {
       lane.stopping = true;
       lane.current.abort();
@@ -1051,7 +1085,13 @@ export class AgentHost {
           holds = false;
         };
         try {
-          if (!next || next.compact) await this.runCompaction(lane, auto, next?.body.prompt);
+          if (!next || next.compact) {
+            const outcome = await this.runCompaction(lane, auto || Boolean(next?.settle), next?.body.prompt);
+            // That one compaction also answers whoever waits for one behind it.
+            const waiters = lane.waiting.filter((w) => w.settle);
+            lane.waiting = lane.waiting.filter((w) => !w.settle);
+            for (const w of [...(next ? [next] : []), ...waiters]) w.settle?.(outcome);
+          }
           else await this.runAgent(next.from, next.body, lane, next.askTo, release).catch((err: unknown) => this.system(`Agent run failed: ${errorText(err)}`, 'error'));
         } finally {
           release();
