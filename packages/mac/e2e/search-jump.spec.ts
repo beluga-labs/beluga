@@ -11,6 +11,12 @@ import { expect, test, type Page } from './fixtures.js';
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
 const composer = (page: Page) => page.locator('textarea:not(.xterm-helper-textarea)');
 const jumped = (page: Page) => page.locator('[data-jumped="true"]');
+const field = (page: Page) => sidebar(page).getByRole('textbox', { name: 'Search chats and messages' });
+const results = (page: Page) => sidebar(page).getByRole('listbox', { name: 'Search results' });
+/** SHOTS=<folder>: save screenshots there. */
+const shot = async (page: Page, name: string): Promise<void> => {
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/${name}.png` });
+};
 
 /** The demo's Your Mac folder: a temp folder of its own, in the daemon's home. */
 function macFolder(): string {
@@ -119,4 +125,61 @@ test('a hit in a chat shared with you opens that chat at its message', async ({ 
   }).toPass({ timeout: 30_000 });
   await hit.click();
   await expect(jumped(page)).toContainText('idempotency key check');
+});
+
+test('a hit on the answer of a turn you spoke during opens at the answer, below what you said', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  const row = sidebar(page).getByRole('button', { name: 'new-hero', exact: true });
+  await sidebar(page).getByRole('button', { name: 'landing' }).first().waitFor();
+  if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'landing' }).first().click({ position: { x: 60, y: 10 } });
+  await row.click();
+  await composer(page).fill('walk the codebase and tell me what is risky');
+  await composer(page).press('Enter');
+  await expect(page.locator('[data-turn]').last().locator('[data-step]').nth(1)).toBeVisible({ timeout: 15_000 });
+  // Said mid-turn: the turn is drawn in two, its answer below this message.
+  await composer(page).fill('also look at the retry logic');
+  await composer(page).press('Alt+Enter');
+  await expect(page.locator('[data-turn="done"][data-turn-part="tail"]')).toBeVisible({ timeout: 60_000 });
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+
+  await field(page).fill('weak spot');
+  const hit = results(page).getByRole('option').filter({ hasText: 'new-hero' }).filter({ hasText: 'weak spot' }).first();
+  await expect(hit).toBeVisible();
+  await shot(page, 'split-turn-hit');
+  await hit.click();
+  await expect(composer(page)).toHaveAttribute('placeholder', /new-hero/);
+  await expect(jumped(page).locator('[data-turn-part="tail"]')).toContainText('Walked the codebase');
+  await expect(jumped(page)).toBeInViewport();
+  await shot(page, 'split-turn-answer-marked');
+});
+
+test('a hit in a group chat opens that chat, as the sidebar does', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  const card = sidebar(page).getByRole('group', { name: 'Talk with friends' });
+  if (await card.isVisible()) await card.getByRole('button', { name: 'Turn On' }).click();
+  const launch = sidebar(page).getByRole('button', { name: /^Channel launch\b/ });
+  await expect(launch).toBeVisible({ timeout: 30_000 });
+  await launch.click();
+  const log = page.getByRole('log', { name: 'Channel launch' });
+  await expect(log).toContainText('Checklist for Friday', { timeout: 20_000 });
+  // Your agent answers in the group: its turn is what search finds there.
+  const before = await log.locator('[data-claude="true"]').count();
+  await page.getByRole('button', { name: 'Ask: your agent', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Message launch' }).fill('visualize the payment flow');
+  await page.getByRole('button', { name: 'Send and asking your agent' }).click();
+  await expect(log.locator('[data-claude="true"]')).toHaveCount(before + 1, { timeout: 30_000 });
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  await expect(log).toBeHidden();
+
+  // Newest first: the answer just given.
+  await field(page).fill('double-charge');
+  const hit = results(page).getByRole('option').first();
+  await expect(hit).toContainText('double-charge', { timeout: 15_000 });
+  await shot(page, 'group-hit');
+  await hit.click();
+  await expect(log).toBeVisible();
+  await expect(page.getByRole('tablist', { name: 'Chats' }).getByRole('tab', { name: 'launch' })).toHaveAttribute('aria-selected', 'true');
+  await shot(page, 'group-opened');
 });
