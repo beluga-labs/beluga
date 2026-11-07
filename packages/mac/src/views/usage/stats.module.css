@@ -508,12 +508,26 @@
   height: 260px;
   cursor: crosshair;
 }
+/* The dithered fill (a canvas) under the lines (an SVG), revealed together from the left. */
+.trendDraw {
+  position: absolute;
+  inset: 0;
+  animation: reveal 700ms var(--ease-out) both;
+}
+.trendDither {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
 .trendSvg {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
-  animation: reveal 700ms var(--ease-out) both;
 }
 @keyframes reveal {
   from {
@@ -526,9 +540,6 @@
 .band {
   transition: opacity 180ms;
 }
-.bandFill {
-  transition: opacity 180ms;
-}
 .bandLine {
   fill: none;
   stroke: var(--g);
@@ -537,9 +548,6 @@
 }
 .bandDim {
   opacity: 0.18;
-}
-.bandOn .bandFill {
-  filter: saturate(1.25) brightness(1.02);
 }
 .crosshair {
   position: absolute;
@@ -898,7 +906,7 @@
   font-size: 0.8rem;
 }
 @media (prefers-reduced-motion: reduce) {
-  .trendSvg,
+  .trendDraw,
   .slice,
   .windowFill {
     animation: none;
