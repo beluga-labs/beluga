@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCommand } from '../src/core/commands.js';
 import { loadSettings, Settings } from '../src/core/settings.js';
 import { PHONE } from '../src/companion/coverage.js';
+import { RunFailedError } from '../src/shared/run-failure.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
 import { suggest } from '../src/ui/suggest.js';
 import { waitFor } from './helpers.js';
@@ -69,6 +70,22 @@ describe('what the screens see', () => {
     h.store.dispatch({ type: 'schedules', items: [] });
     h.launch();
     expect(h.store.getState().schedules).toMatchObject([{ channel, title: 'Check' }]);
+  });
+
+  it('shows only the readable words of a failed run, in the line and the row', { timeout: 20_000 }, async () => {
+    h.launch();
+    const channel = await h.chat();
+    h.script.run = () => Promise.reject(new RunFailedError({ kind: 'signed_out', detail: 'Not logged in' }));
+    const made = call('schedule.create', channel, EVERY_MINUTE) as { id: string };
+    for (let i = 0; i < 3; i++) {
+      call('schedule.runNow', made.id);
+      await waitFor(() => (h.store.getState().schedules[0]?.failures ?? 0) === i + 1 || !h.store.getState().schedules[0]?.running);
+      await waitFor(() => !h.store.getState().schedules[0]?.running);
+    }
+    const line = h.store.getState().log.find((l) => l.type === 'system' && l.schedule?.paused) as { text: string };
+    expect(line.text).toContain('signed in');
+    expect(line.text).not.toContain('klaud-failure');
+    expect(h.store.getState().schedules[0]?.lastError).not.toContain('klaud-failure');
   });
 
   it('marks the line that says failures paused it, so it can offer Resume', { timeout: 20_000 }, async () => {
