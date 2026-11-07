@@ -7,6 +7,7 @@ import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { THREAD_TOOL_NAMES, createThreadToolDefs } from '../src/agent/thread-tools.js';
 import { decideTool } from '../src/agent/policy.js';
 import { runToolSuites } from '../src/agent/run-tools.js';
+import { runtimeFor as realRuntime } from '../src/agent/runtime/registry.js';
 import { AgentHost } from '../src/core/agent-host.js';
 import { ThreadService, type ThreadServiceDeps } from '../src/core/threads/service.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -236,6 +237,47 @@ describe('thread_start', () => {
       open();
       await first;
     });
+  });
+});
+
+describe('an OpenCode child', () => {
+  /** The runtime's own capabilities, as Session.canSteer reads them. */
+  const realSteer = (runtime: string | undefined): boolean => Boolean(runtime && realRuntime(runtime)?.capabilities.canSteer);
+  const withOpenCode = () => {
+    const t = setup({ canSteer: realSteer });
+    t.store.dispatch({ type: 'runtimes', runtimes: [...t.store.getState().runtimes, { id: 'opencode', label: 'OpenCode', available: true, models: [{ value: 'opencode/big-pickle', label: 'Big Pickle', description: '' }] }] });
+    return t;
+  };
+
+  it('starts through ThreadService with the runtime and model it asked for', async () => {
+    const t = withOpenCode();
+    const id = idOf(await t.tools().start({ task: 'Read the docs', agent: { runtime: 'opencode', model: 'opencode/big-pickle' } }));
+    const child = t.chats.get(id)!;
+    expect(child.agent).toMatchObject({ runtime: 'opencode', label: 'OpenCode' });
+    expect(child.model).toBe('opencode/big-pickle');
+    expect(t.asks[0]!.channel).toBe(`ws:${id}`);
+  });
+
+  it('refuses an OpenCode model that it does not list, and makes no worktree', async () => {
+    const t = withOpenCode();
+    await expect(t.tools().start({ task: 'x', agent: { runtime: 'opencode', model: 'nope/none' } })).rejects.toThrow(/"nope\/none".*opencode\/big-pickle/);
+    expect(t.made).toEqual([]);
+  });
+
+  it('refuses a steer, says why, and leaves the thread as it was', async () => {
+    const t = withOpenCode();
+    const id = idOf(await t.tools().start({ task: 'x', agent: { runtime: 'opencode' } }));
+    expect(() => t.tools().message({ id, text: 'now', mode: 'steer' })).toThrow('OpenCode cannot steer. Use mode "queue": it reads the message when its turn ends.');
+    expect(t.asks).toHaveLength(1);
+    expect(t.chats.get(id)!.thread!.owed).toHaveLength(1);
+    expect(t.tools().message({ id, text: 'later' })).toMatch(/Queued/);
+  });
+
+  it('thread_status lists it with steer off', async () => {
+    const t = withOpenCode();
+    const out = JSON.parse(await t.tools().status({})) as { agents: Array<{ runtime: string; canSteer: boolean; models: string[] }> };
+    expect(out.agents.find((a) => a.runtime === 'opencode')).toEqual({ runtime: 'opencode', label: 'OpenCode', canSteer: false, models: ['opencode/big-pickle'] });
+    expect(out.agents.find((a) => a.runtime === 'codex')?.canSteer).toBe(true);
   });
 });
 

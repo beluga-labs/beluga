@@ -323,7 +323,8 @@ export class Session {
   /** Whether a runtime takes a message into a running turn (undefined: your default agent's). A local model is Claude Code pointed elsewhere. */
   canSteer(runtime: string | undefined): boolean {
     if (!runtime) return this.runtime?.capabilities.canSteer ?? false;
-    return this.opts.runtime?.runtimes(runtime === LOCAL_RUNTIME ? CLAUDE_AGENT.runtime : runtime)?.capabilities.canSteer ?? false;
+    const id = runtime === LOCAL_RUNTIME ? CLAUDE_AGENT.runtime : runtime;
+    return (this.opts.runtime?.runtimes(id) ?? this.opts.alsoRuntimes?.find((r) => r.id === id))?.capabilities.canSteer ?? false;
   }
 
   /** Whether this Mac can run that agent now: its runtime is here (a local model: its endpoint is set up). */
