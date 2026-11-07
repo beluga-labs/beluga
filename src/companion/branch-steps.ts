@@ -74,11 +74,11 @@ export async function branchStep(s: Session, topic: string, step: PhoneBranchSte
       await needBench().continueAfterMerge(id);
       return { ok: true, message: 'This branch starts again from the latest base: the next change gets a new PR' };
     case 'archive': {
-      const done = await ws.archive(id, false, children ? { children } : {});
+      const done = await (children ? ws.archive(id, false, { children }) : ws.archive(id));
       return done ? { ok: true, message: `${name}${children === 'with' ? ' and its threads are' : ' is'} archived: ${children === 'with' ? 'their branches and conversations are' : 'its branch and conversation are'} kept` } : { ok: false, message: `Couldn’t archive ${name}: see your Mac` };
     }
     case 'delete':
-      await ws.remove(id, children ? { children } : {});
+      await (children ? ws.remove(id, { children }) : ws.remove(id));
       return { ok: true, message: `${name}${children === 'with' ? ' and its threads are' : ' is'} deleted` };
   }
 }

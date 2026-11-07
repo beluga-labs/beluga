@@ -177,3 +177,23 @@ test('a child says who started it, and its first message is not yours', async ({
   await expect(page.locator('[data-started-by]')).toHaveCount(0);
   await expect(page.locator('[data-thread-start]').filter({ hasText: 'five' })).toBeVisible();
 });
+
+test('a child whose parent was deleted stands on its own: Removed, with no way to open it', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  await unfold(page);
+  const parent = sidebar(page).getByRole('button', { name: 'e2e-parent', exact: true });
+  await parent.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /Delete…/ }).click();
+  const ask = page.getByRole('alertdialog');
+  // Delete's default keeps the threads.
+  await expect(ask.getByRole('checkbox', { name: /Also delete its/ })).not.toBeChecked();
+  await ask.getByRole('button', { name: /^Delete/ }).first().click();
+  await expect(parent).toHaveCount(0, { timeout: 20_000 });
+  await sidebar(page).getByRole('button', { name: 'five', exact: true }).click();
+  await page.getByRole('tab', { name: 'Info', exact: true }).click();
+  const up = page.getByRole('complementary', { name: 'Inspector' }).locator('[data-lineage-row="parent"]');
+  await expect(up).toContainText('Removed');
+  await expect(up.getByRole('button')).toHaveCount(0);
+});
