@@ -30,7 +30,7 @@ const autonomy = z.enum(AUTONOMIES);
 /** Your changes to a plan (the same ops Claude has). */
 export const PlanOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('retitle'), title: z.string().max(200).optional(), goal: z.string().max(4000).optional() }),
-  z.object({ op: z.literal('add_milestone'), milestone: z.object({ id: ref.optional(), title: z.string().min(1).max(200), goal: z.string().max(4000).optional(), criteria: lines.optional(), tasks: z.array(task).max(40).optional(), dependsOn: z.array(ref).optional() }), after: ref.optional() }),
+  z.object({ op: z.literal('add_milestone'), milestone: z.object({ id: ref.optional(), title: z.string().min(1).max(200), goal: z.string().max(4000).optional(), criteria: lines.optional(), tasks: z.array(task).optional(), dependsOn: z.array(ref).optional() }), after: ref.optional() }),
   z.object({ op: z.literal('update_milestone'), id: ref, title: z.string().max(200).optional(), goal: z.string().max(4000).optional(), criteria: lines.optional(), autonomy: autonomy.nullable().optional(), dependsOn: z.array(ref).nullable().optional() }),
   z.object({ op: z.literal('remove_milestone'), id: ref }),
   z.object({ op: z.literal('add_task'), milestone: ref, task, after: ref.optional() }),

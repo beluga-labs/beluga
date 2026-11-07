@@ -53,7 +53,7 @@ const MILESTONE = z.object({
   criteria: lines(12).describe('Pass criteria: concrete, checkable'),
   autonomy: AUTONOMY.optional(),
   depends_on: DEPENDS_ON.optional(),
-  tasks: z.array(TASK).max(40),
+  tasks: z.array(TASK),
 });
 
 type Task = z.infer<typeof TASK>;

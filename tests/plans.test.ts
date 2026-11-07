@@ -202,6 +202,14 @@ describe('writing a plan', () => {
     expect(PlanOpSchema.safeParse({ op: 'update_milestone', id: 'm19', dependsOn: last.dependsOn }).success).toBe(true);
   });
 
+  it('has no limit on tasks, in the plan or in one milestone', () => {
+    const tasks = (m: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${m}-t${i}`, title: `Task ${m}.${i}` }));
+    const body = normalizeBody({ title: 'Big', goal: '', milestones: [{ id: 'm0', title: 'Wide', tasks: tasks(0, 50) }, { id: 'm1', title: 'Wider', tasks: tasks(1, 50) }] });
+    expect(body.milestones.flatMap((m) => m.tasks)).toHaveLength(100);
+    expect(PlanBodySchema.safeParse({ ...body, milestones: [{ ...body.milestones[0]!, tasks: [...body.milestones[0]!.tasks, ...body.milestones[1]!.tasks] }] }).success).toBe(true);
+    expect(PlanOpSchema.safeParse({ op: 'add_milestone', milestone: { title: 'Wide', tasks: tasks(2, 50).map(({ title }) => ({ title })) } }).success).toBe(true);
+  });
+
   it('waves are what can run side by side', () => {
     const body = normalizeBody(BODY);
     expect(waves(body.milestones[0]!).map((w) => w.map((t) => t.id))).toEqual([['auth', 'retries'], ['receipts']]);
