@@ -1,3 +1,4 @@
+import { chatLinkOf, formatChatRef } from './chat-ref.js';
 import { editDiff } from './line-diff.js';
 import { underPart } from './path-inside.js';
 
@@ -116,7 +117,7 @@ function belugaTool(name: string, input: Readonly<Record<string, unknown>>): Hum
     case 'read_chat':
       return both('Read another chat', 'Reading another chat');
     case 'send_to_chat':
-      return both('Sent a message to another chat', 'Sending a message to another chat');
+      return str(input.ref) ? both(`Sent a message to chat:${refWord(str(input.ref))}`, `Sending a message to chat:${refWord(str(input.ref))}`) : both('Sent a message to another chat', 'Sending a message to another chat');
     case 'wait_for_chat':
       return both('Waited for another chat', 'Waiting for another chat');
     default:
@@ -125,6 +126,12 @@ function belugaTool(name: string, input: Readonly<Record<string, unknown>>): Hum
 }
 
 /** A tool call in words, from its name and input. Paths read relative to `cwd`. */
+/** A chat ref as the tool got it (a link, or `chat:` in front), as one word for the step's chip. */
+function refWord(text: string): string {
+  const link = chatLinkOf(text.trim());
+  return (link && formatChatRef(link)) ?? text.trim().replace(/^chat:/, '');
+}
+
 export function humanizeTool(tool: string, input: Readonly<Record<string, unknown>> = {}, cwd?: string): HumanStep {
   const file = rel(str(input.file_path) || str(input.notebook_path) || str(input.path), cwd);
   switch (tool) {

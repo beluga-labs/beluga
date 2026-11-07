@@ -30,7 +30,8 @@ export interface ChatSendDeps {
   readonly selfId: () => string;
   /** How many messages from chats wait at this chat. */
   readonly queuedFromChats: (channel: string) => number;
-  readonly deliver: (body: BodyOf<'agent_request'>, steer: boolean) => Promise<Delivered>;
+  /** Undefined: the chat did not take it. */
+  readonly deliver: (body: BodyOf<'agent_request'>, steer: boolean) => Promise<Delivered | undefined>;
   /** Higher can do more on its own. */
   readonly permissionRank: (channel: string) => number;
   readonly agentIn: (channel: string) => AgentRef;
@@ -161,9 +162,11 @@ export class ChatSendService {
     const message: SentMessage = { source: run.channel, target, title: chat.title ?? parsed.channel, delivered: { delivery: 'queued' } };
     this.keep(decision.messageId, message);
     const delivered = await this.deps.deliver(request, opts.mode === 'steer');
+    if (!delivered) {
+      this.sent.delete(decision.messageId);
+      throw refused('not_delivered');
+    }
     message.delivered = delivered;
-    const card = this.card(decision.messageId, target);
-    if (card?.status === 'denied') throw refused('not_delivered');
     const note = opts.mode === 'steer' && delivered.delivery !== 'steered' ? 'That chat could not take a steer now, so the message went the normal way.' : undefined;
     return receipt(decision.messageId, this.stateOf(decision.messageId), delivered.delivery, note);
   }
@@ -201,8 +204,12 @@ export class ChatSendService {
     if (!message) return 'lost';
     if (message.lost) return 'lost';
     const card = this.answeringCard(messageId, message);
-    // Its card is gone with its chat, so nothing can answer.
-    if (!card) return 'lost';
+    if (!card) {
+      // Its card is gone with its chat, so nothing can answer. Else its first event has not come back yet.
+      const state = this.deps.store.getState();
+      if (resolveChat(state, { owner: this.deps.selfId(), channel: message.target }).state === 'removed') return 'lost';
+      return message.delivered.delivery === 'queued' ? 'queued' : 'working';
+    }
     if (card.status === 'done') return 'answered';
     if (card.status === 'error' || card.status === 'denied') return 'failed';
     return card.status === 'queued' ? 'queued' : 'working';

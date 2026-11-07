@@ -487,6 +487,7 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
     agent: item.agent ?? CLAUDE_AGENT,
     prose: pictures(proseOf(item.text)),
     ts: item.ts,
+    ...(item.origin ? { origin: { ref: clip(item.origin.ref, 400), title: clip(item.origin.title, 200), agent: clip(item.origin.agent.label, 64), prose: proseOf(item.prompt ?? '') } } : {}),
     ...(status ? { status } : {}),
     ...(step ? { step } : {}),
     steps: item.steps.length,

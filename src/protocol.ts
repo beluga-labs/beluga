@@ -247,6 +247,8 @@ export const AgentEventBody = z.object({
   agent: AgentRef.optional(),
   /** BLG-520: the request named another agent, which doesn't run there: why `agent` answers instead (in words). */
   fallback: z.string().max(300).optional(),
+  /** BLG-149: the run reads a message from another chat: where it came from, and its words. An older Mac drops it. */
+  fromChat: z.object({ origin: ChatOrigin, text: z.string().max(MAX_TEXT) }).optional().catch(undefined),
 });
 
 export const FsListBody = z.object({

@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentBackend, AgentPlace, AgentRunInput, BoardTools, FollowUp, LiveStatus, MacTools, RunProcess, Steer, TerminalLaunch, TerminalSink } from '../agent/types.js';
 import { ALWAYS_ASK_YOU, writesCode } from '../agent/policy.js';
-import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, MAX_TEXT } from '../protocol.js';
+import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, type ChatOrigin, MAX_TEXT } from '../protocol.js';
 import type { People } from './people.js';
 import type { QuestionBroker } from './questions.js';
 import type { ShareService } from './shares.js';
@@ -30,6 +30,7 @@ import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
+import { chatMessageAsker, chatMessagePrompt } from './chat-links/message-prompt.js';
 import { ChatSendService, type Delivered } from './chat-links/service.js';
 import { chatToolsOf } from './chat-links/transcript.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
@@ -300,6 +301,8 @@ export class AgentHost {
   private readonly chatWaiters = new Map<string, { resolve: (text: string) => void; reject: (err: Error) => void }>();
   /** Waiting for a conversation's current run to end (see idle). */
   private readonly idleWaiters = new Map<string, Array<() => void>>();
+  /** Messages from other chats whose card doesn't know yet where they came from (see emitAgent). */
+  private readonly fromChats = new Map<string, { readonly origin: ChatOrigin; readonly text: string }>();
   /** Final agent events that could not be sent while disconnected. */
   private outbox: Array<{ body: BodyInput; opts: { to?: string; keep?: boolean } }> = [];
 
@@ -852,7 +855,10 @@ export class AgentHost {
     const fallback = named?.fallback;
     if (named) named.fallback = undefined;
     if (named && final) this.named.delete(requestId);
-    const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}) };
+    // Its first event says it came from another chat: from then on, its card knows.
+    const fromChat = this.fromChats.get(requestId);
+    this.fromChats.delete(requestId);
+    const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}), ...(fromChat ? { fromChat } : {}) };
     // Workspace conversations are private: events go to you and the people you invited, never to the room.
     const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.deps.sharing.recipients(channel)].map((to) => ({ to }));
     for (const opts of targets) if (!this.send(body, opts) && final) this.outbox = [...this.outbox, { body, opts }].slice(-50);
@@ -911,9 +917,13 @@ export class AgentHost {
    * A message from another of your chats (chat-links/service.ts). Steer only goes into the running
    * turn, the way Send Now does, and never stops the turn: when the turn can't take it, it queues.
    */
-  private async deliverFromChat(body: BodyOf<'agent_request'>, steer: boolean): Promise<Delivered> {
+  private async deliverFromChat(body: BodyOf<'agent_request'>, steer: boolean): Promise<Delivered | undefined> {
+    // What onAgentRequest and enqueue would deny: its card comes back too late to answer the send with.
+    const waiting = [...this.lanes.values()].reduce((n, l) => n + l.waiting.filter((w) => w.from === this.selfId).length, 0);
+    if (!this.agent || waiting >= MAX_QUEUED_PER_PERSON) return undefined;
     const lane = this.lane(body.channel);
     const item: Waiting = { from: this.selfId, body };
+    if (body.origin) this.fromChats.set(body.requestId, { origin: body.origin, text: body.prompt });
     const live = lane.current && !lane.current.signal.aborted && !lane.interrupting;
     const run = live && lane.steer && lane.runFrom === this.selfId && !body.plan && !body.project ? lane.steer : undefined;
     const steeredIn = (): Delivered => ({ delivery: 'steered', ...(lane.currentRequest ? { readBy: lane.currentRequest.id } : {}) });
@@ -967,7 +977,7 @@ export class AgentHost {
     const sent = lane.followUps({
       prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
-      requesterName: peerName(this.store.getState(), from),
+      requesterName: this.askerOf(body, from),
       viaAgent: body.viaAgent,
       model: this.modelNow(body.channel),
       context: this.recentChat(body.channel),
@@ -1003,7 +1013,7 @@ export class AgentHost {
     return {
       prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
-      requesterName: peerName(this.store.getState(), from),
+      requesterName: this.askerOf(body, from),
       viaAgent: body.viaAgent,
       model: this.modelNow(body.channel),
       // The conversation is the run's own: what's said in the chat it has already.
@@ -1338,7 +1348,7 @@ export class AgentHost {
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         prompt: this.promptOf(body, from),
         ...this.promptIdOf(body),
-        requesterName,
+        requesterName: this.askerOf(body, from),
         viaAgent: body.viaAgent,
         context: this.recentChat(body.channel),
         ...(runPlace ? { place: runPlace } : {}),
@@ -1612,6 +1622,11 @@ export class AgentHost {
     return { promptId: body.requestId };
   }
 
+  /** The name on the prompt's "Request from" line. */
+  private askerOf(body: BodyOf<'agent_request'>, from: string): string {
+    return body.origin ? chatMessageAsker(body.origin) : peerName(this.store.getState(), from);
+  }
+
   /** May this person's run find and read other chats? */
   private readsChats(from: string): boolean {
     return from === this.selfId && this.store.getState().prefs.chatLinks;
@@ -1620,7 +1635,9 @@ export class AgentHost {
   /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
   private promptOf(body: BodyOf<'agent_request'>, from: string): string {
     const board = this.store.getState().board;
-    const tasks = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    // A message from another chat: Beluga's words first, its own in a fence (see message-prompt.ts).
+    const said = body.origin ? chatMessagePrompt(body.origin, body.prompt) : body.prompt;
+    const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
     // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
     const prompt = this.readsChats(from) ? explainChatMentions(tasks) : tasks;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
