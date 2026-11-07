@@ -111,6 +111,10 @@ function belugaTool(name: string, input: Readonly<Record<string, unknown>>): Hum
       return both(str(input.app) ? `Looked at ${str(input.app)}` : 'Took a screenshot', 'Taking a screenshot');
     case 'device_info':
       return both('Looked at this Mac’s details', 'Looking at this Mac’s details');
+    case 'list_chats':
+      return both('Looked through your chats', 'Looking through your chats');
+    case 'read_chat':
+      return both('Read another chat', 'Reading another chat');
     default:
       return undefined;
   }
@@ -183,7 +187,7 @@ export function humanizeTool(tool: string, input: Readonly<Record<string, unknow
         // Steps kept from before the rename name the servers klaud, klaud_task, klaud_board…
         const server = mcp[1]!.replace(/^klaud(?=_|$)/, 'beluga');
         const own = belugaTool(mcp[2]!, input);
-        if (own && (server === 'beluga' || server === 'beluga_task')) return own;
+        if (own && (server === 'beluga' || server === 'beluga_task' || server === 'beluga_chats')) return own;
         return both(`Used ${spaced(mcp[2]!)} from ${spaced(server)}`, `Using ${spaced(mcp[2]!)} from ${spaced(server)}`);
       }
       return belugaTool(tool, input) ?? both(`Used ${spaced(tool)}`, `Using ${spaced(tool)}`);

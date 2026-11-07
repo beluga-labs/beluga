@@ -29,6 +29,8 @@ import { belugaEnvBoth } from './beluga-env.js';
 import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
+import { explainChatMentions } from '../agent/prompt.js';
+import { chatToolsOf } from './chat-links/transcript.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
@@ -902,7 +904,7 @@ export class AgentHost {
     if (steer?.status && !steer.status().between) return !body.urgent && this.steerIn(lane, { from, body }, steer);
     const emit =(event: BodyOf<'agent_event'>['event'], text = ''): void => this.emitAgent(body.requestId, from, event, text, body.channel);
     const sent = lane.followUps({
-      prompt: this.promptOf(body),
+      prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
       requesterName: peerName(this.store.getState(), from),
       viaAgent: body.viaAgent,
@@ -934,7 +936,7 @@ export class AgentHost {
     let read = false;
     const settled = (): void => void lane.steered?.delete(body.requestId);
     return {
-      prompt: this.promptOf(body),
+      prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
       requesterName: peerName(this.store.getState(), from),
       viaAgent: body.viaAgent,
@@ -1200,6 +1202,8 @@ export class AgentHost {
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
+      // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
+      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))) }) : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
@@ -1257,8 +1261,9 @@ export class AgentHost {
         ...(mac ? { macTools: mac.tools, macBrief: mac.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
+        ...(chats ? { chatTools: chats } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
-        prompt: this.promptOf(body),
+        prompt: this.promptOf(body, from),
         ...this.promptIdOf(body),
         requesterName,
         viaAgent: body.viaAgent,
@@ -1534,10 +1539,17 @@ export class AgentHost {
     return { promptId: body.requestId };
   }
 
+  /** May this person's run find and read other chats? */
+  private readsChats(from: string): boolean {
+    return from === this.selfId && this.store.getState().prefs.chatLinks;
+  }
+
   /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
-  private promptOf(body: BodyOf<'agent_request'>): string {
+  private promptOf(body: BodyOf<'agent_request'>, from: string): string {
     const board = this.store.getState().board;
-    const prompt = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    const tasks = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
+    const prompt = this.readsChats(from) ? explainChatMentions(tasks) : tasks;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     return this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
   }
