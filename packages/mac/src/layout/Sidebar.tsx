@@ -19,6 +19,7 @@ import { SharedProjects } from './SharedProjects.js';
 import { WorkspaceRow } from './workspace-row.js';
 import { UnreadSection } from './UnreadSection.js';
 import { Row, Section } from './sidebar-parts.js';
+import { SidebarSearch } from './SidebarSearch.js';
 import { ActivityRow } from '../claude-code/Live.js';
 import { FriendsSection, GroupsSection } from '../network/NetworkSidebar.js';
 import { RequestsNav } from '../gateway/RequestsNav.js';
@@ -112,6 +113,7 @@ export function Sidebar() {
         <UsageButton />
         <IconButton icon="sidebar" label="Hide sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: false })} />
       </div>
+      <SidebarSearch>
       <div className={s.scroll}>
         <section className={s.section}>
           <AssistantNav />
@@ -167,6 +169,7 @@ export function Sidebar() {
         <FriendsSection />
         <GroupsSection />
       </div>
+      </SidebarSearch>
       <UpdatePill />
       <SidebarFooter />
       <SelfBar />

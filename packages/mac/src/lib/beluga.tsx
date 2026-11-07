@@ -11,6 +11,8 @@ import { onWindowActive, windowActive } from './window-active.js';
  * plus a few things only this window has.
  */
 export interface MacUi extends UiState {
+  /** A query for the Search page to take up (the sidebar's field searched it, or See All opens it). */
+  searchQuery?: string;
   readonly palette: boolean;
   /** The Add Project sheet is open ('new': on Start new, to make a new project). */
   readonly addProject?: boolean | 'new';
