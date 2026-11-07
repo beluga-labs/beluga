@@ -15,7 +15,7 @@ import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
 import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
 import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
-import { prTargetOf } from '../workspaces/github.js';
+import { prTargetOf, pullOfBranch } from '../workspaces/github.js';
 import { prOnOriginal } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
@@ -1025,7 +1025,8 @@ export class Workbench {
     const tasks: Array<() => Promise<void>> = [];
     for (const all of byProject.values()) {
       // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
-      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch));
+      // Nor is a fork's PR checked out here by its branch name: asked about by its number.
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch) && pullOfBranch(ws.path, ws.branch!) === undefined);
       tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
