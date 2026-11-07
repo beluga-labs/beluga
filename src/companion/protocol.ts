@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 37 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 38 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -98,8 +98,11 @@ export const COMPANION_PROTO = { major: 1, minor: 37 } as const;
  * (`agentTerm.takeOver`). An older Mac sends none, and never refuses a message for it.
  * 1.37 (BLG-559): a repo's own board also lists the tasks running in its repo from other boards,
  * each saying the board it's on (`TaskSummary.onBoard`). An older phone shows them without it.
+ * 1.38 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
+ * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Snooze, Wake and Un-settle
+ * from the phone (`triage.*`). An older Mac or phone never sees them: Work stays one list by project.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, triage: 38 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -433,6 +436,14 @@ export const ConvSummary = z.object({
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
   fresh: z.number().int().min(0).optional(),
+  /** 1.38: in Work while `chatCategories` is on: its category, none for what has none (the room). */
+  category: z.enum(['active', 'working', 'snoozed', 'settled']).optional(),
+  /** 1.38: when a snoozed chat wakes. */
+  snoozedUntil: ts.optional(),
+  /** 1.38: why a settled chat settled. */
+  settledWhy: z.enum(['you', 'pr_merged', 'merged_here', 'idle']).optional(),
+  /** 1.38: a snooze ended, and it shows Back until you open it. */
+  back: z.literal(true).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
 
@@ -463,6 +474,8 @@ export type HomeView = z.infer<typeof HomeView>;
 
 export const WorkView = z.object({
   projects: z.array(z.object({ id, name: z.string().max(200), conversations: z.array(ConvSummary).max(200), /** 1.3: its icon's checksum (companion.icon). */ icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional() })).max(200),
+  /** 1.38: `chatCategories` is on: the phone sorts by `ConvSummary.category`. */
+  categories: z.literal(true).optional(),
 });
 export type WorkView = z.infer<typeof WorkView>;
 
