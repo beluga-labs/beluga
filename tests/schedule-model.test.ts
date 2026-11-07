@@ -11,6 +11,7 @@ import {
   overLimit,
   pauseSchedule,
   resumeSchedule,
+  runExtras,
   runLine,
   scheduleStatus,
   skipLine,
@@ -298,6 +299,21 @@ describe('lines', () => {
   it('says how many runs were missed', () => {
     expect(runLine('Check', { due: at, slots: 1, missed: 4 }, { tz: TZ })).toBe('Scheduled run · Check · due 21:00 · missed 4 runs while this computer was off');
     expect(runLine('Check', { due: at, slots: 1, missed: 1 }, { tz: TZ })).toBe('Scheduled run · Check · due 21:00 · missed 1 run while this computer was off');
+  });
+
+  it('names what a run stands for: merged, missed, both, or nothing for a plain run', () => {
+    expect(runExtras({ slots: 3, missed: 0 })).toEqual(['merged 3 slots']);
+    expect(runExtras({ slots: 1, missed: 1 })).toEqual(['missed 1 run while this computer was off']);
+    expect(runExtras({ slots: 2, missed: 4 })).toEqual(['merged 2 slots', 'missed 4 runs while this computer was off']);
+    expect(runExtras({ slots: 1, missed: 0 })).toEqual([]);
+  });
+
+  it('reads an old saved line, which has no counts, as a plain run', () => {
+    expect(runExtras({})).toEqual([]);
+  });
+
+  it('writes the same words in the line itself', () => {
+    expect(runLine('Check', { due: at, slots: 2, missed: 4 }, { tz: TZ })).toBe('Scheduled run · Check · due 21:00 · merged 2 slots · missed 4 runs while this computer was off');
   });
 
   it('writes the skip lines', () => {

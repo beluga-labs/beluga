@@ -14,6 +14,7 @@ import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
+import { ChatScheduleMark } from '../schedule/ChatScheduleMark.js';
 import { outsideLocation } from './outside-model.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
 import s from './Sidebar.module.css';
@@ -185,6 +186,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
                   {fold.count}
                 </span>
               ) : null}
+              <ChatScheduleMark channel={`ws:${ws.id}`} />
               <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
             </>
           )

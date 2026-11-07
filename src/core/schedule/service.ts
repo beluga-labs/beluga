@@ -64,6 +64,8 @@ export interface SchedulesDeps {
   readonly wait: (requestId: string) => Promise<string>;
   readonly cancel: (requestId: string, note: string) => void;
   readonly notify: (event: NoticeEvent) => void;
+  /** Every schedule as screens see it, after each change and when the service starts. */
+  readonly publish: (items: readonly ScheduleView[]) => void;
   /** How full the chat's conversation is against the threshold. `unknown`: its runtime reported no numbers. */
   readonly fill: (channel: string) => 'past' | 'under' | 'unknown';
   /** Compact the chat in its lane. `refused`: it did not run to its end (Codex compacts itself), and that is no failure. */
@@ -96,6 +98,7 @@ export class Schedules {
   constructor(private readonly deps: SchedulesDeps) {
     this.file = new ScheduleFile(deps.dir);
     this.items = this.file.read();
+    this.publish();
     const every = deps.tickMs ?? TICK_MS;
     if (!every) return;
     const first = setTimeout(() => this.tick(), Math.min(FIRST_TICK_MS, every));
@@ -291,7 +294,7 @@ export class Schedules {
   }
 
   private fire(s: Schedule, decision: Extract<Decision, { kind: 'run' }>, now: number): void {
-    this.say(s.channel, runLine(s.title, decision, this.clockOpts()), 'info', { id: s.id, title: s.title, prompt: s.prompt, due: decision.due });
+    this.say(s.channel, runLine(s.title, decision, this.clockOpts()), 'info', { id: s.id, title: s.title, prompt: s.prompt, due: decision.due, slots: decision.slots, missed: decision.missed });
     const started = this.replace(applyDecision(s, decision, now));
     if (started.context === 'fresh') {
       this.deps.forget(started.channel);
@@ -371,7 +374,7 @@ export class Schedules {
     if (outcome.kind === 'failed' && outcome.error === LIMIT_WORDS) this.say(s.channel, `Schedule · ${s.title} · stopped: ${LIMIT_WORDS.toLowerCase()}`, 'warn');
     if (s.enabled && !next.enabled && next.pausedReason) {
       const body = outcome.kind === 'failed' ? `The last one: ${outcome.error}` : next.pausedReason;
-      this.say(s.channel, `Schedule · ${s.title} · ${next.pausedReason}. ${body}`, 'warn');
+      this.say(s.channel, `Schedule · ${s.title} · ${next.pausedReason}. ${body}`, 'warn', { id: s.id, title: s.title, prompt: s.prompt, due: s.running?.due ?? this.deps.now(), paused: true });
       this.deps.notify({ kind: 'problems', title: `${s.title} is paused`, body: `${next.pausedReason}. ${body}`, channel: s.channel, key: `schedule:${s.id}:paused:${next.lastEnd ?? 0}` });
     }
   }
@@ -413,6 +416,11 @@ export class Schedules {
 
   private save(): void {
     this.file.write(this.items);
+    this.publish();
+  }
+
+  private publish(): void {
+    this.deps.publish(this.items.map((s) => this.view(s)));
   }
 
   private clockOpts(): { tz?: string } {

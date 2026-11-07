@@ -55,7 +55,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `/theme` | `session.submit` → `runCommand` | typed in the composer · Settings › Appearance |
 | `/zoom` | `session.submit` → `runCommand` | typed in the composer · ⌘+ / ⌘− / ⌘0 · View menu |
 | `/clear` | `session.submit` → `runCommand` | typed in the composer · /clear in the composer (sheet) |
-| `/schedule` | `session.submit` → `runCommand` | typed in the composer; behind the setting `chatSchedules` |
+| `/schedule` | alone: the editor (`routeTyped`); with words: `session.submit` → `runCommand` | typed in the composer; behind the setting `chatSchedules` |
 | `/plan` | `session.submit` → `runCommand` | typed in the composer · Composer Act/Plan chip (⇧Tab) |
 | `/remove` | `session.submit` → `runCommand` | typed in the composer · Person sheet › Remove |
 | `/newlink` | `session.submit` → `runCommand` | typed in the composer · Settings › People › New link |
@@ -507,12 +507,12 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sentinel.run` | ✓ Run Now on a sentinel's page, and its row's ⋯ and right-click; the phone's sentinel page (Run Now) · the agent's `sentinel_run` |
 | `sentinel.test` | not in the window yet (the Sentinel page rework gives it a Test button); Run Now already runs a paused sentinel without turning it on · the agent's `sentinel_test` (its sources only, paused or not; what they find is kept), and `sentinel_create` / `sentinel_update` run a source they add or change once before saving, answering with its preview; `sentinel_try_source` runs one alone to read the schema (BLG-302, BLG-304) |
 | `sentinel.stop` | ✓ a running run's page › ⋯ › Stop |
-| `schedule.list` | not in the window yet (the Info panel's Schedules section comes later); `/schedule` shows them; behind the setting `chatSchedules` |
-| `schedule.create` | not in the window yet (the editor dialog comes later) |
-| `schedule.update` | not in the window yet (the editor dialog comes later) |
-| `schedule.setEnabled` | `/schedule pause` and `/schedule resume` |
-| `schedule.runNow` | `/schedule run` |
-| `schedule.remove` | `/schedule remove` |
+| `schedule.list` | the shared state's `schedules` (the Info panel's Schedules section); `/schedule` with words in other screens; behind the setting `chatSchedules` |
+| `schedule.create` | the editor: `/schedule`, ⌘K › New Schedule… |
+| `schedule.update` | the editor: a row's Edit, ⌘K › Edit Schedule… |
+| `schedule.setEnabled` | a row's Switch; `/schedule pause` and `/schedule resume` |
+| `schedule.runNow` | a row's Run now; `/schedule run` |
+| `schedule.remove` | the editor's Remove; `/schedule remove` |
 | `sentinel.pause` | ✓ Turn On and Pause on a sentinel's page and its row's ⋯ and right-click; Resume on the paused-after-failures banner; Turn On on the agent's banner; the phone's sentinel page (••• › Pause / Turn On) · the agent's `sentinel_pause` (pause only) |
 | `sentinel.runs` | ✓ a sentinel's page › History (the dot strip, then the runs as rows); the phone's sentinel page draws the same runs from its `sentinel:<id>` topic |
 | `sentinel.runGet` | ✓ a run's page: the steps' outputs (Show output) and the report; the phone opens a run's report |

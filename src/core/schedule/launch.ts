@@ -46,6 +46,7 @@ export function launchSchedules(host: SchedulesHost): () => void {
     wait: (requestId) => claude.wait(requestId),
     cancel: (requestId, note) => claude.cancel(requestId, note),
     notify: (event) => session.notifier.notify(event),
+    publish: (items) => void store.dispatch({ type: 'schedules', items }),
     fill: (channel) => session.host.contextFill(channel),
     compact: (channel, instructions) => session.host.compactNow(channel, instructions),
     forget: (channel) => session.startFresh(channel),

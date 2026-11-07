@@ -5,9 +5,9 @@ import { EVERY_CHOICES, HOURS_CHOICES, WEEK, toggleDay, withEvery } from './sche
 import { Segmented } from './ui.js';
 import s from './ScheduleControls.module.css';
 
-/** A schedule's controls: how often, when, and what happens to a run missed while the computer slept. Every change goes to `onChange`. */
+/** A schedule's controls: how often, when, and what happens to a run missed while the computer slept (`hideMissed`: the caller asks that itself). Every change goes to `onChange`. */
 
-export function ScheduleControls({ value: t, onChange: set }: { value: ScheduleTrigger; onChange: (next: ScheduleTrigger) => void }) {
+export function ScheduleControls({ value: t, onChange: set, hideMissed }: { value: ScheduleTrigger; onChange: (next: ScheduleTrigger) => void; hideMissed?: boolean }) {
   return (
     <>
       <div className={s.every}>
@@ -53,19 +53,21 @@ export function ScheduleControls({ value: t, onChange: set }: { value: ScheduleT
           <Select label="Day of the month" size="small" value={String(t.day ?? 1)} options={Array.from({ length: 28 }, (_, i) => ({ value: String(i + 1), label: ordinal(i + 1) }))} onChange={(d) => set({ ...t, day: Number(d) })} />
         </div>
       ) : null}
-      <div className={s.controlRow}>
-        <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
-        <Select
-          label={`If my ${computerWord()} was asleep`}
-          size="small"
-          value={t.missed}
-          options={[
-            { value: 'catch-up', label: 'Run as soon as it wakes', description: 'Once, however many runs it missed' },
-            { value: 'skip', label: 'Skip that run', description: 'It waits for the next one' },
-          ]}
-          onChange={(missed) => set({ ...t, missed })}
-        />
-      </div>
+      {hideMissed ? null : (
+        <div className={s.controlRow}>
+          <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
+          <Select
+            label={`If my ${computerWord()} was asleep`}
+            size="small"
+            value={t.missed}
+            options={[
+              { value: 'catch-up', label: 'Run as soon as it wakes', description: 'Once, however many runs it missed' },
+              { value: 'skip', label: 'Skip that run', description: 'It waits for the next one' },
+            ]}
+            onChange={(missed) => set({ ...t, missed })}
+          />
+        </div>
+      )}
     </>
   );
 }

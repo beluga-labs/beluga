@@ -223,10 +223,13 @@ export function whenInSentence(when: ScheduleWhen, opts: ClockOpts = {}): string
 
 /** The chat line of a run. */
 export function runLine(title: string, run: { readonly due: number; readonly slots: number; readonly missed: number }, opts: ClockOpts = {}): string {
-  const parts = [`Scheduled run · ${title} · due ${clock(run.due, opts)}`];
-  if (run.slots > 1) parts.push(`merged ${run.slots} slots`);
-  if (run.missed > 0) parts.push(`missed ${run.missed} ${run.missed === 1 ? 'run' : 'runs'} while this computer was off`);
-  return parts.join(' · ');
+  return [`Scheduled run · ${title} · due ${clock(run.due, opts)}`, ...runExtras(run)].join(' · ');
+}
+
+/** What a run stands for beyond its one slot, in words. Nothing for a plain run, or an old saved line with no counts. */
+export function runExtras(run: { readonly slots?: number; readonly missed?: number }): string[] {
+  const { slots = 1, missed = 0 } = run;
+  return [...(slots > 1 ? [`merged ${slots} slots`] : []), ...(missed > 0 ? [`missed ${missed} ${missed === 1 ? 'run' : 'runs'} while this computer was off`] : [])];
 }
 
 /** The chat line of a dropped slot. */

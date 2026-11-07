@@ -90,6 +90,7 @@ export const PrefsPatch = z
     autoSetup: bool,
     branchPrefix: z.string().regex(BRANCH_PREFIX_RE, 'Use letters, digits and . _ - / only'),
     contextMeter: bool,
+    chatSchedules: bool,
     autoCompact: bool,
     autoCompactAt: z.number().int().min(AUTO_COMPACT_MIN).max(AUTO_COMPACT_MAX),
     parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX),
