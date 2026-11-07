@@ -9,7 +9,12 @@ import { expect, test, type Page } from './fixtures.js';
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' });
 const composer = (page: Page) => page.locator('textarea:not(.xterm-helper-textarea)');
 const shots = process.env.BELUGA_SHOTS_DIR;
-const shot = async (page: Page, name: string): Promise<void> => void (shots ? await page.screenshot({ path: `${shots}/${name}.png` }) : undefined);
+/** A screenshot, and a beat on it so that the recording shows the same moment. */
+async function shot(page: Page, name: string): Promise<void> {
+  if (!shots) return;
+  await page.screenshot({ path: `${shots}/${name}.png` });
+  await page.waitForTimeout(1500);
+}
 
 /** The demo's project starts folded, with only the chat you're in. */
 async function unfold(page: Page): Promise<void> {
@@ -102,7 +107,12 @@ test('the panel lists the children, Stop stops one, and Stop All the rest', asyn
   await expect(row('five')).toHaveAttribute('data-state', 'running');
   await expect(inspector.getByRole('heading', { name: 'Lineage · 1 running' })).toBeVisible();
   await expect(row('four').getByRole('button', { name: 'Stop four' })).toHaveCount(0);
-  await expect(page.getByText(/1 child thread reported: four \(stopped\)/)).toBeVisible({ timeout: 20_000 });
+  const report = page.getByText(/1 child thread reported: four \(stopped\)/);
+  await expect(report).toBeVisible({ timeout: 20_000 });
+  // Past the wake's 2 s batch: still one report, the sibling still works.
+  await page.waitForTimeout(3000);
+  await expect(report).toHaveCount(1);
+  await expect(row('five')).toHaveAttribute('data-state', 'running');
   await shot(page, 'panel-one-stopped');
 
   // Stop All needs no second action.
