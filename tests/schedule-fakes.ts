@@ -6,7 +6,7 @@ import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { launchSchedules } from '../src/core/schedule/launch.js';
 import { schedulesOf } from '../src/core/schedule/registry.js';
 import type { Schedules } from '../src/core/schedule/service.js';
-import { saveSettings } from '../src/core/settings.js';
+import { saveSettings, type Settings } from '../src/core/settings.js';
 import { Session } from '../src/core/session.js';
 import { ShareService } from '../src/core/shares.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -95,7 +95,7 @@ export async function harness(): Promise<Harness> {
     desktopNotify: () => undefined,
     zoom: async () => ({ ok: true, message: '' }),
     copy: async () => undefined,
-    saveSettings: () => undefined,
+    saveSettings: (patch: Partial<Settings>) => void saveSettings(patch),
     createAgent: (): AgentBackend => ({
       nameTask: async () => 'task',
       run: async (input) => {

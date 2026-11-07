@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCommand } from '../src/core/commands.js';
+import { loadSettings, Settings } from '../src/core/settings.js';
 import { PHONE } from '../src/companion/coverage.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
 import { suggest } from '../src/ui/suggest.js';
@@ -71,9 +72,19 @@ describe('what the screens see', () => {
   });
 
   it('carries the setting chatSchedules as a pref', () => {
-    expect(h.store.getState().prefs.chatSchedules).toBe(false);
-    h.session.setPrefs({ chatSchedules: true });
     expect(h.store.getState().prefs.chatSchedules).toBe(true);
+    h.session.setPrefs({ chatSchedules: false });
+    expect(h.store.getState().prefs.chatSchedules).toBe(false);
+  });
+
+  it('has schedules on in a new install, and the switch turns them off', () => {
+    expect(Settings.parse({}).chatSchedules).toBe(true);
+    const schedules = h.launch();
+    expect(schedules.isOn()).toBe(true);
+    h.session.setPrefs({ chatSchedules: false });
+    expect(loadSettings().chatSchedules).toBe(false);
+    expect(schedules.isOn()).toBe(false);
+    expect(() => call('schedule.list')).toThrow('Schedules are off');
   });
 });
 
