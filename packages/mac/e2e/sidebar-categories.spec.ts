@@ -23,7 +23,6 @@ async function setCategories(page: Page, on: boolean): Promise<void> {
   await page.keyboard.press('Escape');
 }
 
-/** Open a chat from Inbox and make sure it isn't left in another category by an earlier test. */
 async function openFromInbox(page: Page, name: string): Promise<void> {
   await inList(page, 'Inbox', name).click();
   await expect(composer(page)).toHaveAttribute('placeholder', new RegExp(name));
@@ -85,38 +84,50 @@ test.describe('with the setting on', () => {
   test("a question moves a chat to Inbox with 'Input', from Working and from Snoozed", async ({ page }) => {
     test.setTimeout(120_000);
     await openFromInbox(page, 'new-hero');
-    // Snoozed first: a question asked later ends the snooze.
-    await inList(page, 'Inbox', 'new-hero').hover();
-    await page.getByRole('button', { name: 'Snooze new-hero' }).click();
-    await page.getByRole('menuitem', { name: /^In 3 hours/ }).click();
-    await expect(list(page, 'Snoozed')).toBeVisible();
+    const asked = inList(page, 'Inbox', 'new-hero');
+    const answer = async (): Promise<void> => {
+      await expect(asked.locator('[data-status="need"]')).toHaveText('Input', { timeout: 60_000 });
+      // A snooze of the open chat moved you on: back to it.
+      await asked.click();
+      await page.getByRole('button', { name: /Signed cookies/ }).click();
+      await expect(asked.locator('[data-status="need"]')).toHaveCount(0, { timeout: 15_000 });
+    };
 
-    await unfold(page, 'Snoozed');
-    await inList(page, 'Snoozed', 'new-hero').click();
+    // From Working: the turn runs, then it asks.
     await composer(page).fill('Which session store should we pick for auth?');
     await composer(page).press('Enter');
-    const asked = inList(page, 'Inbox', 'new-hero');
-    await expect(asked.locator('[data-status="need"]')).toHaveText('Input', { timeout: 15_000 });
-    await page.getByRole('button', { name: /Signed cookies/ }).click();
-    await expect(asked.locator('[data-status="need"]')).toHaveCount(0, { timeout: 15_000 });
+    await answer();
+
+    // From Snoozed: a long turn, the question queued after it, and the snooze while that turn runs.
+    await composer(page).fill('Take a deep dive into the webhooks, take your time');
+    await composer(page).press('Enter');
+    await expect(inList(page, 'Working', 'new-hero')).toBeVisible({ timeout: 10_000 });
+    await composer(page).fill('Which session store should we pick for auth?');
+    await composer(page).press('Enter');
+    await inList(page, 'Working', 'new-hero').hover();
+    await page.getByRole('button', { name: 'Snooze new-hero' }).click();
+    await page.getByRole('menuitem', { name: /^In 3 hours/ }).click();
+    await expect(inList(page, 'Snoozed', 'new-hero')).toBeVisible();
+    await answer();
   });
 
   test('settles a chat from its row, sends a message there and sees it in Working', async ({ page }) => {
     test.setTimeout(90_000);
-    await openFromInbox(page, 'webhooks');
-    await inList(page, 'Inbox', 'webhooks').hover();
-    await page.getByRole('button', { name: 'Settle webhooks' }).click();
+    await openFromInbox(page, 'webhook-retries');
+    await inList(page, 'Inbox', 'webhook-retries').hover();
+    await page.getByRole('button', { name: 'Settle webhook-retries' }).click();
     await expect(list(page, 'Settled')).toBeVisible();
     await unfold(page, 'Settled');
-    await expect(inList(page, 'Settled', 'webhooks')).toBeVisible();
-    // You moved on to the next Inbox row: back to it, the line says why and the box still works.
-    await inList(page, 'Settled', 'webhooks').click();
+    await expect(inList(page, 'Settled', 'webhook-retries')).toBeVisible();
+    // You moved on to the next Inbox row. Back in it, the line says why and the box still works.
+    await expect(composer(page)).not.toHaveAttribute('placeholder', /webhook-retries/);
+    await inList(page, 'Settled', 'webhook-retries').click();
     await expect(page.getByRole('status', { name: 'Chat category' })).toContainText('Settled by you');
     await composer(page).fill('Take a deep dive into the webhooks, take your time');
     await composer(page).press('Enter');
-    await expect(inList(page, 'Working', 'webhooks')).toBeVisible({ timeout: 10_000 });
+    await expect(inList(page, 'Working', 'webhook-retries')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('status', { name: 'Chat category' })).toHaveCount(0);
-    await expect(inList(page, 'Inbox', 'webhooks')).toBeVisible({ timeout: 45_000 });
+    await expect(inList(page, 'Inbox', 'webhook-retries')).toBeVisible({ timeout: 45_000 });
   });
 
   test('snoozes a chat with a preset, sees the time left, wakes it and sees it in Inbox', async ({ page }) => {
@@ -132,6 +143,36 @@ test.describe('with the setting on', () => {
     await snoozed.hover();
     await page.getByRole('button', { name: `Wake ${name}` }).click();
     await expect(inList(page, 'Inbox', name).locator('[data-status="back"]')).toHaveText('Back');
+  });
+
+  test('un-settles a chat from the line above its message box', async ({ page }) => {
+    await inList(page, 'Inbox', 'add-auth').hover();
+    await page.getByRole('button', { name: 'Settle add-auth' }).click();
+    await unfold(page, 'Settled');
+    await inList(page, 'Settled', 'add-auth').click();
+    await page.getByRole('status', { name: 'Chat category' }).getByRole('button', { name: 'Un-settle' }).click();
+    await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Chat category' })).toHaveCount(0);
+  });
+
+  test('snoozes a chat until a date and time you pick, and wakes it from its line', async ({ page }) => {
+    await inList(page, 'Inbox', 'add-auth').hover();
+    await page.getByRole('button', { name: 'Snooze add-auth' }).click();
+    await page.getByRole('menuitem', { name: /^Custom/ }).click();
+    await page.getByRole('textbox', { name: 'Date and time' }).fill('2099-01-05T09:00');
+    await page.getByRole('button', { name: 'Snooze', exact: true }).click();
+    await unfold(page, 'Snoozed');
+    await inList(page, 'Snoozed', 'add-auth').click();
+    await expect(page.getByRole('status', { name: 'Chat category' })).toContainText('Snoozed until');
+    await page.getByRole('status', { name: 'Chat category' }).getByRole('button', { name: 'Wake' }).click();
+    await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible();
+  });
+
+  test('a DM with news is in Inbox with no settle or snooze', async ({ page }) => {
+    const dm = inList(page, 'Inbox', 'bob');
+    await dm.hover();
+    await expect(page.getByRole('button', { name: 'Snooze bob' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Settle bob' })).toHaveCount(0);
   });
 
   test('Work Again opens the chat and puts you in its message box, from each menu', async ({ page }) => {
