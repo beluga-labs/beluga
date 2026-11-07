@@ -7,7 +7,9 @@ import { Breakdown } from './usage/Breakdown.js';
 import { CleanupCard } from './usage/CleanupCard.js';
 import { EarningsSummaryCard } from './usage/EarningsSummaryCard.js';
 import { PlanCard } from './usage/PlanCard.js';
+import { SessionsCard } from './usage/SessionsCard.js';
 import { StatsSection } from './usage/StatsSection.js';
+import { useStats } from './usage/use-stats.js';
 import { StorageCard } from './usage/StorageCard.js';
 import { type SortKey, cleanups, projectRows } from './usage/usage-model.js';
 import s from './usage/usage.module.css';
@@ -62,6 +64,7 @@ export function UsageView() {
   const state = useApp((st) => st);
   const [sort, setSort] = useSort();
   const { measuring, measure } = useMeasure();
+  const got = useStats();
   const now = Date.now();
   const rows = projectRows(state, sort);
   // Sizes known: the first measurement came back (or there was one from before).
@@ -89,10 +92,11 @@ export function UsageView() {
           <div className={s.summary}>
             <PlanCard state={state} now={now} />
             <ActivityCard state={state} now={now} />
+            <SessionsCard windows={got.stats?.plan ?? []} now={got.at} />
             <EarningsSummaryCard />
           </div>
         </div>
-        <StatsSection state={state} />
+        <StatsSection state={state} got={got} />
         <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
         {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
         <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />

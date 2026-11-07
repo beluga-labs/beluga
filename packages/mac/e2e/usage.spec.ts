@@ -146,5 +146,43 @@ test('your stats: a number per thing, the year, and each project or agent ranked
   await expect(byAgent.getByText('Codex', { exact: true })).toBeVisible();
   // When you work, and a few highlights.
   await expect(stats.getByRole('grid', { name: 'Prompts by weekday and hour' }).getByRole('gridcell')).toHaveCount(168);
-  await expect(stats.getByText(/Longest streak/)).toBeVisible();
+  await expect(stats.getByRole('list', { name: 'Highlights' }).getByText('Longest streak')).toBeVisible();
+});
+
+test('the trend: a band per agent, pointing shows the step, a name hides its band', async ({ page }) => {
+  await openUsage(page);
+  const stats = page.getByRole('region', { name: 'Your stats' });
+  await stats.getByRole('tab', { name: 'Agents' }).click();
+  const chart = stats.getByRole('img', { name: /over time: .*Claude/ });
+  await expect(chart).toBeVisible();
+  // Pointing at a step shows its numbers.
+  await chart.scrollIntoViewIfNeeded();
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+  await expect(chart.getByText('Claude')).toBeVisible();
+  // A name below the chart leaves its band out, and brings it back.
+  const legend = stats.getByRole('group', { name: 'Show or hide' });
+  await legend.getByRole('button', { name: /^Codex/ }).click();
+  await expect(legend.getByRole('button', { name: /^Codex/ })).toHaveAttribute('aria-pressed', 'false');
+  await expect(chart).not.toHaveAttribute('aria-label', /Codex/);
+  await legend.getByRole('button', { name: /^Codex/ }).click();
+  await expect(chart).toHaveAttribute('aria-label', /Codex/);
+  // Share: each step as parts of 100%.
+  await stats.getByRole('tab', { name: 'Share' }).click();
+  await expect(stats.getByText('100%').first()).toBeVisible();
+});
+
+test('sessions: how much of each 5-hour session and each week you used', async ({ page }) => {
+  await openUsage(page);
+  const sessions = page.getByRole('region', { name: 'Plan sessions' });
+  await expect(sessions.getByText(/of each session used, on average/)).toBeVisible();
+  const blocks = sessions.getByRole('list', { name: '5-hour sessions, the last 7 days' }).getByRole('listitem');
+  await expect(blocks.first()).toBeVisible();
+  await blocks.first().hover();
+  await expect(sessions.getByText(/% used/)).toBeVisible();
+  await sessions.getByRole('tab', { name: 'Weekly' }).click();
+  await expect(sessions.getByRole('list', { name: 'Weeks, the last six' }).getByRole('listitem')).toHaveCount(6);
+  await sessions.getByRole('tab', { name: 'Codex' }).click();
+  await sessions.getByRole('tab', { name: '5-hour' }).click();
+  await expect(sessions.getByText(/of each session used/)).toBeVisible();
 });

@@ -20,7 +20,7 @@ const noise = (seed: number): number => {
   return x - Math.floor(x);
 };
 
-export function demoStats(projects: readonly Project[], now: number): Pick<StatsFile, 'days' | 'hours' | 'prs'> {
+export function demoStats(projects: readonly Project[], now: number): Pick<StatsFile, 'days' | 'hours' | 'prs' | 'plan'> {
   const roots = projects.filter((p) => p.root).map((p) => p.root);
   let days: StatsFile['days'] = {};
   const hours = Array.from({ length: 168 }, () => 0);
@@ -64,5 +64,43 @@ export function demoStats(projects: readonly Project[], now: number): Pick<Stats
       }
     });
   }
-  return { days, hours, prs };
+  return { days, hours, prs, plan: demoPlan(now) };
+}
+
+/**
+ * Six weeks of Claude's 5-hour sessions (two or three on a weekday, fewer at weekends; some run
+ * out, many leave room) and Codex's, and their weeks. The current ones are open.
+ */
+function demoPlan(now: number): StatsFile['plan'] {
+  const out: StatsFile['plan'][number][] = [];
+  const today = new Date(now);
+  for (let ago = 41; ago >= 0; ago--) {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ago);
+    const weekend = day.getDay() === 0 || day.getDay() === 6;
+    for (const [i, start] of [9, 14, 19].entries()) {
+      if (noise(ago * 53 + i) < (weekend ? 0.7 : 0.12)) continue;
+      const resetsAt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), start + 5, Math.round(noise(ago + i) * 50)).getTime();
+      const r = noise(ago * 59 + i * 3);
+      const peak = r > 0.82 ? 100 : Math.round(18 + r * 85);
+      out.push({ runtime: 'claude', kind: 'session', resetsAt, peak: Math.min(100, peak), ...(resetsAt > now ? { open: true as const } : {}) });
+      if (noise(ago * 61 + i) < 0.35) out.push({ runtime: 'codex', kind: 'session', resetsAt: resetsAt + 1_800_000, peak: Math.round(10 + noise(ago * 67 + i) * 70), ...(resetsAt + 1_800_000 > now ? { open: true as const } : {}) });
+    }
+  }
+  for (let w = 5; w >= 0; w--) {
+    const resetsAt = now + 2 * DAY - w * 7 * DAY;
+    out.push({ runtime: 'claude', kind: 'week', resetsAt, peak: w === 0 ? 38 : Math.round(45 + noise(w * 71) * 55), ...(w === 0 ? { open: true as const } : {}) });
+  }
+  // Only the newest of each kind and provider is still going.
+  const seen = new Set<string>();
+  return out
+    .sort((a, b) => a.resetsAt - b.resetsAt)
+    .reverse()
+    .map((x) => {
+      const key = `${x.runtime}|${x.kind}`;
+      if (!x.open) return x;
+      if (seen.has(key)) return { runtime: x.runtime, kind: x.kind, resetsAt: x.resetsAt, peak: x.peak };
+      seen.add(key);
+      return x;
+    })
+    .reverse();
 }

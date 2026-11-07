@@ -54,6 +54,27 @@ export interface PrStat {
   readonly removed: number;
 }
 
+/** Which plan window: the 5-hour session, or the week. */
+export type PlanKind = 'session' | 'week';
+
+/**
+ * One plan window of a provider (Claude's 5-hour session, its week): the most of it you used before
+ * it reset. Learned from the plan usage Beluga already reads, so only from when counting began.
+ */
+export interface PlanWindow {
+  readonly runtime: string;
+  readonly kind: PlanKind;
+  /** When it reset (epoch ms). */
+  readonly resetsAt: number;
+  /** The most of it used (0–100). */
+  readonly peak: number;
+  /** Still going: it hasn't reset yet. */
+  readonly open?: true;
+}
+
+/** How long each kind lasts. */
+export const PLAN_SPAN: Record<PlanKind, number> = { session: 5 * 3_600_000, week: 7 * 86_400_000 };
+
 /** What the Usage tab asks the daemon for. */
 export interface StatsSnapshot {
   /** "2026-10-18" → that day. */
@@ -64,6 +85,8 @@ export interface StatsSnapshot {
   readonly hours: readonly number[];
   /** The earliest thing counted (epoch ms; 0: nothing yet). */
   readonly since: number;
+  /** Plan windows, oldest first (the open ones last). */
+  readonly plan?: readonly PlanWindow[];
   /** Still reading what came before (the first start): numbers will grow. */
   readonly backfilling?: boolean;
 }
@@ -223,4 +246,24 @@ export function streaks(stats: StatsSnapshot, now: number): { current: number; l
     day = shiftDay(day, -1);
   }
   return { current, longest };
+}
+
+// ------------------------------------------------------------------ plan windows
+
+export interface PlanSummary {
+  /** Windows that ended in the stretch. */
+  readonly windows: number;
+  /** Their average peak (0–100). */
+  readonly used: number;
+  /** How many ran out (100%). */
+  readonly maxed: number;
+  /** The time those windows had and you didn't use (ms): (100 − peak)% of each. */
+  readonly leftMs: number;
+}
+
+/** A provider's closed windows of one kind since `from` (epoch ms), summed up. */
+export function planSummary(windows: readonly PlanWindow[], runtime: string, kind: PlanKind, from: number): PlanSummary {
+  const list = windows.filter((w) => !w.open && w.runtime === runtime && w.kind === kind && w.resetsAt >= from);
+  const used = list.length ? list.reduce((n, w) => n + w.peak, 0) / list.length : 0;
+  return { windows: list.length, used, maxed: list.filter((w) => w.peak >= 99.5).length, leftMs: list.reduce((n, w) => n + ((100 - w.peak) / 100) * PLAN_SPAN[kind], 0) };
 }

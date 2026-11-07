@@ -18,6 +18,8 @@ export interface MetricDef {
   readonly format: (n: number) => string;
   /** A small line under the number: what it amounts to, or what goes with it. */
   readonly aside: (t: Totals) => string;
+  /** Short, for a chart's axis (unset: format). */
+  readonly axis?: (n: number) => string;
   /** What a day's number is in the calendar (the strip's own figure, for the PR metrics too). */
   readonly daily: TotalKey;
 }
@@ -33,6 +35,9 @@ export function duration(ms: number): string {
   const rest = min % 60;
   return h >= 20 || !rest ? `${h.toLocaleString()} h` : `${h} h ${rest} min`;
 }
+
+/** "45m", "12 h": a duration short enough for an axis. */
+const hours = (ms: number): string => (ms < 3_600_000 ? `${Math.round(ms / 60_000)}m` : `${Math.round(ms / 3_600_000)} h`);
 
 /** One significant figure past the point, when it helps ("1.5", "12"). */
 const about = (n: number): string => (n >= 10 ? Math.round(n).toLocaleString() : n >= 1 ? n.toFixed(1).replace(/\.0$/, '') : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
@@ -52,6 +57,7 @@ export const METRICS: readonly MetricDef[] = [
     color: 'var(--m-time)',
     value: (t) => t.agentMs,
     format: duration,
+    axis: hours,
     aside: (t) => (t.agentMs >= WORKDAY_MS / 2 ? `≈ ${about(t.agentMs / WORKDAY_MS)} workdays · ${plural(t.runs, 'run')}` : plural(t.runs, 'run')),
     daily: 'agentMs',
   },
@@ -75,7 +81,17 @@ export const METRICS: readonly MetricDef[] = [
     aside: (t) => (t.pasted >= NOVEL / 2 ? `≈ ${about(t.pasted / NOVEL)} novels` : `≈ ${plural(Math.round(t.pasted / PAGE), 'page')} of text`),
     daily: 'pasted',
   },
-  { id: 'dictationMs', label: 'Dictated', icon: 'mic', color: 'var(--m-voice)', value: (t) => t.dictationMs, format: duration, aside: (t) => `≈ ${compact(Math.round((t.dictationMs / 60_000) * WORDS_PER_MIN))} words spoken`, daily: 'dictationMs' },
+  {
+    id: 'dictationMs',
+    label: 'Dictated',
+    icon: 'mic',
+    color: 'var(--m-voice)',
+    value: (t) => t.dictationMs,
+    format: duration,
+    axis: hours,
+    aside: (t) => `≈ ${compact(Math.round((t.dictationMs / 60_000) * WORDS_PER_MIN))} words spoken`,
+    daily: 'dictationMs',
+  },
   {
     id: 'worktrees',
     label: 'Worktrees',
@@ -121,19 +137,20 @@ export interface GroupRow {
 
 const AGENT_COLOR: Readonly<Record<string, string>> = { claude: 'var(--claude)', codex: 'var(--a-codex)', opencode: 'var(--a-opencode)', local: 'var(--a-local)' };
 
+/** A project's (or agent's) name, colour and icon, from its key (a root, or a runtime). */
+export function groupOf(key: string, by: GroupBy, projects: AppState['projects']): { name: string; color: string; projectId?: string } {
+  if (by === 'agent') return { name: key ? (RUNTIME_NAMES[key] ?? key) : 'Not in a run', color: AGENT_COLOR[key] ?? 'var(--series-other)' };
+  const p = key ? projects.find((x) => x.root === key) : undefined;
+  const name = p?.name ?? (key ? (key.split('/').filter(Boolean).at(-1) ?? key) : 'Chats and elsewhere');
+  return { name, color: `var(--series-${p ? slotOf(projects, p) : key ? 'other' : 'chats'})`, ...(p ? { projectId: p.id } : {}) };
+}
+
 /** Each project's (or agent's) number for a metric over a range, biggest first, with its name and colour. */
 export function groupRows(stats: StatsSnapshot, projects: AppState['projects'], by: GroupBy, metric: MetricDef, range: StatRange, now: number): GroupRow[] {
   const rows: GroupRow[] = [];
   for (const [key, totals] of totalsBy(stats, by, rangeStart(range, now))) {
     const value = metric.value(totals);
-    if (value <= 0) continue;
-    if (by === 'agent') {
-      rows.push({ key, name: key ? (RUNTIME_NAMES[key] ?? key) : 'Not in a run', color: AGENT_COLOR[key] ?? 'var(--series-other)', value, totals });
-      continue;
-    }
-    const p = key ? projects.find((x) => x.root === key) : undefined;
-    const name = p?.name ?? (key ? (key.split('/').filter(Boolean).at(-1) ?? key) : 'Chats and elsewhere');
-    rows.push({ key, name, color: `var(--series-${p ? slotOf(projects, p) : key ? 'other' : 'chats'})`, value, totals, ...(p ? { projectId: p.id } : {}) });
+    if (value > 0) rows.push({ key, value, totals, ...groupOf(key, by, projects) });
   }
   return rows.sort((a, b) => b.value - a.value);
 }
@@ -170,15 +187,13 @@ export function calendar(series: ReadonlyArray<{ key: string; value: number }>, 
   );
 }
 
-/** The busiest weekday × hour ("Tuesdays around 2 PM"), from the 168 counts. */
-export function favouriteHour(hours: readonly number[]): string | undefined {
+/** The busiest weekday × hour: "Fridays" and "10 AM". */
+export function favouriteHour(hours: readonly number[]): { day: string; time: string } | undefined {
   let best = -1;
   let at = 0;
   hours.forEach((n, i) => {
     if (n > best) [best, at] = [n, i];
   });
   if (best <= 0) return undefined;
-  const day = new Date(2026, 0, 4 + Math.floor(at / 24)).toLocaleDateString([], { weekday: 'long' });
-  const hour = new Date(2026, 0, 4, at % 24).toLocaleTimeString([], { hour: 'numeric' });
-  return `${day}s around ${hour}`;
+  return { day: `${new Date(2026, 0, 4 + Math.floor(at / 24)).toLocaleDateString([], { weekday: 'long' })}s`, time: new Date(2026, 0, 4, at % 24).toLocaleTimeString([], { hour: 'numeric' }) };
 }

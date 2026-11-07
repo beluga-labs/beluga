@@ -13,10 +13,11 @@ import { hasGh, runGh } from '../../workspaces/pr.js';
 import type { Project, Workspace } from '../../workspaces/types.js';
 import { belugaHome } from '../home.js';
 import { chosenAgent } from '../settings.js';
-import type { Action, LogItem, Store } from '../store.js';
+import type { Action, DomainState, LogItem, Store } from '../store.js';
+import { usagesOf } from '../../agent/usage.js';
 import { demoStats } from './demo.js';
 import { type StatsFile, emptyStats, loadStats, saveStats, snapshotOf, statsPath } from './file.js';
-import { GH_PR_FIELDS, addStats, belugaBranches, count, countPrompt, fromHistory, observeWorkspaces, parseGhPrs, withPrs } from './tally.js';
+import { GH_PR_FIELDS, type PlanReading, addStats, belugaBranches, count, countPrompt, fromHistory, observePlan, observeWorkspaces, parseGhPrs, withPrs } from './tally.js';
 
 /** What the Mac reports (it alone sees the composer and the microphone). */
 export type StatsNote = { readonly kind: 'paste'; readonly chars: number; readonly channel?: string } | { readonly kind: 'dictation'; readonly ms: number; readonly channel?: string };
@@ -26,7 +27,7 @@ export interface StatsCounterDeps {
   /** Where the stats are kept; null: only in memory (the demo, tests). */
   readonly file?: string | null;
   /** Made-up stats to start from once the projects are known (the demo). */
-  readonly seed?: (projects: readonly Project[], now: number) => Pick<StatsFile, 'days' | 'hours' | 'prs'>;
+  readonly seed?: (projects: readonly Project[], now: number) => Pick<StatsFile, 'days' | 'hours' | 'prs' | 'plan'>;
   /** Where chat histories are (unset: ~/.beluga/history; null: none to read). */
   readonly historyDir?: string | null;
   /** A project's pull requests as gh lists them (JSON); unset: gh itself; null: never ask. */
@@ -114,7 +115,8 @@ export class StatsCounter {
 
   private onAction(a: Action): void {
     if (this.stopped) return;
-    if (a.type === 'projects') return this.observeSoon();
+    // Workspaces, and your plan usage (it comes with your own card).
+    if (a.type === 'projects' || a.type === 'peers' || a.type === 'welcome') return this.observeSoon();
     const self = this.deps.store.getState().selfId;
     // Your agent's runs for you (a friend's requests run on your Mac too: not your time).
     if (a.type === 'agent_event' && a.owner === self && a.requester === self) {
@@ -147,14 +149,17 @@ export class StatsCounter {
     if (this.observeTimer || this.stopped) return;
     this.observeTimer = setTimeout(() => {
       this.observeTimer = undefined;
-      const projects = this.deps.store.getState().projects;
-      if (!projects.length) return;
-      if (this.deps.seed && !this.seeded) {
-        this.seeded = true;
-        const seed = this.deps.seed(projects, this.now());
-        this.data = { ...addStats(this.data, seed), prs: { ...seed.prs, ...this.data.prs } };
+      const state = this.deps.store.getState();
+      let next = observePlan(this.data, planReadings(state), this.now());
+      const projects = state.projects;
+      if (projects.length) {
+        if (this.deps.seed && !this.seeded) {
+          this.seeded = true;
+          const seed = this.deps.seed(projects, this.now());
+          next = { ...addStats(next, seed), prs: { ...seed.prs, ...next.prs }, plan: [...seed.plan, ...next.plan] };
+        }
+        next = observeWorkspaces(next, projects, this.agentOf, this.now());
       }
-      const next = observeWorkspaces(this.data, projects, this.agentOf, this.now());
       if (next !== this.data) this.change(next);
     }, OBSERVE_MS);
     this.observeTimer.unref?.();
@@ -240,6 +245,15 @@ export class StatsCounter {
     t.unref?.();
     this.timers.add(t);
   }
+}
+
+/** Your providers' plan windows as your own card says now. */
+function planReadings(state: DomainState): PlanReading[] {
+  const me = state.peers.find((p) => p.peerId === state.selfId) ?? state.self;
+  return usagesOf(me).flatMap((u) => [
+    ...(u.fiveHour ? [{ runtime: u.agent.runtime, kind: 'session' as const, pct: u.fiveHour.pct, ...(u.fiveHour.resetsAt ? { resetsAt: u.fiveHour.resetsAt } : {}) }] : []),
+    ...(u.week ? [{ runtime: u.agent.runtime, kind: 'week' as const, pct: u.week.pct, ...(u.week.resetsAt ? { resetsAt: u.week.resetsAt } : {}) }] : []),
+  ]);
 }
 
 async function readItems(file: string): Promise<LogItem[]> {

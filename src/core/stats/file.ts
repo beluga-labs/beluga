@@ -11,6 +11,7 @@ import { belugaHome } from '../home.js';
 const Counts = z.object(Object.fromEntries(STAT_KEYS.map((k) => [k, z.number().min(0).optional()])) as Record<(typeof STAT_KEYS)[number], z.ZodOptional<z.ZodNumber>>);
 const Day = z.record(z.string(), z.record(z.string(), Counts));
 const Pr = z.object({ project: z.string(), agent: z.string(), number: z.number().int(), title: z.string().optional(), opened: z.number(), merged: z.number().optional(), added: z.number().min(0), removed: z.number().min(0) });
+const PlanWindowSchema = z.object({ runtime: z.string(), kind: z.enum(['session', 'week']), resetsAt: z.number(), peak: z.number().min(0).max(100), open: z.literal(true).optional() });
 /** A workspace as last counted: its tokens and cost then, and whether it was archived. */
 const Seen = z.object({ t: z.number().min(0), c: z.number().min(0), a: z.literal(1).optional() });
 
@@ -29,13 +30,15 @@ export const StatsFileSchema = z.object({
   history: z.boolean().default(false),
   /** When each project's pull requests were last asked of GitHub. */
   prsAt: z.record(z.string(), z.number()).default({}),
+  /** Plan windows as they went (oldest first, the open ones too). */
+  plan: z.array(PlanWindowSchema).default([]),
 });
 export type StatsFile = z.infer<typeof StatsFileSchema>;
 export type Seen = z.infer<typeof Seen>;
 
 export const statsPath = (): string => path.join(belugaHome(), 'stats.json');
 
-export const emptyStats = (now: number): StatsFile => ({ v: 1, startedAt: now, days: {}, prs: {}, hours: Array.from({ length: 168 }, () => 0), seen: {}, history: false, prsAt: {} });
+export const emptyStats = (now: number): StatsFile => ({ v: 1, startedAt: now, days: {}, prs: {}, hours: Array.from({ length: 168 }, () => 0), seen: {}, history: false, prsAt: {}, plan: [] });
 
 /** The file, or a new one starting now when there's none (or it can't be read). */
 export function loadStats(file: string, now: number): StatsFile {
@@ -59,5 +62,5 @@ export function snapshotOf(data: StatsFile, backfilling: boolean): StatsSnapshot
   const firstDay = Object.keys(data.days).sort()[0];
   const firstPr = Math.min(Infinity, ...Object.values(data.prs).map((p) => p.opened));
   const since = Math.min(firstDay ? dayStart(firstDay) : Infinity, firstPr);
-  return { days: data.days, prs: data.prs, hours: data.hours, since: Number.isFinite(since) ? since : 0, ...(backfilling ? { backfilling } : {}) };
+  return { days: data.days, prs: data.prs, hours: data.hours, plan: data.plan, since: Number.isFinite(since) ? since : 0, ...(backfilling ? { backfilling } : {}) };
 }

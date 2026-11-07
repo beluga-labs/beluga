@@ -3,7 +3,7 @@
  * and their tokens; prompts and agent time from a chat history; pull requests from GitHub.
  * Every function returns a new StatsFile.
  */
-import { type StatCounts, addToDay, dayStart, statDay } from '../../shared/stats.js';
+import { type PlanKind, type PlanWindow, type StatCounts, addToDay, dayStart, statDay } from '../../shared/stats.js';
 import { worktreeOrigin } from '../../workspaces/origin.js';
 import type { Project, Workspace } from '../../workspaces/types.js';
 import { tokensOf } from '../../workspaces/usage-days.js';
@@ -161,4 +161,43 @@ export function withPrs(file: StatsFile, project: Project, prs: readonly GhPr[],
     };
   }
   return { ...file, prs: next, prsAt: { ...file.prsAt, [project.root]: now } };
+}
+
+/** Plan windows kept (about three months of busy 5-hour sessions, and their weeks). */
+export const PLAN_KEPT = 600;
+/** A provider reports the same reset a little differently now and then. */
+const SAME_RESET_MS = 10 * 60_000;
+
+/** One window as a provider reports it now. */
+export interface PlanReading {
+  readonly runtime: string;
+  readonly kind: PlanKind;
+  readonly pct: number;
+  readonly resetsAt?: number;
+}
+
+/**
+ * What the plan usage says now: the open window of each kind goes up to its highest, one that reset
+ * is closed (and a new one opened), and one past its reset closes. A window never used isn't kept.
+ */
+export function observePlan(file: StatsFile, readings: readonly PlanReading[], now: number): StatsFile {
+  let plan: PlanWindow[] = file.plan;
+  const close = (w: PlanWindow): PlanWindow => ({ runtime: w.runtime, kind: w.kind, resetsAt: w.resetsAt, peak: w.peak });
+  // Past their reset: over, whatever was read.
+  if (plan.some((w) => w.open && w.resetsAt < now - 60_000)) plan = plan.map((w) => (w.open && w.resetsAt < now - 60_000 ? close(w) : w));
+  for (const r of readings) {
+    if (r.resetsAt === undefined || r.resetsAt < now) continue;
+    const i = plan.findIndex((w) => w.open && w.runtime === r.runtime && w.kind === r.kind);
+    const open = i >= 0 ? plan[i]! : undefined;
+    const pct = Math.max(0, Math.min(100, r.pct));
+    if (open && Math.abs(open.resetsAt - r.resetsAt) <= SAME_RESET_MS) {
+      if (pct > open.peak) plan = plan.map((w, j) => (j === i ? { ...w, peak: pct } : w));
+      continue;
+    }
+    if (open) plan = plan.map((w, j) => (j === i ? close(w) : w));
+    plan = [...plan, { runtime: r.runtime, kind: r.kind, resetsAt: r.resetsAt, peak: pct, open: true }];
+  }
+  if (plan === file.plan) return file;
+  const kept = plan.filter((w) => w.open || w.peak > 0).slice(-PLAN_KEPT);
+  return { ...file, plan: kept };
 }
