@@ -335,6 +335,8 @@ export class AgentHost {
       terminalDriving: (channel) => deps.terminalDriving?.(channel) ?? false,
       load: (channel) => void (channel.startsWith('ws:') && deps.workspaces?.ensureLoaded(channel.slice(3))),
       system: (channel, text, level) => deps.store.dispatch({ type: 'system', channel, level, text }),
+      askChain: (title, detail, channel) => this.pose('chain', title, detail, undefined, channel, { once: true }).then((answer) => answer !== 'no'),
+      cancelChain: (chainId, why) => this.cancelChain(chainId, why),
     });
     this.btw = new BtwDesk({
       store: deps.store,
@@ -828,6 +830,15 @@ export class AgentHost {
       return true;
     }
     return false;
+  }
+
+  /** Drop what waits from one chain of messages between chats, in all conversations. */
+  private cancelChain(chainId: string, why: string): void {
+    for (const lane of this.lanes.values()) {
+      const dropped = lane.waiting.filter((w) => w.body.origin?.chainId === chainId);
+      lane.waiting = lane.waiting.filter((w) => !dropped.includes(w));
+      for (const { from, body } of dropped) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    }
   }
 
   /** Drop one of your waiting requests before it starts. */

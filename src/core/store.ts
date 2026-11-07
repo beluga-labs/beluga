@@ -184,8 +184,11 @@ export interface ShellItem {
 
 export interface Approval {
   readonly id: string;
-  /** 'secret': your own Claude wants a .env file (answers: once, always for `project`, always). */
-  readonly kind: 'request' | 'tool' | 'secret';
+  /**
+   * 'secret': your own Claude wants a .env file (answers: once, always for `project`, always).
+   * 'chain': agents in your chats hit a limit on messages to each other (yes: Continue; no: Stop).
+   */
+  readonly kind: 'request' | 'tool' | 'secret' | 'chain';
   readonly title: string;
   readonly detail: string;
   /** A secret's project, by name: "Always for <project>" is offered. */

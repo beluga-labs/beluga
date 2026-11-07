@@ -484,6 +484,11 @@ async function mockSendChat(input: AgentRunInput, tools: NonNullable<AgentRunInp
   await sleep(300 * pace, input.signal);
   input.onEvent('tool', 'send_to_chat');
   try {
+    // A message that tells the next chat to send on (a chain, for the demo): nothing to wait for.
+    if (CHAT_SEND.test(text!)) {
+      await tools.send(ref!, text!, {});
+      return 'I passed that on.';
+    }
     const { message_id: id } = JSON.parse(await tools.send(ref!, text!, { reply: 'wanted' })) as { message_id: string };
     input.onEvent('tool', 'wait_for_chat');
     const { state, answer } = JSON.parse(await tools.wait(id, 60)) as { state: string; answer?: string };

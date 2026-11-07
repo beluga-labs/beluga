@@ -497,3 +497,84 @@ describe('what the agent reads (BLG-149)', () => {
     expect(summaryOf(record).label).toBe(`Sent a message to chat:${refOf(TARGET)} · queued`);
   });
 });
+
+describe('a chain at a limit asks you (BLG-150)', () => {
+  /** A chat at the hop limit, in its chain. */
+  const atLimit = (t: ReturnType<typeof setup>, channel = SOURCE, chainId = 'c1'): Promise<ChatTools> => t.working(channel, `r-${channel}`, { origin: { ref: refOf('ws:other'), title: 'x', agent: { runtime: 'claude', label: 'Claude' }, chainId, hop: 4, messageId: `m-${channel}` } });
+  const questions = (t: ReturnType<typeof setup>) => t.store.getState().approvals.filter((a) => a.kind === 'chain');
+
+  it('a ping-pong between two chats stops at hop 4 and asks you', async () => {
+    const t = setup();
+    const a = await t.working(SOURCE);
+    const hops: number[] = [];
+    let from = a;
+    let to = TARGET;
+    for (let i = 0; i < 4; i++) {
+      await from.send(refOf(to), `ping ${i}`, {});
+      await waitFor(() => t.finish.has(to) && t.tools.get(to)?.chain().hop === i + 1);
+      hops.push(t.tools.get(to)!.chain().hop);
+      from = t.tools.get(to)!;
+      t.finish.get(to === TARGET ? SOURCE : TARGET)?.('sent');
+      to = to === TARGET ? SOURCE : TARGET;
+      if (i < 3) await waitFor(() => !t.h.runningIn(to) || t.finish.has(to));
+    }
+    expect(hops).toEqual([1, 2, 3, 4]);
+    await expect(from.send(refOf(to), 'ping 4', {})).rejects.toThrow(/^hop_limit:.*End your turn|^hop_limit:.*end your turn/);
+    expect(questions(t)).toHaveLength(1);
+    expect(questions(t)[0]!.title).toMatch(/^Agents sent \d+ messages between these chats\.$/);
+    t.h.stopAgent();
+  });
+
+  it('one question per chain, however many sends it refuses; another chain asks for itself', async () => {
+    const t = setup();
+    const from = await atLimit(t);
+    for (let i = 0; i < 3; i++) await expect(from.send(refOf(TARGET), 'x', {})).rejects.toThrow(/^hop_limit:/);
+    expect(questions(t)).toHaveLength(1);
+    const other = await atLimit(t, 'ws:other', 'c2');
+    await expect(other.send(refOf(TARGET), 'x', {})).rejects.toThrow(/^hop_limit:/);
+    expect(questions(t)).toHaveLength(2);
+    t.h.stopAgent();
+  });
+
+  it('a limit that passes by itself asks nothing', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf(SOURCE), 'x', {})).rejects.toThrow(/^self:/);
+    for (let i = 0; i < MAX_PAIR_MESSAGES; i++) await from.send(refOf(TARGET), `m${i}`, {});
+    await expect(from.send(refOf(TARGET), 'more', {})).rejects.toThrow(/^pair_rate:/);
+    expect(questions(t)).toEqual([]);
+    t.h.stopAgent();
+  });
+
+  it('Continue: a new budget for this chain, and the refused chat hears it', async () => {
+    const t = setup();
+    const from = await atLimit(t);
+    await expect(from.send(refOf(TARGET), 'x', {})).rejects.toThrow(/^hop_limit:/);
+    t.h.answerApproval('yes', questions(t)[0]!.id);
+    await waitFor(() => questions(t).length === 0);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(parsed(await from.send(refOf(TARGET), 'again', {})).delivery).toBe('started');
+    await t.end(SOURCE);
+    // It ended its turn when it was refused: Beluga tells it, in the same chain.
+    await waitFor(() => t.runsIn(SOURCE).some((p) => p.includes('chose Continue')));
+    expect(t.tools.get(SOURCE)!.chain().chainId).toBe('c1');
+    t.h.stopAgent();
+  });
+
+  it('Stop: what waits from the chain goes, in all chats, and the chain sends no more', async () => {
+    const t = setup();
+    const from = await t.working(SOURCE, 'r1', { origin: { ref: refOf('ws:other'), title: 'x', agent: { runtime: 'claude', label: 'Claude' }, chainId: 'c1', hop: 3, messageId: 'm0' } });
+    await t.working(TARGET);
+    await t.say(TARGET, 'mine', 'from you');
+    const { message_id: id } = parsed(await from.send(refOf(TARGET), 'one', {}));
+    const stale = await t.working('ws:other', 'r2', { origin: { ref: refOf(SOURCE), title: 'x', agent: { runtime: 'claude', label: 'Claude' }, chainId: 'c1', hop: 4, messageId: 'm1' } });
+    await expect(stale.send(refOf(TARGET), 'x', {})).rejects.toThrow(/^hop_limit:/);
+    t.h.answerApproval('no', questions(t)[0]!.id);
+    await waitFor(() => t.card(id)?.status === 'error');
+    expect(t.card(id)?.text).toMatch(/stopped this chain/);
+    // Your own message stays in line.
+    expect(t.card('mine')?.status).toBe('queued');
+    await expect(from.send(refOf('ws:s1'), 'x', {})).rejects.toThrow(/^chain_stopped:/);
+    t.h.stopAgent();
+  });
+});

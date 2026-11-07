@@ -5,7 +5,7 @@ import type { ChatChain, ChatTools } from '../../agent/types.js';
 import type { AgentRef, BodyOf } from '../../protocol.js';
 import type { LogItem, Store } from '../store.js';
 import { chatAccessOf } from './access.js';
-import { type GuardRefusal, type GuardState, NO_SENDS, checkSend } from './guard.js';
+import { type GuardRefusal, type GuardState, NO_SENDS, checkSend, renewChain, sentSoFar } from './guard.js';
 import { resolveChat } from './resolve.js';
 import { REFUSAL_WORDS, refOf } from './transcript.js';
 
@@ -15,7 +15,7 @@ import { REFUSAL_WORDS, refOf } from './transcript.js';
  * message's request id is its message id, and its card says how it is.
  */
 
-export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'shared_chat' | 'mode_wider' | 'not_delivered' | 'requester_refused' | 'not_addressable' | 'view_only';
+export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'shared_chat' | 'mode_wider' | 'not_delivered' | 'chain_stopped' | 'requester_refused' | 'not_addressable' | 'view_only';
 
 /** How a message reached its chat. `readBy`: a steered message's answer comes from that run. */
 export interface Delivered {
@@ -38,6 +38,10 @@ export interface ChatSendDeps {
   readonly terminalDriving: (channel: string) => boolean;
   readonly load: (channel: string) => void;
   readonly system: (channel: string, text: string, level: 'info' | 'warn') => void;
+  /** Ask you about a chain at a limit, on Mac and phone: true for Continue. */
+  readonly askChain: (title: string, detail: string, channel: string) => Promise<boolean>;
+  /** Cancel what waits from this chain, in all chats. */
+  readonly cancelChain: (chainId: string, why: string) => void;
   readonly now?: () => number;
 }
 
@@ -56,6 +60,9 @@ interface SentMessage {
   lost?: string;
 }
 
+/** These stop a runaway chain: you are asked, one time per chain. The others pass by themselves. */
+const ASKS_YOU: ReadonlySet<GuardRefusal> = new Set(['hop_limit', 'chain_limit', 'target_rate']);
+const STOPPED_CHAIN = 'You stopped this chain of messages';
 const DEFAULT_WAIT_SEC = 120;
 const MAX_WAIT_SEC = 600;
 const MAX_KEPT = 500;
@@ -70,6 +77,7 @@ const WORDS: Readonly<Record<SendRefusal, string>> = {
   shared_chat: 'you can send only to chats on this computer for now.',
   mode_wider: 'this chat runs with less permission than that chat, so it cannot ask that chat to act. Tell your user.',
   not_delivered: 'that chat did not take the message.',
+  chain_stopped: 'your user stopped this chain. Do not send again. End your turn.',
   self: 'that is this chat. Do the work here.',
   hop_limit: 'too many agents in a row passed this on. Stop sending and end your turn.',
   chain_limit: 'this chain has sent too many messages. Stop sending and end your turn.',
@@ -78,9 +86,15 @@ const WORDS: Readonly<Record<SendRefusal, string>> = {
   queue_full: 'too many messages wait at that chat already.',
 };
 
+const BELUGA_AGENT: AgentRef = { runtime: 'beluga', label: 'Beluga' };
+
 export class ChatSendService {
   private guard: GuardState = NO_SENDS;
   private readonly sent = new Map<string, SentMessage>();
+  /** Chains with a question open now: one question per chain. */
+  private readonly asking = new Set<string>();
+  /** Chains you stopped: nothing more goes through them. */
+  private readonly stopped = new Set<string>();
 
   constructor(private readonly deps: ChatSendDeps) {}
 
@@ -121,8 +135,9 @@ export class ChatSendService {
     if (this.deps.permissionRank(run.channel) < this.deps.permissionRank(target)) throw refused('mode_wider');
 
     const chain = run.chain();
+    if (this.stopped.has(chain.chainId)) throw refused('chain_stopped');
     const asked = randomUUID();
-    const { state: guard, decision } = checkSend(this.guard, {
+    const ask = {
       requestId: opts.requestId ?? asked,
       messageId: asked,
       source: run.channel,
@@ -131,9 +146,13 @@ export class ChatSendService {
       hop: chain.hop,
       queued: this.deps.queuedFromChats(target),
       now: this.now(),
-    });
+    };
+    const { state: guard, decision } = checkSend(this.guard, ask);
     this.guard = guard;
-    if (!decision.allow) throw refused(decision.code, decision.retryAt);
+    if (!decision.allow) {
+      if (ASKS_YOU.has(decision.code)) this.askAboutChain(ask, decision.code, chat.title ?? parsed.channel);
+      throw refused(decision.code, decision.retryAt);
+    }
     if (decision.repeat) {
       const message = this.sent.get(decision.messageId);
       return receipt(decision.messageId, this.stateOf(decision.messageId), message?.delivered.delivery ?? 'queued');
@@ -169,6 +188,36 @@ export class ChatSendService {
     message.delivered = delivered;
     const note = opts.mode === 'steer' && delivered.delivery !== 'steered' ? 'That chat could not take a steer now, so the message went the normal way.' : undefined;
     return receipt(decision.messageId, this.stateOf(decision.messageId), delivered.delivery, note);
+  }
+
+  /** One question per chain, however many sends it refuses meanwhile. */
+  private askAboutChain(ask: Parameters<typeof checkSend>[1], code: GuardRefusal, targetTitle: string): void {
+    if (this.asking.has(ask.chainId)) return;
+    this.asking.add(ask.chainId);
+    const state = this.deps.store.getState();
+    const sourceTitle = resolveChat(state, { owner: this.deps.selfId(), channel: ask.source }).title ?? ask.source;
+    const count = sentSoFar(this.guard, ask, code);
+    const detail = `“${sourceTitle}” tried to send to “${targetTitle}”. Continue gives this chain a new budget. Stop cancels its queued messages.`;
+    void this.deps.askChain(`Agents sent ${count} messages between these chats.`, detail, ask.source).then((go) => {
+      this.asking.delete(ask.chainId);
+      if (go) return this.continueChain(ask);
+      this.stopped.add(ask.chainId);
+      if (this.stopped.size > MAX_KEPT) this.stopped.delete(this.stopped.values().next().value!);
+      this.deps.cancelChain(ask.chainId, STOPPED_CHAIN);
+    });
+  }
+
+  /** A new budget, and the chat that was refused hears it: it ended its turn as it was told. */
+  private continueChain(ask: Parameters<typeof checkSend>[1]): void {
+    this.guard = renewChain(this.guard, ask.chainId, ask.hop, this.now());
+    const self = this.deps.selfId();
+    const title = resolveChat(this.deps.store.getState(), { owner: self, channel: ask.source }).title ?? '';
+    const messageId = randomUUID();
+    const prompt = 'Your user chose Continue: this chain has a new budget. Go on with what you were sending, if you still need to.';
+    void this.deps.deliver(
+      { kind: 'agent_request', requestId: messageId, prompt, viaAgent: false, channel: ask.source, urgent: false, plan: false, origin: { ref: `${self}/${ask.source}`, title: title.slice(0, 200), agent: BELUGA_AGENT, chainId: ask.chainId, hop: ask.hop, messageId } },
+      false,
+    );
   }
 
   private async wait(run: SendingRun, messageId: string, timeoutSec = DEFAULT_WAIT_SEC): Promise<string> {

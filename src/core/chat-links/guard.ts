@@ -94,6 +94,12 @@ export function renewChain(state: GuardState, chainId: string, hop: number, now:
   };
 }
 
+/** How many messages this send's limit counted: the chain's, or for a target's limit, the target's. */
+export function sentSoFar(state: GuardState, ask: Pick<GuardAsk, 'chainId' | 'target' | 'now'>, code: GuardRefusal): number {
+  if (code === 'target_rate') return state.sent.filter((s) => s.target === ask.target && ask.now - s.at < TARGET_WINDOW_MS).length;
+  return state.chains[ask.chainId]?.messages ?? 0;
+}
+
 function refusalOf(state: GuardState, ask: GuardAsk): { readonly code: GuardRefusal; readonly retryAt?: number } | undefined {
   if (ask.source === ask.target) return { code: 'self' };
   const chain = state.chains[ask.chainId];

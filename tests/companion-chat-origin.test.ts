@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { phoneMay } from '../src/companion/coverage.js';
+import { waitingNeeds } from '../src/companion/needs-you.js';
 import { convTurns } from '../src/companion/views.js';
 import { COMPANION_PROTO, SINCE, TurnView } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -42,5 +44,19 @@ describe('a message from another chat on the phone', () => {
     const { turns } = convTurns(storeWith().getState(), { macName: 'Mac' } as never, 'ws:tgt');
     const { origin: _origin, ...older } = turns[0]!;
     expect(TurnView.safeParse(older).success).toBe(true);
+  });
+});
+
+describe('a chain at a limit on the phone', () => {
+  it('reaches it as a decision with Continue and Stop, and the answer goes through host.answerApproval', () => {
+    const store = storeWith();
+    store.dispatch({ type: 'approval_add', approval: { id: 'q1', kind: 'chain', title: 'Agents sent 4 messages between these chats.', detail: 'x', channel: 'ws:src', askedAt: 1, timeoutMs: 60_000, once: true } });
+    const need = waitingNeeds(store.getState()).find((n) => n.id === 'approval:q1')!;
+    expect(need).toMatchObject({ kind: 'decision', title: 'Agents sent 4 messages between these chats.' });
+    expect(need.actions).toEqual([
+      { label: 'Continue', tone: 'main', method: 'host.answerApproval', args: ['yes', 'q1'] },
+      { label: 'Stop', tone: 'danger', method: 'host.answerApproval', args: ['no', 'q1'] },
+    ]);
+    expect(phoneMay('host.answerApproval')).toBe(true);
   });
 });
