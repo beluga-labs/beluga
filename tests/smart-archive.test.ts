@@ -90,7 +90,11 @@ describe('a smart archive', () => {
     put(path.join(wt, '.DS_Store'), 'finder');
     symlinkSync('src/app.ts', path.join(wt, 'link.ts'));
   });
-  afterEach(() => rmSync(base, { recursive: true, force: true }));
+  // Archiving deletes the folder it set aside in the background: let that finish first, or the two deletes race (ENOTEMPTY).
+  afterEach(async () => {
+    await deletesSettled();
+    rmSync(base, { recursive: true, force: true });
+  });
 
   it('says what goes and what stays before doing anything', async () => {
     const plan = await planArchive(wt);

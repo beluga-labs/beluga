@@ -8,6 +8,7 @@ import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
 import { branchState } from '../src/core/branch-state.js';
 import type { Workspace } from '../src/workspaces/types.js';
+import { deletesSettled } from '../src/workspaces/others.js';
 
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', ...args], { cwd, stdio: 'pipe' }).toString();
 const commitIn = (dir: string, file: string, msg: string) => {
@@ -37,7 +38,11 @@ beforeEach(async () => {
   await mgr.refresh();
 });
 
-afterEach(() => rmSync(base, { recursive: true, force: true }));
+// Archiving deletes the folder it set aside in the background: let that finish first, or the two deletes race.
+afterEach(async () => {
+  await deletesSettled();
+  rmSync(base, { recursive: true, force: true });
+});
 
 const project = () => mgr.list.find((p) => p.root)!;
 
