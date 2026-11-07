@@ -169,6 +169,22 @@ export const FocusBody = z.object({
   actor: z.enum(['human', 'agent']),
 });
 
+/**
+ * BLG-146: where a message from another chat came from, and its chain. Beluga writes it, never an
+ * agent. A message without it is from a person, and starts a new chain.
+ */
+export const ChatOrigin = z.object({
+  /** The source chat, as `<owner>/<channel>`. */
+  ref: z.string().min(1).max(400),
+  title: z.string().max(200),
+  agent: AgentRef,
+  chainId: shortStr,
+  /** How many sends led to this message. */
+  hop: z.number().int().min(0).max(1000),
+  messageId: shortStr,
+});
+export type ChatOrigin = z.infer<typeof ChatOrigin>;
+
 export const AgentRequestBody = z.object({
   kind: z.literal('agent_request'),
   requestId: shortStr,
@@ -188,6 +204,8 @@ export const AgentRequestBody = z.object({
    * there. An older Mac drops it and its default answers; a malformed one is dropped alone.
    */
   agent: AgentRef.optional().catch(undefined),
+  /** A message from another chat (see ChatOrigin). An older Mac drops it; a malformed one is dropped alone. */
+  origin: ChatOrigin.optional().catch(undefined),
 });
 
 export const AgentEventKind = z.enum([

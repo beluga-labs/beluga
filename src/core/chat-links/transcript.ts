@@ -1,4 +1,4 @@
-import type { ChatTools } from '../../agent/types.js';
+import type { ChatChain, ChatTools } from '../../agent/types.js';
 import { agentLabel } from '../../shared/agent-label.js';
 import { STEERED_IN } from '../../shared/claude-notices.js';
 import { chatLink, chatLinkOf, formatChatRef, parseChatRef } from '../../shared/chat-ref.js';
@@ -17,6 +17,8 @@ export interface ChatToolsDeps {
   readonly state: () => DomainState;
   /** Who asked for the run: chatAccessOf decides for this person. */
   readonly requester: string;
+  /** The chain of the run, from its closure. No tool argument reaches it. */
+  readonly chain: () => ChatChain;
   /** Load the saved history of one of your chats, if it isn't in the log yet. */
   readonly load?: (channel: string) => void;
 }
@@ -51,6 +53,7 @@ const REFUSAL_WORDS: Readonly<Record<ChatRefusal, string>> = {
 
 export function chatToolsOf(deps: ChatToolsDeps): ChatTools {
   return {
+    chain: deps.chain,
     list: (opts) => listChats(deps, opts),
     read: (ref, opts) => readChat(deps, ref, opts),
   };

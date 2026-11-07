@@ -160,6 +160,15 @@ interface Waiting {
   compact?: boolean;
 }
 
+/**
+ * The chain of one run. It is an object of its own so that the run's tools read their own run's
+ * chain, and a run left behind never reads the chain of the run after it.
+ */
+interface RunChain {
+  chainId: string;
+  hop: number;
+}
+
 /** The queue for one conversation (the room, or a workspace). */
 interface Lane {
   readonly channel: string;
@@ -188,6 +197,8 @@ interface Lane {
    * you go on (Continue, or any message of yours) or Beluga resumes it (see shared/run-failure.ts).
    */
   held?: boolean;
+  /** The chain of the current run, or of the last one (see RunChain). */
+  chain?: RunChain;
   /** The slot wait its first message's card shows now ("requestId running/limit"), so it's said once (see pump). */
   slotNoted?: string;
 }
@@ -241,6 +252,11 @@ function withoutAskOnly<T extends { readonly askOnly?: unknown }>(place: T): T {
   return rest as T;
 }
 
+
+/** A message from another chat sets the chain from its origin. A message from a person starts a new one. */
+function chainOf(body: BodyOf<'agent_request'>): RunChain {
+  return body.origin ? { chainId: body.origin.chainId, hop: body.origin.hop } : { chainId: randomUUID(), hop: 0 };
+}
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -718,6 +734,7 @@ export class AgentHost {
     if (steer?.interrupt && note) {
       const run = lane.current;
       const followUp = this.followUp(lane, item);
+      this.raiseHop(lane, body);
       // Sent, not read yet: Claude's step is being stopped for it (its turn starts once it is).
       emit('text', STOPPING_FOR);
       const interrupting: Promise<void> = steer
@@ -823,7 +840,10 @@ export class AgentHost {
     for (const opts of targets) if (!this.send(body, opts) && final) this.outbox = [...this.outbox, { body, opts }].slice(-50);
   }
 
-  async onAgentRequest(from: string, body: BodyOf<'agent_request'>): Promise<void> {
+  async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
+    // Only this computer's own sends carry a chain: nobody else sets one here.
+    const { origin, ...rest } = request;
+    const body: BodyOf<'agent_request'> = origin && from === this.selfId ? request : rest;
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -920,7 +940,11 @@ export class AgentHost {
       },
       onError: (reason) => emit('error', reason),
     });
-    if (sent) emit('started');
+    if (sent) {
+      // A turn of its own, in the run that is already open: its tools read the same chain object.
+      if (lane.chain) Object.assign(lane.chain, chainOf(body));
+      emit('started');
+    }
     return sent;
   }
 
@@ -980,9 +1004,15 @@ export class AgentHost {
   private steerIn(lane: Lane, item: Waiting, steer: Steer): boolean {
     const followUp = this.followUp(lane, item);
     if (!steer(followUp)) return false;
+    this.raiseHop(lane, item.body);
     (lane.steered ??= new Map()).set(item.body.requestId, followUp);
     this.emitAgent(item.body.requestId, item.from, 'text', READS_AFTER_STEP, item.body.channel);
     return true;
+  }
+
+  /** A message steered into a run: the run keeps its chain, at the higher of the two hops. */
+  private raiseHop(lane: Lane, body: BodyOf<'agent_request'>): void {
+    if (lane.chain) lane.chain.hop = Math.max(lane.chain.hop, body.origin?.hop ?? 0);
   }
 
   /**
@@ -1161,6 +1191,8 @@ export class AgentHost {
     lane.current = controller;
     lane.currentRequest = { id: body.requestId, controller };
     lane.runFrom = from;
+    const chain = chainOf(body);
+    lane.chain = chain;
     const requesterName = peerName(this.store.getState(), from);
     const root = body.project && body.channel === 'room' ? this.projectRoot(body.project) : undefined;
     // A friend's request in your project gets a fresh conversation in its main folder: questions only.
@@ -1203,7 +1235,7 @@ export class AgentHost {
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
       // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
-      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))) }) : undefined;
+      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, chain: () => ({ ...chain }), load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))) }) : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main

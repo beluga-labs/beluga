@@ -582,7 +582,15 @@ export interface CallNotesTools {
 }
 
 /** Other chats, as a run finds and reads them (core/chat-links/transcript.ts). A refusal throws, and its message starts with the refusal code. */
+/** The chain a run is in. Beluga sets it, and no tool argument can change it (core/agent-host.ts). */
+export interface ChatChain {
+  readonly chainId: string;
+  readonly hop: number;
+}
+
 export interface ChatTools {
+  /** The chain of this run now. */
+  chain(): ChatChain;
   /** The chats this run may read, newest activity first. */
   list(opts: { readonly query?: string; readonly state?: 'idle' | 'working' | 'archived'; readonly limit?: number }): string;
   /** A page of one chat, oldest first. `after` is the `next` position of the page before. */
