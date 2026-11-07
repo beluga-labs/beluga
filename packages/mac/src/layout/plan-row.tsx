@@ -57,6 +57,7 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
         className={signalClass(signal, selected)}
         aria-label={title}
         data-plan-row={plan.id}
+        data-chat-row={plan.home}
         data-signal-row={signal.level}
         icon={<Icon name="flag" size={14} />}
         label={<span className={nameClass(signal)}>{title}</span>}

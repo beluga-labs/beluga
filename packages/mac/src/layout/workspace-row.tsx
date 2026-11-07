@@ -127,6 +127,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         className={signalClass(signal, selected)}
         data-signal-row={signal.level}
         data-kind={ws.kind}
+        data-chat-row={ws.kind === 'main' ? undefined : `ws:${ws.id}`}
         // Named for itself alone (so it's found by name whatever it waits on); the tooltip says the rest.
         aria-label={ws.name}
         aria-expanded={fold ? fold.open : undefined}

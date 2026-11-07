@@ -3,7 +3,7 @@ import { chatsToMention } from '../src/core/chat-links/resolve.js';
 import { parseInput } from '../src/core/mentions.js';
 import type { DomainState } from '../src/core/store.js';
 import type { FsEntry, PeerInfo } from '../src/protocol.js';
-import { chatLinksToMentions, chatMention, chatMentionEndingAt, parseChatRef } from '../src/shared/chat-ref.js';
+import { chatLinksToMentions, chatMention, chatMentionEndingAt, parseChatRef, withChatWords } from '../src/shared/chat-ref.js';
 import { linkMentions, parseMentionHref, resolveMention, splitMentions, type MentionWorld } from '../packages/mac/src/chat/mentions.js';
 import { mentionDir, suggest, typedMention } from '../src/ui/suggest.js';
 
@@ -98,6 +98,14 @@ describe('a chat in the words', () => {
     expect(chatMentionEndingAt(text, end)).toEqual({ start: 2, end });
     expect(chatMentionEndingAt(text, end + 1)).toBeUndefined();
     expect(chatMentionEndingAt(text, 3)).toBeUndefined();
+  });
+
+  it('goes in a draft apart from the words around it', () => {
+    expect(withChatWords('', 0, '@A')).toEqual({ text: '@A ', caret: 3 });
+    expect(withChatWords('see', 3, '@A')).toEqual({ text: 'see @A ', caret: 7 });
+    expect(withChatWords('see ', 4, '@A')).toEqual({ text: 'see @A ', caret: 7 });
+    expect(withChatWords('see this', 3, '@A')).toEqual({ text: 'see @A this', caret: 6 });
+    expect(withChatWords('see this', 0, '@A')).toEqual({ text: '@A see this', caret: 3 });
   });
 
   it('at the start of a message is no person to ask', () => {

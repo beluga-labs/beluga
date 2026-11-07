@@ -1,0 +1,24 @@
+/* What follows the pointer while a chat's row is dragged: its title. */
+.ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  max-width: 260px;
+  padding: 3px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  color: var(--text);
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px var(--hairline);
+  border-radius: 6px;
+  will-change: transform;
+}
+
+/* The row or the message box a drop would land on. */
+.over.over {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent);
+}

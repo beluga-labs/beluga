@@ -96,6 +96,14 @@ export function chatMention(title: string, ref: ChatRef): string | undefined {
   return `@${clean || 'Chat'} (chat: ${text})`;
 }
 
+/** A draft with chat words put in at `caret`, standing apart from what's around them. */
+export function withChatWords(text: string, caret: number, words: string): { readonly text: string; readonly caret: number } {
+  const before = text.slice(0, caret);
+  const after = text.slice(caret);
+  const upTo = `${before}${before && !/\s$/.test(before) ? ' ' : ''}${words}${/^\s/.test(after) ? '' : ' '}`;
+  return { text: `${upTo}${after}`, caret: upTo.length };
+}
+
 /** Each chat the words name, in order. A ref that isn't a chat's stays words. */
 export function chatMentionsIn(text: string): ChatMention[] {
   return [...text.matchAll(CHAT_MENTION)].flatMap((m) => {

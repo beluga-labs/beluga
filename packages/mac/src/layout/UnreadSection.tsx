@@ -56,6 +56,12 @@ function whereOf(e: UnreadEntry, ownerName: (id: string) => string): string {
   }
 }
 
+/** The chat a row can be dragged as, and takes a drop as (others have no address of yours). */
+function chatRowOf(e: UnreadEntry): string | undefined {
+  if (e.kind === 'plan') return e.plan.home;
+  return e.kind === 'workspace' && e.ws.kind !== 'main' ? `ws:${e.ws.id}` : undefined;
+}
+
 /** A row kept while you're in it: as it is now (read, it's plain). */
 function nowOf(state: Parameters<typeof planSignal>[0], e: UnreadEntry): Signal {
   if (e.kind === 'workspace') return workspaceSignal(state, e.ws);
@@ -125,6 +131,7 @@ export function UnreadSection() {
               selected={selected}
               className={signalClass(e.signal, selected)}
               data-signal-row={e.signal.level}
+              data-chat-row={chatRowOf(e)}
               // With what's waiting, so it reads (and is found) apart from the same conversation further down.
               aria-label={`${e.name} · ${e.signal.tip || 'read'}`}
               icon={

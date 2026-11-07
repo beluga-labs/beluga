@@ -7,7 +7,7 @@ import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
-import { chatChipOf, chatLinksToMentions, chatMentionEndingAt } from '@beluga/shared/chat-ref.js';
+import { chatChipOf, chatLinksToMentions, chatMentionEndingAt, isAddressableChannel, withChatWords } from '@beluga/shared/chat-ref.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
@@ -37,6 +37,7 @@ import { MentionHighlighter } from './MentionHighlighter.js';
 import { useSuggestions } from './Suggestions.js';
 import { useChatMentions, useMentionWorld, worktreeOf } from './Mention.js';
 import { useSkills } from './use-skills.js';
+import { caretAfterDraw, useDraftChips } from './draft-chips.js';
 import { MentionedChats, MentionedTasks } from './MentionedTasks.js';
 import { DictationStrip, MicButton } from './Dictation.js';
 import { dictatingInto, useDictation, useDictationTarget } from '../lib/dictation.js';
@@ -329,6 +330,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     }
     boxOf = draftKey;
   }, [draftKey]);
+  // A chat's row dropped here: its chip at the cursor. It waits in the words: it never sends.
+  useDraftChips(draftKey, (words) => {
+    const text = ui.get().buffer;
+    const at = ref.current?.value === text ? ref.current.selectionStart : text.length;
+    const next = withChatWords(text, at, words);
+    ui.patch({ buffer: next.text, cursor: next.caret });
+    caretAfterDraw(ref, next.caret);
+  });
   useEffect(() => {
     const text = ui.get().buffer;
     if (text) drafts.set(draftKey, text);
@@ -551,6 +560,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
         className={cx(s.box, burning ? (prefs.maxFire.border ? m.max : m.maxPlain) : effects && m.fxOnly, pending && s.asking, readOnly && s.readOnly, att.dropping && s.dropping, (plan || tasksMode || aside) && s.planning)}
         data-plan={plan || tasksMode || aside || undefined}
         data-mode={aside ? 'btw' : mode}
+        data-chat-box={!shared && (isAddressableChannel(channel) || state.view.kind === 'draft' || state.view.kind === 'draft_worktree') ? draftKey : undefined}
         {...att.dropProps}
       >
         {effects ? <MaxFire box={boxRef} input={ref} /> : null}
