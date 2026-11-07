@@ -133,6 +133,8 @@ export interface AgentRunInput {
   readonly dashboardTools?: DashboardTools;
   /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
   readonly callNotesTools?: CallNotesTools;
+  /** Your own runs, with prefs.chatLinks on: find and read other chats (core/chat-links); never a friend's or a guest's. */
+  readonly chatTools?: ChatTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
   readonly dialogue?: import('./dialogue-tools.js').DialogueTurnTools;
 }
@@ -577,4 +579,12 @@ export interface CallNotesTools {
   search(query: string, call?: string, limit?: number): string;
   /** A page of one call, from a turn (`from`) or a time into it (`at`: "12:30", or minutes). */
   read(call: string, opts?: { readonly from?: number; readonly at?: string | number; readonly limit?: number }): string;
+}
+
+/** Other chats, as a run finds and reads them (core/chat-links/transcript.ts). A refusal throws, and its message starts with the refusal code. */
+export interface ChatTools {
+  /** The chats this run may read, newest activity first. */
+  list(opts: { readonly query?: string; readonly state?: 'idle' | 'working' | 'archived'; readonly limit?: number }): string;
+  /** A page of one chat, oldest first. `after` is the `next` position of the page before. */
+  read(ref: string, opts: { readonly view?: 'messages' | 'activity'; readonly after?: string; readonly limit?: number }): string;
 }

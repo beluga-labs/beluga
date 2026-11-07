@@ -160,7 +160,7 @@ export async function readResultFiles(paths: readonly string[], opts: { roots: r
 }
 
 /** Text that can't close the block it's put in. */
-const fenced = (text: string): string => text.replace(/<\/?task_(?:result|question)/gi, (m) => m.replace('<', '‹'));
+export const fenced = (text: string): string => text.replace(/<\/?(?:task_(?:result|question)|chat_data)/gi, (m) => m.replace('<', '‹'));
 
 /**
  * A result as your Claude sees it: clearly marked as data from that person's Mac, to be used
