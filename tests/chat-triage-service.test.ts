@@ -687,6 +687,42 @@ describe('auto-settle', () => {
       expect(store.getState().triage[CH]?.settled).toBeUndefined();
     });
 
+    it('a worktree with no known time counts from when the setting turned on, not from 0', () => {
+      const store = makeStore(false, [project(ws('w1', { createdAt: 0 }))]);
+      start(store);
+      store.dispatch({ type: 'prefs', prefs: { chatCategories: true } });
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      expect(store.getState().triage[CH]?.lastAt).toBe(NOW);
+      pass(2);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      pass();
+      expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+
+    it('a worktree found while the setting is on counts from when it was first seen', () => {
+      const store = makeStore();
+      start(store);
+      vi.setSystemTime(NOW + DAY);
+      store.dispatch({ type: 'projects', projects: [project(ws('w1'), ws('found', { createdAt: 0 }))] });
+      expect(store.getState().triage['ws:found']?.lastAt).toBe(NOW + DAY);
+      expect(store.getState().triage['ws:found']?.settled).toBeUndefined();
+    });
+
+    it('a saved lastAt of 0 is not a time: it is seeded again', () => {
+      writeFileSync(file, JSON.stringify({ chats: { [CH]: { lastAt: 0 } } }));
+      const store = makeStore(true, [project(ws('w1', { createdAt: 0 }))]);
+      start(store);
+      expect(store.getState().triage[CH]?.settled).toBeUndefined();
+      expect(store.getState().triage[CH]?.lastAt).toBe(NOW);
+    });
+
+    it('a chat with a real old time still settles at the first enable', () => {
+      const store = makeStore(false, [project(ws('w1', { createdAt: NOW - 10 * DAY }))]);
+      start(store);
+      store.dispatch({ type: 'prefs', prefs: { chatCategories: true } });
+      expect(store.getState().triage[CH]?.settled?.why).toBe('idle');
+    });
+
     it('0 days means never', () => {
       const { store } = idleStore();
       store.dispatch({ type: 'prefs', prefs: { settleIdleDays: 0 } });
