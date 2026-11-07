@@ -99,7 +99,8 @@ export const PrefsPatch = z
     friendWorktrees: z.enum(['ask', 'off']),
     chatClaude: z.enum(['everyone', 'trusted', 'off']),
     shareUsage: z.enum(['trusted', 'everyone', 'off']),
-    shell: z.string().max(200).optional(),
+    // null: back to the login shell (JSON can't carry undefined, so "unset" travels as null).
+    shell: z.string().max(200).nullable().optional(),
     shellLogin: bool,
     shellArgs: z.array(z.string().max(200)).max(20),
     claudeArgs: agentArgs('claude'),
