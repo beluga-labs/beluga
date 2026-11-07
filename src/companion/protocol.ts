@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 41 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 42 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -109,8 +109,11 @@ export const COMPANION_PROTO = { major: 1, minor: 41 } as const;
  * or taking yours off (`network.messages.react`); the same on the room's and workspaces' chat turns
  * (`TurnView.reactions` / `reactable`, `ConvView.quick`, `session.react`). An older Mac leaves them
  * out: no reactions.
+ * 1.42 (BLG-97): a chat's schedules (`ConvView.schedules`; `schedule.runNow` and
+ * `schedule.setEnabled` on your own) and its run lines (`TurnView.scheduled`). An older Mac leaves
+ * them out: no section.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, schedules: 42 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -387,6 +390,20 @@ export const ChatReactionView = z.object({
 });
 export type ChatReactionView = z.infer<typeof ChatReactionView>;
 
+/** 1.42: one schedule of a chat, in the daemon's words: the row of the conversation's Schedules. */
+export const ScheduleRowView = z.object({
+  id,
+  title: z.string().max(80),
+  prompt: z.string().max(500),
+  sentence: z.string().max(200),
+  status: z.enum(['never', 'waiting', 'running', 'ok', 'failed', 'interrupted', 'paused']),
+  enabled: z.boolean(),
+  next: ts.optional(),
+  /** Why it failed or was paused. */
+  problem: z.string().max(600).optional(),
+});
+export type ScheduleRowView = z.infer<typeof ScheduleRowView>;
+
 export const TurnView = z.object({
   id,
   who: z.enum(['you', 'claude', 'friend', 'system']),
@@ -416,6 +433,8 @@ export const TurnView = z.object({
    * files go back too) or a chat. Only a message whose words show here whole (no code in it).
    */
   edit: z.object({ ws: id, kind: z.enum(['worktree', 'chat']) }).optional(),
+  /** 1.42: a schedule's run began here, or its failures paused it: drawn as a quiet line (`extras`: what the run stands for, the same words as the Mac's). */
+  scheduled: z.object({ title: z.string().max(80), prompt: z.string().max(500), due: ts, extras: z.array(z.string().max(100)).max(4), paused: z.boolean().optional() }).optional(),
   /** 1.41 (BLG-702): a person's message in the room's or a workspace's chat: its emoji reactions (`session.react` changes yours). */
   reactions: z.array(ChatReactionView).max(20).optional(),
   /** 1.41: it takes reactions (a message of the room's or a workspace's chat, not an earlier line). */
@@ -612,6 +631,8 @@ export const ConvView = z.object({
   terminal: z.object({ label: z.string().max(80) }).optional(),
   /** 1.41 (BLG-702): your quick reactions, for a reactable turn's long-press (the room's or a workspace's chat). */
   quick: z.array(z.string().min(1).max(32)).max(8).optional(),
+  /** 1.42: what wakes this chat by itself, when it has any. `owner`: someone shared it with you, so it runs on their computer and you only read. */
+  schedules: z.object({ items: z.array(ScheduleRowView).max(10), owner: z.string().max(100).optional() }).optional(),
 });
 export type ConvView = z.infer<typeof ConvView>;
 

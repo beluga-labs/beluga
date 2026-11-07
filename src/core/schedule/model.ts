@@ -1,6 +1,7 @@
 import { COMPACT_INSTRUCTIONS } from '../../shared/context-usage.js';
 import { dueNow, LATE_MS, nextRunAt } from '../../shared/schedule/clock.js';
 import { scheduleWords, type ScheduleTrigger } from '../../shared/schedule/trigger.js';
+import type { GuestSchedule } from '../../protocol.js';
 import type { Schedule, ScheduleInput, SchedulePatch, ScheduleWhen } from './schema.js';
 
 /**
@@ -17,6 +18,8 @@ export const MAX_COMPACT_FAILURES = 2;
 export const MAX_BLIND_RUNS = 50;
 
 export type ScheduleStatus = 'never' | 'waiting' | 'running' | 'ok' | 'failed' | 'interrupted';
+/** What a row says of a schedule: its status, or paused. */
+export type RowStatus = ScheduleStatus | 'paused';
 
 /** A schedule as screens see it. */
 export type ScheduleView = Schedule & { readonly status: ScheduleStatus; readonly next?: number };
@@ -205,6 +208,37 @@ export function scheduleStatus(schedule: Schedule): ScheduleStatus {
   if (schedule.running) return 'running';
   if (schedule.pending) return 'waiting';
   return schedule.last ?? 'never';
+}
+
+/** What a row says. A run under way shows first; a once schedule that ran is off without being paused. */
+export function rowStatus(s: ScheduleView): RowStatus {
+  if (s.status === 'running') return 'running';
+  if (!s.enabled && (s.pausedReason || s.when.kind !== 'once' || !s.last)) return 'paused';
+  return s.status;
+}
+
+/** The reason a row shows under its line: why it failed or was paused. Your own pause needs no reason. */
+export function scheduleProblem(s: Pick<ScheduleView, 'pausedReason' | 'last' | 'lastError'>): string | undefined {
+  const reason = s.pausedReason && s.pausedReason !== 'Paused by you' ? s.pausedReason : undefined;
+  const error = s.last === 'failed' ? s.lastError : undefined;
+  if (reason && error) return `${reason}. The last one: ${error}`;
+  return reason ?? error;
+}
+
+/** What goes to someone who follows the chat. Nothing of the run itself, and no reason that speaks to the owner ("Paused by you"). */
+export function guestSchedule(s: ScheduleView, opts: ClockOpts = {}): GuestSchedule {
+  const sentence = whenInSentence(s.when, opts);
+  const reason = s.pausedReason && !s.pausedReason.startsWith('Paused by you') ? s.pausedReason.slice(0, 500) : undefined;
+  return {
+    id: s.id,
+    title: s.title,
+    prompt: s.prompt,
+    sentence: sentence.charAt(0).toUpperCase() + sentence.slice(1),
+    status: rowStatus(s),
+    enabled: s.enabled,
+    ...(s.next !== undefined ? { next: s.next } : {}),
+    ...(reason ? { pausedReason: reason } : {}),
+  };
 }
 
 /** When it runs, in words. */

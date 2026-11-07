@@ -1184,6 +1184,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'shared_remove':
     case 'member_set':
     case 'roster':
+    case 'shared_schedules':
     case 'plan_mode':
     case 'peer_gone':
     case 'shared_clear':

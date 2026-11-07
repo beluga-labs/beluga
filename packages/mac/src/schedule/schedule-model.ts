@@ -1,19 +1,19 @@
 import { findWorkspace } from '../../../../src/ui/workspace-models.js';
-import { runExtras, type ScheduleStatus, type ScheduleView } from '../../../../src/core/schedule/model.js';
+import { rowStatus, runExtras, scheduleProblem, type RowStatus, type ScheduleView } from '../../../../src/core/schedule/model.js';
 import type { Schedule, ScheduleInput, ScheduleWhen } from '../../../../src/core/schedule/schema.js';
 import type { AppState } from '../../../../src/core/store.js';
 import { ASSISTANT_TITLE, activeAssistantChannel, assistantChannel, isAssistant } from '../../../../src/shared/assistant.js';
 import { type ScheduleTrigger, scheduleWords } from '../../../../src/shared/schedule/trigger.js';
+import { nextIn, sentLine } from '../../../../src/shared/schedule/words.js';
 import { DEFAULT_SCHEDULE } from '../components/schedule-model.js';
 
 /** Schedules in a chat, their plain parts: the words a row shows, its dot and the editor's form. Pure (tests/schedule-labels.test.ts). */
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
+const HOUR = 60 * 60_000;
 /** The sidebar has one row for all of Your Mac's chats. */
 export const MAC_CHATS = 'mac';
 
-export type RowStatus = ScheduleStatus | 'paused';
+export { nextIn, rowStatus, scheduleProblem, sentLine, type RowStatus };
 export type DotTone = 'ok' | 'warn' | 'error' | 'info' | 'claude' | 'muted';
 export type WhenKind = ScheduleWhen['kind'];
 
@@ -85,13 +85,6 @@ export function chatMarks(items: readonly ScheduleView[]): Readonly<Record<strin
   return map;
 }
 
-/** What a row's dot says. A run under way shows first; a once schedule that ran is off without being paused. */
-export function rowStatus(s: ScheduleView): RowStatus {
-  if (s.status === 'running') return 'running';
-  if (!s.enabled && (s.pausedReason || s.when.kind !== 'once' || !s.last)) return 'paused';
-  return s.status;
-}
-
 export function statusTone(status: RowStatus): DotTone {
   switch (status) {
     case 'never':
@@ -136,17 +129,6 @@ export function whenLabel(when: ScheduleWhen, words: TimeWords = SYSTEM_TIME): s
   return scheduleWords({ ...when, missed: 'catch-up' }, (at) => words.time(todayAt(at)));
 }
 
-/** How long until the next run: "next in 3 h". */
-export function nextIn(next: number, now: number): string {
-  const minutes = Math.ceil((next - now) / MINUTE);
-  if (minutes <= 0) return 'due now';
-  if (minutes === 1) return 'next in 1 min';
-  if (minutes < 60) return `next in ${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `next in ${hours} h`;
-  return `next in ${Math.round(hours / 24)} days`;
-}
-
 /** The words on the run line beside its title: "due 21:00". */
 export const dueWords = (due: number, words: TimeWords = SYSTEM_TIME): string => `due ${words.time(due)}`;
 
@@ -160,14 +142,6 @@ export function scheduleLine(s: ScheduleView, now: number, words: TimeWords = SY
   const status = rowStatus(s);
   const state = status === 'running' ? 'running now' : status === 'paused' ? 'paused' : s.pending ? 'waiting for the chat' : s.next !== undefined ? nextIn(s.next, now) : s.enabled ? '' : 'done';
   return state ? `${whenLabel(s.when, words)} · ${state}` : whenLabel(s.when, words);
-}
-
-/** The reason a row shows under its line: why it failed or was paused. Your own pause needs no reason. */
-export function scheduleProblem(s: ScheduleView): string | undefined {
-  const reason = s.pausedReason && s.pausedReason !== 'Paused by you' ? s.pausedReason : undefined;
-  const error = s.last === 'failed' ? s.lastError : undefined;
-  if (reason && error) return `${reason}. The last one: ${error}`;
-  return reason ?? error;
 }
 
 /** Where a schedule's chat is, in words: its worktree or chat's name, or Your Mac's. */

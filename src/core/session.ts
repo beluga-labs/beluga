@@ -179,6 +179,7 @@ const GUARDED = new Set([
   'ws_invite',
   'ws_leave',
   'ws_roster',
+  'ws_schedules',
   'share_offer',
   'shell_request',
   'shell_result',
@@ -1160,6 +1161,7 @@ export class Session {
       store.dispatch({ type: 'peers', peers });
       this.people.onPeers(before, peers);
       this.invites.onPeers(peers);
+      this.sharing.peersBack(peers.filter((n) => !before.some((p) => p.peerId === n.peerId)).map((p) => p.peerId));
       const gone = before.filter((p) => !peers.some((n) => n.peerId === p.peerId)).map((p) => p.peerId);
       if (gone.length) {
         // A dropped connection isn't leaving: workspace seats survive, only open questions end.
@@ -1262,6 +1264,8 @@ export class Session {
         return this.peerRun.onTrustGrant(from, body);
       case 'ws_roster':
         return this.sharing.onRoster(from, body);
+      case 'ws_schedules':
+        return this.sharing.onSchedules(from, body);
       case 'ws_leave':
         return this.sharing.onLeave(from, body);
       case 'chat': {

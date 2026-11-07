@@ -227,8 +227,9 @@ describe('/schedule', () => {
 });
 
 describe('the surfaces', () => {
-  it('classifies every method for the phone as Mac only for now', () => {
-    for (const m of ['schedule.list', 'schedule.create', 'schedule.update', 'schedule.setEnabled', 'schedule.runNow', 'schedule.remove'] as const) expect(PHONE[m]).toBe('mac');
+  it('classifies what the phone may do, and the rest as Mac only', () => {
+    for (const m of ['schedule.list', 'schedule.setEnabled', 'schedule.runNow'] as const) expect(PHONE[m]).toBe('phone');
+    for (const m of ['schedule.create', 'schedule.update', 'schedule.remove'] as const) expect(PHONE[m]).toBe('mac');
   });
 
   it('suggests the forms of /schedule', () => {

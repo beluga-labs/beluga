@@ -46,13 +46,18 @@ export function launchSchedules(host: SchedulesHost): () => void {
     wait: (requestId) => claude.wait(requestId),
     cancel: (requestId, note) => claude.cancel(requestId, note),
     notify: (event) => session.notifier.notify(event),
-    publish: (items) => void store.dispatch({ type: 'schedules', items }),
+    publish: (items) => {
+      store.dispatch({ type: 'schedules', items });
+      session.sharing.schedulesChanged();
+    },
     fill: (channel) => session.host.contextFill(channel),
     compact: (channel, instructions) => session.host.compactNow(channel, instructions),
     forget: (channel) => session.startFresh(channel),
     transcript: (channel) => transcriptOf(store.getState().log, channel),
   });
   attachSchedules(session, schedules);
+  session.sharing.guestSchedules = (channel) => schedules.forGuests(channel);
+  session.sharing.schedulesChanged();
   const offWorktree = session.workspaces?.onWorktree((event) => {
     if (event.kind === 'leaving') schedules.chatLeaving(`ws:${event.id}`, event.how);
     if (event.kind === 'removed') schedules.chatGone(`ws:${event.id}`);
@@ -61,11 +66,14 @@ export function launchSchedules(host: SchedulesHost): () => void {
   // In the dispatch, so before an invite goes out: the new contributor can't post until it's paused.
   const offMembers = store.onAction((action) => {
     if (action.type === 'member_set' && action.role === 'contribute') schedules.contributorJoined(`ws:${action.id}`);
+    // The setting is saved right after this action, and with it off guests have no list.
+    if (action.type === 'prefs' && 'chatSchedules' in action.prefs) queueMicrotask(() => session.sharing.schedulesChanged());
   });
   return () => {
     offWorktree?.();
     offMembers();
     schedules.stop();
+    session.sharing.guestSchedules = undefined;
     detachSchedules(session);
     claude.close();
   };

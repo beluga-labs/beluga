@@ -556,12 +556,12 @@ export const PHONE: Record<Method, Side> = {
   'agentTerm.open': 'mac',
   'agentTerm.visual': 'mac',
   'agentTerm.takeOver': 'phone',
-  // Schedules in a chat: the Mac's for now; the phone reads them in a later change.
-  'schedule.list': 'mac',
+  // Schedules in a chat: the phone reads them, runs one now, pauses and resumes. Making, editing and removing are the Mac's.
+  'schedule.list': 'phone',
   'schedule.create': 'mac',
   'schedule.update': 'mac',
-  'schedule.setEnabled': 'mac',
-  'schedule.runNow': 'mac',
+  'schedule.setEnabled': 'phone',
+  'schedule.runNow': 'phone',
   'schedule.remove': 'mac',
   // Sentinel (docs/sentinel.md): the phone runs one, pauses or resumes it, reads its runs and
   // reports, and answers a run waiting for a merge. Making and changing sentinels is the Mac's.
