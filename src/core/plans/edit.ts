@@ -1,5 +1,5 @@
 import { ESTIMATES, PRIORITIES, type Priority } from '../board/model.js';
-import { AUTONOMIES, type Autonomy, MAX_MILESTONES, MAX_PLAN_TASKS, type PlanBody, type PlanDecision, type PlanMilestone, type PlanTask, allTasks } from './model.js';
+import { AUTONOMIES, type Autonomy, MAX_PLAN_TASKS, type PlanBody, type PlanDecision, type PlanMilestone, type PlanTask, allTasks } from './model.js';
 
 /**
  * Writing a plan: a whole one (Claude's plan_write), or a change at a time (Claude's plan_update,
@@ -330,7 +330,6 @@ function descendants(body: PlanBody, id: string): string[] {
 
 /** The rules a plan keeps (a clear message for Claude when one is broken). */
 export function checkBody(body: PlanBody): PlanBody {
-  if (body.milestones.length > MAX_MILESTONES) throw new PlanError(`A plan has at most ${MAX_MILESTONES} milestones`);
   const tasks = allTasks(body);
   if (tasks.length > MAX_PLAN_TASKS) throw new PlanError(`A plan has at most ${MAX_PLAN_TASKS} tasks: split it into two plans, or make tasks bigger`);
   const mids = new Set<string>();

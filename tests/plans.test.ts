@@ -15,6 +15,8 @@ import type { Project, Workspace } from '../src/workspaces/types.js';
 import { planOf } from '../src/core/plans/owner.js';
 import { PLAN_TOOL_NAMES, createPlanToolDefs, milestoneInput, toOps } from '../src/agent/plan-tools.js';
 import { decideTool } from '../src/agent/policy.js';
+import { PlanBodySchema } from '../src/core/team/protocol.js';
+import { PlanOpSchema } from '../src/ipc/plans-api.js';
 import { createMockBackend } from '../src/agent/mock.js';
 
 /** Plans: drafts that stay off the board, approving onto it, and the scheduler running them. */
@@ -188,6 +190,16 @@ describe('writing a plan', () => {
     expect(tasks.find((t) => t.id === 'auth')!.title).toBe('Auth everywhere');
     body = applyOps(body, [{ op: 'move_task', id: 'auth', milestone: 'refunds', before: 'refund-api' }]);
     expect(body.milestones[1]!.tasks.map((t) => t.id)).toEqual(['auth', 'sub', 'refund-api', 'keys']);
+  });
+
+  it('has no limit on milestones, or on how many earlier ones a milestone builds on', () => {
+    const milestones = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}`, title: `Step ${i}`, tasks: [{ id: `t${i}`, title: `Task ${i}` }] }));
+    const last = { ...milestones[19]!, dependsOn: milestones.slice(0, 15).map((m) => m.id) };
+    const body = normalizeBody({ title: 'Big', goal: '', milestones: [...milestones.slice(0, 19), last] });
+    expect(body.milestones).toHaveLength(20);
+    expect(body.milestones[19]!.dependsOn).toHaveLength(15);
+    expect(PlanBodySchema.safeParse(body).success).toBe(true);
+    expect(PlanOpSchema.safeParse({ op: 'update_milestone', id: 'm19', dependsOn: last.dependsOn }).success).toBe(true);
   });
 
   it('waves are what can run side by side', () => {
