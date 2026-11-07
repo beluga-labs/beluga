@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
+import { describe, expect, it, vi } from 'vitest';
+import { chatCount, chatSelectionStore, clearChatSelection, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
 
 describe('sidebar chat selection', () => {
   it('selects downward in visible sidebar order', () => {
@@ -21,6 +21,24 @@ describe('sidebar chat selection', () => {
     const range = { anchor: 'a', ids: ['a', 'b', 'c'] };
     expect(clickChat(range, ['a', 'b', 'c'], 'b', false)).toEqual({ anchor: 'b', ids: [] });
     expect(emptyChatSelection).toEqual({ ids: [] });
+  });
+
+  it('a click elsewhere clears the chats but keeps the anchor for the next Shift+click', () => {
+    const order = ['a', 'b', 'c', 'd'];
+    const range = clickChat(clickChat(emptyChatSelection, order, 'a', false), order, 'b', true);
+    const cleared = clearChatSelection(range);
+    expect(cleared).toEqual({ anchor: 'a', ids: [] });
+    expect(clickChat(cleared, order, 'd', true).ids).toEqual(['a', 'b', 'c', 'd']);
+    // Nothing selected: the same selection, so the rows don't draw again.
+    expect(clearChatSelection(cleared)).toBe(cleared);
+    expect(clickChat(cleared, order, 'c', false).ids).toBe(emptyChatSelection.ids);
+  });
+
+  it('counts one chat and many chats', () => {
+    expect(chatCount(1)).toBe('1 chat');
+    expect(chatCount(3)).toBe('3 chats');
+    expect(chatCount(1, 'Chat')).toBe('1 Chat');
+    expect(chatCount(0, 'Chat')).toBe('0 Chats');
   });
 
   it('excludes chats in folded projects and groups in both directions', () => {
@@ -58,5 +76,63 @@ describe('bulk chat actions', () => {
       { id: 'b', name: 'Chat b', reason: 'Permission denied' },
       { id: 'c', name: 'Chat c', reason: 'The action did not complete.' },
     ]);
+  });
+});
+
+describe('the sidebar selection during a batch', () => {
+  const order = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const chats = (ids: readonly string[]) => ids.map((id) => ({ id, name: `Chat ${id}` }));
+
+  it('keeps the batch selected while it runs, follows the anchor, and leaves the failed chats selected', async () => {
+    const store = chatSelectionStore();
+    store.click(order, 'a', false);
+    store.click(order, 'c', true);
+    expect(store.get().selection.ids).toEqual(['a', 'b', 'c']);
+
+    const answers = new Map<string, (ok: boolean) => void>();
+    const running = store.run(chats(store.get().selection.ids), (chat) => new Promise<boolean>((resolve) => answers.set(chat.id, resolve)));
+    expect(store.get().busy).toBe(true);
+
+    // A new range, a click elsewhere and Escape all wait: the batch's chats stay the selection.
+    store.click(order, 'e', false);
+    store.click(order, 'f', true);
+    store.clear();
+    expect(store.get().selection).toEqual({ anchor: 'e', ids: ['a', 'b', 'c'] });
+    // A second batch can't start over the first.
+    expect(await store.run(chats(['d']), async () => true)).toBeUndefined();
+
+    // One chat at a time: each answers once the batch has reached it.
+    const answer = async (id: string, ok: boolean): Promise<void> => {
+      await vi.waitFor(() => expect(answers.has(id)).toBe(true));
+      answers.get(id)!(ok);
+    };
+    await answer('a', true);
+    await answer('b', false);
+    expect(store.get().busy).toBe(true);
+    await answer('c', true);
+    const result = await running;
+
+    expect(result?.failed.map((chat) => chat.id)).toEqual(['b']);
+    expect(store.get()).toEqual({ busy: false, selection: { anchor: 'e', ids: ['b'] } });
+    // After it, the anchor the user clicked during the batch starts the next range.
+    store.click(order, 'f', true);
+    expect(store.get().selection.ids).toEqual(['e', 'f']);
+  });
+
+  it('tells listeners only when something changed', () => {
+    const store = chatSelectionStore();
+    let calls = 0;
+    const stop = store.subscribe(() => calls++);
+    store.clear();
+    store.retain(order);
+    expect(calls).toBe(0);
+    store.click(order, 'a', false);
+    store.click(order, 'b', true);
+    expect(calls).toBe(2);
+    store.retain(['b']);
+    expect(store.get().selection).toEqual({ ids: ['b'] });
+    stop();
+    store.clear();
+    expect(calls).toBe(3);
   });
 });

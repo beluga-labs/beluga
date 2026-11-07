@@ -22,18 +22,29 @@ export const emptyChatSelection: ChatSelection = { ids: [] };
 
 /** Actions that apply independently to many chats. Each asks once for the whole batch. */
 export const chatBulkActions = [
-  { id: 'archive', label: 'Archive', icon: 'archive', message: 'Archive these chats. Their conversations stay available in Archived.' },
-  { id: 'delete', label: 'Delete', icon: 'x', message: 'Permanently delete these chats and their conversations. You cannot undo this action.' },
+  { id: 'archive', label: 'Archive', done: 'Archived', icon: 'archive', message: 'Archive these chats. Their conversations stay available in Archived.' },
+  { id: 'delete', label: 'Delete', done: 'Deleted', icon: 'x', message: 'Permanently delete these chats and their conversations. You cannot undo this action.' },
 ] as const;
+
+/** "1 chat", "3 chats"; `word` "Chat" for menu titles. */
+export const chatCount = (n: number, word = 'chat'): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+const selectionOf = (anchor: string | undefined, ids: readonly string[]): ChatSelection => (anchor === undefined ? { ids } : { anchor, ids });
 
 /** Only shift-click starts a selection. The anchor stays at the last plain click. */
 export function clickChat(selection: ChatSelection, visible: readonly string[], id: string, shift: boolean): ChatSelection {
   const end = visible.indexOf(id);
   if (end < 0) return emptyChatSelection;
-  if (!shift) return { anchor: id, ids: [] };
+  // The same empty list each time, so a plain click doesn't draw every row again.
+  if (!shift) return { anchor: id, ids: emptyChatSelection.ids };
   const start = selection.anchor === undefined ? -1 : visible.indexOf(selection.anchor);
   if (start < 0) return { anchor: id, ids: [id] };
   return { anchor: selection.anchor, ids: visible.slice(Math.min(start, end), Math.max(start, end) + 1) };
+}
+
+/** A click elsewhere or Escape: no chats selected, but the next Shift+click still starts from the last clicked chat. */
+export function clearChatSelection(selection: ChatSelection): ChatSelection {
+  return selection.ids.length ? selectionOf(selection.anchor, emptyChatSelection.ids) : selection;
 }
 
 export function visibleChatIds(rows: readonly ChatRow[]): string[] {
@@ -44,7 +55,7 @@ export function retainVisibleChats(selection: ChatSelection, visible: readonly s
   const ids = selection.ids.filter((id) => visible.includes(id));
   const anchor = selection.anchor !== undefined && visible.includes(selection.anchor) ? selection.anchor : undefined;
   if (ids.length === selection.ids.length && anchor === selection.anchor) return selection;
-  return { ...(anchor === undefined ? {} : { anchor }), ids };
+  return selectionOf(anchor, ids);
 }
 
 /** Attempt every chat, including after a rejection or an unsuccessful API result. */
@@ -60,4 +71,59 @@ export async function runChatBatch<T extends BatchChat>(chats: readonly T[], app
     }
   }
   return { succeeded, failed };
+}
+
+export interface ChatSelectionState {
+  readonly selection: ChatSelection;
+  readonly busy: boolean;
+}
+
+export interface ChatSelectionStore {
+  readonly get: () => ChatSelectionState;
+  readonly subscribe: (listener: () => void) => () => void;
+  readonly click: (visible: readonly string[], id: string, shift: boolean) => void;
+  readonly clear: () => void;
+  readonly retain: (visible: readonly string[]) => void;
+  /** → how it went; undefined when another batch is still running. */
+  readonly run: <T extends BatchChat>(chats: readonly T[], apply: (chat: T) => Promise<boolean>) => Promise<ChatBatchResult | undefined>;
+}
+
+/** The sidebar's selection and its batch, outside React. */
+export function chatSelectionStore(): ChatSelectionStore {
+  let state: ChatSelectionState = { selection: emptyChatSelection, busy: false };
+  const listeners = new Set<() => void>();
+  const set = (next: ChatSelectionState): void => {
+    if (next.selection === state.selection && next.busy === state.busy) return;
+    state = next;
+    for (const listener of listeners) listener();
+  };
+  // While a batch runs, its chats stay the selection: only the anchor follows clicks, for the next range.
+  const edit = (next: ChatSelection): void => {
+    const current = state.selection;
+    if (!state.busy) set({ ...state, selection: next });
+    else if (next.anchor !== current.anchor) set({ ...state, selection: selectionOf(next.anchor, current.ids) });
+  };
+  return {
+    get: () => state,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    click: (visible, id, shift) => edit(clickChat(state.selection, visible, id, shift)),
+    clear: () => edit(clearChatSelection(state.selection)),
+    retain: (visible) => set({ ...state, selection: retainVisibleChats(state.selection, visible) }),
+    run: async (chats, apply) => {
+      if (state.busy) return undefined;
+      set({ ...state, busy: true });
+      let failed: readonly string[] = state.selection.ids;
+      try {
+        const result = await runChatBatch(chats, apply);
+        failed = result.failed.map((chat) => chat.id);
+        return result;
+      } finally {
+        // The chats that failed stay selected, to look at or try again.
+        set({ busy: false, selection: selectionOf(state.selection.anchor, failed) });
+      }
+    },
+  };
 }

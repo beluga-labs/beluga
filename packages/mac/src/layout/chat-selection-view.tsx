@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Workspace } from '@beluga/workspaces/types.js';
 import { type ActionItem } from '../components/SpecMenu.js';
 import { toast, useBeluga } from '../lib/beluga.js';
 import { openSheet } from '../lib/sheets.js';
-import { chatBulkActions, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds, type ChatSelection } from './chat-selection.js';
+import { chatBulkActions, chatCount, chatSelectionStore, retainVisibleChats, visibleChatIds } from './chat-selection.js';
 import { toolbarActions } from './toolbar-actions.js';
 import s from './Sidebar.module.css';
 
@@ -21,26 +21,24 @@ const SelectionContext = createContext<SidebarSelection | undefined>(undefined);
 export function SidebarChatSelection({ children }: { children: ReactNode }) {
   const { client } = useBeluga();
   const root = useRef<HTMLDivElement>(null);
-  const [selection, setSelection] = useState<ChatSelection>(emptyChatSelection);
-  const [busy, setBusy] = useState(false);
-  const running = useRef(false);
+  const [store] = useState(chatSelectionStore);
+  const { selection, busy } = useSyncExternalStore(store.subscribe, store.get);
   // Read the rendered rows so plan task chats and custom project ordering use the same order as the screen.
-  const visible = (): string[] => visibleChatIds(Array.from(root.current?.querySelectorAll<HTMLElement>('[data-chat-id]') ?? [], (row) => ({
+  const visible = useCallback((): string[] => visibleChatIds(Array.from(root.current?.querySelectorAll<HTMLElement>('[data-chat-id]') ?? [], (row) => ({
     id: row.dataset.chatId!,
     folded: Boolean(row.closest('[data-chats-folded="true"]')),
-  })));
-  const clear = (): void => setSelection(emptyChatSelection);
+  }))), []);
   useEffect(() => {
     const click = (event: MouseEvent): void => {
       const target = event.target;
       // Menu and alert clicks belong to the batch that opened them.
       if (target instanceof Element && target.closest('[role="menu"], [role="alertdialog"]')) return;
-      if (!event.shiftKey) clear();
+      if (!event.shiftKey) store.clear();
     };
     const key = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') clear();
+      if (event.key === 'Escape') store.clear();
     };
-    const observer = new MutationObserver(() => setSelection((current) => retainVisibleChats(current, visible())));
+    const observer = new MutationObserver(() => store.retain(visible()));
     if (root.current) observer.observe(root.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-chat-id', 'data-chats-folded'] });
     document.addEventListener('click', click, true);
     document.addEventListener('keydown', key, true);
@@ -49,63 +47,62 @@ export function SidebarChatSelection({ children }: { children: ReactNode }) {
       document.removeEventListener('click', click, true);
       document.removeEventListener('keydown', key, true);
     };
-  }, []);
+  }, [store, visible]);
 
-  const items = (): readonly ActionItem[] => {
-    const current = retainVisibleChats(selection, visible());
+  const items = useCallback((): readonly ActionItem[] => {
+    const current = retainVisibleChats(store.get().selection, visible());
     const state = client.store.getState();
     const chats = current.ids.flatMap((id) => state.projects.flatMap((p) => p.workspaces).filter((w) => w.id === id && w.kind === 'chat' && !w.archived && !w.pending));
     const count = chats.length;
     const run = async (action: (typeof chatBulkActions)[number]): Promise<void> => {
-      if (running.current) return;
-      running.current = true;
-      setBusy(true);
-      try {
-        const result = await runChatBatch(chats, async (chat) => {
-          // A chat can become a worktree while the confirmation is open.
-          const latest = client.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === chat.id);
-          if (!latest || latest.kind !== 'chat' || latest.archived || latest.pending) throw new Error('This chat is no longer available.');
-          if (action.id === 'archive') return await client.api.workspaces.archive(chat.id) === true;
-          await client.api.workspaces.remove(chat.id);
-          // Remove returns no result, including when the daemon reports a failure. Check its published state.
-          return !client.store.getState().projects.some((p) => p.workspaces.some((w) => w.id === chat.id));
-        });
-        if (result.failed.length) {
-          const message = result.failed.map((chat) => `${chat.name}: ${chat.reason}`).join('\n');
-          toast(client, `${action.label} failed for ${result.failed.length} of ${count} chats. ${message}`, 'error');
-          openSheet({ kind: 'confirm', title: `${result.failed.length} chats failed`, message, confirm: 'OK', run: () => undefined });
-        } else toast(client, `${action.label} completed for ${count} chats.`, 'success');
-        setSelection({ ids: result.failed.map((chat) => chat.id) });
-      } finally {
-        running.current = false;
-        setBusy(false);
-      }
+      const result = await store.run(chats, async (chat) => {
+        // A chat can become a worktree while the confirmation is open.
+        const latest = client.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === chat.id);
+        if (!latest || latest.kind !== 'chat' || latest.archived || latest.pending) throw new Error('This chat is no longer available.');
+        // Quiet: one message for the whole batch below, not one per chat.
+        if (action.id === 'archive') return await client.api.workspaces.archive(chat.id, false, { quiet: true }) === true;
+        await client.api.workspaces.remove(chat.id, { quiet: true });
+        // Remove returns no result, including when the daemon reports a failure. Check its published state.
+        return !client.store.getState().projects.some((p) => p.workspaces.some((w) => w.id === chat.id));
+      });
+      if (!result) return;
+      store.retain(visible());
+      if (result.failed.length) {
+        const message = result.failed.map((chat) => `${chat.name}: ${chat.reason}`).join('\n');
+        toast(client, `${action.label} failed for ${result.failed.length} of ${chatCount(count)}. ${message}`, 'error');
+        openSheet({ kind: 'confirm', title: `${chatCount(result.failed.length)} failed`, message, confirm: 'OK', run: () => undefined });
+      } else toast(client, `${action.done} ${chatCount(count)}.`, 'success');
     };
     return chatBulkActions.map((action) => ({
-      label: `${action.label} ${count} Chats…`,
+      label: `${action.label} ${chatCount(count, 'Chat')}…`,
       icon: action.icon,
       danger: true,
-      disabled: busy || count === 0 || chats.some((chat: Workspace) => {
+      disabled: store.get().busy || count === 0 || chats.some((chat: Workspace) => {
         const menu = toolbarActions(state, chat);
         return ![...(menu.primary ? [menu.primary] : []), ...menu.icons, ...menu.more.flat()].some((item) => item.action === action.id && !item.disabled);
       }),
       onSelect: () => openSheet({
         kind: 'confirm',
-        title: `${action.label} ${count} chats?`,
+        title: `${action.label} ${chatCount(count)}?`,
         message: action.message,
-        confirm: `${action.label} ${count} Chats`,
+        confirm: `${action.label} ${chatCount(count, 'Chat')}`,
         destructive: action.id === 'delete',
         run: () => void run(action),
       }),
     }));
-  };
+  }, [client, store, visible]);
+
+  const click = useCallback((id: string, shift: boolean): boolean => {
+    const order = visible();
+    if (!order.includes(id)) return false;
+    store.click(order, id, shift);
+    return shift;
+  }, [store, visible]);
+
+  // Every chat row reads this: a new value only when what they show changes (KLD-48).
+  const value = useMemo<SidebarSelection>(() => ({ ids: selection.ids, busy, clear: store.clear, items, click }), [selection.ids, busy, store, items, click]);
   return (
-    <SelectionContext.Provider value={{ ids: selection.ids, busy, clear, items, click: (id, shift) => {
-      const order = visible();
-      if (!order.includes(id)) return false;
-      setSelection((current) => clickChat(current, order, id, shift));
-      return shift;
-    } }}>
+    <SelectionContext.Provider value={value}>
       <div ref={root} style={{ display: 'contents' }}>{children}</div>
     </SelectionContext.Provider>
   );
@@ -118,8 +115,8 @@ export function ChatSelectionCount() {
   if (!selection?.ids.length) return null;
   return (
     <div className={s.chatSelection} role="status" aria-live="polite">
-      <span>{selection.ids.length} chats selected{selection.busy ? ' · Working…' : ''}</span>
-      <button type="button" onClick={selection.clear} aria-label="Clear chat selection">Clear</button>
+      <span>{chatCount(selection.ids.length)} selected{selection.busy ? ' · Working…' : ''}</span>
+      <button type="button" onClick={selection.clear} disabled={selection.busy} aria-label="Clear chat selection">Clear</button>
     </div>
   );
 }

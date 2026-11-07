@@ -265,7 +265,8 @@ export const API = {
   // Carry a conversation (an ask chat in a main folder, or any chat) into a new worktree and go on there → the new workspace's id.
   // `agent` (BLG-506): who goes on there; unset: the conversation's own. One that can't resume the conversation starts fresh, handed it.
   'workspaces.continueInWorktree': args(id, opt(z.object({ task: opt(str), base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), agent: opt(AgentRef) }).strict())),
-  'workspaces.archive': args(id, opt(bool)),
+  // `quiet`: no success toast; a batch says it once for all its chats (the sidebar's chat selection).
+  'workspaces.archive': args(id, opt(bool), opt(z.object({ quiet: opt(bool) }).strict())),
   'workspaces.restore': args(id),
   // What archiving (or freeing space) would throw away and keep → ArchivePreview (none: not a worktree that's there).
   'workspaces.archivePlan': args(id),
@@ -273,7 +274,8 @@ export const API = {
   'workspaces.deletePlan': args(id),
   // Throw away a worktree's dependencies, builds and caches → bytes freed.
   'workspaces.freeSpace': args(id),
-  'workspaces.remove': args(id),
+  // `quiet`: as for archive.
+  'workspaces.remove': args(id, opt(z.object({ quiet: opt(bool) }).strict())),
   'workspaces.commit': args(id, opt(z.string().max(2000))),
   'workspaces.merge': args(id),
   'workspaces.prepareRemoval': args(id),
