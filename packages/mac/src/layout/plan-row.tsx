@@ -42,10 +42,10 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
   const tip = [`${title}: ${why}`, view.total ? `${view.done} of ${view.total} tasks done` : '', unread ? `${unread} new message${unread === 1 ? '' : 's'}` : inside.inside && !needs ? 'New in its tasks' : ''].filter(Boolean).join(' · ');
   const signal = { level: needs ? 'needs' : unread ? 'unread' : working ? 'working' : 'idle', unread, working, tip } as const;
   const { client } = useBeluga();
-  const copyLink = useApp((st) => chatLinkItems(st, client, plan.home), sameDeep);
-  const items: ActionItem[] = [
+  // Built when the menu opens, as a workspace row's: a pick with a new onSelect each time never settles (#185).
+  const items = (): ActionItem[] => [
     { label: 'Open Plan', icon: 'chevronRight', onSelect: () => open(plan.id) },
-    ...copyLink,
+    ...chatLinkItems(client.store.getState(), client, plan.home),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     { label: 'All Plans', separate: true, onSelect: () => openList(plan.projectId) },
   ];
