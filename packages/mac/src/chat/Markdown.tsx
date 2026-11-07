@@ -1,3 +1,5 @@
+import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from '../lib/chat-links.js';
 import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -293,6 +295,12 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
               return;
             }
             actions.openLink({ kind: 'local', path: p, dir: p.endsWith('/'), ...(line ? { line: Number(line) } : {}) });
+            return;
+          }
+          // A chat's link opens in the app, never in a browser.
+          if (href.startsWith(CHAT_LINK_PREFIX)) {
+            const ref = chatLinkOf(href);
+            if (ref) void openChatLink(client, actions, ref);
             return;
           }
           actions.openLink(targetOf(href));

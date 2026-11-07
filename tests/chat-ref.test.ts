@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { redirectSystemPath } from '../packages/companion/app/+native-intent.js';
 import { runInstructions } from '../src/agent/run-instructions.js';
 import type { AgentRunInput } from '../src/agent/types.js';
 import { buildChatLinkAppend } from '../src/agent/view-prompt.js';
-import { chatChipOf, chatLink, chatLinkOf, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
+import { chatChipOf, chatLink, chatLinkAnswer, chatLinkOf, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
 import { readInline } from '../src/shared/render/inline-model.js';
 
 const OWNER = 'pK3-x_Q9aZ01bC2dE3fG4hI5jK6lM7nO';
@@ -108,5 +109,42 @@ describe('the prompt', () => {
     const input = { prompt: 'x', cwd: '/tmp' } as unknown as AgentRunInput;
     expect(runInstructions(input, 'me')).not.toContain('chat:<owner>');
     expect(runInstructions({ ...input, chatLink: { owner: OWNER, channel: 'ws:wt-1' } }, 'me')).toContain(`chat:${OWNER}/ws:wt-1`);
+  });
+});
+
+describe('what opening a link does', () => {
+  it('opens a chat that is here, archived too', () => {
+    expect(chatLinkAnswer({ state: 'idle', ownership: 'own' })).toEqual({ opens: true });
+    expect(chatLinkAnswer({ state: 'archived', ownership: 'own' })).toEqual({ opens: true });
+    expect(chatLinkAnswer({ state: 'working', ownership: 'shared' })).toEqual({ opens: true });
+  });
+
+  it('says a chat on another computer is there, and stays', () => {
+    expect(chatLinkAnswer({ state: 'removed', ownership: 'unknown' })).toEqual({ opens: false, say: 'This chat is on another computer.' });
+  });
+
+  it('says a removed chat is removed, and stays', () => {
+    expect(chatLinkAnswer({ state: 'removed', ownership: 'own' })).toEqual({ opens: false, say: 'This chat was removed.' });
+  });
+
+  it('does nothing at all with chat links off', () => {
+    expect(chatLinkAnswer(null)).toEqual({ opens: false });
+  });
+});
+
+describe('a link arriving on the phone', () => {
+  const route = (path: string) => redirectSystemPath({ path, initial: false });
+
+  it('goes to /chat-link with the channel encoded', () => {
+    const got = route(`beluga://chat/${OWNER}/${encodeURIComponent('mac:assistant:a1b2')}`);
+    expect(got).toBe(`/chat-link?ref=${encodeURIComponent(`${OWNER}/mac:assistant:a1b2`)}`);
+  });
+
+  it.each([`beluga://chat/${OWNER}/room`, `beluga://chat/${OWNER}`, 'beluga://chat/', `beluga://chat/${OWNER}/%E0%A4%A`])('goes nowhere for %s', (path) => {
+    expect(route(path)).toBeNull();
+  });
+
+  it('leaves other links as they were', () => {
+    expect(route('/conv/ws%3Awt-1')).toBe('/conv/ws%3Awt-1');
   });
 });

@@ -3,7 +3,8 @@ import { planOfPlace } from '@beluga/core/plans/owner.js';
 import { Icon } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { Badge } from '../components/ui.js';
-import { useApp } from '../lib/beluga.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
+import { chatLinkItems } from '../lib/chat-links.js';
 import { sameDeep } from '../lib/stable.js';
 import { ProgressRing } from '../plans/PlansNav.js';
 import { nextWords, planStatus, titleOf } from '../plans/plans-model.js';
@@ -40,8 +41,11 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
   const why = planNeeds ? (next.detail ? `${next.title}: ${next.detail}` : next.title) : inside.level === 'needs' ? inside.tip : status.label;
   const tip = [`${title}: ${why}`, view.total ? `${view.done} of ${view.total} tasks done` : '', unread ? `${unread} new message${unread === 1 ? '' : 's'}` : inside.inside && !needs ? 'New in its tasks' : ''].filter(Boolean).join(' · ');
   const signal = { level: needs ? 'needs' : unread ? 'unread' : working ? 'working' : 'idle', unread, working, tip } as const;
+  const { client } = useBeluga();
+  const copyLink = useApp((st) => chatLinkItems(st, client, plan.home), sameDeep);
   const items: ActionItem[] = [
     { label: 'Open Plan', icon: 'chevronRight', onSelect: () => open(plan.id) },
+    ...copyLink,
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     { label: 'All Plans', separate: true, onSelect: () => openList(plan.projectId) },
   ];

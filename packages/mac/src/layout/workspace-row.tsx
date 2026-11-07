@@ -12,6 +12,7 @@ import { workspaceSignal } from './attention-model.js';
 import { DotMark, SignalMark, nameClass, signalClass } from './signal-marks.js';
 import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
+import { chatLinkItems } from '../lib/chat-links.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import { outsideLocation } from './outside-model.js';
@@ -23,13 +24,14 @@ import o from './other-worktrees.module.css';
  * What a workspace's right-click menu offers: its toolbar's actions, named and drawn the same
  * (the shortcuts show for the workspace you're in, where they work).
  */
-export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<typeof useActions>['run'], rename?: () => void): ActionItem[] {
+export function workspaceItems(state: AppState, client: ReturnType<typeof useBeluga>['client'], ws: Workspace, run: ReturnType<typeof useActions>['run'], rename?: () => void): ActionItem[] {
   const { primary, icons, more } = toolbarActions(state, ws);
   const here = state.view.kind === 'workspace' && state.view.id === ws.id;
   const sections = inSections([...(primary ? [primary] : []), ...icons, ...more.flat()]);
   return [
     { label: 'Open', icon: 'chevronRight', onSelect: () => run({ type: 'open_ws', id: ws.id }) },
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
+    ...(ws.kind === 'main' ? [] : chatLinkItems(state, client, `ws:${ws.id}`)),
     ...sections.flatMap((section) =>
       section.map((a, i) => ({
         label: a.label,
@@ -118,7 +120,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
   // Idle: its git state (uncommitted changes, ready to merge) as before.
   const quiet = st.tone === 'warn' || st.tone === 'info' || st.tone === 'error' ? <DotMark tone={st.tone} /> : null;
   return (
-    <ActionsContext items={() => workspaceItems(client.store.getState(), ws, actions.run, () => setRenaming(true))}>
+    <ActionsContext items={() => workspaceItems(client.store.getState(), client, ws, actions.run, () => setRenaming(true))}>
       <Row
         indent={indent}
         selected={selected}

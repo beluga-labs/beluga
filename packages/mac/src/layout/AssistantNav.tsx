@@ -1,7 +1,9 @@
-import { ASSISTANT_CHANNEL, ASSISTANT_TITLE } from '@beluga/shared/assistant.js';
+import { ASSISTANT_CHANNEL, ASSISTANT_TITLE, activeAssistantChannel } from '@beluga/shared/assistant.js';
 import { Icon } from '../components/Icon.js';
+import { ActionsContext } from '../components/SpecMenu.js';
+import { chatLinkItems } from '../lib/chat-links.js';
 import { useActions } from '../lib/actions.js';
-import { useApp } from '../lib/beluga.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { type Signal, signalOf } from './attention-model.js';
 import { SignalMark } from './signal-marks.js';
@@ -25,7 +27,9 @@ export function AssistantNav() {
     const channels = own.length ? own.map((c) => c.channel) : [ASSISTANT_CHANNEL];
     return channels.map((c) => signalOf(s, c)).reduce((a, b) => (RANK[b.level] > RANK[a.level] ? b : a));
   }, sameDeep);
-  return (
+  const { client } = useBeluga();
+  const linkable = useApp((s) => s.prefs.chatLinks);
+  const row = (
     <Row
       icon={<Icon name="laptop" size={14} />}
       label={ASSISTANT_TITLE}
@@ -34,5 +38,17 @@ export function AssistantNav() {
       onClick={() => actions.run({ type: 'view', view: { kind: 'assistant' } })}
       trailing={<SignalMark signal={signal} />}
     />
+  );
+  if (!linkable) return row;
+  // The row is Your Mac; its link is the chat open now. Each tab has its own too (AssistantTabs).
+  return (
+    <ActionsContext
+      items={() => {
+        const state = client.store.getState();
+        return chatLinkItems(state, client, activeAssistantChannel(state.assistant));
+      }}
+    >
+      {row}
+    </ActionsContext>
   );
 }
