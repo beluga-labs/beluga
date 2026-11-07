@@ -212,7 +212,7 @@ export function tallyTip(t: Tally): string {
   return parts.join(' · ');
 }
 
-/** A conversation in the sidebar's Unread section. */
+/** A conversation in a sidebar list (the Unread section, the categories). */
 export type UnreadEntry = {
   readonly channel: string;
   readonly name: string;
@@ -265,18 +265,19 @@ export function sentinelEntries(state: ListSource): UnreadEntry[] {
   return out;
 }
 
-/** Every conversation with news or something waiting for you: what needs you first, then the latest. */
-export function unreadEntries(state: ListSource): UnreadEntry[] {
+/**
+ * Every conversation the sidebar can list: your chats, worktrees and plans (a plan is one entry, never
+ * its conversations one by one) and those friends share with you, whatever they wait on. Friends,
+ * groups and sentinels have no list of their own here: an entry only while there's news or a need.
+ */
+export function conversationEntries(state: ListSource): UnreadEntry[] {
   const out: UnreadEntry[] = [];
   for (const p of state.projects) {
     for (const ws of projectConversations(state, p)) {
-      const signal = workspaceSignal(state, ws);
-      if (counts(signal)) out.push({ kind: 'workspace', channel: `ws:${ws.id}`, name: ws.name, ws, ...(p.root ? { project: p } : {}), signal, ts: activityOf(state.log, `ws:${ws.id}`).lastTs ?? 0 });
+      out.push({ kind: 'workspace', channel: `ws:${ws.id}`, name: ws.name, ws, ...(p.root ? { project: p } : {}), signal: workspaceSignal(state, ws), ts: activityOf(state.log, `ws:${ws.id}`).lastTs ?? 0 });
     }
-    // A plan is one entry, never its conversations one by one.
     for (const plan of projectPlans(state, p)) {
       const { at, ...signal } = planSignal(state, plan);
-      if (!counts(signal)) continue;
       const channels = planConversations(state, plan.id).map((ws) => `ws:${ws}`);
       const ts = Math.max(0, ...channels.map((c) => activityOf(state.log, c).lastTs ?? 0));
       out.push({ kind: 'plan', channel: `plan:${plan.id}`, name: planTitle(plan), plan, ...(p.root ? { project: p } : {}), channels, ...(at ? { at } : {}), signal, ts });
@@ -284,8 +285,7 @@ export function unreadEntries(state: ListSource): UnreadEntry[] {
   }
   out.push(...sentinelEntries(state));
   for (const w of state.shared) {
-    const signal = signalOf(state, `ws:${w.id}`);
-    if (counts(signal)) out.push({ kind: 'shared', channel: `ws:${w.id}`, name: w.name, owner: w.owner, id: w.id, signal, ts: activityOf(state.log, `ws:${w.id}`).lastTs ?? 0 });
+    out.push({ kind: 'shared', channel: `ws:${w.id}`, name: w.name, owner: w.owner, id: w.id, signal: signalOf(state, `ws:${w.id}`), ts: activityOf(state.log, `ws:${w.id}`).lastTs ?? 0 });
   }
   if (state.network.enabled) {
     for (const f of state.network.friends) {
@@ -295,8 +295,15 @@ export function unreadEntries(state: ListSource): UnreadEntry[] {
       if (g.active && g.unread > 0) out.push({ kind: 'group', channel: `group:${g.id}`, name: g.name, groupId: g.id, signal: { level: 'unread', unread: g.unread, working: false, tip: plural(g.unread, 'message') }, ts: g.last?.ts ?? 0 });
     }
   }
+  return out;
+}
+
+/** Every conversation with news or something waiting for you: what needs you first, then the latest. */
+export function unreadEntries(state: ListSource): UnreadEntry[] {
   const rank = (e: UnreadEntry): number => (e.signal.level === 'needs' ? 0 : 1);
-  return out.sort((a, b) => rank(a) - rank(b) || b.ts - a.ts);
+  return conversationEntries(state)
+    .filter((e) => counts(e.signal))
+    .sort((a, b) => rank(a) - rank(b) || b.ts - a.ts);
 }
 
 /**
