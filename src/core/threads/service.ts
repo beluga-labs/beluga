@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ThreadStartInput, ThreadTools } from '../../agent/types.js';
 import type { AgentRef } from '../../protocol.js';
 import { ASSISTANT_TITLE, isAssistant } from '../../shared/assistant.js';
+import { LOCAL_RUNTIME } from '../../shared/local-endpoints.js';
 import type { Effort } from '../../shared/settings-schema.js';
 import { type ThreadRecord, type ThreadState } from '../../shared/threads.js';
 import { CHATS_PROJECT } from '../../workspaces/manager.js';
@@ -175,10 +176,13 @@ export class ThreadService {
     if (choice && !choice.available) throw new Error(`${choice.label} cannot run on this Mac: ${choice.why ?? choice.fix ?? 'it is not set up'}. Use one of: ${available.join(', ')}.`);
     const models = this.modelsOf(runtime);
     const picked = models.find((m) => m.value === model);
-    if (model && models.length && !picked) throw new Error(`${agent.label} has no model "${model}". Use one of: ${models.map((m) => m.value).join(', ')}.`);
-    if (picked && 'why' in picked && picked.why) throw new Error(`Model "${model}" cannot run now: ${String(picked.why)}.`);
+    const usable = (): string => models.filter((m) => !m.why).map((m) => m.value).join(', ') || 'none now';
+    // A local model has no default: its value names the endpoint it runs on.
+    if (!model && runtime === LOCAL_RUNTIME) throw new Error(`${agent.label} needs a model. Use one of: ${usable()}.`);
+    if (model && models.length && !picked) throw new Error(`${agent.label} has no model "${model}". Use one of: ${usable()}.`);
+    if (picked?.why) throw new Error(`Model "${model}" cannot run now: ${picked.why}`);
     if (!this.deps.runsAgent(agent)) throw new Error(`${agent.label} cannot run on this Mac${model ? ` with model "${model}"` : ''}. Use one of: ${available.join(', ')}.`);
-    const efforts = picked && 'efforts' in picked ? picked.efforts : undefined;
+    const efforts = picked?.efforts;
     if (effort && efforts?.length && !efforts.includes(effort)) throw new Error(`Model "${model}" has no effort "${effort}". Use one of: ${efforts.join(', ')}.`);
     return agent;
   }
@@ -241,7 +245,7 @@ export class ThreadService {
     const live = this.liveMap();
     return JSON.stringify({
       threads: subtree(this.nodes(), caller).map((n) => this.view(n, claimed.has(n.id), live.get(n.channel))),
-      agents: this.deps.store.getState().runtimes.filter((r) => r.available).map((r) => ({ runtime: r.id, label: r.label, models: this.modelsOf(r.id).map((m) => m.value), canSteer: this.deps.canSteer(r.id) })),
+      agents: this.deps.store.getState().runtimes.filter((r) => r.available).map((r) => ({ runtime: r.id, label: r.label, models: this.modelsOf(r.id).filter((m) => !m.why).map((m) => m.value), canSteer: this.deps.canSteer(r.id) })),
       ...(waited ? { waited } : {}),
     });
   }

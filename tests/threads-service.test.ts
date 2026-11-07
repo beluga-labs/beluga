@@ -8,7 +8,9 @@ import { THREAD_TOOL_NAMES, createThreadToolDefs } from '../src/agent/thread-too
 import { decideTool } from '../src/agent/policy.js';
 import { runToolSuites } from '../src/agent/run-tools.js';
 import { runtimeFor as realRuntime } from '../src/agent/runtime/registry.js';
+import { routedBackend } from '../src/agent/runtime/router.js';
 import { AgentHost } from '../src/core/agent-host.js';
+import { localModels, parseLocalModel } from '../src/shared/local-endpoints.js';
 import { ThreadService, type ThreadServiceDeps } from '../src/core/threads/service.js';
 import { Store, initialState } from '../src/core/store.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
@@ -278,6 +280,59 @@ describe('an OpenCode child', () => {
     const out = JSON.parse(await t.tools().status({})) as { agents: Array<{ runtime: string; canSteer: boolean; models: string[] }> };
     expect(out.agents.find((a) => a.runtime === 'opencode')).toEqual({ runtime: 'opencode', label: 'OpenCode', canSteer: false, models: ['opencode/big-pickle'] });
     expect(out.agents.find((a) => a.runtime === 'codex')?.canSteer).toBe(true);
+  });
+});
+
+describe('a local-model child', () => {
+  const ENDPOINT = { id: 'ollama', label: 'Ollama', models: [], found: ['qwen3-coder'], reachable: true, builtIn: true };
+  /** The picker's real list and the real value parser, as session-parts and Session.runsAgent use them. */
+  const withLocal = (endpoint: Parameters<typeof localModels>[0][number] = ENDPOINT) => {
+    const t = setup({ runsAgent: (agent) => agent.runtime !== 'local' || parseLocalModel(agent.model)?.id === endpoint.id });
+    t.store.dispatch({ type: 'runtimes', runtimes: t.store.getState().runtimes.map((r) => (r.id === 'local' ? { id: 'local', label: 'Local model', available: true, models: localModels([endpoint]) } : r)) });
+    return t;
+  };
+
+  it('a local-model child starts with runtime local and its model when an endpoint answers', async () => {
+    const t = withLocal();
+    const id = idOf(await t.tools().start({ task: 'Read the docs', agent: { runtime: 'local', model: 'ollama/qwen3-coder' } }));
+    const child = t.chats.get(id)!;
+    expect(child.agent).toMatchObject({ runtime: 'local', label: 'Local model' });
+    expect(child.model).toBe('ollama/qwen3-coder');
+    expect(t.asks).toHaveLength(1);
+  });
+
+  it('the router runs that child’s place on the local runtime, with its model', async () => {
+    const t = withLocal();
+    const id = idOf(await t.tools().start({ task: 'x', agent: { runtime: 'local', model: 'ollama/qwen3-coder' } }));
+    const child = t.chats.get(id)!;
+    const ran: string[] = [];
+    const backend = (name: string): AgentBackend => ({
+      run: async (input) => {
+        ran.push(`${name}:${input.place?.agent?.model}`);
+        return 'ok';
+      },
+    });
+    const routed = routedBackend(backend('claude'), 'claude', (runtime) => (runtime === 'local' ? backend('local') : undefined));
+    await routed.run({ prompt: 'x', place: { agent: { ...child.agent!, model: child.model } } } as never);
+    expect(ran).toEqual(['local:ollama/qwen3-coder']);
+  });
+
+  it('with no model it says which models there are, and makes no worktree', async () => {
+    const t = withLocal();
+    await expect(t.tools().start({ task: 'x', agent: { runtime: 'local' } })).rejects.toThrow('Local model needs a model. Use one of: ollama/qwen3-coder.');
+    expect(t.made).toEqual([]);
+  });
+
+  it('refuses a model of an endpoint that does not answer, and says why', async () => {
+    const t = withLocal({ ...ENDPOINT, reachable: false });
+    await expect(t.tools().start({ task: 'x', agent: { runtime: 'local', model: 'ollama/qwen3-coder' } })).rejects.toThrow(/Ollama isn't answering/);
+    expect(t.made).toEqual([]);
+  });
+
+  it('the status list leaves out a local model that cannot run', async () => {
+    const t = withLocal({ ...ENDPOINT, found: [], models: [] });
+    const out = JSON.parse(await t.tools().status({})) as { agents: Array<{ runtime: string; models: string[] }> };
+    expect(out.agents.find((a) => a.runtime === 'local')?.models).toEqual([]);
   });
 });
 
