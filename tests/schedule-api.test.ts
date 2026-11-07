@@ -25,6 +25,19 @@ const hold = (): void => {
 };
 
 describe('the off switch', () => {
+  it('leaves /schedule to the agent, as it was before the feature', { timeout: 20_000 }, async () => {
+    h.launch(false);
+    const channel = await h.chat();
+    const prompts: string[] = [];
+    h.script.run = async (input) => {
+      prompts.push(input.prompt);
+      return 'done';
+    };
+    runCommand(h.session, 'schedule', ['daily', 'report'], channel, '/schedule daily report');
+    await waitFor(() => prompts.length === 1);
+    expect(prompts[0]).toContain('/schedule daily report');
+  });
+
   it('refuses every method with a clear message', { timeout: 20_000 }, async () => {
     h.launch(false);
     const channel = await h.chat();
@@ -227,7 +240,7 @@ describe('/schedule', () => {
     expect(s.get(b.id)?.enabled).toBe(true);
   });
 
-  it('says the feature is off instead of doing anything', { timeout: 20_000 }, async () => {
+  it('changes no schedule while the feature is off', { timeout: 20_000 }, async () => {
     const s = h.launch();
     const channel = await h.chat();
     const a = s.create(channel, EVERY_MINUTE);
