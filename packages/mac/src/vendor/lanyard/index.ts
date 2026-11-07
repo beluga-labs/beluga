@@ -24,6 +24,8 @@ export interface LanyardProps {
   /** 0: it comes to rest (and stops drawing) once nobody moves it. */
   readonly breeze?: number;
   readonly interactive?: boolean;
+  /** The canvas takes the pointer only over the card (it can then be bigger than its place). */
+  readonly passThrough?: boolean;
   readonly intro?: boolean;
   readonly className?: string;
   readonly style?: CSSProperties;

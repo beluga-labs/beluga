@@ -1,9 +1,12 @@
 // @ts-nocheck
 /*
  * Lanyard by React Bits (https://reactbits.dev, Lanyard-JS-CSS), MIT + Commons Clause:
- * https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md. Kept as it came (only this
- * header added), so it can be updated from the registry; Beluga draws the card it holds
- * (views/usage/YourCard.tsx).
+ * https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md. Kept as it came, so it can be
+ * updated from the registry, but for two changes marked "Beluga:" (keep them when updating):
+ * - a pull stops a little past the strap's length (MAX_PULL), so the card can't be stretched away;
+ * - `passThrough`: the canvas takes the pointer only over the card, so it can be bigger than its
+ *   place and the card swing over what's around it while all that stays clickable.
+ * Beluga draws the card it holds (views/usage/YourCard.tsx).
  */
 'use client';
 
@@ -42,6 +45,8 @@ const FINISHES = {
 const BAND_COLUMNS = [0, 0.07, 0.93, 1];
 const BAND_BEND = [-0.95, -0.28, 0.28, 0.95];
 const FLIP_SPIN = 9;
+// Beluga: how far past the strap and card's own length a pull can take the card (1: not at all).
+const MAX_PULL = 1.15;
 
 const FOIL_VERTEX_HEAD = `
 varying vec2 vFoilUv;
@@ -728,6 +733,7 @@ const Lanyard = ({
   elasticity = 0.5,
   breeze = 0.5,
   interactive = true,
+  passThrough = false,
   intro = true,
   className = '',
   style
@@ -756,6 +762,7 @@ const Lanyard = ({
     elasticity,
     breeze,
     interactive,
+    passThrough,
     intro
   };
 
@@ -1194,6 +1201,8 @@ const Lanyard = ({
       body.angular.addScaledVector(up, FLIP_SPIN * direction);
     };
 
+    const passes = () => !!settingsRef.current.passThrough;
+
     const onPointerDown = event => {
       if (!settingsRef.current.interactive || event.button > 0) return;
       toPointer(event);
@@ -1219,6 +1228,10 @@ const Lanyard = ({
       if (sim.grab) {
         if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 6) press = null;
         raycaster.ray.at(sim.grab.reach, sim.grab.target);
+        // Beluga: no further than the strap and the card reach, give or take.
+        const reach = (sim.rest * JOINTS + layout.height) * MAX_PULL;
+        const pull = sim.grab.target.distanceTo(sim.anchor);
+        if (pull > reach) sim.grab.target.sub(sim.anchor).multiplyScalar(reach / pull).add(sim.anchor);
         start();
         return;
       }
@@ -1233,6 +1246,12 @@ const Lanyard = ({
       if (press && event.type === 'pointerup' && performance.now() - press.time < 450) flip(press.point);
       press = null;
       canvas.releasePointerCapture?.(event.pointerId);
+      // Beluga: let go off the card, the pointer goes back to what's under the layer at once.
+      if (passes()) {
+        toPointer(event);
+        hovering = event.pointerType !== 'touch' && !!pickCard();
+        canvas.style.pointerEvents = hovering ? 'auto' : 'none';
+      }
       setCursor(hovering && event.pointerType !== 'touch' ? 'grab' : '');
       start();
     };
@@ -1242,6 +1261,17 @@ const Lanyard = ({
       toPointer(event.touches[0]);
       if (pickCard()) event.preventDefault();
     };
+
+    // Beluga: with passThrough, the canvas lets the pointer through except over the card.
+    const onPointerAnywhere = event => {
+      if (!passes() || !visible || sim.grab || event.pointerType === 'touch') return;
+      toPointer(event);
+      hovering = !!pickCard();
+      canvas.style.pointerEvents = hovering ? 'auto' : 'none';
+      setCursor(hovering ? 'grab' : '');
+    };
+    if (passes()) canvas.style.pointerEvents = 'none';
+    window.addEventListener('pointermove', onPointerAnywhere, { passive: true });
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
@@ -1281,6 +1311,7 @@ const Lanyard = ({
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pointermove', onPointerAnywhere);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);

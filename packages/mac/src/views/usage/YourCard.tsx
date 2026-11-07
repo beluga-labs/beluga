@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppState } from '@beluga/core/store.js';
 import { type StatsSnapshot, dailySeries, streaks, totalsBy, totalsOf } from '@beluga/shared/stats.js';
 import { Icon } from '../../components/Icon.js';
@@ -14,9 +14,40 @@ import s from './your-card.module.css';
 
 // three.js comes only with the Usage tab, and only once the card is drawn.
 const Lanyard = lazy(() => import('../../vendor/lanyard/index.js'));
+type LanyardProps = import('../../vendor/lanyard/index.js').LanyardProps;
 
 /** Your pass on its lanyard (one at a time: the recap's last slide takes it while it's open). */
-const pass = (faces: Faces, color: string, size: number) => <Lanyard frontImage={faces.front} backImage={faces.back} strapImage={faces.strap} cardColor="#fbfbfd" strapColor={color} finish="glossy" metal="silver" size={size} strapLength={0.42} breeze={0} />;
+const pass = (faces: Faces, color: string, size: number, more: Partial<LanyardProps> = {}) => <Lanyard frontImage={faces.front} backImage={faces.back} strapImage={faces.strap} cardColor="#fbfbfd" strapColor={color} finish="glossy" metal="silver" size={size} strapLength={0.42} breeze={0} {...more} />;
+
+/** How tall the card hangs (px) and how far down its top is, whatever the size of the layer it's drawn in. */
+const CARD_PX = 430;
+const CARD_TOP_PX = 96;
+/** The layer reaches this far below your card's box, so the card can swing out over the page. */
+export const BLEED_BELOW = 280;
+
+/**
+ * Your pass hangs in a layer bigger than its place (over the words, past the edges, down into
+ * the next chapter) so it can swing out of its box; the layer takes the pointer only over the card.
+ * Lanyard sizes the card to the layer, so it's given the size that keeps the card as it was.
+ */
+function useLayer(): { ref: React.RefObject<HTMLElement | null>; size: number; strapLength: number; narrow: boolean } {
+  const ref = useRef<HTMLElement | null>(null);
+  const [box, setBox] = useState({ width: 1000, height: 580 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBox({ width: el.clientWidth, height: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const narrow = box.width < 736;
+  // The layer: the box's height and the bleed (when narrow, the pass's own place: 400 px).
+  const tall = (narrow ? 400 : box.height) + BLEED_BELOW;
+  const size = Math.min(0.9, CARD_PX / tall);
+  // Lanyard puts the card's top at 0.12–0.42 of the layer's height (strapLength 0–1).
+  const strapLength = Math.min(1, Math.max(0, (CARD_TOP_PX / tall - 0.12) / 0.3));
+  return { ref, size, strapLength, narrow };
+}
 
 interface Faces {
   readonly front: string;
@@ -87,14 +118,13 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const others = titles.filter((t) => t.id !== title.id);
+  const layer = useLayer();
   return (
-    <section className={s.hero} aria-label="Your card">
-      <div className={s.lanyard}>
-        {faces ? (
-          <Suspense fallback={null}>
-            {recap ? null : pass(faces, title.color, 0.8)}
-          </Suspense>
-        ) : null}
+    <section ref={layer.ref} className={s.hero} aria-label="Your card">
+      {/* Its place in the layout; the pass itself hangs in the layer below. */}
+      <div className={s.lanyard} />
+      <div className={cx(s.layer, layer.narrow && s.layerNarrow)}>
+        {faces && !recap ? <Suspense fallback={null}>{pass(faces, title.color, layer.size, { strapLength: layer.strapLength, passThrough: true, anchor: layer.narrow ? 'center' : 'left' })}</Suspense> : null}
       </div>
       <div className={s.words}>
         <span className={s.hi}>Hi {you.name.split(' ')[0]}, you’re a</span>
