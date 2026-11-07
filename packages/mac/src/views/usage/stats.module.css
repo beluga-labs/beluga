@@ -527,20 +527,19 @@
   transition: opacity 180ms;
 }
 .bandFill {
-  fill: color-mix(in srgb, var(--g) 34%, transparent);
-  transition: fill 180ms;
+  transition: opacity 180ms;
 }
 .bandLine {
   fill: none;
   stroke: var(--g);
-  stroke-width: 1.75;
+  stroke-width: 2.25;
   stroke-linejoin: round;
 }
 .bandDim {
   opacity: 0.18;
 }
 .bandOn .bandFill {
-  fill: color-mix(in srgb, var(--g) 60%, transparent);
+  filter: saturate(1.25) brightness(1.02);
 }
 .crosshair {
   position: absolute;
@@ -625,6 +624,9 @@
 }
 .ticks > span:first-child {
   transform: none;
+}
+.ticks > span:last-child {
+  transform: translateX(-100%);
 }
 /* Names under the chart: press to hide or show one, point to see only its band. */
 .legend2 {

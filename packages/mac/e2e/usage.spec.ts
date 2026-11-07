@@ -227,3 +227,21 @@ test('your recap: a slide at a time, keys and clicks, your title at the end', as
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Your recap' })).toHaveCount(0);
 });
+
+test('share your stats: a picture to save or copy, from your card and from the recap', async ({ page }) => {
+  await openUsage(page);
+  const card = page.getByRole('region', { name: 'Your card' });
+  await card.getByRole('button', { name: 'Share…' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Share Your Stats' });
+  await expect(sheet.getByRole('img', { name: /the picture you'll share/ })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Save Image…' })).toBeEnabled();
+  await expect(sheet.getByRole('button', { name: 'Copy Image' })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  // The recap's last slide shares too.
+  await card.getByRole('button', { name: 'Play Your Recap' }).click();
+  const recap = page.getByRole('dialog', { name: 'Your recap' });
+  await recap.getByRole('tablist', { name: 'Slides' }).getByRole('tab').last().click();
+  await recap.getByRole('button', { name: 'Share…' }).click();
+  await expect(page.getByRole('dialog', { name: 'Share Your Stats' })).toBeVisible();
+});

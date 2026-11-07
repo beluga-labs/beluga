@@ -1,13 +1,16 @@
-// @ts-nocheck
 /*
- * Lanyard by React Bits (https://reactbits.dev, Lanyard-JS-CSS), MIT + Commons Clause:
- * https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md. Kept as it came, so it can be
- * updated from the registry, but for two changes marked "Beluga:" (keep them when updating):
+ * Lanyard from React Bits (https://reactbits.dev, Lanyard-JS-CSS), by David Haz.
+ * Copyright (c) 2026 David Haz. MIT + Commons Clause License Condition v1.0: used here as part
+ * of this application, not redistributed on its own. Full license: ./LICENSE.md. Types:
+ * ./lanyard-props.ts. Kept as published but for these changes, marked "Beluga:" (keep them when
+ * updating it from the registry):
  * - a pull stops a little past the strap's length (MAX_PULL), so the card can't be stretched away;
  * - `passThrough`: the canvas takes the pointer only over the card, so it can be bigger than its
- *   place and the card swing over what's around it while all that stays clickable.
+ *   place and the card swing over what's around it while all that stays clickable;
+ * - `shake`: a new number swings the card around by itself (Usage's first visit).
  * Beluga draws the card it holds (views/usage/YourCard.tsx).
  */
+// @ts-nocheck
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -734,6 +737,7 @@ const Lanyard = ({
   breeze = 0.5,
   interactive = true,
   passThrough = false,
+  shake = 0,
   intro = true,
   className = '',
   style
@@ -741,6 +745,8 @@ const Lanyard = ({
   const containerRef = useRef(null);
   const settingsRef = useRef(null);
   const applyRef = useRef(null);
+  // Beluga: swings the card around by itself (set by the effect below).
+  const shakeRef = useRef(null);
 
   settingsRef.current = {
     frontImage,
@@ -769,6 +775,13 @@ const Lanyard = ({
   useEffect(() => {
     applyRef.current?.();
   });
+
+  // Beluga: a new `shake` swings the card: a push one way, the other, then a twirl.
+  useEffect(() => {
+    if (!shake) return;
+    const timers = [0, 320, 640].map((at, i) => setTimeout(() => shakeRef.current?.(i), at + 900));
+    return () => timers.forEach(clearTimeout);
+  }, [shake]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1310,12 +1323,24 @@ const Lanyard = ({
     document.addEventListener('visibilitychange', onVisibility);
 
     applyRef.current = apply;
+    // Beluga: one push of the shake (0, 1, 2): sideways, back, and a spin about the strap.
+    shakeRef.current = step => {
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      const body = sim.body;
+      const side = step === 1 ? -1 : 1;
+      body.velocity.x += side * (step === 2 ? 1.2 : 2.6);
+      body.velocity.z += 0.6;
+      body.angular.z += side * 5;
+      if (step === 2) body.angular.y += 9;
+      start();
+    };
     resize();
 
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
       applyRef.current = null;
+      shakeRef.current = null;
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);

@@ -1,4 +1,4 @@
-import { type MouseEvent, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, useId, useMemo, useRef, useState } from 'react';
 import { cx } from '../../components/ui.js';
 import type { MetricDef } from './stats-model.js';
 import { smoothPath } from '@beluga/shared/stats-trend.js';
@@ -55,6 +55,8 @@ export function TrendChart({ trend, m, mode, animate, why }: { trend: Trend; m: 
   const [focus, setFocus] = useState<string | undefined>(undefined);
   const [hover, setHover] = useState<number | undefined>(undefined);
   const box = useRef<HTMLDivElement>(null);
+  // Gradient ids of their own (two charts on a page never share one).
+  const uid = `trend${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const n = trend.buckets.length;
   const bands = useMemo(() => layers(trend, hidden, mode), [trend, hidden, mode]);
   const shown = trend.series.filter((x) => !hidden.has(x.key));
@@ -90,12 +92,25 @@ export function TrendChart({ trend, m, mode, animate, why }: { trend: Trend; m: 
         </div>
         <div ref={box} className={s.trendBox} onMouseMove={onMove} onMouseLeave={() => setHover(undefined)} role="img" aria-label={`${m.label} over time: ${shown.map((x) => `${x.name} ${m.format(x.total)}`).join(', ')}`}>
           <svg key={animate} className={s.trendSvg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-            {bands.map((band) => {
+            <defs>
+              {/* Each band in its colour, strongest at its own peak and fading to the bottom. */}
+              {bands.map((band, i) => {
+                const x = trend.series.find((y) => y.key === band.key)!;
+                return (
+                  <linearGradient key={band.key} id={`${uid}-${i}`} gradientUnits="userSpaceOnUse" x1="0" y1={Math.min(...band.high.map(yAt))} x2="0" y2={H}>
+                    <stop offset="0" style={{ stopColor: x.color, stopOpacity: 0.62 }} />
+                    <stop offset="0.6" style={{ stopColor: x.color, stopOpacity: 0.22 }} />
+                    <stop offset="1" style={{ stopColor: x.color, stopOpacity: 0.04 }} />
+                  </linearGradient>
+                );
+              })}
+            </defs>
+            {bands.map((band, i) => {
               const x = trend.series.find((y) => y.key === band.key)!;
               const dim = focus !== undefined && focus !== band.key;
               return (
                 <g key={band.key} className={cx(s.band, dim && s.bandDim, focus === band.key && s.bandOn)} style={{ '--g': x.color } as React.CSSProperties}>
-                  <path d={areaPath(band.low, band.high)} className={s.bandFill} />
+                  <path d={areaPath(band.low, band.high)} className={s.bandFill} fill={`url(#${uid}-${i})`} />
                   <path d={linePath(band.high)} className={s.bandLine} vectorEffect="non-scaling-stroke" />
                 </g>
               );

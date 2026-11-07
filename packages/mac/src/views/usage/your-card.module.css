@@ -44,6 +44,17 @@
   min-width: 0;
   padding: 40px 0;
 }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 .hi {
   color: var(--text-3);
   font-size: 1.05rem;
@@ -175,4 +186,22 @@
 .words {
     padding: 0 0 28px;
   }
+}
+
+/* The share sheet's picture, as it will be. */
+.sharePreview {
+  display: grid;
+  place-items: center;
+  margin: 4px 0 2px;
+}
+.sharePreview img,
+.shareDrawing {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 5;
+  border-radius: 18px;
+  box-shadow: 0 0 0 0.5px var(--hairline), 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+.shareDrawing {
+  background: var(--bg-sunken);
 }

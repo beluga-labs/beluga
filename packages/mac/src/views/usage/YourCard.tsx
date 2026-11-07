@@ -7,14 +7,17 @@ import { useAvatarUrl } from '../../lib/avatars.js';
 import { drawBack, drawFront, drawStrap, loadPicture } from './card-face.js';
 import { calendar, duration } from './stats-model.js';
 import { type Title, titlesOf } from './titles.js';
+import { Mark } from '../../onboarding/Mark.js';
 import { Recap } from './Recap.js';
+import { ShareSheet } from './ShareSheet.js';
+import type { ShareInput } from './share-image.js';
 import { compact } from './usage-model.js';
 import { usePicked } from './use-stats.js';
 import s from './your-card.module.css';
 
 // three.js comes only with the Usage tab, and only once the card is drawn.
-const Lanyard = lazy(() => import('../../vendor/lanyard/index.js'));
-type LanyardProps = import('../../vendor/lanyard/index.js').LanyardProps;
+const Lanyard = lazy(() => import('../../components/reactbits/lanyard-props.js'));
+type LanyardProps = import('../../components/reactbits/lanyard-props.js').LanyardProps;
 
 /** Your pass on its lanyard (one at a time: the recap's last slide takes it while it's open). */
 const pass = (faces: Faces, color: string, size: number, more: Partial<LanyardProps> = {}) => <Lanyard frontImage={faces.front} backImage={faces.back} strapImage={faces.strap} cardColor="#fbfbfd" strapColor={color} finish="glossy" metal="silver" size={size} strapLength={0.42} breeze={0} {...more} />;
@@ -55,6 +58,34 @@ interface Faces {
   readonly strap: string;
 }
 
+/** Your pass number: four digits that are always yours (from your id). */
+export function serialOf(id: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
+  return String(h % 10_000).padStart(4, '0');
+}
+
+const MET = 'beluga.usage.met';
+
+/** The first time you open Usage on this Mac (your pass shakes hello, once). */
+function useFirstVisit(): boolean {
+  const [first] = useState(() => {
+    try {
+      return !localStorage.getItem(MET);
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(MET, String(Date.now()));
+    } catch {
+      // Private mode: it shakes again next time.
+    }
+  }, []);
+  return first;
+}
+
 /** Your name and picture as the network knows them (else this Mac's name). */
 function useYou(state: AppState): { name: string; id: string; picture?: string } {
   const self = state.network.self;
@@ -74,7 +105,7 @@ function useStanding(stats: StatsSnapshot, now: number) {
       .slice(-52)
       .map((w) => w.map((d) => d.level));
     const active = Object.keys(stats.days).length;
-    return { all, titles: titlesOf({ all, hours: stats.hours, longestStreak: longest, agents }), year, active };
+    return { all, longest, titles: titlesOf({ all, hours: stats.hours, longestStreak: longest, agents }), year, active };
   }, [stats, now]);
 }
 
@@ -86,7 +117,8 @@ function useStanding(stats: StatsSnapshot, now: number) {
 export function YourCard({ state, stats, now }: { state: AppState; stats: StatsSnapshot; now: number }) {
   const [recap, setRecap] = useState(false);
   const you = useYou(state);
-  const { all, titles, year, active } = useStanding(stats, now);
+  const { all, longest, titles, year, active } = useStanding(stats, now);
+  const [sharing, setSharing] = useState(false);
   const [worn, setWorn] = usePicked<string>(
     'beluga.usage.title',
     titles[0]!.id,
@@ -103,12 +135,12 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
     [all],
   );
   const [faces, setFaces] = useState<Faces | undefined>(undefined);
-  const key = `${you.name}|${you.picture ?? ''}|${title.id}|${figures.map((f) => f.value).join(',')}|${since}|${stats.hours.join('')}`;
+  const key = `${you.name}|${you.picture ?? ''}|${title.id}|${figures.map((f) => f.value).join(',')}|${since}|${stats.hours.join('')}|${active}`;
   useEffect(() => {
     let alive = true;
     void loadPicture(you.picture).then((picture) => {
       if (!alive) return;
-      const face = { name: you.name, title: title.name, color: title.color, personColor: personColor(you.id), figures, hours: stats.hours, year, since, ...(picture ? { picture } : {}) };
+      const face = { name: you.name, title: title.name, color: title.color, personColor: personColor(you.id), figures, hours: stats.hours, year, since, serial: serialOf(you.id), active, ...(picture ? { picture } : {}) };
       setFaces({ front: drawFront(face), back: drawBack(face), strap: drawStrap(title.color) });
     });
     return () => {
@@ -118,15 +150,40 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const others = titles.filter((t) => t.id !== title.id);
+  // What the picture to share shows (drawn again only when it changes).
+  const shareInput = useMemo<ShareInput | undefined>(
+    () =>
+      faces
+        ? {
+            front: faces.front,
+            title: title.name,
+            why: title.id === 'rookie' ? 'Just getting started' : title.why,
+            color: title.color,
+            since,
+            figures: [
+              { value: figures[0]!.value, label: 'with my agents' },
+              { value: compact(all.prompts), label: 'prompts sent' },
+              all.prsMerged ? { value: compact(all.prsMerged), label: 'pull requests merged' } : { value: compact(all.worktrees), label: 'worktrees made' },
+              longest > 1 ? { value: `${longest} days`, label: 'longest streak' } : { value: active.toLocaleString(), label: 'active days' },
+            ],
+          }
+        : undefined,
+    [faces, title, since, figures, all, longest, active],
+  );
   const layer = useLayer();
+  const firstVisit = useFirstVisit();
   return (
     <section ref={layer.ref} className={s.hero} aria-label="Your card">
       {/* Its place in the layout; the pass itself hangs in the layer below. */}
       <div className={s.lanyard} />
       <div className={cx(s.layer, layer.narrow && s.layerNarrow)}>
-        {faces && !recap ? <Suspense fallback={null}>{pass(faces, title.color, layer.size, { strapLength: layer.strapLength, passThrough: true, anchor: layer.narrow ? 'center' : 'left' })}</Suspense> : null}
+        {faces && !recap ? <Suspense fallback={null}>{pass(faces, title.color, layer.size, { strapLength: layer.strapLength, passThrough: true, anchor: layer.narrow ? 'center' : 'left', shake: firstVisit ? 1 : 0 })}</Suspense> : null}
       </div>
       <div className={s.words}>
+        <span className={s.brand}>
+          <Mark size={30} delay={0.3} />
+          Beluga · Usage Pass {new Date(now).getFullYear()}
+        </span>
         <span className={s.hi}>Hi {you.name.split(' ')[0]}, you’re a</span>
         <h1 className={s.title}>
           <span className={s.titleMark} style={{ '--t': title.color } as React.CSSProperties}>
@@ -157,12 +214,16 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
           <Button variant="primary" icon="play" onClick={() => setRecap(true)}>
             Play Your Recap
           </Button>
+          <Button variant="plain" icon="share" onClick={() => setSharing(true)} disabled={!faces}>
+            Share…
+          </Button>
           <span className={s.since}>
             {since} · {active.toLocaleString()} active {active === 1 ? 'day' : 'days'}
           </span>
         </div>
       </div>
-      {recap ? <Recap state={state} stats={stats} now={now} title={title} pass={faces ? <Suspense fallback={null}>{pass(faces, title.color, 0.5)}</Suspense> : undefined} onClose={() => setRecap(false)} /> : null}
+      {recap ? <Recap state={state} stats={stats} now={now} title={title} pass={faces ? <Suspense fallback={null}>{pass(faces, title.color, 0.5)}</Suspense> : undefined} onShare={() => (setRecap(false), setSharing(true))} onClose={() => setRecap(false)} /> : null}
+      {sharing && shareInput ? <ShareSheet input={shareInput} onClose={() => setSharing(false)} /> : null}
     </section>
   );
 }

@@ -6,6 +6,8 @@ import { z } from 'zod';
  */
 
 const Channel = z.string().max(200).optional();
+/** A PNG of about 9 MB at most, as base64. */
+const MAX_PNG_B64 = 12_000_000;
 
 export const STATS_API = {
   // Everything counted, by day, project and agent, with pull requests → StatsSnapshot.
@@ -19,4 +21,6 @@ export const STATS_API = {
       ]),
     ]),
   },
+  // Save the image of your stats the Mac made (a PNG, base64) where you chose in the Save panel.
+  'stats.saveImage': { args: z.tuple([z.string().min(16).max(MAX_PNG_B64), z.string().min(2).max(1024)]) },
 } as const;

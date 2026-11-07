@@ -1,6 +1,7 @@
 /*
- * Your recap (Recap.tsx): the whole window in the slide's pastel, soft solid shapes drifting
- * behind, one big number at a time. No glow, no neon; reduced motion keeps everything still.
+ * Your recap (Recap.tsx): one calm background whose tint drifts slowly to each slide's colour,
+ * soft solid shapes moving and changing shape behind (motion), one big number at a time. No glow,
+ * no neon; reduced motion keeps everything still.
  */
 .recap {
   position: fixed;
@@ -9,53 +10,40 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: color-mix(in srgb, var(--c) 26%, var(--bg));
+  background-color: color-mix(in srgb, var(--c) 15%, var(--bg));
   color: var(--text);
   outline: none;
-  transition: background 600ms var(--ease-out);
-  animation: open 360ms var(--ease-out) both;
+  transition: background-color 1.8s var(--ease-out);
 }
 :global([data-theme='dark']) .recap {
-  background: color-mix(in srgb, var(--c) 22%, var(--bg));
+  background-color: color-mix(in srgb, var(--c) 12%, var(--bg));
 }
-@keyframes open {
-  from {
-    opacity: 0;
-    transform: scale(0.985);
-  }
-}
-.shapes > span {
+.shapes {
   position: absolute;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--c) 30%, transparent);
-  transition: background 600ms var(--ease-out);
-  animation: drift 18s ease-in-out infinite alternate;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
-.shapes > span:nth-child(1) {
+/* Placed and shaped by Recap.tsx (motion) from the top left; only their size and colour live here. */
+.shape {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 46vmax;
   height: 46vmax;
-  top: -18vmax;
-  right: -12vmax;
+  background-color: color-mix(in srgb, var(--c) 28%, transparent);
+  transition: background-color 1.8s var(--ease-out);
+  will-change: transform;
 }
-.shapes > span:nth-child(2) {
-  width: 30vmax;
-  height: 30vmax;
-  bottom: -12vmax;
-  left: -8vmax;
-  animation-duration: 23s;
+.shape:nth-child(2) {
+  width: 34vmax;
+  height: 34vmax;
+  background-color: color-mix(in srgb, var(--c) 20%, transparent);
 }
-.shapes > span:nth-child(3) {
-  width: 14vmax;
-  height: 14vmax;
-  bottom: 18%;
-  right: 16%;
-  background: color-mix(in srgb, var(--c) 18%, transparent);
-  animation-duration: 15s;
-}
-@keyframes drift {
-  to {
-    transform: translate(3vmax, 2vmax) scale(1.06);
-  }
+.shape:nth-child(3) {
+  width: 26vmax;
+  height: 26vmax;
+  background-color: color-mix(in srgb, var(--c) 34%, transparent);
 }
 .top {
   position: relative;
@@ -132,26 +120,10 @@
   gap: 14px;
   width: min(54rem, 100%);
 }
-.slide > * {
-  animation: rise 700ms var(--ease-out) both;
-}
-.slide > :nth-child(2) {
-  animation-delay: 80ms;
-}
-.slide > :nth-child(3) {
-  animation-delay: 220ms;
-}
-.slide > :nth-child(4) {
-  animation-delay: 380ms;
-}
-.slide > :nth-child(5) {
-  animation-delay: 520ms;
-}
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
+.iconLogo {
+  width: auto !important;
+  height: auto !important;
+  background: none !important;
 }
 .icon {
   display: grid;
@@ -177,6 +149,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--text);
   overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 .after {
   margin-left: 0.18em;
@@ -206,7 +179,6 @@
   grid-template-columns: 9rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  animation: rise 600ms var(--ease-out) both;
 }
 .barName {
   font-size: 1.05rem;
@@ -226,14 +198,6 @@
   height: 100%;
   border-radius: 999px;
   background: var(--b);
-  transform-origin: left;
-  animation: grow 900ms var(--ease-out) both;
-  animation-delay: inherit;
-}
-@keyframes grow {
-  from {
-    transform: scaleX(0);
-  }
 }
 .barValue {
   color: var(--text-2);
@@ -248,7 +212,6 @@
   bottom: 0;
   left: 38vw;
   cursor: grab;
-  animation: rise 900ms var(--ease-out) 400ms both;
 }
 /* Room for the pass: the words keep to the left. */
 .stageWithPass {
@@ -277,10 +240,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .recap,
-  .shapes > span,
-  .slide > *,
-  .bars > li,
-  .barFill {
-    animation: none;
+  .shape {
+    transition: none;
   }
 }

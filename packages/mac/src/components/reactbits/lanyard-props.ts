@@ -1,7 +1,7 @@
 import type { CSSProperties, ComponentType } from 'react';
 import Lanyard from './Lanyard.js';
 
-/** Lanyard's props (Lanyard.tsx is React Bits' JavaScript as it came, so its types are here). */
+/** Lanyard's props (Lanyard.tsx is React Bits' JavaScript, kept as published, so its types are here). */
 export interface LanyardProps {
   /** Images (URLs) on the card's faces and along its strap. */
   readonly frontImage?: string;
@@ -26,6 +26,8 @@ export interface LanyardProps {
   readonly interactive?: boolean;
   /** The canvas takes the pointer only over the card (it can then be bigger than its place). */
   readonly passThrough?: boolean;
+  /** A new number swings the card around by itself (0: never). */
+  readonly shake?: number;
   readonly intro?: boolean;
   readonly className?: string;
   readonly style?: CSSProperties;
