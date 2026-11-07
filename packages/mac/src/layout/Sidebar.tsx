@@ -18,6 +18,7 @@ import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { Projects, ProjectsAddMenu, showArchivedOf } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
 import { WorkspaceRow } from './workspace-row.js';
+import { ChatSelectionCount, SidebarChatSelection } from './chat-selection-view.js';
 import { UnreadSection } from './UnreadSection.js';
 import { Row, Section } from './sidebar-parts.js';
 import { ActivityRow } from '../claude-code/Live.js';
@@ -109,6 +110,7 @@ export function Sidebar() {
   }, sameDeep);
   const files = tabs.find((t) => t.kind === 'files');
   return (
+    <SidebarChatSelection>
     <nav ref={drop.ref} className={cx(s.sidebar, drop.over && s.dropping)} aria-label="Sidebar">
       <div className={s.titlebar} data-tauri-drag-region>
         {/* The traffic lights' place; in a browser, which has no menu bar, the menu bar's button (Settings and the rest). */}
@@ -156,6 +158,7 @@ export function Sidebar() {
           <RequestsNav whenAny />
         </section>
 
+        <ChatSelectionCount />
         <UnreadSection />
 
         <Section
@@ -192,6 +195,7 @@ export function Sidebar() {
       <SidebarFooter />
       <SelfBar />
     </nav>
+    </SidebarChatSelection>
   );
 }
 

@@ -202,7 +202,7 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   const origins = useAgentOrigins();
   const foldable = useMemo(() => plans.length > 0 || hasRowsInside(p, sessions, origins), [plans.length, p, sessions, origins]);
   return (
-    <>
+    <div data-chats-folded={fold.folded || undefined}>
       <SpecContext menu={{ kind: 'project', id: p.id }} extra={extra} hide={ownWay}>
         <Row
           data-drag={`project:${p.id}`}
@@ -296,7 +296,7 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
           {main ? <ProjectAgents p={p} ws={main} indent={kids} /> : null}
         </>
       )}
-    </>
+    </div>
   );
 });
 

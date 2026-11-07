@@ -112,6 +112,22 @@
 .selected .rowIcon {
   color: var(--accent);
 }
+.chatSelected,
+.chatSelected:hover {
+  background: var(--bg-selected);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.chatSelection {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 8px;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+.chatSelection button {
+  color: var(--accent);
+}
 .rowLabel {
   flex: 1;
   min-width: 0;
