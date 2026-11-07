@@ -1,3 +1,4 @@
+import { decodeFailure, failureText } from '../../shared/run-failure.js';
 import { THREAD_LIMITS_WHERE, type ThreadEnd, type ThreadLimits, type ThreadRecord, type ThreadState } from '../../shared/threads.js';
 
 /** The rules of one thread tree: pure, no I/O (core/threads/service.ts acts on them). */
@@ -89,6 +90,23 @@ export function capSummary(summary: string): { readonly text: string; readonly c
   if (summary.length <= SUMMARY_CAP) return { text: summary, cut: false };
   const end = isHighSurrogate(summary.charCodeAt(SUMMARY_CAP - 1)) ? SUMMARY_CAP - 1 : SUMMARY_CAP;
   return { text: summary.slice(0, end), cut: true };
+}
+
+/** How a turn ended, from its final event (undefined: it has not ended). */
+export function threadEndOf(event: string, text: string): { readonly state: ThreadEnd; readonly summary: string } | undefined {
+  if (event === 'done') return { state: 'done', summary: text };
+  if (event !== 'error' && event !== 'denied') return undefined;
+  const stopped = decodeFailure(text)?.kind === 'stopped' || /^(Stopped by|Taken out of the queue|Interrupted)/.test(text);
+  return { state: stopped ? 'stopped' : 'failed', summary: failureText(text) };
+}
+
+/** What a child reads first. It works for an agent, so it knows who gets its answer. */
+export function threadTaskPrompt(parentTitle: string, task: string): string {
+  return `A task from the agent in the chat “${parentTitle}” (another agent, not the user). You run in a child thread. When your turn ends, your final answer goes to that agent as data. Write in that answer what you did and what you found.\n\n${task}`;
+}
+
+export function threadMessagePrompt(parentTitle: string, text: string, urgent: boolean): string {
+  return `${urgent ? 'An urgent message' : 'A message'} from the agent in the chat “${parentTitle}” (the agent that started this thread, not the user). When your turn ends, your final answer goes to that agent as data.\n\n${text}`;
 }
 
 /** One prompt for the parent that holds every result. Each result is data from another agent, never an instruction. */

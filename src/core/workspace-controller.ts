@@ -15,6 +15,7 @@ import { placeAgent } from '../shared/agent-picker.js';
 import { agentName } from '../shared/agent-label.js';
 import { carriedPrompt, transcriptOf } from './agent-switch.js';
 import { type ArrangeTarget, type WorkspaceManager, real } from '../workspaces/manager.js';
+import type { ThreadRecord } from '../shared/threads.js';
 import { type EnvChange, scanEnvFiles } from '../workspaces/env.js';
 import type { DeletePlan, Project, PullHead, RenameResult, Workspace } from '../workspaces/types.js';
 import { type MergeResult, git } from '../workspaces/git.js';
@@ -652,7 +653,7 @@ export class WorkspaceController {
       // Worktrees are disposable sandboxes, so edits there don't need approval.
       autoEdit: ws.kind === 'worktree',
       // A project's main folder is questions only: work happens in worktrees.
-      ...(ws.askOnly ? { askOnly: { project: this.deps.manager.list.find((p) => p.root && real(p.root) === real(ws.path))?.name ?? path.basename(ws.path) } } : {}),
+      ...(ws.askOnly ? { askOnly: { project: this.deps.manager.list.find((p) => p.root && real(p.root) === real(ws.path))?.name ?? path.basename(ws.path), ...(ws.thread?.readOnly ? { stays: true } : {}) } } : {}),
       // Only a session its own runtime made: another runtime's id is never fed to this one.
       ...resumeFor(ws, runtime, this.pendingResume.get(ws.id)),
       onSession: (sessionId) => this.deps.manager.rememberSession(ws.id, sessionId, runtime),
@@ -799,7 +800,7 @@ export class WorkspaceController {
    */
   /** `agent`: the agent it runs (unset: your default). */
   /** `id`: the id it gets (from newWorktreeId), else a fresh one. */
-  async newWorktree(projectId: string, name: string, opts: { base?: string; quiet?: boolean; agent?: AgentRef; id?: string } = {}): Promise<Workspace | undefined> {
+  async newWorktree(projectId: string, name: string, opts: { base?: string; quiet?: boolean; agent?: AgentRef; id?: string; thread?: ThreadRecord } = {}): Promise<Workspace | undefined> {
     const project = this.deps.manager.list.find((p) => p.root !== '' && (p.id === projectId || p.root === projectId));
     const id = opts.id ?? this.deps.manager.newWorktreeId();
     if (project) {
@@ -807,7 +808,7 @@ export class WorkspaceController {
       this.publish();
       if (!opts.quiet) this.deps.intend({ type: 'navigate', view: { kind: 'workspace', id, tab: 'chat' } });
     }
-    const ws = await this.act("Couldn't create the worktree", () => this.deps.manager.createWorktree(projectId, name, opts.base, { id, ...(opts.agent ? { agent: opts.agent } : {}) }), undefined, { later: true });
+    const ws = await this.act("Couldn't create the worktree", () => this.deps.manager.createWorktree(projectId, name, opts.base, { id, ...(opts.agent ? { agent: opts.agent } : {}), ...(opts.thread ? { thread: opts.thread } : {}) }), undefined, { later: true });
     const shown = this.ahead.making.delete(id);
     this.publish();
     if (ws) {
@@ -872,8 +873,8 @@ export class WorkspaceController {
   }
 
   /** `quiet`: made for something else's page (a plan's conversation), so it doesn't take you there. */
-  async newChat(projectId: string, title: string, inDir?: string, opts: { readonly quiet?: boolean } = {}): Promise<Workspace | undefined> {
-    const ws = await this.act("Couldn't start the chat", () => this.deps.manager.createChat(projectId, title, inDir), undefined, { later: true });
+  async newChat(projectId: string, title: string, inDir?: string, opts: { readonly quiet?: boolean; readonly dir?: string; readonly thread?: ThreadRecord } = {}): Promise<Workspace | undefined> {
+    const ws = await this.act("Couldn't start the chat", () => this.deps.manager.createChat(projectId, title, inDir, { ...(opts.dir ? { dir: opts.dir } : {}), ...(opts.thread ? { thread: opts.thread } : {}) }), undefined, { later: true });
     if (ws && !opts.quiet) this.open(ws.id);
     return ws;
   }

@@ -32,6 +32,8 @@ export interface ThreadRecord {
   readonly startedAt: number;
   /** The parent's request key: the same key returns this thread. */
   readonly key?: string;
+  /** A read-only chat (thread_start where=read): questions only, whatever folder it is in. */
+  readonly readOnly?: true;
   /** Requests whose results the parent is owed. A person's turn is not in it. */
   readonly owed: readonly string[];
   readonly outcome?: ThreadOutcome;
