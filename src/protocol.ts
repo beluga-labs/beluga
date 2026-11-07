@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EmojiSchema } from './shared/reactions.js';
 
 /** Wire protocol version. Bump on breaking changes. */
 export const PROTOCOL_VERSION = 3;
@@ -134,6 +135,30 @@ export const ChatBody = z.object({
   channel: Channel,
   /** With `byAgent`: which of their agents wrote it (an older Mac leaves it out: Claude). */
   agent: AgentRef.optional(),
+  /**
+   * BLG-702: the sender's own id for it, the same in every copy (a workspace chat goes to each person
+   * in a frame of its own), so a reaction can name it: it's `<from>:<mid>` everywhere. An older Mac
+   * sends none (its message keeps the frame's id) and drops it from ours.
+   */
+  mid: z.string().regex(/^[\w-]{8,64}$/).optional(),
+});
+
+/** A chat message's id as every copy of it has it: `<from>:<mid>`, or (from an older Mac) the frame's own. */
+export const chatMessageId = (from: string, mid: string | undefined, frameId: string): string => (mid ? `${from}:${mid}` : frameId);
+
+/**
+ * BLG-702: one person's emoji on a chat message (`to`: its id, see chatMessageId) put on (`on`) or
+ * taken off; `at` orders their changes to it (shared/reactions.ts: the newest wins, off wins a tie).
+ * In the room it's kept with its history (late joiners get it too); in a workspace it goes to the
+ * people in it, like a message. An older Mac doesn't know the kind and drops it.
+ */
+export const ChatReactBody = z.object({
+  kind: z.literal('chat_react'),
+  channel: Channel,
+  to: z.string().regex(/^[\w:+/=.-]{1,200}$/),
+  e: EmojiSchema,
+  on: z.boolean(),
+  at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 });
 
 export const FocusBody = z.object({
@@ -276,6 +301,8 @@ export const ReportBody = z.object({
 export const RoomClearedBody = z.object({ kind: z.literal('room_cleared') });
 /** The gateway (tasks between Claudes, core/gateway) over a room: one frame, to one person; it checks the frame itself. */
 export const GatewayBody = z.object({ kind: z.literal('gateway'), frame: z.unknown() });
+/** A call in the room's chat (core/calls, BLG-716): ringing, who's in, WebRTC setup, notes; sent to one person, checked there. */
+export const CallBody = z.object({ kind: z.literal('call'), p: z.unknown() });
 /**
  * Someone in the room wants to be friends on the Beluga network (BLG-202): a one-time friend
  * invitation made only for you. Accepting it pairs your Macs over the network. Older Macs drop it.
@@ -506,6 +533,7 @@ export const Body = z.discriminatedUnion('kind', [
   FileOfferBody,
   RoomClearedBody,
   GatewayBody,
+  CallBody,
   FriendOfferBody,
   ShareOfferBody,
   AgentQuestionBody,
@@ -514,6 +542,7 @@ export const Body = z.discriminatedUnion('kind', [
   WsRosterBody,
   WsLeaveBody,
   ChatBody,
+  ChatReactBody,
   FocusBody,
   AgentRequestBody,
   AgentEventBody,

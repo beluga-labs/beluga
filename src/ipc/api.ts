@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
+import { EmojiSchema } from '../shared/reactions.js';
 import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
@@ -28,6 +29,7 @@ import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
 import { VOICE_API } from './voice-api.js';
+import { CALLS_API } from './calls-api.js';
 import { TERMINAL_IMPORT_API } from './terminal-import-api.js';
 import { AGENT_TERM_API } from './agent-term-api.js';
 import { HANDOFF_MODES } from '../shared/agent-handoff.js';
@@ -97,7 +99,8 @@ export const PrefsPatch = z
     friendWorktrees: z.enum(['ask', 'off']),
     chatClaude: z.enum(['everyone', 'trusted', 'off']),
     shareUsage: z.enum(['trusted', 'everyone', 'off']),
-    shell: z.string().max(200).optional(),
+    // null: back to the login shell (JSON can't carry undefined, so "unset" travels as null).
+    shell: z.string().max(200).nullable().optional(),
     shellLogin: bool,
     shellArgs: z.array(z.string().max(200)).max(20),
     claudeArgs: agentArgs('claude'),
@@ -135,6 +138,8 @@ export const API = {
   'session.unshareFolder': args(id),
   'session.follow': args(opt(z.string().max(64))),
   'session.clearChat': args(channel, opt(z.object({ everyone: opt(bool), fresh: opt(bool) }))),
+  // BLG-702: put an emoji on a message of the group chat or a workspace chat (`true`), take yours off (`false`), or flip it (none): → its reactions.
+  'session.react': args(channel, z.string().regex(/^[\w:+/=.-]{1,200}$/), EmojiSchema, opt(bool)),
   'session.removePerson': args(id),
   'session.newInviteLink': args(),
   'session.setRoomOpen': args(bool),
@@ -236,6 +241,8 @@ export const API = {
   'files.readImage': args(),
   // An image a document points at (Markdown's ![](diagram.png)), a PDF or a video (the reader plays it), read the way files.open reads one: → { mediaType, data (base64) }.
   'files.readImageFile': args(Location),
+  // Which version of a file this is, without reading it: → { size, mtime (ms) }. A picture kept by its path is read again once either changes (BLG-749).
+  'files.version': args(Location),
   // A file's text without opening it in the viewer (the Mac Changes tab shows a changed file as itself): → { content, truncated }.
   'files.read': args(Location),
 
@@ -245,8 +252,12 @@ export const API = {
   // Load a workspace's saved conversation without going there (the Mac Overview's read-only look at an archived one).
   'workspaces.load': args(id),
   'workspaces.refresh': args(),
-  // Set the display name. Keep the branch and folder names.
+  // Set the display name. A worktree's own branch takes it too unless it's on a remote (a / in it: exactly that branch); the folder stays. → { name, branch?, branchKept? }.
   'workspaces.rename': args(id, z.string().trim().min(1).max(200)),
+  // Generate a title from recent chat content. The chat session stays unchanged.
+  'workspaces.regenerateTitle': args(id),
+  // Remind Me Later: a chat or worktree stays quiet (its news, failing checks, conflicts) until then (epoch ms), then you're reminded once. Null or left out: show it again now.
+  'workspaces.remindLater': args(id, z.number().int().positive().nullish()),
   'workspaces.newWorktree': args(id, z.string().max(200), opt(z.object({ base: opt(z.string().min(1).max(250)), agent: opt(AgentRef) }))),
   'workspaces.newChat': args(id, z.string().max(200), opt(path)),
   // `terminal`: you see it as its agent's terminal, so that opens on the message (BLG-553).
@@ -261,7 +272,8 @@ export const API = {
   // Carry a conversation (an ask chat in a main folder, or any chat) into a new worktree and go on there → the new workspace's id.
   // `agent` (BLG-506): who goes on there; unset: the conversation's own. One that can't resume the conversation starts fresh, handed it.
   'workspaces.continueInWorktree': args(id, opt(z.object({ task: opt(str), base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), agent: opt(AgentRef) }).strict())),
-  'workspaces.archive': args(id, opt(bool)),
+  // `quiet`: no success toast; a batch says it once for all its chats (the sidebar's chat selection).
+  'workspaces.archive': args(id, opt(bool), opt(z.object({ quiet: opt(bool) }).strict())),
   'workspaces.restore': args(id),
   // What archiving (or freeing space) would throw away and keep → ArchivePreview (none: not a worktree that's there).
   'workspaces.archivePlan': args(id),
@@ -269,7 +281,8 @@ export const API = {
   'workspaces.deletePlan': args(id),
   // Throw away a worktree's dependencies, builds and caches → bytes freed.
   'workspaces.freeSpace': args(id),
-  'workspaces.remove': args(id),
+  // `quiet`: as for archive.
+  'workspaces.remove': args(id, opt(z.object({ quiet: opt(bool) }).strict())),
   'workspaces.commit': args(id, opt(z.string().max(2000))),
   'workspaces.merge': args(id),
   'workspaces.prepareRemoval': args(id),
@@ -331,11 +344,11 @@ export const API = {
   'workbench.createPr': args(id, opt(str)),
   // Create PR without Claude: commit what's left, push, open it titled from the commits → { ok, message, trouble? }.
   // https: push this once over HTTPS with gh's login (the SSH key isn't working; origin stays as it is).
-  'workbench.quickPr': args(id, opt(z.object({ draft: opt(bool), https: opt(bool) }).strict())),
+  'workbench.quickPr': args(id, opt(z.object({ draft: opt(bool), https: opt(bool), original: opt(bool) }).strict())),
   // Merge into its base with no PR (BLG-265): commit what's left, land the branch on origin/<base> and push it there → { ok, message, trouble? }.
   'workbench.mergeToBase': args(id, opt(z.object({ https: opt(bool) }).strict())),
   // A fix from a GitHub trouble card (BLG-213), then Create PR again ('pr', 'pr_draft'), Merge into its base ('merge_base') or nothing ('none') → { ok, message, trouble? }.
-  'workbench.gitFix': args(id, z.enum(['push_https', 'use_https', 'install_gh', 'gh_login', 'add_ssh_key', 'check_host', 'retry']), opt(z.enum(['pr', 'pr_draft', 'merge_base', 'none']))),
+  'workbench.gitFix': args(id, z.enum(['push_https', 'use_https', 'install_gh', 'gh_login', 'add_ssh_key', 'check_host', 'retry']), opt(z.enum(['pr', 'pr_draft', 'pr_original', 'merge_base', 'none']))),
   // A failed run's card when Claude Code isn't signed in: `claude auth login` in your shell `id` (shell:N), then Claude goes on in `channel` → { ok, message }.
   // How: 'claudeai' (a Claude subscription, the default) or 'console' (an Anthropic Console account, API billing).
   'workbench.signInClaude': args(id, channel, opt(z.enum(['claudeai', 'console']))),
@@ -419,6 +432,8 @@ export const API = {
   'projects.setIcon': args(id, opt(path)),
   'projects.add': args(path),
   'projects.addFolder': args(path),
+  // Make a folder that isn't a git project one (git, a .gitignore, a first commit), then add it.
+  'projects.initGit': args(path),
   'projects.suggest': args(),
   // Start a new project: a folder (name, in this folder or your code folder), git and a first commit → { id, path }.
   'projects.create': args(z.string().max(100), opt(path)),
@@ -472,6 +487,8 @@ export const API = {
   ...ASSISTANT_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)
   ...VOICE_API,
+  // ---- calls in a conversation with friends: voice, screen sharing (calls-api.ts)
+  ...CALLS_API,
   // ---- bringing another terminal's look into Beluga's (terminal-import-api.ts)
   ...TERMINAL_IMPORT_API,
   // ---- the agent's own terminal on a conversation, and its visuals (agent-term-api.ts)

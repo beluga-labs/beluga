@@ -16,7 +16,7 @@ import { localRuntime } from '../agent/runtime/local.js';
 import { LOCAL_RUNTIME } from '../shared/local-endpoints.js';
 import type { LocalEndpoints } from './local-endpoints.js';
 import type { IncomingMessage, PeerClient } from '../net/peer-client.js';
-import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, defaultAgentOf, type FsEntry, MAX_TEXT, type PeerInfo, type Profile } from '../protocol.js';
+import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type PeerInfo, type Profile } from '../protocol.js';
 import { type UsageUpdate, withUsage } from '../agent/usage.js';
 import { dialoguesOf } from './dialogues/registry.js';
 import { agentName } from '../shared/agent-label.js';
@@ -60,6 +60,8 @@ import { PowerSaver, paced } from './power-saver.js';
 import type { EnvVars } from './env-vars.js';
 import { gatewayOf } from './gateway/registry.js';
 import { receiveFriendOffer } from './friend-offers.js';
+import { onChatReact, reactInChat, type RoomReactDeps } from './room-reactions.js';
+import { receiveRoomCall } from './calls/launch.js';
 
 /** Bigger, smaller, or back to normal text. */
 export type ZoomDir = 'in' | 'out' | 'reset';
@@ -577,24 +579,36 @@ export class Session {
 
   /**
    * `request`: the request to your Claude the message is (kept on it here, so its card's state can
-   * show on it); `steer`: it steers the turn your Claude is on (shown as not read yet from the start).
+   * show on it); `steer`: it steers the turn your Claude is on (shown as not read yet from the start);
+   * `queued`: it waits behind that turn (in the queue from the start, never a sent bubble for a moment).
    */
-  sendChat(text: string, byAgent: boolean, channel = 'room', request?: string, steer = false): void {
+  sendChat(text: string, byAgent: boolean, channel = 'room', request?: string, steer = false, queued = false): void {
     const agent = byAgent ? { agent: this.agentRef } : {};
+    // Its own id, the same in every copy, so reactions can name it (BLG-702).
+    const mid = randomUUID();
     if (channel !== 'room') {
       // Workspace conversations stay on this computer, plus the people you invited into them.
-      const id = randomUUID();
-      this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent, channel, ...agent, ...(request ? { request } : {}), ...(steer ? { steer: true as const } : {}) });
-      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, ...agent }, { to });
+      const id = chatMessageId(this.selfId, mid, '');
+      this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent, channel, ...agent, ...(request ? { request } : {}), ...(steer ? { steer: true as const } : {}), ...(queued ? { queued: true as const } : {}) });
+      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, mid, ...agent }, { to });
       return;
     }
     if (this.store.getState().self?.guest && !this.store.getState().peers.find((p) => p.peerId === this.selfId && !p.guest)) {
       this.toast("You came in with a link to a project, so there's no group chat here. Open it in Projects", 'warn');
       return;
     }
-    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, ...agent }, { keep: true })) {
+    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, mid, ...agent }, { keep: true })) {
       this.toast('Not connected, so the message was not sent', 'error');
     }
+  }
+
+  /** Put an emoji on a message of the group chat or a workspace chat, or take yours off (BLG-702). → its chips now. */
+  reactChat(channel: string, id: string, emoji: string, on?: boolean): ReturnType<typeof reactInChat> {
+    return reactInChat(this.reactDeps, channel, id, emoji, on);
+  }
+
+  private get reactDeps(): RoomReactDeps {
+    return { store: this.store, selfId: () => this.selfId, send: (body, opts) => this.send(body, opts), sharing: this.sharing, ensureLoaded: (wsId) => void this.workspaces?.ensureLoaded(wsId) };
   }
 
   /** Ask an agent (ours or a peer's) to do something. Returns the request id. */
@@ -629,8 +643,9 @@ export class Session {
     const requestId = shown ?? randomUUID();
     // How a worktree is as you send this, so editing the message later can go back to it (BLG-385).
     if (!shared && (echo || shown)) void this.workspaces?.snapshotPrompt(channel, requestId);
-    // Steering your own Claude at work here: the message says it isn't read yet from the moment it's drawn.
-    if (echo && !shown) this.sendChat(typeof echo === 'string' ? echo : prompt, false, channel, requestId, urgent && !shared && this.host.runningIn(channel));
+    // Your own Claude at work here: a steer says it isn't read yet from the moment it's drawn, and anything else waits in the queue from then.
+    const running = !shared && this.host.runningIn(channel);
+    if (echo && !shown) this.sendChat(typeof echo === 'string' ? echo : prompt, false, channel, requestId, urgent && running, !urgent && running);
     return this.requestAgent(shared ? shared.owner : this.selfId, prompt, false, channel, urgent, undefined, requestId);
   }
 
@@ -839,6 +854,11 @@ export class Session {
   /** A short name for a new plan (undefined without an agent to ask, or when the model couldn't). */
   async titlePlan(goal: string): Promise<string | undefined> {
     return routeSideCall(this.sideRoute(), (on) => on.titlePlan?.(goal), undefined);
+  }
+
+  /** Name a chat from its recent content with a separate side call. */
+  async titleChat(content: string): Promise<string | undefined> {
+    return routeSideCall(this.sideRoute(), (on) => on.titleChat?.(content), undefined);
   }
 
   /** What a project's setup should be after it failed in a worktree (undefined without an agent to ask). */
@@ -1194,6 +1214,10 @@ export class Session {
         // Tasks between Claudes (core/gateway): sent to one person; the gateway checks who may say what.
         gatewayOf(this)?.onRoomFrame(from, body.frame);
         return;
+      case 'call':
+        // A call in the room's chat (core/calls): the call service checks who may say what.
+        receiveRoomCall(this, from, body.p);
+        return;
       case 'friend_offer':
         // Someone in the room wants to be friends on the network (BLG-202): shown, never acted on by itself.
         return receiveFriendOffer(this, from, body);
@@ -1243,12 +1267,18 @@ export class Session {
         return this.sharing.onRoster(from, body);
       case 'ws_leave':
         return this.sharing.onLeave(from, body);
-      case 'chat':
+      case 'chat': {
         // Workspace chats only reach people in that workspace, and only contributors may post.
         if (body.channel !== 'room' && !this.sharing.canPost(from, body.channel)) return;
         if (body.channel?.startsWith('ws:')) this.workspaces?.ensureLoaded(body.channel.slice(3));
-        this.store.dispatch({ type: 'chat', id, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}) });
+        const chatId = chatMessageId(from, body.mid, id);
+        // The same message again (sent once more after a lost acknowledgement): it's here already.
+        if (body.mid && this.store.getState().log.some((l) => l.id === chatId && l.channel === body.channel)) return;
+        this.store.dispatch({ type: 'chat', id: chatId, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}) });
         return;
+      }
+      case 'chat_react':
+        return onChatReact(this.reactDeps, from, body);
       case 'focus':
         return this.onFocus(from, ts, body);
       case 'agent_request':
@@ -1476,7 +1506,7 @@ export class Session {
     this.sayWhoAnswers(from, body);
     // Your Claude asked from a workspace: follow the friend's Claude there (only from the one you asked).
     const channel = waiter?.mirror && waiter.peer === from && body.requester === this.selfId ? waiter.mirror : body.channel;
-    this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}) });
+    if (!this.workspaces?.deletedChannel(channel)) this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}) });
     if (!waiter || waiter.peer !== from || !['done', 'error', 'denied'].includes(body.event)) return;
     clearTimeout(waiter.timer);
     this.agentWaiters.delete(body.requestId);

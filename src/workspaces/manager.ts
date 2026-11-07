@@ -21,7 +21,8 @@ import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
 import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/opencode/sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
-import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, RenameResult, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { ForkOf } from './github.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
@@ -123,6 +124,8 @@ export class WorkspaceManager {
   private readonly folderRefreshes = new Map<string, Promise<boolean>>();
   /** Fetching state per project root (in flight, the last failure), shown with the default branch. */
   private fetchState = new Map<string, Pick<ProjectSync, 'fetching' | 'fetchError'>>();
+  /** What each project's origin was forked from (by root), as gh last said. */
+  private forks = new Map<string, ForkOf>();
   /** A remote's default branch learned while fetching, for repos without origin/HEAD (by root). */
   private remoteDefaults = new Map<string, string>();
 
@@ -566,7 +569,8 @@ export class WorkspaceManager {
         const branch = w.kind === 'worktree' || w.kind === 'main' ? (trees.find((t) => real(t.path) === real(w.path))?.branch ?? now.branch) : now.branch;
         return { ...now, ...(branch ? { branch } : {}), base: now.base ?? base, projectId: id, external: false, ...(w.askOnly ? { askOnly: true } : {}), ...(w.status ? { status: w.status } : {}) };
       };
-      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}) };
+      const fork = this.forks.get(root);
+      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}), ...(fork ? { fork } : {}) };
     } catch (err) {
       return { id, name, root, base: 'HEAD', workspaces: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -675,6 +679,19 @@ export class WorkspaceManager {
   async defaultBranchName(projectId: string): Promise<string> {
     const base = await this.baseOf(this.repoProject(projectId).root);
     return base.replace(/^origin\//, '');
+  }
+
+  /** Record what a project's origin was forked from (undefined: not a fork), shown right away. */
+  setFork(projectId: string, fork: ForkOf | undefined): void {
+    const project = this.projects.find((p) => p.id === projectId && p.root);
+    if (!project) return;
+    if (fork) this.forks.set(project.root, fork);
+    else this.forks.delete(project.root);
+    this.projects = this.projects.map((p) => {
+      if (p !== project) return p;
+      const { fork: _f, ...rest } = p;
+      return fork ? { ...rest, fork } : rest;
+    });
   }
 
   /** Mark a project as fetching (or record how its last fetch went), shown right away. */
@@ -857,7 +874,8 @@ export class WorkspaceManager {
     } else {
       const named = pull.branch && !pull.branch.startsWith('-') && !(await g.isCommit(root, `refs/heads/${pull.branch}`));
       branch = named ? pull.branch : await this.freeBranch(root, `pr-${pull.number}`);
-      await g.git(root, ['fetch', 'origin', `+refs/pull/${pull.number}/head:refs/heads/${branch}`]).catch((err: unknown) => {
+      // Its head is kept too (BLG-746): GitHub has these commits, so they never read as pushed nowhere.
+      await g.git(root, ['fetch', 'origin', `+refs/pull/${pull.number}/head:refs/heads/${branch}`, `+refs/pull/${pull.number}/head:${g.pullHeadRef(pull.number)}`]).catch((err: unknown) => {
         throw new WorkspaceError(`Couldn’t fetch pull request #${pull.number} from origin: ${err instanceof Error ? err.message : String(err)}`);
       });
       await g.git(root, ['worktree', 'add', dir, branch]);
@@ -922,9 +940,11 @@ export class WorkspaceManager {
     }
   }
 
-  private async freeBranch(repo: string, wanted: string): Promise<string> {
+  /** `mine`: the branch being renamed, free for itself (renaming foo-2 back to foo-2 keeps it). */
+  private async freeBranch(repo: string, wanted: string, mine?: string): Promise<string> {
     for (let i = 1; ; i++) {
       const name = i === 1 ? wanted : `${wanted}-${i}`;
+      if (name === mine) return name;
       try {
         await g.git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`]);
       } catch {
@@ -1086,7 +1106,12 @@ export class WorkspaceManager {
     // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
     if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
     const into = ws.base ?? (await this.baseOf(ws.projectRoot));
-    const lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    // Checked against the remote before warning (BLG-746): merged on GitHub a minute ago reads as merged.
+    if (lost.count) {
+      await g.catchUpForDelete(ws.projectRoot, ws.branch, into);
+      lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    }
     return lost.count ? { branch: ws.branch, into, unpushed: lost.count, subjects: lost.subjects } : undefined;
   }
 
@@ -1234,6 +1259,12 @@ export class WorkspaceManager {
   setMergeWait(id: string, wait: MergeWait | undefined): void {
     this.require(id);
     this.patchRecord(id, { mergeWhenReady: wait });
+  }
+
+  /** Remind you of a conversation then (epoch ms), quiet till then; undefined: not anymore. */
+  setRemindAt(id: string, at: number | undefined): void {
+    this.require(id);
+    this.patchRecord(id, { remindAt: at });
   }
 
   setModel(id: string, model: string | undefined): void {
@@ -1402,13 +1433,62 @@ export class WorkspaceManager {
   async renameWorktree(id: string, name: string): Promise<void> {
     const ws = this.require(id);
     const s = slug(name);
-    if (ws.kind !== 'worktree' || !s || s === ws.name) return;
-    const pushed = ws.branch && (await g.tryGit(ws.path, ['for-each-ref', '--count=1', `refs/remotes/*/${ws.branch}`]))?.trim();
+    // You named it meanwhile: yours stays.
+    if (ws.kind !== 'worktree' || ws.nameSetByUser || !s || s === ws.name) return;
     const prefix = this.branchPrefix();
-    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !pushed ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
+    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !(await this.onRemote(ws.path, ws.branch)) ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
     if (branch) await g.git(ws.path, ['branch', '-m', ws.branch!, branch]);
     this.patchRecord(id, { name: s, ...(branch ? { branch } : {}) });
     await this.refresh();
+  }
+
+  /**
+   * You renamed a workspace. A worktree's branch takes the name too: beluga/<name> (or your prefix)
+   * for one Beluga made, the same folder for one of yours (feature/<name>), or exactly what you typed
+   * when it has a / in it. A branch already on a remote keeps its name (its pull request follows it),
+   * and the folder stays where it is (sessions and terminals run in it).
+   */
+  async renameByUser(id: string, typed: string): Promise<RenameResult> {
+    const ws = this.require(id);
+    if (ws.kind !== 'worktree') {
+      this.rename(id, typed);
+      return { name: this.require(id).name };
+    }
+    const text = typed.trim();
+    const exact = text.includes('/') ? await this.validBranch(ws.path, text) : undefined;
+    const label = exact ? exact.slice(exact.lastIndexOf('/') + 1) : text;
+    if (!/[a-z0-9]/i.test(label)) throw new WorkspaceError('A worktree needs a name with a letter or a digit in it');
+    const s = slug(label);
+    const old = ws.branch;
+    const kept = !old ? undefined : (await this.onRemote(ws.path, old)) ? ('pushed' as const) : undefined;
+    let branch = old;
+    if (old && !kept) {
+      const prefix = this.branchPrefix();
+      const wanted = exact ?? (isOwnBranch(old, ws.name, prefix) ? `${prefix}${s}` : `${old.slice(0, old.lastIndexOf('/') + 1)}${s}`);
+      branch = exact ? await this.takenOrFree(ws.path, exact, old) : await this.freeBranch(ws.path, wanted, old);
+      if (branch !== old) await g.git(ws.path, ['branch', '-m', old, branch]);
+    }
+    this.patchRecord(id, { name: s, nameSetByUser: true, ...(branch ? { branch } : {}) });
+    await this.refresh();
+    return { name: s, ...(branch ? { branch } : {}), ...(kept ? { branchKept: kept } : {}) };
+  }
+
+  /** Is this branch on a remote already (a remote branch of the same name)? Its upstream alone says nothing: a new worktree's is origin/main. */
+  private async onRemote(repo: string, branch: string): Promise<boolean> {
+    return Boolean((await g.tryGit(repo, ['for-each-ref', '--count=1', `refs/remotes/*/${branch}`]))?.trim());
+  }
+
+  /** The branch name you typed, as git accepts it, or why not. */
+  private async validBranch(repo: string, name: string): Promise<string> {
+    const ok = (await g.tryGit(repo, ['check-ref-format', '--branch', name]))?.trim();
+    if (!ok || ok !== name) throw new WorkspaceError(`“${name}” can’t be a branch name`);
+    return ok;
+  }
+
+  /** An exact branch name you asked for: refused when another branch has it already. */
+  private async takenOrFree(repo: string, wanted: string, mine: string): Promise<string> {
+    if (wanted === mine || (await this.freeBranch(repo, wanted, mine)) === wanted) return wanted;
+    throw new WorkspaceError(`A branch named ${wanted} is there already`);
   }
 
   /** `runtime`: the one that made `sessionId` (unset: Claude). */

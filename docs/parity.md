@@ -144,6 +144,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `session.compact` | ✓ (context meter › Compact now) |
 | `session.btw` | ✓ (`/btw` in the composer: the side-question card above the box) |
 | `session.btwDismiss` | ✓ (the side-question card's ✕, or esc) |
+| `session.react` | ✓ hover a person's message in the group chat or a worktree's chat › the smiley-plus button (quick row, More for every emoji); click a chip under it to add or take back yours |
 | `session.setClaudeSharing` | ✓ |
 | `session.rename` | ✓ |
 | `session.zoom` | ✓ |
@@ -215,7 +216,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `files.closeViewer` | ✓ |
 | `files.readImage` | ✓ |
 | `files.readImageFile` | ✓ images in the Markdown reader (`![](diagram.png)` next to the file); PDFs drawn page by page in Files, Changes and the reader; videos (MP4, M4V, MOV, WebM, up to 64 MB) played inline in the reader with play, pause and seek |
-| `workspaces.scratch` | ✓ the panel's Scratch tab: the workspace's `.beluga/scratch/` and `.context/` folders, newest first, live; the preview shows the newest until you pick one, and a file scrolled to its end (or Follow the End) follows what's written to it; drawn in outline (moving while the agent works) until something lands; the sort menu puts what can be looked at first (pictures, videos, PDFs, web pages; BLG-111), web pages are drawn in a sandboxed frame (no scripts), and full size ← → steps through the viewable files in that order, stopping at the ends |
+| `files.version` | ✓ (no surface of its own) a picture in a chat answer or the Markdown reader is read again when its file was rewritten since it was kept, so a screenshot re-taken to the same name shows the new one |
+| `workspaces.scratch` | ✓ the panel's Scratch tab: the workspace's `.beluga/scratch/` and `.context/` folders, newest first, live, with how many files there are and how much they hold; the preview shows the newest until you pick one, and a file scrolled to its end (or Follow the End) follows what's written to it; drawn in outline (moving while the agent works) until something lands; the sort menu puts what can be looked at first (pictures, videos, PDFs, web pages; BLG-111), web pages are drawn in a sandboxed frame (no scripts), and full size ← → steps through the viewable files in that order, stopping at the ends |
 | `files.read` | ✓ a changed file as itself in Changes (Markdown formatted), without moving the Files tab's open file |
 | `files.searchContent` | ✓ the Files tab's search box on Contents: lines by file (ripgrep, else Node), Match Case / Whole Word / Regular Expression; a line opens the file there |
 | `files.searchNames` | ✓ the Files tab's search box on Names: every file in the folder whose path matches (ripgrep's list, else git's), Match Case / Whole Word / Regular Expression; shown as a tree, a file opens |
@@ -265,7 +267,17 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `companion.transcribe` | – the phone only: the Ask sheet's microphone, On your Mac: the recording written down here and deleted |
 | `voice.models` | Settings › Voice: the models on this Mac, here or coming |
 | `voice.prepare` | Settings › Voice › Get now |
+| `voice.load` | – asked by a call's window now and then: how busy this Mac is, to decide who writes down whose words (BLG-718) |
 | `voice.transcribe` | The composer's microphone beside Send, and the talk shortcut (Settings › Voice) |
+| `calls.start` | A DM's, channel's or room's header › the phone button: rings everyone in it (BLG-706, BLG-716) |
+| `calls.join` | The incoming call card's Join, the floating card's Join, the call strip's Join on a call going on; the phone's Needs you › Answer on Mac |
+| `calls.leave` | The call strip's red Leave, the sidebar's call pill and the floating card's Leave |
+| `calls.decline` | The incoming call card's and the floating card's Decline; the phone's Needs you › Decline |
+| `calls.set` | The call strip's Mute, Camera and Share buttons (and the window says it's still in the call every few seconds) |
+| `calls.signal` | – sent by the call's window on its own: WebRTC setup for the others' windows |
+| `calls.notes` | – sent by the call's window as you leave: your own words, written down on this Mac, for the others who were in it (BLG-715) |
+| `calls.forgetNotes` | A call's notes box in the chat › ••• › Forget These Notes |
+| `calls.list` | – the shared state's `network.calls` is what screens show; this answers the CLI and tests |
 | `terminalImport.detect` | Settings › Terminal › Import from… (Ghostty, iTerm2, Terminal, Alacritty, kitty, WezTerm, Warp), and the welcome's “Coming from another terminal?” step |
 | `workspaces.open` | ✓ |
 | `workspaces.load` | Overview › Archived › Read Conversation (read-only, stays in the Overview) |
@@ -297,7 +309,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.openInFinder` | ✓ |
 | `workspaces.setGroup` | ✓ |
 | `workspaces.renameGroup` | ✓ (group row › Rename) |
-| `workspaces.rename` | ✓ (chat row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels) |
+| `workspaces.rename` | ✓ (chat or worktree row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels; a worktree’s own branch takes the name unless it’s pushed, and a name with a / is that exact branch) |
+| `workspaces.regenerateTitle` | ✓ (chat row context menu › Regenerate title; uses recent chat content, keeps the agent session, and protects the result as a manual name; errors leave the old title) |
+| `workspaces.remindLater` | ✓ (chat or worktree row context menu › Remind Me Later ▸ In 1 Hour / In 3 Hours / Tomorrow Morning / Next Week, or Show Again Now; it moves into a folded Later row at the bottom of its project (or of Chats), with a quiet clock and when it reminds you in its tooltip; then it's back in place, with one reminder notification) |
 | `workspaces.ungroup` | ✓ (group row › Ungroup / Delete Group) |
 | `workspaces.arrange` | drag projects and groups in the sidebar, Move Up / Move Down (⌃⌘↑/↓), Move to Group ▸ |
 | `workspaces.newGroup` | Projects + › New Group, right-click › New Group, Move to Group ▸ New Group… |
@@ -326,7 +340,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workbench.setModel` | ✓ (the composer's agent picker: a model of the same runtime, for this conversation or new ones; the phone's picker since 1.32) |
 | `workbench.setAgent` | ✓ (the agent picker's other runtimes, grouped Claude › Codex › Local model; a runtime this Mac doesn't run is greyed with why; the phone's picker since 1.32) |
 | `workbench.createPr` | ✓ |
-| `workbench.quickPr` | ✓ the toolbar's Create PR (and Create Draft PR under its chevron), the Changes panel's Create PR |
+| `workbench.quickPr` | ✓ the toolbar's Create PR (and Create Draft PR under its chevron; in a fork, Create PR on the original too: pushed to the fork, opened on the repository it was forked from), the Changes panel's Create PR |
 | `workbench.mergeToBase` | ✓ the branch control's chevron › Merge into main… (no PR yet, on GitHub): asks first, then lands the branch on origin's base and pushes |
 | `workbench.gitFix` | ✓ the GitHub trouble card that a failed Create PR, Merge or Update Branch opens (Push over HTTPS, Log In to GitHub, Install GitHub CLI, the SSH steps under •••) |
 | `workbench.signInClaude` | ✓ Sign In on a failed Claude card that says Claude Code isn’t signed in or its sign-in expired: a menu of a Claude subscription, an Anthropic Console account (runs `claude auth login --claudeai` or `--console` in a shell, then Claude continues) or a 3rd-party platform (opens its setup page) |
@@ -383,6 +397,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `local.statFiles` | ✓ ⌘V of file paths attaches the files (⌘⇧V keeps the words) |
 | `projects.add` | ✓ Add projects sheet, Choose Folders…, drop folders on the sidebar |
 | `projects.addFolder` | ✓ (a dropped folder of projects is watched) |
+| `projects.initGit` | ✓ Add projects sheet: a plain folder’s row offers Set Up Git |
 | `projects.suggest` | ✓ "On this Mac" in the Add projects sheet |
 | `projects.create` | ✓ Add projects sheet › Start new, New Project… in the Projects + menu and the palette |
 | `projects.newHome` | ✓ the location a new project goes in, in Add projects › Start new |
@@ -421,6 +436,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `network.read` | ✓ opening a conversation reads it (the `conversation` view is shown); Mark as Read on a group |
 | `network.messages.delete` | ✓ a direct message's right-click menu › Delete… (yours: Delete for them too) |
 | `network.messages.edit` | ✓ your direct message's right-click menu › Edit (in place: Return saves, Esc cancels) |
+| `network.messages.react` | ✓ hover a message › the smiley-plus button: your six quick reactions, or More for every emoji (search, categories); click a chip under a message to add or take back yours |
 | `network.clear` | ✓ a direct conversation's ⋯ menu › Clear Chat… |
 | `network.post` | ✓ a conversation's message box: words, files waiting in the box, and the Ask Your Agent menu (yours, everyone's, one person's); Send Again on an undelivered one |
 | `network.files.add` | ✓ the paper clip (Open panel), files dropped anywhere on a conversation |
@@ -440,6 +456,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `assistant.newChat` | ✓ Your Mac's tab strip › + (a new empty chat, open now); on the phone, New chat in Your Mac's chats list or ••• |
 | `assistant.openChat` | ✓ clicking one of Your Mac's tabs (or a notification from one of its chats); kept across restarts, and the phone's Ask your Mac follows it |
 | `assistant.deleteChat` | ✓ a tab's × › Delete Chat (asks first; its run stops, its messages, folder and agent transcript go for good, no archive; the last one leaves a fresh chat); on the phone, long-press in Your Mac's chats list or ••• › Delete this chat |
+| `assistant.scratch` | ✓ the panel's Scratch tab beside Your Mac's chat (BLG-704): its `work/.beluga/scratch/`, which all its chats share, newest first and live, with how much it holds in total; what nobody touched for 30 days goes to the Trash on its own (a minute after Beluga starts, then daily) |
 | `gateway.list` | ✓ the shared state's `gateway` (task cards in conversations, Requests) |
 | `gateway.confirm` | ✓ the “Ask bob's agent?” card in a conversation: Ask / Always / Not now |
 | `gateway.cancel` | ✓ Cancel on a task card and in Requests (sent), Stop in Requests (received) |
@@ -527,7 +544,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sentinel.chatClear` | ✓ Sentinel › Chat › ⋯ › Clear (its messages go, the agent starts afresh; the chat stays) |
 | `sentinel.chatDelete` | ✓ Sentinel › Chat › ⋯ › Delete Chat… (confirms; the next chat opens, or a fresh first one) |
 | `issues.list` | ✓ Issues (Work in the sidebar › Issues, Go › Issues, ⌘K › Go to Issues): a project's open or closed GitHub issues, newest activity first, through gh (GraphQL, so pull requests never take up the page); the search box asks GitHub; each shows what Beluga is doing about it; a project's home lists the latest four |
-| `issues.pulls` | ✓ Pull Requests on a project's home: its open pull requests on GitHub (anyone's, not only your worktrees'), newest activity first, the latest four with their author, branch, Draft, review and checks; one on a worktree's branch opens that worktree, any other opens on GitHub (or in a worktree with Open in Worktree); Show All on GitHub (through gh, GraphQL, a minute's cache) |
+| `issues.pulls` | ✓ Pull Requests on a project's home: its open pull requests on GitHub (anyone's, not only your worktrees'), newest activity first, the latest four with their author, branch, Draft, review and checks; one on a worktree's branch opens that worktree, any other opens on GitHub (or in a worktree with Open in Worktree); See All opens Work › Pull Requests (every one read, a project switcher, Ask GitHub Again), See All on GitHub opens them there (through gh, GraphQL, a minute's cache) |
 | `issues.openPull` | ✓ Open in Worktree on a pull request's row (Project Home) and in its ••• menu: its branch checked out in a new worktree that opens (one from this repository tracks origin's branch, so a push updates it; one from a fork comes from GitHub's pull ref, on its branch's name or pr-<n>); the worktree already on its branch opens instead |
 | `issues.get` | ✓ an issue's page: the report and its comments in Markdown, its labels, assignees and dates, its task, and what to do next |
 | `issues.investigate` | ✓ Investigate (an issue's page: the composer's first way, with anything the agent should know; its ⋯ and right-click menu): a task for it (or the one it has), a worktree, and your agent finding out why and reproducing it, writing what it found into the task's brief, without fixing it; the page shows it at work, then its report with Fix It · when a teammate on the same repository is already on it (team boards) it asks first (Start Anyway: `anyway`) |
@@ -601,6 +618,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `git.moveAndUpdate` | ✓ the “changes in the way” alert › Move to Worktree |
 | `git.switchToDefault` | ✓ “The main folder is on feat/…” › Switch to main (clean; or Move to Worktree / Bring Them Along) |
 | `git.askClaude` | ✓ Let Your Agent Handle It (also on “Couldn’t fetch”): a worktree of its own for a failing fetch or diverged history; for what’s stuck in the main folder’s files, a conversation in its Questions whose run may only sync git (banner “Your agent is updating main”) |
+| `git.syncFork` | ✓ Sync Fork on a fork's project home (shown when the original has new commits: “3 new on rstagi/app”): GitHub brings them into the fork's main, then Update main runs here |
+| `git.syncForkWithClaude` | ✓ “Your fork and the original conflict” › Let Your Agent Handle It: a worktree where your agent merges the original in and opens a PR into the fork |
 | `git.github` | ✓ the GitHub row on a project's home: GitHub ↗, Private/Public, people, open PRs, stars (through gh, cached an hour; Connect GitHub when gh isn't set up) |
 | `git.githubRepo` | ✓ Open on GitHub in a project's right-click and ⋯ menus |
 | `git.log` | ✓ History: a project home's latest commits, the History page (Show All) and the panel's History tab (⌥⌘5), as a graph |
@@ -620,8 +639,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 
 | What | Core | Mac |
 |---|---|---|
-| Queue a message (the default while your agent works) | `session.submit` | Return · the split button's **Queue** |
-| Steer: the agent reads it at its next step without stopping (a run that can't take it: stop it, run this next) | `session.submit` with `urgent` | Option+Return · the split button's **Steer** |
+| Choose the default send action during a turn (Mac only) | Mac preference | Settings › General › Writing › **Send during a turn** · Queue (default) or Steer |
+| Queue a message | `session.submit` | Return when Queue is the default, Option+Return when Steer is the default · **Queue** |
+| Steer: the agent reads it at its next step without stopping | `session.submit` with `urgent` | Return when Steer is the default, Option+Return when Queue is the default · **Steer** · agents without steering always queue |
 | What waits, in run order (text, who asked) | `queueIn` (`src/ui/compose.ts`), the prompt comes with the `queued` event | the queue above the box |
 | Run a waiting message now (steering, as above) | `host.promote` | queue › Steer |
 | A steered message the agent hasn't read yet: sent, not read (its card is a note till the agent reads it: `READS_AFTER_STEP`, `STOPPING_FOR`, then `STEERED_IN` or its own turn) | `steerWaiting` (`src/shared/claude-notices.ts`), the message's `request` | your message dimmed, a clock and “Sent · waiting for the agent to read it” |
@@ -641,7 +661,7 @@ What an agent run does on each runtime (BLG-461, OpenCode BLG-686). A cell is **
 | Start a run in a worktree or chat, answers streamed | `session.submit`, `workspaces.startWorktree`, `workspaces.startChat` | pass | pass (`codex app-server`, a thread per place) | pass (`opencode acp`, a session per place) |
 | Pick the agent and model, hand a live conversation off | `/model`, `workbench.setAgent`, `workbench.setModel`, `/handoff` | pass | pass (models from `model/list`, efforts per model; a handoff starts a new thread with the conversation carried) | pass (models from `opencode models`, efforts from each model's variants; a handoff starts a new session with the conversation carried) |
 | Continue a conversation later | `canResume` | pass | pass (`thread/resume`; one that can't be opened starts afresh and says so) | pass (`session/resume`; one that can't be opened starts afresh and says so) |
-| Queue and steer while it works | `host.promote`, `canSteer` | pass | pass (`turn/steer`) | pass (one prompt at a time: a message sent while it works waits for its own turn, and Steer Now stops the turn to read it, since `canSteer` is false) |
+| Queue and steer while it works | `host.promote`, `canSteer` | pass | pass (`turn/steer`) | pass (`missing:steer`: the composer always queues, one prompt at a time; Steer Now on an existing message stops the turn to read it) |
 | Stop, Send now | `host.stopRun`, `host.steerNow`, `/stop`, `canInterrupt` | pass | pass (`turn/interrupt`, then the process) | pass (`session/cancel`, then the process) |
 | Approve or deny a command or an edit | `host.answerApproval`, `canGateEveryTool` | pass (every tool through the PreToolUse hook) | pass (what leaves its sandbox asks you through the same gate; inside it, the sandbox confines it) | pass (every tool call asks Beluga first: Beluga's config makes each of its permissions, every agent's, "ask", judged by the same gate as Claude's) |
 | .env files and secrets stay out | `env.claudeDotenv`, `hasSandbox` | pass (policy.ts per call) | pass (its permissions profile denies them: `runtime/codex/sandbox.ts`) | pass (policy.ts per call, as Claude's) |
@@ -714,6 +734,7 @@ The same scenarios run on every runtime (`tests/runtime-conformance.ts`, `npx vi
 | Workspace and Conversation menus in the menu bar (Commit… ⇧⌘C, Pull Request… ⇧⌘P, Merge… ⇧⌘M, Run ⌘R, Ask Your Agent to Review… ⇧⌘R, Archive… ⌃⌘A, Stop ⌘., Plan First ⌥⌘P, Find ⌘F / ⌘G / ⇧⌘G, Clear ⇧⌘K, Previous/Next Workspace ⌥⌘↑/↓), greyed out when they can't run (`lib/commands.ts`, `set_menu_state`); what starts the agent or changes git (Review, Commit, Merge, Solve Conflict, Compact, Fix Checks) says what it will do and waits for Start, from every way in (a popover under its toolbar button, else an alert; `lib/work-confirm.ts`) | Mac |
 | A calm sidebar: Overview, Work (Tasks, Issues and Plans in one row, a Tasks · Issues · Plans switch over each list, running plans under it) and Group chat at the top, always; Activity only while it's live and Requests only while one is unanswered (answered ones are tucked behind Show answered on the Requests page); Files (folders friends and the room share, grouped by person) as a row of its own, and projects friends share in Projects (there is no Shared with me any more); Search in the toolbar (⇧⌘F); Usage as an icon above the sidebar (amber when most of the week is used); the terminal in the right panel (⌘J). The places in order (Overview, Tasks, Chat, Search, Usage, Terminal, Files) for ⌘1…7, ⌃Tab, the Go menu and the palette (`lib/go.ts`) | Mac |
 | The toolbar's main button chosen from the workspace's state (Commit / Merge / PR #n / Fix Checks / Solve Conflict / Restore / Run), the rest as icons and a ⋯ menu with shortcuts (`layout/toolbar-actions.ts`) | Mac |
+| Select chats with Shift-click in visible sidebar order, across Chats and project chats. Selected rows show a count. Their context menu archives or deletes the full selection after one confirmation with the count. A failed chat does not stop the batch, and one message reports the whole batch. The alert names failed chats, and they stay selected. While a batch runs, its chats stay selected. Escape or a plain click clears the selection, and the next Shift-click still starts from the last clicked chat. Folded projects and groups stay outside the selection. | Mac (`layout/chat-selection.ts`, `layout/chat-selection-view.tsx`, `layout/ProjectTree.tsx`, `layout/workspace-row.tsx`) |
 | Find in a conversation (⌘F) | Mac (`chat/FindBar.tsx`) |
 | Your own keyboard shortcuts (BLG-289): Settings › Keyboard (Help › Keys and Commands, ⌘/, ⌘K › Keyboard Shortcuts…) lists every shortcut by section; click a key and press the new one, + for another key, × to take one away, ↺ back to its own, Reset All with Undo; a key something else has offers Swap / Use Here / Cancel (↩ / esc), what macOS keeps (⌘Q, ⌘C…) and keys that would type are refused with why; find a shortcut by name or by pressing its keys (and see a key is free). The window, the pages' own keys, the message box, requests, the sidebar, the talk shortcut, the menu bar's accelerators (`set_menu_keys`, off while recording), tooltips and the palette all follow; kept on this Mac (`prefs.shortcuts`) | Mac (`lib/shortcuts-model.ts`, `lib/shortcuts.ts`, `dialogs/KeyboardSettings.tsx`) |
 | Right-click menus: messages (Copy, Copy as Markdown, Quote in Reply, Ask Your Agent About This, Open Image), code blocks, files (Open, Show in Finder, Copy Path, Mention in Chat, Save a Copy…), changed files and commits in Diff, search results, Usage rows, notifications | Mac |

@@ -29,6 +29,8 @@ export interface AgentRunInput {
   readonly onAnswered?: (text: string) => void;
   /** Asked by a guest invited into one project: the room tools (other people, their files, the room chat) are off. */
   readonly guest?: boolean;
+  /** A friend's run with the board (BLG-701): which board tools ask you first ('writes': changes; 'all': every one). */
+  readonly boardAsks?: 'writes' | 'all';
   readonly signal: AbortSignal;
   readonly onEvent: (kind: 'text' | 'tool' | 'progress' | 'sub' | 'context' | 'compact' | 'usage', text: string) => void;
   /**
@@ -126,6 +128,8 @@ export interface AgentRunInput {
   readonly sentinelBrief?: string;
   /** Your own runs: dashboards and the numbers sentinels keep (server `beluga_dashboard`; sentinel_measure inside a run). */
   readonly dashboardTools?: DashboardTools;
+  /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
+  readonly callNotesTools?: CallNotesTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
   readonly dialogue?: import('./dialogue-tools.js').DialogueTurnTools;
 }
@@ -491,6 +495,8 @@ export interface AgentBackend {
   nameTask?(prompt: string): Promise<string>;
   /** A short name for a new plan from its goal (a small model names it; undefined when it couldn't). */
   titlePlan?(goal: string): Promise<string | undefined>;
+  /** A title from recent chat content. The call does not use the chat session. */
+  titleChat?(content: string): Promise<string | undefined>;
   /** Answer in a friends' chat from its history (one turn, no tools; core/chat/claude.ts). */
   answerChat?(req: ChatAnswerRequest): Promise<string>;
   /** A side question about a conversation (/btw): a fork of its session, no tools, nothing kept (agent/btw.ts). */
@@ -560,4 +566,14 @@ export interface RoomBridge {
   readonly gateway?: import('./gateway-tools.js').GatewayBridge;
   /** The same tools bound to one conversation (a run's: chat, asks and their answers go there). */
   inChannel?(channel: string): RoomBridge;
+}
+
+/** Call notes as tools (core/calls/notes-tools.ts): each answers in words an agent reads. */
+export interface CallNotesTools {
+  /** The calls with notes, newest first. */
+  list(limit?: number): string;
+  /** Where something was said: the call, the time into it, who, and the words around it. */
+  search(query: string, call?: string, limit?: number): string;
+  /** A page of one call, from a turn (`from`) or a time into it (`at`: "12:30", or minutes). */
+  read(call: string, opts?: { readonly from?: number; readonly at?: string | number; readonly limit?: number }): string;
 }

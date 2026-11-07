@@ -11,7 +11,7 @@ import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome } from '../workspaces/new-project.js';
+import { createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
 import { projectId } from '../workspaces/manager.js';
 import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
@@ -38,6 +38,7 @@ import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
 import { VOICE_HANDLERS } from './voice-handlers.js';
+import { CALLS_HANDLERS } from './calls-handlers.js';
 import { TERMINAL_IMPORT_HANDLERS } from './terminal-import-handlers.js';
 import { AGENT_TERM_HANDLERS } from './agent-term-handlers.js';
 import { waitingNeeds } from '../companion/needs-you.js';
@@ -77,6 +78,7 @@ export const HANDLERS = {
   'session.unshareFolder': (s, name) => s.unshareFolder(name),
   'session.follow': (s, name) => s.follow(name),
   'session.clearChat': (s, channel, opts) => s.clearChat(channel, opts),
+  'session.react': (s, channel, id, emoji, on) => s.reactChat(channel, id, emoji, on),
   'session.removePerson': (s, peerId) => s.removePerson(peerId),
   'session.newInviteLink': (s) => s.newInviteLink(),
   'session.setRoomOpen': (s, open) => s.setRoomOpen(open),
@@ -177,6 +179,7 @@ export const HANDLERS = {
     const { mediaType, bytes } = await s.files.readImageFile(at);
     return { mediaType, data: bytes.toString('base64') };
   },
+  'files.version': (s, at) => s.files.fileVersion(at),
   'files.read': (s, at) => s.files.readFile(at),
 
   'workspaces.open': (s, id, tab, o) => ctl(s)?.open(id, tab, o?.req),
@@ -192,12 +195,12 @@ export const HANDLERS = {
   'workspaces.continueInWorktree': async (s, id, opts) =>
     // Claude starts there once whatever runs in the conversation now has finished (its session is complete then).
     (await ctl(s)?.continueInWorktree(id, (prompt) => s.nameTask(prompt), { ...(opts?.task ? { task: opts.task } : {}), ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), after: s.host.idle(`ws:${id}`) }))?.id,
-  'workspaces.archive': (s, id, force) => ctl(s)?.archive(id, force),
+  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, { ...(opts?.quiet ? { quiet: true } : {}) }),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
   'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
-  'workspaces.remove': (s, id) => ctl(s)?.remove(id),
+  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, { ...(opts?.quiet ? { quiet: true } : {}) }),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
   'workspaces.merge': (s, id) => ctl(s)?.merge(id),
   'workspaces.prepareRemoval': (s, id) => ctl(s)?.prepareRemoval(id),
@@ -212,6 +215,8 @@ export const HANDLERS = {
   'workspaces.setGroup': (s, projectId, group) => ctl(s)?.setGroup(projectId, group),
   'workspaces.renameGroup': (s, from, to) => ctl(s)?.renameGroup(from, to),
   'workspaces.rename': (s, id, name) => ctl(s)?.rename(id, name),
+  'workspaces.regenerateTitle': (s, id) => ctl(s)?.regenerateTitle(id),
+  'workspaces.remindLater': (s, id, at) => ctl(s)?.remindLater(id, at ?? null),
   'workspaces.ungroup': (s, name) => ctl(s)?.ungroup(name),
   'workspaces.arrange': (s, item, place) => ctl(s)?.arrange(item, place ?? {}) ?? false,
   'workspaces.newGroup': (s, name, opts) => ctl(s)?.newGroup(name, opts ?? {}),
@@ -353,10 +358,14 @@ export const HANDLERS = {
     const abs = expandHome(dir);
     if (isMainCheckout(abs)) return (await ctl(s)?.addProject(abs)) ?? {};
     if (findProjects([abs]).length) return (await ctl(s)?.addFolder(abs)) ?? {};
-    const error = existsSync(abs) ? `${path.basename(abs)} isn't a git project, and has none inside` : `${abs} isn't there`;
+    const plain = existsSync(abs);
+    const error = plain ? `${path.basename(abs)} isn't a git project yet` : `${abs} isn't there`;
     s.toast(error, 'warn');
-    return { error };
+    // A plain folder: the Add projects sheet offers to set up git there (projects.initGit).
+    return plain ? { error, canInit: true } : { error };
   },
+  // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
+  'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
   // Every repo found (the sheet shows the newest, and its Filter searches them all).
@@ -397,6 +406,7 @@ export const HANDLERS = {
   ...COMPANION_HANDLERS,
   ...ASSISTANT_HANDLERS,
   ...VOICE_HANDLERS,
+  ...CALLS_HANDLERS,
   ...TERMINAL_IMPORT_HANDLERS,
   ...AGENT_TERM_HANDLERS,
 } satisfies Handlers;

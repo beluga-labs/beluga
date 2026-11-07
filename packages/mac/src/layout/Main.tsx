@@ -13,6 +13,7 @@ import { WorkFrame } from '../work/WorkNav.js';
 import s from './Shell.module.css';
 import side from './Sidebar.module.css';
 import { SharedPlanPage } from '../team/SharedPlans.js';
+import { CallRoom } from '../call/CallRoom.js';
 
 const OverviewView = lazy(() => import('../views/OverviewView.js').then((m) => ({ default: m.OverviewView })));
 const SearchView = lazy(() => import('../views/SearchView.js').then((m) => ({ default: m.SearchView })));
@@ -31,6 +32,7 @@ const TaskPage = lazy(() => import('../tasks/TaskPage.js').then((m) => ({ defaul
 const IssuesView = lazy(() => import('../issues/IssuesView.js').then((m) => ({ default: m.IssuesView })));
 const IssuePage = lazy(() => import('../issues/IssuePage.js').then((m) => ({ default: m.IssuePage })));
 const ActionsView = lazy(() => import('../ci/ActionsView.js').then((m) => ({ default: m.ActionsView })));
+const PullsView = lazy(() => import('../issues/PullsView.js').then((m) => ({ default: m.PullsView })));
 const RunPage = lazy(() => import('../ci/RunPage.js').then((m) => ({ default: m.RunPage })));
 const PlansView = lazy(() => import('../plans/PlansView.js').then((m) => ({ default: m.PlansView })));
 const PlanPage = lazy(() => import('../plans/PlanPage.js').then((m) => ({ default: m.PlanPage })));
@@ -75,6 +77,12 @@ function Route() {
   if (making) return <MakingWorktree />;
   switch (view.kind) {
     case 'room':
+      // The room's chat with its call around it (BLG-716).
+      return (
+        <CallRoom id="room">
+          <ChatView />
+        </CallRoom>
+      );
     case 'assistant':
     case 'draft':
     case 'draft_worktree':
@@ -111,6 +119,8 @@ function Route() {
       return <WorkFrame page="issues"><IssuesView /></WorkFrame>;
     case 'gh_issue':
       return <IssuePage key={`${view.projectId}#${view.number}`} projectId={view.projectId} number={view.number} />;
+    case 'pulls':
+      return <WorkFrame page="pulls"><PullsView /></WorkFrame>;
     case 'actions':
       return <WorkFrame page="actions"><ActionsView /></WorkFrame>;
     case 'gh_run':

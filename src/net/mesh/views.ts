@@ -5,6 +5,8 @@
  */
 
 import type { AgentRef } from '../../protocol.js';
+import type { Reaction } from '../../shared/reactions.js';
+import type { CallNotesView, CallsView, MissedCallView } from '../../shared/calls.js';
 
 export type PresenceState = 'online' | 'away' | 'dnd' | 'offline';
 
@@ -103,6 +105,8 @@ export interface MessageView extends ChatExtras {
   readonly status?: 'waiting' | 'delivered' | 'expired' | 'locked';
   /** When its author last changed its text (direct messages). */
   readonly edited?: number;
+  /** Emoji reactions under it (BLG-702), in the order they were first put there; none: left out. */
+  readonly reactions?: readonly Reaction[];
 }
 
 export interface FriendView extends PersonView {
@@ -233,6 +237,12 @@ export interface NetworkState extends NetworkSummary {
   readonly main?: string;
   /** Friend requests with people in your room, both ways (BLG-202). */
   readonly offers?: readonly FriendOfferView[];
+  /** Calls going on (or ringing) in your conversations, by conversation (BLG-706). */
+  readonly calls?: CallsView;
+  /** Notes of the calls in your conversations (BLG-715), by conversation, oldest first. */
+  readonly callNotes?: Readonly<Record<string, readonly CallNotesView[]>>;
+  /** Calls that rang for you and stopped before you answered, by conversation, oldest first. */
+  readonly missedCalls?: Readonly<Record<string, readonly MissedCallView[]>>;
 }
 
 export const dmConversation = (peerId: string): string => `dm:${peerId}`;
