@@ -308,6 +308,16 @@
   display: flex;
   margin-top: 6px;
 }
+/* Under a usage limit: when Beluga sends Continue on its own, and Don't Send beside it. */
+.limitResume {
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.limitResumeText {
+  min-width: 0;
+}
 /* A failed turn: what happened in one line, the raw error behind Show details. */
 .failure {
   display: flex;

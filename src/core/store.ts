@@ -293,6 +293,10 @@ export interface Prefs {
   /** Compact a conversation on its own when its context passes `autoCompactAt` percent. */
   readonly autoCompact: boolean;
   readonly autoCompactAt: number;
+  /** After your usage limit resets, the agent that stopped on it continues: off everywhere, in some chats, or this session (shared/auto-continue.ts). */
+  readonly autoContinue: boolean;
+  readonly autoContinueOff: readonly string[];
+  readonly autoContinueSkip: number;
   /** How many conversations your Claude works in at once (see shared/run-slots.ts). */
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
@@ -681,6 +685,9 @@ export const DEFAULT_PREFS: Prefs = {
   contextMeter: true,
   autoCompact: false,
   autoCompactAt: AUTO_COMPACT_DEFAULT,
+  autoContinue: true,
+  autoContinueOff: [],
+  autoContinueSkip: 0,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
   scratchFolder: true,

@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
+import { resetWords } from '../../../../src/shared/run-failure';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, OctagonX, Plus, Send, Square, SquareTerminal, Trash2 } from 'lucide-react-native';
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
@@ -493,6 +494,15 @@ function ClaudeTurn({ t, all, onAgent, topic, runtime, chips }: { t: TurnView; a
           {t.status === 'failed' ? <CircleX color={color.error} size={14} /> : <OctagonX color={color.text2} size={14} />}
           <T v="caption" c={t.status === 'failed' ? color.error : color.text2}>
             {t.status === 'failed' ? 'Failed' : 'Stopped'}
+          </T>
+        </View>
+      ) : null}
+      {t.resumesAt ? (
+        // 1.42 (BLG-757): stopped on your usage limit; Beluga tells it to continue once the limit resets.
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Clock color={color.text2} size={14} />
+          <T v="caption" c={color.text2}>
+            Continues on its own at {resetWords(t.resumesAt)}
           </T>
         </View>
       ) : null}
