@@ -435,6 +435,14 @@ which one worked (`src/companion/dial.ts`):
   OS's TLS) through its IPC and passes ciphertext both ways in base64.
 - **Only while needed.** The relay server and its tunnel run only while a phone is paired or a
   pairing is open, and not at all with Remote access set to direct only (`p2p`) or `none`, or in the demo.
+- **Your computers, by themselves (BLG-809).** Your Mac tells its phones where each of your
+  computers is (the `computers` frame, 1.46: companion address and relays), after the welcome and
+  whenever one joins, moves or is renamed. The phone keeps that list and links to each computer
+  itself, with the same certificate and keys, dialed the same three ways: no second pairing, no Mac
+  in the middle, so it works while the Mac sleeps. Each computer lets in the phones of your device
+  set through its phone door, with the phone table's limits (`src/companion/coverage.ts`), and names
+  them in its relay record; a phone forgotten anywhere is cut off there (`src/machines/phones.ts`,
+  `packages/companion/lib/link/computers.ts`). Those links open and close with the Mac's.
 
 ## When it can't connect
 

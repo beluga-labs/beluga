@@ -2,9 +2,10 @@ import { AppState, type AppStateStatus, Linking, Platform } from 'react-native';
 import { fromB64, fromUtf8, toB64 } from './b64';
 import { kv } from './kv';
 import { BareTransport } from './link/bare';
+import { ComputerLinks, type ComputerLinkState, type KeptComputers } from './link/computers';
 import { type Call, calls } from './link/calls';
 import { DemoTransport } from './link/demo/transport';
-import { BACKGROUND_GRACE_MS, COMPANION_PIECE, COMPANION_PROTO, compatible, SINCE, MAX_UPLOAD_BYTES, isMacTopic, type MacFrame, type NeedsYou, type OutputView, type PhoneOp, type Topic, viewSchema } from './link/protocol';
+import { BACKGROUND_GRACE_MS, COMPANION_PIECE, COMPANION_PROTO, compatible, SINCE, MAX_UPLOAD_BYTES, isMacTopic, type MacFrame, type NeedsYou, type OutputView, type PhoneComputer, type PhoneOp, type Topic, viewSchema } from './link/protocol';
 import { controlNote, controlState, mirrorAck, onAccessibilityChange, onControlStop, phoneAllowed, phoneControlAvailable, runOp, setPhoneAllowed, watchAdb, watchMirror } from './phone';
 import { type Diagnosis, type PairRefusal, diagnose } from './link/diagnose';
 import { checkOnline } from './link/online';
@@ -98,6 +99,9 @@ const PLATFORM: 'android' | 'ios' = Platform.OS === 'ios' ? 'ios' : 'android';
 
 class Store {
   private transport: Transport | undefined;
+  /** Your computers, each linked by itself (BLG-809): they answer while your Mac sleeps. */
+  private computerLinks: ComputerLinks | undefined;
+  private computerFrames = new Set<(id: string, frame: MacFrame) => void>();
   private unsubs: (() => void)[] = [];
   private state: LinkState = { phase: 'idle', ready: false };
   private views = new Map<string, CachedView>();
@@ -191,12 +195,64 @@ class Store {
       return p && s ? { pairing: p, secret: s } : undefined;
     });
     this.transport = t;
+    if (mode === 'bare') this.computerLinks = this.linkComputers();
     if (t instanceof DemoTransport && kv.get<boolean>('demo-asleep')) t.setAsleep(true);
     this.unsubs = [t.onFrame((f) => this.onFrame(f)), t.onPhase((p, d, i) => this.onPhase(p, d, i)), (t as Transport).onPath?.((i: PathInfo) => this.onPath(i)) ?? (() => {})];
     this.setState({ mode, pairing, phase: 'closed' });
   }
 
+  /**
+   * A link per computer of yours (BLG-809), with the same certificate and keys as the Mac's link:
+   * only the address it dials (and its relays) are that computer's.
+   */
+  private linkComputers(): ComputerLinks {
+    return new ComputerLinks({
+      make: (c: PhoneComputer) =>
+        new BareTransport(async () => {
+          const p = await secure.get<Pairing>('pairing');
+          const s = await secure.get<DeviceSecret>('device-secret');
+          return p && s ? { pairing: { cert: p.cert, address: c.address, macName: c.name, ...(p.me ? { me: p.me } : {}), ...(c.relays[0] ? { relay: c.relays[0] } : {}) }, secret: s } : undefined;
+        }),
+      hello: () => ({ t: 'hello', v: { ...COMPANION_PROTO }, app: APP, platform: PLATFORM, topics: [] }),
+      load: () => kv.get<KeptComputers>('computers'),
+      save: (kept) => kv.set('computers', kept),
+      primary: () => this.state.pairing?.address,
+      onChange: () => this.emit('computers'),
+      onFrame: (id, f) => this.onComputerFrame(id, f),
+    });
+  }
+
+  /** A computer's own frame: what needs you there is said as the Mac's is; the rest goes to who listens. */
+  private onComputerFrame(id: string, f: MacFrame): void {
+    if (f.t === 'nudge') {
+      const name = this.computerLinks?.get(id)?.computer.name;
+      const titled = name ? { ...f, title: `${f.title} · ${name}`.slice(0, 200) } : f;
+      if (!this.active) void notifyNudge(titled);
+      else this.toast({ text: `${titled.title} · ${f.body}`, tone: f.kind === 'needsYou' ? 'warn' : 'info' });
+      return;
+    }
+    for (const fn of [...this.computerFrames]) fn(id, f);
+  }
+
+  /** Your computers and how each link is (stable until one changes). */
+  computers(): readonly ComputerLinkState[] {
+    return this.snapshot('computers', () => this.computerLinks?.states() ?? []);
+  }
+
+  /** Frames from your computers' links (views, results), for the screens that show them. */
+  onComputer(fn: (id: string, frame: MacFrame) => void): () => void {
+    this.computerFrames.add(fn);
+    return () => void this.computerFrames.delete(fn);
+  }
+
+  /** One frame to one of your computers (false: its link isn't open). */
+  sendToComputer(id: string, frame: Parameters<ComputerLinks['send']>[1]): boolean {
+    return this.computerLinks?.send(id, frame) ?? false;
+  }
+
   private dropTransport(): void {
+    this.computerLinks?.dispose();
+    this.computerLinks = undefined;
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.transport?.dispose();
@@ -301,6 +357,8 @@ class Store {
     this.awayAt = undefined;
     this.clearRetry();
     this.retryAttempt = 0;
+    // Your computers are linked whether or not your Mac answers.
+    this.computerLinks?.open();
     const t = this.transport;
     if (!t) return;
     const next = onResume({ phase: this.state.phase, now: Date.now(), ...(awayAt !== undefined ? { awayAt } : {}), ...(this.dialingSince !== undefined ? { dialingSince: this.dialingSince } : {}), probing: this.probing });
@@ -437,6 +495,7 @@ class Store {
       if (!graceExpired({ active: this.active, awayAt: this.awayAt, now })) return this.armGrace(this.awayAt + BACKGROUND_GRACE_MS - now);
       this.transport?.send({ t: 'bye' });
       this.transport?.close('background');
+      this.computerLinks?.close('background');
     }, ms);
   }
 
@@ -585,6 +644,10 @@ class Store {
         return;
       case 'bye':
         this.setState({ phase: 'closed', detail: f.reason });
+        return;
+      case 'computers':
+        // Your Mac says where your computers are (1.46): each is linked by itself from now on.
+        this.computerLinks?.setList(f.list);
         return;
     }
   }
