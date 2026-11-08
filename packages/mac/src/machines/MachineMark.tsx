@@ -16,7 +16,7 @@ export function MachineMark({ machine, size = 18 }: { machine: Pick<MachineView,
   return (
     <span className={c.mark} title={brand?.title} style={size === 18 ? undefined : { width: size + 4, height: size + 4, marginTop: 0 }}>
       {brand && 'url' in brand ? (
-        <span className={c.brand} role="img" aria-label={brand.title} data-deep={deep(brand.color) || undefined} style={{ background: brand.color, maskImage: `url(${brand.url})`, WebkitMaskImage: `url(${brand.url})`, ...box }} />
+        <span className={c.brand} role="img" aria-label={brand.title} data-deep={deep(brand.color) || undefined} style={{ background: brand.color, maskImage: maskOf(brand.url), WebkitMaskImage: maskOf(brand.url), ...box }} />
       ) : brand ? (
         <img className={c.brandFull} src={brand.full} alt={brand.title} draggable={false} style={box} />
       ) : (
@@ -25,6 +25,12 @@ export function MachineMark({ machine, size = 18 }: { machine: Pick<MachineView,
     </span>
   );
 }
+
+/**
+ * A mask from a mark's URL, quoted: Vite inlines a small SVG as a data: URL whose quotes and spaces
+ * would break a bare url(…), and the browser would then drop the whole mask (a plain coloured square).
+ */
+export const maskOf = (url: string): string => `url(${JSON.stringify(url)})`;
 
 /** A brand colour too dark to see on a dark window (CentOS's navy, Gentoo's purple): lifted there in CSS. */
 function deep(color: string): boolean {

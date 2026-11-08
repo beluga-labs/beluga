@@ -240,7 +240,7 @@ A phone app shows what your Mac's Beluga is doing and lets you answer what needs
 <p align="center">
   <picture>
     <source media="(min-width: 700px)" srcset="assets/scenes/machines-dark.gif">
-    <img src="assets/scenes/machines-dark-still.png" alt="This Mac and your phone wired to three computers of yours, a Mac mini that is your Always On, an AWS server and a Linux box. A task's Runs on chip flips from this Mac to AWS, the task hops there and its steps stream back to the chat and the phone; then the Mac's lid closes and the phone keeps up until it's done" width="720">
+    <img src="assets/scenes/machines-dark-still.png" alt="This Mac and your phone wired to three computers of yours, a Mac mini that is your Always On, build-box on AWS and an Ubuntu box, each with its own mark. A task's Runs on chip flips from this Mac to build-box, the task hops there and its steps stream back to the chat and the phone; then the Mac's lid closes and the phone keeps up until it's done" width="720">
   </picture>
 </p>
 <p align="center"><sub>Your Beluga app stays on your Mac. The work runs on the computer you pick.</sub></p>
