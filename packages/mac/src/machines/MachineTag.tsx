@@ -2,7 +2,7 @@ import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { linkHealth } from '@beluga/machines/links.js';
 import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
-import { useLinkSample } from './link-health.js';
+import { useLinkSample } from './use-link-sample.js';
 import { useBeluga, useMachine } from '../lib/beluga.js';
 import { MachineMark } from './MachineMark.js';
 import { useMachineView } from './use-machines.js';

@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react';
 // Relative, not @beluga: the root's tests and typecheck read this file too.
 import type { SocketClient } from '../../../../src/ipc/socket-client.js';
 import { LOST_LINK_MS, type LinkSample, PING_EVERY_MS } from '../../../../src/machines/links.js';
@@ -20,7 +19,8 @@ function set(id: string, sample: LinkSample): void {
   for (const l of [...listeners]) l();
 }
 
-const subscribe = (l: () => void): (() => void) => {
+/** Hear every computer's link change (use-link-sample.ts draws it). */
+export const subscribeLinks = (l: () => void): (() => void) => {
   listeners.add(l);
   return () => void listeners.delete(l);
 };
@@ -62,6 +62,3 @@ export function watchLink(id: string, client: Pick<SocketClient, 'ping'>, beat: 
 /** Computer `id`'s link now: undefined until a screen there first connects (connecting isn't lost). */
 export const linkSampleOf = (id: string): LinkSample | undefined => samples.get(id);
 
-export function useLinkSample(id: string): LinkSample | undefined {
-  return useSyncExternalStore(subscribe, () => linkSampleOf(id));
-}

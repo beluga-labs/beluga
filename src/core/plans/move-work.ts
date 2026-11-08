@@ -93,7 +93,7 @@ export class PlanMover {
     if (c.blocked) throw new Error(c.blocked);
     if (c.running.length) throw new Error(`${upFirst(c.running.join(', '))} ${c.running.length === 1 ? 'is' : 'are'} at work: pause the plan and let ${c.running.length === 1 ? 'it' : 'them'} finish first`);
     if (c.dirty.length && !opts.commit) throw new Error(`${c.dirty.join(', ')} ${c.dirty.length === 1 ? 'has' : 'have'} changes not committed`);
-    for (const w of this.worktrees(plan)) await commitAll(w.dir, `Work in progress, before the plan moved to ${opts.to}`).catch(() => false);
+    for (const w of this.worktrees(plan)) await commitAll(w.dir, `Work in progress, before the plan moved to ${opts.to}`, { orAsBeluga: true }).catch(() => false);
     const issues = planIssueIds(plan).flatMap((i) => this.deps.board.get(i) ?? []);
     const root = this.root(plan.projectId);
     const branches = plan.body && root ? await sendBranches(root, planBranches(plan, issues)) : undefined;

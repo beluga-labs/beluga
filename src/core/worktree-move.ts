@@ -81,7 +81,7 @@ export class WorktreeMover {
     if (this.busy(id)) throw new Error(`Its agent is at work: let it finish its turn, then continue it on ${opts.to}`);
     const c = await this.check(id);
     if (c.dirty.length && !opts.commit) throw new Error(`It has changes not committed (${c.dirty.join(', ')})`);
-    if (c.dirty.length) await commitAll(ws.path, `Work in progress, before continuing on ${opts.to}`);
+    if (c.dirty.length) await commitAll(ws.path, `Work in progress, before continuing on ${opts.to}`, { orAsBeluga: true });
     const root = this.deps.store.getState().projects.find((p) => p.workspaces.some((w) => w.id === id))?.root ?? ws.projectRoot;
     const git = await sendBranches(root, [ws.branch!]);
     if (!git) throw new Error(`Its branch ${ws.branch} isn’t here`);
