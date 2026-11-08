@@ -1,0 +1,9 @@
+{
+  "object": "list",
+  "items": [
+    { "object": "project", "id": "projTEST0001", "name": "Test App", "created_at": 1700000000000 },
+    { "object": "project", "id": "projTEST0002", "name": "Second Test App", "created_at": "2024-03-05T10:11:12.000Z" }
+  ],
+  "next_page": null,
+  "url": "/v2/projects"
+}
