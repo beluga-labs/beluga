@@ -312,7 +312,7 @@ export function ScratchTab({ of }: { of: ScratchOf }) {
               value={split.view}
               onChange={pickView}
               options={[
-                { value: 'claude', label: 'From Your Agent', icon: 'sparkles', hint: 'What your agent saved while it worked', ...(split.mine.length ? { count: split.mine.length } : {}) },
+                { value: 'claude', label: 'From Your Agent', icon: 'bot', hint: 'What your agent saved while it worked', ...(split.mine.length ? { count: split.mine.length } : {}) },
                 { value: 'sent', label: 'Sent by You', icon: 'send', hint: 'Copies of the images and files you sent your agent', count: split.sent.length },
               ]}
             />
