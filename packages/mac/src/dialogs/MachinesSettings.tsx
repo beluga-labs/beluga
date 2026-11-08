@@ -1,5 +1,6 @@
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
+import type { AlwaysOnView } from '@beluga/machines/always-on.js';
 import type { ComputerOffer } from '@beluga/machines/enroll.js';
 import type { MachineView } from '@beluga/machines/machines.js';
 import type { Placement } from '@beluga/machines/placement.js';
@@ -18,7 +19,7 @@ import { onMachine, pageOfChannel } from '../machines/pane-model.js';
 import { useActions } from '../lib/actions.js';
 import { ICON_CHOICES, healthOf, kindLine, loadLine, runOnOptions } from '../machines/model.js';
 import c from '../machines/machines.module.css';
-import { Group, Row, Select } from './settings-controls.js';
+import { Group, Row, Select, Switch } from './settings-controls.js';
 import s from './settings.module.css';
 
 /**
@@ -29,6 +30,9 @@ import s from './settings.module.css';
  * behind •••, and reaches every device of yours. Your settings follow you to all of them by
  * themselves (BLG-805): a conflict is said under Your Settings, and your secrets go to a computer
  * only after you said Keep My Secrets in Sync for it (•••).
+ *
+ * You on the Network (BLG-796): this Mac, or the computer you made your Always On (•••, after one
+ * plain confirmation of what moves), and Make This Mac Always On to bring it back.
  */
 export function MachinesSettings() {
   const { client } = useBeluga();
@@ -36,7 +40,9 @@ export function MachinesSettings() {
   const [machines, setMachines] = useState<readonly MachineView[] | undefined>();
   const [placement, setPlacement] = useState<Placement | undefined>();
   const [sync, setSync] = useState<SettingsSyncView | undefined>();
+  const [you, setYou] = useState<AlwaysOnView | undefined>();
   const refresh = useCallback(() => {
+    void client.call('machines.alwaysOn.status').then((v) => setYou(v as AlwaysOnView), () => undefined);
     void client.call('machines.list').then((list) => setMachines(list as readonly MachineView[]), () => setMachines([]));
     void client.call('machines.placement').then((p) => setPlacement(p as Placement), () => undefined);
     void client.call('machines.settingsSync').then((v) => setSync(v as SettingsSyncView), () => undefined);
@@ -55,9 +61,10 @@ export function MachinesSettings() {
           <Select label="Run New Work On" value={runOn} onChange={(v) => void client.api.session.setPrefs({ runOn: v })} options={runOnOptions(here, machines ?? [])} />
         </Row>
       </Group>
+      {machines?.length ? <YouOnTheNetwork you={you} here={here} onChange={refresh} /> : null}
       <Group title="Your computers">
         <AddComputer onAdded={refresh} />
-        {machines === undefined ? <div className={s.note}>Looking…</div> : machines.length === 0 ? <div className={s.note}>None yet. A Mac mini, a cloud server or a Linux box: add one, and your work can run there.</div> : machines.map((mc) => <Computer key={mc.id} machine={mc} onChange={refresh} />)}
+        {machines === undefined ? <div className={s.note}>Looking…</div> : machines.length === 0 ? <div className={s.note}>None yet. A Mac mini, a cloud server or a Linux box: add one, and your work can run there.</div> : machines.map((mc) => <Computer key={mc.id} machine={mc} moving={Boolean(you?.busy)} onChange={refresh} />)}
       </Group>
       <EnvSentAlways />
       {machines?.length ? <YourSettings sync={sync} onClear={() => void client.call('machines.settingsSync.clear').then(refresh, () => undefined)} /> : null}
@@ -111,6 +118,57 @@ function YourSettings({ sync, onClear }: { sync: SettingsSyncView | undefined; o
           </div>
         </div>
       ) : null}
+    </Group>
+  );
+}
+
+/** Where you are on the network (BLG-796): this Mac, or your Always On, with Make This Mac Always On to bring it back. */
+function YouOnTheNetwork({ you, here, onChange }: { you: AlwaysOnView | undefined; here: string; onChange: () => void }) {
+  const { client } = useBeluga();
+  const [asking, setAsking] = useState(false);
+  const [said, setSaid] = useState<string | undefined>();
+  if (!you) return null;
+  const back = (): void => {
+    setAsking(false);
+    setSaid(`Moving you back to ${here}…`);
+    void client.call('machines.alwaysOn', 'here').then(
+      () => {
+        setSaid(`${here} is you on the network again.`);
+        onChange();
+      },
+      (err: unknown) => setSaid(err instanceof Error ? err.message : String(err)),
+    );
+  };
+  const detail = you.busy
+    ? you.busy
+    : you.here
+      ? `${here} is you to your friends: their messages and requests come here. Make a computer that never sleeps your Always On (its •••), and you stay reachable while ${here} is closed.`
+      : `${you.name} is your Always On: it receives your friends’ messages and requests, runs them, and ${here} shows everything through your link.${you.pending ? ` Finishing the move as soon as ${you.name} answers.` : ''}`;
+  return (
+    <Group title="You on the network">
+      <Row label={you.here ? here : (you.name ?? 'Your Always On')} detail={detail}>
+        {you.here || you.busy ? (
+          <span className={c.kind}>{you.here ? 'Always On' : ''}</span>
+        ) : (
+          <Button size="small" onClick={() => setAsking(true)}>
+            Make {upFirst(thisComputer())} Always On…
+          </Button>
+        )}
+      </Row>
+      {asking ? (
+        <div className={c.add} data-testid="always-on-back">
+          <div className={c.kind}>Your identity, friends, trust levels, groups and chats come back from {you.name} to {here} over your end-to-end link. {you.name} stops being you on the network.</div>
+          <div className={c.addRow}>
+            <Button variant="quiet" onClick={() => setAsking(false)}>
+              Not Now
+            </Button>
+            <Button variant="primary" onClick={back}>
+              Move It Back
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {said ? <div className={s.note}>{said}</div> : null}
     </Group>
   );
 }
@@ -239,12 +297,14 @@ function AddComputer({ onAdded }: { onAdded: () => void }) {
 }
 
 /** One computer: icon, name (rename in place), kind, status and load, health with fixes, and •••. */
-function Computer({ machine, onChange }: { machine: MachineView; onChange: () => void }) {
+function Computer({ machine, moving, onChange }: { machine: MachineView; moving: boolean; onChange: () => void }) {
   const { client } = useBeluga();
   const [naming, setNaming] = useState<string | undefined>();
   const [said, setSaid] = useState<string | undefined>();
   const [asked, setAsked] = useState<UpdateAnswer | undefined>();
   const [askSecrets, setAskSecrets] = useState(false);
+  const [askAlwaysOn, setAskAlwaysOn] = useState(false);
+  const [runThere, setRunThere] = useState(true);
   const fail = (err: unknown): void => setSaid(err instanceof Error ? err.message : String(err));
   const look = (patch: { name?: string; icon?: MachineIcon }): void =>
     void client.call('machines.look', machine.id, patch).then(() => {
@@ -268,6 +328,16 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
       setSaid(on ? `Your secrets now follow you to ${machine.name}.` : `Your secrets no longer go to ${machine.name}; the ones there stay.`);
       onChange();
     }, fail);
+  // Make Always On (BLG-796): asked once, here; Run New Work On follows when you leave it on.
+  const makeAlwaysOn = (): void => {
+    setAskAlwaysOn(false);
+    setSaid(`Moving you to ${machine.name}…`);
+    void client.call('machines.alwaysOn', machine.id).then(() => {
+      if (runThere) void client.api.session.setPrefs({ runOn: machine.id });
+      setSaid(`${machine.name} is your Always On: it’s you on the network now.`);
+      onChange();
+    }, fail);
+  };
   const forget = (): void =>
     void client.call('machines.forget', machine.id).then(() => {
       setSaid(undefined);
@@ -289,6 +359,11 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
             </span>
           )}
           <span className={c.kind}>{kindLine(machine)}</span>
+          {machine.alwaysOn ? (
+            <span className={c.kind} data-testid="always-on-tag">
+              <Icon name="power" size={11} /> Always On
+            </span>
+          ) : null}
         </div>
         {machine.secrets ? (
           <div className={c.kind}>
@@ -348,6 +423,11 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
                 </Dropdown.Item>
               ))}
               <Dropdown.Separator className={m.separator} />
+              {machine.alwaysOn ? null : (
+                <Dropdown.Item className={m.item} disabled={moving} onSelect={() => setAskAlwaysOn(true)}>
+                  <span className={m.label}>Make Always On…</span>
+                </Dropdown.Item>
+              )}
               <Dropdown.Item className={m.item} onSelect={() => (machine.secrets ? secrets(false) : setAskSecrets(true))}>
                 <span className={m.label}>{machine.secrets ? 'Stop Syncing My Secrets' : `Keep My Secrets in Sync With ${machine.name}…`}</span>
               </Dropdown.Item>
@@ -359,6 +439,18 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
           </Dropdown.Portal>
         </Dropdown.Root>
       </div>
+      {askAlwaysOn ? (
+        <div className={c.said} data-testid="always-on-ask">
+          Your identity, friends, their trust levels, your groups and your chats move to {machine.name} over your end-to-end link, and it becomes you on the network: friends see the same you, and it answers them while {thisComputer()} is closed. This is the only time your identity leaves {thisComputer()}.{' '}
+          <Switch on={runThere} onChange={setRunThere} label={`Run new work on ${machine.name} too`} /> Run new work there too.{' '}
+          <Button size="small" variant="primary" onClick={makeAlwaysOn}>
+            Make It Always On
+          </Button>{' '}
+          <Button size="small" variant="quiet" onClick={() => setAskAlwaysOn(false)}>
+            Not Now
+          </Button>
+        </div>
+      ) : null}
       {askSecrets ? (
         <div className={c.said}>
           Your own variables (Settings › Environment) go to {machine.name} over your end-to-end link, and every change follows, both ways. Never into a log.{' '}

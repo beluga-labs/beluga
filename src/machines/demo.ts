@@ -23,8 +23,11 @@ function awsWork(state: Pick<DomainState, 'projects'>): NonNullable<MachineInfo[
   return api && ws ? [{ project: api.name, worktree: ws.name, channel: `ws:${ws.id}` }] : [];
 }
 
+/** The demo's Mac mini: its Always On to begin with (BLG-796). */
+export const DEMO_ALWAYS_ON = { id: 'de30a1c0ffee0001', name: 'Mac mini at home' } as const;
+
 /** The demo's computers' ids (the demo daemon serves their pages itself). */
-const DEMO_IDS: ReadonlySet<string> = new Set(['de30a1c0ffee0001', 'de30a1c0ffee0002']);
+const DEMO_IDS: ReadonlySet<string> = new Set([DEMO_ALWAYS_ON.id, 'de30a1c0ffee0002']);
 export const isDemoMachine = (id: string): boolean => DEMO_IDS.has(id);
 
 export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.now()): MachineView[] {
@@ -32,8 +35,8 @@ export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.no
   const work = awsWork(state);
   return [
     {
-      id: 'de30a1c0ffee0001',
-      name: 'Mac mini at home',
+      id: DEMO_ALWAYS_ON.id,
+      name: DEMO_ALWAYS_ON.name,
       platform: 'macos',
       version: '0.6.2',
       pairedAt: now - 21 * 24 * HOUR,

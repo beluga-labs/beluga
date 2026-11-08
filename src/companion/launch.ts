@@ -22,14 +22,19 @@ import { CompanionHost } from './host.js';
 import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
+import type { NetworkSummary } from '../net/mesh/views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
-import { demoMachines } from '../machines/demo.js';
+import { DEMO_ALWAYS_ON, demoMachines } from '../machines/demo.js';
 import { collectInfo, realInfoDeps } from '../machines/info.js';
 import { ComputerUpdater, psHere, updateRunner } from '../machines/versions.js';
 import { IPC_VERSION } from '../ipc/protocol.js';
 import { Machines } from '../machines/machines.js';
 import { SettingsSync } from '../machines/sync.js';
 import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
+import { AlwaysOn, attachAlwaysOn, detachAlwaysOn } from '../machines/always-on.js';
+import { type SwappableIdentity, swappableIdentity } from '../core/identity.js';
+import { networkSummaryOf, networkSwitchOf } from '../core/network.js';
+import { pinCompanionSeed } from './host.js';
 
 /**
  * Start the phone companion for the daemon (the Mac app's Beluga): the device book in
@@ -141,6 +146,8 @@ export interface CompanionLaunch {
   readonly session: Session;
   readonly store: Store;
   readonly identity: Identity;
+  /** Your identity as it moves to your Always On and back (BLG-796); `identity` reads through it. */
+  readonly you?: SwappableIdentity;
   readonly demo: boolean;
   readonly log?: (line: string) => void;
   /** The daemon's terminals: a worktree's, shared with the phone. */
@@ -176,6 +183,7 @@ export function dhtFromEnv(env: NodeJS.ProcessEnv = process.env): { dht?: { boot
 export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const dir = opts.demo ? mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-companion-')) : belugaHome();
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
+  const seedFile = path.join(dir, 'companion-seed.json');
   let host: CompanionHost | undefined;
   // Your device set and computers (BLG-774): they share the phones' node, relay and address.
   // Its name and icon as kept here (BLG-780): what every device of yours shows.
@@ -203,9 +211,12 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
         secrets: { read: () => opts.session.env.globals(), write: (key, value) => opts.session.env.setOne(undefined, key, value), watch: (listener) => opts.session.env.watch(listener) },
         ...(opts.log ? { log: opts.log } : {}),
       });
+  // Make Always On (BLG-796): your identity and friends network move to one of your computers and back.
+  let alwaysOn: AlwaysOn | undefined;
+  const you = opts.you ?? swappableIdentity(opts.identity);
   const machines = new Machines({
     dir,
-    identity: opts.identity,
+    identity: you.identity,
     devices,
     node: () => host!.dhtNode(),
     address: () => host!.address(),
@@ -236,6 +247,15 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
     // An app of yours forwarding this computer's dev servers to itself, or sharing its own ports here (BLG-802/804).
     tunnels: (socket) => void serveTunnels(socket, { name: macName, ...(opts.log ? { log: opts.log } : {}) }),
+    alwaysOn: {
+      serve: (socket, cert, hello) => (alwaysOn ? alwaysOn.serve(socket, cert, hello) : socket.close(1013, 'Beluga is starting')),
+      at: () => alwaysOn?.at(),
+      net: () => {
+        const summary = networkSummaryOf(opts.session);
+        return summary?.enabled ? { ...summary, enabled: true as const, friends: [...summary.friends], groups: [...summary.groups], invitations: [...summary.invitations], pendingJoins: [...summary.pendingJoins] } : undefined;
+      },
+      mirror: (net) => opts.store.dispatch({ type: 'net_summary', summary: net as unknown as NetworkSummary }),
+    },
     onWorktree: (machineId, workspaceId) => void envSend?.offer(machineId, workspaceId).catch((err: unknown) => opts.log?.(`env-send: couldn't offer env files: ${err instanceof Error ? err.message : String(err)}`)),
     ...(opts.log ? { log: opts.log } : {}),
   });
@@ -265,7 +285,13 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   attachForwarder(opts.session, forwarder);
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());
   host = new CompanionHost({
-    identity: opts.identity,
+    identity: you.identity,
+    seedFile,
+    // A phone's certificate is signed by your identity: while your Always On holds it, phones pair there.
+    cannotPair: () => {
+      const at = opts.demo ? undefined : alwaysOn?.view();
+      return at && !at.here ? `${at.name ?? 'Your Always On'} holds your identity now: make this Mac Always On again (Settings › Your Computers) to pair a phone here.` : undefined;
+    },
     store: opts.store,
     devices,
     call: (clientId, method, args) => dispatchCall(opts.session, clientId, method, args),
@@ -294,11 +320,27 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     ...(opts.log ? { log: opts.log } : {}),
     machines,
   });
+  alwaysOn = new AlwaysOn({
+    dir,
+    machines,
+    you,
+    network: () => networkSwitchOf(opts.session),
+    settings: { load: loadSettings, save: (patch) => void saveSettings(patch) },
+    pinAddress: (identity) => pinCompanionSeed(seedFile, identity),
+    phones: () => devices.all().map((r) => r.cert.device),
+    onChange: () => host?.machinesChanged(),
+    ...(opts.demo ? { demo: { start: { ...DEMO_ALWAYS_ON }, name: (id) => machines.list().find((m) => m.id === id)?.name } } : {}),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  attachAlwaysOn(opts.session, alwaysOn);
   attachCompanion(opts.session, host);
   attachMachines(opts.session, machines);
   void host
     .start()
-    .then(() => machines.start())
+    .then(() => {
+      machines.start();
+      alwaysOn?.start();
+    })
     .catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
   // A phone on this Mac's USB: set up by itself, or what to switch on said in Settings › Phone (BLG-190).
   if (!opts.demo) host.watchCable();
@@ -307,6 +349,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     forwarder.stop();
     detachCompanion(opts.session);
     detachMachines(opts.session);
+    detachAlwaysOn(opts.session);
+    alwaysOn?.stop();
     await machines.stop();
     await host?.stop();
     host = undefined;

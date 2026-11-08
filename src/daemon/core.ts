@@ -32,6 +32,7 @@ import { launchSupport } from '../core/merge-counter.js';
 import { launchStats } from '../core/stats/counter.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
+import { swappableIdentity } from '../core/identity.js';
 import { Store, initialState, prefsFrom } from '../core/store.js';
 import { createDemoFolders, createDemoWorkspaces, seedDemoContext, startDemoFriend, startDemoGuest } from '../demo.js';
 import { type Identity, deriveKeys, generateSecret, loadIdentity } from '../net/crypto.js';
@@ -248,6 +249,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   if (!demo && config.agent && !belugaEnv('CLAUDE_PATH')) void claudeCodeReady().catch(() => {});
   // Your own key, kept between runs: friends recognize you, and the trust they gave you comes back.
   const identity = loadIdentity(path.join(belugaHome(), 'identity.json'));
+  // Who this install is on the network can move to your Always On and back (BLG-796): the parts that follow it read it here.
+  const you = swappableIdentity(identity);
   const saved = loadSettings();
   const room = config.mode === 'join' ? await joinRoom(config) : await hostRoom(config, identity);
   const shares = new ShareService(config.shares);
@@ -371,7 +374,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     session.start();
     // The Beluga network (friends, groups, presence): only the daemon runs it, and only when it's turned on.
     // It can be turned on and off later too (`network.setEnabled`).
-    if (opts.network) stopNetwork = networkSwitch({ session, store, identity, name: config.name, dir: belugaHome(), demo: Boolean(demo), warn: (text) => session.system(text, 'warn') }, saved).stop;
+    if (opts.network) stopNetwork = networkSwitch({ session, store, identity: you.identity, name: config.name, dir: belugaHome(), demo: Boolean(demo), warn: (text) => session.system(text, 'warn') }, saved).stop;
     // Earnings from Stripe per project (the Mac app shows them): the daemon counts them in the background.
     if (opts.network) stopEarnings = launchEarnings({ session, store, demo: Boolean(demo) });
     // Merged work made in Beluga, counted once per branch: the first and fifth merge ask for a star and a coffee.
@@ -405,7 +408,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopAssistant = launchAssistant({ session, store, demo: Boolean(demo) });
     if (opts.network) stopClaudeCode = launchClaudeCode({ session, store, demo: Boolean(demo), notify: (e) => session.notifier.notify(e) });
     // Your phone (docs/companion.md): pairing it, and its link. Its DHT node runs only while a phone is paired or a pairing is open.
-    if (opts.network) stopCompanion = launchCompanion({ session, store, identity, terminals, demo: Boolean(demo), log: (line) => console.warn(line) });
+    if (opts.network) stopCompanion = launchCompanion({ session, store, identity: you.identity, you, terminals, demo: Boolean(demo), log: (line) => console.warn(line) });
     if (config.mode === 'host' && config.inviteNow) void publish(config, room, session, () => closing);
     if (!demo) return;
     // A pretend friend and a fake invite so every part of the UI has something to show.

@@ -10,6 +10,9 @@ import type { Store } from './store.js';
 import { belugaEnv } from './beluga-env.js';
 import { installedVersion } from './version.js';
 import { localMentions } from './team/mentions.js';
+import { networkElsewhere } from '../machines/always-on-state.js';
+import { belugaHome } from './home.js';
+import type { NetworkSummary } from '../net/mesh/views.js';
 
 /**
  * The Beluga network as a core service: starts your Mac's mesh node (src/net/mesh) next to
@@ -182,16 +185,21 @@ export function watchNetwork(session: object, fn: NetworkWatcher): () => void {
   return () => void set.delete(fn);
 }
 
-/** The network of this session, or a clear error when it's off. */
+/** The network of this session, or a clear error when it's off (or runs on your Always On, BLG-796). */
 export function networkOf(session: object): Mesh {
   const service = services.get(session);
-  if (!service) throw new Error(OFF);
+  if (!service) throw new Error(networkElsewhere(belugaHome()) ?? OFF);
   return service.mesh;
 }
 
-export const networkStatus = (session: object): { enabled: boolean; peerId?: string; address?: string } => {
+/** This session's network as screens see it, while it runs here (your Always On says it to your app, BLG-796). */
+export const networkSummaryOf = (session: object): NetworkSummary | undefined => services.get(session)?.mesh.summary();
+
+export const networkStatus = (session: object): { enabled: boolean; peerId?: string; address?: string; alwaysOn?: string } => {
   const mesh = services.get(session)?.mesh;
-  return mesh ? { enabled: true, peerId: mesh.peerId, address: mesh.address } : { enabled: false };
+  if (mesh) return { enabled: true, peerId: mesh.peerId, address: mesh.address };
+  const elsewhere = networkElsewhere(belugaHome());
+  return elsewhere ? { enabled: false, alwaysOn: elsewhere } : { enabled: false };
 };
 
 export interface NetworkHost {
@@ -218,7 +226,9 @@ function launch(host: NetworkHost): Launch {
   let stopped = false;
   let error: string | undefined;
   const name = host.name.trim().slice(0, 64) || 'Beluga';
-  const ready = (host.demo ? import('./network-demo.js').then((m) => m.startDemoNetwork(host.store, name)) : startNetwork({ store: host.store, identity: host.identity, name, dir: host.dir }))
+  // Your Always On is you on the network: this install never is at the same time (BLG-796).
+  const elsewhere = host.demo ? undefined : networkElsewhere(host.dir);
+  const ready = (elsewhere ? Promise.reject(new Error(elsewhere)) : host.demo ? import('./network-demo.js').then((m) => m.startDemoNetwork(host.store, name)) : startNetwork({ store: host.store, identity: host.identity, name, dir: host.dir }))
     .then((service) => {
       if (stopped) {
         void service.stop();
@@ -229,7 +239,7 @@ function launch(host: NetworkHost): Launch {
     })
     .catch((err: unknown) => {
       error = err instanceof Error ? err.message : String(err);
-      host.warn(`The Beluga network didn't start: ${error}`);
+      if (!elsewhere) host.warn(`The Beluga network didn't start: ${error}`);
       return undefined;
     });
   return {
@@ -260,13 +270,16 @@ export function launchNetwork(host: NetworkHost, settings: { readonly network?: 
 export interface NetworkSwitch {
   /** Start or stop it now; starting resolves once it's up (or fails with why it didn't). */
   set(on: boolean): Promise<void>;
+  /** The name it starts with next time (your own, arriving with your identity on your Always On, BLG-796). */
+  rename(name: string): void;
   stop(): Promise<void>;
 }
 
 const switches = new WeakMap<object, NetworkSwitch>();
 
 /** Like launchNetwork, and the network can be turned on and off later (see `network.setEnabled`). */
-export function networkSwitch(host: NetworkHost, settings: { readonly network?: boolean }): NetworkSwitch {
+export function networkSwitch(start: NetworkHost, settings: { readonly network?: boolean }): NetworkSwitch {
+  let host = start;
   let current: Launch | undefined = networkEnabled(settings) ? launch(host) : undefined;
   let turning: Promise<void> = Promise.resolve();
   const set = async (on: boolean): Promise<void> => {
@@ -289,6 +302,9 @@ export function networkSwitch(host: NetworkHost, settings: { readonly network?: 
       const next = turning.then(() => set(on));
       turning = next.catch(() => undefined);
       return next;
+    },
+    rename: (name) => {
+      host = { ...host, name };
     },
     stop: async () => {
       switches.delete(host.session);

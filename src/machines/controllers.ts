@@ -30,6 +30,8 @@ const SetFile = z.object({
   self: DeviceCert.optional(),
   roster: DeviceRoster.optional(),
   forgotten: z.array(Forget).max(MAX_FORGOTTEN).default([]),
+  /** The phones paired on this install (their device keys), once your identity has been on more than one (BLG-796); unset: every phone in the set. */
+  phonesHere: z.array(z.string().max(200)).max(64).optional(),
 });
 type SetFile = z.infer<typeof SetFile>;
 
@@ -149,19 +151,54 @@ export class DeviceSet {
     return this.resign([...rest, cert]);
   }
 
-  /** The phones this Mac paired (devices.json): they join the set; one that went is forgotten. */
+  /**
+   * The phones this install paired (devices.json): they join the set; one that went is forgotten.
+   * Phones paired on another install that held your identity (before it became, or stopped being,
+   * your Always On) stay as they are.
+   */
   setPhones(phones: readonly DeviceCert[]): void {
     if (!this.holdsIdentity) return;
     const mine = phones.filter((p) => p.owner === this.owner().peerId && verifyCert(p) && roleOf(p) === 'phone');
+    const here = this.state.phonesHere;
+    const ours = (c: DeviceCert): boolean => here === undefined || here.includes(c.device);
     const current = this.devices().filter((c) => roleOf(c) === 'phone');
     // A phone paired again has a newer certificate for the same key: it's replaced, not forgotten.
-    const gone = current.filter((c) => !mine.some((p) => p.device === c.device));
+    const gone = current.filter((c) => ours(c) && !mine.some((p) => p.device === c.device));
     const fresh = mine.filter((p) => this.holds(p) && !current.some((c) => c.device === p.device && c.issuedAt === p.issuedAt));
-    const replaced = current.some((c) => !mine.some((p) => p.device === c.device && p.issuedAt === c.issuedAt));
-    if (!gone.length && !fresh.length && !replaced) return;
+    const replaced = current.some((c) => ours(c) && !mine.some((p) => p.device === c.device && p.issuedAt === c.issuedAt));
+    const nextHere = mine.map((p) => p.device).sort();
+    const hereChanged = here !== undefined && nextHere.join() !== [...here].sort().join();
+    if (!gone.length && !fresh.length && !replaced) {
+      if (!hereChanged) return;
+      this.state = { ...this.state, phonesHere: nextHere };
+      writeJson(this.opts.file, this.state);
+      return;
+    }
     const forgets = gone.map((c) => this.forgetBody(c.device));
-    this.state = { ...this.state, forgotten: this.capped([...this.state.forgotten, ...forgets]) };
-    this.resign([...this.devices().filter((c) => roleOf(c) !== 'phone'), ...mine.filter((p) => this.holds(p))]);
+    const elsewhere = current.filter((c) => !ours(c) && !mine.some((p) => p.device === c.device));
+    this.state = { ...this.state, forgotten: this.capped([...this.state.forgotten, ...forgets]), ...(here !== undefined ? { phonesHere: nextHere } : {}) };
+    this.resign([...this.devices().filter((c) => roleOf(c) !== 'phone'), ...elsewhere.filter((c) => this.holds(c)), ...mine.filter((p) => this.holds(p))]);
+  }
+
+  // ---- your identity moving between installs (BLG-796, always-on.ts)
+
+  /**
+   * Your identity is leaving this install: whose set this is stays pinned (the owner it had), and the
+   * phones paired here are remembered as this install's, so a later return knows them from the others.
+   */
+  release(phonesHere: readonly string[]): void {
+    this.state = { ...this.state, owner: this.owner(), phonesHere: [...phonesHere].sort() };
+    writeJson(this.opts.file, this.state);
+  }
+
+  /**
+   * Your identity is arriving here: first the newest set the giver knew (signed by your identity, so
+   * merged before this install holds it), and phones are this install's own from now on.
+   */
+  takeOver(devset: Pick<DeviceSetSync, 'roster' | 'forgotten'>, phonesHere: readonly string[]): void {
+    this.merge(devset);
+    this.state = { ...this.state, owner: this.owner(), phonesHere: [...phonesHere].sort() };
+    writeJson(this.opts.file, this.state);
   }
 
   // ---- anyone in the set

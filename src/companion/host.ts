@@ -10,6 +10,7 @@ import { attachmentsDir, chipText, importImageFitting, registerAttachment } from
 import type { DomainState } from '../core/store.js';
 import type { CallOutcome } from '../daemon/dispatch.js';
 import type { Identity } from '../net/crypto.js';
+import { readJson, writeJson } from '../net/mesh/files.js';
 import { type MessageSocket, fromStream } from '../net/transport.js';
 import { phoneMay } from './coverage.js';
 import { type DeviceBook, type DeviceRecord, deviceId } from './devices.js';
@@ -87,6 +88,10 @@ const HELD_CHECK_MS = 30_000;
 
 export interface CompanionHostOptions {
   readonly identity: Identity;
+  /** Where this install's companion address is pinned once your identity can move (BLG-796, pinCompanionSeed). */
+  readonly seedFile?: string;
+  /** Why a phone can't be paired here now (your identity is on your Always On, BLG-796), or undefined. */
+  readonly cannotPair?: () => string | undefined;
   readonly store: { getState(): DomainState; subscribe(listener: () => void): () => void; dispatch(action: { type: 'companion'; companion: CompanionSlice['companion'] }): void };
   readonly devices: DeviceBook;
   /** An API call, as a screen's goes (daemon/dispatch.ts); `clientId` is the phone's. */
@@ -147,13 +152,32 @@ export interface MachinesPort {
   accept(stream: NoiseSocket, cert: DeviceCert, overRelay: boolean): void;
 }
 
-/** The companion address's key pair: HKDF of your identity's seed, 'companion-v1'. */
-export async function companionKeyPair(identity: Identity): Promise<KeyPair> {
-  const DHTClass = (await import('hyperdht')).default;
+const companionSeed = (identity: Identity): Buffer => {
   const d = identity.privateKey.export({ format: 'jwk' }).d;
   if (!d) throw new Error('Identity key has no private part');
-  const seed = Buffer.from(hkdfSync('sha256', Buffer.from(d, 'base64url'), Buffer.from('beluga-companion'), Buffer.from('companion-v1'), 32));
-  return DHTClass.keyPair(seed);
+  return Buffer.from(hkdfSync('sha256', Buffer.from(d, 'base64url'), Buffer.from('beluga-companion'), Buffer.from('companion-v1'), 32));
+};
+
+const pinnedSeed = (file: string | undefined): Buffer | undefined => {
+  const raw = file ? readJson(file) : undefined;
+  const hex = raw && typeof raw === 'object' && 'seed' in raw && typeof raw.seed === 'string' && /^[0-9a-f]{64}$/.test(raw.seed) ? raw.seed : undefined;
+  return hex ? Buffer.from(hex, 'hex') : undefined;
+};
+
+/**
+ * The companion address's key pair: HKDF of your identity's seed, 'companion-v1', or the seed pinned
+ * in `seedFile` once your identity moved (BLG-796): the address belongs to the install, so phones and
+ * computers reach it as before, and your Always On keeps its own.
+ */
+export async function companionKeyPair(identity: Identity, seedFile?: string): Promise<KeyPair> {
+  const DHTClass = (await import('hyperdht')).default;
+  return DHTClass.keyPair(pinnedSeed(seedFile) ?? companionSeed(identity));
+}
+
+/** Pin this install's companion address as `identity` makes it now (once: an address already pinned stays). */
+export function pinCompanionSeed(file: string, identity: Identity): void {
+  if (pinnedSeed(file)) return;
+  writeJson(file, { seed: companionSeed(identity).toString('hex') });
 }
 
 interface TopicState {
@@ -530,7 +554,7 @@ export class CompanionHost {
 
   /** Start following the state and the paired phones (a DHT node only runs when there's a phone or a pairing). */
   async start(): Promise<void> {
-    this.keyPair = await companionKeyPair(this.opts.identity);
+    this.keyPair = await companionKeyPair(this.opts.identity, this.opts.seedFile);
     this.offs.push(
       this.opts.store.subscribe(() => {
         this.keepAwake();
@@ -593,12 +617,13 @@ export class CompanionHost {
   // ---- the API (companion-handlers.ts)
 
   pairStart(): Promise<PairingInfo> {
-    return this.pairing.start();
+    const why = this.opts.cannotPair?.();
+    return why ? Promise.reject(new Error(why)) : this.pairing.start();
   }
 
   /** Pair the phone on the USB cable (BLG-190): a pairing opens here and on the phone, the four pictures as ever. */
   async pairOverCable(): Promise<string> {
-    const info = await this.pairing.start();
+    const info = await this.pairStart();
     await this.control.openPairingOnCable(info.link);
     return 'The phone opened the pairing: check its four pictures match the ones here, then Pair.';
   }
@@ -1185,7 +1210,7 @@ export class CompanionHost {
     this.nodeUp.catch(() => undefined);
     this.starting = (async () => {
       const DHTClass = (await import('hyperdht')).default;
-      const keyPair = this.keyPair ?? (await companionKeyPair(this.opts.identity));
+      const keyPair = this.keyPair ?? (await companionKeyPair(this.opts.identity, this.opts.seedFile));
       this.keyPair = keyPair;
       const node = new DHTClass({ ...(this.opts.dht?.bootstrap ? { bootstrap: this.opts.dht.bootstrap } : {}), ...(this.opts.dht?.host ? { host: this.opts.dht.host } : {}) });
       await node.ready();

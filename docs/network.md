@@ -236,7 +236,33 @@ so the person's peer id is the same in every room (`tests/multi-room.test.ts`).
 - A join request reaches the admin whose invitation was used, not every admin.
 - Groups you didn't ask for are only fetched from friends (an admin adding you directly) and
   from the admin whose invite you used; at most 500 groups and 100 people per group.
-- One Mac per identity: a second Beluga process with the same `~/.beluga` doesn't start the network.
+- One device per identity: a second Beluga process with the same `~/.beluga` doesn't start the network,
+  and once a computer is your Always On, no other install of yours does (below).
+
+## Your Always On
+
+Code: `src/machines/always-on.ts` (the handover), `always-on-bundle.ts` (what moves, staged and checked),
+`always-on-state.ts` (`~/.beluga/always-on.json`: where you are), `src/core/identity.ts` (the identity the
+device set, the companion and the network read through). Settings › Your Computers › a computer › ••• ›
+Make Always On…, and Make This Mac Always On under You on the Network (BLG-796).
+
+- One of your computers can be you on the network. After one confirmation your identity, your friends
+  network's files (friends, invitations, DMs and their outbox, reactions, read marks, presence, groups
+  and their logs, avatars) and the settings that are you to friends (name, trust levels, Ask Me For,
+  what friends may ask, the mailbox) travel there over your own end-to-end device link. Friends see the
+  same peer id, name, groups and chats: nothing for them to redo.
+- Two steps, so there is never two of you and never none: the giver stops its network and sends; the
+  taker stages everything, checks each file's SHA-256 and that the identity is the one its device set
+  belongs to, and says ready; only then does the giver note where you are, wipe its copy and say commit,
+  and the taker installs it and starts the network. A link that drops before commit changes nothing; one
+  that drops after it leaves the staging, and the giver says commit again until it lands.
+- The install that gave it keeps a stand-in key of its own, never starts the network itself while
+  `always-on.json` names another device, and shows your network through the link (your Always On says
+  its friends, groups and invitations in each poll). Every device certificate stays valid; each install
+  pins its companion address (`companion-seed.json`) before its identity changes, so phones and computers
+  reach it as before. New phones and computers are signed in where your identity is.
+- Make This Mac Always On brings it back the same way; moving it to another computer goes through this
+  Mac (back here, not started, then on). Rooms keep the key they joined with until Beluga restarts.
 
 ## Chats: channels, files and agents
 

@@ -2,6 +2,7 @@ import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
 import { machinesOf, needMachines } from '../machines/registry.js';
+import { needAlwaysOn } from '../machines/always-on.js';
 import { readyingOf } from '../machines/ready.js';
 import { runOnHere } from '../machines/run-on.js';
 import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
@@ -62,4 +63,6 @@ export const MACHINE_HANDLERS = {
   'machines.secrets': (s, id, on) => needMachines(s).keepSecrets(id, on),
   'machines.settingsSync': (s) => needMachines(s).settingsSync(),
   'machines.settingsSync.clear': (s) => needMachines(s).clearSettingsConflicts(),
+  'machines.alwaysOn': (s, target) => needAlwaysOn(s).make(target),
+  'machines.alwaysOn.status': (s) => needAlwaysOn(s).view(),
 } satisfies MachineHandlers;
