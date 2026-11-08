@@ -455,6 +455,20 @@ export interface AgentPlace {
   readonly alsoEdit?: readonly string[];
   /** Continue After Merge: this worktree's earlier work went out in this pull request, merged into `into`. */
   readonly shipped?: { readonly number: number; readonly url?: string; readonly into: string };
+  /** Its pull request is open (BLG-840): the run pushes its commits there (see prompt.ts buildCommitAppend). */
+  readonly openPr?: OpenPr;
+}
+
+/** A worktree's open pull request, for its run's commit rules (BLG-840). */
+export interface OpenPr {
+  readonly number: number;
+  readonly url?: string;
+  /** The branch it's from: what to push. */
+  readonly branch: string;
+  /** Push to it at the end of a turn that committed (Settings › Workspaces, on by default). */
+  readonly push: boolean;
+  /** Someone's fork's pull request, checked out here (BLG-756): nothing here can push to it. */
+  readonly fork?: boolean;
 }
 
 export interface SubAgentEvent {

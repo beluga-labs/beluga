@@ -405,6 +405,26 @@ describe('the views of a known Mac', () => {
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.icon).toBe(ICON);
   });
 
+  it('BLG-840: commits a worktree’s open PR doesn’t have show on the phone as on the Mac, and its band offers no merge without them', () => {
+    const behind = {
+      ...state,
+      projects: state.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'w1' ? { ...w, branch: 'beluga/auth', status: { changed: 0, ahead: 11, behind: 0, unpushed: 3 } } : w)) })),
+      prs: { ...state.prs, w1: { number: 398, url: 'https://github.com/o/r/pull/398', state: 'OPEN', title: 'Auth', draft: false, checks: 'passing' } },
+    } as DomainState;
+    const rows = WorkView.parse(viewOf(behind, ctx, 'work')).projects.flatMap((p) => p.conversations);
+    expect(rows.find((c) => c.topic === 'conv:ws:w1')?.notOnPr).toEqual({ count: 3, pr: 398 });
+    expect(rows.find((c) => c.topic === 'conv:ws:w2')?.notOnPr).toBeUndefined();
+    const band = ConvView.parse(viewOf(behind, ctx, 'conv:ws:w1')).branch!;
+    expect([band.kind, band.label, band.pr?.number]).toEqual(['not_pushed', '3 commits not on PR', 398]);
+    expect(band.next).toMatchObject({ id: 'push', label: 'Push 3 Commits to PR #398' });
+    expect(band.steps?.map((s) => s.id)).toEqual(['push', 'merge_auto', 'open_pr']);
+    expect(band.steps?.find((s) => s.id === 'merge_auto')?.label).toBe('Push and Merge When Ready');
+    // Pushed: no chip, and Squash and Merge is back.
+    const pushed = { ...behind, projects: behind.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'w1' ? { ...w, status: { changed: 0, ahead: 11, behind: 0 } } : w)) })) } as DomainState;
+    expect(WorkView.parse(viewOf(pushed, ctx, 'work')).projects.flatMap((p) => p.conversations).find((c) => c.topic === 'conv:ws:w1')?.notOnPr).toBeUndefined();
+    expect(ConvView.parse(viewOf(pushed, ctx, 'conv:ws:w1')).branch?.next?.id).toBe('merge_pr');
+  });
+
   it('work lists a project with no conversations yet (one just added), last, and never Chats (BLG-675)', () => {
     const added = { ...state, projects: [...state.projects, { id: 'p9', name: 'notes', root: '/srv/notes', base: 'main', workspaces: [] }, { id: 'chats', name: 'Chats', root: '', base: '', workspaces: [] }] } as DomainState;
     const work = WorkView.parse(viewOf(added, ctx, 'work'));

@@ -128,6 +128,8 @@ export interface MergeWait {
   /** When you asked (a PR with no checks yet gets a moment for them to show up). */
   readonly since: number;
   readonly deleteBranch?: boolean;
+  /** The commit it pushed before waiting (BLG-840): until GitHub's PR has it, what GitHub says is about an older one. */
+  readonly head?: string;
 }
 
 /** What deleting a worktree would throw away that archiving keeps (BLG-617): commits only its branch has. */

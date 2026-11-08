@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 45 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 46 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -481,6 +481,8 @@ export const ConvSummary = z.object({
   settledWhy: z.enum(['you', 'pr_merged', 'merged_here', 'idle']).optional(),
   /** 1.44: a snooze ended, and it shows Back until you open it. */
   back: z.literal(true).optional(),
+  /** 1.46 (BLG-840): commits in its worktree that its open PR doesn't have, the Mac row's ↑N chip: merging now would leave them out. */
+  notOnPr: z.object({ count: z.number().int().min(1).max(100_000), pr: z.number().int().positive() }).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
 

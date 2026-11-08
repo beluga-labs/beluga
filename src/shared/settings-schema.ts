@@ -133,6 +133,8 @@ export const Settings = z.object({
   settleOnMerge: z.boolean().catch(true),
   /** Days without activity before a chat settles; 0: never. */
   settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  pushToPr: z.boolean().catch(true),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
   /** How much of Claude's sub-agent work the chat shows. */

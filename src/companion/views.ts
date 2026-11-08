@@ -13,7 +13,7 @@ import { type TaskView as GwTask, isFinal, requestGist, stateLabel, stateTone, t
 import { parseDecisionQid } from '../core/plans/decisions.js';
 import { type Plan, planForHome, planTitle, reviewState } from '../core/plans/model.js';
 import { planOwnerOf } from '../core/plans/owner.js';
-import { branchState } from '../core/branch-state.js';
+import { branchState, notOnPr } from '../core/branch-state.js';
 import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
 import { type Dashboard, type Tile, metricOf, outputLook, tileColumns, tileCompare, tileMetrics, tileOutput, tileStateIn, tileTitle } from '../core/sentinel/dashboard-model.js';
 import { documentMime, isDocumentKind, storageName, storageSources } from '../core/sentinel/columns.js';
@@ -584,7 +584,16 @@ function summaryOf(state: DomainState, conv: Conversation, waiting: ReadonlySet<
     ...(subs ? { agents: subs } : {}),
     ...(conv.projectId && conv.projectId !== 'asked' ? { projectId: clip(conv.projectId, 200), ...iconOf(ctx, conv.projectId) } : {}),
     ...(fresh ? { fresh } : {}),
+    ...notOnPrOf(state, conv.channel),
   };
+}
+
+/** A worktree's commits its open PR doesn't have (BLG-840), as the Mac's row chip counts them. */
+function notOnPrOf(state: DomainState, channel: string): Pick<ConvSummary, 'notOnPr'> {
+  const id = channel.startsWith('ws:') ? channel.slice(3) : undefined;
+  const ws = id ? state.projects.flatMap((p) => p.workspaces).find((w) => w.id === id) : undefined;
+  const gap = ws?.kind === 'worktree' && !ws.archived ? notOnPr(state.prs[ws.id], ws) : undefined;
+  return gap ? { notOnPr: { count: Math.min(gap.count, 100_000), pr: gap.number } } : {};
 }
 
 /** A one-line summary names what Your Mac started (`worktree:<id>`, `plan:<id>`, `task:<KEY>`) by its name, not its id. */

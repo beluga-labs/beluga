@@ -321,6 +321,8 @@ export interface Prefs {
   readonly settleOnMerge: boolean;
   /** Days without activity before a chat settles; 0: never. */
   readonly settleIdleDays: number;
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  readonly pushToPr: boolean;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
   readonly subagents: Settings['subagents'];
@@ -717,6 +719,7 @@ export const DEFAULT_PREFS: Prefs = {
   chatCategories: false,
   settleOnMerge: true,
   settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
+  pushToPr: true,
   scratchFolder: true,
   subagents: 'full',
   hiddenButtons: [],
