@@ -14,9 +14,9 @@ import type { Workspace } from '../workspaces/types.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
 import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
-import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
-import { prTargetOf } from '../workspaces/github.js';
-import { prOnOriginal } from './branch-state.js';
+import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, rerunFailed, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
+import { prTargetOf, pullOfBranch } from '../workspaces/github.js';
+import { failedRunIds, prOnOriginal } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from '../agent/setup-fixer.js';
@@ -86,6 +86,8 @@ export interface WorkbenchDeps {
   readonly createPr?: typeof createPr;
   readonly mergeToBase?: typeof mergeToBase;
   readonly pushForPr?: typeof pushForPr;
+  /** Re-run a workflow run's failed jobs (tests stand in for gh). */
+  readonly rerunFailed?: typeof rerunFailed;
   readonly disableAutoMerge?: (dir: string, number: number) => Promise<void>;
   /** Where a branch was last pushed to (its remote-tracking ref), to notice pushes. */
   readonly remoteRef?: (dir: string, branch: string) => string | undefined;
@@ -250,6 +252,8 @@ export class Workbench {
     return agentName(defaultAgentOf(this.deps.store.getState().self));
   }
   private diskTimer?: NodeJS.Timeout;
+  /** The round of measuring under way: a second ask joins it rather than walking every folder again. */
+  private measuring?: Promise<void>;
   private prTimer?: NodeJS.Timeout;
   private runtimeTimer?: NodeJS.Timeout;
   /** What the runtimes last said about themselves, kept so a new list (a local endpoint answering) doesn't wipe it. */
@@ -848,6 +852,65 @@ export class Workbench {
     return { ok: true, message };
   }
 
+  /**
+   * Push a worktree's commits to its open PR, no Claude in between: what GitHub said (failing
+   * checks, conflicts) was about an older commit, and pushing runs its checks again. Then its
+   * status and the PR are looked at again, so the toolbar moves on.
+   */
+  async pushPr(id: string): Promise<GitHubOutcome> {
+    const ws = this.worktree(id);
+    const pr = this.deps.store.getState().prs[id];
+    if (!ws?.branch) return { ok: false, message: 'Only a worktree (a branch of its own) can push' };
+    if (this.creatingPr.has(id)) return { ok: false, message: 'It’s already being pushed' };
+    // A fork's pull request checked out here (BLG-756): its branch lives on the fork, so pushing to
+    // origin wouldn't reach the PR, and would stop the branch following refs/pull/<n>/head.
+    const pull = pullOfBranch(ws.path, ws.branch);
+    if (pull !== undefined) {
+      const message = `PR #${pull} is from someone’s fork: Beluga can’t push to it, so your commits stay here. Suggest them on the PR, or open a PR of your own`;
+      this.deps.toast(message, 'info');
+      return { ok: false, message };
+    }
+    this.creatingPr.add(id);
+    try {
+      await (this.deps.pushForPr ?? pushForPr)(ws.path, ws.branch);
+    } catch (err) {
+      return this.troubleOr(ws, err, `Couldn’t push ${ws.branch}`);
+    } finally {
+      this.creatingPr.delete(id);
+    }
+    this.troubles.delete(id);
+    this.pushedAt.set(id, this.now());
+    await this.deps.controller.refresh();
+    await this.refreshPrs(id);
+    const message = pr?.state === 'OPEN' ? `Pushed ${ws.branch}: PR #${pr.number}’s checks run again` : `Pushed ${ws.branch}`;
+    this.deps.toast(message, 'success');
+    return { ok: true, message };
+  }
+
+  /** Run a PR's failed Actions jobs again on the same commit (a flaky test): `gh run rerun <id> --failed` for each run. */
+  async rerunChecks(id: string): Promise<GitHubOutcome> {
+    const ws = this.worktree(id);
+    const pr = this.deps.store.getState().prs[id];
+    if (!ws || !pr || pr.state !== 'OPEN') return { ok: false, message: 'This worktree has no open pull request' };
+    const runs = failedRunIds(pr);
+    if (!runs.length) {
+      const message = `None of PR #${pr.number}’s failed checks are GitHub Actions runs Beluga can start again: open the PR to re-run them`;
+      this.deps.toast(message, 'info');
+      return { ok: false, message };
+    }
+    try {
+      for (const run of runs) await (this.deps.rerunFailed ?? rerunFailed)(ws.path, run);
+    } catch (err) {
+      return this.troubleOr(ws, err, 'GitHub didn’t re-run the checks');
+    }
+    // Looked at often again, as after a push: the checks show as running soon.
+    this.pushedAt.set(id, this.now());
+    await this.refreshPrs(id);
+    const message = `PR #${pr.number}’s failed checks are running again`;
+    this.deps.toast(message, 'success');
+    return { ok: true, message };
+  }
+
   openPr(id: string): void {
     const pr = this.deps.store.getState().prs[id];
     if (pr) (this.deps.open ?? systemOpen)(pr.url);
@@ -1023,7 +1086,8 @@ export class Workbench {
     const tasks: Array<() => Promise<void>> = [];
     for (const all of byProject.values()) {
       // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
-      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch));
+      // Nor is a fork's PR checked out here by its branch name: asked about by its number.
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch) && pullOfBranch(ws.path, ws.branch!) === undefined);
       tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
@@ -1661,13 +1725,18 @@ export class Workbench {
     return true;
   }
 
-  async measureDisk(): Promise<void> {
+  measureDisk(): Promise<void> {
+    return (this.measuring ??= this.measureRound().finally(() => (this.measuring = undefined)));
+  }
+
+  /** Every folder, one at a time, worktrees before main folders (a main folder's node_modules can take the whole time budget); each size shows as soon as it's known. */
+  private async measureRound(): Promise<void> {
     const dirs = this.manager.list
       .flatMap((p) => p.workspaces)
       .filter((w) => !w.archived && (w.kind === 'worktree' || w.kind === 'main' || (w.kind === 'chat' && !w.projectRoot)))
+      .sort((a, b) => Number(a.kind === 'main') - Number(b.kind === 'main'))
       .map((w) => ({ id: w.id, path: w.path }));
-    const sizes = await measureAll(dirs, this.deps.measure);
-    this.deps.store.dispatch({ type: 'disk', sizes });
+    await measureAll(dirs, this.deps.measure, (id, size) => this.deps.store.dispatch({ type: 'disk', sizes: { [id]: size } }));
   }
 
   /** "1.2 GB · 340k tokens" for a workspace. */
