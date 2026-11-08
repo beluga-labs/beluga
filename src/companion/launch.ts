@@ -340,6 +340,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       host?.machinesChanged();
       friends?.check();
     },
+    // Trust levels arriving with your identity count at once (the gateway reads Ask Me For from disk each time).
+    settingsChanged: () => opts.store.dispatch({ type: 'remembered', people: loadSettings().people }),
     ...(opts.demo ? { demo: { start: { ...DEMO_ALWAYS_ON }, name: (id) => machines.list().find((m) => m.id === id)?.name } } : {}),
     ...(opts.log ? { log: opts.log } : {}),
   });

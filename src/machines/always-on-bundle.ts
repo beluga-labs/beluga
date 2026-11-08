@@ -63,6 +63,8 @@ export const AoEnd = z.object({
   identity: z.string().max(4000),
   owner: z.string().min(1).max(200),
   replica: z.boolean().optional(),
+  /** A stand-in handing back (BLG-848): what changed during the stand-in, key by key (standin-settings.ts reads it); `settings` is then empty. */
+  changes: z.unknown().optional(),
   files: z.array(FileEntry).max(MAX_FILES),
   settings: CarriedSettings,
   devset: DeviceSetSync,

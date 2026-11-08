@@ -6,6 +6,7 @@ import type { DeviceCert } from '../companion/protocol.js';
 import type { SwappableIdentity } from '../core/identity.js';
 import { type Identity, identityFromPem, identityPem, loadIdentity, saveIdentity } from '../net/crypto.js';
 import { STANDBY_IDENTITY, readIdentityFile, standbyIdentity } from './identity-load.js';
+import { StandInChanges, applyChanges, beginStandIn, changesSince, endStandIn } from './standin-settings.js';
 import { rmSync } from 'node:fs';
 import type { MessageSocket } from '../net/transport.js';
 import type { Settings } from '../shared/settings-schema.js';
@@ -72,6 +73,8 @@ export interface AlwaysOnOptions {
   readonly phones: () => readonly string[];
   /** The network was handed over: the view this install shows changed. */
   readonly onChange?: () => void;
+  /** Settings that are you to friends were just written here (taking your network, or standing in): the running parts read them again (BLG-848). */
+  readonly settingsChanged?: () => void;
   /** The demo: its computers (demo.ts), with the Mac mini as your Always On. */
   readonly demo?: { readonly start: { id: string; name: string }; readonly name: (id: string) => string | undefined };
   readonly stepMs?: number;
@@ -218,7 +221,7 @@ export class AlwaysOn {
       send(socket, { t: 'always-on', op: 'take', stage, from: machines.hereName().slice(0, 64), ...(how.merge ? { merge: true } : {}) });
       // Off before the first byte leaves: nothing arrives here that the copy wouldn't have.
       await sw?.set(false);
-      this.sendBundle(socket, stage);
+      this.sendBundle(socket, stage, { merge: how.merge === true });
       const ready = await rd.next(this.opts.stepMs ?? STEP_MS);
       if (ready?.t !== 'ao-ready' || ready.stage !== stage) throw new Error(ready?.t === 'ao-no' ? ready.reason : `${r.name} didn’t take it: nothing moved.`);
     } catch (err) {
@@ -229,6 +232,7 @@ export class AlwaysOn {
     // This Mac keeps its own copy, to stand in with while the Always On is down for long (BLG-799).
     saveIdentity(path.join(dir, STANDBY_IDENTITY), you.current());
     this.letGo({ id, name: r.name }, stage);
+    endStandIn(dir);
     send(socket, { t: 'ao-commit', stage });
     const done = await rd.next(this.opts.stepMs ?? STEP_MS);
     socket.close(1000);
@@ -238,10 +242,13 @@ export class AlwaysOn {
   }
 
   /** Everything that moves, on the link: the files, then the end with your identity (a replica's leaves it out). */
-  private sendBundle(socket: MessageSocket, stage: string, how: { replica?: boolean } = {}): void {
+  private sendBundle(socket: MessageSocket, stage: string, how: { replica?: boolean; merge?: boolean } = {}): void {
     const { dir, machines, you } = this.opts;
     const files = sendParts(dir, (part) => send(socket, part));
-    const end: AoEnd = { t: 'ao-end', stage, identity: how.replica ? '' : identityPem(you.current()), owner: you.current().peerId, files, settings: carriedFrom(this.opts.settings.load()), devset: machines.set.syncFrame(), ...(how.replica ? { replica: true } : {}) };
+    const carried = carriedFrom(this.opts.settings.load());
+    // Handing back, only what changed while this one stood in: the Always On keeps the rest as it has it (BLG-848).
+    const settings = how.merge ? { settings: {}, changes: changesSince(dir, carried, this.now()) } : { settings: carried };
+    const end: AoEnd = { t: 'ao-end', stage, identity: how.replica ? '' : identityPem(you.current()), owner: you.current().peerId, files, ...settings, devset: machines.set.syncFrame(), ...(how.replica ? { replica: true } : {}) };
     send(socket, end);
   }
 
@@ -392,7 +399,9 @@ export class AlwaysOn {
     machines.set.takeOver(end.devset, this.opts.phones());
     saveIdentity(path.join(dir, IDENTITY_FILE), identity);
     installStaged(dir, stage, { merge: how.merge === true });
-    this.opts.settings.save({ ...end.settings, network: true });
+    const changes = how.merge ? StandInChanges.safeParse(end.changes) : undefined;
+    this.opts.settings.save({ ...(how.merge ? (changes?.success ? applyChanges(this.opts.settings.load(), changes.data) : {}) : end.settings), network: true });
+    this.opts.settingsChanged?.();
     writeAlwaysOn(dir, { v: 1, at: 'here', since: this.now() });
     // You're here now: a standby copy and replicas have nothing left to stand in for.
     rmSync(path.join(dir, STANDBY_IDENTITY), { force: true });
@@ -549,6 +558,10 @@ export class AlwaysOn {
       if (at.here || !identity) return;
       const replica = latestReplica(this.opts.dir);
       if (replica) installReplica(this.opts.dir, replica);
+      // On the Always On's newest trust levels, Ask Me For and policy, as its replica carried them (BLG-848).
+      const carried = replica ? stagedEnd(this.opts.dir, replica, STANDBY)?.settings : undefined;
+      if (carried) beginStandIn(this.opts.dir, carried, (patch) => this.opts.settings.save(patch), this.now());
+      if (carried) this.opts.settingsChanged?.();
       this.opts.pinAddress(this.opts.you.identity);
       writeAlwaysOn(this.opts.dir, { v: 1, at: 'here', since: this.now(), ...(replica ? { standIn: { id: at.id, name: at.name } } : {}) });
       this.opts.you.swap(identity);

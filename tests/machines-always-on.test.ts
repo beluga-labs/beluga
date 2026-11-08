@@ -348,8 +348,8 @@ describe('never two of you, never none (BLG-799)', () => {
     expect(log).toContain('before it went down');
     expect(log).toContain('while it was away');
     expect(log.split('\n').filter(Boolean)).toHaveLength(5_002);
-    // The Mac mini stopped its own network before taking it back: never two of you.
-    expect(mini.net.slice(-3)).toEqual(['off', 'name:kayra', 'on']);
+    // The Mac mini stopped its own network before taking it back: never two of you (and keeps its own name for it).
+    expect(mini.net).toEqual(['name:kayra', 'on', 'off', 'on']);
   });
 
   it('an Always On that finds a newer you elsewhere stops, keeping your identity and files to stand in later', async () => {
@@ -438,5 +438,53 @@ describe('rooms on this Mac after a handover and a restart (BLG-846)', () => {
     const started = identitiesAtStart(app.dir);
     expect(started.local.peerId).toBe(me.peerId);
     expect(started.you.peerId).toBe(me.peerId);
+  });
+});
+
+describe('standing in and handing back keep your newest settings (BLG-848)', () => {
+  const mia = 'mia-peer-1';
+  const bob = 'bob-peer-22';
+  const carol = 'carol-peer-3';
+
+  it('stands in on the Always On’s newest trust levels and Ask Me For, and hands back only what changed meanwhile', async () => {
+    const { app, computers } = world();
+    const [mini] = computers as [Install];
+    await app.ao.make(deviceId(mini.cert!));
+    // On the Mac mini, before this Mac's replica: carol trusted fully, a new Ask Me For.
+    mini.settings = { ...mini.settings, askMeFor: 'code reviews only', people: { ...mini.settings.people, [carol]: { name: 'carol', trust: 'full' } } };
+    expect(await app.ao.refreshStandby()).toBe(true);
+    // After the replica, just before it goes down: mia is asked about every time now. This Mac never sees that.
+    mini.settings = { ...mini.settings, people: { ...mini.settings.people, [mia]: { name: 'mia', trust: 'ask' } } };
+
+    await app.ao.standIn();
+    // Standing in: the Mac mini's newest as of the replica, not what this Mac had at the handover.
+    expect(app.settings.askMeFor).toBe('code reviews only');
+    expect(app.settings.people[carol]).toEqual({ name: 'carol', trust: 'full' });
+    expect(app.settings.people[mia]).toEqual({ name: 'mia', trust: 'trusted' });
+
+    // While standing in, you trust bob and change Ask Me For.
+    app.settings = { ...app.settings, askMeFor: 'anything', people: { ...app.settings.people, [bob]: { name: 'bob', trust: 'trusted' } } };
+    await app.ao.handBack();
+    expect(mini.ao.holding()).toBe(true);
+    // What changed during the stand-in reached it…
+    expect(mini.settings.people[bob]).toEqual({ name: 'bob', trust: 'trusted' });
+    expect(mini.settings.askMeFor).toBe('anything');
+    // …and what it changed itself, never seen here, survived.
+    expect(mini.settings.people[mia]).toEqual({ name: 'mia', trust: 'ask' });
+    expect(mini.settings.people[carol]).toEqual({ name: 'carol', trust: 'full' });
+    expect(existsSync(path.join(app.dir, 'standin-settings.json'))).toBe(false);
+  });
+
+  it('a person forgotten during the stand-in is forgotten there too; an untouched setting is never sent', async () => {
+    const { changesSince, applyChanges, beginStandIn } = await import('../src/machines/standin-settings.js');
+    const dir = tmp();
+    let mine: Partial<Settings> = {};
+    beginStandIn(dir, { askMeFor: 'reviews', policy: 'ask', people: { [mia]: { name: 'mia', trust: 'trusted' }, [bob]: { name: 'bob', trust: 'ask' } } }, (p) => void (mine = { ...mine, ...p }), 1);
+    const changes = changesSince(dir, { askMeFor: 'reviews', policy: 'ask', people: { [mia]: { name: 'mia', trust: 'trusted' } } }, 2);
+    expect(changes).toEqual({ at: 2, settings: {}, people: { [bob]: null } });
+    const theirs: Partial<Settings> = { askMeFor: 'their own', people: { [bob]: { name: 'bob', trust: 'ask' }, [carol]: { name: 'carol', trust: 'full' } } };
+    expect(applyChanges(theirs, changes)).toEqual({ people: { [carol]: { name: 'carol', trust: 'full' } } });
+    // A change that doesn't read as a setting is left as the Always On has it.
+    expect(applyChanges(theirs, { at: 3, settings: { policy: 'whatever', askMeFor: 'ok' }, people: { [mia]: { name: 'mia', trust: 'superuser' } } })).toEqual({ askMeFor: 'ok', people: theirs.people });
   });
 });
