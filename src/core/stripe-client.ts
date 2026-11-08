@@ -35,6 +35,8 @@ const MESSAGES: Record<EarningsErrorCode, string> = {
   offline: 'Couldn’t reach Stripe. The last total stays until Beluga can try again.',
   rate_limited: 'Stripe asked Beluga to slow down. It tries again later.',
   stripe: 'Stripe had a problem answering. Beluga tries again later.',
+  // RevenueCat's own code; Stripe never raises it.
+  revenuecat: 'Couldn’t read the earnings from Stripe.',
   unknown: 'Couldn’t read the earnings from Stripe.',
 };
 

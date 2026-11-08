@@ -11,6 +11,7 @@ import type { Bitmap } from '../image/bitmap.js';
 import { type CollabAction, type CollabState, initialCollab, reduceCollab } from './collab-store.js';
 import { type SearchState, type WorkAction, type WorkState, initialWork, reduceWork } from './work-store.js';
 import { type NetworkAction, type NetworkSlice, initialNetwork, reduceNetwork } from './network-store.js';
+import { type RevenueCatAction, type RevenueCatSlice, initialRevenueCat, reduceRevenueCat } from './revenuecat-store.js';
 import { type EarningsAction, type EarningsSlice, initialEarnings, reduceEarnings } from './earnings-store.js';
 import { type SupportAction, type SupportSlice, initialSupport } from './support-store.js';
 import { type ClaudeCodeAction, type ClaudeCodeSlice, initialClaudeCode, reduceClaudeCode } from './claude-code/model.js';
@@ -483,7 +484,7 @@ export interface MyShare {
  * Everything Beluga knows that isn't about a screen: the room, people, projects, conversations,
  * approvals… The core (the daemon) owns it and every client sees the same.
  */
-export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
+export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, RevenueCatSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
   readonly room: string;
   readonly projects: readonly Project[];
   readonly projectGroups: readonly ProjectGroup[];
@@ -664,6 +665,7 @@ export type Action =
   | WorkAction
   | NetworkAction
   | EarningsAction
+  | RevenueCatAction
   | ClaudeCodeAction
   | GatewayAction
   | FriendShareAction
@@ -761,6 +763,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialWork,
     ...initialNetwork,
     ...initialEarnings,
+    ...initialRevenueCat,
     ...initialSupport,
     ...initialClaudeCode,
     ...initialGateway,
@@ -1268,6 +1271,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'earnings':
     case 'fx_rates':
       return { ...state, ...reduceEarnings(state, action) };
+    case 'revenuecat':
+      return { ...state, ...reduceRevenueCat(state, action) };
     case 'claude_code':
     case 'codex_sessions':
       return ccFinished(state, { ...state, ...reduceClaudeCode(state, action) });

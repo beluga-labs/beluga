@@ -7,7 +7,7 @@ import type { Store } from './store.js';
 /**
  * Exchange rates for adding up earnings in several currencies: the European Central Bank's daily
  * rates from frankfurter.app (free, no account; the request says nothing about you). Fetched
- * only while some project has Stripe connected, alongside the daily Stripe count, at most once
+ * only while some project has Stripe or RevenueCat connected, alongside the daily Stripe count, at most once
  * every 20 hours, kept in ~/.beluga/fx.json so the last ones work offline (and a newly chosen
  * currency converts right away with them).
  */
@@ -77,7 +77,7 @@ export class FxService {
   /** Fetch new rates if some project earns and the ones we have are old (or missing). */
   async refreshIfStale(): Promise<void> {
     const state = this.deps.store.getState();
-    if (!Object.keys(state.earnings).length || this.fetching) return;
+    if ((!Object.keys(state.earnings).length && !Object.keys(state.revenuecat).length) || this.fetching) return;
     if (state.fx && this.now() - state.fx.at < STALE_MS) return;
     this.fetching = true;
     try {
@@ -105,7 +105,7 @@ export class FxService {
     this.off = this.deps.store.subscribe(() => {
       // Most changes are elsewhere in the state: skip them cheaply.
       const state = this.deps.store.getState();
-      if (state.earnings === last.earnings && state.prefs.earningsCurrency === last.currency) return;
+      if (state.earnings === last.earnings && state.revenuecat === last.revenuecat && state.prefs.earningsCurrency === last.currency) return;
       const now = this.watched();
       const connected = now.connected && !last.connected;
       const counting = now.counting.some((root) => !last.counting.includes(root));
@@ -118,10 +118,11 @@ export class FxService {
   }
 
   /** What, in the state, may call for fresh rates. */
-  private watched(): { earnings: object; connected: boolean; counting: string[]; currency: string | undefined } {
+  private watched(): { earnings: object; revenuecat: object; connected: boolean; counting: string[]; currency: string | undefined } {
     const state = this.deps.store.getState();
-    const entries = Object.entries(state.earnings);
-    return { earnings: state.earnings, connected: entries.length > 0, counting: entries.filter(([, e]) => e.refreshing).map(([root]) => root), currency: state.prefs.earningsCurrency };
+    const entries = [...Object.entries(state.earnings), ...Object.entries(state.revenuecat)];
+    // A root counting for Stripe and for RevenueCat is one root: either starting is news.
+    return { earnings: state.earnings, revenuecat: state.revenuecat, connected: entries.length > 0, counting: entries.filter(([, e]) => e.refreshing).map(([root]) => root), currency: state.prefs.earningsCurrency };
   }
 
   stop(): void {
