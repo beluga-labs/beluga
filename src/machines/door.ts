@@ -1,7 +1,8 @@
 import type { WebSocket } from 'ws';
-import { COMPUTER_CAPS, type ClientFrame, type DaemonFrame, encodeFrame, parseClientFrame, parseDaemonFrame, webUrl } from '../ipc/protocol.js';
+import { COMPUTER_CAPS, type ClientFrame, type DaemonFrame, IPC_VERSION, encodeFrame, parseClientFrame, parseDaemonFrame, webUrl } from '../ipc/protocol.js';
 import type { MessageSocket } from '../net/transport.js';
 import type { TextRange } from '../shared/text-range.js';
+import type { StateCache } from './cache.js';
 import { FRESH_MS, type FileCache, type RangeAsk, rangeAsk } from './files.js';
 import type { Machines } from './machines.js';
 
@@ -46,6 +47,8 @@ export interface DoorOptions {
   readonly onWorktree?: (machineId: string, workspaceId: string) => void;
   /** The computers' files your screens read, kept on this Mac (files.ts, BLG-791). */
   readonly files?: FileCache;
+  /** Each computer's last state, so a screen draws at once and catches up (cache.ts, BLG-792). */
+  readonly states?: StateCache;
   readonly now?: () => number;
 }
 
@@ -63,6 +66,7 @@ export class MachineDoor {
     if (!record || !this.machines.drives(record)) return ws.close(4404, 'That computer isn’t one of yours here');
     const screen = new MachineScreen(this.machines, id, ws, hello, this.opts, () => this.screens.delete(screen));
     this.screens.add(screen);
+    screen.fromCache();
     screen.connect();
   }
 
@@ -123,6 +127,18 @@ class MachineScreen {
     ws.on('error', () => undefined);
   }
 
+  /**
+   * Its last state kept here, if any, as the screen's welcome now: it draws at once (after this
+   * Mac's Beluga restarted too, or with the computer offline), and the computer's own welcome comes
+   * as a fresh snapshot once the link is up.
+   */
+  fromCache(): void {
+    const kept = this.opts.states?.get(this.machineId);
+    if (!kept || this.welcomed) return;
+    this.welcomed = true;
+    this.toScreen(encodeFrame({ t: 'welcome', clientId: `kept:${this.machineId}`, version: kept.version, ipc: IPC_VERSION, snapshot: kept.snapshot, seq: kept.seq, clients: 1 }));
+  }
+
   private get name(): string {
     return this.machines.book.get(this.machineId)?.name ?? 'That computer';
   }
@@ -154,6 +170,8 @@ class MachineScreen {
     } catch {
       return;
     }
+    if (frame.t === 'welcome' || frame.t === 'snapshot') this.opts.states?.reset(this.machineId, frame.snapshot, frame.seq, frame.t === 'welcome' ? frame.version : undefined);
+    else if (frame.t === 'action') this.opts.states?.apply(this.machineId, frame.seq, frame.action);
     if (frame.t === 'welcome') {
       this.attempt = 0;
       if (!this.welcomed) {

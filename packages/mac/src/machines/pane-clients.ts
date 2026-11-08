@@ -7,6 +7,7 @@ import type { Capabilities } from '@beluga/ipc/socket-client.js';
 import { OnceEach, type RawNotice, machineNotice, noticeKey } from '@beluga/machines/attention.js';
 import { dndActive } from '@beluga/shared/quiet.js';
 import { currentMachines } from './use-machines.js';
+import { watchLink } from './link-health.js';
 
 /**
  * This window's screens on your computers (BLG-784), one per computer, kept while the window runs:
@@ -111,9 +112,11 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
       if (entries.get(id) !== mine) return client.close();
       const offToasts = forwardToasts(client, home);
       const offHome = home.onClose(() => client.close());
+      const offLink = watchLink(id, client);
       client.onClose((reason) => {
         offToasts();
         offHome();
+        offLink();
         if (entries.get(id) === mine && mine.state.client === client) set(id, { client: undefined, ...(reason === 'closed' ? {} : { error: reason }) });
       });
       // In the background until a pane shows it: looking at nothing there, so its chats stay unread and its notices come.

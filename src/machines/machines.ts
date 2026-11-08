@@ -15,6 +15,7 @@ import { DeviceSet, type SetDeviceView } from './controllers.js';
 import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
+import { StateCache } from './cache.js';
 import { FileCache } from './files.js';
 import { MachineDoor } from './door.js';
 import { isTunnelsHello } from './forward.js';
@@ -155,6 +156,8 @@ export class Machines {
   readonly door: MachineDoor;
   /** The computers' files your screens read, kept on this Mac (files.ts, BLG-791): cleared for a computer forgotten. */
   readonly files: FileCache;
+  /** Each computer's last state on this Mac (cache.ts, BLG-792): cleared for a computer forgotten. */
+  readonly states: StateCache;
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
   private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
@@ -174,7 +177,8 @@ export class Machines {
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
     this.platform = opts.platform ?? platformHere();
     this.files = new FileCache({ dir: path.join(opts.dir, 'cache', 'computer-files'), ...(opts.log ? { log: opts.log } : {}) });
-    this.door = new MachineDoor(this, { files: this.files, ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
+    this.states = new StateCache({ dir: path.join(opts.dir, 'cache', 'computer-state'), ...(opts.log ? { log: opts.log } : {}) });
+    this.door = new MachineDoor(this, { files: this.files, states: this.states, ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
     this.pairing = new ComputerPairing({
       node: opts.node,
       identity: opts.identity,
@@ -224,6 +228,7 @@ export class Machines {
     clearTimeout(this.retry);
     clearInterval(this.poller);
     this.door.closeAll('Beluga is shutting down');
+    await Promise.all([this.states.flush(), this.files.flush()]);
     for (const set of this.links.values()) for (const s of set) s.close(1001, 'Beluga is shutting down');
     this.joining?.decide?.(false);
     await this.pairing.cancel('Beluga on this computer is shutting down');
@@ -250,7 +255,7 @@ export class Machines {
    * link closes), or, an app of yours, to drive this computer (its first frame is a hello, BLG-775).
    */
   accept(stream: NoiseSocket, cert: DeviceCert): void {
-    const socket = fromStream(stream, { maxBytes: MAX_LINK_BYTES, open: true });
+    const socket = fromStream(stream, { maxBytes: MAX_LINK_BYTES, open: true, compress: true });
     socket.on('error', () => undefined);
     const timer = setTimeout(() => socket.terminate(), SYNC_TIMEOUT_MS);
     timer.unref();
@@ -345,7 +350,7 @@ export class Machines {
       ...(this.opts.refuseDirect ? { noP2p: true } : {}),
     });
     if (dialed.relay && !r.relays.includes(dialed.relay)) this.book.update(deviceId(r.cert), { relays: [dialed.relay, ...r.relays].slice(0, 4) });
-    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_LINK_BYTES, open: true });
+    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_LINK_BYTES, open: true, compress: true });
     socket.on('error', () => undefined);
     this.track(r.cert.device, socket);
     return socket;
@@ -582,6 +587,7 @@ export class Machines {
     for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
     // Its files kept here go with it.
     for (const c of cut) void this.files.clear(deviceId(c));
+    for (const c of cut) void this.states.clear(deviceId(c));
     this.book.drop(new Set(cut.map((c) => c.device)));
   }
 
