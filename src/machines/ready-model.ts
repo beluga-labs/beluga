@@ -174,7 +174,8 @@ export interface InstallPlan {
   readonly why?: string;
 }
 
-const NVM = '. "$HOME/.nvm/nvm.sh"';
+// --no-use: loading nvm with no Node of its own yet exits 3, which stopped the chain (seen on a real run, BLG-842).
+const NVM = '. "$HOME/.nvm/nvm.sh" --no-use';
 const NVM_INSTALL = 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash';
 const UV_INSTALL = 'curl -LsSf https://astral.sh/uv/install.sh | sh';
 const UV = '"$HOME/.local/bin/uv"';

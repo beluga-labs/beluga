@@ -61,6 +61,7 @@ export interface ReadyDeps {
 
 const CLONE_MS = 15 * 60_000;
 const INSTALL_MS = 15 * 60_000;
+const SETUP_MS = 20 * 60_000;
 const KEEP_RUNS = 20;
 
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -217,8 +218,18 @@ export class Readying {
     this.step(id, 'setup', { state: 'active', label: 'Working out its setup' });
     const sys = await this.deps.system();
     const command = await this.deps.workOutSetup(run.projectId!, systemNote(sys));
-    const next = this.step(id, 'setup', command ? { state: 'done', label: `Setup: ${command}`, detail: 'Runs in each new worktree here' } : { state: 'skipped', label: 'No setup needed' });
-    this.set({ ...next, state: 'done', ...(command ? { setup: command } : {}) });
+    if (!command) {
+      this.set({ ...this.step(id, 'setup', { state: 'skipped', label: 'No setup needed' }), state: 'done' });
+      return;
+    }
+    // Run once in its folder, with the tools just checked (it runs again in each new worktree there).
+    this.step(id, 'setup', { state: 'active', label: `Setup: ${command}`, detail: 'Running…' });
+    const ran = await this.deps.sh(command, { cwd: run.path!, timeoutMs: SETUP_MS });
+    if (ran.code !== 0) {
+      const last = ran.out.trim().split('\n').filter(Boolean).pop();
+      return this.fail(id, 'setup', `${command} failed on ${run.computer}${last ? `: ${last.slice(0, 200)}` : ''}`, { words: 'Run it there', command });
+    }
+    this.set({ ...this.step(id, 'setup', { state: 'done', detail: 'Runs in each new worktree here too' }), state: 'done', setup: command });
   }
 }
 
@@ -234,32 +245,42 @@ function installTrouble(plan: InstallPlan, output: string, computer: string): st
 
 const PATHS = 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/go/bin:$PATH"; [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1;';
 
-function sh(command: string, opts: { cwd?: string; timeoutMs?: number } = {}): Promise<{ code: number; out: string }> {
-  return new Promise((resolve) => {
-    execFile('bash', ['-lc', `${PATHS} ${command}`], { cwd: opts.cwd ?? os.homedir(), timeout: opts.timeoutMs ?? 60_000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0;
-      resolve({ code, out: `${stdout}${stderr}`.slice(-20_000) });
+/**
+ * The user's own environment for a command: Beluga's process's, less what npm set for Beluga itself
+ * (npm_config_prefix and the rest, when it was started through npm): nvm refuses to run with them
+ * (seen on a real run, BLG-842), and they'd point the user's npm at Beluga's.
+ */
+export function userEnv(env: NodeJS.ProcessEnv, home: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!/^npm_/i.test(k)) out[k] = v;
+  return { ...out, HOME: home, GIT_TERMINAL_PROMPT: '0' };
+}
+
+/** One command in a login shell for the user at `home` (nvm loaded, ~/.local/bin on the PATH). */
+function shAt(home: string): ReadyDeps['sh'] {
+  return (command, opts = {}) =>
+    new Promise((resolve) => {
+      execFile('bash', ['-lc', `${PATHS} ${command}`], { cwd: opts.cwd ?? home, timeout: opts.timeoutMs ?? 60_000, maxBuffer: 4 * 1024 * 1024, env: userEnv(process.env, home) }, (err, stdout, stderr) => {
+        const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0;
+        resolve({ code, out: `${stdout}${stderr}`.slice(-20_000) });
+      });
     });
-  });
 }
 
 const platformHere = (): ReadyPlatform => (process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux');
 
-let systemHere: Promise<ReadySystem> | undefined;
-/** What this computer's system offers (asked once). */
-function detectSystem(): Promise<ReadySystem> {
-  systemHere ??= (async () => {
-    const platform = platformHere();
-    const has = async (cmd: string): Promise<boolean> => (await sh(`command -v ${cmd} >/dev/null`)).code === 0;
-    const pkg: PackageManager | undefined = (await has('brew')) ? 'brew' : (await has('apt-get')) ? 'apt' : (await has('dnf')) ? 'dnf' : (await has('apk')) ? 'apk' : undefined;
-    const release =
-      platform === 'macos'
-        ? `macOS ${(await sh('sw_vers -productVersion')).out.trim()}`
-        : /^PRETTY_NAME="?([^"\n]+)"?/m.exec(readText('/etc/os-release') ?? '')?.[1];
-    const sudo = platform !== 'macos' && (await sh('sudo -n true')).code === 0;
-    return { platform, ...(release ? { release } : {}), ...(pkg ? { pkg } : {}), sudo, nvm: existsSync(path.join(os.homedir(), '.nvm', 'nvm.sh')) };
-  })();
-  return systemHere;
+/** What this computer's system offers the user at `home`. */
+async function detectSystem(home: string, sh: ReadyDeps['sh']): Promise<ReadySystem> {
+  const platform = platformHere();
+  const has = async (cmd: string): Promise<boolean> => (await sh(`command -v ${cmd} >/dev/null`)).code === 0;
+  const pkg: PackageManager | undefined = (await has('brew')) ? 'brew' : (await has('apt-get')) ? 'apt' : (await has('dnf')) ? 'dnf' : (await has('apk')) ? 'apk' : undefined;
+  const release =
+    platform === 'macos'
+      ? `macOS ${(await sh('sw_vers -productVersion')).out.trim()}`
+      : /^PRETTY_NAME="?([^"\n]+)"?/m.exec(readText('/etc/os-release') ?? '')?.[1];
+  // Only sudo that never asks for a password counts (sudo -n); none at all is fine.
+  const sudo = platform !== 'macos' && (await sh('sudo -n true')).code === 0;
+  return { platform, ...(release ? { release } : {}), ...(pkg ? { pkg } : {}), sudo, nvm: existsSync(path.join(home, '.nvm', 'nvm.sh')) };
 }
 
 function readText(file: string): string | undefined {
@@ -278,11 +299,16 @@ const isDir = (dir: string): boolean => {
   }
 };
 
-/** The real readiness of a session's computer. */
-export function realReadyDeps(s: Session, name: () => string): ReadyDeps {
+/**
+ * This computer's own system for the user at `home` (BLG-842: the tests run it for real with a
+ * temporary home): the shell, files, gh and what the system offers. The rest (projects, setup)
+ * is the daemon's.
+ */
+export function hostReadyDeps(home = os.homedir()): Pick<ReadyDeps, 'home' | 'platform' | 'sh' | 'isDir' | 'mkdir' | 'readFile' | 'origin' | 'gh' | 'system'> {
+  const sh = shAt(home);
+  let system: Promise<ReadySystem> | undefined;
   return {
-    name,
-    home: os.homedir(),
+    home,
     platform: platformHere(),
     sh,
     isDir,
@@ -292,15 +318,24 @@ export function realReadyDeps(s: Session, name: () => string): ReadyDeps {
       const size = fileSize(file);
       return size === undefined ? undefined : size > MAX_READ ? '' : readText(file);
     },
-    projects: () => s.store.getState().projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
     origin: (root) => git(root, ['remote', 'get-url', 'origin'], 5_000).then((o) => o.trim() || undefined),
+    gh: ghStatus,
+    // Asked once: after an install, what's there is asked of the shell again, not of this.
+    system: () => (system ??= detectSystem(home, sh)),
+  };
+}
+
+/** The real readiness of a session's computer. */
+export function realReadyDeps(s: Session, name: () => string): ReadyDeps {
+  return {
+    ...hostReadyDeps(),
+    name,
+    projects: () => s.store.getState().projects.map((p) => ({ id: p.id, name: p.name, root: p.root })),
     addProject: async (dir) => {
       const added = await s.workspaces?.addProject(dir);
       return added?.project ? { id: added.project.id } : { error: added?.error ?? 'Beluga isn’t ready to add projects here' };
     },
     workOutSetup: async (projectId, system) => s.workbench?.workOutFor(projectId, system),
-    gh: ghStatus,
-    system: detectSystem,
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type ReadyDeps, Readying } from '../src/machines/ready.js';
+import { type ReadyDeps, Readying, userEnv } from '../src/machines/ready.js';
 import { type ReadyRun, type ReadySystem, cloneTarget, cloneTrouble, installPlan, missingOf, needsOf, projectsFolder, readyLine, satisfies, systemNote, toolWords } from '../src/machines/ready-model.js';
 import { cloneableOrigin, githubSlug, repoKey, repoName, sameRepo } from '../src/shared/repo-key.js';
 import { waitFor } from './helpers.js';
@@ -128,8 +128,9 @@ describe('a run on a pretend computer', () => {
       name: () => 'build-box',
       home: '/home/k',
       platform: 'linux',
-      sh: async (command) => {
+      sh: async (command, opts) => {
         ran.push(command);
+        if (command === 'npm ci') return tools.node ? { code: 0, out: `ran in ${opts?.cwd}` } : { code: 127, out: 'npm: command not found' };
         if (command.includes(' clone ')) {
           if (over.cloneFails) return { code: 128, out: over.cloneFails };
           dirs.add('/home/k/projects/bob-api');
@@ -190,6 +191,9 @@ describe('a run on a pretend computer', () => {
     expect(c.ran.some((cmd) => cmd.includes('nvm install 20'))).toBe(true);
     expect(done.steps.find((s) => s.id === 'tools')).toMatchObject({ state: 'done', label: 'Node 20' });
     expect(done.steps.find((s) => s.id === 'setup')).toMatchObject({ state: 'done', label: 'Setup: npm ci' });
+    // Setup ran once, in the project's folder, after the tools were there.
+    expect(c.ran.filter((cmd) => cmd === 'npm ci')).toHaveLength(1);
+    expect(c.ran.indexOf('npm ci')).toBeGreaterThan(c.ran.findIndex((cmd) => cmd.includes('nvm install 20')));
     expect(done).toMatchObject({ projectId: 'p-new', setup: 'npm ci' });
     expect(readyLine(done)).toBe('build-box is ready');
   });
@@ -221,5 +225,17 @@ describe('a run on a pretend computer', () => {
     expect(() => r.start('--upload-pack=x')).toThrow();
     const a = r.start('git@github.com:Kayra/bob-api.git');
     expect(r.start('https://github.com/kayra/bob-api').id).toBe(a.id);
+  });
+});
+
+describe('the user’s own environment for its commands (BLG-842)', () => {
+  it('drops what npm set for Beluga itself, and sets the user’s home', () => {
+    const env = userEnv({ PATH: '/usr/bin', npm_config_prefix: '/opt/homebrew', npm_lifecycle_event: 'dev', NPM_CONFIG_CACHE: '/x', LANG: 'en_US.UTF-8' }, '/home/kay');
+    expect(env).toEqual({ PATH: '/usr/bin', LANG: 'en_US.UTF-8', HOME: '/home/kay', GIT_TERMINAL_PROMPT: '0' });
+  });
+
+  it('loads nvm without using a Node (it has none yet right after installing)', () => {
+    const plan = installPlan({ need: { tool: 'node', version: '20', from: '.nvmrc' }, words: 'Node 20' }, { platform: 'linux', sudo: false, nvm: false });
+    expect(plan.command).toContain('. "$HOME/.nvm/nvm.sh" --no-use && nvm install 20');
   });
 });
