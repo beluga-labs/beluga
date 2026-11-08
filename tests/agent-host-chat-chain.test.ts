@@ -174,15 +174,14 @@ describe('the chain of a run', () => {
     await t.h.idle('room');
   });
 
-  it('an origin from a friend is ignored: nobody else sets a chain on this computer', async () => {
+  it('an origin from a friend never sets a chain unchecked: a chat not shared with them gets no run (tests/chat-remote-send.test.ts)', async () => {
     const t = host(backend().agent);
     const seen: Array<BodyOf<'agent_request'>> = [];
     (t.h as unknown as { enqueue: (from: string, body: BodyOf<'agent_request'>) => void }).enqueue = (_from, body) => void seen.push(body);
     await t.ask('r1', 'hi', { channel: 'ws:x', origin: origin('c1', 2) }, FRIEND);
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.origin).toBeUndefined();
+    expect(seen).toHaveLength(0);
     await t.ask('r2', 'hi', { channel: 'ws:x', origin: origin('c1', 2) });
-    expect(seen[1]!.origin).toMatchObject({ chainId: 'c1' });
+    expect(seen[0]!.origin).toMatchObject({ chainId: 'c1' });
   });
 });
 

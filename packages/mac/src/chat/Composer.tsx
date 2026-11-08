@@ -7,7 +7,7 @@ import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
-import { chatChipOf, chatLinksToMentions, chatMentionEndingAt, isAddressableChannel, withChatWords } from '@beluga/shared/chat-ref.js';
+import { chatChipOf, chatLinksToMentions, chatMentionEndingAt, chatMentionsIn, isAddressableChannel, parseChatRef, withChatWords } from '@beluga/shared/chat-ref.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
@@ -188,8 +188,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // Images pasted, dropped or named by their path wait as thumbnails above the text, with an
   // "[image N]" where they go; other pasted files as chips (see use-attachments). They wait with
   // the words, so a new chat or worktree page keeps its own too.
-  // A chat's link pasted here becomes a chip (not in a friend's worktree: as "@" there, it names none).
-  const chipLinks = (text: string): string | undefined => (shared || !client.store.getState().prefs.chatLinks ? undefined : chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label));
+  // A chat's link pasted here becomes a chip. In a friend's worktree, one of yours can take a copy along (see send).
+  const chipLinks = (text: string): string | undefined => (!client.store.getState().prefs.chatLinks ? undefined : chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label));
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }), chipLinks });
   // While Claude works, sending queues the message; "Steer" gives it to Claude at its next step.
   const queueing = compose.busy && (compose.typing || !buffer.trim());
@@ -268,8 +268,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   }, [wsId, atDir, state.selfId]);
   // "@BLG-24": a task on your board (not in a workspace someone shared with you: their Claude has its own).
   const mentionWorld = useMentionWorld(channel, { tasks: !shared, project: state.project });
-  // "@login": a chat of yours, or one shared with you (as tasks, not in a workspace someone shared with you).
-  const chats = useChatMentions(channel, !shared && typedMention(buffer) !== undefined);
+  // "@login": a chat of yours, or one shared with you (in a friend's worktree too: a copy of yours can go along, see send).
+  const chats = useChatMentions(channel, typedMention(buffer) !== undefined);
   // "/fron…": Claude's skills and custom commands here, beside Beluga's commands.
   const skills = useSkills(channel, !shared && buffer.startsWith('/') && !buffer.includes(' '));
   // On Codex they're translated: each says what doesn't carry over (BLG-461).
@@ -400,7 +400,34 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     }
     actions.submit(text, urgent);
   };
-  const send = (urgent = false): void => {
+  /** Chats of yours that the words name, when this chat is another person's and goes to their agent. */
+  const ownChatsNamed = (typed: string): Array<{ readonly ref: string; readonly title: string }> => {
+    if (state.view.kind !== 'shared' || runOn === 'here' || typed.startsWith('/') || !client.store.getState().prefs.chatLinks) return [];
+    const now = client.store.getState();
+    const mine = chatMentionsIn(typed).flatMap((m) => {
+      const ref = parseChatRef(m.ref);
+      const chat = ref && ref.owner === now.selfId ? resolveChat(now, ref) : undefined;
+      return chat && chat.state !== 'removed' ? [{ ref: m.ref, title: chat.title ?? m.title }] : [];
+    });
+    return mine.filter((c, i) => mine.findIndex((x) => x.ref === c.ref) === i);
+  };
+  const sharedOwner = state.view.kind === 'shared' ? peerName(state, state.view.owner) : '';
+  /** Share Copy: each copy is made now and waits as a file, then goes with the message. False when one couldn't be made. */
+  const shareCopies = async (ours: ReadonlyArray<{ readonly ref: string; readonly title: string }>): Promise<boolean> => {
+    try {
+      for (const c of ours) {
+        const copy = await api.chats.snapshot(c.ref);
+        if (!copy) throw new Error(`“${c.title}” is not a chat of yours`);
+        att.addCopy(copy);
+      }
+      return true;
+    } catch (err) {
+      toast(client, `Couldn’t make the copy: ${errorText(err)}`, 'error');
+      return false;
+    }
+  };
+  /** `copied`: you answered the copy question for these words already. */
+  const send = (urgent = false, copied = false): void => {
     const typed = buffer.trim();
     if (aside) {
       if (!typed) return;
@@ -417,6 +444,12 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       return;
     }
     secretWarned.current = undefined;
+    // Chats of yours named in a chat another person owns: their agent can't read them, so you say if a copy goes (BLG-152).
+    const ours = copied ? [] : ownChatsNamed(typed);
+    if (ours.length) {
+      openSheet({ kind: 'share_copy', titles: ours.map((c) => c.title), person: sharedOwner, share: () => void shareCopies(ours).then((ok) => ok && send(urgent, true)), without: () => send(urgent, true) });
+      return;
+    }
     // Images stay where you referenced them in the words; any you took the reference out of go after them.
     const { text, images, shown, putBack } = att.take(typed);
     if (!text && !(draftProject && worktree.name.trim())) {
@@ -560,7 +593,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
         className={cx(s.box, burning ? (prefs.maxFire.border ? m.max : m.maxPlain) : effects && m.fxOnly, pending && s.asking, readOnly && s.readOnly, att.dropping && s.dropping, (plan || tasksMode || aside) && s.planning)}
         data-plan={plan || tasksMode || aside || undefined}
         data-mode={aside ? 'btw' : mode}
-        data-chat-box={!shared && (isAddressableChannel(channel) || state.view.kind === 'draft' || state.view.kind === 'draft_worktree') ? draftKey : undefined}
+        data-chat-box={shared ? (readOnly ? undefined : draftKey) : (isAddressableChannel(channel) || state.view.kind === 'draft' || state.view.kind === 'draft_worktree') ? draftKey : undefined}
         {...att.dropProps}
       >
         {effects ? <MaxFire box={boxRef} input={ref} /> : null}

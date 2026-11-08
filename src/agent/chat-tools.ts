@@ -48,7 +48,7 @@ export function createChatTools(chats: ChatTools) {
       ),
       tool(
         'send_to_chat',
-        'Send a message to another chat on this computer. Its agent reads it as a message from an agent, not from the user. An idle chat starts a turn. A busy chat queues the message. The answer is a receipt: message_id, state and delivery. A refusal starts with its code. Do not send without a reason. Do not send an acknowledgement. Use reply "wanted" only when you need an answer.',
+        'Send a message to another chat on this computer, or to a chat that another person shares with your user as a contributor. Its agent reads it as a message from an agent, not from the user. For a shared chat, the owner\'s trust in your user decides: the owner can be asked to approve, and the state can stay queued until then. If the owner is not online, the refusal is "offline" and nothing is queued. An idle chat starts a turn. A busy chat queues the message. The answer is a receipt: message_id, state and delivery. A refusal starts with its code. Do not send without a reason. Do not send an acknowledgement. Use reply "wanted" only when you need an answer.',
         {
           ref: z.string().min(1).max(400).describe('The chat: a ref from list_chats, or a chat link'),
           text: z.string().min(1).max(MAX_MESSAGE).describe('The message'),

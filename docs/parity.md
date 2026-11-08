@@ -450,6 +450,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `stripe.refresh` | ✓ Refresh in the sheet and the Overview's Earnings card (the daemon also looks for new payments every 10 minutes by itself) |
 | `diagnostics.report` | ✓ Settings › About › Report a Problem: makes the report, shows it in Finder and opens a GitHub issue to attach it to |
 | `support.answer` | ✓ the Star sheet after your first merge (Star on GitHub / Maybe Later) and the coffee sheet after your fifth (an amount, Not Now, Don't Ask Again) |
+| `chats.snapshot` | ✓ the composer in a chat another person shares with you, at Send when the words name a chat of yours: “Share a copy of <title> with <person>?” › Share Copy adds a copy of its messages (no tool output, at most 200 messages and 48 KB, secrets redacted) to the message; Send Without It and Cancel send none (`src/core/chat-links/transcript.ts`) · Mac only |
 | `chats.resolve` | ✓ a chat's chip (`chat:<owner>/<channel>` in an answer) and link: its current title, its state and where it opens (`src/core/chat-links/resolve.ts`), only with `prefs.chatLinks` on · the phone too |
 | `assistant.newChat` | ✓ Your Mac's tab strip › + (a new empty chat, open now); on the phone, New chat in Your Mac's chats list or ••• |
 | `assistant.openChat` | ✓ clicking one of Your Mac's tabs (or a notification from one of its chats); kept across restarts, and the phone's Ask your Mac follows it |

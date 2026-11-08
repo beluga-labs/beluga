@@ -51,6 +51,16 @@ export function chatAccess(input: ChatAccessInput): ChatAccess {
   return input.role === 'contribute' ? { allow: true, source: 'mirror', ownerDecides: true } : { allow: false, code: 'view_only' };
 }
 
+/**
+ * A send from another person's agent, decided on this computer, the owner's. `role` is theirs in the
+ * chat (unset: not shared with them). Trust is no input here either: it decides after these rules,
+ * and it never opens a chat that is not shared.
+ */
+export function peerSendAccess(input: { readonly channel: string; readonly exists: boolean; readonly role?: WsRole }): { readonly allow: true } | { readonly allow: false; readonly code: 'not_found' | 'view_only' } {
+  if (!isAddressableChannel(input.channel) || !input.exists || !input.role) return { allow: false, code: 'not_found' };
+  return input.role === 'contribute' ? { allow: true } : { allow: false, code: 'view_only' };
+}
+
 /** The same for a ref as text, with the facts from the state. Text that is no ref has no address. */
 export function chatAccessOf(state: DomainState, ask: { readonly requester: string; readonly ref: string; readonly action: ChatAction }): ChatAccess {
   const ref = parseChatRef(ask.ref);

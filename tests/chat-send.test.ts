@@ -217,10 +217,10 @@ describe('send_to_chat: the state of the target', () => {
     await t.end('room');
   });
 
-  it('a chat shared with you: refused for now', async () => {
+  it('a chat shared with you, its owner not online: refused with offline (tests/chat-remote-send.test.ts has the rest)', async () => {
     const t = setup();
     const from = await t.working(SOURCE);
-    await expect(from.send(refOf('ws:theirs', FRIEND), 'hi', {})).rejects.toThrow(/^shared_chat:/);
+    await expect(from.send(refOf('ws:theirs', FRIEND), 'hi', {})).rejects.toThrow(/^offline:/);
     await t.end(SOURCE);
   });
 

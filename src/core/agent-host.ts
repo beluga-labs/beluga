@@ -1,4 +1,4 @@
-import type { ChatRef } from '../shared/chat-ref.js';
+import { type ChatRef, parseChatRef } from '../shared/chat-ref.js';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -31,7 +31,9 @@ import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
 import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
-import { ChatSendService, type Delivered } from './chat-links/service.js';
+import { peerSendAccess } from './chat-links/access.js';
+import { resolveChat } from './chat-links/resolve.js';
+import { ChatSendService, type Delivered, refusalText } from './chat-links/service.js';
 import { chatToolsOf } from './chat-links/transcript.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
@@ -330,6 +332,7 @@ export class AgentHost {
       selfId: () => this.selfId,
       queuedFromChats: (channel) => this.lanes.get(channel)?.waiting.filter((w) => w.body.origin).length ?? 0,
       deliver: (body, steer) => this.deliverFromChat(body, steer),
+      deliverTo: (owner, body) => this.send(body, { to: owner }),
       permissionRank: (channel) => this.permissionRank(channel),
       agentIn: (channel) => deps.agentRef?.(channel) ?? CLAUDE_AGENT,
       terminalDriving: (channel) => deps.terminalDriving?.(channel) ?? false,
@@ -883,9 +886,9 @@ export class AgentHost {
   }
 
   async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
-    // Only this computer's own sends carry a chain: nobody else sets one here.
+    // A chain comes from this computer's own sends, or from a peer's chat into one shared with them (admitPeerChat checks it).
     const { origin, ...rest } = request;
-    const body: BodyOf<'agent_request'> = origin && from === this.selfId ? request : rest;
+    const body: BodyOf<'agent_request'> = origin && (from === this.selfId || request.channel !== 'room') ? request : rest;
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -894,6 +897,11 @@ export class AgentHost {
     this.pickNamed(from, body);
     if (!this.agent) {
       this.emitAgent(body.requestId, from, 'denied', 'No agent is running on this machine.', body.channel);
+      return;
+    }
+    if (body.origin && from !== this.selfId) {
+      const admitted = await this.admitPeerChat(from, body, body.origin);
+      if (admitted) this.enqueue(from, admitted);
       return;
     }
     if (body.project && body.channel === 'room' && !this.projectRoot(body.project)) {
@@ -913,6 +921,39 @@ export class AgentHost {
       return;
     }
     this.enqueue(from, body);
+  }
+
+  /**
+   * A message from another person's chat into one of yours (BLG-151). Who they are in the chat
+   * decides first (access.ts): a chat not shared with them is not_found at any trust. Then the
+   * limits, counted here (a peer's hop is a claim). Then your trust in them, as for any request.
+   * Each answer goes back to them as an event.
+   */
+  private async admitPeerChat(from: string, body: BodyOf<'agent_request'>, origin: ChatOrigin): Promise<BodyOf<'agent_request'> | undefined> {
+    const state = this.store.getState();
+    const sharing = this.deps.sharing;
+    const target = parseChatRef(`${this.selfId}/${body.channel}`);
+    const chat = target && resolveChat(state, target);
+    const exists = chat?.ownership === 'own' && chat.state !== 'removed' && chat.state !== 'loading' && chat.view?.kind === 'workspace';
+    const role = !exists ? undefined : sharing.canPost(from, body.channel) ? 'contribute' : sharing.canSee(from, body.channel) ? 'view' : undefined;
+    const access = peerSendAccess({ channel: body.channel, exists, ...(role ? { role } : {}) });
+    if (!access.allow) {
+      const text = refusalText(access.code);
+      // A chat they can't see gets no card: the answer goes to them alone, the same as for no chat.
+      if (access.code === 'not_found') this.send({ kind: 'agent_event', requestId: body.requestId, requester: from, event: 'denied', text, channel: body.channel, agent: this.deps.agentRef?.('room') ?? CLAUDE_AGENT }, { to: from });
+      else this.emitAgent(body.requestId, from, 'denied', text, body.channel);
+      return undefined;
+    }
+    const deny = (text: string): undefined => void this.emitAgent(body.requestId, from, 'denied', text, body.channel);
+    if (parseChatRef(origin.ref)?.owner !== from) return deny(refusalText('source_not_addressable'));
+    if (chat?.state === 'archived') return deny(refusalText('chat_archived'));
+    const queued = this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0;
+    const limit = this.chatSends.admitFromPeer(from, origin, body.channel, queued);
+    if (!limit.allow) return deny(limit.text);
+    const admitted: BodyOf<'agent_request'> = { ...body, origin: { ...origin, hop: limit.hop } };
+    if (!(await this.authorizeRequest(from, admitted))) return deny('Request declined by the machine owner.');
+    this.fromChats.set(body.requestId, { origin: admitted.origin!, text: body.prompt });
+    return admitted;
   }
 
   /**
@@ -1215,7 +1256,9 @@ export class AgentHost {
     if (level === 'trusted' || level === 'full') return true;
     this.emitAgent(body.requestId, from, 'awaiting_approval', `Waiting for ${state.self?.name ?? 'owner'} to approve`, body.channel);
     const reach = reachOf(state, from) === 'full' ? 'whole computer' : 'shared folders; anything else asks you';
-    const answer = await this.ask('request', `${name}${body.viaAgent ? "'s agent" : ''} wants your agent to run this (${reach})`, body.prompt, from, body.channel);
+    // A message from their chat says which chat sent it: its title is theirs, so it is one line at most.
+    const who = body.origin ? `${name}'s agent, from ${body.origin.title.replace(/\s+/g, ' ').trim() || 'a chat'},` : `${name}${body.viaAgent ? "'s agent" : ''}`;
+    const answer = await this.ask('request', `${who} wants your agent to run this (${reach})`, body.prompt, from, body.channel);
     if (answer === 'always') this.deps.people.setTrust(from, 'trusted');
     return answer !== 'no';
   }
