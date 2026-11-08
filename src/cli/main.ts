@@ -159,6 +159,11 @@ async function pairComputerHere(io: Io, json: boolean): Promise<Exit> {
 async function connectHere(cmd: ParsedCommand, io: Io): Promise<Exit> {
   const [host, ...extra] = cmd.positionals;
   if (!host || extra.length) throw new UsageError('`beluga connect` takes one host: user@host, or a Host from ~/.ssh/config.', 'connect');
+  if (cmd.flags.pair === true) {
+    // Add it to your computers (BLG-781): your daemon does the ssh, with your keys and agent.
+    const { addOverSsh, computersLinkOf } = await import('./computers.js');
+    return withCtrlC((ctrlC) => attached(io, (client) => addOverSsh(computersLinkOf(client), host, io, { ask: asker(ctrlC), signal: ctrlC.signal })));
+  }
   const port = cmd.flags.port === undefined ? undefined : countFlag(cmd.flags.port, 'port', 0, 'connect');
   if (port !== undefined && (port < 1 || port > 65535)) throw new UsageError('--port takes a port, like --port 7778.', 'connect');
   const { connect } = await import('./connect.js');

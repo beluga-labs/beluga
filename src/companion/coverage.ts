@@ -516,6 +516,8 @@ export const PHONE: Record<Method, Side> = {
   'machines.join.start': 'mac',
   'machines.join.approve': 'mac',
   'machines.join.cancel': 'mac',
+  'machines.ssh.hosts': 'mac',
+  'machines.ssh.pair': 'mac',
   'machines.list': 'mac',
   'machines.devices': 'mac',
   'machines.forget': 'mac',

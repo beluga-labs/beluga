@@ -235,6 +235,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.join.start` | – for now `beluga computers add <link or code>` in a terminal (Settings › Your Computers › Add a Computer is BLG-780) |
 | `machines.join.approve` | – `beluga computers add`'s Add? [y/N] after comparing the four pictures (Settings › Your Computers is BLG-780) |
 | `machines.join.cancel` | – `beluga computers add`'s no or Ctrl+C (Settings › Your Computers is BLG-780) |
+| `machines.ssh.hosts` | – for now `beluga connect` takes the host as typed (Settings › Your Computers › Add Over SSH lists them, BLG-780) |
+| `machines.ssh.pair` | – `beluga connect you@host --pair`: Beluga installed and started there when missing, the pictures checked over SSH and here (Add Over SSH is BLG-780) |
 | `machines.list` | – `beluga computers`: each computer online or offline, its round trip, load per core, free memory and disk, agents running (and, for Settings › Your Computers in BLG-780, Claude and Codex signed in with usage, gh, MCP servers, projects with origins), asked every 30 s |
 | `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
 | `machines.forget` | – `beluga computers forget <name>` on any of your devices (Settings › Your Computers › Forget is BLG-780) |

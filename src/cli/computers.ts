@@ -12,6 +12,8 @@ export interface ComputersLink {
   joinStart(ticket: string): Promise<ComputerOffer>;
   joinApprove(): Promise<MachineView>;
   joinCancel(): Promise<unknown>;
+  /** Add Over SSH (BLG-781): Beluga put on and started there when needed, its pairing dialled. */
+  sshPair(host: string): Promise<ComputerOffer>;
 }
 
 export const computersLinkOf = (client: SocketClient): ComputersLink => ({
@@ -21,6 +23,7 @@ export const computersLinkOf = (client: SocketClient): ComputersLink => ({
   joinStart: (ticket) => client.call('machines.join.start', ticket),
   joinApprove: () => client.call('machines.join.approve'),
   joinCancel: () => client.call('machines.join.cancel'),
+  sshPair: (host) => client.call('machines.ssh.pair', host),
 });
 
 /** A computer's state in a few words: online with what it has free, or when it was last seen. */
@@ -104,14 +107,28 @@ export async function addComputer(link: ComputersLink, ticket: string | undefine
     return 2;
   }
   io.err('Looking for the computer…\n');
+  return confirmAdd(link, () => link.joinStart(ticket), io, opts);
+}
+
+/**
+ * `beluga connect you@host --pair` (BLG-781): over your ssh, Beluga is installed and started there
+ * when it isn't, a pairing opens, and its pictures (checked over SSH too) are shown before Add?.
+ */
+export async function addOverSsh(link: ComputersLink, host: string, io: Io, opts: AddComputerOptions): Promise<Exit> {
+  io.err(`Adding ${host} over SSH (installing and starting Beluga there if it needs it)…\n`);
+  return confirmAdd(link, () => link.sshPair(host), io, opts);
+}
+
+/** The computer's offer, its four pictures, Add? [y/N], and then it's in. */
+async function confirmAdd(link: ComputersLink, start: () => Promise<ComputerOffer>, io: Io, opts: AddComputerOptions): Promise<Exit> {
   let offer: ComputerOffer;
   try {
-    offer = await link.joinStart(ticket);
+    offer = await start();
   } catch (err) {
     io.err(`${errorText(err)}\n`);
     return 1;
   }
-  io.out(`“${offer.name}” (${PLATFORM[offer.platform]}, Beluga ${offer.version}) wants to join your devices.\nCheck it shows these same four pictures: ${offer.fingerprint}\n`);
+  io.out(`“${offer.name}” (${PLATFORM[offer.platform]}, Beluga ${offer.version}) wants to join your devices.\n${offer.sshChecked ? 'It printed these same four pictures over SSH' : 'Check it shows these same four pictures'}: ${offer.fingerprint}\n`);
   const aborted = new Promise<null>((resolve) => opts.signal?.addEventListener('abort', () => resolve(null), { once: true }));
   const said = await Promise.race([opts.ask('Add it? [y/N] '), aborted]);
   if (typeof said !== 'string' || !/^y(es)?$/i.test(said.trim())) {

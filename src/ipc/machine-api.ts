@@ -22,6 +22,10 @@ export const MACHINE_API = {
   'machines.join.approve': { args: z.tuple([]) },
   // Don't add it (the computer hears no).
   'machines.join.cancel': { args: z.tuple([]) },
+  // Add Over SSH (BLG-781): the hosts your ssh config names, to pick from.
+  'machines.ssh.hosts': { args: z.tuple([]) },
+  // Add Over SSH: install and start Beluga on user@host (or a Host) when needed, open a pairing there and dial it → the offer, as machines.join.start.
+  'machines.ssh.pair': { args: z.tuple([z.string().trim().min(1).max(255).regex(/^[^\s-]\S*$/)]) },
   // The computers this app drives.
   'machines.list': { args: z.tuple([]) },
   // Every device of your set this install knows: phones, apps and computers, with their roles.

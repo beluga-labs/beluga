@@ -188,6 +188,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     onChange: () => host?.machinesChanged(),
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
+    // Add Over SSH (BLG-781): your own ssh, keys and agent.
+    ssh: belugaEnv('SSH') ?? 'ssh',
     // An app of yours driving this computer: a screen of the daemon's, of kind machine (BLG-775).
     adopt: (socket, hello) => {
       const door = screenDoorOf(opts.session);

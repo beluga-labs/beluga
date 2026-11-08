@@ -61,6 +61,7 @@ export const MACHINE_ADMIN: ReadonlySet<string> = new Set([
   'machines.join.start',
   'machines.join.approve',
   'machines.join.cancel',
+  'machines.ssh.pair',
   'machines.forget',
 ]);
 

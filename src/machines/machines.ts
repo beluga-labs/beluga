@@ -18,6 +18,7 @@ import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
 import { MachineDoor } from './door.js';
 import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
+import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
 
 /**
  * Your devices in the daemon (BLG-774): this install's device key, your device set, the computers
@@ -106,6 +107,11 @@ export interface MachinesOptions {
   readonly adopt?: (socket: MessageSocket, hello: string) => void;
   /** Waits between tries when a link to a computer drops. */
   readonly backoffMs?: readonly number[];
+  /** The ssh program for Add Over SSH (BLG-781), and the home folder whose ssh config lists hosts. */
+  readonly ssh?: string;
+  readonly home?: string;
+  /** How long to wait for the pictures a computer prints over SSH. */
+  readonly sshFingerprintMs?: number;
   readonly log?: (line: string) => void;
 }
 
@@ -125,6 +131,8 @@ export class Machines {
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
   private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
+  /** A pairing opened over SSH, while it waits for your Join (BLG-781). */
+  private ssh?: SshPairing;
   private readonly offs: Array<() => void> = [];
   private readonly pending = new Set<string>();
   private retry?: NodeJS.Timeout;
@@ -385,9 +393,44 @@ export class Machines {
 
   async joinCancel(): Promise<void> {
     const j = this.joining;
-    if (!j) return;
-    j.decide?.(false);
-    await j.done.catch(() => undefined);
+    if (j) {
+      j.decide?.(false);
+      await j.done.catch(() => undefined);
+    }
+    this.ssh?.stop();
+    this.ssh = undefined;
+  }
+
+  /** The hosts your ssh config names, for Add Over SSH to offer. */
+  sshHosts(): string[] {
+    return listSshHosts(this.opts.home);
+  }
+
+  /**
+   * Add Over SSH (BLG-781): Beluga installed and started on `host` when it isn't, a pairing opened
+   * there, and joined from here; resolves with the computer's offer as joinStart does, once the
+   * pictures it printed over SSH match the link's. Then joinApprove or joinCancel.
+   */
+  async sshPairStart(host: string): Promise<ComputerOffer> {
+    this.ssh?.stop();
+    const pairing = await openSshPairing(host, { ssh: this.opts.ssh ?? 'ssh', ...(this.opts.sshFingerprintMs ? { fingerprintWaitMs: this.opts.sshFingerprintMs } : {}), step: (t) => this.opts.log?.(`machines: ${t}`) });
+    this.ssh = pairing;
+    void pairing.ended.then(() => {
+      if (this.ssh === pairing) this.ssh = undefined;
+    });
+    let offer: ComputerOffer;
+    try {
+      offer = await this.joinStart(pairing.link);
+    } catch (err) {
+      pairing.stop();
+      throw err;
+    }
+    const there = await pairing.fingerprint();
+    if (there !== undefined && there !== offer.fingerprint) {
+      await this.joinCancel();
+      throw new Error(`The pictures ${offer.name} printed over SSH aren’t the ones its link showed: nothing was added. Try again.`);
+    }
+    return { ...offer, ...(there ? { sshChecked: true } : {}) };
   }
 
   /** The computers this app drives. */

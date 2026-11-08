@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type ComputersLink, addComputer, forgetDevice, listComputers } from '../src/cli/computers.js';
+import { type ComputersLink, addComputer, addOverSsh, forgetDevice, listComputers } from '../src/cli/computers.js';
 import type { Io } from '../src/cli/io.js';
 import { type ComputerPairLink, pairComputer } from '../src/cli/pair.js';
 import type { SetDeviceView } from '../src/machines/controllers.js';
@@ -98,6 +98,7 @@ function computers(devices: SetDeviceView[], joins: { offer?: Error; approve?: E
       return { id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, pairedAt: Date.now(), status: 'unknown' as const };
     },
     joinCancel: async () => void (link.cancelled += 1),
+    sshPair: async (host: string) => ({ name: host, platform: 'linux' as const, version: '0.9.0', fingerprint: FP, sshChecked: true }),
   };
   return link;
 }
@@ -147,5 +148,14 @@ describe('beluga computers', () => {
     const gone = capture();
     expect(await addComputer(computers([], { offer: new Error('That computer isn’t answering.') }), LINK, gone, { ask: async () => 'y' })).toBe(1);
     expect(gone.errors()).toContain('isn’t answering');
+  });
+
+  it('connect --pair adds it over SSH, saying the pictures matched there too', async () => {
+    const link = computers([]);
+    const io = capture();
+    expect(await addOverSsh(link, 'kayra@mini', io, { ask: async () => 'yes' })).toBe(0);
+    expect(io.errors()).toContain('Adding kayra@mini over SSH');
+    expect(io.text()).toContain(`It printed these same four pictures over SSH: ${FP}`);
+    expect(link.approved).toBe(1);
   });
 });

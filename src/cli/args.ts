@@ -32,9 +32,9 @@ export const COMMANDS = {
     passThrough: true,
   },
   connect: {
-    usage: ['beluga connect <user@host> [--port <port>] [--no-open]'],
-    summary: "open a server's Beluga in this computer's browser through SSH (a host from ~/.ssh/config works); nothing to open on the server. Ctrl+C closes it",
-    options: { port: { type: 'string', short: 'p' }, 'no-open': { type: 'boolean' } },
+    usage: ['beluga connect <user@host> [--port <port>] [--no-open]', 'beluga connect <user@host> --pair'],
+    summary: "open a server's Beluga in this computer's browser through SSH (a host from ~/.ssh/config works); nothing to open on the server. Ctrl+C closes it. --pair: add it to your computers instead (Beluga is installed there if it isn't)",
+    options: { port: { type: 'string', short: 'p' }, 'no-open': { type: 'boolean' }, pair: { type: 'boolean' } },
   },
   update: { usage: ['beluga update'], summary: 'update Beluga to the latest release (the server install)', options: {} },
   version: { usage: ['beluga version'], summary: 'show the version', options: {} },

@@ -24,6 +24,8 @@ export interface ComputerOffer {
   readonly platform: 'macos' | 'linux' | 'windows';
   readonly version: string;
   readonly fingerprint: string;
+  /** Added over SSH (BLG-781): the computer printed the same four pictures there too. */
+  readonly sshChecked?: boolean;
 }
 
 export interface JoinComputerOptions {
