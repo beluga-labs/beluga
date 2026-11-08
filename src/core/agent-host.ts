@@ -31,6 +31,7 @@ import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
 import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
+import { oneLine } from './gateway/model.js';
 import { peerSendAccess } from './chat-links/access.js';
 import { resolveChat } from './chat-links/resolve.js';
 import { ChatSendService, type Delivered, refusalText } from './chat-links/service.js';
@@ -150,6 +151,8 @@ export type ApprovalAnswer = 'yes' | 'no' | 'always' | 'project';
 const READS_FILE = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
 const MAX_APPROVALS_PER_PERSON = 3;
 const SEEN_REQUESTS = 1000;
+/** A peer's chat title on your approval card: theirs to write, so one short line. */
+const CARD_TITLE_CHARS = 60;
 const CONTEXT_LINES = 20;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Requests one person may have waiting for your Claude at once. */
@@ -955,11 +958,16 @@ export class AgentHost {
     if (parseChatRef(origin.ref)?.owner !== from) return deny(refusalText('source_not_addressable'));
     if (chat?.state === 'archived') return deny(refusalText('chat_archived'));
     const queued = this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0;
-    const limit = this.chatSends.admitFromPeer(from, origin, body.channel, queued);
+    // As for a plain request into a shared workspace: deny refuses everyone.
+    if (state.policy === 'deny') return deny('Request declined by the machine owner.');
+    // The limits are checked now and counted only once you said yes: a declined send uses none.
+    const limit = this.chatSends.admitFromPeer(from, origin, body.channel, queued, { count: false });
     if (!limit.allow) return deny(limit.text);
     // Your chat's plan mode holds, whatever the peer's request says.
     const admitted: BodyOf<'agent_request'> = { ...body, plan: state.planMode[body.channel] === true, origin: { ...origin, hop: limit.hop } };
     if (!(await this.authorizeRequest(from, admitted))) return deny('Request declined by the machine owner.');
+    const counted = this.chatSends.admitFromPeer(from, origin, body.channel, this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0);
+    if (!counted.allow) return deny(counted.text);
     this.fromChats.set(body.requestId, { origin: admitted.origin!, text: body.prompt });
     return admitted;
   }
@@ -1060,7 +1068,11 @@ export class AgentHost {
     });
     if (sent) {
       // A turn of its own, in the run that is already open: its tools read the same chain object.
-      if (lane.chain) Object.assign(lane.chain, chainOf(body));
+      // A person's message starts a new chain; a chat's message never lowers the hop of the run.
+      if (lane.chain) {
+        const next = chainOf(body);
+        Object.assign(lane.chain, body.origin ? { ...next, hop: Math.max(lane.chain.hop, next.hop) } : next);
+      }
       emit('started');
     }
     return sent;
@@ -1298,7 +1310,7 @@ export class AgentHost {
     this.emitAgent(body.requestId, from, 'awaiting_approval', `Waiting for ${state.self?.name ?? 'owner'} to approve`, body.channel);
     const reach = reachOf(state, from) === 'full' ? 'whole computer' : 'shared folders; anything else asks you';
     // A message from their chat says which chat sent it: its title is theirs, so it is one line at most.
-    const who = body.origin ? `${name}'s agent, from ${body.origin.title.replace(/\s+/g, ' ').trim() || 'a chat'},` : `${name}${body.viaAgent ? "'s agent" : ''}`;
+    const who = body.origin ? `${name}'s agent, from ${oneLine(body.origin.title, CARD_TITLE_CHARS) || 'a chat'},` : `${name}${body.viaAgent ? "'s agent" : ''}`;
     const answer = await this.ask('request', `${who} wants your agent to run this (${reach})`, body.prompt, from, body.channel);
     if (answer === 'always') this.deps.people.setTrust(from, 'trusted');
     return answer !== 'no';

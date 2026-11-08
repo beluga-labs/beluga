@@ -169,7 +169,7 @@ function SentinelChip({ id }: { readonly id: string }) {
 }
 
 /**
- * A chat by its address (`chat:<owner>/<channel>`, 1.42): its current title from the Mac, asked
+ * A chat by its address (`chat:<owner>/<channel>`, 1.44): its current title from the Mac, asked
  * again whenever Work changes (a rename); a tap opens /conv/<channel>. An older Mac, or chat links
  * off, leaves it the code it was.
  */

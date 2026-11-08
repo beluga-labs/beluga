@@ -290,6 +290,44 @@ describe('the owner’s computer does not trust what the peer says about its cha
     expect(t.ownerCard('over')?.text).toMatch(/^pair_rate:/);
   });
 
+  it('policy deny refuses a peer chat message, as it refuses a plain request', async () => {
+    const t = setup({ trust: 'full' });
+    t.owner.dispatch({ type: 'policy', policy: 'deny' });
+    await t.arrive('deny1', SHARED);
+    expect(t.ownerCard('deny1')).toMatchObject({ status: 'denied' });
+    expect(t.runsIn(SHARED)).toEqual([]);
+  });
+
+  it('the pair limit counts per peer, whatever source chat the peer claims', async () => {
+    const t = setup({ trust: 'full' });
+    for (let i = 0; i < MAX_PAIR_MESSAGES; i++) await t.arrive(`q${i}`, SHARED, { chainId: `cq-${i}`, ref: `${SENDER}/ws:s${i}` });
+    await t.arrive('q-over', SHARED, { chainId: 'cq-over', ref: `${SENDER}/ws:s-other` });
+    expect(t.ownerCard('q-over')?.text).toMatch(/^pair_rate:/);
+  });
+
+  it('a send the owner declines uses none of the budget', async () => {
+    const t = setup({ trust: 'ask' });
+    for (let i = 0; i < MAX_PAIR_MESSAGES; i++) {
+      void t.arrive(`d${i}`, SHARED, { chainId: `cd-${i}` });
+      await waitFor(() => t.owner.getState().approvals.length === 1);
+      t.ownerHost.answerApproval('no', t.owner.getState().approvals[0]!.id);
+      await waitFor(() => t.owner.getState().approvals.length === 0);
+    }
+    void t.arrive('d-after', SHARED, { chainId: 'cd-after' });
+    await waitFor(() => t.owner.getState().approvals.length === 1 || /pair_rate/.test(t.ownerCard('d-after')?.text ?? ''));
+    expect(t.ownerCard('d-after')?.text ?? '').not.toMatch(/^pair_rate:/);
+    expect(t.owner.getState().approvals).toHaveLength(1);
+  });
+
+  it('the approval names the source chat in one short line', async () => {
+    const t = setup({ trust: 'ask' });
+    void t.arrive('long', SHARED, { title: `${'very long title '.repeat(12)}END` });
+    await waitFor(() => t.owner.getState().approvals.length === 1);
+    const title = t.owner.getState().approvals[0]!.title;
+    expect(title).not.toContain('END');
+    expect(title).toContain('…');
+  });
+
   it('an origin that claims another person’s chat is refused', async () => {
     const t = setup({ trust: 'full' });
     await t.arrive('liar', SHARED, { ref: `${OWNER}/${PRIVATE}` });

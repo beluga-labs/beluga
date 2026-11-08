@@ -372,7 +372,7 @@ export function useAttachments({ channel, box, text, setText, chipLinks }: { cha
     const others = waitingFiles.get(channel) ?? [];
     // The chips' names stay in the box: out they go as "[image N]".
     const words = plainRefs(typed);
-    const out = pictures.length || others.length ? [words, unplaced.map((n) => boxRef(shownOf(n))).join(' '), others.map((f) => f.copy ?? `\`${f.path}\``).join('\n\n')].filter(Boolean).join('\n\n') : words;
+    const out = pictures.length || others.length ? [words, unplaced.map((n) => boxRef(shownOf(n))).join(' '), [others.filter((f) => !f.copy).map((f) => `\`${f.path}\``).join('\n'), ...others.flatMap((f) => (f.copy ? [f.copy] : []))].filter(Boolean).join('\n\n')].filter(Boolean).join('\n\n') : words;
     if (pictures.length) setImages([]);
     if (others.length) setFiles([]);
     return {

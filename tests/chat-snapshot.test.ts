@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_MESSAGES, chatSnapshot } from '../src/core/chat-links/transcript.js';
+import { CHATS_HANDLERS } from '../src/ipc/chats-handlers.js';
 import { type DomainState, type LogItem, initialState } from '../src/core/store.js';
 
 /** BLG-152: a copy of one of your own chats, for a person at the composer to give another person's agent. */
@@ -73,5 +74,19 @@ describe('a copy of a chat', () => {
     expect(chatSnapshot(state, `${FRIEND}/ws:nope`)).toBeUndefined();
     expect(chatSnapshot(state, `${ME}/ws:gone`)).toBeUndefined();
     expect(chatSnapshot(state, 'room')).toBeUndefined();
+  });
+});
+
+describe('the copy and its gates', () => {
+  it('a secret across the cut of a long message is redacted, not cut in half', () => {
+    const token = `ghp_${'A'.repeat(36)}`;
+    const copy = chatSnapshot(stateWith([said(1, `${'x'.repeat(3990)} ${token} tail`)]), `${ME}/${CHAT}`)!;
+    expect(copy.text).not.toContain('ghp_AAAA');
+  });
+
+  it('chats.snapshot gives nothing with chat links off', () => {
+    const state = { ...stateWith([said(1, 'hello')]), prefs: { ...initialState('room').prefs, chatLinks: false } } as DomainState;
+    const s = { store: { getState: () => state }, workspaces: undefined } as never;
+    expect(CHATS_HANDLERS['chats.snapshot'](s, `${ME}/${CHAT}`)).toBeNull();
   });
 });

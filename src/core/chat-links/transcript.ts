@@ -121,8 +121,9 @@ export function chatSnapshot(state: DomainState, text: string, now = Date.now())
   const chat = parsed && resolveChat(state, parsed);
   if (!parsed || !chat || chat.ownership !== 'own' || chat.state === 'removed' || chat.state === 'loading') return undefined;
   const title = chat.title ?? parsed.channel;
-  const all = itemsOf(state.log, parsed.channel, 'messages');
-  const lines = all.slice(-SNAPSHOT_MAX_MESSAGES).map((i) => `[${i.ts}] ${i.author}: ${redactSecrets(i.text)}\n`);
+  // Redacted before each message is cut, so a secret across the cut can't keep its first characters.
+  const all = itemsOf(state.log, parsed.channel, 'messages', redactSecrets);
+  const lines = all.slice(-SNAPSHOT_MAX_MESSAGES).map((i) => `[${i.ts}] ${i.author}: ${i.text}\n`);
   const head = (count: number): string =>
     `A copy of the chat “${title}” (${ref}), as it was at ${new Date(now).toISOString()}. ${count} of ${all.length} messages; tool output is left out.\n${DATA_NOTE}\n\n`;
   while (lines.length && Buffer.byteLength(head(lines.length) + lines.join('')) > SNAPSHOT_MAX_BYTES) lines.shift();
@@ -142,11 +143,12 @@ function latestActivity(log: readonly LogItem[]): Map<string, number> {
   return latest;
 }
 
-function itemsOf(log: readonly LogItem[], channel: string, view: 'messages' | 'activity'): ChatItem[] {
-  return log.filter((l) => l.channel === channel).flatMap((l) => itemsFrom(l, view));
+function itemsOf(log: readonly LogItem[], channel: string, view: 'messages' | 'activity', clean: (text: string) => string = (t) => t): ChatItem[] {
+  return log.filter((l) => l.channel === channel).flatMap((l) => itemsFrom(l, view, clean));
 }
 
-function itemsFrom(l: LogItem, view: 'messages' | 'activity'): ChatItem[] {
+function itemsFrom(l: LogItem, view: 'messages' | 'activity', clean: (text: string) => string): ChatItem[] {
+  const item = (pos: string, ts: number, author: string, provenance: ChatItem['provenance'], kind: ChatItem['kind'], raw: string): ChatItem => itemOf(pos, ts, author, provenance, kind, clean(raw));
   if (l.type === 'chat') return [item(l.id, l.ts, l.name, l.byAgent ? 'agent' : 'person', 'message', l.text)];
   if (l.type === 'system') return l.said ? [item(l.id, l.said.ts, l.said.name, 'history', 'message', l.said.text)] : [];
   if (l.type !== 'agent') return [];
@@ -156,7 +158,7 @@ function itemsFrom(l: LogItem, view: 'messages' | 'activity'): ChatItem[] {
   return final ? [...steps, item(l.id, l.endTs ?? l.ts, author, 'agent', 'answer', l.text)] : steps;
 }
 
-function item(pos: string, ts: number, author: string, provenance: ChatItem['provenance'], kind: ChatItem['kind'], raw: string): ChatItem {
+function itemOf(pos: string, ts: number, author: string, provenance: ChatItem['provenance'], kind: ChatItem['kind'], raw: string): ChatItem {
   const text = hideSecretPaths(raw);
   const base = { pos, ts: new Date(ts).toISOString(), author, provenance, kind };
   if (text.length <= MAX_ITEM_CHARS) return { ...base, text };

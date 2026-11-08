@@ -178,6 +178,20 @@ describe('the chain of a run', () => {
     await t.h.idle(CHAT);
   });
 
+  it('a follow-up from another chain never lowers the hop of the open run', async () => {
+    const b = backend();
+    b.live.followUps = true;
+    const t = host(b.agent);
+    await t.ask('r1', 'slow', { origin: origin('c1', 4) });
+    await waitFor(() => Boolean(b.live.finish));
+    b.live.status = { lastEventAt: Date.now(), between: true };
+    await t.ask('r2', 'from a chat', { origin: origin('c9', 1) });
+    expect(b.followed).toHaveLength(1);
+    expect(b.chains[0]!().hop).toBe(4);
+    b.live.finish!();
+    await t.h.idle(CHAT);
+  });
+
   it('an origin from a friend never sets a chain unchecked: a chat not shared with them gets no run (tests/chat-remote-send.test.ts)', async () => {
     const t = host(backend().agent);
     const seen: Array<BodyOf<'agent_request'>> = [];

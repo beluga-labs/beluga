@@ -159,8 +159,8 @@ export async function readResultFiles(paths: readonly string[], opts: { roots: r
   return { files, skipped };
 }
 
-/** Text that can't close the block it's put in. */
-export const fenced = (text: string): string => text.replace(/<\/?(?:task_(?:result|question)|chat_data)/gi, (m) => m.replace('<', '‹'));
+/** Text that can't close the block it's put in: spaces or zero-width characters inside the tag don't help. */
+export const fenced = (text: string): string => text.replace(/<[\s\u200b-\u200d\u2060\ufeff]*\/?[\s\u200b-\u200d\u2060\ufeff]*(?:task_(?:result|question)|chat_data)/gi, (m) => m.replace('<', '‹'));
 
 /**
  * A result as your Claude sees it: clearly marked as data from that person's Mac, to be used

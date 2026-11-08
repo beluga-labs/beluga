@@ -56,7 +56,7 @@ function TagChips({ tags, onPick }: { readonly tags: readonly Tag[]; readonly on
 /** A photo picked to go with the message (lib/pick.ts). */
 export type Photo = NonNullable<Awaited<ReturnType<typeof pickPhoto>>>;
 
-/** What waits for Claude here: your messages, and messages from your other chats with their source (1.44). Steer with one now, or take it out. */
+/** What waits for Claude here: your messages, and messages from your other chats with their source (1.46). Steer with one now, or take it out. */
 export function QueueTray({ queue, onSteer, onRemove }: { readonly queue: readonly { id: string; text: string; waiting?: string; origin?: { ref: string; title: string; agent: string } }[]; readonly onSteer: (id: string) => void; readonly onRemove: (id: string) => void }) {
   if (!queue.length) return null;
   return (

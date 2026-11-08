@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { type Issue, PRIORITY_INFO, STATUS_INFO, findIssue } from '@beluga/core/board/model.js';
 import { readTaskKeys } from '@beluga/shared/task-refs.js';
 import { Icon } from '../components/Icon.js';
@@ -152,14 +152,15 @@ export const CHAT_KIND: Readonly<Record<ResolvedChat['kind'], string>> = { workt
 
 /**
  * A chat by its address (`chat:<owner>/<channel>`): a pill with its current title, read from the
- * records as chats.resolve reads them; a click opens it. With prefs.chatLinks off it's the code it was.
+ * records as chats.resolve reads them; a click opens it. With prefs.chatLinks off it's what it was:
+ * `fallback`, the caller's own (an inline code span, a step's words), else the code.
  */
-export function ChatChip({ target, raw }: { target: ChatRef; raw: string }) {
+export function ChatChip({ target, raw, fallback }: { target: ChatRef; raw: string; fallback?: ReactNode }) {
   // Text, not the object: a pick built fresh each time never settles (#185, as WorktreeChip above).
   const picked = useApp((s) => (s.prefs.chatLinks ? JSON.stringify(resolveChat(s, target)) : undefined));
   const chat = useMemo(() => (picked ? (JSON.parse(picked) as ResolvedChat) : undefined), [picked]);
   const actions = useActions();
-  if (!chat) return <code>{raw}</code>;
+  if (!chat) return <>{fallback ?? <code>{raw}</code>}</>;
   const chip = chatChipOf(chat);
   const { view } = chat;
   if (!chip.opens || !view) {

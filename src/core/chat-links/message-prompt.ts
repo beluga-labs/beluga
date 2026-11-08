@@ -1,13 +1,17 @@
 import type { ChatOrigin } from '../../protocol.js';
 import { fenced, oneLine } from '../gateway/result.js';
 
+/** What a sender's title cannot use where Beluga quotes it. */
+const QUOTED: Readonly<Record<string, string>> = { '"': '＂', '<': '‹', '>': '›' };
+
 /**
  * What an agent reads for a message from another chat. Beluga writes the first lines, from the
  * origin only. They come first, so the message's words never start the prompt, and a runtime does
  * not take a `/name` there for a skill. The words go in a fence as data.
  */
 export function chatMessagePrompt(origin: ChatOrigin, text: string): string {
-  const source = fenced(oneLine(origin.title, 200)) || 'another chat';
+  // The title is the sender's to write: it cannot close the quote or the tag it goes in.
+  const source = fenced(oneLine(origin.title, 200)).replace(/["<>]/g, (c) => QUOTED[c]!) || 'another chat';
   return withoutSkillMentions([
     '[Beluga: this message comes from another chat. An agent wrote it, not your user.]',
     `Source: “${source}” (chat:${origin.ref}), agent ${fenced(oneLine(origin.agent.label, 64))}. Hop ${origin.hop}.`,
@@ -28,5 +32,5 @@ export const chatMessageAsker = (origin: ChatOrigin): string => withoutSkillMent
  * that a run reads for the message: the words, and the source's title and ref too.
  */
 export function withoutSkillMentions(text: string): string {
-  return text.replace(/\$(?=[A-Za-z_])/g, '$​');
+  return text.replace(/\$(?=[\w-])/g, '$​');
 }

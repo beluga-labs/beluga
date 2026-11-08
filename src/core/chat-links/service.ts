@@ -202,13 +202,14 @@ export class ChatSendService {
   /**
    * A message from another person's chat, on this computer (the owner's): the same limits as for
    * your own chats. What the peer says about its chain is a claim: its hop counts from the higher
-   * of the claim and the highest hop this computer saw in that chain. Pairs count per peer.
+   * of the claim and the highest hop this computer saw in that chain. Pairs count per peer: the
+   * source chat it names is its own claim too. `count: false` checks without counting.
    */
-  admitFromPeer(peer: string, origin: ChatOrigin, target: string, queued: number): { readonly allow: true; readonly hop: number } | { readonly allow: false; readonly text: string } {
+  admitFromPeer(peer: string, origin: ChatOrigin, target: string, queued: number, opts: { readonly count?: boolean } = {}): { readonly allow: true; readonly hop: number } | { readonly allow: false; readonly text: string } {
     const seen = this.guard.chains[origin.chainId]?.highestHop ?? 0;
-    const ask = { requestId: origin.messageId, messageId: origin.messageId, source: `${peer}\n${origin.ref}`, target, chainId: origin.chainId, hop: Math.max(origin.hop - 1, seen, 0), queued, now: this.now() };
+    const ask = { requestId: origin.messageId, messageId: origin.messageId, source: `peer:${peer}`, target, chainId: origin.chainId, hop: Math.max(origin.hop - 1, seen, 0), queued, now: this.now() };
     const { state, decision } = checkSend(this.guard, ask);
-    this.guard = state;
+    if (opts.count !== false) this.guard = state;
     return decision.allow ? { allow: true, hop: decision.hop } : { allow: false, text: refused(decision.code, decision.retryAt).message };
   }
 
