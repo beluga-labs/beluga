@@ -13,6 +13,7 @@ import { SubAgentTracker, withAgentScratch } from './subagents.js';
 import { type RecorderMessage, StepRecorder } from '../../step-recorder.js';
 import { type ContextMessage, ContextReport, breakdownReader, isCompactCommand } from '../../context-report.js';
 import { compactEnv } from '../../../shared/context-usage.js';
+import { zshCompatEnv } from './zsh-compat.js';
 import { progressCount } from '../../../shared/progress-count.js';
 import { resultText } from '../../../shared/steps.js';
 import { BackgroundAgents, type PromptContent, PromptQueue, TurnRouter, startedPrompt } from './live-run.js';
@@ -303,7 +304,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         ...(input.effort ? { effort: input.effort } : {}),
         // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
-        ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
+        // Set, this replaces Claude Code's whole environment, so it starts from ours. zsh-compat.sh makes a
+        // zsh login shell take the bash Claude writes (zsh-compat.ts).
+        env: { ...process.env, ...zshCompatEnv({ ...process.env, ...input.env }), ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } as Record<string, string>,
         ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),

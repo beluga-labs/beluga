@@ -1,6 +1,6 @@
 import type { AgentRef } from '../protocol.js';
 import { buildGraphAppend } from './graph-prompt.js';
-import { buildAskOnlyAppend, buildChatSendAppend, buildCommitAppend, buildKeepAppend, buildScratchAppend, buildShippedAppend, buildSystemAppend } from './prompt.js';
+import { buildAskOnlyAppend, buildChatSendAppend, buildCommitAppend, buildKeepAppend, buildScratchAppend, buildShellAppend, buildShippedAppend, buildSystemAppend } from './prompt.js';
 import { buildSyncMainAppend } from './sync-main.js';
 import { buildTerminalAppend } from './terminal-prompt.js';
 import type { AgentRunInput } from './types.js';
@@ -33,6 +33,8 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     (input.dialogue?.brief ?? '') +
     (input.setup && !askOnly ? input.setup.brief : '') +
     (input.scratchDir ? buildScratchAppend(input.scratchDir) : '') +
+    // Commands run in your login shell; on zsh, how to write them for it (runtime/claude/zsh-compat.ts).
+    buildShellAppend() +
     (worktree ? buildKeepAppend(agent) : '') +
     (worktree && !input.planBrief && !askOnly ? buildCommitAppend(place?.openPr) : '') +
     (place?.shipped && !askOnly ? buildShippedAppend(place.shipped) : '') +
