@@ -268,6 +268,9 @@ export const useEarningsHintDismissed = (): boolean =>
 /** Where to create a key that can only read charges (and, optionally, the account's name). */
 export const STRIPE_KEY_URL = 'https://dashboard.stripe.com/apikeys/create?name=Beluga&permissions%5B%5D=rak_charge_read&permissions%5B%5D=rak_connected_account_read';
 
+/** RevenueCat's guide to making an API key. */
+export const REVENUECAT_KEY_URL = 'https://www.revenuecat.com/docs/projects/authentication';
+
 /** Test or live, and whether it's a full secret key, from what was typed (before asking Stripe). */
 export function keyKind(key: string): { mode?: 'test' | 'live'; secret: boolean; publishable: boolean } {
   const k = key.trim();
