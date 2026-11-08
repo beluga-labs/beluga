@@ -244,6 +244,7 @@ export class ThreadService {
   private resolveWhere(parent: string, from: { readonly ws?: Workspace }, input: ThreadStartInput): { readonly kind: 'worktree' | 'read'; readonly projectId: string; readonly dir?: string } {
     const kind = input.where ?? 'worktree';
     if (kind === 'read' && input.base) throw new Error('A read-only chat has no base. Remove base, or use where=worktree.');
+    if (kind === 'worktree' && from.ws?.thread?.readOnly) throw new Error('This chat is a read-only thread, so it cannot start a worktree thread. Beluga started nothing. Use where=read to start a read-only thread.');
     const projects = this.deps.projects().filter((p) => p.root);
     const names = (): string => projects.map((p) => p.name).join(', ') || 'none';
     const named = input.project ? projects.find((p) => p.name === input.project || p.id === input.project) : undefined;
@@ -434,6 +435,8 @@ export class ThreadService {
   }
 
   private placeOf(parent: string): ParentPlace {
+    // With agentThreads off, results wait on the child's record until the switch is on again.
+    if (!this.deps.store.getState().prefs.agentThreads) return 'held';
     if (isAssistant(parent)) return this.deps.hasMacChat(parent) ? 'here' : 'gone';
     const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
     if (!ws) return 'gone';
@@ -452,6 +455,8 @@ export class ThreadService {
   private onAction(action: Action): void {
     if (action.type === 'agent_event') this.settle(action);
     this.delivery.onAction(action);
+    // agentThreads turned on: the results held while it was off go to their parents, in one wake each.
+    if (action.type === 'prefs' && action.prefs.agentThreads) this.delivery.recover();
     for (const w of [...this.waiters]) w.check();
   }
 

@@ -76,6 +76,7 @@ function setup(chats = new Map<string, Workspace>(), store = freshStore()) {
 function freshStore(): Store {
   const store = new Store(initialState('room', 'auto'));
   store.dispatch({ type: 'identity', selfId: ME, isHost: true, home: '/home/me' });
+  store.dispatch({ type: 'prefs', prefs: { agentThreads: true } });
   return store;
 }
 
@@ -430,5 +431,36 @@ describe('where the parent went', () => {
     t.service.recover();
     await settle();
     expect(t.wakes).toEqual([]);
+  });
+});
+
+describe('BLG-334: with agentThreads off, no parent wakes for a thread result', () => {
+  it('keeps each result on the child, undelivered, and delivers it once in one wake when the switch is on again', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    const b = await t.start('b');
+    t.store.dispatch({ type: 'prefs', prefs: { agentThreads: false } });
+    t.finish(a.channel, a.request);
+    t.finish(b.channel, b.request);
+    await settle();
+    expect(t.wakes).toEqual([]);
+    expect(t.chats.get(a.id)!.thread!.outcome).toMatchObject({ summary: `Result of ${a.channel}`, delivered: false });
+    expect(t.chats.get(b.id)!.thread!.outcome?.delivered).toBe(false);
+    t.store.dispatch({ type: 'prefs', prefs: { agentThreads: true } });
+    await waitFor(() => t.wakes.length === 1);
+    await settle();
+    t.store.dispatch({ type: 'prefs', prefs: { agentThreads: true } });
+    await settle();
+    expect(t.wakes).toHaveLength(1);
+    expect(t.wakes[0]!.prompt.match(/<thread_result /g)).toHaveLength(2);
+    expect(t.chats.get(a.id)!.thread!.outcome?.delivered).toBe(true);
+  });
+
+  it('a person’s Stop still stops the threads under the chat', async () => {
+    const t = setup();
+    const a = await t.start('a');
+    t.store.dispatch({ type: 'prefs', prefs: { agentThreads: false } });
+    expect(t.service.stopTree('ws:root')).toBe(1);
+    expect(t.chats.get(a.id)!.thread!.stopped?.by).toBe('person');
   });
 });

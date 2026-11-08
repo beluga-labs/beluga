@@ -35,6 +35,7 @@ beforeEach(async () => {
   const wsStore = new WorkspaceStore(path.join(base, 'home'));
   wsStore.saveConfig({ roots: [path.join(base, 'code')], projects: [], hidden: [] });
   store = new Store(initialState('room'));
+  store.dispatch({ type: 'prefs', prefs: { agentThreads: true } });
   toasts = [];
   manager = new WorkspaceManager(wsStore);
   ctl = new WorkspaceController({ manager, store, shares: new ShareService([]), selfId: () => 'me', toast: (t) => void toasts.push(t), intend: () => undefined, askClaude: () => undefined, claudeHome: path.join(base, 'claude'), moveToTrash: async () => undefined });

@@ -852,8 +852,8 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     // The demo's agent as a parent: "start threads: Login tests=codex:finish; Docs=claude:keep working".
     const kids = /^start threads: (.+)$/im.exec(input.prompt);
     if (kids && input.threadTools) return mockStartThreads(input, input.threadTools, kids[1]!, pace);
-    // A child told to keep working: it works until someone stops it.
-    if (/\bkeep working$/i.test(input.prompt.trim())) await sleep(3_600_000, input.signal);
+    // A child told to keep working (a run with thread tools): it works until someone stops it.
+    if (input.threadTools && /\bkeep working$/i.test(input.prompt.trim())) await sleep(3_600_000, input.signal);
     // Plan mode, and questions back to you, work in the demo too.
     if (input.plan) return mockPlan(input, pace);
     // A friend's Claude answered after this conversation's turn ended: carry on with it.

@@ -113,6 +113,17 @@ describe('thread_start', () => {
     expect(t.chats.get(id)!.thread!.readOnly).toBe(true);
   });
 
+  it('BLG-221: a read-only thread cannot start a worktree thread, and where=read still works', async () => {
+    const t = setup();
+    const reader = idOf(await t.tools().start({ task: 'Read the code', where: 'read' }));
+    t.made.length = 0;
+    await expect(t.tools(`ws:${reader}`).start({ task: 'Change it', where: 'worktree' })).rejects.toThrow(/read-only.*where=read/);
+    await expect(t.tools(`ws:${reader}`).start({ task: 'Change it', project: 'app' })).rejects.toThrow(/read-only.*where=read/);
+    expect(t.made).toEqual([]);
+    const grand = idOf(await t.tools(`ws:${reader}`).start({ task: 'Read more', where: 'read' }));
+    expect(t.chats.get(grand)!.thread).toMatchObject({ parent: `ws:${reader}`, readOnly: true, depth: 2 });
+  });
+
   it('refuses base with where=read', async () => {
     const t = setup();
     await expect(t.tools().start({ task: 'x', where: 'read', base: 'dev' })).rejects.toThrow(/base/);
