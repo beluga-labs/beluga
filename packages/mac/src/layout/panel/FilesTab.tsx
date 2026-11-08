@@ -36,6 +36,9 @@ const FileContent = lazyView('views/reader/FileReader', () => import('../../view
 /** Folders you opened in each workspace's tree, kept while the window is open. */
 const opened = new Map<string, ReadonlySet<string>>();
 
+/** How long the tree's arrows rest on a file before it shows. */
+const SHOW_AFTER_MS = 120;
+
 type SearchIn = 'names' | 'contents';
 /** What the search box last searched (names or contents, and how), kept while the window is open. */
 const lastSearch: { in: SearchIn; flags: SearchFlags } = { in: 'names', flags: { caseSensitive: false, regex: false, wholeWord: false } };
@@ -216,6 +219,11 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
   const rows = q ? foundTree : treeRows(entriesOf, expanded);
   const canShowChange = (path: string): boolean => !project && changes.files.has(path);
 
+  // The arrows show each file they land on (as Scratch does), once they rest a moment: held down,
+  // they don't open every file on the way.
+  const showSoon = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(showSoon.current), []);
+
   const toggle = (path: string): void => {
     const next = new Set(expanded);
     if (next.has(path)) next.delete(path);
@@ -223,6 +231,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
     expand(next);
   };
   const activate = (row: TreeRow): void => {
+    clearTimeout(showSoon.current);
     setCursor(row.path);
     if (row.dir) return q ? undefined : toggle(row.path);
     void api.files.open(at(row.path));
@@ -247,8 +256,12 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
     const row = nav[i];
     const move = (to: number): void => {
       const next = nav[Math.max(0, Math.min(nav.length - 1, to))];
-      if (next) setCursor(next.path);
+      if (!next) return;
+      setCursor(next.path);
+      clearTimeout(showSoon.current);
+      if (!next.dir && next.path !== shown?.path) showSoon.current = setTimeout(() => void api.files.open(at(next.path)), SHOW_AFTER_MS);
     };
+    if (e.key === 'Enter' || e.key === 'Escape') clearTimeout(showSoon.current);
     if (e.key === 'ArrowDown') (e.preventDefault(), move(i + 1));
     else if (e.key === 'ArrowUp') (e.preventDefault(), move(i < 0 ? 0 : i - 1));
     else if (e.key === 'ArrowRight' && row?.dir) {
