@@ -1,3 +1,4 @@
+import { experimentOn } from '../shared/experiments.js';
 import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
@@ -13,17 +14,27 @@ import { existsSync } from 'node:fs';
 import { portsByFolder } from '../workspaces/ports.js';
 import { type MachinePort, type MachinePorts, needForwarder } from '../machines/forward.js';
 
-/** On a computer: each worktree's listening ports, from one look at the OS. */
-async function machinePorts(state: { readonly projects: readonly { readonly workspaces: readonly { readonly id: string; readonly path: string }[] }[] }): Promise<MachinePorts> {
+/** On a computer: each worktree's listening ports, from one look at the OS, and its live previews' server. */
+async function machinePorts(
+  state: { readonly projects: readonly { readonly workspaces: readonly { readonly id: string; readonly path: string }[] }[] },
+  preview?: { readonly port: number; readonly roots: readonly string[] },
+): Promise<MachinePorts> {
   const workspaces = state.projects.flatMap((p) => p.workspaces).filter((w) => w.path);
   const byFolder = await portsByFolder([...new Set(workspaces.map((w) => w.path))]);
   const seen = new Set<string>();
   const ports = workspaces.flatMap((w): MachinePort[] => {
     if (seen.has(w.path)) return [];
     seen.add(w.path);
-    return (byFolder.get(w.path) ?? []).map((p) => ({ workspaceId: w.id, port: p.port, name: p.name }));
+    return [...(byFolder.get(w.path) ?? []).map((p) => ({ workspaceId: w.id, port: p.port, name: p.name })), ...(preview?.roots.includes(w.path) ? [{ workspaceId: w.id, port: preview.port, name: 'Live preview' }] : [])];
   });
   return { worktrees: workspaces.map((w) => w.id), ports };
+}
+
+/** Live previews' server here, when previews are on and one is live (their code isn't loaded otherwise). */
+async function previewServing(s: Session): Promise<{ readonly port: number; readonly roots: readonly string[] } | undefined> {
+  if (!experimentOn(s.store.getState().prefs.experiments, 'previews')) return undefined;
+  const { previews } = await import('../preview/manager.js');
+  return previews().serving();
 }
 
 /** This computer's 1-minute load per core, as a computer reports its own. */
@@ -55,7 +66,7 @@ export const MACHINE_HANDLERS = {
   'machines.ready.start': (s, origin, name) => readyingOf(s, () => machinesOf(s)?.hereName() ?? os.hostname()).start(origin, name),
   'machines.ready.status': (s, id) => readyingOf(s).status(id) ?? null,
   'machines.ready.install': (s, id) => readyingOf(s).install(id),
-  'machines.ports': (s) => machinePorts(s.store.getState()),
+  'machines.ports': async (s) => machinePorts(s.store.getState(), await previewServing(s)),
   'machines.forwards': (s) => s.store.getState().forwards,
   'machines.share': (s, wsId, port) => needForwarder(s).share(wsId, port),
   'machines.unshare': (s, wsId, port) => needForwarder(s).unshare(wsId, port),
