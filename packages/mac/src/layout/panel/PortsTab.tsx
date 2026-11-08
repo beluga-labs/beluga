@@ -58,7 +58,7 @@ export function PortsTab({ wsId }: { wsId: string }) {
           <span className={s.text}>
             <strong>{r.name}</strong>
             <code>localhost:{r.local}</code>
-            {r.where ? <span className={s.detail}>{r.local === r.port ? `from ${r.where}` : `from ${r.where}’s ${r.port}, taken here`}</span> : null}
+            {r.where ? <span className={s.detail}>{r.local === r.port ? `from ${r.where}` : `from ${r.where}’s ${r.port} · ${r.port} is in use on this Mac`}</span> : null}
           </span>
           <Tip label={`Open http://localhost:${r.local} in your browser`}>
             <Button size="small" variant="quiet" onClick={() => void openExternal(`http://localhost:${r.local}`)}>

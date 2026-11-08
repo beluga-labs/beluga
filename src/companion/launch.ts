@@ -222,7 +222,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
     // An app of yours forwarding this computer's dev servers to itself, or sharing its own ports here (BLG-802/804).
-    tunnels: (socket) => void serveTunnels(socket, opts.log ? { log: opts.log } : {}),
+    tunnels: (socket) => void serveTunnels(socket, { name: macName, ...(opts.log ? { log: opts.log } : {}) }),
     onWorktree: (machineId, workspaceId) => void envSend?.offer(machineId, workspaceId).catch((err: unknown) => opts.log?.(`env-send: couldn't offer env files: ${err instanceof Error ? err.message : String(err)}`)),
     ...(opts.log ? { log: opts.log } : {}),
   });

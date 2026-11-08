@@ -218,8 +218,50 @@ export class TunnelMux {
 /** localhost:<port> here, IPv4 or IPv6, whichever answers (a dev server may take only ::1). */
 const connectLocal = (port: number): net.Socket => net.connect({ host: 'localhost', port, autoSelectFamily: true });
 
-/** Listen on 127.0.0.1:<port> (and ::1 when there's IPv6), as one server. → it, or why not. */
-function listenOn(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => Promise<void>; port: number }> {
+/** How long a connect probe waits for an answer (a server on this computer answers at once). */
+const PROBE_MS = 300;
+
+/** Something answers on host:port here (a connect that isn't refused; no answer in time counts as yes). */
+function answers(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const done = (yes: boolean): void => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(yes);
+    };
+    const timer = setTimeout(() => done(true), PROBE_MS);
+    sock.once('connect', () => done(true));
+    // Refused, or no such address here (no IPv6): nothing there.
+    sock.once('error', () => done(false));
+  });
+}
+
+/** A wildcard address can't be bound on this port: something holds it (no IPv6 here: nothing to hold). */
+function heldOnAll(host: '0.0.0.0' | '::', port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'EADDRINUSE' || err.code === 'EACCES'));
+    probe.listen({ host, port, exclusive: true, ...(host === '::' ? { ipv6Only: false } : {}) }, () => probe.close(() => resolve(false)));
+  });
+}
+
+/**
+ * Port `port` is in use here, on any address. Binding 127.0.0.1 and ::1 alone isn't proof: on
+ * macOS a specific address binds over a server on :: or 0.0.0.0 (Next.js, vite --host, rails -b
+ * 0.0.0.0, Docker's published ports), and localhost would then reach the forward instead of it.
+ */
+export async function portInUse(port: number): Promise<boolean> {
+  const checks = await Promise.all([answers('127.0.0.1', port), answers('::1', port)]);
+  if (checks.some(Boolean)) return true;
+  return (await heldOnAll('0.0.0.0', port)) || (await heldOnAll('::', port));
+}
+
+const inUse = (port: number): NodeJS.ErrnoException => Object.assign(new Error(`Port ${port} is already in use`), { code: 'EADDRINUSE' });
+
+/** Listen on 127.0.0.1:<port> (and ::1 when there's IPv6), as one server, never over one here. → it, or why not. */
+async function listenOn(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => Promise<void>; port: number }> {
+  if (port !== 0 && (await portInUse(port))) throw inUse(port);
   const one = (host: string, p: number): Promise<net.Server> =>
     new Promise((resolve, reject) => {
       const server = net.createServer(onConn);
@@ -268,7 +310,7 @@ export async function listenNear(port: number, onConn: (sock: net.Socket) => voi
  * (your app could run anything here anyway); `listen` takes connections on localhost:<port> here
  * and carries them to your app (a port you shared from it, BLG-804), closed with the link.
  */
-export function serveTunnels(link: MessageSocket, opts: { readonly connect?: (port: number) => net.Socket; readonly log?: (line: string) => void } = {}): TunnelMux {
+export function serveTunnels(link: MessageSocket, opts: { readonly connect?: (port: number) => net.Socket; readonly name?: () => string; readonly log?: (line: string) => void } = {}): TunnelMux {
   const listening = new Map<number, Promise<{ close: () => Promise<void> }>>();
   const mux: TunnelMux = new TunnelMux(link, {
     side: 'c',
@@ -283,7 +325,10 @@ export function serveTunnels(link: MessageSocket, opts: { readonly connect?: (po
       if (had) await (await had.catch(() => undefined))?.close();
       if (!on) return mux.closePort(port);
       // The same port, so what's set up for it (a database URL in .env) works as it is.
-      const server = listenOn(port, (sock) => mux.carry(sock, port));
+      // A port in use here is never covered: what runs on it keeps it, and your app hears why.
+      const server = listenOn(port, (sock) => mux.carry(sock, port)).catch((err: NodeJS.ErrnoException) => {
+        throw err.code === 'EADDRINUSE' ? new Error(`${opts.name?.() ?? 'That computer'} already uses port ${port}: stop what runs on it there, or share another port`) : err;
+      });
       listening.set(port, server);
       server.catch(() => listening.get(port) === server && listening.delete(port));
       await server;

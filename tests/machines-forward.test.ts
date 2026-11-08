@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { TunnelMux, listenNear, serveTunnels } from '../src/machines/forward.js';
+import { TunnelMux, listenNear, portInUse, serveTunnels } from '../src/machines/forward.js';
 import type { MessageSocket } from '../src/net/transport.js';
 
 /** Byte tunnels to a computer (BLG-802): the port here, and what each side lets be opened. */
@@ -51,6 +51,67 @@ describe('listening here', () => {
     const second = await listenNear(port, (s) => s.end());
     stops.push(second.close);
     expect(second.port).toBeGreaterThan(port);
+  });
+
+  /** Someone's own server here on `host`, answering `own`. */
+  async function ownServer(host: string): Promise<number> {
+    // The probe hangs up at once: the server's side hears a reset.
+    const s = net.createServer((sock) => sock.on('error', () => undefined).end('own'));
+    await new Promise<void>((r) => s.listen({ host, port: 0, ...(host === '::' ? { ipv6Only: false } : {}) }, r));
+    stops.push(() => void s.close());
+    return (s.address() as net.AddressInfo).port;
+  }
+
+  const read = (host: string, port: number): Promise<string> =>
+    new Promise((resolve) => {
+      const c = net.connect(port, host);
+      let text = '';
+      c.on('data', (d) => (text += String(d)));
+      c.on('close', () => resolve(text));
+      c.on('error', () => resolve(`refused on ${host}`));
+    });
+
+  for (const host of ['::', '0.0.0.0'] as const) {
+    it(`never covers a server here on ${host}: the forward takes a later port, and localhost still reaches it`, async () => {
+      const port = await ownServer(host);
+      expect(await portInUse(port)).toBe(true);
+      const fwd = await listenNear(port, (s) => s.on('error', () => undefined).end('forward'));
+      stops.push(fwd.close);
+      expect(fwd.port).toBeGreaterThan(port);
+      expect(await read('127.0.0.1', port)).toBe('own');
+      if (host === '::') expect(await read('::1', port)).toBe('own');
+      expect(await read('127.0.0.1', fwd.port)).toBe('forward');
+    });
+  }
+
+  it('a port held on 127.0.0.1 alone still falls back', async () => {
+    const port = await ownServer('127.0.0.1');
+    const fwd = await listenNear(port, (s) => s.on('error', () => undefined).end('forward'));
+    stops.push(fwd.close);
+    expect(fwd.port).toBeGreaterThan(port);
+    expect(await read('127.0.0.1', port)).toBe('own');
+  });
+});
+
+describe('sharing a port the computer already uses', () => {
+  it('is refused in plain words, and what runs there keeps it', async () => {
+    const [appEnd, computerEnd] = pair();
+    const port = await (async () => {
+      const s = net.createServer((sock) => sock.on('error', () => undefined).end('the computer’s own'));
+      await new Promise<void>((r) => s.listen({ host: '::', port: 0, ipv6Only: false }, r));
+      stops.push(() => void s.close());
+      return (s.address() as net.AddressInfo).port;
+    })();
+    const app = new TunnelMux(appEnd, { side: 'a', mayOpen: () => true });
+    serveTunnels(computerEnd, { name: () => 'mini' });
+    await expect(app.listen(port, true)).rejects.toThrow(`mini already uses port ${port}: stop what runs on it there, or share another port`);
+    const got = await new Promise<string>((resolve) => {
+      const c = net.connect(port, '127.0.0.1');
+      let text = '';
+      c.on('data', (d) => (text += String(d)));
+      c.on('close', () => resolve(text));
+    });
+    expect(got).toBe('the computer’s own');
   });
 });
 
