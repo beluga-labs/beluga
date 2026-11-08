@@ -6,7 +6,7 @@ import type { KeyPair, NoiseSocket } from 'hyperdht';
 import { type DeviceKeys, roleOf } from '../companion/device-crypto.js';
 import { type OpenRelay, dialMac } from '../companion/dial.js';
 import { type DeviceBook, deviceId } from '../companion/devices.js';
-import { type DeviceCert, DeviceSetSync } from '../companion/protocol.js';
+import type { DeviceCert } from '../companion/protocol.js';
 import type { RelayRoute } from '../companion/relay.js';
 import type { Identity } from '../net/crypto.js';
 import { type MessageSocket, fromStream } from '../net/transport.js';
@@ -14,6 +14,7 @@ import { MachineBook, type MachineRecord } from './book.js';
 import { DeviceSet, type SetDeviceView } from './controllers.js';
 import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
+import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 
 /**
@@ -31,11 +32,14 @@ import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } fr
 const SYNC_RETRY_MS = 60_000;
 const SYNC_TIMEOUT_MS = 15_000;
 const MAX_SYNC_BYTES = 1024 * 1024;
+/** How often the app asks each computer what it has free (BLG-778), and how long one unheard from still counts as online. */
+const POLL_MS = 30_000;
+const ONLINE_GRACE = 2.5;
 
 export type MachinePlatform = 'macos' | 'linux' | 'windows';
 export const platformHere = (p: NodeJS.Platform = process.platform): MachinePlatform => (p === 'darwin' ? 'macos' : p === 'win32' ? 'windows' : 'linux');
 
-/** A computer as the app lists it (BLG-778 adds what it has free). */
+/** A computer as the app lists it: who it is, whether it answers, and what it has free (BLG-778). */
 export interface MachineView {
   readonly id: string;
   readonly name: string;
@@ -43,6 +47,19 @@ export interface MachineView {
   readonly version?: string;
   readonly pairedAt: number;
   readonly lastSeen?: number;
+  /** It answered the last ask (online), didn't (offline), or hasn't been asked yet (unknown). */
+  readonly status: 'online' | 'offline' | 'unknown';
+  /** The link's round trip at the last ask (ms). */
+  readonly rttMs?: number;
+  /** What it said it has free, as of `info.at` (kept while it's offline). */
+  readonly info?: MachineInfo;
+}
+
+interface Live {
+  readonly at: number;
+  readonly ok: boolean;
+  readonly rttMs?: number;
+  readonly info?: MachineInfo;
 }
 
 export interface MachinesOptions {
@@ -70,6 +87,10 @@ export interface MachinesOptions {
   readonly refuseDirect?: boolean;
   readonly staggerMs?: number;
   readonly retryMs?: number;
+  /** On a computer: what it has free, said to an app of yours that asks (info.ts). */
+  readonly info?: () => Promise<MachineInfo>;
+  /** How often the app asks its computers (30 s). */
+  readonly pollMs?: number;
   readonly log?: (line: string) => void;
 }
 
@@ -88,6 +109,8 @@ export class Machines {
   private readonly offs: Array<() => void> = [];
   private readonly pending = new Set<string>();
   private retry?: NodeJS.Timeout;
+  private poller?: NodeJS.Timeout;
+  private readonly live = new Map<string, Live>();
   private stopped = false;
   readonly platform: MachinePlatform;
 
@@ -130,12 +153,17 @@ export class Machines {
     this.phonesChanged();
     // What changed while this install was off reaches the others now.
     if (this.book.all().length) this.syncAll();
+    // The app asks its computers what they have free, now and every 30 s.
+    this.poller = setInterval(() => void this.poll(), this.opts.pollMs ?? POLL_MS);
+    this.poller.unref();
+    void this.poll();
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     for (const off of this.offs.splice(0)) off();
     clearTimeout(this.retry);
+    clearInterval(this.poller);
     this.joining?.decide?.(false);
     await this.pairing.cancel('Beluga on this computer is shutting down');
   }
@@ -166,14 +194,19 @@ export class Machines {
     const timer = setTimeout(() => socket.terminate(), SYNC_TIMEOUT_MS);
     timer.unref();
     socket.once('close', () => clearTimeout(timer));
-    socket.once('message', (text) => {
+    socket.once('message', async (text) => {
       const frame = parseSync(text);
       if (!frame) return socket.close(4001, 'Expected the device set');
       this.book.update(deviceId(cert), { lastSeen: Date.now() });
       this.merged(this.set.merge(frame));
       // It may have been forgotten by what it just said (or before): it hears so and goes.
       if (!this.admit(cert.link)) return socket.close(4010, 'This device was forgotten');
-      socket.send(JSON.stringify(this.set.syncFrame()));
+      // An app of yours asking what this computer has free hears it too (BLG-778).
+      const wantsInfo = frame.want?.includes('info') && roleOf(cert) === 'app' && this.opts.info;
+      const info = wantsInfo ? await this.opts.info!().catch((err: unknown) => void this.opts.log?.(`machines: couldn't say what's free: ${String(err)}`)) : undefined;
+      if (!socket.isOpen) return;
+      const answer: MachineSync = { ...this.set.syncFrame(), ...(info ? { info } : {}) };
+      socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
   }
@@ -271,7 +304,23 @@ export class Machines {
 
   /** The computers this app drives. */
   list(): MachineView[] {
-    return this.book.all().filter((r) => roleOf(r.cert) === 'computer' && this.set.holds(r.cert)).map((r) => this.view(r));
+    return this.computers().map((r) => this.view(r));
+  }
+
+  private computers(): MachineRecord[] {
+    return this.book.all().filter((r) => roleOf(r.cert) === 'computer' && this.set.holds(r.cert));
+  }
+
+  /** Ask every computer what it has free (and swap sets on the way); one that doesn't answer is offline. */
+  async poll(): Promise<void> {
+    if (this.stopped || !this.set.holdsIdentity) return;
+    await Promise.all(
+      this.computers().map(async (r) => {
+        const id = deviceId(r.cert);
+        const ok = await this.syncWith(r, true).catch(() => false);
+        if (!ok) this.live.set(id, { ...this.live.get(id), at: Date.now(), ok: false, rttMs: undefined });
+      }),
+    );
   }
 
   /** Every device of your set this install knows (`beluga computers`: who may drive it). */
@@ -348,8 +397,8 @@ export class Machines {
     this.retry.unref();
   }
 
-  /** Dial one device of yours, swap device sets, merge its answer. */
-  async syncWith(r: MachineRecord): Promise<boolean> {
+  /** Dial one device of yours, swap device sets, merge its answer; `info`: ask a computer what it has free too. */
+  async syncWith(r: MachineRecord, info = false): Promise<boolean> {
     const node = this.opts.refuseDirect ? undefined : await this.opts.node();
     const dialed = await dialMac({
       ...(node ? { node } : {}),
@@ -363,21 +412,38 @@ export class Machines {
     });
     const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_SYNC_BYTES, open: true });
     socket.on('error', () => undefined);
-    const answer = await exchange(socket, JSON.stringify(this.set.syncFrame()));
+    const ask: MachineSync = { ...this.set.syncFrame(), ...(info ? { want: ['info' as const] } : {}) };
+    const sent = Date.now();
+    const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
+    if (info) this.live.set(deviceId(r.cert), { at: Date.now(), ok: true, rttMs: Date.now() - sent, ...(answer.info ? { info: answer.info } : {}) });
     this.book.update(deviceId(r.cert), { lastSeen: Date.now(), ...(dialed.relay && !r.relays.includes(dialed.relay) ? { relays: [dialed.relay, ...r.relays].slice(0, 4) } : {}) });
     this.merged(this.set.merge(answer));
     return true;
   }
 
   private view(r: MachineRecord): MachineView {
-    return { id: deviceId(r.cert), name: r.name, platform: r.cert.platform, ...(r.version ? { version: r.version } : {}), pairedAt: r.pairedAt, ...(r.lastSeen !== undefined ? { lastSeen: r.lastSeen } : {}) };
+    const live = this.live.get(deviceId(r.cert));
+    // Online while its last answer is recent; an ask that failed says offline at once.
+    const fresh = live?.ok && Date.now() - live.at < (this.opts.pollMs ?? POLL_MS) * ONLINE_GRACE;
+    const status = !live ? 'unknown' : fresh ? 'online' : 'offline';
+    return {
+      id: deviceId(r.cert),
+      name: r.name,
+      platform: r.cert.platform,
+      ...(r.version ? { version: r.version } : {}),
+      pairedAt: r.pairedAt,
+      ...(r.lastSeen !== undefined ? { lastSeen: r.lastSeen } : {}),
+      status,
+      ...(status === 'online' && live?.rttMs !== undefined ? { rttMs: live.rttMs } : {}),
+      ...(live?.info ? { info: live.info } : {}),
+    };
   }
 }
 
-const parseSync = (text: string): DeviceSetSync | undefined => {
+const parseSync = (text: string): MachineSync | undefined => {
   try {
-    const parsed = DeviceSetSync.safeParse(JSON.parse(text));
+    const parsed = MachineSync.safeParse(JSON.parse(text));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -385,7 +451,7 @@ const parseSync = (text: string): DeviceSetSync | undefined => {
 };
 
 /** Send one frame and wait for the one answer (or the close). */
-function exchange(socket: MessageSocket, frame: string): Promise<DeviceSetSync | undefined> {
+function exchange(socket: MessageSocket, frame: string): Promise<MachineSync | undefined> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => (socket.terminate(), resolve(undefined)), SYNC_TIMEOUT_MS);
     socket.once('message', (text) => {

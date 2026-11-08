@@ -21,6 +21,7 @@ import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
+import { collectInfo, realInfoDeps } from '../machines/info.js';
 import { Machines } from '../machines/machines.js';
 import { attachMachines, detachMachines } from '../machines/registry.js';
 
@@ -171,6 +172,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host: CompanionHost | undefined;
   // Your device set and computers (BLG-774): they share the phones' node, relay and address.
+  const infoDeps = realInfoDeps(() => opts.store.getState());
   const machines = new Machines({
     dir,
     identity: opts.identity,
@@ -183,6 +185,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     version: installedVersion(),
     removePhone: (id) => void host?.removeDevice(id, 'This phone was forgotten on another of your devices'),
     onChange: () => host?.machinesChanged(),
+    // What this computer has free, for an app of yours that asks (BLG-778).
+    info: () => collectInfo(infoDeps),
     ...(opts.log ? { log: opts.log } : {}),
   });
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());

@@ -82,7 +82,7 @@ function computers(devices: SetDeviceView[], joins: { offer?: Error; approve?: E
     forgot: [] as string[],
     cancelled: 0,
     approved: 0,
-    list: async () => [{ id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, version: '0.9.0', pairedAt: Date.now() - 60_000, lastSeen: Date.now() - 60_000 }],
+    list: async () => [{ id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, version: '0.9.0', pairedAt: Date.now() - 60_000, lastSeen: Date.now() - 60_000, status: 'offline' as const }],
     devices: async () => devices,
     forget: async (id: string) => {
       link.forgot.push(id);
@@ -95,7 +95,7 @@ function computers(devices: SetDeviceView[], joins: { offer?: Error; approve?: E
     joinApprove: async () => {
       if (joins.approve) throw joins.approve;
       link.approved += 1;
-      return { id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, pairedAt: Date.now() };
+      return { id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, pairedAt: Date.now(), status: 'unknown' as const };
     },
     joinCancel: async () => void (link.cancelled += 1),
   };
@@ -109,7 +109,7 @@ describe('beluga computers', () => {
     expect(await listComputers(computers(devices), io)).toBe(0);
     const text = io.text();
     expect(text).toMatch(/May drive this computer:\n {2}MacBook {2}Beluga app on Mac, signed in 1 ?h(our)? ago/);
-    expect(text).toContain('Your computers:\n  mini  Linux · Beluga 0.9.0');
+    expect(text).toContain('Your computers:\n  mini  Linux · Beluga 0.9.0, offline, last seen 1 min');
     expect(text).toContain('Your other devices:\n  Pixel 9  phone on Android');
     expect(text).not.toContain('this one');
   });

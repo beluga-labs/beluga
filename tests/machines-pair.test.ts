@@ -53,6 +53,9 @@ async function install(name: string) {
     removePhone: (id) => void host.removeDevice(id),
     onChange: () => host.machinesChanged(),
     retryMs: 300,
+    // What it has free, as a computer says it (BLG-778; the real collector is tested in machine-info.test.ts).
+    info: async () => ({ at: Date.now(), cpus: 4, loadPerCore: 0.5, memory: { freeGB: 6, totalGB: 16 }, agentsRunning: 1, runtimes: [{ id: 'claude', state: 'ready' as const }], gh: 'signed_in' as const, mcp: [], projects: [{ name: 'beluga', origin: 'git@github.com:kayraucklnc/beluga.git' }] }),
+    pollMs: 60_000,
   });
   host = new CompanionHost({
     identity,
@@ -192,3 +195,26 @@ describe('forgetting a device anywhere', () => {
     await expect(aws.machines.syncWith(aws.machines.book.all()[0]!)).rejects.toThrow();
   }, 180_000);
 });
+
+describe('what each computer has free (BLG-778)', () => {
+  it('machines.list says each computer is online, its round trip, and what it has free; a stopped one is offline', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    await join(app, mini);
+    expect(app.machines.list()[0]!.status).toBe('unknown');
+    await app.machines.poll();
+    const [view] = app.machines.list();
+    expect(view).toMatchObject({ name: 'mini', status: 'online', info: { cpus: 4, loadPerCore: 0.5, memory: { freeGB: 6 }, agentsRunning: 1, gh: 'signed_in', runtimes: [{ id: 'claude', state: 'ready' }], projects: [{ name: 'beluga', origin: 'git@github.com:kayraucklnc/beluga.git' }] } });
+    expect(view!.rttMs).toBeGreaterThanOrEqual(0);
+    // Only an app hears what a computer has free: a computer asking the app gets the set alone.
+    expect(await mini.machines.syncWith(mini.machines.book.all()[0]!, true)).toBe(true);
+
+    await mini.machines.stop();
+    await mini.host.stop();
+    await app.machines.poll();
+    const [after] = app.machines.list();
+    expect(after).toMatchObject({ status: 'offline', info: { cpus: 4 } });
+    expect(after!.rttMs).toBeUndefined();
+  }, 120_000);
+});
+

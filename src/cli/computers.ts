@@ -23,6 +23,15 @@ export const computersLinkOf = (client: SocketClient): ComputersLink => ({
   joinCancel: () => client.call('machines.join.cancel'),
 });
 
+/** A computer's state in a few words: online with what it has free, or when it was last seen. */
+export function computerLine(c: MachineView, now = Date.now()): string {
+  const what = `${PLATFORM[c.platform]}${c.version ? ` · Beluga ${c.version}` : ''}`;
+  if (c.status !== 'online') return `${what}, ${c.status === 'offline' ? 'offline' : 'not asked yet'}${c.lastSeen ? `, last seen ${ago(now - c.lastSeen)} ago` : ''}`;
+  const i = c.info;
+  const free = i ? [`load ${Math.round(i.loadPerCore * 100)}%`, `${i.memory.freeGB} GB memory free`, ...(i.disk ? [`${i.disk.freeGB} GB disk free`] : []), `${i.agentsRunning} agent${i.agentsRunning === 1 ? '' : 's'} running`] : [];
+  return [`${what}, online${c.rttMs !== undefined ? ` (${c.rttMs} ms)` : ''}`, ...free].join(', ');
+}
+
 const ROLE = { app: 'Beluga app', computer: 'computer', phone: 'phone' } as const;
 const PLATFORM = { macos: 'Mac', linux: 'Linux', windows: 'Windows', android: 'Android', ios: 'iPhone' } as const;
 
@@ -37,7 +46,7 @@ export async function listComputers(link: ComputersLink, io: Io, now = Date.now(
   const line = (name: string, what: string, id: string): string => `  ${name}  ${what}  (${id})`;
   const out: string[] = [];
   if (drivers.length) out.push('May drive this computer:', ...drivers.map((d) => line(d.name, `${ROLE[d.role]} on ${PLATFORM[d.platform]}, signed in ${ago(now - d.issuedAt)} ago`, d.id)), '');
-  if (computers.length) out.push('Your computers:', ...computers.map((c) => line(c.name, `${PLATFORM[c.platform]}${c.version ? ` · Beluga ${c.version}` : ''}, ${c.lastSeen ? `last seen ${ago(now - c.lastSeen)} ago` : 'not seen yet'}`, c.id)), '');
+  if (computers.length) out.push('Your computers:', ...computers.map((c) => line(c.name, computerLine(c, now), c.id)), '');
   if (others.length) out.push('Your other devices:', ...others.map((d) => line(d.name, `${ROLE[d.role]} on ${PLATFORM[d.platform]}`, d.id)), '');
   if (!out.length) {
     io.out('No devices of yours here yet. On a computer, run `beluga pair --computer` and add it from your Beluga app (or `beluga computers add <link or code>`).\n');
