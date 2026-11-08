@@ -9,8 +9,9 @@ import { findComponents, pickComponent } from '../shared/preview/props.js';
 import type { PreviewTarget } from '../shared/preview/ref.js';
 import { PICTURE, placeholderSvg, sampleProps } from '../shared/preview/samples.js';
 import type { ComponentInfo } from '../shared/preview/shape.js';
-import { type Bundle, type Bundler, makeBundler } from './bundle.js';
+import { type Bundle, type Bundler, makeBundler, stopEsbuild } from './bundle.js';
 import { RELOAD_JS, RUNTIME_CSS, RUNTIME_JS } from './runtime.js';
+import { previewsStarted } from './off.js';
 import { COMPONENT_CSP, PAGE_CSP, PreviewServer, pageFile, send, sendFile } from './server.js';
 
 /**
@@ -346,7 +347,14 @@ export class PreviewManager {
   async sweep(now = Date.now()): Promise<void> {
     const idleMs = this.opts.idleMs ?? IDLE_MS;
     for (const live of [...this.lives.values()]) if (!live.watched && now - live.lastUsed > idleMs) await this.drop(live);
-    if (!this.lives.size) this.stopTimers();
+    if (!this.lives.size && !this.starting.size) await this.rest();
+  }
+
+  /** Nothing left to show: the server closes and esbuild's helper stops, until the next preview. */
+  private async rest(): Promise<void> {
+    this.stopTimers();
+    this.server.close();
+    await stopEsbuild();
   }
 
   get size(): number {
@@ -372,9 +380,8 @@ export class PreviewManager {
   }
 
   async close(): Promise<void> {
-    this.stopTimers();
     for (const live of [...this.lives.values()]) await this.drop(live);
-    this.server.close();
+    await this.rest();
   }
 }
 
@@ -386,15 +393,15 @@ function noComponent(rel: string, wanted: string | undefined, components: readon
 
 let shared: PreviewManager | undefined;
 
-/** The daemon's previews, made the first time one is opened. */
+/** The daemon's previews, made the first time one is opened (and closable from preview/off.ts). */
 export function previews(): PreviewManager {
-  shared ??= new PreviewManager();
+  if (!shared) {
+    const made = new PreviewManager();
+    shared = made;
+    previewsStarted(async () => {
+      if (shared === made) shared = undefined;
+      await made.close();
+    });
+  }
   return shared;
-}
-
-/** At the daemon's stop: every preview let go (nothing to do when none was ever opened). */
-export async function closePreviews(): Promise<void> {
-  const m = shared;
-  shared = undefined;
-  await m?.close();
 }

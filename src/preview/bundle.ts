@@ -53,6 +53,22 @@ export function hasPackages(root: string, from: string): boolean {
 
 const isFailure = (err: unknown): err is { errors: Message[] } => Boolean(err && typeof err === 'object' && Array.isArray((err as { errors?: unknown }).errors));
 
+type Esbuild = typeof import('esbuild');
+let loaded: Esbuild | undefined;
+
+/** esbuild, loaded on the first build (its helper process starts with it). */
+async function loadEsbuild(): Promise<Esbuild> {
+  loaded ??= await import('esbuild');
+  return loaded;
+}
+
+/** esbuild's helper process stopped (when no preview is left); it starts again with the next build. */
+export async function stopEsbuild(): Promise<void> {
+  const e = loaded;
+  if (!e) return;
+  await Promise.resolve(e.stop()).catch(() => undefined);
+}
+
 /**
  * What a preview's build may read: files of the worktree and installed packages (a node_modules
  * folder anywhere, for monorepos and linked installs), never a secret. A component's own imports
@@ -87,7 +103,7 @@ export function fencePlugin(root: string): Plugin {
  * `rel`: its path in the worktree. `css`: a stylesheet to bundle with it, absolute.
  */
 export async function makeBundler(root: string, file: string, rel: string, pick: string | undefined, css?: string): Promise<Bundler> {
-  const esbuild = await import('esbuild');
+  const esbuild = await loadEsbuild();
   const loader = Object.fromEntries(ASSETS.map((ext) => [ext, 'dataurl' as const]));
   let ctx: BuildContext<{ write: false; metafile: true }> | undefined;
   let disposed = false;
@@ -103,10 +119,14 @@ export async function makeBundler(root: string, file: string, rel: string, pick:
       target: ['safari16', 'chrome110'],
       jsx: 'automatic',
       jsxDev: false,
+      // React's production build: a fifth of the size and faster to start; whitespace and syntax
+      // minified, names kept so a failure's stack still says where.
+      minifyWhitespace: true,
+      minifySyntax: true,
       outfile: path.join(os.tmpdir(), 'beluga-preview', 'bundle.js'),
       loader: { ...loader, '.js': 'jsx' },
-      define: { 'process.env.NODE_ENV': '"development"', global: 'globalThis' },
-      conditions: ['browser', 'development', 'module'],
+      define: { 'process.env.NODE_ENV': '"production"', global: 'globalThis' },
+      conditions: ['browser', 'module'],
       logLevel: 'silent',
       legalComments: 'none',
       charset: 'utf8',

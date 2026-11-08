@@ -31,7 +31,7 @@ import { launchSupport } from '../core/merge-counter.js';
 import { launchStats } from '../core/stats/counter.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
-import { closePreviews } from '../preview/manager.js';
+import { closePreviews } from '../preview/off.js';
 import { Store, initialState, prefsFrom } from '../core/store.js';
 import { createDemoFolders, createDemoWorkspaces, seedDemoContext, startDemoFriend, startDemoGuest } from '../demo.js';
 import { type Identity, deriveKeys, generateSecret, loadIdentity } from '../net/crypto.js';

@@ -28,7 +28,14 @@ export const RUNTIME_JS = String.raw`(function () {
   var stage = document.getElementById('stage');
   var state = { api: null, root: null, props: {}, variants: null, key: 0, failed: false };
   // Libraries that read process.env (NODE_ENV) in a browser.
-  if (typeof window.process === 'undefined') window.process = { env: { NODE_ENV: 'development' } };
+  if (typeof window.process === 'undefined') window.process = { env: { NODE_ENV: 'production' } };
+  // Every preview starts clean, and leaves nothing behind for the next: what a component keeps in
+  // the browser (storage, databases, cookies) is cleared as the page loads.
+  try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* not allowed here */ }
+  try {
+    if (indexedDB && indexedDB.databases) indexedDB.databases().then(function (dbs) { dbs.forEach(function (d) { if (d.name) indexedDB.deleteDatabase(d.name); }); }).catch(function () {});
+  } catch (e) { /* none */ }
+  document.cookie.split(';').forEach(function (c) { var n = c.split('=')[0].trim(); if (n) document.cookie = n + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'; });
 
   function post(msg) {
     msg.beluga = msg.beluga || 'note';

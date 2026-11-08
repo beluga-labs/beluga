@@ -15,11 +15,18 @@ import { hostName } from '../daemon/web.js';
 
 export const PREVIEW_HOST = '127.0.0.1';
 
+/**
+ * The port it asks for first: one address from one run to the next, so whatever a component keeps
+ * in the browser stays under one origin (and is cleared as each preview loads) instead of piling
+ * up under a new one each time. Taken (another Beluga, a demo): any free one.
+ */
+export const PREVIEW_PORT = 47791;
+
 /** Who may frame a preview: the Mac app (tauri://localhost), its dev server, the demo's browser. */
 export const FRAME_ANCESTORS = "tauri://localhost http://tauri.localhost https://tauri.localhost http://localhost:* http://127.0.0.1:*";
 
 /** A component's frame: only what this server serves, so nothing in it can be sent off this computer. */
-export const COMPONENT_CSP = `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${FRAME_ANCESTORS}`;
+export const COMPONENT_CSP = `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors ${FRAME_ANCESTORS}`;
 
 /** An HTML file's frame: a page you made, so its inline scripts and CDNs run too, but it connects only here. */
 export const PAGE_CSP = `default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self'; base-uri 'self'; form-action 'none'; frame-ancestors ${FRAME_ANCESTORS}`;
@@ -101,6 +108,14 @@ export class PreviewServer {
   private starting?: Promise<number>;
   private readonly sites = new Map<string, PreviewSite>();
 
+  /** `port`: the one to ask for first (0: any free one). */
+  constructor(private readonly wanted = PREVIEW_PORT) {}
+
+  /** Whether it's listening (it closes when no preview is left). */
+  get open(): boolean {
+    return Boolean(this.server);
+  }
+
   /** The server's origin, started the first time it's needed. */
   async origin(): Promise<string> {
     return `http://${PREVIEW_HOST}:${await this.start()}`;
@@ -116,19 +131,25 @@ export class PreviewServer {
 
   private start(): Promise<number> {
     if (this.port) return Promise.resolve(this.port);
-    this.starting ??= new Promise<number>((resolve, reject) => {
+    this.starting ??= this.listen(this.wanted)
+      .catch(() => (this.wanted ? this.listen(0) : Promise.reject(new Error('No port for previews'))))
+      .finally(() => (this.starting = undefined));
+    return this.starting;
+  }
+
+  private listen(port: number): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
       const server = createServer((req, res) => void this.request(req, res).catch(() => res.destroy()));
       server.on('clientError', (_err, socket) => socket.destroy());
       server.once('error', reject);
-      server.listen(0, PREVIEW_HOST, () => {
+      server.listen(port, PREVIEW_HOST, () => {
         this.server = server;
         this.port = (server.address() as AddressInfo).port;
         // Never what keeps the daemon running.
         server.unref();
         resolve(this.port);
       });
-    }).finally(() => (this.starting = undefined));
-    return this.starting;
+    });
   }
 
   private async request(req: IncomingMessage, res: ServerResponse): Promise<void> {

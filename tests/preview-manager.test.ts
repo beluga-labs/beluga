@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PreviewManager, worktreeFile } from '../src/preview/manager.js';
 import { PREVIEW_HANDLERS } from '../src/ipc/preview-handlers.js';
+import { PreviewServer } from '../src/preview/server.js';
 import type { PreviewResult } from '../src/shared/preview/opened.js';
 import type { Session } from '../src/core/session.js';
 
@@ -51,7 +52,8 @@ beforeAll(() => {
   writeFileSync(path.join(root, '..', `${path.basename(root)}-outside.json`), '{"key": "not yours"}');
   writeFileSync(path.join(root, 'src', 'Reach.tsx'), `import k from '../../${path.basename(root)}-outside.json';\nexport default function Reach() { return <b>{String(k)}</b> }\n`);
   writeFileSync(path.join(root, 'src', 'Secret.tsx'), "import t from '../.env';\nexport default function Secret() { return <b>{String(t)}</b> }\n");
-  manager = new PreviewManager(undefined, { idleMs: 0 });
+  // Any free port: a running Beluga may hold the usual one.
+  manager = new PreviewManager(new PreviewServer(0), { idleMs: 0 });
 });
 
 afterAll(async () => {
@@ -100,7 +102,7 @@ describe.skipIf(!haveReact)('a component, built and served', () => {
     expect(html).toContain('"price":24');
     const bundle = await (await fetch(`${base(out.url)}bundle.js`)).text();
     expect(bundle).toContain('__belugaPreview.mount');
-    expect(await (await fetch(`${base(out.url)}bundle.css`)).text()).toContain('border-radius: 12px');
+    expect(await (await fetch(`${base(out.url)}bundle.css`)).text()).toContain('border-radius:12px');
     expect((await fetch(`${base(out.url)}runtime.js`)).headers.get('content-type')).toContain('javascript');
     // Sample pictures are drawn by the server, from their short names.
     const picture = await fetch(`${base(out.url)}picture/1-LP.svg`);

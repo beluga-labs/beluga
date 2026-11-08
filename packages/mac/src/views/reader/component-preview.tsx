@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { ViewerState } from '@beluga/core/store.js';
 import { experimentOn } from '@beluga/shared/experiments.js';
-import { looksLikeComponents } from '@beluga/shared/preview/props.js';
 import type { PreviewRef } from '@beluga/shared/preview/ref.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
-import { PreviewView } from '../../components/preview/PreviewBlock.js';
 import { Segmented } from '../../components/ui.js';
 import { useApp } from '../../lib/beluga.js';
 
@@ -14,12 +12,28 @@ import { useApp } from '../../lib/beluga.js';
  * file shows as it always has.
  */
 
+// Loaded only with the experiment on and a component file open: off, none of it is ever loaded.
+const PreviewView = lazy(() => import('../../components/preview/PreviewBlock.js').then((m) => ({ default: m.PreviewView })));
+
+/** A file that may hold components (worth reading for them at all). */
+const MAYBE = /\.(tsx|jsx|vue|svelte)$/i;
+
 /** What a file's Preview draws, when it has one. */
 export function useComponentPreview(viewer: ViewerState, wsId: string | undefined): PreviewRef | undefined {
   const on = useApp((st) => experimentOn(st.prefs.experiments, 'previews'));
   const mine = useApp((st) => Boolean(wsId) && viewer.owner === st.selfId && viewer.share === shareNameOf(wsId ?? ''));
-  const components = useMemo(() => on && mine && !viewer.loading && looksLikeComponents(viewer.path, viewer.content), [on, mine, viewer.path, viewer.content, viewer.loading]);
-  return useMemo(() => (components ? { target: { kind: 'component', file: viewer.path } } : undefined), [components, viewer.path]);
+  const [components, setComponents] = useState(false);
+  const worth = on && mine && !viewer.loading && MAYBE.test(viewer.path);
+  useEffect(() => {
+    if (!worth) return setComponents(false);
+    let alive = true;
+    // The props reader, loaded the first time it's needed.
+    void import('@beluga/shared/preview/props.js').then((m) => alive && setComponents(m.looksLikeComponents(viewer.path, viewer.content)));
+    return () => {
+      alive = false;
+    };
+  }, [worth, viewer.path, viewer.content]);
+  return useMemo(() => (worth && components ? { target: { kind: 'component', file: viewer.path } } : undefined), [worth, components, viewer.path]);
 }
 
 /** Source or Preview, back to Source when another file opens. */
@@ -47,7 +61,9 @@ export function PreviewToggle({ previewing, onChange }: { previewing: boolean; o
 export function ComponentPreview({ previewRef, wsId }: { previewRef: PreviewRef; wsId: string }) {
   return (
     <div style={{ padding: 12 }}>
-      <PreviewView ref_={previewRef} wsId={wsId} embedded />
+      <Suspense fallback={null}>
+        <PreviewView ref_={previewRef} wsId={wsId} embedded />
+      </Suspense>
     </div>
   );
 }

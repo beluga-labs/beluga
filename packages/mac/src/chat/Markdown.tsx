@@ -1,5 +1,5 @@
 import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
-import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react';
+import { Suspense, createContext, lazy, memo, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -36,7 +36,6 @@ import { CodeRefBlock } from '../components/code/CodeRefBlock.js';
 import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
 import { PREVIEW_FENCE } from '@beluga/shared/preview/ref.js';
-import { PreviewBlock } from '../components/preview/PreviewBlock.js';
 import { linkPaths, parsePathHref } from '@beluga/shared/render/path-refs.js';
 import { PathLink } from './PathLink.js';
 import s from './chat.module.css';
@@ -147,9 +146,16 @@ function MessageView({ code, type, local }: { code: string; type: NonNullable<Re
 }
 
 /** A live preview (Settings › Experimental): built only for your own Claude's, once the text is all there. */
+// Loaded only when a message has a preview: with the experiment off, none of it is ever loaded.
+const PreviewBlock = lazy(() => import('../components/preview/PreviewBlock.js').then((m) => ({ default: m.PreviewBlock })));
+
 function MessagePreview({ code, local }: { code: string; local: boolean }) {
   const live = useContext(LiveText);
-  return <PreviewBlock code={code} live={live} local={local} />;
+  return (
+    <Suspense fallback={null}>
+      <PreviewBlock code={code} live={live} local={local} />
+    </Suspense>
+  );
 }
 
 /**
