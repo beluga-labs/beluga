@@ -564,6 +564,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   // Your app forwards a computer's dev servers to itself (BLG-802); what it forwards is its own.
   'machines.ports': 'drive',
   'machines.forwards': 'refuse',
+  // Sharing this Mac's ports is the app's own: a computer never asks for one.
+  'machines.share': 'refuse',
+  'machines.unshare': 'refuse',
   'machines.env.here': 'drive',
   'machines.env.receive': 'drive',
   'machines.env.decide': 'refuse',

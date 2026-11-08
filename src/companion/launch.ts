@@ -245,6 +245,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       return record ? machines.openLink(record) : Promise.reject(new Error('That computer is gone from your devices'));
     },
     publish: (forwards) => opts.store.dispatch({ type: 'forwards', forwards }),
+    publishShares: (shares, onComputers) => opts.store.dispatch({ type: 'port_shares', shares, onComputers }),
     ...(opts.log ? { log: opts.log } : {}),
   });
   if (!opts.demo) forwarder.start();

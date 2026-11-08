@@ -359,6 +359,73 @@ describe('a computer’s dev server on this Mac (BLG-802)', () => {
   }, 120_000);
 });
 
+describe('a port of this Mac shared with a computer (BLG-804)', () => {
+  it('is reachable from the worktree there at localhost, unsharing closes it at once, and it goes with the worktree', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    const id = await join(app, mini);
+    const wt = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-share-wt-')));
+    cleanup.push(() => rmSync(wt, { recursive: true, force: true }));
+    const project = { id: 'p', name: 'shop', root: wt, base: 'main', workspaces: [{ id: 'ws-1', path: wt }] };
+    mini.store.dispatch({ type: 'projects', projects: [project] as never });
+    // A local database on this Mac (stand-in): it answers and stays connected.
+    const db = net.createServer((sock) => sock.write('from the laptop\n'));
+    await new Promise<void>((r) => db.listen(0, '127.0.0.1', r));
+    cleanup.push(() => void db.close());
+    const dbPort = (db.address() as net.AddressInfo).port;
+    // The port shared: free on this Mac, so the computer (this same Mac, in the test) can take it.
+    const probe = net.createServer();
+    await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
+    const shared = (probe.address() as net.AddressInfo).port;
+    await new Promise((r) => probe.close(r));
+
+    await screenOn(app, id);
+    let on: Readonly<Record<string, string>> = {};
+    const fwd = new Forwarder({
+      live: () => app.machines.door.live(),
+      machineName: () => 'mini',
+      call: (m, method, args) => app.machines.door.call(m, method, args),
+      openLink: (m) => app.machines.openLink(app.machines.book.get(m)!),
+      publish: () => undefined,
+      publishShares: (_s, o) => void (on = o),
+      // Both ends on one Mac: this Mac's side reaches the stand-in for the shared port.
+      connect: (port) => net.connect(port === shared ? dbPort : port, '127.0.0.1'),
+      pollMs: 60_000,
+    });
+    cleanup.push(() => fwd.stop());
+    await fwd.tick();
+    expect(on).toEqual({ 'ws-1': id });
+    await expect(fwd.share('nope', shared)).rejects.toThrow(/isn’t on one of your computers/);
+    expect(await fwd.share('ws-1', shared)).toEqual([{ machineId: id, workspaceId: 'ws-1', port: shared }]);
+
+    // From the worktree's side: localhost:<shared> reaches this Mac's service.
+    const conn = net.connect(shared, '127.0.0.1');
+    const first = await new Promise<string>((resolve) => conn.once('data', (d) => resolve(String(d))));
+    expect(first).toBe('from the laptop\n');
+    // Unsharing closes what's connected at once, and the port there.
+    const closed = new Promise<void>((resolve) => conn.once('close', () => resolve()));
+    expect(fwd.unshare('ws-1', shared)).toEqual([]);
+    await closed;
+    for (let i = 0; i < 50; i++) {
+      const refused = await new Promise<boolean>((resolve) => {
+        const c = net.connect(shared, '127.0.0.1');
+        c.once('error', () => resolve(true));
+        c.once('connect', () => (c.destroy(), resolve(false)));
+      });
+      if (refused) break;
+      await new Promise((r) => setTimeout(r, 100));
+      if (i === 49) throw new Error('still listening after Unshare');
+    }
+
+    // Shared again, then the worktree goes: the share goes with it.
+    await fwd.share('ws-1', shared);
+    mini.store.dispatch({ type: 'projects', projects: [{ ...project, workspaces: [] }] as never });
+    await fwd.tick();
+    expect(fwd.shares()).toEqual([]);
+    expect(on).toEqual({});
+  }, 120_000);
+});
+
 describe('what the computer may ask of your app (BLG-776)', () => {
   it('notices reach your app; web pages open; files, other schemes and zoom never do', async () => {
     const app = await install('MacBook');

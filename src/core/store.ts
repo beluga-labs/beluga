@@ -8,7 +8,7 @@ import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
 import type { EnvSendAsk } from '../shared/env-send.js';
-import type { PortForward } from '../shared/forwards.js';
+import type { PortForward, PortShare } from '../shared/forwards.js';
 import type { Bitmap } from '../image/bitmap.js';
 import { type CollabAction, type CollabState, initialCollab, reduceCollab } from './collab-store.js';
 import { type SearchState, type WorkAction, type WorkState, initialWork, reduceWork } from './work-store.js';
@@ -517,6 +517,9 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly envSends: readonly EnvSendAsk[];
   /** Your computers' dev servers open on this Mac at localhost (BLG-802). */
   readonly forwards: readonly PortForward[];
+  /** Ports of this Mac shared with worktrees on your computers, and which worktrees are on which computer (BLG-804). */
+  readonly portShares: readonly PortShare[];
+  readonly onComputers: Readonly<Record<string, string>>;
   readonly hosting?: Hosting;
   readonly invite?: string;
   /** Your peer id on this computer (known before the room answers). */
@@ -630,6 +633,7 @@ export type Action =
   | { type: 'env_asks'; asks: Readonly<Record<string, readonly EnvChange[]>> }
   | { type: 'env_sends'; asks: readonly EnvSendAsk[] }
   | { type: 'forwards'; forwards: readonly PortForward[] }
+  | { type: 'port_shares'; shares: readonly PortShare[]; onComputers: Readonly<Record<string, string>> }
   | { type: 'approval_add'; approval: Approval }
   | { type: 'approval_remove'; id: string }
   | { type: 'browser_root' }
@@ -751,6 +755,8 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     envAsks: {},
     envSends: [],
     forwards: [],
+    portShares: [],
+    onComputers: {},
     status: 'connecting',
     peers: [],
     log: [],
@@ -1094,6 +1100,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, envSends: action.asks };
     case 'forwards':
       return { ...state, forwards: action.forwards };
+    case 'port_shares':
+      return { ...state, portShares: action.shares, onComputers: action.onComputers };
     case 'runs_interrupted': {
       const log = state.log.map((l) => (l.type === 'agent' && l.owner === action.owner ? settleRun(l) : l));
       return log.every((l, i) => l === state.log[i]) ? state : { ...state, log };

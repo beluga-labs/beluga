@@ -56,6 +56,10 @@ export const MACHINE_API = {
   'machines.ports': { args: z.tuple([]) },
   // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].
   'machines.forwards': { args: z.tuple([]) },
+  // In the app: share this Mac's localhost:<port> with a worktree on one of your computers (BLG-804), reachable there at localhost:<port> → the shares.
+  'machines.share': { args: z.tuple([z.string().min(1).max(200), z.number().int().min(1).max(65535)]) },
+  // Stop sharing it with that worktree: closed there at once → the shares.
+  'machines.unshare': { args: z.tuple([z.string().min(1).max(200), z.number().int().min(1).max(65535)]) },
   // In the app: answer an ask (Send Once, Always for This Project, Don't Send) → { sent } (file names).
   'machines.env.decide': { args: z.tuple([z.string().uuid(), z.enum(['once', 'always', 'never'])]) },
   // The projects whose env files go to your computers without asking (Settings › Your Computers).

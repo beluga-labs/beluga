@@ -13,3 +13,10 @@ export interface PortForward {
   /** What it is: vite, next, node… */
   readonly name: string;
 }
+
+/** A port of this Mac shared with a worktree on one of your computers (BLG-804): reachable there at localhost:<port>. */
+export interface PortShare {
+  readonly machineId: string;
+  readonly workspaceId: string;
+  readonly port: number;
+}

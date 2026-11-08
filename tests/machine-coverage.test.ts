@@ -39,6 +39,8 @@ describe('the table of what your app may do on a computer', () => {
         'machines.look',
         // The .env asks and Always for This Project are your app's own (BLG-800).
         'machines.forwards',
+        'machines.share',
+        'machines.unshare',
         'machines.env.decide',
         'machines.env.always',
         'machines.env.forget',

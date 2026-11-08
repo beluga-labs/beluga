@@ -1,8 +1,8 @@
 import net from 'node:net';
 import type { MessageSocket } from '../net/transport.js';
-import type { PortForward } from '../shared/forwards.js';
+import type { PortForward, PortShare } from '../shared/forwards.js';
 
-export type { PortForward } from '../shared/forwards.js';
+export type { PortForward, PortShare } from '../shared/forwards.js';
 
 /**
  * A computer's dev servers on this Mac (BLG-802), and this Mac's services on a computer (BLG-804):
@@ -59,6 +59,8 @@ export const isTunnelsHello = (text: string): boolean => parse(text)?.t === 'tun
 
 interface Stream {
   readonly sock: net.Socket;
+  /** The port it reaches (on whichever side). */
+  readonly port: number;
   /** Bytes sent and not yet acked. */
   inflight: number;
 }
@@ -94,7 +96,7 @@ export class TunnelMux {
   carry(sock: net.Socket, port: number): void {
     if (this.closed || this.streams.size >= MAX_STREAMS) return void sock.destroy();
     const id = `${this.opts.side}${++this.seq}`;
-    this.attach(id, sock);
+    this.attach(id, sock, port);
     this.send({ t: 'open', id, port });
   }
 
@@ -110,6 +112,11 @@ export class TunnelMux {
     });
   }
 
+  /** End every stream to or from a port at once (it's no longer shared). */
+  closePort(port: number): void {
+    for (const s of [...this.streams.values()]) if (s.port === port) s.sock.destroy();
+  }
+
   close(): void {
     this.shut('Closed');
     this.link.close(1000);
@@ -123,8 +130,8 @@ export class TunnelMux {
     if (this.link.isOpen) this.link.send(JSON.stringify(frame));
   }
 
-  private attach(id: string, sock: net.Socket): void {
-    const stream: Stream = { sock, inflight: 0 };
+  private attach(id: string, sock: net.Socket, port: number): void {
+    const stream: Stream = { sock, port, inflight: 0 };
     this.streams.set(id, stream);
     sock.setNoDelay(true);
     sock.on('data', (buf: Buffer) => {
@@ -151,7 +158,7 @@ export class TunnelMux {
         // The other side's ids start with its letter: never one of ours, never one open.
         if (f.id.startsWith(this.opts.side) || this.streams.has(f.id) || this.streams.size >= MAX_STREAMS || !this.opts.mayOpen(f.port)) return this.send({ t: 'close', id: f.id, error: `Port ${f.port} isn’t shared` });
         const sock = (this.opts.connect ?? connectLocal)(f.port);
-        this.attach(f.id, sock);
+        this.attach(f.id, sock, f.port);
         sock.once('connect', () => this.send({ t: 'opened', id: f.id }));
         return;
       }
@@ -212,7 +219,7 @@ export class TunnelMux {
 const connectLocal = (port: number): net.Socket => net.connect({ host: 'localhost', port, autoSelectFamily: true });
 
 /** Listen on 127.0.0.1:<port> (and ::1 when there's IPv6), as one server. → it, or why not. */
-function listenOn(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => void; port: number }> {
+function listenOn(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => Promise<void>; port: number }> {
   const one = (host: string, p: number): Promise<net.Server> =>
     new Promise((resolve, reject) => {
       const server = net.createServer(onConn);
@@ -233,13 +240,8 @@ function listenOn(port: number, onConn: (sock: net.Socket) => void): Promise<{ c
       }
       return undefined;
     });
-    return {
-      port: bound,
-      close: () => {
-        v4.close();
-        v6?.close();
-      },
-    };
+    const closing = (s: net.Server | undefined): Promise<void> => new Promise((resolve) => (s ? s.close(() => resolve()) : resolve()));
+    return { port: bound, close: () => Promise.all([closing(v4), closing(v6)]).then(() => undefined) };
   });
 }
 
@@ -250,7 +252,7 @@ const NEAR = 20;
  * Listen on this Mac for a port: `port` itself when it's free, else the next free one after it
  * (any free one past that). → where it listens, and how to stop.
  */
-export async function listenNear(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => void; port: number }> {
+export async function listenNear(port: number, onConn: (sock: net.Socket) => void): Promise<{ close: () => Promise<void>; port: number }> {
   for (let p = port; p < Math.min(port + NEAR, 65536); p++) {
     try {
       return await listenOn(p, onConn);
@@ -267,23 +269,29 @@ export async function listenNear(port: number, onConn: (sock: net.Socket) => voi
  * and carries them to your app (a port you shared from it, BLG-804), closed with the link.
  */
 export function serveTunnels(link: MessageSocket, opts: { readonly connect?: (port: number) => net.Socket; readonly log?: (line: string) => void } = {}): TunnelMux {
-  const listening = new Map<number, { close: () => void }>();
+  const listening = new Map<number, Promise<{ close: () => Promise<void> }>>();
   const mux: TunnelMux = new TunnelMux(link, {
     side: 'c',
     mayOpen: () => true,
     ...(opts.connect ? { connect: opts.connect } : {}),
     onListen: async (port, on) => {
-      listening.get(port)?.close();
+      const had = listening.get(port);
+      // Already listening: nothing to do (a link that came back says it again).
+      if (on && had) return void (await had);
       listening.delete(port);
-      if (!on) return;
+      // Off: stopped before anything listens there again, and what was connected through it ends now too.
+      if (had) await (await had.catch(() => undefined))?.close();
+      if (!on) return mux.closePort(port);
       // The same port, so what's set up for it (a database URL in .env) works as it is.
-      const server = await listenOn(port, (sock) => mux.carry(sock, port));
+      const server = listenOn(port, (sock) => mux.carry(sock, port));
       listening.set(port, server);
+      server.catch(() => listening.get(port) === server && listening.delete(port));
+      await server;
     },
     ...(opts.log ? { log: opts.log } : {}),
   });
   link.once('close', () => {
-    for (const s of listening.values()) s.close();
+    for (const s of listening.values()) void s.then((l) => l.close(), () => undefined);
     listening.clear();
   });
   return mux;
@@ -293,6 +301,12 @@ export interface MachinePort {
   readonly workspaceId: string;
   readonly port: number;
   readonly name: string;
+}
+
+/** A computer's answer to machines.ports: its worktrees now, and their ports. */
+export interface MachinePorts {
+  readonly worktrees: readonly string[];
+  readonly ports: readonly MachinePort[];
 }
 
 export interface ForwarderDeps {
@@ -305,20 +319,26 @@ export interface ForwarderDeps {
   readonly openLink: (machineId: string) => Promise<MessageSocket>;
   /** What's forwarded now, for the app's screens. */
   readonly publish: (forwards: readonly PortForward[]) => void;
+  /** Ports shared from this Mac, and which worktrees are on which computer (BLG-804). */
+  readonly publishShares?: (shares: readonly PortShare[], onComputers: Readonly<Record<string, string>>) => void;
   readonly pollMs?: number;
+  /** Connect to this Mac's localhost:<port> for a shared port (tests point it elsewhere). */
+  readonly connect?: (port: number) => net.Socket;
   readonly log?: (line: string) => void;
 }
 
 interface Forward extends PortForward {
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
 }
 
 /** The app's side: each computer's worktree ports, listened for on this Mac (see the top of this file). */
 export class Forwarder {
   private readonly forwards = new Map<string, Forward>();
   private readonly muxes = new Map<string, Promise<TunnelMux>>();
-  /** Ports you shared from this Mac, per computer (BLG-804). */
-  private readonly shared = new Map<string, Set<number>>();
+  /** Ports you shared from this Mac, per computer, and for which of its worktrees (BLG-804). */
+  private readonly shared = new Map<string, Map<number, Set<string>>>();
+  /** Each computer's worktrees, as it last said. */
+  private readonly worktreesOn = new Map<string, Set<string>>();
   private timer?: NodeJS.Timeout;
   private ticking?: Promise<void>;
 
@@ -333,11 +353,69 @@ export class Forwarder {
   stop(): void {
     clearInterval(this.timer);
     this.timer = undefined;
-    for (const f of this.forwards.values()) f.close();
+    for (const f of this.forwards.values()) void f.close();
     this.forwards.clear();
     for (const m of this.muxes.values()) void m.then((mux) => mux.close(), () => undefined);
     this.muxes.clear();
+    this.shared.clear();
     this.deps.publish([]);
+    this.publishShares();
+  }
+
+  /** The ports shared from this Mac now. */
+  shares(): PortShare[] {
+    return [...this.shared].flatMap(([machineId, ports]) => [...ports].flatMap(([port, wss]) => [...wss].map((workspaceId) => ({ machineId, workspaceId, port })))).sort((a, b) => a.port - b.port);
+  }
+
+  /**
+   * Share this Mac's localhost:<port> with a worktree on one of your computers: it listens on its
+   * own localhost:<port> and what connects there reaches this Mac's. → the shares now.
+   */
+  async share(workspaceId: string, port: number): Promise<PortShare[]> {
+    const machineId = [...this.worktreesOn].find(([, wss]) => wss.has(workspaceId))?.[0];
+    if (!machineId) throw new Error('That worktree isn’t on one of your computers that’s connected now');
+    // The link first: a new one says every port already shared, and this one isn't yet.
+    const mux = await this.mux(machineId);
+    const ports = this.shared.get(machineId) ?? new Map<number, Set<string>>();
+    this.shared.set(machineId, ports);
+    const first = !ports.has(port);
+    ports.set(port, (ports.get(port) ?? new Set()).add(workspaceId));
+    if (first) {
+      try {
+        await mux.listen(port, true);
+      } catch (err) {
+        ports.delete(port);
+        this.publishShares();
+        throw err;
+      }
+    }
+    this.publishShares();
+    return this.shares();
+  }
+
+  /** Stop sharing a port with a worktree: closed there at once when no other worktree there shares it. → the shares now. */
+  unshare(workspaceId: string, port: number): PortShare[] {
+    for (const [machineId, ports] of this.shared) {
+      const wss = ports.get(port);
+      if (!wss?.delete(workspaceId) || wss.size) continue;
+      ports.delete(port);
+      const mux = this.muxes.get(machineId);
+      void mux?.then(
+        (m) => {
+          m.closePort(port);
+          return m.listen(port, false);
+        },
+        () => undefined,
+      );
+    }
+    this.publishShares();
+    return this.shares();
+  }
+
+  private publishShares(): void {
+    const on: Record<string, string> = {};
+    for (const [machineId, wss] of this.worktreesOn) for (const ws of wss) on[ws] = machineId;
+    this.deps.publishShares?.(this.shares(), on);
   }
 
   list(): PortForward[] {
@@ -356,10 +434,12 @@ export class Forwarder {
     if (had) return had;
     const opening = this.deps.openLink(machineId).then((link) => {
       link.send(TUNNELS_HELLO);
-      const mux = new TunnelMux(link, { side: 'a', mayOpen: (port) => this.shared.get(machineId)?.has(port) ?? false, ...(this.deps.log ? { log: this.deps.log } : {}) });
+      const mux = new TunnelMux(link, { side: 'a', mayOpen: (port) => this.shared.get(machineId)?.has(port) ?? false, ...(this.deps.connect ? { connect: this.deps.connect } : {}), ...(this.deps.log ? { log: this.deps.log } : {}) });
       link.once('close', () => {
         if (this.muxes.get(machineId) === opening) this.muxes.delete(machineId);
       });
+      // A new link after a drop: what was shared listens there again.
+      for (const port of this.shared.get(machineId)?.keys() ?? []) void mux.listen(port, true).catch((err: unknown) => this.deps.log?.(`forward: couldn't share ${port} again: ${err instanceof Error ? err.message : String(err)}`));
       return mux;
     });
     opening.catch(() => {
@@ -372,16 +452,25 @@ export class Forwarder {
   private async look(): Promise<void> {
     const live = new Set(this.deps.live());
     const seen = new Set<string>();
+    let worktreesChanged = false;
     for (const machineId of live) {
-      let ports: readonly MachinePort[];
+      let answer: MachinePorts;
       try {
-        ports = (await this.deps.call(machineId, 'machines.ports', [])) as readonly MachinePort[];
+        answer = (await this.deps.call(machineId, 'machines.ports', [])) as MachinePorts;
       } catch {
         // Not answering now: what's forwarded stays until it answers that it's gone.
         for (const [key, f] of this.forwards) if (f.machineId === machineId) seen.add(key);
         continue;
       }
-      for (const p of ports) {
+      const worktrees = new Set(answer.worktrees);
+      const had = this.worktreesOn.get(machineId);
+      if (!had || had.size !== worktrees.size || [...worktrees].some((w) => !had.has(w))) worktreesChanged = true;
+      this.worktreesOn.set(machineId, worktrees);
+      // A worktree gone from the computer: what was shared with it closes.
+      for (const [port, wss] of this.shared.get(machineId) ?? []) for (const ws of [...wss]) if (!worktrees.has(ws)) this.unshare(ws, port);
+      // Shared ports keep their link (opened again after a drop).
+      if (this.shared.get(machineId)?.size) await this.mux(machineId).catch(() => undefined);
+      for (const p of answer.ports) {
         const key = `${machineId}:${p.port}`;
         seen.add(key);
         if (this.forwards.has(key)) continue;
@@ -391,11 +480,12 @@ export class Forwarder {
     let changed = false;
     for (const [key, f] of this.forwards) {
       if (seen.has(key)) continue;
-      f.close();
+      void f.close();
       this.forwards.delete(key);
       changed = true;
     }
     if (changed) this.deps.publish(this.list());
+    if (worktreesChanged) this.publishShares();
   }
 
   private async open(machineId: string, p: MachinePort): Promise<void> {

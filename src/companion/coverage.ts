@@ -529,6 +529,8 @@ export const PHONE: Record<Method, Side> = {
   // .env files never reach the phone, not even their names (BLG-800).
   'machines.ports': 'mac',
   'machines.forwards': 'mac',
+  'machines.share': 'mac',
+  'machines.unshare': 'mac',
   'machines.env.here': 'mac',
   'machines.env.receive': 'mac',
   'machines.env.decide': 'mac',
