@@ -222,6 +222,8 @@ export function NativeSheets() {
       return <PlanModeSheet key={sheet.planId} planId={sheet.planId} close={close} />;
     case 'git_trouble':
       return <GitTroubleSheet key={`${sheet.wsId}:${sheet.trouble.kind}`} wsId={sheet.wsId} trouble={sheet.trouble} retry={sheet.retry} close={close} />;
+    case 'share_copy':
+      return <ShareCopyAlert sheet={sheet} close={close} />;
     case 'confirm':
       return (
         <Alert
@@ -240,4 +242,24 @@ export function NativeSheets() {
         />
       );
   }
+}
+
+/**
+ * Their agent can't read your chat: a copy of its messages can go with yours, only if you say so.
+ * Cancel keeps the words in the box; Send Without It sends them alone.
+ */
+function ShareCopyAlert({ sheet, close }: { sheet: Extract<NativeSheet, { kind: 'share_copy' }>; close: () => void }) {
+  const named = sheet.titles.map((t) => `“${t}”`).join(', ');
+  const one = sheet.titles.length === 1;
+  return (
+    <Alert
+      title={`Share a copy of ${named} with ${sheet.person}?`}
+      message={`${sheet.person}’s agent can’t read ${one ? 'that chat' : 'those chats'}. A copy of ${one ? 'its' : 'their'} messages, as ${one ? 'it is' : 'they are'} now, leaves this computer with your message: no tool output, secrets hidden.`}
+      tone="info"
+      icon="people"
+      confirm={{ label: 'Share Copy', onClick: () => (close(), sheet.share()) }}
+      alternative={{ label: 'Send Without It', onClick: () => (close(), sheet.without()) }}
+      onCancel={close}
+    />
+  );
 }
