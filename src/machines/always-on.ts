@@ -258,7 +258,9 @@ export class AlwaysOn {
     writeAlwaysOn(dir, { v: 1, at, since: this.now(), ...(stage ? { pending: { id: at.id, stage } } : {}) });
     machines.set.release(this.opts.phones());
     this.opts.pinAddress(you.identity);
-    wipeNetwork(dir);
+    // identity.json holding a stand-in key (this Mac standing in) stays: it's what this Mac goes back to.
+    const onDisk = readIdentityFile(path.join(dir, IDENTITY_FILE));
+    wipeNetwork(dir, { keepIdentity: onDisk !== undefined && onDisk.peerId !== you.current().peerId });
     you.swap(loadIdentity(path.join(dir, IDENTITY_FILE)));
   }
 

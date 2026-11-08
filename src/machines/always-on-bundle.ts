@@ -153,8 +153,9 @@ export function carriedFrom(settings: Partial<Record<(typeof CARRIED_SETTINGS)[n
 }
 
 /** Your identity and friends network leave this install: only after the other side has them whole. */
-export function wipeNetwork(dir: string): void {
-  rmSync(path.join(dir, IDENTITY_FILE), { force: true });
+export function wipeNetwork(dir: string, how: { keepIdentity?: boolean } = {}): void {
+  // A stand-in handing back keeps its own stand-in key (identity.json was never yours there, BLG-847).
+  if (!how.keepIdentity) rmSync(path.join(dir, IDENTITY_FILE), { force: true });
   for (const f of NETWORK_FILES) rmSync(path.join(dir, f), { force: true });
   for (const d of NETWORK_DIRS) rmSync(path.join(dir, d), { recursive: true, force: true });
 }

@@ -10,6 +10,7 @@ import { type SwappableIdentity, swappableIdentity } from '../src/core/identity.
 import { AlwaysOn } from '../src/machines/always-on.js';
 import { parseAo } from '../src/machines/always-on-bundle.js';
 import { networkElsewhere, readAlwaysOn } from '../src/machines/always-on-state.js';
+import { identitiesAtStart } from '../src/machines/identity-load.js';
 import type { MachineRecord } from '../src/machines/book.js';
 import { DeviceSet } from '../src/machines/controllers.js';
 import type { Machines } from '../src/machines/machines.js';
@@ -82,10 +83,21 @@ interface Install {
 function install(name: string, identity: Identity, others: () => readonly Install[], settings: Partial<Settings> = {}): Install {
   const dir = tmp();
   saveIdentity(path.join(dir, 'identity.json'), identity);
-  const you = swappableIdentity(identity);
-  const keys = deviceKeys(newSeed());
+  return assemble({ dir, name, identity, keys: deviceKeys(newSeed()), settings: { ...settings } as Settings, book: new Map() }, others);
+}
+
+/** The same install started again (BLG-847): everything from its folder, as the daemon reads it at start, its links as before. */
+function restart(was: Install, others: () => readonly Install[]): Install {
+  const again = assemble({ dir: was.dir, name: was.name, identity: identitiesAtStart(was.dir).local, keys: was.keys, settings: was.settings, book: was.book }, others);
+  if (was.cert) again.cert = was.cert;
+  return again;
+}
+
+function assemble(from: { dir: string; name: string; identity: Identity; keys: ReturnType<typeof deviceKeys>; settings: Settings; book: Map<string, MachineRecord> }, others: () => readonly Install[]): Install {
+  const { dir, name, keys } = from;
+  const you = swappableIdentity(from.identity);
   const set = new DeviceSet({ file: path.join(dir, 'device-set.json'), keys, identity: you.identity, now });
-  const me: Install = { dir, you, set, keys, name, net: [], pinned: [], settings: { ...settings } as Settings, ao: undefined as unknown as AlwaysOn, book: new Map() };
+  const me: Install = { dir, you, set, keys, name, net: [], pinned: [], settings: from.settings, ao: undefined as unknown as AlwaysOn, book: from.book };
   const machines = {
     set,
     book: { get: (id: string) => me.book.get(id) },
@@ -486,5 +498,65 @@ describe('standing in and handing back keep your newest settings (BLG-848)', () 
     expect(applyChanges(theirs, changes)).toEqual({ people: { [carol]: { name: 'carol', trust: 'full' } } });
     // A change that doesn't read as a setting is left as the Always On has it.
     expect(applyChanges(theirs, { at: 3, settings: { policy: 'whatever', askMeFor: 'ok' }, people: { [mia]: { name: 'mia', trust: 'superuser' } } })).toEqual({ askMeFor: 'ok', people: theirs.people });
+  });
+});
+
+describe('standing in survives a restart (BLG-847)', () => {
+  it('a Mac standing in is still you after a restart, runs your network, and still hands back to the same stand-in key', async () => {
+    const { me, app: before, computers } = world();
+    const [mini] = computers as [Install];
+    const all: Install[] = [before, mini];
+    await before.ao.make(deviceId(mini.cert!));
+    const standInKey = before.you.current().peerId;
+    expect(await before.ao.refreshStandby()).toBe(true);
+    await before.ao.standIn();
+    expect(before.ao.holding()).toBe(true);
+
+    // The daemon starts again from disk.
+    const app = restart(before, () => all);
+    all[0] = app;
+    expect(app.you.current().peerId).toBe(me.peerId);
+    expect(app.set.holdsIdentity).toBe(true);
+    expect(app.ao.holding()).toBe(true);
+    expect(app.ao.standingIn()).toEqual({ id: deviceId(mini.cert!), name: 'Mac mini' });
+    // The network may start here: it isn't elsewhere, and the lease is asked as you.
+    expect(networkElsewhere(app.dir)).toBeUndefined();
+    expect(app.ao.leaseIdentity()?.peerId).toBe(me.peerId);
+    expect(identitiesAtStart(app.dir).you.peerId).toBe(me.peerId);
+
+    // The Mac mini answers again: the lease round hands back, and this Mac is its own stand-in key once more.
+    const { LeaseKeeper } = await import('../src/machines/lease.js');
+    let lease: { v: 1; holder: string; name: string; at: number; seq: number } | undefined;
+    const keeper = new LeaseKeeper({
+      host: app.ao,
+      board: { read: async () => lease, write: async (_, l, seq) => void (lease = { ...l, seq }) },
+      self: () => ({ id: deviceId(app.set.self()!), name: 'MacBook' }),
+      heard: () => undefined,
+      reachable: async () => true,
+    });
+    await keeper.tick();
+    expect(mini.ao.holding()).toBe(true);
+    expect(app.ao.holding()).toBe(false);
+    expect(app.you.current().peerId).toBe(standInKey);
+    expect(identitiesAtStart(app.dir).local.peerId).toBe(standInKey);
+    // Never two of you: one holder at every step.
+    expect([app.ao.holding(), mini.ao.holding()].filter(Boolean)).toHaveLength(1);
+  });
+
+  it('never two of you across the restart: the Mac mini stays off while this Mac stands in', async () => {
+    const { app: before, computers } = world();
+    const [mini] = computers as [Install];
+    const all: Install[] = [before, mini];
+    await before.ao.make(deviceId(mini.cert!));
+    expect(await before.ao.refreshStandby()).toBe(true);
+    // The Mac mini went down; this Mac stands in; the Mac mini comes back and finds the lease says this Mac (standDown).
+    await before.ao.standIn();
+    await mini.ao.standDown({ id: deviceId(before.set.self()!), name: 'MacBook' });
+    const app = restart(before, () => all);
+    all[0] = app;
+    expect([app.ao.holding(), mini.ao.holding()]).toEqual([true, false]);
+    expect(networkElsewhere(mini.dir)).toMatch(/runs on MacBook/);
+    await app.ao.handBack();
+    expect([app.ao.holding(), mini.ao.holding()]).toEqual([false, true]);
   });
 });
