@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
-import { Box, ChevronRight, Cloud, Cpu, Laptop, Monitor, Plus, Server } from 'lucide-react-native';
+import { ChevronRight, Laptop, Plus } from 'lucide-react-native';
+import { computerMarkIcon } from './ComputerMarkIcon';
 import { View } from 'react-native';
 import { when } from '../../../src/machines/words';
 import { ago, useComputers, useFolded, useView } from '../lib/hooks';
@@ -20,10 +21,8 @@ import { Card, FoldHead, IconBadge, Press, Row, T } from './ui';
  * still opens, read-only, from what the phone kept.
  */
 
-const GLYPHS: Readonly<Record<string, IconLike>> = { server: Server, cloud: Cloud, desktop: Monitor, laptop: Laptop, chip: Cpu, box: Box };
-
-/** Its icon as kept on it; `auto` or none: a desktop for a Mac, a server otherwise. */
-export const computerIcon = (c: Pick<PhoneComputer, 'icon' | 'platform'>): IconLike => (c.icon && GLYPHS[c.icon]) || (c.platform === 'macos' ? Monitor : Server);
+/** Its mark, as the Mac draws it: the icon kept on it, else its distribution's or its kind's (the AWS logo, a Mac mini, Ubuntu's). */
+export const computerIcon = (c: Pick<PhoneComputer, 'icon' | 'kind' | 'distro' | 'platform'>): IconLike => computerMarkIcon(c);
 
 /** The phone reaches it now (or is getting there). */
 export const reachable = (s: ComputerLinkState): boolean => s.phase === 'open' || s.phase === 'dialing';

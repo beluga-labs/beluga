@@ -79,7 +79,7 @@ export function namedPhones(here: readonly DeviceCert[], set: readonly DeviceCer
 /** Your computers as a phone dials them, from the app's machines.json (only those still in your set), each with its Runs on line. */
 export function phoneComputers(
   records: readonly MachineRecord[],
-  opts: { readonly alwaysOn?: string; readonly look?: (id: string) => { readonly name?: string; readonly icon?: string } | undefined; readonly words?: (id: string) => { readonly line: string; readonly why?: string } | undefined } = {},
+  opts: { readonly alwaysOn?: string; readonly look?: (id: string) => { readonly name?: string; readonly icon?: string; readonly kind?: string; readonly distro?: string } | undefined; readonly words?: (id: string) => { readonly line: string; readonly why?: string } | undefined } = {},
 ): PhoneComputer[] {
   return records
     .filter((r) => roleOf(r.cert) === 'computer')
@@ -92,6 +92,8 @@ export function phoneComputers(
         id,
         name: (look?.name ?? r.name).slice(0, 64),
         ...(icon ? { icon } : {}),
+        ...(look?.kind ? { kind: look.kind } : {}),
+        ...(look?.distro ? { distro: look.distro } : {}),
         platform: r.cert.platform,
         address: r.address,
         relays: r.relays.slice(0, 4),

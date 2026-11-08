@@ -299,7 +299,7 @@ export class Machines {
       },
       look: (id) => {
         const info = this.live.get(id)?.info;
-        return info ? { ...(info.name ? { name: info.name } : {}), ...(info.icon ? { icon: info.icon } : {}) } : undefined;
+        return info ? { ...(info.name ? { name: info.name } : {}), ...(info.icon ? { icon: info.icon } : {}), ...(info.kind ? { kind: info.kind } : {}), ...(info.distro ? { distro: info.distro } : {}) } : undefined;
       },
     });
   }

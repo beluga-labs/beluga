@@ -1,20 +1,19 @@
 import type { SVGProps } from 'react';
 import { AGENT_MARKS, AGENT_MARK_VIEWBOX, type AgentMark } from '../../../../src/shared/agent-marks.js';
+import { COMPUTER_GLYPHS } from '../../../../src/shared/computer-marks.js';
 
 /**
  * One small icon set, drawn on a 16×16 grid with 1.5 strokes (in the spirit of SF Symbols):
  * every icon in the app comes from here, so they match.
  */
 const PATHS = {
+  // Your computers' glyphs (desktop, server, cloud, Mac mini, PC…), shared with the phone.
+  ...COMPUTER_GLYPHS,
   chat: 'M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-3 2.5V11h.5A1.5 1.5 0 0 1 3 9.5z',
   folder: 'M2.5 4.5A1 1 0 0 1 3.5 3.5h3l1.5 1.5h4.5a1 1 0 0 1 1 1V11.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z',
   file: 'M4 2.5h5l3 3v8H4z M9 2.5v3h3',
   diff: 'M5 3v6 M2 6h6 M8.5 12.5h5.5 M11 2.5l-2 11',
   terminal: 'M2.5 3.5h11v9h-11z M4.5 6.5l2 1.5-2 1.5 M8 10h3',
-  // Your computers (BLG-780): the generic set a computer's icon is picked from.
-  desktop: 'M2.5 3h11v7.5h-11z M6 13.5h4 M8 10.5v3',
-  chip: 'M5 5h6v6H5z M6.5 2.5V5 M9.5 2.5V5 M6.5 11v2.5 M9.5 11v2.5 M2.5 6.5H5 M2.5 9.5H5 M11 6.5h2.5 M11 9.5h2.5',
-  box: 'M8 2.5l5 2.5v6l-5 2.5-5-2.5V5z M3 5l5 2.5L13 5 M8 7.5v6',
   plus: 'M8 3.5v9 M3.5 8h9',
   more: 'M4 8h.01 M8 8h.01 M12 8h.01',
   chevronRight: 'M6 4l4 4-4 4',
@@ -131,8 +130,6 @@ const PATHS = {
   heat: 'M2.5 2.5h11v11h-11z M2.5 8h11 M8 2.5v11 M4.5 4.5h1.5v1.5h-1.5z M10 10h1.5v1.5H10z',
   /** Your phone (the companion): the sidebar footer's mark, Settings › Phone. */
   phone: 'M5.5 1.75h5a1 1 0 0 1 1 1v10.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1z M7.25 12.25h1.5',
-  /** Your Mac (core/assistant): a laptop. */
-  laptop: 'M3.5 3.5h9a1 1 0 0 1 1 1v6h-11v-6a1 1 0 0 1 1-1z M1.5 10.5h13l-.75 1.5a1 1 0 0 1-.9.5H3.15a1 1 0 0 1-.9-.5z',
   /** Supporting Beluga: a star on GitHub, a coffee, and the heart that goes with them. */
   star: 'M8 2.25l1.75 3.55 3.9.57-2.83 2.76.67 3.89L8 11.18l-3.49 1.84.67-3.89L2.35 6.37l3.9-.57z',
   cup: 'M3 6.5h7.5v3a3.5 3.5 0 0 1-3.5 3.5h-.5A3.5 3.5 0 0 1 3 9.5z M10.5 7.5h.75a1.75 1.75 0 0 1 0 3.5h-1.1 M5.5 2.5c-.4.6.4 1.1 0 1.75 M8 2.5c-.4.6.4 1.1 0 1.75',
@@ -166,17 +163,6 @@ const PATHS = {
   square: 'M4.5 3h7A1.5 1.5 0 0 1 13 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3z',
   speaker: 'M2.75 6.25h2.5L8.5 3.5v9L5.25 9.75h-2.5z M10.75 5.75a3 3 0 0 1 0 4.5 M12.5 4a5.5 5.5 0 0 1 0 8',
   // Your computers (BLG-813): a Mac mini, a server in a rack, a cloud machine, one that's always on.
-  macMini: 'M3 5.5h10a1.5 1.5 0 0 1 1.5 1.5v2.5a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 3 5.5z M4.5 12.75h7 M11.25 8.25h.01',
-  /** A Mac Studio: the Mac mini's taller sibling, its ports along the front. */
-  macStudio: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3z M4.5 10.25h1.75 M7.5 10.25h1.75 M11.5 10.25h.01',
-  /** An iMac: the screen, its chin and its stand. */
-  imac: 'M2.5 2.5h11a1 1 0 0 1 1 1v6h-13v-6a1 1 0 0 1 1-1z M1.5 9.5h13v1a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z M6.5 11.5l-.5 2h4l-.5-2',
-  /** A virtual machine: a computer inside a computer (VirtualBox, Parallels, Hyper-V, Apple Virtualization). */
-  vm: 'M2.5 3h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M5 5.75h6v4.5H5z M6.75 12.25v.01 M9.25 12.25v.01',
-  /** A PC: a screen beside its tower (Windows' own mark isn't ours to use). */
-  pc: 'M1.5 3.5h7.5v6H1.5z M3.5 12.75h3.5 M5.25 9.5v3.25 M11 2.5h3.5v11H11z M12.75 4.75h.01',
-  server: 'M3 2.5h10a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z M3 9h10a.5.5 0 0 1 .5.5V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V9.5A.5.5 0 0 1 3 9z M5 4.75h.01 M5 11.25h.01',
-  cloud: 'M4.5 12.5a3 3 0 0 1-.4-5.97A4 4 0 0 1 11.8 5.6 3.5 3.5 0 0 1 11.5 12.5z',
   power: 'M8 2.5v5 M5 4.25a5 5 0 1 0 6 0',
 } as const;
 

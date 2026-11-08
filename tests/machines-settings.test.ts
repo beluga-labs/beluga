@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { COMPUTER_BRANDS, type ComputerBrandMark } from '../src/shared/computer-marks.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { demoMachines } from '../src/machines/demo.js';
@@ -110,6 +111,15 @@ describe('the brand marks', () => {
       const svg = readFileSync(`packages/mac/src/machines/icons/brands/${f}`);
       expect(createHash('sha256').update(svg).digest('hex')).toBe(sha);
       expect(svg.toString('utf8')).not.toMatch(/<script|<foreignObject|\bon\w+=|href=/i);
+    }
+  });
+  it('the shared marks (the phone draws these) are the shipped files, path for path', () => {
+    const files = readdirSync('packages/mac/src/machines/icons/brands').filter((f) => f.endsWith('.svg'));
+    expect(Object.keys(COMPUTER_BRANDS).map((k) => `${k}.svg`).sort()).toEqual(files.sort());
+    for (const [key, mark] of Object.entries(COMPUTER_BRANDS) as Array<[string, ComputerBrandMark]>) {
+      const svg = readFileSync(`packages/mac/src/machines/icons/brands/${key}.svg`, 'utf8');
+      if (mark.svg) expect(mark.svg).toBe(svg);
+      else expect(mark.d).toBe(/<path d="([^"]+)"/.exec(svg)?.[1]);
     }
   });
 });

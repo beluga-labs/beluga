@@ -8,7 +8,7 @@ import { CompanionClient, pairDevice } from '../src/companion/client.js';
 import { deviceKeys, newSeed } from '../src/companion/device-crypto.js';
 import { DeviceBook, deviceId } from '../src/companion/devices.js';
 import { CompanionHost } from '../src/companion/host.js';
-import type { DeviceCert, MacFrame, PhoneComputer } from '../src/companion/protocol.js';
+import { type DeviceCert, type MacFrame, PhoneComputer } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { MachineRecord } from '../src/machines/book.js';
 import { Machines } from '../src/machines/machines.js';
@@ -35,6 +35,13 @@ describe('what a phone hears of your computers', () => {
       { alwaysOn: deviceId(mini), look: () => ({ name: 'Mac mini' }) },
     );
     expect(list).toEqual([{ id: deviceId(mini), name: 'Mac mini', icon: 'server', platform: 'linux', address: hex('f'), relays: ['wss://relay.example/r/1'], lastSeen: 50, alwaysOn: true }]);
+  });
+
+  it('says what kind each is and which Linux, so the phone draws the Mac’s mark', () => {
+    const box = cert({ device: hex('1'), role: 'computer' });
+    const [one] = phoneComputers([record({ cert: box })], { look: () => ({ kind: 'linux', distro: 'ubuntu' }) });
+    expect(one).toMatchObject({ kind: 'linux', distro: 'ubuntu' });
+    expect(PhoneComputer.parse(one)).toMatchObject({ kind: 'linux', distro: 'ubuntu' });
   });
 
   it('says each one’s Runs on line as the Mac’s menu does, but leaves whether it answers to the phone', () => {

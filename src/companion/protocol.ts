@@ -1380,6 +1380,9 @@ export const PhoneComputer = z.object({
   name: z.string().min(1).max(64),
   /** Its icon as kept on it (`auto` or none: its kind's own). */
   icon: z.string().max(200).optional(),
+  /** What it is and, on Linux, which one (src/machines/kind.ts): its mark, as the Mac draws it. Plain strings, so a newer kind reaches an older phone as unknown. */
+  kind: z.string().max(32).optional(),
+  distro: z.string().max(32).optional(),
   platform: z.enum(['android', 'ios', 'macos', 'linux', 'windows']),
   address: z.string().regex(/^[0-9a-f]{64}$/),
   relays: z.array(RelayUrl).max(4),
