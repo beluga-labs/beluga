@@ -303,6 +303,8 @@ export interface Prefs {
   readonly chatLimit: number;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
+  /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
+  readonly experiments: readonly string[];
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -691,6 +693,7 @@ export const DEFAULT_PREFS: Prefs = {
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
   scratchFolder: true,
+  experiments: [],
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',

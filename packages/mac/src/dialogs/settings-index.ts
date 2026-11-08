@@ -3,6 +3,7 @@ import { trayName } from '../lib/os-words.js';
 import type { PaneInfo, SettingEntry, SettingsPane } from '../lib/settings-search.js';
 // Relative, not @beluga/ui: the root's tests and typecheck read this file too.
 import { HIDEABLE_BUTTONS } from '../../../../src/ui/settings-menus.js';
+import { EXPERIMENTS, EXPERIMENT_INFO } from '../../../../src/shared/experiments.js';
 
 /** Settings' panes, in sidebar order, with other words people use for them. */
 export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; keywords?: string }> = [
@@ -20,6 +21,7 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
   { id: 'voice', label: 'Voice', icon: 'mic', keywords: 'dictation speech microphone talk transcribe' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command', keywords: 'shortcuts keys hotkeys bindings' },
   { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser' },
+  { id: 'experimental', label: 'Experimental', icon: 'flask', keywords: 'labs beta early preview features try' },
   { id: 'about', label: 'About', icon: 'globe', keywords: 'version logs support' },
 ];
 
@@ -270,6 +272,9 @@ export const SETTINGS: readonly Entry[] = [
     ['Address', 'Where the browser opens Beluga.', 'url address link'],
     ['Let a browser in', 'A link that works once, for 10 minutes.', 'link browser login'],
   ]),
+
+  // Experimental: one group per experiment, its switch the row (made from shared/experiments.ts).
+  ...EXPERIMENTS.flatMap((id) => rows('experimental', EXPERIMENT_INFO[id].title, [[EXPERIMENT_INFO[id].title, EXPERIMENT_INFO[id].summary, `${id} experimental early ${EXPERIMENT_INFO[id].keywords}`]])),
 
   // About
   ...rows('about', undefined, [

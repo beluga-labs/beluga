@@ -982,6 +982,11 @@ export class Workbench {
     }
   }
 
+  /** Where a workspace's folder is (a live preview builds from it), or undefined when it's gone. */
+  folderOf(id: string): string | undefined {
+    return this.manager.find(id)?.path;
+  }
+
   /** Lines of a file in a workspace, for a code block in chat (never outside it, never a secret). */
   async excerpt(id: string, file: string, from?: number, to?: number): Promise<{ readonly ok: true; readonly excerpt: Excerpt } | { readonly ok: false; readonly message: string }> {
     const ws = this.manager.find(id);

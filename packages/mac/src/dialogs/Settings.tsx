@@ -32,6 +32,7 @@ import { EarningsSettings } from './EarningsSettings.js';
 import { NotificationSettings } from './NotificationSettings.js';
 import { VoiceSettings } from './VoiceSettings.js';
 import { KeyboardSettings } from './KeyboardSettings.js';
+import { ExperimentalSettings } from './ExperimentalSettings.js';
 import { WebAccessSettings } from './WebAccessSettings.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
 import { PANES } from './settings-index.js';
@@ -640,6 +641,7 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
   advanced: WebAccessSettings,
+  experimental: ExperimentalSettings,
   about: About,
 };
 

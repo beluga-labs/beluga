@@ -148,6 +148,8 @@ export const Settings = z.object({
   /** Your own flags for `claude` and `codex` on your own runs (shared/agent-args.ts), e.g. --dangerously-skip-permissions. */
   claudeArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
   codexArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
+  /** Experimental features you turned on (shared/experiments.ts); ids a newer Beluga knows are kept. */
+  experiments: z.array(z.string().max(40)).max(20).catch([]).default([]),
   /** Show every earnings total in this currency (lowercase ISO code; unset: the one most was earned in). */
   earningsCurrency: z.string().regex(/^[a-z]{3}$/).optional(),
   /** Be on the Beluga network (friends, groups, presence) while the Mac app's daemon runs. Off by default for now. */

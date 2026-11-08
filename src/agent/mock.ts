@@ -130,6 +130,19 @@ const SCRIPTS: readonly Script[] = [
     ].join('\n'),
   },
   {
+    // A component drawn live in the answer (Settings › Experimental › Live previews).
+    match: /\bpreview\b|show (me )?the hero/i,
+    steps: ['Read src/components/Hero.tsx', 'Edit src/components/Hero.tsx'],
+    answer: [
+      'The new hero takes a tone, the faces of people already in, and weekly sign-ups as bars. Here it is, live:',
+      '',
+      '```beluga-preview',
+      'src/components/Hero.tsx',
+      'props: {"title": "Build together", "subtitle": "You, your friends, and everyone’s Claude.", "cta": "Start free"}',
+      '```',
+    ].join('\n'),
+  },
+  {
     // A long task, so you can try queueing messages (and sending one now) while Claude works.
     match: /deep dive|take your time/i,
     stepMs: 2500,

@@ -1,5 +1,6 @@
 import { isGraphFence } from '../shared/graph-spec.js';
 import { TASKS_FENCE } from '../shared/task-refs.js';
+import { PREVIEW_FENCE, parsePreviewRef, previewTitle } from '../shared/preview/ref.js';
 import { isViewFence } from '../shared/view-spec.js';
 import { tableSpec } from '../shared/render/md-table.js';
 import { findTextTables, looksLikeTable, readTextTable } from '../shared/render/text-table.js';
@@ -112,6 +113,13 @@ export function stripCode(markdown: string): ProseView {
       const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(lines[j]!);
       if (close && close[1]![0] === fence[0] && close[1]!.length >= fence.length) break;
       n++;
+    }
+    // A live preview (Settings › Experimental) runs only on the Mac: the phone says what it is, in words.
+    if (lang === PREVIEW_FENCE) {
+      const ref = parsePreviewRef(lines.slice(i + 1, i + 1 + n).join('\n'));
+      out.push(`_A live preview${ref ? ` of ${previewTitle(ref)}` : ''}, on your Mac._`);
+      i = j;
+      continue;
     }
     if (code.length < MAX_CODE) {
       out.push(`[[code:${code.length}]]`);

@@ -483,6 +483,8 @@ export const PHONE: Record<Method, Side> = {
   'git.filters': 'mac',
   'git.worktreeAt': 'mac',
   'view.fetch': 'mac',
+  // A live preview builds and runs code on the Mac for its own window's frame; the phone shows a plain card.
+  'preview.open': 'mac',
   'files.searchContent': 'mac',
   'files.searchNames': 'mac',
   'files.save': 'mac',

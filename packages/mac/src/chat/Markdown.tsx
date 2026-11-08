@@ -35,6 +35,8 @@ import { CODE_FENCE } from '@beluga/shared/code-ref.js';
 import { CodeRefBlock } from '../components/code/CodeRefBlock.js';
 import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
+import { PREVIEW_FENCE } from '@beluga/shared/preview/ref.js';
+import { PreviewBlock } from '../components/preview/PreviewBlock.js';
 import { linkPaths, parsePathHref } from '@beluga/shared/render/path-refs.js';
 import { PathLink } from './PathLink.js';
 import s from './chat.module.css';
@@ -142,6 +144,12 @@ function MessageGraph({ code, localImages }: { code: string; localImages: boolea
 function MessageView({ code, type, local }: { code: string; type: NonNullable<ReturnType<typeof viewFenceType>>; local: boolean }) {
   const live = useContext(LiveText);
   return <ViewBlock code={code} type={type} live={live} local={local} />;
+}
+
+/** A live preview (Settings › Experimental): built only for your own Claude's, once the text is all there. */
+function MessagePreview({ code, local }: { code: string; local: boolean }) {
+  const live = useContext(LiveText);
+  return <PreviewBlock code={code} live={live} local={local} />;
 }
 
 /**
@@ -295,6 +303,8 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
       if (lang === CODE_FENCE) return <CodeRefBlock code={code} />;
       // The worktree's PR comments, when you asked what reviewers said (shared/pr-comments-ref.ts): read-only, the PR page answers them.
       if (lang === PR_COMMENTS_FENCE) return <PrCommentsBlock code={code} />;
+      // A component or page drawn live (shared/preview/ref.ts), when Live previews are on.
+      if (lang === PREVIEW_FENCE) return <MessagePreview code={code} local={localImages} />;
       // Tables, charts, stats, code and colors (docs/views.md): data, drawn live.
       const view = viewFenceType(lang);
       if (view) return <MessageView code={code} type={view} local={localImages} />;

@@ -36,6 +36,7 @@ import { CI_HANDLERS } from './ci-handlers.js';
 import { TEAM_HANDLERS } from './team-handlers.js';
 import { GIT_HANDLERS } from './git-handlers.js';
 import { VIEWS_HANDLERS } from './views-handlers.js';
+import { PREVIEW_HANDLERS } from './preview-handlers.js';
 import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
@@ -412,6 +413,7 @@ export const HANDLERS = {
   ...TEAM_HANDLERS,
   ...GIT_HANDLERS,
   ...VIEWS_HANDLERS,
+  ...PREVIEW_HANDLERS,
   ...FILES_EDIT_HANDLERS,
   ...COMPANION_HANDLERS,
   ...ASSISTANT_HANDLERS,
