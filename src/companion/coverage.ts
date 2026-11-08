@@ -310,6 +310,7 @@ export const PHONE: Record<Method, Side> = {
   'stats.note': 'mac',
   'stats.saveImage': 'mac',
   'diagnostics.report': 'mac',
+  'diagnostics.windowProblem': 'mac',
 
   // ---- browsers on the web port (BLG-650): let in and revoked from the Mac's Settings or `beluga web`
   'web.link': 'mac',
