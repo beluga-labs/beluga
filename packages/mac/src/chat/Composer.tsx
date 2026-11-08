@@ -6,6 +6,7 @@ import { localDirKey } from '@beluga/core/local-key.js';
 import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion } from '@beluga/ui/suggest.js';
+import { worktreeMode } from '@beluga/ui/submit.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
@@ -204,12 +205,16 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const homePlan = planForHome(state.plans, channel);
   // Picked but nothing sent yet: only the box knows. The plan is made with the first message, so
   // until then the conversation stays an ordinary one everywhere else (sidebar, Overview, its page).
+  // A new worktree's page is picked for by its project (new chats and worktrees all share "draft"):
+  // its worktree starts as the plan's home.
+  const newWorktree = state.view.kind === 'draft_worktree';
+  const tasksKey = newWorktree ? draftKey : channel;
   const [, redraw] = useState(0);
-  const armed = !homePlan && tasksPicked.has(channel);
+  const armed = !homePlan && tasksPicked.has(tasksKey);
   const arm = (on: boolean): void => {
-    if (on === tasksPicked.has(channel)) return;
-    if (on) tasksPicked.add(channel);
-    else tasksPicked.delete(channel);
+    if (on === tasksPicked.has(tasksKey)) return;
+    if (on) tasksPicked.add(tasksKey);
+    else tasksPicked.delete(tasksKey);
     redraw((n) => n + 1);
   };
   // While it's being planned (once approved, the conversation is the plan's head and the box is as usual).
@@ -219,7 +224,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const untouched = drafting && !homePlan?.draft?.milestones.length && !state.log.some((l) => l.type === 'agent' && l.channel === channel);
   // A plan's own conversation (its head Claude plans and runs it here): no modes to pick, the plan is what it's for.
   const planHome = isPlanHome(state.plans, channel) && !untouched;
-  const canPlanTasks = state.plans.enabled && channel.startsWith('ws:') && state.projects.some((p) => p.root && p.workspaces.some((w) => `ws:${w.id}` === channel));
+  const canPlanTasks = state.plans.enabled && (newWorktree || (channel.startsWith('ws:') && state.projects.some((p) => p.root && p.workspaces.some((w) => `ws:${w.id}` === channel))));
   const mode: ComposeMode = tasksMode ? 'tasks' : plan ? 'plan' : 'act';
   const setMode = (next: ComposeMode): void => {
     const leave = (): void => {
@@ -364,9 +369,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     setWorktreeState({ name: '' });
     // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
     const terminal = Boolean(text.trim()) && sendsToTerminal(client.store.getState(), getPrefs(), 'draft', worktree.agent?.runtime);
-    // Started in the mode the picker shows (Plan First or not).
-    const plan = client.store.getState().planMode.draft === true;
-    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...(terminal ? { terminal } : {}), ...(plan ? { plan } : {}) }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+    // Started in the mode the picker shows (Act, Plan First or Plan with Tasks).
+    const mode = worktreeMode({ terminal, plan: client.store.getState().planMode.draft === true, tasks: armed });
+    arm(false);
+    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
   };
   const deliver = (text: string, urgent: boolean): void => {
     if (readOnly) return;
