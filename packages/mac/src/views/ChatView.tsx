@@ -5,7 +5,9 @@ import { ChatLog } from '../chat/ChatLog.js';
 import { Composer } from '../chat/Composer.js';
 import { Button, Empty, EmptyActions } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { useApp } from '../lib/beluga.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
+import { McpChip } from '../chat/McpChip.js';
+import { useMachines } from '../machines/use-machines.js';
 import s from './views.module.css';
 import { OtherWorktreeBanner, WorktreeInfoPage } from './WorktreeInfo.js';
 import { AgentWorktreePage } from '../claude-code/AgentMonitor.js';
@@ -124,6 +126,7 @@ export function ChatView() {
     ) : (
       <Empty icon="chat" title="Tell your agent what to do here" detail="It works in this folder and remembers the conversation. Start with one of these, or write your own below." action={<Starters />} />
     );
+  const paired = useMachines(useBeluga().home).length > 0;
   // A worktree made outside Beluga: its info page until there's a conversation (or you start one).
   const other = ws?.kind === 'worktree' && ws.external && !ws.archived ? ws : undefined;
   const hasItems = useApp((st) => st.log.some((l) => l.channel === channel));
@@ -139,6 +142,12 @@ export function ChatView() {
   // Files from Finder dropped anywhere on it go in the message box (use-attachments.tsx).
   const chat = (
     <div className={s.chat} data-drop-zone>
+      {/* With a computer paired, MCP is up here and the box has Runs on (BLG-786). */}
+      {paired ? (
+        <div className={s.chatTopRight}>
+          <McpChip at="top" />
+        </div>
+      ) : null}
       {other ? <OtherWorktreeBanner ws={other} /> : null}
       {view.kind === 'room' ? <ConnectionStatus /> : null}
       {view.kind === 'assistant' ? <AssistantTabs /> : null}

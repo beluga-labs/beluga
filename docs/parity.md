@@ -247,6 +247,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.settingsSync` | ✓ Settings › Your Computers › Your Settings: they follow you to every computer, and a conflict is said |
 | `machines.settingsSync.clear` | ✓ Settings › Your Computers › Your Settings › a conflict's Got It |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
+| `machines.ready.start` | ✓ a new worktree, plan or sentinel sent to a computer that doesn't have the project: Getting … ready, on the new worktree (BLG-787, BLG-788) |
+| `machines.ready.status` | ✓ the same, each step as it goes (folder, clone, tools, setup) and any error in plain words |
+| `machines.ready.install` | ✓ the same: Install Them, after what's missing there is named |
 | `machines.ports` | – asked by your app over a computer's link every few seconds (BLG-802): each worktree's dev servers there |
 | `machines.forwards` | ✓ a worktree on a computer › the panel's Background tab › Ports: each server with Open at localhost:<port>, and which port when the same was taken |
 | `machines.share` | ✓ a worktree on a computer › the panel's Background tab › Share a Port from This Mac: a port and Share |
@@ -426,6 +429,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `local.openFolder` | ✓ |
 | `local.statFiles` | ✓ ⌘V of file paths attaches the files (⌘⇧V keeps the words) |
 | `projects.add` | ✓ Add projects sheet, Choose Folders…, drop folders on the sidebar |
+| `projects.origin` | ✓ new work sent to one of your computers: its project found there by origin, or cloned from it (BLG-788) |
 | `projects.addFolder` | ✓ (a dropped folder of projects is watched) |
 | `projects.initGit` | ✓ Add projects sheet: a plain folder’s row offers Set Up Git |
 | `projects.suggest` | ✓ "On this Mac" in the Add projects sheet |

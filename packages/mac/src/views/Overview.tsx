@@ -11,7 +11,9 @@ import { EarningsCard } from './EarningsCard.js';
 import { ConversationPeek, DeleteArchivedAlert } from './overview/ConversationPeek.js';
 import { FilterBar } from './overview/FilterBar.js';
 import { ActiveRow, type ArchivedActions, ArchivedRow } from './overview/OverviewRows.js';
-import { type OverviewGroup, type OverviewItem, emptyText, filterCounts, groupItems, inFilter, narrow, overviewItems, rowOrder, stepRow } from './overview/overview-model.js';
+import { type OverviewGroup, type OverviewItem, emptyText, filterCounts, groupItems, inFilter, narrow, narrowThere, overviewItems, rowOrder, stepRow } from './overview/overview-model.js';
+import { RemoteList } from '../machines/RemoteList.js';
+import { useRemoteAttention } from '../machines/remote-attention.js';
 import { useOverviewPrefs } from './overview/use-overview-prefs.js';
 import s from './overview.module.css';
 import { primaryKey } from '../lib/shortcuts-model.js';
@@ -43,7 +45,11 @@ export function OverviewView() {
   // A project that's gone (removed, hidden) means all of them again.
   const project = projects.find((p) => p.id === prefs.project);
   const narrowed = narrow(all, project?.id, search);
-  const counts = filterCounts(narrowed);
+  // Every computer's too (BLG-843): what needs you there, from the same source as the bell, tagged.
+  const remote = useRemoteAttention();
+  const there = useMemo(() => remote.flatMap((r) => narrowThere(r.needs, project?.name, search).map((item) => ({ machine: r.machine, item: { id: item.id, title: item.title, sub: `${item.project} · ${item.why}`, page: item.page }, offline: false }))), [remote, project?.name, search]);
+  const here = filterCounts(narrowed);
+  const counts = { ...here, needs: here.needs + there.length };
   const groups = groupItems(
     narrowed.filter((i) => inFilter(i, prefs.filter)),
     prefs.sort,
@@ -133,7 +139,8 @@ export function OverviewView() {
       />
       {!searching && !project && (prefs.filter === 'all' || prefs.filter === 'active') ? <EarningsCard /> : null}
       <div ref={listRef} onKeyDown={onListKey}>
-        {groups.length ? (
+        {prefs.filter === 'needs' && there.length ? <RemoteList title="Needs you on your computers" rows={there} /> : null}
+        {groups.length || (prefs.filter === 'needs' && there.length) ? (
           groups.map((g) => <Group key={g.project.id} group={g} filter={prefs.filter} current={current} onSelect={setSelected} onOpen={open} act={act} />)
         ) : (
           <NothingHere

@@ -1,3 +1,6 @@
+import { RemoteList } from '../machines/RemoteList.js';
+import { remoteDashboards, remoteSentinels } from '../machines/remote-work.js';
+import { useRemoteSources } from '../machines/use-remote.js';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CLAUDE_CHANGED, FIRST_SENTINEL_CHAT, MAX_RUN_AT_ONCE, RUN_STATE_INFO, type RunSummary, type Sentinel, type SentinelState, lastRunOf, pausedWords, sentinelChatChannel } from '@beluga/core/sentinel/model.js';
 import { Icon } from '../components/Icon.js';
@@ -258,6 +261,21 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
           </div>
         )}
       </section>
+      {/* Sentinels and dashboards on your computers (BLG-785). */}
+      <RemoteSentinels />
+    </>
+  );
+}
+
+/** Your computers' sentinels and dashboards, tagged. */
+function RemoteSentinels() {
+  const sources = useRemoteSources();
+  const sentinels = useMemo(() => remoteSentinels(sources).map((t) => ({ ...t, item: { id: t.item.id, title: t.item.name, sub: [t.item.project, t.item.paused ? 'paused' : undefined].filter(Boolean).join(' · '), page: { kind: 'sentinel_page' as const, id: t.item.id } } })), [sources]);
+  const dashboards = useMemo(() => remoteDashboards(sources).map((t) => ({ ...t, item: { id: t.item.id, title: t.item.name, page: { kind: 'dashboard' as const, id: t.item.id } } })), [sources]);
+  return (
+    <>
+      <RemoteList title="Sentinels on your computers" rows={sentinels} />
+      <RemoteList title="Dashboards on your computers" rows={dashboards} />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../components/Icon.js';
 import { inApp, webServed } from '../lib/boot.js';
-import { toast, useApi, useBeluga } from '../lib/beluga.js';
+import { toast, useApi, useBeluga, useScopedKey } from '../lib/beluga.js';
 import { type Box, MAX_DROPPED, dropHits, droppedFiles, sameBox } from './drop-model.js';
 import { imageLinksIn } from '@beluga/shared/attachment-links.js';
 import { type RefKey, boxRef, plainRefs, refKey, referencedImages, withoutRef } from './image-refs.js';
@@ -103,35 +103,37 @@ export interface Attachments {
  * plan chat in its own).
  */
 export function useAttachments({ channel, box, text, setText }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void }): Attachments {
+  // What waits in the box is kept per computer too (BLG-784): `channel` stays what the computer calls it.
+  const memo = useScopedKey(channel);
   const { client } = useBeluga();
   const api = useApi();
   const selfId = client.store.getState().selfId;
-  const [images, setImagesState] = useState<readonly number[]>(() => waitingImages.get(channel) ?? []);
-  useEffect(() => setImagesState(waitingImages.get(channel) ?? []), [channel]);
+  const [images, setImagesState] = useState<readonly number[]>(() => waitingImages.get(memo) ?? []);
+  useEffect(() => setImagesState(waitingImages.get(memo) ?? []), [memo]);
   const setImages = (next: readonly number[]): void => {
-    waitingImages.set(channel, next);
+    waitingImages.set(memo, next);
     setImagesState(next);
   };
   const pendingImages = images.filter((n) => previewOf(n));
-  const [files, setFilesState] = useState<readonly PathInfo[]>(() => waitingFiles.get(channel) ?? []);
-  useEffect(() => setFilesState(waitingFiles.get(channel) ?? []), [channel]);
+  const [files, setFilesState] = useState<readonly PathInfo[]>(() => waitingFiles.get(memo) ?? []);
+  useEffect(() => setFilesState(waitingFiles.get(memo) ?? []), [memo]);
   const setFiles = (next: readonly PathInfo[]): void => {
-    if (next.length) waitingFiles.set(channel, next);
-    else waitingFiles.delete(channel);
+    if (next.length) waitingFiles.set(memo, next);
+    else waitingFiles.delete(memo);
     setFilesState(next);
   };
   const [dropping, setDropping] = useState(false);
 
   /** The number image `n` has in this box. */
-  const shownOf = (n: number): number => numbersOf(channel).get(n) ?? n;
+  const shownOf = (n: number): number => numbersOf(memo).get(n) ?? n;
   /** How the words refer to a waiting image (it becomes a link to it when sent). */
   const imageRef = (n: number): string => boxRef(shownOf(n), imageNames.get(n));
   /** The image whose "[image N]" says `shown` (undefined: none waits with that number). */
-  const imageShown = (shown: number): number | undefined => (waitingImages.get(channel) ?? []).find((n) => shownOf(n) === shown);
+  const imageShown = (shown: number): number | undefined => (waitingImages.get(memo) ?? []).find((n) => shownOf(n) === shown);
   /** Image `n` waits too, numbered in this box (before its reference goes in the words). */
   const addWaiting = (n: number): void => {
-    numberIn(channel, n, text());
-    const waiting = waitingImages.get(channel) ?? [];
+    numberIn(memo, n, text());
+    const waiting = waitingImages.get(memo) ?? [];
     if (!waiting.includes(n)) setImages([...waiting, n]);
   };
 
@@ -190,7 +192,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
   /** Files on this Mac: images wait as thumbnails (referenced at `at`, else where the cursor is), others as chips. */
   const addPaths = async (picked: readonly PathInfo[], at?: number): Promise<void> => {
     const others = picked.filter((f) => !f.image);
-    if (others.length) setFiles([...(waitingFiles.get(channel) ?? []), ...others.filter((f) => !(waitingFiles.get(channel) ?? []).some((w) => w.path === f.path))]);
+    if (others.length) setFiles([...(waitingFiles.get(memo) ?? []), ...others.filter((f) => !(waitingFiles.get(memo) ?? []).some((w) => w.path === f.path))]);
     let cursor = at;
     for (const f of picked.filter((x) => x.image)) {
       const n = await addImageFile(f);
@@ -258,7 +260,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
       off?.();
       setDragOver(undefined);
     };
-  }, [channel]);
+  }, [memo]);
 
   const pastePaths = usePastePaths(
     box,
@@ -312,7 +314,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     insertText(el, '', { start: edit.start, end: edit.end });
     const left = referencedImages(el.value);
     const gone = edit.images.filter((k) => !left.includes(k)).map(imageShown);
-    if (gone.length) setImages((waitingImages.get(channel) ?? []).filter((n) => !gone.includes(n)));
+    if (gone.length) setImages((waitingImages.get(memo) ?? []).filter((n) => !gone.includes(n)));
     return true;
   };
 
@@ -335,8 +337,8 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
           keepPreview(n, new Blob([Uint8Array.from(atob(shown.data), (c) => c.charCodeAt(0))], { type: shown.mime }));
         }
         // Numbered against what's in the box and what this message has put back so far.
-        numberIn(channel, n, text() + out);
-        const waiting = waitingImages.get(channel) ?? [];
+        numberIn(memo, n, text() + out);
+        const waiting = waitingImages.get(memo) ?? [];
         if (!waiting.includes(n)) setImages([...waiting, n]);
         out += imageRef(n);
       } catch {

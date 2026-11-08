@@ -142,3 +142,211 @@
   font-size: 0.85rem;
   color: var(--text-2);
 }
+
+/* A computer's page (BLG-784): its center and panel sit in the window's row as this Mac's do. */
+.pane {
+  display: contents;
+}
+/* "on AWS server" beside a computer's page's title. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  padding: 1px 7px 1px 4px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 500;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tag .mark {
+  margin-top: 0;
+}
+.work {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+
+/* Getting a computer ready for a project (GettingReady.tsx, BLG-787): each step as it goes. */
+.ready {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 18px 20px;
+}
+.readyTitle {
+  font-weight: 600;
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.step[data-state='todo'] {
+  color: var(--text-3);
+}
+.step[data-state='done'] .stepMark {
+  color: var(--ok);
+}
+.step[data-state='failed'] .stepMark,
+.step[data-state='asking'] .stepMark {
+  color: var(--warn);
+}
+.stepMark {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--text-3);
+}
+.todo {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hairline-strong);
+}
+.stepText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stepLabel {
+  line-height: 20px;
+}
+.stepDetail {
+  font-size: 0.84rem;
+  color: var(--text-2);
+}
+.stepError {
+  font-size: 0.84rem;
+  color: var(--error);
+}
+.stepFix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  color: var(--text-2);
+}
+.asking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font-size: 0.88rem;
+}
+.asking ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Where a row runs (BLG-785): the computer's mark and short name, after its name. */
+.rowTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px 0 3px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.rowTag .mark {
+  width: auto;
+  height: auto;
+  margin-top: 0;
+}
+.rowTagOff {
+  opacity: 0.7;
+}
+/* An offline computer's work: still there, greyed. */
+.offlineRow {
+  opacity: 0.55;
+}
+
+/* A list's work on your computers (RemoteList.tsx). */
+.remoteList {
+  margin-top: 18px;
+}
+.remoteList ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.remoteHead {
+  padding: 0 4px 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.remoteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+.remoteRow:hover {
+  background: var(--bg-hover);
+}
+.remoteMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.remoteTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remoteSub {
+  font-size: 0.82rem;
+  color: var(--text-3);
+}
+
+/* New work on its way to a computer (StartingThere.tsx). */
+.starting {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+}
+.startingHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.startingLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+}

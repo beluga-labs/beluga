@@ -7,7 +7,7 @@ import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { Icon } from '../../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../../components/SpecMenu.js';
 import { IconButton, Segmented, cx } from '../../components/ui.js';
-import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
+import { useApi, useApp, useBeluga, useScopedKey } from '../../lib/beluga.js';
 import { localPathOf, openWithDefaultApp } from '../../lib/files.js';
 import { focusFor, openFocus, showChange, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
@@ -128,7 +128,9 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
   const keyOf = (path: string): string => `${selfId}:${share}/${path}`;
   const entriesOf = (path: string): readonly FsEntry[] | undefined => cache[keyOf(path)];
 
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => opened.get(wsId) ?? new Set());
+  // Folders opened, per worktree on its computer (BLG-784).
+  const openedKey = useScopedKey(wsId);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => opened.get(openedKey) ?? new Set());
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState<string>();
   const [searchIn, setSearchInNow] = useState(lastSearch.in);
@@ -156,7 +158,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
 
   const load = (path: string): void => void api.files.loadDir(at(path));
   const expand = (next: ReadonlySet<string>): void => {
-    opened.set(wsId, next);
+    opened.set(openedKey, next);
     setExpanded(next);
   };
 

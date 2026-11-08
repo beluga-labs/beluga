@@ -451,6 +451,8 @@ export const API = {
   'projects.icon': args(id),
   'projects.setIcon': args(id, opt(path)),
   'projects.add': args(path),
+  // A project's git origin (none: it has none), for matching it on, or cloning it to, one of your computers (BLG-788).
+  'projects.origin': args(id),
   'projects.addFolder': args(path),
   // Make a folder that isn't a git project one (git, a .gitignore, a first commit), then add it.
   'projects.initGit': args(path),

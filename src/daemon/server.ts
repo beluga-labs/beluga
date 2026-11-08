@@ -189,6 +189,16 @@ export class DaemonServer {
     ws.emit('message', Buffer.from(hello), false);
   }
 
+  /**
+   * A screen for one of your computers that is this daemon itself (the demo's, BLG-784): its hello
+   * (token already checked) is heard again, and it's a screen of kind `machine` here.
+   */
+  serveAsMachine(ws: WebSocket, hello: Parameters<MachineRoute>[2]): void {
+    if (!this.wss) return ws.close(1013, 'Beluga is starting');
+    this.accept(ws, 'machine');
+    ws.emit('message', Buffer.from(encodeFrame(hello)), false);
+  }
+
   private machineRoute?: MachineRoute;
 
   /** Who serves `/machine/<id>` (the machines' door, once it's up). */

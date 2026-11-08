@@ -241,6 +241,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'projects.icon': 'drive',
   'projects.setIcon': 'drive',
   'projects.add': 'drive',
+  'projects.origin': 'drive',
   'projects.addFolder': 'drive',
   'projects.initGit': 'drive',
   'projects.suggest': 'drive',
@@ -559,6 +560,10 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',
+  // Your app getting this computer ready for a project (BLG-787): what driving it is for.
+  'machines.ready.start': 'drive',
+  'machines.ready.status': 'drive',
+  'machines.ready.install': 'drive',
   // Your app asks what a worktree's project has and sends what you said to send (BLG-800); the asks
   // and Always for This Project are the app's own, never a computer's.
   // Your app forwards a computer's dev servers to itself (BLG-802); what it forwards is its own.

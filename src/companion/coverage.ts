@@ -240,6 +240,7 @@ export const PHONE: Record<Method, Side> = {
   'projects.icon': 'mac',
   'projects.setIcon': 'mac',
   'projects.add': 'mac',
+  'projects.origin': 'mac',
   'projects.addFolder': 'mac',
   'projects.initGit': 'mac',
   'projects.suggest': 'mac',
@@ -526,6 +527,9 @@ export const PHONE: Record<Method, Side> = {
   'machines.list': 'mac',
   'machines.devices': 'mac',
   'machines.forget': 'mac',
+  'machines.ready.start': 'mac',
+  'machines.ready.status': 'mac',
+  'machines.ready.install': 'mac',
   // .env files never reach the phone, not even their names (BLG-800).
   'machines.ports': 'mac',
   'machines.forwards': 'mac',

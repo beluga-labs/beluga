@@ -1,8 +1,9 @@
 import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
+import { machinesOf, needMachines } from '../machines/registry.js';
+import { readyingOf } from '../machines/ready.js';
 import { runOnHere } from '../machines/run-on.js';
-import { needMachines } from '../machines/registry.js';
 import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
 import { portsByFolder } from '../workspaces/ports.js';
 import { type MachinePort, type MachinePorts, needForwarder } from '../machines/forward.js';
@@ -46,6 +47,9 @@ export const MACHINE_HANDLERS = {
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.ready.start': (s, origin, name) => readyingOf(s, () => machinesOf(s)?.hereName() ?? os.hostname()).start(origin, name),
+  'machines.ready.status': (s, id) => readyingOf(s).status(id) ?? null,
+  'machines.ready.install': (s, id) => readyingOf(s).install(id),
   'machines.ports': (s) => machinePorts(s.store.getState()),
   'machines.forwards': (s) => s.store.getState().forwards,
   'machines.share': (s, wsId, port) => needForwarder(s).share(wsId, port),

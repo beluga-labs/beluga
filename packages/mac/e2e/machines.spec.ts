@@ -37,3 +37,186 @@ test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Wo
   await expect(pane.getByRole('textbox', { name: 'user@host' })).toBeVisible();
   await pane.screenshot({ path: path.join(SHOTS, 'blg-780-add-a-computer.png') });
 });
+
+/**
+ * A computer's page (BLG-784): the AWS server's webhook-retries opens from Your Computers and draws
+ * with that computer's client (the demo daemon serves its demo computers' screens itself), tagged
+ * with the computer. The same worktree on this Mac is another page: Back and Forward go between the
+ * two, and each keeps its own unsent words.
+ */
+test('a computer’s worktree opens in the pane, tagged, and keeps its own state beside this Mac’s', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const composer = page.locator('textarea:not(.xterm-helper-textarea)');
+  const tag = page.getByTitle('Runs on AWS server');
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  // This Mac's webhook-retries first, with words left in its box.
+  await expect(sidebar.getByRole('button', { name: 'bob-api' }).first()).toBeVisible();
+  if (!(await sidebar.getByRole('button', { name: 'webhook-retries', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await sidebar.getByRole('button', { name: 'webhook-retries', exact: true }).click();
+  await expect(composer).toHaveAttribute('placeholder', /webhook-retries/);
+  await composer.fill('words for this Mac');
+  await expect(tag).toHaveCount(0);
+
+  // The AWS server's, from Your Computers.
+  await page.keyboard.press('Meta+,');
+  const pane = settings(page);
+  await pane.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await pane.getByRole('button', { name: 'Open webhook-retries on AWS server' }).click();
+  await expect(pane).toBeHidden();
+  await expect(tag).toBeVisible();
+  await expect(composer).toHaveAttribute('placeholder', /webhook-retries/);
+  // Its own box: this Mac's words stay with this Mac's page.
+  await expect(composer).toHaveValue('');
+  await composer.fill('words for the AWS server');
+  await page.screenshot({ path: path.join(SHOTS, 'blg-784-computer-pane.png') });
+
+  // Back: this Mac's page, as it was.
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await expect(tag).toHaveCount(0);
+  await expect(composer).toHaveValue('words for this Mac');
+  // Forward: the AWS server's again, as it was.
+  await page.getByRole('button', { name: 'Go forward', exact: true }).click();
+  await expect(tag).toBeVisible();
+  await expect(composer).toHaveValue('words for the AWS server');
+});
+
+/**
+ * Runs on (BLG-786): with the demo's computers paired, the project home's box says where new work
+ * runs, its menu lists This Mac, each computer with its line and Best Available, the pick is kept
+ * for the project, and an existing chat says where it runs as a label.
+ */
+test('Runs on picks where new work goes, remembers it for the project, and labels a chat', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const openHome = async (): Promise<void> => {
+    await sidebar.getByText('bob-api', { exact: true }).first().click();
+    await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
+  };
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await openHome();
+  const chip = page.getByRole('button', { name: 'Runs on This Mac' });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  const menu = page.getByRole('menu', { name: 'Runs on' });
+  await expect(menu.getByRole('menuitem', { name: /^This Mac: The computer in front of you/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Mac mini at home: Mac mini · \d+ GB free/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^AWS server: AWS · \d+ GB free · 1 task running/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Best Available: Picks the computer with the most room\./ })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-menu.png') });
+  await menu.getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+
+  // Kept for the project.
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await openHome();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+
+  // An existing chat: where it runs, as a label; MCP is at the chat's top right.
+  if (!(await sidebar.getByRole('button', { name: 'add-auth', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await sidebar.getByRole('button', { name: 'add-auth', exact: true }).click();
+  await expect(page.getByLabel('Runs on This Mac')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Runs on This Mac' })).toHaveCount(0);
+  await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-label.png') });
+});
+
+/**
+ * Every computer in one sidebar (BLG-785): the AWS server's webhook-retries lists under bob-api
+ * with the computer's mark and short name, the sidebar's search finds it there too, and it opens in
+ * the pane with that computer's client.
+ */
+test('a computer’s worktree lists under its project, tagged, and search finds it', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  const remote = sidebar.getByRole('button', { name: 'webhook-retries on AWS server' });
+  if (!(await remote.isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await expect(remote).toBeVisible();
+  await expect(remote).toContainText('AWS server');
+  // This Mac's own webhook-retries is still its own row.
+  await expect(sidebar.getByRole('button', { name: 'webhook-retries', exact: true })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-785-sidebar.png') });
+
+  await sidebar.getByRole('textbox', { name: 'Search chats and messages' }).fill('webhook');
+  const results = page.getByRole('listbox', { name: 'Search results' });
+  await expect(results.getByRole('option').filter({ hasText: 'bob-api · AWS server' })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-785-search.png') });
+  await results.getByRole('option').filter({ hasText: 'bob-api · AWS server' }).click();
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible();
+});
+
+/**
+ * Start the work on that computer (BLG-788): with Runs on set to the AWS server, Create Worktree in
+ * bob-api's home makes the worktree there, in the same project, and opens it at once in the pane,
+ * tagged with the computer, listed under bob-api with its tag.
+ */
+test('a worktree started with Runs on a computer is made there and opens tagged', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await sidebar.getByText('bob-api', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Worktree name' }).fill('health-check');
+  await page.locator('textarea:not(.xterm-helper-textarea)').first().fill('Add a health check endpoint');
+  await page.getByRole('button', { name: /Create Worktree/ }).first().click();
+  // Opened at once in the pane, with the computer's tag.
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('health-check').first()).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'health-check on AWS server' })).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: path.join(SHOTS, 'blg-788-started-there.png') });
+});
+
+/**
+ * A chat outside a project runs where Runs on says (BLG-841): picked, or from Run New Work On with
+ * no pick, it starts on that computer, in its own chats, and opens tagged in the pane; never on this Mac.
+ */
+test('a chat outside a project starts on the picked computer, and on Run New Work On’s without a pick', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const composer = page.locator('textarea:not(.xterm-helper-textarea)').first();
+  const newChat = async (): Promise<void> => {
+    await sidebar.getByRole('button', { name: 'New chat (not tied to a project)' }).click();
+    await expect(page.getByRole('button', { name: /^Runs on / })).toBeVisible();
+  };
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await newChat();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await composer.fill('What is using the disk on this server?');
+  await composer.press('Enter');
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('What is using the disk on this server?').first()).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-841-chat-on-aws.png') });
+
+  // No pick for chats any more (back to This Mac), then Run New Work On says the Mac mini: it goes there.
+  await newChat();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^This Mac/ }).click();
+  await page.evaluate(() => localStorage.removeItem('beluga.runsOn.v1'));
+  await page.keyboard.press('Meta+,');
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await settings.getByRole('combobox', { name: 'Run New Work On' }).click();
+  await page.getByRole('option', { name: 'Mac mini at home' }).click();
+  await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await newChat();
+  await expect(page.getByRole('button', { name: 'Runs on Mac mini at home' })).toBeVisible();
+  await composer.fill('Which disks are mounted?');
+  await composer.press('Enter');
+  await expect(page.getByTitle('Runs on Mac mini at home')).toBeVisible({ timeout: 20_000 });
+
+  // Back to This Mac for what comes after.
+  await page.keyboard.press('Meta+,');
+  await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await settings.getByRole('combobox', { name: 'Run New Work On' }).click();
+  await page.getByRole('option', { name: 'This Mac' }).click();
+  await page.keyboard.press('Escape');
+});

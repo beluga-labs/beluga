@@ -1,3 +1,4 @@
+import { git } from '../workspaces/git.js';
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
@@ -382,6 +383,11 @@ export const HANDLERS = {
   // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
   'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
+  'projects.origin': async (s, projectId) => {
+    const root = rootOf(s, projectId);
+    if (!root) return null;
+    return (await git(root, ['remote', 'get-url', 'origin'], 5_000).catch(() => '')).trim() || null;
+  },
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
   // Every repo found (the sheet shows the newest, and its Filter searches them all).
   'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean), undefined, SUGGEST_ALL),

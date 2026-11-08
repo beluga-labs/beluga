@@ -15,9 +15,10 @@ const CLOSE_DELAY_MS = 180;
 /**
  * Your MCP servers in the box you type in (BLG-252): a plug and how many are connected, with a
  * soft amber dot when one needs you to sign in. Hover for the list, Sign In… right there.
- * Nothing shows when you have none.
+ * Nothing shows when you have none. With a computer paired it sits at the chat's top right
+ * (`at: 'top'`), making room for Runs on in the box (BLG-786).
  */
-export function McpChip() {
+export function McpChip({ at = 'box' }: { at?: 'box' | 'top' }) {
   const { client, ui } = useBeluga();
   // Your agent's servers (Codex's own when it's Codex, BLG-518): the same list as Settings shows.
   const runtime = mcpRuntimeOf(useApp((st) => myRuntime(st.prefs)));
@@ -48,7 +49,7 @@ export function McpChip() {
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className={s.popover} side="top" align="start" sideOffset={8} collisionPadding={12} aria-label="MCP servers" {...hover} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <Popover.Content className={s.popover} side={at === 'top' ? 'bottom' : 'top'} align={at === 'top' ? 'end' : 'start'} sideOffset={8} collisionPadding={12} aria-label="MCP servers" {...hover} onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className={s.head}>
             <span className={s.title}>MCP servers</span>
             <button type="button" className={s.quiet} disabled={checking} onClick={() => void checkMcp(client, runtime)} aria-label="Check again">

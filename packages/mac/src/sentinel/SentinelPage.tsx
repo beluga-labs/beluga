@@ -8,6 +8,7 @@ import { useAgentEntries } from '../components/agent-options.js';
 import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Empty, IconButton, Tip, cx } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
+import { RunsOnLabel } from '../chat/RunsOn.js';
 import { useActions } from '../lib/actions.js';
 import { AskPanel, SentinelChat } from './SentinelChat.js';
 import { Attention } from '../chat/Attention.js';
@@ -147,6 +148,8 @@ function Header({ item, save }: { item: Sentinel; save: (patch: SentinelPatch) =
         <span className={s.subtitle}>{scheduleSentence(item.trigger, (id) => items.find((x) => x.id === id)?.name)}</span>
       </div>
       <div className={s.headActions}>
+        {/* Where it runs (BLG-786): the computer it was made on. Only with a computer paired. */}
+        <RunsOnLabel tip="It runs on the computer it was made on until you move it." />
         <Tip label={item.paused ? 'Once now, even though it’s paused' : 'Once now, whatever its schedule'}>
           <Button size="small" icon="play" variant={item.paused ? 'plain' : 'primary'} onClick={() => void a.runNow(item)}>
             Run Now

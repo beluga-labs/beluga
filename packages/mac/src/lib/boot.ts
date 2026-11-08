@@ -5,6 +5,7 @@ import type { SoundChoice } from '@beluga/shared/notify-sound.js';
 import { MESSAGE_BANNER, NOTIFICATION_TAP } from './notices.js';
 import { REQUEST_NOTIFICATION, notificationActions } from '../gateway/request-actions.js';
 import { version } from '../../src-tauri/tauri.conf.json';
+import { machineSocketUrl } from '../machines/pane-model.js';
 
 /** Running inside the Tauri shell (otherwise: a browser, while developing). */
 export const inApp = (): boolean => '__TAURI_INTERNALS__' in globalThis;
@@ -133,4 +134,21 @@ export const APP_VERSION: string = version;
 export async function connect(caps: Capabilities): Promise<SocketClient> {
   const { url, token } = await endpoint();
   return SocketClient.connect({ url, token, kind: 'mac', version: APP_VERSION, caps });
+}
+
+/**
+ * What a computer may ask of this window (BLG-776 COMPUTER_CAPS, less): copy, open a page, read a
+ * pasted image, and notify through this Mac's one bell (BLG-790: machines/pane-clients.ts wraps it).
+ */
+const MACHINE_CAPS = ['copyText', 'openExternal', 'readClipboardImage', 'notify'] as const;
+
+/**
+ * Attach to one of your computers (BLG-784): this Mac's daemon pipes the screen there over
+ * /machine/<id>, with this daemon's own token (never sent on). Not from a browser on the web port.
+ */
+export async function connectMachine(id: string, caps: Capabilities): Promise<SocketClient> {
+  const { url, token } = await endpoint();
+  if (webServed()) throw new Error('Your computers open in the Beluga app');
+  const allowed: Capabilities = Object.fromEntries(MACHINE_CAPS.flatMap((k) => (caps[k] ? [[k, caps[k]]] : [])));
+  return SocketClient.connect({ url: machineSocketUrl(url, id), token, kind: 'mac', version: APP_VERSION, caps: allowed, timeoutMs: 20_000 });
 }

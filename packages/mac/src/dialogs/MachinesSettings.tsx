@@ -13,8 +13,10 @@ import m from '../components/SpecMenu.module.css';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { copyText } from '../lib/copy.js';
 import { upFirst, thisComputer } from '../lib/os-words.js';
-import { BRANDS } from '../machines/brands.js';
-import { ICON_CHOICES, healthOf, kindLine, loadLine, machineLook, runOnOptions } from '../machines/model.js';
+import { MachineMark } from '../machines/MachineMark.js';
+import { onMachine, pageOfChannel } from '../machines/pane-model.js';
+import { useActions } from '../lib/actions.js';
+import { ICON_CHOICES, healthOf, kindLine, loadLine, runOnOptions } from '../machines/model.js';
 import c from '../machines/machines.module.css';
 import { Group, Row, Select } from './settings-controls.js';
 import s from './settings.module.css';
@@ -236,17 +238,6 @@ function AddComputer({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-/** A computer's mark: a brand's own, or a glyph from the app's set. */
-function Mark({ machine }: { machine: MachineView }) {
-  const look = machineLook(machine);
-  const brand = look.brand ? BRANDS[look.brand] : undefined;
-  return (
-    <span className={c.mark} title={brand?.title}>
-      {brand ? <span className={c.brand} role="img" aria-label={brand.title} style={{ background: brand.color, maskImage: `url(${brand.url})`, WebkitMaskImage: `url(${brand.url})` }} /> : <Icon name={look.glyph} size={18} />}
-    </span>
-  );
-}
-
 /** One computer: icon, name (rename in place), kind, status and load, health with fixes, and •••. */
 function Computer({ machine, onChange }: { machine: MachineView; onChange: () => void }) {
   const { client } = useBeluga();
@@ -287,7 +278,7 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
   const tone = machine.status === 'online' ? (machine.readOnly ? 'warn' : 'ok') : 'muted';
   return (
     <div className={c.computer} data-machine={machine.id}>
-      <Mark machine={machine} />
+      <MachineMark machine={machine} />
       <div className={c.main}>
         <div className={c.nameLine}>
           {naming !== undefined ? (
@@ -319,6 +310,7 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
             ))}
           </div>
         ) : null}
+        <Work machine={machine} />
         {fixes.map((h) => (
           <div key={h.key} className={c.fix}>
             {h.fix!.words}
@@ -393,6 +385,30 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** What runs on a computer now, each opening its page there (BLG-784): its chat, files, terminal and changes. */
+function Work({ machine }: { machine: MachineView }) {
+  const { ui } = useBeluga();
+  const actions = useActions();
+  const work = (machine.info?.work ?? []).flatMap((w) => {
+    const page = pageOfChannel(w.channel);
+    return page ? [{ ...w, page }] : [];
+  });
+  if (!work.length || machine.status !== 'online') return null;
+  const open = (page: NonNullable<ReturnType<typeof pageOfChannel>>): void => {
+    ui.patch({ settings: undefined });
+    actions.run({ type: 'view', view: onMachine(machine.id, page) });
+  };
+  return (
+    <div className={c.work}>
+      {work.map((w) => (
+        <Button key={w.channel} size="small" variant="quiet" icon="branch" onClick={() => open(w.page)} aria-label={`Open ${w.worktree} on ${machine.name}`}>
+          {w.worktree} · {w.project}
+        </Button>
+      ))}
     </div>
   );
 }
