@@ -49,8 +49,8 @@ export const calls = {
   /** 1.44 (BLG-74): a chat's category, as its sheet in Work changes it. The setting itself stays the Mac's. */
   settle: (topic: Topic): Call => make('triage.settle', [channelOf(topic)], 'Settle'),
   unsettle: (topic: Topic): Call => make('triage.unsettle', [channelOf(topic)], 'Un-settle'),
-  snooze: (topic: Topic, until: number): Call => make('triage.snooze', [channelOf(topic), until], 'Snooze'),
-  wake: (topic: Topic): Call => make('triage.wake', [channelOf(topic)], 'Wake'),
+  snooze: (topic: Topic, until: number): Call => make('triage.snooze', [channelOf(topic), until], 'Remind Me Later'),
+  wake: (topic: Topic): Call => make('triage.wake', [channelOf(topic)], 'Show Again Now'),
   /** A message in a conversation (yours, or shared with you to work in), with photos. */
   send: (topic: Topic, text: string, files?: Files): Call => make('companion.ask', [{ target: { topic }, text, ...withFiles(files) }], `Send "${short(text)}"`),
   /** Ask your Mac in a project: a new conversation there (its topic comes back). */

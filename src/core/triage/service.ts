@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { writeJson } from '../../workspaces/store.js';
 import { type NoticeEvent, mentionOf, placeName } from '../notify.js';
-import { planById } from '../plans/model.js';
+import { planById, planTitle } from '../plans/model.js';
 import type { Action, DomainState, LogItem, Store } from '../store.js';
 import type { WorktreeEvent } from '../workspace-controller.js';
 import { autoSettle } from './auto-settle.js';
@@ -11,8 +11,10 @@ import { type ChatTriage, type TriageEvent, applyTriage, handRaisedOf, settleRef
 
 /**
  * Runs each chat's category in the daemon: saves the records, serves triage.*, reacts to messages
- * and turns, and ends snoozes on time. Off while `chatCategories` is off: no change, no file, no
- * timer. What was saved stays, so turning it on again restores it.
+ * and turns, and ends snoozes on time. A snooze is Remind Me Later (BLG-770), so it works with
+ * `chatCategories` off too: a chat put off till later is watched, reminded and saved either way.
+ * Everything else (settling, by you or by itself) is off with the setting: no change, and no file
+ * or timer unless something is put off. What was saved stays, so turning it on again restores it.
  */
 
 export interface TriageServiceDeps {
@@ -25,6 +27,8 @@ export interface TriageServiceDeps {
   readonly history: (workspaceId: string) => readonly LogItem[];
   /** Worktree events (a merge into main here). */
   readonly onWorktree?: (listener: (event: WorktreeEvent) => void) => () => void;
+  /** Clear these worktrees' Remind Me Later from before BLG-770 (`remindAt` on their record): it's carried in here. */
+  readonly forgetReminders?: (ids: readonly string[]) => void;
   readonly now?: () => number;
 }
 
@@ -58,17 +62,23 @@ export class TriageService {
   private readonly offs: Array<() => void> = [];
   /** Beluga sends a prompt in your name now (the Continue after a usage limit): its message isn't yours. */
   private unprompted = false;
+  /** Worktrees whose old Remind Me Later was carried in already (clearing it on their record publishes later). */
+  private readonly carried = new Set<string>();
 
   constructor(private readonly deps: TriageServiceDeps) {
+    for (const [key, record] of Object.entries(this.load())) deps.store.dispatch({ type: 'triage_set', channel: key, record });
     this.prev = deps.store.getState();
+    this.saved = this.prev.triage;
     this.offs.push(deps.store.onAction((action) => this.onAction(action)));
     if (deps.onWorktree) this.offs.push(deps.onWorktree((event) => this.onWorktree(event)));
     if (this.prev.prefs.chatCategories) this.enable();
+    else this.watchLater();
+    this.saveSoon();
   }
 
   stop(): void {
     for (const off of this.offs) off();
-    if (this.on) this.save();
+    this.save();
     this.halt();
   }
 
@@ -84,16 +94,18 @@ export class TriageService {
     this.apply(this.keyOf(channel), { kind: 'unsettle' });
   }
 
+  /** Remind Me Later: quiet until then, and a reminder then. With the categories on or off. */
   snooze(channel: string, until: number): void {
-    const key = this.keyOf(channel);
+    const key = this.keyOf(channel, 'any');
     const at = this.now();
     if (until <= at) throw new Error('Pick a time in the future.');
     this.apply(key, { kind: 'snooze', at, until, seen: handSourceOf(this.state(), key).openIds });
     this.arm();
   }
 
+  /** Show Again Now: the snooze ends early, with no reminder. */
   wake(channel: string): void {
-    this.apply(this.keyOf(channel), { kind: 'wake', at: this.now() });
+    this.apply(this.keyOf(channel, 'any'), { kind: 'wake', at: this.now() });
   }
 
   setAutoSettle(channel: string, on: boolean): void {
@@ -117,11 +129,8 @@ export class TriageService {
     if (next.prefs.chatCategories !== this.on) {
       if (this.on) this.disable();
       else this.enable();
-      return;
-    }
-    if (!this.on) return;
-    this.react(action, prev);
-    if (this.state().triage !== this.saved) this.queueSave();
+    } else this.react(action, prev);
+    this.saveSoon();
   }
 
   private react(action: Action, prev: DomainState): void {
@@ -155,9 +164,9 @@ export class TriageService {
         return;
       }
       case 'projects':
-        this.reminded(prev);
         this.prune();
-        this.seed();
+        this.carryOver();
+        if (this.on) this.seed();
         return;
       default:
         return;
@@ -169,10 +178,12 @@ export class TriageService {
     if (!this.on || event.kind !== 'merged') return;
     this.applyIn(`ws:${event.id}`, { kind: 'merged_here' });
     this.settleWhatCan();
-    if (this.state().triage !== this.saved) this.queueSave();
+    this.saveSoon();
   }
 
+  /** Nothing settles by itself while the categories are off. */
   private settleWhatCan(): void {
+    if (!this.on) return;
     const now = this.now();
     this.lastAuto = now;
     for (const { key, why, pr } of autoSettle(this.state(), now)) this.apply(key, { kind: 'settle', at: now, why, ...(pr !== undefined ? { pr } : {}) });
@@ -182,7 +193,7 @@ export class TriageService {
     const state = this.state();
     const key = triageKey(state, action.channel ?? 'room');
     // An old message arriving again (a friend coming back) isn't news.
-    if (!key || action.ts < (state.triage[key]?.lastAt ?? 0)) return;
+    if (!key || !this.heard(key) || action.ts < (state.triage[key]?.lastAt ?? 0)) return;
     const self = state.self;
     const mine = action.from === (self?.peerId ?? state.selfId);
     const at = action.ts;
@@ -192,13 +203,22 @@ export class TriageService {
     this.apply(key, { kind: self && mentionOf(self.name).test(action.text) ? 'mention' : 'person_message', at });
   }
 
-  /** A Remind Me Later whose time came (workspace-controller.ts clears it and reminds you) brings its chat back. */
-  private reminded(prev: DomainState): void {
-    const now = this.now();
-    const still = new Set(this.state().projects.flatMap((p) => p.workspaces).filter((w) => w.remindAt !== undefined).map((w) => w.id));
-    for (const ws of prev.projects.flatMap((p) => p.workspaces)) {
-      if (ws.remindAt !== undefined && ws.remindAt <= now && !still.has(ws.id)) this.applyIn(`ws:${ws.id}`, { kind: 'reminded', at: now });
+  /**
+   * Remind Me Later from before BLG-770 lived on the worktree's record (`remindAt`): it becomes a
+   * snooze here once, then it's cleared there. One whose time passed while Beluga was closed
+   * reminds you on the next tick.
+   */
+  private carryOver(): void {
+    const state = this.state();
+    const old = state.projects.flatMap((p) => p.workspaces).filter((w) => w.remindAt !== undefined && !this.carried.has(w.id));
+    if (!old.length) return;
+    for (const ws of old) {
+      this.carried.add(ws.id);
+      const key = ws.archived ? undefined : triageKey(state, `ws:${ws.id}`);
+      if (key && !this.state().triage[key]?.snoozed) this.apply(key, { kind: 'snooze', at: this.now(), until: ws.remindAt!, seen: handSourceOf(this.state(), key).openIds });
     }
+    this.deps.forgetReminders?.(old.map((w) => w.id));
+    this.arm();
   }
 
   private onRun(action: Extract<Action, { type: 'agent_event' }>, prev: DomainState): void {
@@ -215,33 +235,44 @@ export class TriageService {
     const key = triageKey(state, channel);
     if (!key) return;
     const record = state.triage[key];
-    if (!record?.snoozed && !record?.settled) return;
+    if (!record?.snoozed && !(this.on && record?.settled)) return;
     if (handRaisedOf(record, handSourceOf(state, key)) && !handRaisedOf(record, handSourceOf(prev, key))) this.apply(key, { kind: 'hand_raised', at: this.now() });
   }
 
   private enable(): void {
     this.on = true;
-    for (const [key, record] of Object.entries(this.load())) this.deps.store.dispatch({ type: 'triage_set', channel: key, record });
-    this.saved = this.state().triage;
     this.prune();
     this.seed();
-    this.wakeEnded();
+    this.watchLater();
     this.settleWhatCan();
-    this.arm();
-    if (this.state().triage !== this.saved) this.queueSave();
   }
 
   /**
-   * Stored data stays, but what happened while it's off isn't watched: when each chat was last
-   * active is seeded again on the next enable, so an idle rule never reads an old time.
+   * Stored data stays, but what happened while it's off isn't watched (only chats put off till
+   * later are): when each chat was last active is seeded again on the next enable, so an idle rule
+   * never reads an old time.
    */
   private disable(): void {
     this.on = false;
-    this.halt();
-    const chats = Object.fromEntries(Object.entries(this.state().triage).map(([key, { lastAt: _stale, ...record }]) => [key, record]));
-    writeJson(this.deps.file, { chats });
-    this.saved = undefined;
-    this.pruned = false;
+    for (const [key, record] of Object.entries(this.state().triage)) {
+      if (record.lastAt === undefined) continue;
+      const { lastAt: _stale, ...rest } = record;
+      this.set(key, rest);
+    }
+    this.arm();
+  }
+
+  /** What's put off till later: old reminders carried in, snoozes that ended while closed told, the next end watched. */
+  private watchLater(): void {
+    this.prune();
+    this.carryOver();
+    this.wakeEnded();
+    this.arm();
+  }
+
+  /** What reaches a chat's record while the categories are off: only what ends its snooze, or keeps it. */
+  private heard(key: string): boolean {
+    return this.on || this.state().triage[key]?.snoozed !== undefined;
   }
 
   private halt(): void {
@@ -300,18 +331,22 @@ export class TriageService {
 
   private tick(): void {
     this.tickTimer = undefined;
-    if (!this.on) return;
     this.wakeEnded();
     if (this.now() - this.lastAuto >= AUTO_SETTLE_MS) this.settleWhatCan();
-    if (this.state().triage !== this.saved) this.queueSave();
+    this.saveSoon();
     this.arm();
   }
 
-  /** The next look: when the next snooze ends, or sooner, so a Mac waking from sleep catches up. */
+  /**
+   * The next look: when the next snooze ends, or sooner, so a Mac waking from sleep catches up.
+   * With the categories off and nothing put off, there's nothing to look at: no timer.
+   */
   private arm(): void {
     clearTimeout(this.tickTimer);
+    this.tickTimer = undefined;
     const now = this.now();
     const ends = Object.values(this.state().triage).flatMap((r) => r.snoozed?.until ?? []);
+    if (!this.on && !ends.length) return;
     const delay = Math.max(0, Math.min(TICK_MAX_MS, ...ends.map((until) => until - now)));
     this.tickTimer = setTimeout(() => this.tick(), delay);
     this.tickTimer.unref?.();
@@ -327,16 +362,18 @@ export class TriageService {
     }
   }
 
+  /** The reminder: "Reminder: <name>", and what waits there. */
   private tell(key: string, until: number): void {
     const state = this.state();
     const plan = key.startsWith('plan:') ? planById(state.plans, key.slice(5)) : undefined;
     const channel = plan?.home ?? key;
-    this.deps.notify({ kind: state.prefs.notify.needsYou === false ? 'background' : 'needsYou', tag: 'woke', title: `${placeName(state, channel)} is back`, body: 'Its snooze ended', channel, key: `woke:${key}:${until}` });
+    const name = plan ? planTitle(plan) : placeName(state, channel);
+    this.deps.notify({ kind: state.prefs.notify.needsYou === false ? 'background' : 'needsYou', tag: 'woke', title: `Reminder: ${name}`, body: waitingWords(state, key), channel, key: `woke:${key}:${until}` });
   }
 
   private applyIn(channel: string, event: TriageEvent): void {
     const key = triageKey(this.state(), channel);
-    if (key) this.apply(key, event);
+    if (key && this.heard(key)) this.apply(key, event);
   }
 
   private apply(key: string, event: TriageEvent, read?: readonly string[]): void {
@@ -359,6 +396,10 @@ export class TriageService {
     this.saveTimer.unref?.();
   }
 
+  private saveSoon(): void {
+    if (this.state().triage !== this.saved) this.queueSave();
+  }
+
   private save(): void {
     const chats = this.state().triage;
     if (chats === this.saved) return;
@@ -366,9 +407,9 @@ export class TriageService {
     this.saved = chats;
   }
 
-  /** The record that speaks for this chat, or why it can't be sorted. */
-  private keyOf(channel: string): string {
-    if (!this.on) throw new Error(OFF_MESSAGE);
+  /** The record that speaks for this chat, or why it can't be sorted. `any`: Remind Me Later, which needs no categories. */
+  private keyOf(channel: string, needs: 'categories' | 'any' = 'categories'): string {
+    if (!this.on && needs === 'categories') throw new Error(OFF_MESSAGE);
     const key = triageKey(this.state(), channel);
     if (!key) throw new Error('This chat has no category.');
     return key;
@@ -376,4 +417,19 @@ export class TriageService {
 
   private state = (): DomainState => this.deps.store.getState();
   private now = (): number => this.deps.now?.() ?? Date.now();
+}
+
+/** What a reminder says waits in a chat: a merge conflict, failing checks, news; or that you asked. */
+export function waitingWords(state: Pick<DomainState, 'plans' | 'board' | 'prs' | 'conflicts' | 'unread'>, key: string): string {
+  const channels = channelsOf(state, key);
+  const ids = channels.flatMap((c) => (c.startsWith('ws:') ? [c.slice(3)] : []));
+  const plan = key.startsWith('plan:') ? planById(state.plans, key.slice(5)) : undefined;
+  const prs = [...ids.map((id) => state.prs[id]), plan?.pr];
+  const unread = channels.reduce((n, c) => n + (state.unread[c] ?? 0), 0);
+  const waiting = [
+    ids.some((id) => state.conflicts[id]?.length) ? 'A merge conflict to resolve' : '',
+    prs.some((pr) => pr?.state === 'OPEN' && pr.checks === 'failing') ? 'Checks failed on its pull request' : '',
+    unread ? `${unread} new message${unread === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return waiting.join(' · ') || 'You asked to be reminded about it';
 }

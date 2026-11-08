@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from './fixtures.js';
 
 /**
- * Sidebar categories: with the setting on, each chat is in Inbox, Working, Snoozed or Settled, and
+ * Sidebar categories: with the setting on, each chat is in Inbox, Working, Later or Settled, and
  * you move it from its row. With it off, the sidebar is as it was.
  */
 
@@ -71,9 +71,9 @@ test.describe('with the setting on', () => {
     // You are in it: it shows in Working however that list is folded.
     await expect(inList(page, 'Working', 'add-auth')).toBeVisible({ timeout: 10_000 });
     await expect(inList(page, 'Working', 'add-auth').locator('[data-status="working"]')).toContainText('Working');
-    // Working has no Settle: only a snooze.
+    // Working has no Settle: only Remind Me Later.
     await inList(page, 'Working', 'add-auth').hover();
-    await expect(page.getByRole('button', { name: 'Snooze add-auth' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remind me later about add-auth' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Settle add-auth' })).toHaveCount(0);
     await inList(page, 'Working', 'add-auth').click({ button: 'right' });
     await expect(page.getByRole('menuitem', { name: /^Settle/ })).toHaveAttribute('aria-disabled', 'true');
@@ -81,13 +81,13 @@ test.describe('with the setting on', () => {
     await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible({ timeout: 45_000 });
   });
 
-  test("a question moves a chat to Inbox with 'Input', from Working and from Snoozed", async ({ page }) => {
+  test("a question moves a chat to Inbox with 'Input', from Working and from Later", async ({ page }) => {
     test.setTimeout(120_000);
     await openFromInbox(page, 'new-hero');
     const asked = inList(page, 'Inbox', 'new-hero');
     const answer = async (): Promise<void> => {
       await expect(asked.locator('[data-status="need"]')).toHaveText('Input', { timeout: 60_000 });
-      // A snooze of the open chat moved you on: back to it.
+      // Putting the open chat off moved you on: back to it.
       await asked.click();
       await page.getByRole('button', { name: /Signed cookies/ }).click();
       await expect(asked.locator('[data-status="need"]')).toHaveCount(0, { timeout: 15_000 });
@@ -98,16 +98,16 @@ test.describe('with the setting on', () => {
     await composer(page).press('Enter');
     await answer();
 
-    // From Snoozed: a long turn, the question queued after it, and the snooze while that turn runs.
+    // From Later: a long turn, the question queued after it, and Remind Me Later while that turn runs.
     await composer(page).fill('Take a deep dive into the webhooks, take your time');
     await composer(page).press('Enter');
     await expect(inList(page, 'Working', 'new-hero')).toBeVisible({ timeout: 10_000 });
     await composer(page).fill('Which session store should we pick for auth?');
     await composer(page).press('Enter');
     await inList(page, 'Working', 'new-hero').hover();
-    await page.getByRole('button', { name: 'Snooze new-hero' }).click();
-    await page.getByRole('menuitem', { name: /^In 3 hours/ }).click();
-    await expect(inList(page, 'Snoozed', 'new-hero')).toBeVisible();
+    await page.getByRole('button', { name: 'Remind me later about new-hero' }).click();
+    await page.getByRole('menuitem', { name: /^In 3 Hours/ }).click();
+    await expect(inList(page, 'Later', 'new-hero')).toBeVisible();
     await answer();
   });
 
@@ -130,18 +130,18 @@ test.describe('with the setting on', () => {
     await expect(inList(page, 'Inbox', 'webhook-retries')).toBeVisible({ timeout: 45_000 });
   });
 
-  test('snoozes a chat with a preset, sees the time left, wakes it and sees it in Inbox', async ({ page }) => {
+  test('puts a chat off with a preset, sees the time left, shows it again and sees it in Inbox', async ({ page }) => {
     const name = 'new-hero';
     await expect(inList(page, 'Inbox', name)).toBeVisible();
     await inList(page, 'Inbox', name).hover();
-    await page.getByRole('button', { name: `Snooze ${name}` }).click();
+    await page.getByRole('button', { name: `Remind me later about ${name}` }).click();
     await expect(page.getByRole('menuitem', { name: /^Custom/ })).toBeVisible();
-    await page.getByRole('menuitem', { name: /^In 1 hour/ }).click();
-    await unfold(page, 'Snoozed');
-    const snoozed = inList(page, 'Snoozed', name);
-    await expect(snoozed.locator('[data-status="left"]')).toHaveText(/(59m|1h) left/);
-    await snoozed.hover();
-    await page.getByRole('button', { name: `Wake ${name}` }).click();
+    await page.getByRole('menuitem', { name: /^In 1 Hour/ }).click();
+    await unfold(page, 'Later');
+    const later = inList(page, 'Later', name);
+    await expect(later.locator('[data-status="left"]')).toHaveText(/(59m|1h) left/);
+    await later.hover();
+    await page.getByRole('button', { name: `Show ${name} again now` }).click();
     await expect(inList(page, 'Inbox', name).locator('[data-status="back"]')).toHaveText('Back');
   });
 
@@ -155,23 +155,23 @@ test.describe('with the setting on', () => {
     await expect(page.getByRole('status', { name: 'Chat category' })).toHaveCount(0);
   });
 
-  test('snoozes a chat until a date and time you pick, and wakes it from its line', async ({ page }) => {
+  test('puts a chat off until a date and time you pick, and shows it again from its line', async ({ page }) => {
     await inList(page, 'Inbox', 'add-auth').hover();
-    await page.getByRole('button', { name: 'Snooze add-auth' }).click();
+    await page.getByRole('button', { name: 'Remind me later about add-auth' }).click();
     await page.getByRole('menuitem', { name: /^Custom/ }).click();
     await page.getByRole('textbox', { name: 'Date and time' }).fill('2099-01-05T09:00');
-    await page.getByRole('button', { name: 'Snooze', exact: true }).click();
-    await unfold(page, 'Snoozed');
-    await inList(page, 'Snoozed', 'add-auth').click();
-    await expect(page.getByRole('status', { name: 'Chat category' })).toContainText('Snoozed until');
-    await page.getByRole('status', { name: 'Chat category' }).getByRole('button', { name: 'Wake' }).click();
+    await page.getByRole('button', { name: 'Remind Me', exact: true }).click();
+    await unfold(page, 'Later');
+    await inList(page, 'Later', 'add-auth').click();
+    await expect(page.getByRole('status', { name: 'Chat category' })).toContainText('Reminds you');
+    await page.getByRole('status', { name: 'Chat category' }).getByRole('button', { name: 'Show Again Now' }).click();
     await expect(inList(page, 'Inbox', 'add-auth')).toBeVisible();
   });
 
-  test('a DM with news is in Inbox with no settle or snooze', async ({ page }) => {
+  test('a DM with news is in Inbox with no settle or Remind Me Later', async ({ page }) => {
     const dm = inList(page, 'Inbox', 'bob');
     await dm.hover();
-    await expect(page.getByRole('button', { name: 'Snooze bob' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remind me later about bob' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Settle bob' })).toHaveCount(0);
   });
 
@@ -188,7 +188,7 @@ test.describe('with the setting on', () => {
     await expect(page.getByRole('textbox', { name: 'Message your agent about the plan' })).toBeFocused();
   });
 
-  test('a Wake or an Un-settle that fails from the line above the message box says so', async ({ page }) => {
+  test('a Show Again Now or an Un-settle that fails from the line above the message box says so', async ({ page }) => {
     await page.routeWebSocket(/.*/, (ws) => {
       const server = ws.connectToServer();
       ws.onMessage((message) => {
@@ -201,13 +201,13 @@ test.describe('with the setting on', () => {
     const line = page.getByRole('status', { name: 'Chat category' });
 
     await inList(page, 'Inbox', 'new-hero').hover();
-    await page.getByRole('button', { name: 'Snooze new-hero' }).click();
-    await page.getByRole('menuitem', { name: /^In 1 hour/ }).click();
-    await unfold(page, 'Snoozed');
-    await inList(page, 'Snoozed', 'new-hero').click();
-    await line.getByRole('button', { name: 'Wake' }).click();
+    await page.getByRole('button', { name: 'Remind me later about new-hero' }).click();
+    await page.getByRole('menuitem', { name: /^In 1 Hour/ }).click();
+    await unfold(page, 'Later');
+    await inList(page, 'Later', 'new-hero').click();
+    await line.getByRole('button', { name: 'Show Again Now' }).click();
     await expect(page.getByText('Refused triage.wake')).toBeVisible();
-    await expect(inList(page, 'Snoozed', 'new-hero')).toBeVisible();
+    await expect(inList(page, 'Later', 'new-hero')).toBeVisible();
 
     await inList(page, 'Inbox', 'webhook-retries').hover();
     await page.getByRole('button', { name: 'Settle webhook-retries' }).click();
@@ -219,10 +219,10 @@ test.describe('with the setting on', () => {
   });
 });
 
-test('a chat already put off folds under Later in Inbox, Snooze is the only new way to put off, and the header shows archived chats', async ({ page }) => {
+test('a chat put off with the setting off is in Later once it is on, Remind Me Later is the one way to put off, and the header shows archived chats', async ({ page }) => {
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
-  // Remind Me Later is on the menu only with the setting off, and the tests before this one may leave it on.
+  // The tests before this one may leave the setting on.
   await setCategories(page, false);
   const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
   if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
@@ -230,24 +230,24 @@ test('a chat already put off folds under Later in Inbox, Snooze is the only new 
   await expect(page.getByText('What do you want to do in bob-api?')).toBeVisible({ timeout: 30_000 });
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Remind Me Later' }).hover();
-  await page.getByRole('menuitem', { name: 'In 1 Hour' }).click();
+  await page.getByRole('menuitem', { name: /^In 1 Hour/ }).click();
+  await expect(sidebar(page).getByRole('button', { name: 'Later, 1' })).toBeVisible();
   await setCategories(page, true);
   await expect(inList(page, 'Inbox', 'add-auth')).toHaveCount(0);
-  const later = list(page, 'Inbox').getByRole('button', { name: 'Later, 1' });
-  await expect(later).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath('inbox-later.png') });
+  await unfold(page, 'Later');
+  await expect(inList(page, 'Later', 'add-auth')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('later-list.png') });
 
-  // A chat not put off offers Snooze, and no Remind Me Later.
+  // Every chat offers Remind Me Later: there is no other Snooze.
   await sidebar(page).getByRole('button', { name: 'Projects' }).click();
   const other = sidebar(page).getByRole('button', { name: 'webhook-retries', exact: true });
   await other.click({ button: 'right' });
-  await expect(page.getByRole('menuitem', { name: 'Snooze' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Remind Me Later' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Remind Me Later' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Snooze' })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // The one put off can still come back.
-  await later.click();
-  await row.first().click({ button: 'right' });
+  // The one put off can come back.
+  await inList(page, 'Later', 'add-auth').click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: /Show Again Now/ })).toBeVisible();
   await page.keyboard.press('Escape');
 

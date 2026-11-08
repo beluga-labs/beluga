@@ -2,10 +2,10 @@ import { type AppState, type LogItem, isRunning } from '../../../../src/core/sto
 import { type Plan, planTitle } from '../../../../src/core/plans/model.js';
 import { isLivePlan, isPlanOwned, planConversations, planOwnerOf } from '../../../../src/core/plans/owner.js';
 import { type Sentinel, sentinelChannels, sentinelOfChannel } from '../../../../src/core/sentinel/model.js';
-import { triageFacts } from '../../../../src/core/triage/facts.js';
+import { channelsOf, laterUntil, triageFacts } from '../../../../src/core/triage/facts.js';
 import { type ChatCategory, type ChatTriage, categoryOf, triageKey } from '../../../../src/core/triage/model.js';
 import { hhmm, span } from '../../../../src/shared/clock.js';
-import { remindLabel, remindPending } from '../../../../src/shared/remind.js';
+import { remindLabel } from '../../../../src/shared/remind.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Project, Workspace } from '../../../../src/workspaces/types.js';
 
@@ -93,24 +93,31 @@ export function signalOf(state: Source, channel: string, ws?: string): Signal {
   return IDLE_SIGNAL;
 }
 
-/** Your agent's asks: Remind Me Later never hides them (it waits on you). */
-const ASKS: ReadonlySet<Need> = new Set(['approval', 'question', 'plan']);
-
-/** A conversation put off till later: what's new and what's wrong wait; your agent at work and its asks still show. */
-function laterSignal(signal: Signal, at: number, label: string): Signal {
-  if (signal.need && ASKS.has(signal.need)) return { ...signal, remindAt: at };
+/**
+ * A conversation put off till later: what's new and what's wrong wait, and so does what your agent
+ * asked before you put it off (you saw it); your agent at work still shows. Anything it asks after
+ * that ends the wait (laterUntil), so it shows as usual.
+ */
+export function laterSignal(signal: Signal, at: number, now = Date.now()): Signal {
+  const label = remindLabel(at, now);
   return { level: signal.working ? 'working' : 'idle', unread: 0, working: signal.working, tip: signal.working ? `Your agent is working · ${label}` : label, remindAt: at };
 }
 
-export function workspaceSignal(state: Source, ws: Workspace, now = Date.now()): Signal {
+/** What Remind Me Later reads: each person's records (core/triage), with the categories on or off. */
+type LaterSource = Pick<AppState, 'projects' | 'shared' | 'plans' | 'board' | 'sentinel' | 'prefs'> & { readonly triage?: AppState['triage'] };
+
+export function workspaceSignal(state: Source & LaterSource, ws: Workspace, now = Date.now()): Signal {
   if (ws.archived) return IDLE_SIGNAL;
   const signal = signalOf(state, `ws:${ws.id}`, ws.id);
-  return remindPending(ws, now) ? laterSignal(signal, ws.remindAt!, remindLabel(ws, now)) : signal;
+  const until = laterUntil(state, `ws:${ws.id}`, now);
+  return until === undefined ? signal : laterSignal(signal, until, now);
 }
 
-/** The channels of conversations you put off till later (`ws:<id>`). */
-export const laterChannels = (state: Pick<AppState, 'projects'>, now = Date.now()): ReadonlySet<string> =>
-  new Set(state.projects.flatMap((p) => p.workspaces.filter((w) => !w.archived && remindPending(w, now)).map((w) => `ws:${w.id}`)));
+/** The channels of conversations you put off till later (a plan's: all of them). */
+export function laterChannels(state: LaterSource, now = Date.now()): ReadonlySet<string> {
+  const keys = Object.entries(state.triage ?? {}).flatMap(([key, r]) => (r.snoozed && r.snoozed.until > now ? [key] : []));
+  return new Set(keys.flatMap((key) => channelsOf(state, key)));
+}
 
 /** What a project or group adds up to: how many conversations have news, how many need you. */
 export interface Tally {
@@ -143,13 +150,12 @@ const projectConversations = (state: Pick<Source, 'plans' | 'board' | 'sentinel'
 /** A project's live plans (each one item, however many tasks it runs). */
 export const projectPlans = (state: Pick<Source, 'plans'>, p: Project): readonly Plan[] => state.plans.plans.filter((x) => x.projectId === p.id && isLivePlan(x));
 
-/** With the categories on, a snoozed chat adds nothing: not to a project's tally, not to the Dock. */
+/** A chat put off till later adds nothing, with the categories on or off: not to a project's tally, not to the Dock. */
 type QuietSource = Source & Pick<AppState, 'triage' | 'prefs' | 'projects' | 'shared'>;
 
 const isSnoozed = (state: QuietSource, channel: string): boolean => {
-  if (!state.prefs.chatCategories) return false;
   const key = triageKey(state, channel);
-  return key !== undefined && categoryOf(state.triage[key], triageFacts(state, key)) === 'snoozed';
+  return key !== undefined && state.triage[key]?.snoozed !== undefined && categoryOf(state.triage[key], triageFacts(state, key)) === 'snoozed';
 };
 
 const projectSignals = (state: QuietSource, p: Project): Signal[] => [
@@ -247,9 +253,9 @@ export function planRowSignal(state: Source, plan: Plan): PlanRowSignal {
  * Claude is at work somewhere in a project: a Beluga run or a Claude Code session, in any of its
  * live workspaces (its main folder and worktrees made outside Beluga too). Folded, its row shows it.
  */
-export const projectWorking = (state: Source, p: Project): boolean => p.workspaces.some((w) => !w.archived && workspaceSignal(state, w).working);
+export const projectWorking = (state: Source & LaterSource, p: Project): boolean => p.workspaces.some((w) => !w.archived && workspaceSignal(state, w).working);
 
-export const groupWorking = (state: Source, projects: readonly Project[]): boolean => projects.some((p) => projectWorking(state, p));
+export const groupWorking = (state: Source & LaterSource, projects: readonly Project[]): boolean => projects.some((p) => projectWorking(state, p));
 
 /** What a project's (or group's) row says on hover about what's inside. */
 export function tallyTip(t: Tally): string {
@@ -275,7 +281,7 @@ export type UnreadEntry = {
   | { readonly kind: 'sentinel'; readonly sentinel: Sentinel; readonly runId: string; readonly at: string; readonly project?: Project; readonly channels: readonly string[] }
 );
 
-type ListSource = Source & Pick<AppState, 'projects' | 'shared' | 'network'>;
+type ListSource = Source & LaterSource & Pick<AppState, 'projects' | 'shared' | 'network'>;
 
 const counts = (x: Signal): boolean => x.level === 'needs' || x.unread > 0;
 
@@ -351,9 +357,12 @@ export function unreadEntries(state: ListSource): UnreadEntry[] {
     .sort((a, b) => rank(a) - rank(b) || b.ts - a.ts);
 }
 
-/** The sidebar's lists, top to bottom. The UI calls the Active category Inbox (the owner's choice); the code says `active`. */
+/**
+ * The sidebar's lists, top to bottom. The UI calls the Active category Inbox and the Snoozed one
+ * Later (Remind Me Later, BLG-770), the owner's choices; the code says `active` and `snoozed`.
+ */
 export const CATEGORY_ORDER: readonly ChatCategory[] = ['active', 'working', 'snoozed', 'settled'];
-export const CATEGORY_TITLES: Readonly<Record<ChatCategory, string>> = { active: 'Inbox', working: 'Working', snoozed: 'Snoozed', settled: 'Settled' };
+export const CATEGORY_TITLES: Readonly<Record<ChatCategory, string>> = { active: 'Inbox', working: 'Working', snoozed: 'Later', settled: 'Settled' };
 /** How many Settled rows show before "Show more". */
 export const SETTLED_PAGE = 50;
 
@@ -381,7 +390,7 @@ export type CategoryEntry = UnreadEntry & {
 
 type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId' | 'prefs'>;
 
-/** Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Snoozed by soonest wake, Settled by newest. */
+/** Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Later by soonest reminder, Settled by newest. */
 export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategory, readonly CategoryEntry[]>> {
   const out: Record<ChatCategory, CategoryEntry[]> = { active: [], working: [], snoozed: [], settled: [] };
   for (const e of conversationEntries(state)) {
@@ -394,15 +403,6 @@ export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategor
   out.snoozed.sort((a, b) => a.sortAt - b.sortAt);
   out.settled.sort((a, b) => b.sortAt - a.sortAt);
   return out;
-}
-
-/**
- * The Inbox's rows, and the chats put off with Remind Me Later (BLG-748) that fold under its Later row:
- * until they remind you, as in the Chats list. One that asks you something stays a row.
- */
-export function splitInbox(active: readonly CategoryEntry[], now = Date.now()): { readonly rows: readonly CategoryEntry[]; readonly later: readonly Workspace[] } {
-  const puttingOff = (e: CategoryEntry): boolean => e.kind === 'workspace' && !e.handRaised && remindPending(e.ws, now);
-  return { rows: active.filter((e) => !puttingOff(e)), later: active.flatMap((e) => (e.kind === 'workspace' && puttingOff(e) ? [e.ws] : [])).sort((a, b) => a.remindAt! - b.remindAt!) };
 }
 
 /** A worktree made outside Beluga that nobody talked in has no chat to sort: the Projects list has it. With news or a run it still shows. */
@@ -489,9 +489,9 @@ function categoryEntry(state: CategorySource, e: UnreadEntry): CategoryEntry {
   const category = categoryOf(record, facts);
   const channels = e.kind === 'plan' ? e.channels : [e.channel];
   const log = channels.map((c) => runIndexOf(state)(c));
-  const bold = e.signal.unread > 0 || (category === 'active' && record?.backAt !== undefined);
-  // What a snooze keeps quiet stays quiet on its row.
-  const signal = category === 'snoozed' && e.signal.need ? quietSignal(e.signal) : e.signal;
+  // What Remind Me Later keeps quiet stays quiet on its row (a worktree's signal is quiet already).
+  const signal = category === 'snoozed' && record?.snoozed && e.signal.remindAt === undefined ? laterSignal(e.signal, record.snoozed.until) : e.signal;
+  const bold = signal.unread > 0 || (category === 'active' && record?.backAt !== undefined);
   return { ...e, signal, category, key, status: statusOf(category, record, signal, log), bold, handRaised: facts.handRaised, sortAt: sortAtOf(category, record, e, log), ...tail };
 }
 
@@ -514,8 +514,6 @@ function sortAtOf(category: ChatCategory, record: ChatTriage | undefined, e: Unr
   if (category === 'working') return Math.max(0, ...log.map((x) => x.sentAt));
   return Math.max(record?.backAt ?? 0, record?.lastAt ?? 0, e.ts);
 }
-
-const quietSignal = (x: Signal): Signal => (x.unread ? { level: 'unread', unread: x.unread, working: x.working, tip: plural(x.unread, 'message') } : x.working ? { level: 'working', unread: 0, working: true, tip: 'Your agent is working' } : IDLE_SIGNAL);
 
 function prOf(state: Pick<AppState, 'prs'>, e: UnreadEntry): number | undefined {
   if (e.kind === 'workspace') return state.prs[e.ws.id]?.number;

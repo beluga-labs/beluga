@@ -1,7 +1,6 @@
 import type { NotifySettings } from './settings.js';
 import { type DomainState, type LogItem, type Store, isRunning } from './store.js';
 import { dndActive } from '../shared/quiet.js';
-import { remindPending } from '../shared/remind.js';
 import { isSentinelChat } from './sentinel/model.js';
 import { loudestKind, type SoundChoice, type SoundPrefs, soundFor, volumeOf } from '../shared/notify-sound.js';
 import { type Issue, issueForWorkspace } from './board/model.js';
@@ -12,7 +11,7 @@ import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { allNeeds, needMatches } from '../companion/needs-you.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
-import { triageKey } from './triage/model.js';
+import { laterUntil } from './triage/facts.js';
 
 /** The groups you can switch on or off in Settings → Notifications. */
 export type NoticeKind = 'done' | 'needsYou' | 'problems' | 'people' | 'pr' | 'mentions' | 'background';
@@ -82,13 +81,12 @@ export function presenceQuiet(state: Pick<DomainState, 'network'>): boolean {
 }
 
 /**
- * About a conversation you put off (Remind Me Later, BLG-748), and not something your agent asks
- * you: it goes into the inbox already read, with no sound or banner; the reminder brings it back.
+ * About a conversation you put off (Remind Me Later, BLG-748, BLG-770), and not something your agent
+ * asks you: it goes into the inbox already read, with no sound or banner; the reminder brings it back.
  */
-export function remindLaterNotice(state: Pick<DomainState, 'projects'>, e: Pick<NoticeEvent, 'kind' | 'channel'>, now = Date.now()): boolean {
-  if (e.kind === 'needsYou' || !e.channel?.startsWith('ws:')) return false;
-  const id = e.channel.slice(3);
-  return state.projects.some((p) => p.workspaces.some((w) => w.id === id && remindPending(w, now)));
+export function remindLaterNotice(state: DomainState, e: Pick<NoticeEvent, 'kind' | 'channel'>, now = Date.now()): boolean {
+  if (e.kind === 'needsYou' || !e.channel) return false;
+  return laterUntil(state, e.channel, now) !== undefined;
 }
 
 /** Where what waits for you lives (companion/needs-you.ts reads these). */
@@ -241,12 +239,6 @@ function planNews(prev: DomainState, next: DomainState): NoticeEvent[] {
   return out;
 }
 
-function isSnoozed(state: DomainState, channel: string): boolean {
-  if (!state.prefs.chatCategories) return false;
-  const key = triageKey(state, channel);
-  return key !== undefined && state.triage[key]?.snoozed !== undefined;
-}
-
 function finishedRuns(prev: DomainState, next: DomainState): NoticeEvent[] {
   if (prev.log === next.log) return [];
   const before = new Map<string, AgentItem>();
@@ -260,8 +252,6 @@ function finishedRuns(prev: DomainState, next: DomainState): NoticeEvent[] {
     if (isSentinelChat(item.channel)) continue;
     const old = before.get(item.id);
     if (!old || isFinal(old.status)) continue;
-    // A snoozed chat stays quiet when a turn ends well: its count still goes up.
-    if (item.status === 'done' && isSnoozed(next, item.channel)) continue;
     const mine = item.owner === selfId;
     // A friend's Claude matters when it was working for you.
     if (!mine && item.requesterName !== selfName) continue;

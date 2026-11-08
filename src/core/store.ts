@@ -302,7 +302,7 @@ export interface Prefs {
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
   readonly chatLimit: number;
-  /** Sort chats into Inbox, Working, Snoozed and Settled (core/triage). Off: no automatic change and no triage file. */
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
   readonly chatCategories: boolean;
   /** A merged PR settles its chat. */
   readonly settleOnMerge: boolean;

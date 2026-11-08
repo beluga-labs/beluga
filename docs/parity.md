@@ -312,7 +312,6 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.renameGroup` | ✓ (group row › Rename) |
 | `workspaces.rename` | ✓ (chat or worktree row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels; a worktree’s own branch takes the name unless it’s pushed, and a name with a / is that exact branch) |
 | `workspaces.regenerateTitle` | ✓ (chat row context menu › Regenerate title; uses recent chat content, keeps the agent session, and protects the result as a manual name; errors leave the old title) |
-| `workspaces.remindLater` | ✓ (chat or worktree row context menu › Remind Me Later ▸ In 1 Hour / In 3 Hours / Tomorrow Morning / Next Week, or Show Again Now; it moves into a folded Later row at the bottom of its project (or of Chats), with a quiet clock and when it reminds you in its tooltip; then it's back in place, with one reminder notification) |
 | `workspaces.ungroup` | ✓ (group row › Ungroup / Delete Group) |
 | `workspaces.arrange` | drag projects and groups in the sidebar, Move Up / Move Down (⌃⌘↑/↓), Move to Group ▸ |
 | `workspaces.newGroup` | Projects + › New Group, right-click › New Group, Move to Group ▸ New Group… |
@@ -562,8 +561,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `ci.cancel` | ✓ a running run's page › Cancel Run (asks first); a running run's right-click menu |
 | `triage.settle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row and right-click menu › Settle; the phone's Work tab, a chat's long-press sheet › Settle |
 | `triage.unsettle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row, its right-click menu and the line above the message box › Un-settle; the phone's Work tab, a chat's long-press sheet › Un-settle |
-| `triage.snooze` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row and right-click menu › Snooze (In 1 hour, In 3 hours, Tomorrow 9:00, Next week, Custom…); the phone's Work tab, a chat's long-press sheet › Snooze (the same, without Custom…) |
-| `triage.wake` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row, its right-click menu and the line above the message box › Wake; the phone's Work tab, a chat's long-press sheet › Wake |
+| `triage.snooze` | ✓ Remind Me Later (BLG-748, BLG-770), with `chatCategories` on or off: a chat or worktree row's right-click menu › Remind Me Later ▸ In 1 Hour / In 3 Hours / Tomorrow Morning / Next Week / Custom…; with the categories on, also the row's clock and plans' and friends' rows, and it moves to the Later list; off, it moves into a folded Later row at the bottom of its project (or of Chats) with a quiet clock; the line above the message box says when it reminds you; then one reminder notification; the phone's Work tab (categories on), a chat's long-press sheet › Remind Me Later (the same, without Custom…) |
+| `triage.wake` | ✓ Show Again Now, with `chatCategories` on or off: the row's right-click menu and the line above the message box; with the categories on, also the row's eye; the phone's Work tab (categories on), a chat's long-press sheet › Show Again Now |
 | `triage.setAutoSettle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's right-click menu › Auto-settle |
 | `team.answer` | ✓ the offer strip on a project's home and at the top of its Tasks (Team Up; ••• › Not Now, or Take Back while you wait for them); project ••• › Invite to Team ▸ (friends with the repository who aren't on the team, BLG-510); the phone's card (Team Up / Not Now) |
 | `team.ackAssignment` | ✓ Got It on the strip a task a teammate gave you shows on its page; the phone's card (Got It) |

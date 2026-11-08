@@ -1,6 +1,5 @@
 import { planById } from '../plans/model.js';
 import type { DomainState } from '../store.js';
-import { remindPending } from '../../shared/remind.js';
 import { channelsOf, handSourceOf, triageFacts } from './facts.js';
 import { type SettleWhy, triageKey } from './model.js';
 
@@ -67,22 +66,17 @@ function mergedPlanPrs(state: DomainState): readonly AutoSettled[] {
 
 const mergeSettles = (state: DomainState, key: string, pr: number): boolean => state.triage[key]?.settledPr !== pr && freeToMerge(state, key);
 
-/** An open PR stops this: it can wait days for review, and its merge settles the chat later. So does a Remind Me Later: its reminder brings the chat back. */
+/** An open PR stops this: it can wait days for review, and its merge settles the chat later. A chat put off till later waits for its reminder. */
 function idleChats(state: DomainState, now: number): readonly string[] {
   const limit = state.prefs.settleIdleDays * DAY_MS;
   return Object.entries(state.triage)
     .filter(([key, record]) => {
       if (record.lastAt === undefined || now - record.lastAt <= limit) return false;
       if (record.settled || record.snoozed || record.holdIdle) return false;
-      return !hasUnread(state, key) && !hasOpenPr(state, key) && !remindsLater(state, key, now) && free(state, key);
+      return !hasUnread(state, key) && !hasOpenPr(state, key) && free(state, key);
     })
     .map(([key]) => key);
 }
-
-const remindsLater = (state: DomainState, key: string, now: number): boolean => {
-  const ids = new Set(channelsOf(state, key).map((c) => c.slice(3)));
-  return state.projects.some((p) => p.workspaces.some((w) => ids.has(w.id) && remindPending(w, now)));
-};
 
 const hasUnread = (state: DomainState, key: string): boolean => channelsOf(state, key).some((c) => (state.unread[c] ?? 0) > 0);
 

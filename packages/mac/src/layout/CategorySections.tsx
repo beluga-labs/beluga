@@ -6,12 +6,11 @@ import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
 import { useActions } from '../lib/actions.js';
 import { useBeluga } from '../lib/beluga.js';
 import { useClock } from '../lib/window-active.js';
-import { CATEGORY_ORDER, CATEGORY_TITLES, type CategoryEntry, SETTLED_PAGE, categoriesOf, splitInbox, statusWords, visibleRows } from './attention-model.js';
+import { CATEGORY_ORDER, CATEGORY_TITLES, type CategoryEntry, SETTLED_PAGE, categoriesOf, statusWords, visibleRows } from './attention-model.js';
 import { type EntryList, EntryRow, openEntry, useEntryList } from './EntryRow.js';
-import { RowTriageTools, SnoozeCustomSheet, triageItems } from './row-triage-actions.js';
+import { RowTriageTools, triageItems } from './row-triage-actions.js';
 import { workspaceItems } from './workspace-row.js';
 import { ChatsMenu } from './ChatsMenu.js';
-import { LaterRows } from './later-rows.js';
 import { SignalMark } from './signal-marks.js';
 import { Row, Section } from './sidebar-parts.js';
 import s from './Sidebar.module.css';
@@ -19,8 +18,9 @@ import m from './signal.module.css';
 
 /**
  * The sidebar's conversations by category, for you: Inbox (what's yours to look at), then Working,
- * Snoozed and Settled, folded until you open them. A list with no rows isn't there. The chat you're
- * in always shows, also in a folded list. Replaces Unread and Chats while `chatCategories` is on.
+ * Later (Remind Me Later) and Settled, folded until you open them. A list with no rows isn't there.
+ * The chat you're in always shows, also in a folded list. Replaces Unread and Chats while
+ * `chatCategories` is on.
  */
 
 const allEntries = (state: Parameters<typeof categoriesOf>[0]): readonly CategoryEntry[] => {
@@ -39,12 +39,11 @@ export function CategorySections() {
   const placed = rows.map((e, at) => ({ e, at }));
   const inCategory = (c: ChatCategory) => placed.filter((x) => x.e.category === c);
   const row = ({ e, at }: { e: CategoryEntry; at: number }) => <CategoryRow key={e.channel} e={e} at={at} list={list} now={now} />;
-  const later = splitInbox(placed.filter((x) => x.e.category === 'active').map((x) => x.e), now);
   return (
     <>
       {CATEGORY_ORDER.map((c) => {
         const inbox = c === 'active';
-        const shown = inCategory(c).filter((x) => !inbox || later.rows.includes(x.e));
+        const shown = inCategory(c);
         if (!shown.length && !inbox) return null;
         const open = shown.filter((x) => x.e.channel === list.here);
         const limited = c === 'settled' ? visibleRows(shown.map((x) => ({ ...x, channel: x.e.channel })), settledShown, list.here) : shown;
@@ -52,14 +51,12 @@ export function CategorySections() {
           <div key={c} role="region" aria-label={CATEGORY_TITLES[c]} className={m.section}>
             <Section id={c === 'active' ? 'inbox' : c} title={CATEGORY_TITLES[c]} count={shown.length} keep={open.map(row)} action={inbox ? <><ChatsMenu /><IconButton icon="plus" label="New chat (not tied to a project)" onClick={newChat} /></> : undefined}>
               {limited.map(row)}
-              {inbox ? <LaterRows list={later.later} indent={0} foldKey="later:inbox" /> : null}
-              {inbox && !shown.length && !later.later.length ? <Row className={s.hintRow} icon={<Icon name="plus" size={13} />} label="Talk to your agent about anything" onClick={newChat} /> : null}
+              {inbox && !shown.length ? <Row className={s.hintRow} icon={<Icon name="plus" size={13} />} label="Talk to your agent about anything" onClick={newChat} /> : null}
               {limited.length < shown.length ? <Row className={s.hintRow} label="Show more" onClick={() => setSettledShown(settledShown + SETTLED_PAGE)} /> : null}
             </Section>
           </div>
         );
       })}
-      <SnoozeCustomSheet />
     </>
   );
 }

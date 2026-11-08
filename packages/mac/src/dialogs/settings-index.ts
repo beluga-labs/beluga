@@ -71,7 +71,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Density', 'Comfortable or compact.', 'compact comfortable spacing'],
     ['Conversation width', 'Narrow, wide or the full window.', 'chat width narrow wide full'],
     ['Unread in the sidebar', 'Conversations that finished or need you, at the top.', 'unread finished section'],
-    ['Sidebar categories', 'Sort chats into Inbox, Working, Snoozed and Settled, in place of Unread and Chats.', 'inbox working snoozed snooze settled settle triage chats'],
+    ['Sidebar categories', 'Sort chats into Inbox, Working, Later and Settled, in place of Unread and Chats.', 'inbox working later remind snoozed snooze settled settle triage chats'],
     ['Settle when a pull request merges', 'The chat moves to Settled when its pull request merges. Shows when Sidebar categories is on.', 'auto settle merge merged pr automatic'],
     ['Settle idle chats', 'A chat with no activity moves to Settled. Shows when Sidebar categories is on.', 'auto settle idle inactive days automatic'],
     ['Sidebar width', undefined, 'sidebar size'],

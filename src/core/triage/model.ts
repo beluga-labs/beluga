@@ -3,9 +3,10 @@ import { planOf } from '../plans/owner.js';
 import { sentinelOfChannel } from '../sentinel/model.js';
 
 /**
- * Each chat's category for one person: Active (the UI says Inbox), Working, Snoozed or Settled.
- * Pure rules, no clock and no files, so the daemon, the Mac and the phone's views read the same
- * answer. The state itself lives in ~/.beluga/triage.json on that person's computer (service.ts).
+ * Each chat's category for one person: Active (the UI says Inbox), Working, Snoozed (the UI says
+ * Later: Remind Me Later) or Settled. Pure rules, no clock and no files, so the daemon, the Mac and
+ * the phone's views read the same answer. The state itself lives in ~/.beluga/triage.json on that
+ * person's computer (service.ts). A snooze is Remind Me Later, and works with the categories off too.
  */
 
 export type ChatCategory = 'active' | 'working' | 'snoozed' | 'settled';
@@ -51,8 +52,6 @@ export type TriageEvent =
   | { readonly kind: 'unsettle' }
   | { readonly kind: 'snooze'; readonly at: number; readonly until: number; readonly seen: readonly string[] }
   | { readonly kind: 'wake'; readonly at: number }
-  /** Remind Me Later's time came: the chat comes back like a wake, from a settle too. */
-  | { readonly kind: 'reminded'; readonly at: number }
   | { readonly kind: 'own_message'; readonly at: number }
   | { readonly kind: 'answer'; readonly at: number }
   | { readonly kind: 'mention'; readonly at: number }
@@ -67,7 +66,7 @@ export type TriageEvent =
 
 export type TriageSource = Pick<DomainState, 'projects' | 'shared' | 'plans' | 'board' | 'sentinel'>;
 
-export const SETTLE_WORKING_MESSAGE = 'This chat is working. Settle it when its turn ends, or snooze it now.';
+export const SETTLE_WORKING_MESSAGE = 'This chat is working. Settle it when its turn ends, or remind yourself later now.';
 
 const NO_RECORD: ChatTriage = {};
 
@@ -126,8 +125,6 @@ export function applyTriage(record: ChatTriage | undefined, event: TriageEvent):
       return { ...without(was, 'settled', 'backAt'), snoozed: { at: event.at, until: event.until, seen: event.seen } };
     case 'wake':
       return was.snoozed ? { ...touched(without(was, 'snoozed'), event.at), backAt: event.at } : was;
-    case 'reminded':
-      return { ...touched(without(was, 'snoozed', 'settled'), event.at), backAt: event.at };
     case 'own_message':
     case 'answer':
       return touched(without(was, 'snoozed', 'settled', 'backAt'), event.at);

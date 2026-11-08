@@ -127,7 +127,7 @@ export const Settings = z.object({
   parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX).catch(PARALLEL_RUNS_DEFAULT),
   /** How many chats Your Mac and Sentinel each keep open (shared/chat-limit.ts); 0: no limit. */
   chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX).catch(CHAT_LIMIT_DEFAULT),
-  /** Sort chats into Inbox, Working, Snoozed and Settled (core/triage). Off: no automatic change and no triage file. */
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
   chatCategories: z.boolean().catch(false),
   /** A merged PR settles its chat. */
   settleOnMerge: z.boolean().catch(true),

@@ -82,7 +82,6 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         defaultRuntime: () => opts.runtime?.agent ?? 'claude',
         defaultAgent: (project) => session.agentFor(project),
         toast: (text, level) => session.toast(text, level),
-        remind: (notice) => notifier.notify(notice),
         intend: (intent) => session.intend(intent),
         askClaude: (prompt, channel, o) => (o?.terminal ? session.startInTerminal(prompt, channel, o.shown) : session.askOwnClaude(prompt, channel, false, o?.echo ?? true, o?.shown)),
         showAsk: (prompt, channel) => session.showAsk(prompt, channel),

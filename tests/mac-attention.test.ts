@@ -5,7 +5,7 @@ import type { Notice } from '../src/core/work-store.js';
 import type { ChatTriage } from '../src/core/triage/model.js';
 import { type ScreenAction, initialAppState, reduceApp } from '../src/client/screen.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
-import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, nextActive, settledWords, splitInbox, wakeWords, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
+import { CATEGORY_TITLES, SETTLED_PAGE, categoriesOf, conversationEntries, dockCount, foldsForCategories, groupTally, nextActive, settledWords, wakeWords, groupWorking, needOf, projectTally, projectWorking, signalOf, statusWords, tally, tallyTip, unreadEntries, visibleRows, workspaceSignal } from '../packages/mac/src/layout/attention-model.js';
 
 /** The sidebar's unread and needs-you marks (packages/mac/src/layout/attention-model.ts), and the core's unread counts behind them. */
 
@@ -210,15 +210,12 @@ describe('the sidebar categories', () => {
     expect(news?.key).toBeUndefined();
   });
 
-  it('folds a chat put off with Remind Me Later under Later in the Inbox, until it asks something', () => {
-    const later = (state: AppState): AppState => ({ ...state, projects: state.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'auth' ? { ...w, remindAt: 9_000 } : w)) })) });
-    const split = splitInbox(categoriesOf(later(on())).active, 1_000);
-    expect(names(split.rows)).not.toContain('add-auth');
-    expect(split.later.map((w) => w.name)).toEqual(['add-auth']);
-    expect(splitInbox(categoriesOf(later(on())).active, 10_000).later).toEqual([]);
-    const asks = splitInbox(categoriesOf(apply(later(on()), question('q1', 'ws:auth'))).active, 1_000);
-    expect(names(asks.rows)).toContain('add-auth');
-    expect(asks.later).toEqual([]);
+  it('calls the list of chats put off with Remind Me Later Later, and a new question brings one back to the Inbox', () => {
+    expect(CATEGORY_TITLES.snoozed).toBe('Later');
+    const later = apply(on(), triage('ws:auth', { snoozed: { at: 1, until: Date.now() + 3_600_000, seen: [] } }));
+    expect(names(categoriesOf(later).snoozed)).toEqual(['add-auth']);
+    expect(names(categoriesOf(later).active)).not.toContain('add-auth');
+    expect(names(categoriesOf(apply(later, question('q1', 'ws:auth'))).active)[0]).toBe('add-auth');
   });
 
   it('moves a running chat to Working and back to Active when its turn ends', () => {
@@ -341,10 +338,15 @@ describe('the sidebar categories', () => {
       expect(projectTally(s, api).unread).toBe(0);
     });
 
-    it('is as today while the setting is off', () => {
-      const s = snoozedNews(base());
-      expect(dockCount(s)).toBe(1);
-      expect(projectTally(s, api).unread).toBe(1);
+    it('adds nothing with the setting off either (Remind Me Later), until its time', () => {
+      const later = (s: AppState, until: number): AppState => apply(s, overview, run('done'), triage('ws:auth', { snoozed: { at: 1, until, seen: [] } }));
+      const s = later(base(), Date.now() + 3_600_000);
+      expect(s.unread['ws:auth']).toBe(1);
+      expect(dockCount(s)).toBe(0);
+      expect(projectTally(s, api).unread).toBe(0);
+      expect(workspaceSignal(s, s.projects.flatMap((p) => p.workspaces).find((w) => w.id === 'auth')!)).toMatchObject({ level: 'idle', unread: 0 });
+      // Its time passed (the daemon wakes it within moments): its row shows the news again.
+      expect(dockCount(later(base(), Date.now() - 1))).toBe(1);
     });
 
     it('a chat that is Back counts once, with or without news', () => {

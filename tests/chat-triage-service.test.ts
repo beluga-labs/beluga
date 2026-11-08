@@ -138,13 +138,58 @@ describe('the setting', () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(notices).toEqual([]);
     expect(() => service.settle(CH)).toThrow(/off/);
+    expect(() => service.unsettle(CH)).toThrow(/off/);
+    expect(() => service.setAutoSettle(CH, false)).toThrow(/off/);
+  });
+
+  it('off: Remind Me Later still works, and only what ends it reaches the record', () => {
+    const store = makeStore(false);
+    const service = start(store);
+    service.snooze(CH, NOW + HOUR);
+    vi.advanceTimersByTime(1_500);
+    expect(JSON.parse(readFileSync(file, 'utf8')).chats[CH].snoozed.until).toBe(NOW + HOUR);
+    // Another chat's news writes nothing, and nothing settles.
+    chat(store, 'bob', 'hi', { channel: 'ws:w2' });
+    run(store, 'started', 'r2', 'ws:w2');
+    run(store, 'done', 'r2', 'ws:w2');
+    expect(store.getState().triage['ws:w2']).toBeUndefined();
+    // Its time comes: one reminder.
+    vi.advanceTimersByTime(HOUR);
+    expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ kind: 'needsYou', tag: 'woke', title: 'Reminder: w1', body: 'You asked to be reminded about it', channel: CH });
+    // Nothing put off: no timer.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('off: your message or Show Again Now ends it early, with no reminder', () => {
+    const store = makeStore(false);
+    const service = start(store);
+    service.snooze(CH, NOW + HOUR);
+    chat(store, 'me', 'back to this');
+    expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
+    service.snooze('ws:w2', NOW + HOUR);
+    service.wake('ws:w2');
+    expect(store.getState().triage['ws:w2']?.snoozed).toBeUndefined();
+    vi.advanceTimersByTime(2 * HOUR);
+    expect(notices).toEqual([]);
+  });
+
+  it('off: a new question brings it back', () => {
+    const store = makeStore(false);
+    start(store).snooze(CH, NOW + HOUR);
+    store.dispatch({ type: 'question_add', question: question('q1') });
+    expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
   });
 
   it('turning it off stops the timer, and on again restores what was stored', () => {
     const store = makeStore();
     start(store).settle(CH);
     store.dispatch({ type: 'prefs', prefs: { chatCategories: false } });
+    // It saves once (when each chat was last active is left out), then nothing waits.
+    vi.advanceTimersByTime(1_500);
     expect(vi.getTimerCount()).toBe(0);
+    expect(JSON.parse(readFileSync(file, 'utf8')).chats[CH].lastAt).toBeUndefined();
     store.dispatch({ type: 'prefs', prefs: { chatCategories: true } });
     expect(store.getState().triage[CH]?.settled?.why).toBe('you');
     expect(vi.getTimerCount()).toBeGreaterThan(0);
@@ -398,45 +443,84 @@ describe('the wake timer', () => {
   });
 });
 
-describe('Remind Me Later', () => {
-  it('its reminder brings a settled or snoozed chat back to the Inbox with Back', () => {
-    const store = makeStore(true, [project(ws('w1', { remindAt: NOW + HOUR }), ws('w2', { remindAt: NOW + HOUR }))]);
-    const service = start(store);
-    service.settle(CH);
-    service.snooze('ws:w2', NOW + 5 * HOUR);
-    vi.setSystemTime(NOW + HOUR);
-    store.dispatch({ type: 'projects', projects: [project(ws('w1'), ws('w2'))] });
-    for (const key of [CH, 'ws:w2']) {
-      expect(category(store, key)).toBe('active');
-      expect(store.getState().triage[key]?.backAt).toBe(NOW + HOUR);
+describe('Remind Me Later from before BLG-770', () => {
+  const forgot: string[][] = [];
+  const startWith = (store: Store): TriageService => {
+    const service = new TriageService({ store, file, notify: (e) => notices.push(e), history: () => [], now: () => Date.now(), forgetReminders: (ids) => forgot.push([...ids]) });
+    services.push(service);
+    return service;
+  };
+  beforeEach(() => void forgot.splice(0));
+
+  it('a time still ahead becomes a snooze, once, and is cleared on the worktree', () => {
+    for (const on of [true, false]) {
+      forgot.splice(0);
+      rmSync(file, { force: true });
+      const at = Date.now() + HOUR;
+      const store = makeStore(on, [project(ws('w1', { remindAt: at }), ws('w2'), ws('old', { remindAt: at, archived: true }))]);
+      startWith(store);
+      expect(store.getState().triage[CH]?.snoozed?.until).toBe(at);
+      expect(forgot).toEqual([['w1', 'old']]);
+      // The record still says so until the clear publishes: carried once.
+      store.dispatch({ type: 'projects', projects: store.getState().projects });
+      expect(forgot).toHaveLength(1);
+      vi.advanceTimersByTime(HOUR + 1_000);
+      expect(notices.at(-1)).toMatchObject({ title: 'Reminder: w1', channel: CH });
     }
+  });
+
+  it('one that came due while Beluga was closed reminds you at start', () => {
+    const store = makeStore(false, [project(ws('w1', { remindAt: NOW - HOUR }), ws('w2'))]);
+    startWith(store);
+    vi.advanceTimersByTime(1);
+    expect(store.getState().triage[CH]?.snoozed).toBeUndefined();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ title: 'Reminder: w1' });
+  });
+
+  it('keeps a snooze you set since', () => {
+    writeFileSync(file, JSON.stringify({ chats: { [CH]: { snoozed: { at: NOW, until: NOW + 5 * HOUR, seen: [] } } } }));
+    const store = makeStore(true, [project(ws('w1', { remindAt: NOW + HOUR }), ws('w2'))]);
+    startWith(store);
+    expect(store.getState().triage[CH]?.snoozed?.until).toBe(NOW + 5 * HOUR);
+    expect(forgot).toEqual([['w1']]);
+  });
+});
+
+describe('the reminder', () => {
+  it('says what waits there: a conflict, failing checks, news', () => {
+    const store = makeStore(false);
+    start(store).snooze(CH, NOW + HOUR);
+    store.dispatch({ type: 'conflicts', id: 'w1', files: ['a.ts'] });
+    store.dispatch({ type: 'pr', id: 'w1', pr: { number: 3, url: 'u', state: 'OPEN', title: 't', draft: false, checks: 'failing' } });
+    chat(store, 'bob', 'news');
+    vi.advanceTimersByTime(HOUR + 1_000);
+    expect(notices[0]?.body).toBe('A merge conflict to resolve · Checks failed on its pull request · 1 new message');
   });
 });
 
 describe('notifications', () => {
   const inbox = (store: Store) => store.getState().inbox.map((n) => n.title);
 
-  it('a turn finishing in a snoozed chat sends no notification; a question in it does', () => {
-    const store = makeStore();
-    const notifier = new Notifier({ store, desktop: () => undefined });
-    start(store).snooze(CH, NOW + HOUR);
-    run(store, 'started');
-    run(store, 'done');
-    expect(inbox(store)).toEqual([]);
-    store.dispatch({ type: 'question_add', question: question('q1') });
-    expect(inbox(store)).toHaveLength(1);
-    notifier.stop();
-  });
+  const unread = (store: Store) => store.getState().inbox.filter((n) => !n.read).map((n) => n.title);
 
-  it('with the setting off a stored snooze silences nothing', () => {
-    const store = makeStore(false);
-    store.dispatch({ type: 'triage_set', channel: CH, record: { snoozed: { at: NOW, until: NOW + HOUR, seen: [] } } });
-    const notifier = new Notifier({ store, desktop: () => undefined });
-    run(store, 'started');
-    run(store, 'done');
-    expect(inbox(store)).toHaveLength(1);
-    notifier.stop();
-  });
+  for (const on of [true, false]) {
+    it(`a turn finishing in a chat put off till later is quiet (already read, no desktop); a question in it is not (categories ${on ? 'on' : 'off'})`, () => {
+      const store = makeStore(on);
+      const desktop: string[] = [];
+      const notifier = new Notifier({ store, desktop: (n) => desktop.push(n.title) });
+      start(store).snooze(CH, NOW + HOUR);
+      run(store, 'started');
+      run(store, 'done');
+      vi.advanceTimersByTime(5_000);
+      expect(inbox(store)).toHaveLength(1);
+      expect(unread(store)).toEqual([]);
+      expect(desktop).toEqual([]);
+      store.dispatch({ type: 'question_add', question: question('q1') });
+      expect(unread(store)).toHaveLength(1);
+      notifier.stop();
+    });
+  }
 });
 
 describe('the API', () => {

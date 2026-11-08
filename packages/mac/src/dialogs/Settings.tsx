@@ -287,7 +287,7 @@ function Appearance() {
             ]}
           />
         </Row>
-        <Row label="Sidebar categories" detail="Sort chats into Inbox, Working, Snoozed and Settled, in place of Unread and Chats.">
+        <Row label="Sidebar categories" detail="Sort chats into Inbox, Working, Later and Settled, in place of Unread and Chats.">
           <Switch label="Sidebar categories" on={daemonPrefs.chatCategories} onChange={turnCategories} />
         </Row>
         {daemonPrefs.chatCategories ? (

@@ -114,8 +114,8 @@ export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
  * 1.43 (BLG-762): a steered message your agent hasn't read yet can be taken back
  * (`host.cancelSteer` → its words, for the box). An older Mac doesn't have it: no Cancel.
  * 1.44 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
- * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Snooze, Wake and Un-settle
- * from the phone (`triage.*`). An older Mac or phone never sees them: Work stays one list by project.
+ * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Remind Me Later, Show Again
+ * Now and Un-settle from the phone (`triage.*`). Its Snoozed category is Later on the screens (BLG-770). An older Mac or phone never sees them: Work stays one list by project.
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44 } as const;
 

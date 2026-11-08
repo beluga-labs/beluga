@@ -3,7 +3,7 @@ import { autoContinueFor, limitResumeAt } from '../../shared/auto-continue.js';
 import { decodeFailure } from '../../shared/run-failure.js';
 import { planById } from '../plans/model.js';
 import { planConversations } from '../plans/owner.js';
-import { type HandSource, type TriageFacts, handRaisedOf } from './model.js';
+import { type ChatTriage, type HandSource, type TriageFacts, type TriageSource, handRaisedOf, triageKey } from './model.js';
 
 /**
  * What the state says about a chat, for the pure rules in model.ts. `key` is a triage record's:
@@ -51,6 +51,30 @@ export function workingIn(state: FactSource, key: string): boolean {
 
 export function triageFacts(state: FactSource & Pick<DomainState, 'triage'>, key: string): TriageFacts {
   return { handRaised: handRaisedOf(state.triage[key], handSourceOf(state, key)), working: workingIn(state, key) };
+}
+
+/** The keys of the records put off till later, once per records object (it's replaced, never changed). */
+const laterKeys = new WeakMap<object, ReadonlySet<string>>();
+
+/**
+ * When a chat put off till later (Remind Me Later) reminds you, while that's still ahead and nothing
+ * new asks you there (that ends it: the daemon wakes it); with the categories on or off. `triage`
+ * is absent in a snapshot from an older daemon.
+ */
+export function laterUntil(state: FactSource & TriageSource & { readonly triage?: Readonly<Record<string, ChatTriage>> }, channel: string, now = Date.now()): number | undefined {
+  const records = state.triage;
+  if (!records) return undefined;
+  let keys = laterKeys.get(records);
+  if (!keys) {
+    keys = new Set(Object.entries(records).flatMap(([key, r]) => (r.snoozed ? [key] : [])));
+    laterKeys.set(records, keys);
+  }
+  if (!keys.size) return undefined;
+  const key = triageKey(state, channel);
+  const record = key === undefined ? undefined : records[key];
+  const until = record?.snoozed?.until;
+  if (until === undefined || until <= now) return undefined;
+  return handRaisedOf(record, handSourceOf(state, key!)) ? undefined : until;
 }
 
 /** The last thing the log holds of a conversation. */

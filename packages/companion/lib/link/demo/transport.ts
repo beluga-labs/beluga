@@ -379,7 +379,7 @@ export class DemoTransport implements Transport {
     switch (method) {
       // ---- a chat's category
       case 'triage.settle':
-        if (w.convs.get(`conv:${str(0)}`)?.working) return this.frames.emit({ t: 'result', id, ok: false, error: 'This chat is working. Settle it when its turn ends, or snooze it now.' });
+        if (w.convs.get(`conv:${str(0)}`)?.working) return this.frames.emit({ t: 'result', id, ok: false, error: 'This chat is working. Settle it when its turn ends, or remind yourself later now.' });
         w.triage.set(`conv:${str(0)}`, { settledWhy: 'you' });
         this.touch('work');
         return ok();

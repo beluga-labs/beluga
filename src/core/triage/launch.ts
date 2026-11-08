@@ -16,7 +16,7 @@ export interface TriageHost {
   readonly demo: boolean;
 }
 
-/** Start each chat's category for the daemon: ~/.beluga/triage.json; the demo's lives in a temporary folder. */
+/** Start each chat's category and Remind Me Later for the daemon: ~/.beluga/triage.json; the demo's lives in a temporary folder. */
 export function launchTriage(host: TriageHost): () => void {
   const { session, store } = host;
   const dir = host.demo ? mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-triage-')) : belugaHome();
@@ -25,7 +25,7 @@ export function launchTriage(host: TriageHost): () => void {
     file: path.join(dir, 'triage.json'),
     notify: (e) => session.notifier.notify(e),
     history: (id) => session.workspaces?.manager.loadHistory<LogItem>(id) ?? [],
-    ...(session.workspaces ? { onWorktree: (listener: (event: WorktreeEvent) => void) => session.workspaces!.onWorktree(listener) } : {}),
+    ...(session.workspaces ? { onWorktree: (listener: (event: WorktreeEvent) => void) => session.workspaces!.onWorktree(listener), forgetReminders: (ids: readonly string[]) => session.workspaces!.forgetReminders(ids) } : {}),
   });
   services.set(session, service);
   return () => {

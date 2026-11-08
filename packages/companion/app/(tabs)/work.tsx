@@ -15,7 +15,7 @@ import { type Call, calls } from '../../lib/link/calls';
 import type { ConvSummary, PlansView, TasksView, WorkView } from '../../lib/link/protocol';
 import { store } from '../../lib/store';
 import { categorySections, settledWords, triageOptions, whenWords } from '../../lib/triage';
-import { snoozePresets } from '../../../../src/shared/snooze-presets';
+import { remindPresets } from '../../../../src/shared/remind';
 import { ProjectMark } from '../../components/ProjectMark';
 import { TasksList } from '../../components/Tasks';
 import { color, TAB_BAR_H } from '../../lib/theme';
@@ -25,7 +25,7 @@ type Rows = WorkView['projects'][number];
 /** The folded lists under the Inbox, in order. */
 const FOLDED_SECTIONS = [
   { key: 'working', label: 'Working' },
-  { key: 'snoozed', label: 'Snoozed' },
+  { key: 'snoozed', label: 'Later' },
   { key: 'settled', label: 'Settled' },
 ] as const;
 
@@ -135,14 +135,14 @@ export default function Work() {
         )}
       </ScrollView>
       <Options window visible={Boolean(sheet)} onClose={() => setSheet(undefined)} {...(sheet ? { title: sheet.title } : {})} options={sheet ? sheetOptions(sheet, () => setSnoozing(sheet)) : []} />
-      <Options window visible={Boolean(snoozing)} onClose={() => setSnoozing(undefined)} title="Snooze until" options={snoozing ? presetOptions(snoozing) : []} />
+      <Options window visible={Boolean(snoozing)} onClose={() => setSnoozing(undefined)} title="Remind me" options={snoozing ? presetOptions(snoozing) : []} />
     </Screen>
   );
 }
 
 /** What a row says of its category (nothing without one). */
 function triageWords(c: ConvSummary): readonly (string | undefined)[] {
-  if (c.category === 'snoozed') return [c.snoozedUntil ? `Until ${whenWords(c.snoozedUntil)}` : undefined];
+  if (c.category === 'snoozed') return [c.snoozedUntil ? `Reminds you ${whenWords(c.snoozedUntil)}` : undefined];
   if (c.category === 'settled') return [settledWords(c.settledWhy)];
   return [c.back ? 'Back' : undefined];
 }
@@ -150,16 +150,16 @@ function triageWords(c: ConvSummary): readonly (string | undefined)[] {
 function sheetOptions(c: ConvSummary, snooze: () => void): readonly Option[] {
   const all: Record<ReturnType<typeof triageOptions>[number], Option> = {
     settle: { Icon: Check, label: 'Settle', sub: 'Out of your inbox until something new happens', onPress: () => change(calls.settle(c.topic)) },
-    snooze: { Icon: AlarmClock, label: 'Snooze', sub: 'Quiet until a time you pick', onPress: snooze },
-    wake: { Icon: Sun, label: 'Wake', sub: 'Back to your inbox now', onPress: () => change(calls.wake(c.topic)) },
+    snooze: { Icon: AlarmClock, label: 'Remind Me Later', sub: 'Quiet until a time you pick, then a reminder', onPress: snooze },
+    wake: { Icon: Sun, label: 'Show Again Now', sub: 'Back to your inbox now, no reminder', onPress: () => change(calls.wake(c.topic)) },
     unsettle: { Icon: Inbox, label: 'Un-settle', sub: 'Back to your inbox', onPress: () => change(calls.unsettle(c.topic)) },
   };
   return triageOptions(c).map((o) => all[o]);
 }
 
-const presetOptions = (c: ConvSummary): readonly Option[] => snoozePresets(Date.now()).map((p) => ({ Icon: AlarmClock, label: p.label, sub: whenWords(p.at), onPress: () => change(calls.snooze(c.topic, p.at)) }));
+const presetOptions = (c: ConvSummary): readonly Option[] => remindPresets(Date.now()).map((p) => ({ Icon: AlarmClock, label: p.label, sub: whenWords(p.at), onPress: () => change(calls.snooze(c.topic, p.at)) }));
 
-/** A category changes only while the Mac can answer: a queued snooze could end before it arrives. */
+/** A category changes only while the Mac can answer: a queued reminder could come before it arrives. */
 function change(call: Call): void {
   haptic.commit();
   void store.call(call, { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
