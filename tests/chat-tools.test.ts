@@ -40,7 +40,7 @@ function stateWith(log: readonly LogItem[] = [], extra: Partial<Record<keyof Dom
   } as unknown as DomainState;
 }
 
-const tools = (state: DomainState, requester = ME, load?: (channel: string) => void) => chatToolsOf({ state: () => state, requester, ...(load ? { load } : {}) });
+const tools = (state: DomainState, requester = ME, load?: (channel: string) => void) => chatToolsOf({ state: () => state, requester, chain: () => ({ chainId: 'c', hop: 0 }), ...(load ? { load } : {}) });
 
 /** What is inside the data fence of a tool's answer. */
 function data<T = Record<string, unknown>>(text: string): T {

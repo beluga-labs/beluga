@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentBackend, AgentPlace, AgentRunInput, BoardTools, FollowUp, LiveStatus, MacTools, RunProcess, Steer, TerminalLaunch, TerminalSink } from '../agent/types.js';
 import { ALWAYS_ASK_YOU, writesCode } from '../agent/policy.js';
-import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, MAX_TEXT } from '../protocol.js';
+import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, type ChatOrigin, MAX_TEXT } from '../protocol.js';
 import type { People } from './people.js';
 import type { QuestionBroker } from './questions.js';
 import type { ShareService } from './shares.js';
@@ -30,6 +30,8 @@ import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
+import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
+import { ChatSendService, type Delivered } from './chat-links/service.js';
 import { chatToolsOf } from './chat-links/transcript.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
@@ -160,6 +162,15 @@ interface Waiting {
   compact?: boolean;
 }
 
+/**
+ * The chain of one run. It is an object of its own so that the run's tools read their own run's
+ * chain, and a run left behind never reads the chain of the run after it.
+ */
+interface RunChain {
+  chainId: string;
+  hop: number;
+}
+
 /** The queue for one conversation (the room, or a workspace). */
 interface Lane {
   readonly channel: string;
@@ -188,6 +199,8 @@ interface Lane {
    * you go on (Continue, or any message of yours) or Beluga resumes it (see shared/run-failure.ts).
    */
   held?: boolean;
+  /** The chain of the current run, or of the last one (see RunChain). */
+  chain?: RunChain;
   /** The slot wait its first message's card shows now ("requestId running/limit"), so it's said once (see pump). */
   slotNoted?: string;
 }
@@ -242,6 +255,11 @@ function withoutAskOnly<T extends { readonly askOnly?: unknown }>(place: T): T {
 }
 
 
+/** A message from another chat sets the chain from its origin. A message from a person starts a new one. */
+function chainOf(body: BodyOf<'agent_request'>): RunChain {
+  return body.origin ? { chainId: body.origin.chainId, hop: body.origin.hop } : { chainId: randomUUID(), hop: 0 };
+}
+
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
@@ -283,6 +301,8 @@ export class AgentHost {
   private readonly chatWaiters = new Map<string, { resolve: (text: string) => void; reject: (err: Error) => void }>();
   /** Waiting for a conversation's current run to end (see idle). */
   private readonly idleWaiters = new Map<string, Array<() => void>>();
+  /** Messages from other chats whose card doesn't know yet where they came from (see emitAgent). */
+  private readonly fromChats = new Map<string, { readonly origin: ChatOrigin; readonly text: string }>();
   /** Final agent events that could not be sent while disconnected. */
   private outbox: Array<{ body: BodyInput; opts: { to?: string; keep?: boolean } }> = [];
 
@@ -292,6 +312,8 @@ export class AgentHost {
   private readonly compactor: Compactor;
   /** Side questions (/btw), answered beside conversations (see btw.ts). */
   readonly btw: BtwDesk;
+  /** Messages agents send between chats (see chat-links/service.ts). */
+  readonly chatSends: ChatSendService;
 
   constructor(private readonly deps: AgentHostDeps) {
     this.steps = deps.steps ?? new StepBook();
@@ -302,6 +324,19 @@ export class AgentHost {
       emit: (requestId, kind, text, channel) => this.emitAgent(requestId, this.selfId, kind, text, channel),
       requesterName: () => peerName(this.store.getState(), this.selfId),
       modelFor: (place) => this.modelFor(place?.model, place?.agent, place?.effort),
+    });
+    this.chatSends = new ChatSendService({
+      store: deps.store,
+      selfId: () => this.selfId,
+      queuedFromChats: (channel) => this.lanes.get(channel)?.waiting.filter((w) => w.body.origin).length ?? 0,
+      deliver: (body, steer) => this.deliverFromChat(body, steer),
+      permissionRank: (channel) => this.permissionRank(channel),
+      agentIn: (channel) => deps.agentRef?.(channel) ?? CLAUDE_AGENT,
+      terminalDriving: (channel) => deps.terminalDriving?.(channel) ?? false,
+      load: (channel) => void (channel.startsWith('ws:') && deps.workspaces?.ensureLoaded(channel.slice(3))),
+      system: (channel, text, level) => deps.store.dispatch({ type: 'system', channel, level, text }),
+      askChain: (title, detail, channel) => this.pose('chain', title, detail, undefined, channel, { once: true }).then((answer) => answer !== 'no'),
+      cancelChain: (chainId, why) => this.cancelChain(chainId, why),
     });
     this.btw = new BtwDesk({
       store: deps.store,
@@ -471,7 +506,8 @@ export class AgentHost {
       run.abort();
     }
     await this.idle(channel);
-    const mine = lane.waiting.filter((w) => w.from === this.selfId && !w.compact);
+    // A message from another chat isn't yours to send along as your words: it keeps its place.
+    const mine = lane.waiting.filter((w) => w.from === this.selfId && !w.compact && !w.body.origin);
     lane.waiting = lane.waiting.filter((w) => !mine.includes(w));
     lane.held = undefined;
     for (const { from, body } of mine) this.emitAgent(body.requestId, from, 'done', 'Sent along with Beluga’s wake-up', body.channel);
@@ -602,7 +638,11 @@ export class AgentHost {
     this.deps.questions.cancelChannel(channel);
     const dropped = lane.waiting;
     lane.waiting = [];
-    for (const { from, body, compact } of dropped) if (!compact) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    for (const { from, body, compact } of dropped) {
+      if (compact) continue;
+      this.emitAgent(body.requestId, from, 'error', why, body.channel);
+      if (body.origin) this.chatSends.lost(body.requestId, why);
+    }
     if (lane.current) {
       lane.interruptedBy = 'beluga';
       lane.interruptNote = why;
@@ -629,15 +669,21 @@ export class AgentHost {
     for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
     this.deps.questions.cancelChannel(channel);
     lane.waiting = lane.waiting.filter((w) => w.from !== this.selfId);
-    for (const { from, body, compact } of mine) if (!compact) this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+    for (const { from, body, compact } of mine) {
+      if (compact) continue;
+      this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
+      if (body.origin) this.chatSends.lost(body.requestId, 'The owner stopped the agent in that chat');
+    }
     if (lane.current) {
       lane.stopping = true;
       lane.current.abort();
     }
-    const n = mine.filter((w) => !w.compact).length;
+    // A message from another chat is dropped, never put in your box as your words.
+    const yours = mine.filter((w) => !w.compact && !w.body.origin);
+    const n = yours.length;
     const back = n ? ` · ${n} queued message${n === 1 ? '' : 's'} back in the box` : '';
     this.toast(`Stopped your agent here${back}`, 'success');
-    return { stopped: true, returned: mine.filter((w) => !w.compact).map((w) => w.body.prompt) };
+    return { stopped: true, returned: yours.map((w) => w.body.prompt) };
   }
 
   /**
@@ -718,6 +764,7 @@ export class AgentHost {
     if (steer?.interrupt && note) {
       const run = lane.current;
       const followUp = this.followUp(lane, item);
+      this.raiseHop(lane, body);
       // Sent, not read yet: Claude's step is being stopped for it (its turn starts once it is).
       emit('text', STOPPING_FOR);
       const interrupting: Promise<void> = steer
@@ -792,6 +839,15 @@ export class AgentHost {
     return false;
   }
 
+  /** Drop what waits from one chain of messages between chats, in all conversations. */
+  private cancelChain(chainId: string, why: string): void {
+    for (const lane of this.lanes.values()) {
+      const dropped = lane.waiting.filter((w) => w.body.origin?.chainId === chainId);
+      lane.waiting = lane.waiting.filter((w) => !dropped.includes(w));
+      for (const { from, body } of dropped) this.emitAgent(body.requestId, from, 'error', why, body.channel);
+    }
+  }
+
   /** Drop one of your waiting requests before it starts. */
   cancelQueued(requestId: string): boolean {
     for (const lane of this.lanes.values()) {
@@ -817,13 +873,19 @@ export class AgentHost {
     const fallback = named?.fallback;
     if (named) named.fallback = undefined;
     if (named && final) this.named.delete(requestId);
-    const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}) };
+    // Its first event says it came from another chat: from then on, its card knows.
+    const fromChat = this.fromChats.get(requestId);
+    this.fromChats.delete(requestId);
+    const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}), ...(fromChat ? { fromChat } : {}) };
     // Workspace conversations are private: events go to you and the people you invited, never to the room.
     const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.deps.sharing.recipients(channel)].map((to) => ({ to }));
     for (const opts of targets) if (!this.send(body, opts) && final) this.outbox = [...this.outbox, { body, opts }].slice(-50);
   }
 
-  async onAgentRequest(from: string, body: BodyOf<'agent_request'>): Promise<void> {
+  async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
+    // Only this computer's own sends carry a chain: nobody else sets one here.
+    const { origin, ...rest } = request;
+    const body: BodyOf<'agent_request'> = origin && from === this.selfId ? request : rest;
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -870,6 +932,33 @@ export class AgentHost {
   }
 
   /**
+   * A message from another of your chats (chat-links/service.ts). Steer only goes into the running
+   * turn, the way Send Now does, and never stops the turn: when the turn can't take it, it queues.
+   */
+  private async deliverFromChat(body: BodyOf<'agent_request'>, steer: boolean): Promise<Delivered | undefined> {
+    // What onAgentRequest and enqueue would deny: its card comes back too late to answer the send with.
+    const waiting = [...this.lanes.values()].reduce((n, l) => n + l.waiting.filter((w) => w.from === this.selfId).length, 0);
+    if (!this.agent || waiting >= MAX_QUEUED_PER_PERSON) return undefined;
+    const lane = this.lane(body.channel);
+    const item: Waiting = { from: this.selfId, body };
+    if (body.origin) this.fromChats.set(body.requestId, { origin: body.origin, text: body.prompt });
+    const live = lane.current && !lane.current.signal.aborted && !lane.interrupting;
+    const run = live && lane.steer && lane.runFrom === this.selfId && !body.plan && !body.project ? lane.steer : undefined;
+    const steeredIn = (): Delivered => ({ delivery: 'steered', ...(lane.currentRequest ? { readBy: lane.currentRequest.id } : {}) });
+    if (steer && run && this.steerIn(lane, item, run)) return steeredIn();
+    await this.onAgentRequest(this.selfId, body);
+    if (lane.steered?.has(body.requestId)) return steeredIn();
+    return { delivery: lane.waiting.some((w) => w.body.requestId === body.requestId) ? 'queued' : 'started' };
+  }
+
+  /** How far a chat's run can act on its own: a message may not ask a chat to go further than its sender can. */
+  private permissionRank(channel: string): number {
+    if (this.store.getState().planMode[channel] === true) return 0;
+    const place = this.deps.assistant?.(channel, this.selfId)?.place ?? this.deps.sentinelChat?.(channel, this.selfId) ?? this.deps.workspaces?.place(channel);
+    return !place || place.askOnly ? 0 : place.autoEdit ? 2 : 1;
+  }
+
+  /**
    * Queue a request. Normal requests wait their turn (and say so); urgent ones from you reach
    * Claude now (see rush).
    */
@@ -906,7 +995,7 @@ export class AgentHost {
     const sent = lane.followUps({
       prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
-      requesterName: peerName(this.store.getState(), from),
+      requesterName: this.askerOf(body, from),
       viaAgent: body.viaAgent,
       model: this.modelNow(body.channel),
       context: this.recentChat(body.channel),
@@ -920,7 +1009,11 @@ export class AgentHost {
       },
       onError: (reason) => emit('error', reason),
     });
-    if (sent) emit('started');
+    if (sent) {
+      // A turn of its own, in the run that is already open: its tools read the same chain object.
+      if (lane.chain) Object.assign(lane.chain, chainOf(body));
+      emit('started');
+    }
     return sent;
   }
 
@@ -938,7 +1031,7 @@ export class AgentHost {
     return {
       prompt: this.promptOf(body, from),
       ...this.promptIdOf(body),
-      requesterName: peerName(this.store.getState(), from),
+      requesterName: this.askerOf(body, from),
       viaAgent: body.viaAgent,
       model: this.modelNow(body.channel),
       // The conversation is the run's own: what's said in the chat it has already.
@@ -980,9 +1073,15 @@ export class AgentHost {
   private steerIn(lane: Lane, item: Waiting, steer: Steer): boolean {
     const followUp = this.followUp(lane, item);
     if (!steer(followUp)) return false;
+    this.raiseHop(lane, item.body);
     (lane.steered ??= new Map()).set(item.body.requestId, followUp);
     this.emitAgent(item.body.requestId, item.from, 'text', READS_AFTER_STEP, item.body.channel);
     return true;
+  }
+
+  /** A message steered into a run: the run keeps its chain, at the higher of the two hops. */
+  private raiseHop(lane: Lane, body: BodyOf<'agent_request'>): void {
+    if (lane.chain) lane.chain.hop = Math.max(lane.chain.hop, body.origin?.hop ?? 0);
   }
 
   /**
@@ -1161,6 +1260,8 @@ export class AgentHost {
     lane.current = controller;
     lane.currentRequest = { id: body.requestId, controller };
     lane.runFrom = from;
+    const chain = chainOf(body);
+    lane.chain = chain;
     const requesterName = peerName(this.store.getState(), from);
     const root = body.project && body.channel === 'room' ? this.projectRoot(body.project) : undefined;
     // A friend's request in your project gets a fresh conversation in its main folder: questions only.
@@ -1203,7 +1304,7 @@ export class AgentHost {
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
       // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
-      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))) }) : undefined;
+      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, chain: () => ({ ...chain }), load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))), messages: this.chatSends.forRun({ channel: body.channel, requester: from, chain: () => ({ ...chain }), signal: controller.signal }) }) : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
@@ -1265,7 +1366,7 @@ export class AgentHost {
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         prompt: this.promptOf(body, from),
         ...this.promptIdOf(body),
-        requesterName,
+        requesterName: this.askerOf(body, from),
         viaAgent: body.viaAgent,
         context: this.recentChat(body.channel),
         ...(runPlace ? { place: runPlace } : {}),
@@ -1539,6 +1640,11 @@ export class AgentHost {
     return { promptId: body.requestId };
   }
 
+  /** The name on the prompt's "Request from" line. */
+  private askerOf(body: BodyOf<'agent_request'>, from: string): string {
+    return body.origin ? chatMessageAsker(body.origin) : peerName(this.store.getState(), from);
+  }
+
   /** May this person's run find and read other chats? */
   private readsChats(from: string): boolean {
     return from === this.selfId && this.store.getState().prefs.chatLinks;
@@ -1547,11 +1653,15 @@ export class AgentHost {
   /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
   private promptOf(body: BodyOf<'agent_request'>, from: string): string {
     const board = this.store.getState().board;
-    const tasks = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    // A message from another chat: Beluga's words first, its own in a fence (see message-prompt.ts).
+    const said = body.origin ? chatMessagePrompt(body.origin, body.prompt) : body.prompt;
+    const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
     // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
     const prompt = this.readsChats(from) ? explainChatMentions(tasks) : tasks;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
-    return this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
+    const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
+    // What was added to a message from another chat names no skill either (a task's title, the carried chat).
+    return body.origin ? withoutSkillMentions(whole) : whole;
   }
 
   private recentChat(channel = 'room'): string[] {

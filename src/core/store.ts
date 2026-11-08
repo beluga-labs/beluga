@@ -1,4 +1,4 @@
-import type { AgentEventKind, AgentRef, FsEntry, PeerInfo } from '../protocol.js';
+import type { AgentEventKind, AgentRef, ChatOrigin, FsEntry, PeerInfo } from '../protocol.js';
 import { agentName } from '../shared/agent-label.js';
 import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assistantChannel } from '../shared/assistant.js';
 import type { ConnectionStatus } from '../net/peer-client.js';
@@ -98,6 +98,8 @@ export type LogItem =
       readonly agent?: AgentRef;
       /** What was asked, once known (sent with the "queued" event, for the queue). */
       readonly prompt?: string;
+      /** BLG-149: an agent in another chat asked, not a person. The chat shows `prompt` as a card with this source. */
+      readonly origin?: ChatOrigin;
       /** Queued only because your Claude works in as many other conversations as it may at once. */
       readonly slotWait?: SlotWait;
       /** When it left the queue (it waited its turn): where the chat draws it and the message it answers (see shared/claude-notices.ts asSent). */
@@ -182,8 +184,11 @@ export interface ShellItem {
 
 export interface Approval {
   readonly id: string;
-  /** 'secret': your own Claude wants a .env file (answers: once, always for `project`, always). */
-  readonly kind: 'request' | 'tool' | 'secret';
+  /**
+   * 'secret': your own Claude wants a .env file (answers: once, always for `project`, always).
+   * 'chain': agents in your chats hit a limit on messages to each other (yes: Continue; no: Stop).
+   */
+  readonly kind: 'request' | 'tool' | 'secret' | 'chain';
   readonly title: string;
   readonly detail: string;
   /** A secret's project, by name: "Always for <project>" is offered. */
@@ -604,7 +609,7 @@ export type Action =
   | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
-  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
+  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef; fromChat?: { origin: ChatOrigin; text: string } }
   /** One owner's waiting requests in a conversation, in their new order (see orderQueued). */
   | { type: 'queue_order'; owner: string; ids: readonly string[] }
   | { type: 'projects'; projects: readonly Project[]; groups?: readonly ProjectGroup[]; order?: readonly string[]; hidden?: readonly string[] }
@@ -924,6 +929,7 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
     ...(existing?.status === 'queued' && a.event !== 'queued' ? { queuedUntil: a.ts } : {}),
     // Any event may name the agent (the first one an older card saw may not have).
     ...(a.agent ? { agent: a.agent } : {}),
+    ...(a.fromChat ? { origin: a.fromChat.origin, prompt: clean(a.fromChat.text) } : {}),
   } satisfies LogItem;
   const log = existing ? state.log.map((l, i) => (i === idx ? updated : l)) : appendLog(state.log, updated);
   // A new message, or a run in a workspace finishing while no screen shows it (Claude's answer is news).

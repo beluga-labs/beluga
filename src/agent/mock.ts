@@ -476,6 +476,30 @@ async function mockReadChat(input: AgentRunInput, tools: NonNullable<AgentRunInp
   }
 }
 
+/** Works until it's stopped: holds a chat busy for as long as a test needs (e2e/chat-send.spec.ts). */
+const HOLD_CHAT = /^hold this chat$/i;
+const CHAT_SEND = /^send to (\S+): (.+)$/m;
+
+/** Sends what a message says to send, waits for the answer, and says what came back. */
+async function mockSendChat(input: AgentRunInput, tools: NonNullable<AgentRunInput['chatTools']>, pace: number): Promise<string> {
+  const [, ref, text] = CHAT_SEND.exec(input.prompt)!;
+  await sleep(300 * pace, input.signal);
+  input.onEvent('tool', 'send_to_chat');
+  try {
+    // A message that tells the next chat to send on (a chain, for the demo): nothing to wait for.
+    if (CHAT_SEND.test(text!)) {
+      await tools.send(ref!, text!, {});
+      return 'I passed that on.';
+    }
+    const { message_id: id } = JSON.parse(await tools.send(ref!, text!, { reply: 'wanted' })) as { message_id: string };
+    input.onEvent('tool', 'wait_for_chat');
+    const { state, answer } = JSON.parse(await tools.wait(id, 60)) as { state: string; answer?: string };
+    return answer ? `That chat answered: ${answer}` : `The message is ${state}.`;
+  } catch (err) {
+    return `I could not send that message (${err instanceof Error ? err.message : String(err)}).`;
+  }
+}
+
 async function mockMeasure(input: AgentRunInput, tools: NonNullable<AgentRunInput['dashboardTools']>, pace: number): Promise<string> {
   const keeps = /it keeps ([^.]+)\./.exec(input.sentinelBrief ?? '')?.[1] ?? '';
   const names = [...keeps.matchAll(/([a-z0-9-]+)(?: \(([^)]+)\))?/g)].map((m) => ({ name: m[1]!, unit: m[2] }));
@@ -837,6 +861,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     if (input.planTools && !/^\/compact/.test(input.prompt.trim())) return mockPlanning(input, input.planTools, pace);
     // A message that names another chat (see explainChatMentions): it reads that chat, as real Claude may.
     if (input.chatTools && CHAT_NOTE.test(input.prompt)) return mockReadChat(input, input.chatTools, pace);
+    if (HOLD_CHAT.test(input.prompt.trim())) {
+      input.onEvent('tool', 'Bash npm run test:all');
+      await sleep(3_600_000, input.signal);
+    }
+    if (input.chatTools && CHAT_SEND.test(input.prompt)) return mockSendChat(input, input.chatTools, pace);
     // A main folder is questions only: a change request moves to a new worktree, as real Claude is told to.
     if (input.place?.askOnly && WANTS_CHANGE.test(input.prompt)) {
       if (!input.continueInWorktree) return "This is the project's main folder, which is read-only. Ask the owner to continue in a new worktree.";

@@ -4,6 +4,8 @@ import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, Circl
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
+import { InlineThing } from '../../components/render/Inline';
+import { parseChatRef } from '../../lib/render';
 import { openOnMac } from '../../lib/mac';
 import { useRef, useState } from 'react';
 import { Platform, ScrollView, useWindowDimensions, View } from 'react-native';
@@ -449,6 +451,24 @@ function DialogueTurn({ d }: { d: NonNullable<TurnView['dialogue']> }) {
   );
 }
 
+/** A message from an agent in another chat (1.43): a card with its source, never your bubble. */
+function FromChatCard({ origin, topic, turn }: { origin: NonNullable<TurnView['origin']>; topic: Topic; turn: string }) {
+  const on = useSupports('chatLinks');
+  const ref = parseChatRef(origin.ref);
+  return (
+    <View style={{ gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: color.hairline, backgroundColor: color.code }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+        <T v="caption" style={{ fontWeight: '600' }}>
+          From
+        </T>
+        {on && ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
+        <T v="caption">· {origin.agent}, an agent</T>
+      </View>
+      <Prose prose={origin.prose} at={{ topic, turn }} />
+    </View>
+  );
+}
+
 /** An agent's turn, under its name with its mark (BLG-498: the agent the Mac sends; an older Mac's, by the name, else the conversation's runtime). */
 function ClaudeTurn({ t, all, onAgent, topic, runtime, chips }: { t: TurnView; all: OutputView[]; onAgent: (a: SubAgentView) => void; topic: Topic; runtime?: string | undefined; chips?: React.ReactNode }) {
   const working = t.status === 'working';
@@ -457,6 +477,7 @@ function ClaudeTurn({ t, all, onAgent, topic, runtime, chips }: { t: TurnView; a
   // No card around Claude's answer: it takes the screen's full width, your bubbles sit on the right.
   return (
     <View style={{ gap: 12, paddingTop: 2 }}>
+      {t.origin ? <FromChatCard origin={t.origin} topic={topic} turn={t.id} /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
         <Avatar name={t.name} size={26} {...(t.who === 'claude' ? { mark: t.agent ? agentMark(t.agent) : markOfName(t.name, runtime) } : {})} />
         <T v="callout" c={color.text} style={{ fontWeight: '700' }}>
