@@ -691,7 +691,17 @@ export const PlanView = z.object({
   agents: AgentPickerView.optional(),
   /** 1.45 (BLG-772): what the plan has decided, in order (a replaced one marked), and its draft's review before approval. */
   decisions: z.array(z.object({ text: z.string().max(1000), replaced: z.boolean().optional() })).max(60).optional(),
-  review: z.object({ state: z.enum(['reviewing', 'findings', 'clean', 'failed']), fixAsked: z.boolean().optional(), findings: z.array(z.object({ kind: z.string().max(20), text: z.string().max(1000) })).max(20) }).optional(),
+  review: z
+    .object({
+      state: z.enum(['reviewing', 'findings', 'clean', 'failed']),
+      fixAsked: z.boolean().optional(),
+      findings: z.array(z.object({ kind: z.string().max(20), text: z.string().max(1000) })).max(20),
+      /** While it verifies: what it's doing now, in a line, how many of its four checks are behind it, and since when. */
+      now: z.string().max(240).optional(),
+      checksDone: z.number().int().min(0).max(4).optional(),
+      since: z.number().optional(),
+    })
+    .optional(),
 });
 export type PlanView = z.infer<typeof PlanView>;
 export const PlansView = z.object({ plans: z.array(PlanView.pick({ id: true, title: true, state: true, topic: true }).extend({ done: z.number().int(), total: z.number().int() })).max(100) });

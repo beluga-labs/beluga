@@ -2148,3 +2148,105 @@ textarea.goalBox {
 .linkButton:hover {
   text-decoration: underline;
 }
+
+/* Verifying the plan (BLG-772): alive while it works, so it's never taken for stuck. */
+.verifying {
+  position: relative;
+  overflow: hidden;
+  gap: 7px;
+}
+.verifyTime {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.verifyWhy {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.verifyChecks {
+  margin: 0;
+  padding: 0 0 0 23px;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.verifyCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  transition: color 240ms ease;
+}
+.verifyCheck[data-state='done'] {
+  color: var(--text-2);
+}
+.verifyCheck[data-state='done'] > svg {
+  color: var(--ok);
+}
+.verifyCheck[data-state='now'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.verifyTodo {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--text) 30%, transparent);
+}
+.verifyNow {
+  padding: 0 0 4px 23px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: verifyLine 260ms ease-out;
+}
+.verifySaid {
+  color: var(--text-2);
+  font-style: italic;
+}
+@keyframes verifyLine {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+/* A soft sweep along the bottom edge: moving, never glowing. */
+.verifyBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  overflow: hidden;
+}
+.verifyBar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: verifySweep 1.8s ease-in-out infinite;
+}
+@keyframes verifySweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .verifyBar::after,
+  .verifyNow {
+    animation: none;
+  }
+}

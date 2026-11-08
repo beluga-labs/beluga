@@ -268,6 +268,16 @@ async function mockPlanning(input: AgentRunInput, plan: NonNullable<AgentRunInpu
     const shown = plan.get();
     await sleep(900 * pace, input.signal);
     const ids = [...shown.matchAll(/- \[([\w-]+)\]/g)].map((m) => m[1]!);
+    // Each check in turn, named as it starts (what the plan's page shows while it works).
+    for (const line of [
+      `Contradictions: reading every task against the plan’s goal and its decisions.`,
+      `Duplicates: comparing the ${ids.length} tasks’ titles and goals, across milestones.`,
+      'Stale: looking for text written for an idea the plan dropped.',
+      'Order: checking what each task builds on, and which milestones run side by side.',
+    ]) {
+      input.onEvent('text', line);
+      await sleep(1100 * pace, input.signal);
+    }
     input.onEvent('tool', 'plan_review');
     if (ids.length < 2 || /Rate limits/i.test(shown) === false) {
       plan.review([]);

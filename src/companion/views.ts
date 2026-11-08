@@ -12,6 +12,7 @@ import type { PendingQuestion } from '../core/collab-store.js';
 import { type TaskView as GwTask, isFinal, requestGist, stateLabel, stateTone, targetLabel } from '../core/gateway/model.js';
 import { parseDecisionQid } from '../core/plans/decisions.js';
 import { type Plan, planForHome, planTitle, reviewState } from '../core/plans/model.js';
+import { verifyProgress } from '../core/plans/verify-progress.js';
 import { planOwnerOf } from '../core/plans/owner.js';
 import { branchState } from '../core/branch-state.js';
 import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
@@ -932,17 +933,25 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
     ...(plan.agent ? { agent: agentRefView(plan.agent) } : {}),
     ...(plan.status !== 'done' ? { agents: workPicker(state, plan.agent) } : {}),
     // 1.45 (BLG-772): its decisions, and its draft's review.
-    ...decisionsAndReview(plan),
+    ...decisionsAndReview(state, plan),
   };
 }
 
-function decisionsAndReview(plan: Plan): Pick<PlanView, 'decisions' | 'review'> {
+/** A verification under way, from its agent's run: so the phone shows it moving, never stuck. */
+function verifyingNow(state: DomainState, review: NonNullable<Plan['review']>): { now: string; checksDone: number; since: number } {
+  const channel = review.chat ? `ws:${review.chat}` : undefined;
+  const run = channel ? [...state.log].reverse().find((l) => l.type === 'agent' && l.channel === channel && l.ts >= review.at - 2000) : undefined;
+  const p = verifyProgress(run?.type === 'agent' ? run : undefined);
+  return { now: clip(plainLine(p.now, 240), 240), checksDone: p.checks.filter((c) => c.state === 'done').length, since: p.startedAt ?? review.at };
+}
+
+function decisionsAndReview(state: DomainState, plan: Plan): Pick<PlanView, 'decisions' | 'review'> {
   const decided = (plan.draft ?? plan.body)?.decisions ?? [];
   const r = reviewState(plan);
   const review = plan.review;
   return {
     ...(decided.length ? { decisions: decided.slice(-60).map((d) => ({ text: clip(plainLine(d.text, 1000), 1000), ...(d.supersededBy ? { replaced: true } : {}) })) } : {}),
-    ...(r !== 'off' && r !== 'none' && review ? { review: { state: r, ...(review.fixAsked ? { fixAsked: true } : {}), findings: review.findings.slice(0, 20).map((f) => ({ kind: f.kind, text: clip(plainLine(f.text, 1000), 1000) })) } } : {}),
+    ...(r !== 'off' && r !== 'none' && review ? { review: { state: r, ...(review.fixAsked ? { fixAsked: true } : {}), findings: review.findings.slice(0, 20).map((f) => ({ kind: f.kind, text: clip(plainLine(f.text, 1000), 1000) })), ...(r === 'reviewing' ? verifyingNow(state, review) : {}) } } : {}),
   };
 }
 

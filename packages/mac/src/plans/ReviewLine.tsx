@@ -1,9 +1,59 @@
 import { type Plan, type ReviewFinding, reviewState } from '@beluga/core/plans/model.js';
+import { verifyProgress } from '@beluga/core/plans/verify-progress.js';
+import { formatDuration } from '@beluga/shared/text.js';
+import { useApp } from '../lib/beluga.js';
+import { LiveDot } from './marks.js';
+import { useClock } from './use-plans.js';
 import { Icon } from '../components/Icon.js';
 import { Button, cx } from '../components/ui.js';
 import { TonePill } from './marks.js';
 import type { Tone } from './plans-model.js';
 import { usePlanActions } from './use-plans.js';
+
+/**
+ * While a fresh agent verifies the plan: never a still line that could be taken for stuck (BLG-772).
+ * How long it's been at it, its four checks lit up as it reaches each, its latest words as they
+ * come (each new line fading in), a soft sweep along the bottom, and Watch It Work to see its
+ * conversation in full.
+ */
+function Verifying({ plan }: { plan: Plan }) {
+  const review = plan.review!;
+  const channel = review.chat ? `ws:${review.chat}` : undefined;
+  // Its run for this round (not one from an earlier round in the same conversation).
+  const run = useApp((s) => (channel ? s.log.findLast((l) => l.type === 'agent' && l.channel === channel && l.ts >= review.at - 2000) : undefined));
+  const progress = verifyProgress(run?.type === 'agent' ? run : undefined);
+  const now = useClock(true);
+  const { openWorktree } = usePlanActions();
+  const took = Math.max(0, (now || Date.now()) - (progress.startedAt ?? review.at));
+  return (
+    <div className={cx(p.changes, p.review, p.verifying)} role="status" aria-label="Verifying the plan">
+      <div className={p.reviewHead}>
+        <LiveDot />
+        <strong>Verifying the plan</strong>
+        <span className={p.verifyTime}>{formatDuration(took)}</span>
+        <span className={p.verifyWhy}>A fresh agent checks it for contradictions, duplicates and stale decisions{review.thenApprove ? ', then approves it if nothing needs fixing' : ''}.</span>
+        <span className={p.grow} />
+        {review.chat ? (
+          <Button size="small" variant="quiet" icon="eye" onClick={() => openWorktree(review.chat!)}>
+            Watch It Work
+          </Button>
+        ) : null}
+      </div>
+      <ol className={p.verifyChecks} aria-label="Checks">
+        {progress.checks.map((c) => (
+          <li key={c.key} className={p.verifyCheck} data-state={c.state}>
+            {c.state === 'done' ? <Icon name="check" size={11} /> : c.state === 'now' ? <LiveDot /> : <span className={p.verifyTodo} aria-hidden="true" />}
+            {c.label}
+          </li>
+        ))}
+      </ol>
+      <div key={progress.now} className={cx(p.verifyNow, progress.said && p.verifySaid, 'selectable')}>
+        {progress.now}
+      </div>
+      <span className={p.verifyBar} aria-hidden="true" />
+    </div>
+  );
+}
 import p from './plans.module.css';
 
 /** What each kind of finding is called, and its tone. */
@@ -24,15 +74,7 @@ export function ReviewLine({ plan, onApprove }: { plan: Plan; onApprove: () => v
   const { api, act } = usePlanActions();
   const state = reviewState(plan);
   const review = plan.review;
-  if (state === 'reviewing') {
-    return (
-      <div className={p.changes} role="status">
-        <Icon name="eye" size={13} />
-        <strong>Verifying the plan</strong>
-        <span>A fresh agent checks it for contradictions, duplicates and stale decisions{review?.thenApprove ? ', then approves it if nothing needs fixing' : ''}.</span>
-      </div>
-    );
-  }
+  if (state === 'reviewing' && review) return <Verifying plan={plan} />;
   if (state !== 'findings' || !review) return null;
   const n = review.findings.length;
   return (
