@@ -41,4 +41,10 @@ export const MACHINE_API = {
   'machines.devices': { args: z.tuple([]) },
   // Forget a device of yours (by id): cut off here at once, and on every other device of yours as they hear.
   'machines.forget': { args: z.tuple([deviceId]) },
+  // On a computer (BLG-787): get the project at this git origin ready here (folder, clone, the tools it needs, its setup) → the run to follow.
+  'machines.ready.start': { args: z.tuple([z.string().trim().min(4).max(500).regex(/^[^\s-]\S*$/), z.string().trim().min(1).max(100).optional()]) },
+  // How a run is going: each step, and what's missing when it waits on you.
+  'machines.ready.status': { args: z.tuple([z.string().uuid()]) },
+  // You said yes: install what's missing there (a user-level way first), then go on.
+  'machines.ready.install': { args: z.tuple([z.string().uuid()]) },
 } as const;

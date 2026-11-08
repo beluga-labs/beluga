@@ -244,6 +244,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.list` | ✓ Settings › Your Computers: each computer's icon, name, kind and region, online or offline, its load and health with fixes (also `beluga computers`) |
 | `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
+| `machines.ready.start` | ✓ a new worktree, plan or sentinel sent to a computer that doesn't have the project: Getting … ready, on the new worktree (BLG-787, BLG-788) |
+| `machines.ready.status` | ✓ the same, each step as it goes (folder, clone, tools, setup) and any error in plain words |
+| `machines.ready.install` | ✓ the same: Install Them, after what's missing there is named |
 | `companion.phone.use` | ✓ Settings › Phone › Let your agent use this phone: Off · Ask each time · Use · Full (BLG-150) |
 | `companion.phone.pairAdb` | ✓ Settings › Phone › Connect, once the phone shows a Wireless-debugging pairing code (runs `adb pair`) |
 | `companion.phone.wifi` | ✓ Settings › Phone › Over Wi‑Fi: Use over Wi‑Fi while the phone is on a cable (turns on its Wireless debugging, reached through the link), or Turn Off (BLG-187) |

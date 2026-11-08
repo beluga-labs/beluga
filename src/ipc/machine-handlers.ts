@@ -1,7 +1,8 @@
 import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
-import { needMachines } from '../machines/registry.js';
+import { machinesOf, needMachines } from '../machines/registry.js';
+import { readyingOf } from '../machines/ready.js';
 
 /** This computer's 1-minute load per core, as a computer reports its own. */
 const hereLoad = (): number => Math.round(((os.loadavg()[0] ?? 0) / Math.max(1, os.cpus().length)) * 100) / 100;
@@ -28,4 +29,7 @@ export const MACHINE_HANDLERS = {
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.ready.start': (s, origin, name) => readyingOf(s, () => machinesOf(s)?.hereName() ?? os.hostname()).start(origin, name),
+  'machines.ready.status': (s, id) => readyingOf(s).status(id) ?? null,
+  'machines.ready.install': (s, id) => readyingOf(s).install(id),
 } satisfies MachineHandlers;

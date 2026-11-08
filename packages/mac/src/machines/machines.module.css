@@ -172,3 +172,89 @@
   font-size: 0.82rem;
   color: var(--text-2);
 }
+
+/* Getting a computer ready for a project (GettingReady.tsx, BLG-787): each step as it goes. */
+.ready {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 18px 20px;
+}
+.readyTitle {
+  font-weight: 600;
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.step[data-state='todo'] {
+  color: var(--text-3);
+}
+.step[data-state='done'] .stepMark {
+  color: var(--ok);
+}
+.step[data-state='failed'] .stepMark,
+.step[data-state='asking'] .stepMark {
+  color: var(--warn);
+}
+.stepMark {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--text-3);
+}
+.todo {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hairline-strong);
+}
+.stepText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stepLabel {
+  line-height: 20px;
+}
+.stepDetail {
+  font-size: 0.84rem;
+  color: var(--text-2);
+}
+.stepError {
+  font-size: 0.84rem;
+  color: var(--error);
+}
+.stepFix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  color: var(--text-2);
+}
+.asking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font-size: 0.88rem;
+}
+.asking ul {
+  margin: 0;
+  padding-left: 18px;
+}

@@ -558,6 +558,10 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',
+  // Your app getting this computer ready for a project (BLG-787): what driving it is for.
+  'machines.ready.start': 'drive',
+  'machines.ready.status': 'drive',
+  'machines.ready.install': 'drive',
   // ---- assistant
   'assistant.newChat': 'drive',
   'assistant.openChat': 'drive',
