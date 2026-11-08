@@ -246,6 +246,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.secrets` | ✓ Settings › Your Computers › a computer › ••• › Keep My Secrets in Sync With… (asked once for it) / Stop Syncing My Secrets |
 | `machines.settingsSync` | ✓ Settings › Your Computers › Your Settings: they follow you to every computer, and a conflict is said |
 | `machines.settingsSync.clear` | ✓ Settings › Your Computers › Your Settings › a conflict's Got It |
+| `machines.alwaysOn` | ✓ Settings › Your Computers › a computer › ••• › Make Always On… (one confirmation, and Run New Work On There Too), and Make This Mac Always On under You on the Network |
+| `machines.alwaysOn.status` | ✓ Settings › Your Computers › You on the Network: this Mac or your Always On, and a move under way; the Always On tag on its computer |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
 | `machines.ready.start` | ✓ a new worktree, plan or sentinel sent to a computer that doesn't have the project: Getting … ready, on the new worktree (BLG-787, BLG-788) |
 | `machines.ready.status` | ✓ the same, each step as it goes (folder, clone, tools, setup) and any error in plain words |

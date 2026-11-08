@@ -600,6 +600,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.secrets': 'refuse',
   'machines.settingsSync': 'drive',
   'machines.settingsSync.clear': 'drive',
+  // Your identity moves only from your app's own Settings (BLG-796), never from a screen driving a computer.
+  'machines.alwaysOn': 'refuse',
+  'machines.alwaysOn.status': 'drive',
   // ---- assistant
   'assistant.newChat': 'drive',
   'assistant.openChat': 'drive',

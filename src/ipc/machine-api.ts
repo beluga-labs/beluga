@@ -78,4 +78,8 @@ export const MACHINE_API = {
   'machines.settingsSync': { args: z.tuple([]) },
   // Clear the conflicts Settings says (Got It).
   'machines.settingsSync.clear': { args: z.tuple([]) },
+  // Make Always On (BLG-796): your identity and friends network move to that computer ('here': back to this one), after the one confirmation Settings asks → where you are now.
+  'machines.alwaysOn': { args: z.tuple([z.union([deviceId, z.literal('here')])]) },
+  // Where you are on the network: this install, or your Always On (its id and name), and a handover under way.
+  'machines.alwaysOn.status': { args: z.tuple([]) },
 } as const;

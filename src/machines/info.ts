@@ -57,7 +57,8 @@ export type MachineInfo = z.infer<typeof MachineInfo>;
 
 /** The sync frame between your devices, with an app's ask for what a computer has free and its answer (additive). */
 export const MachineSync = DeviceSetSync.extend({
-  want: z.array(z.enum(['info', 'update'])).max(4).optional(),
+  /** `net`: asked of your Always On only (BLG-796; an older computer reads no `net` and would drop the frame). */
+  want: z.array(z.enum(['info', 'update', 'net'])).max(4).optional(),
   info: MachineInfo.optional(),
   /** Update It (BLG-777): asked with how, answered with what the computer does. */
   update: z.object({ mode: z.enum(UPDATE_MODES) }).optional(),
@@ -66,6 +67,8 @@ export const MachineSync = DeviceSetSync.extend({
   look: z.object({ name: z.string().trim().min(1).max(64).optional(), icon: z.enum(MACHINE_ICONS).optional() }).optional(),
   /** Your settings, each with when and where it changed (BLG-805, sync.ts reads it: a part it can't read never holds up the rest). */
   settings: z.unknown().optional(),
+  /** Your Always On's friends network as it is now (BLG-796), for your app to show while it doesn't run it: friends, groups, invitations. */
+  net: z.object({ enabled: z.literal(true), friends: z.array(z.unknown()).max(5_000), groups: z.array(z.unknown()).max(5_000), invitations: z.array(z.unknown()).max(500), pendingJoins: z.array(z.unknown()).max(500) }).passthrough().optional(),
 });
 export type MachineSync = z.infer<typeof MachineSync>;
 

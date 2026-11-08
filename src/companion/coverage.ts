@@ -557,6 +557,8 @@ export const PHONE: Record<Method, Side> = {
   'machines.secrets': 'mac',
   'machines.settingsSync': 'mac',
   'machines.settingsSync.clear': 'mac',
+  'machines.alwaysOn': 'mac',
+  'machines.alwaysOn.status': 'mac',
   'companion.older': 'phone',
   'companion.ask': 'phone',
   'companion.post': 'phone',
