@@ -9,6 +9,7 @@ import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Empty, IconButton, Tip, cx } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { RunsOnLabel } from '../chat/RunsOn.js';
+import { useSentinelMoveTo } from './move-to.js';
 import { useActions } from '../lib/actions.js';
 import { AskPanel, SentinelChat } from './SentinelChat.js';
 import { Attention } from '../chat/Attention.js';
@@ -127,10 +128,13 @@ function Header({ item, save }: { item: Sentinel; save: (patch: SentinelPatch) =
   });
   // A sentinel on a computer: its runs folder in your editor over Remote-SSH, else its path copied (BLG-852).
   const runsFolder = useOpenFolderLabel('Open the Runs Folder', 'Copy the Runs Folder’s Path');
+  // Move To ▸ another computer of yours (BLG-807): Pause and Move To while it runs.
+  const moveTo = useSentinelMoveTo(item);
   const more: ActionItem[] = [
     { label: 'Duplicate', icon: 'copy', onSelect: () => void a.duplicate(item) },
     { label: 'Copy as JSON', icon: 'copy', onSelect: () => a.copyJson(item) },
     ...(folder ? [{ label: runsFolder, icon: 'folder' as const, onSelect: () => a.openFolder(folder) }] : []),
+    ...(moveTo ? [moveTo] : []),
     { label: 'Delete…', danger: true, separate: true, onSelect: () => a.remove(item, () => a.openList()) },
   ];
   return (

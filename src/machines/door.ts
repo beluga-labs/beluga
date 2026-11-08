@@ -34,7 +34,7 @@ type Hello = Extract<ScreenFrame, { t: 'hello' }>;
 type CallFrame = Extract<ScreenFrame, { t: 'call' }>;
 
 /** Calls that make a worktree on the computer → its id (BLG-800: the .env ask follows). */
-const MAKES_WORKTREE = new Set(['workspaces.startWorktree', 'workspaces.newWorktree', 'workspaces.continueInWorktree', 'workspaces.fork']);
+const MAKES_WORKTREE = new Set(['workspaces.startWorktree', 'workspaces.newWorktree', 'workspaces.continueInWorktree', 'workspaces.fork', 'workspaces.moveLand']);
 /** The app daemon's own calls on a link carry this id prefix; their answers never reach the screen. */
 const OWN_CALL = 'door:';
 const OWN_CALL_MS = 30_000;

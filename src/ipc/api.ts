@@ -111,6 +111,7 @@ export const PrefsPatch = z
     friendWorktrees: z.enum(['ask', 'off']),
     chatClaude: z.enum(['everyone', 'trusted', 'off']),
     shareUsage: z.enum(['trusted', 'everyone', 'off']),
+    readReceipts: bool,
     // null: back to the login shell (JSON can't carry undefined, so "unset" travels as null).
     shell: z.string().max(200).nullable().optional(),
     shellLogin: bool,
@@ -289,6 +290,18 @@ export const API = {
   // Carry a conversation (an ask chat in a main folder, or any chat) into a new worktree and go on there → the new workspace's id.
   // `agent` (BLG-506): who goes on there; unset: the conversation's own. One that can't resume the conversation starts fresh, handed it.
   'workspaces.continueInWorktree': args(id, opt(z.object({ task: opt(str), base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), agent: opt(AgentRef) }).strict())),
+  // Continue On another computer (BLG-808), as your app runs it (src/machines/move.ts). Here: its branch,
+  // changes not committed (asked about), whether its agent is at work, its project → WorktreeCheck.
+  'workspaces.moveCheck': args(id),
+  // Packed to go: its branch pushed (or bundled), its conversation; changes not committed only with commit → { token, chunks }.
+  'workspaces.movePack': args(id, z.object({ commit: opt(bool), to: z.string().min(1).max(80) }).strict()),
+  'workspaces.moveChunk': args(z.string().uuid(), z.number().int().min(0).max(200)),
+  // There: one piece coming in, then landed as a worktree on its branch in that project → its id (the .env ask follows).
+  'workspaces.moveReceive': args(z.string().uuid(), z.number().int().min(0).max(200), z.number().int().min(1).max(201), z.string().max(2 * 1024 * 1024)),
+  'workspaces.moveLand': args(z.string().uuid(), id, z.string().min(1).max(80)),
+  // Here: the new one runs there, this one is archived (saying where it went). There: a landed one whose move didn't finish, archived again.
+  'workspaces.moveDone': args(id, z.string().min(1).max(80)),
+  'workspaces.moveUndo': args(id),
   // `quiet`: no success toast; a batch says it once for all its chats (the sidebar's chat selection).
   'workspaces.archive': args(id, opt(bool), opt(z.object({ quiet: opt(bool) }).strict())),
   'workspaces.restore': args(id),

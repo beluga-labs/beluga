@@ -324,6 +324,8 @@ export interface Prefs {
   readonly chatClaude: Settings['chatClaude'];
   /** Who sees your plan usage on your profile (core/gateway: it rides on your card). */
   readonly shareUsage: Settings['shareUsage'];
+  /** Friends see Seen under their direct messages once one was on your screen (BLG-798). */
+  readonly readReceipts: boolean;
   readonly shell?: string;
   /** Start the terminal's shell as a login shell. */
   readonly shellLogin: boolean;
@@ -734,6 +736,7 @@ export const DEFAULT_PREFS: Prefs = {
   friendWorktrees: 'ask',
   chatClaude: 'everyone',
   shareUsage: 'trusted',
+  readReceipts: true,
   shellLogin: true,
   shellArgs: [],
   claudeArgs: [],
@@ -1286,6 +1289,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'net_call_notes':
     case 'net_missed_calls':
     case 'net_off':
+    case 'net_mirror':
       return { ...state, ...reduceNetwork(state, action) };
     case 'support':
       return { ...state, support: action.support };

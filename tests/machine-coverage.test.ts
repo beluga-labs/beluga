@@ -51,6 +51,8 @@ describe('the table of what your app may do on a computer', () => {
         'machines.env.forget',
         // Who gets your secrets is said from your app's own Settings (BLG-805).
         'machines.secrets',
+        // Your identity moves only from your app's own Settings (BLG-796).
+        'machines.alwaysOn',
         'session.quit',
         'daemon.stop',
       ].sort(),

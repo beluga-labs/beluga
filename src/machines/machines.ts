@@ -6,7 +6,7 @@ import type { KeyPair, NoiseSocket } from 'hyperdht';
 import { type DeviceKeys, hex, roleOf } from '../companion/device-crypto.js';
 import { type OpenRelay, dialMac } from '../companion/dial.js';
 import { type DeviceBook, deviceId } from '../companion/devices.js';
-import type { DeviceCert } from '../companion/protocol.js';
+import type { DeviceCert, PhoneComputer } from '../companion/protocol.js';
 import type { RelayRoute } from '../companion/relay.js';
 import type { Identity } from '../net/crypto.js';
 import { type MessageSocket, fromStream } from '../net/transport.js';
@@ -19,9 +19,11 @@ import { StateCache } from './cache.js';
 import { FileCache } from './files.js';
 import { MachineDoor } from './door.js';
 import { isTunnelsHello } from './forward.js';
+import { isAlwaysOnHello } from './always-on-bundle.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
 import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
+import { PhonePushes, phoneComputers, runsOnWords } from './phones.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
 import type { SettingsSync, SettingsSyncView } from './sync.js';
@@ -67,7 +69,7 @@ export interface MachineView {
   readonly rttMs?: number;
   /** What it said it has free, as of `info.at` (kept while it's offline). */
   readonly info?: MachineInfo;
-  /** It's your Always On: you on the network while this Mac sleeps (the demo's Mac mini, for now). */
+  /** It's your Always On: you on the network while this Mac sleeps (BLG-796). */
   readonly alwaysOn?: boolean;
   /** Its app protocol against this app's (BLG-777): another one is listed read-only, said in words, with which side to update. */
   readonly skew: Skew;
@@ -140,7 +142,21 @@ export interface MachinesOptions {
   readonly onWorktree?: (machineId: string, workspaceId: string) => void;
   /** Your settings, the same on every device of yours (sync.ts, BLG-805): they ride every sync. */
   readonly settings?: SettingsSync;
+  /** Your Always On (always-on.ts, BLG-796): handovers on a link, where you are, and your network shown through the link. */
+  readonly alwaysOn?: MachinesAlwaysOn;
   readonly log?: (line: string) => void;
+}
+
+/** What the device set needs of Always On (always-on.ts). */
+export interface MachinesAlwaysOn {
+  /** An app of yours opened a link for a handover. */
+  serve(socket: MessageSocket, cert: DeviceCert, hello: string): void;
+  /** Your Always On's id, when it isn't this install. */
+  at(): string | undefined;
+  /** On your Always On: its friends network now, for your app to show. */
+  net(): MachineSync['net'];
+  /** In your app: your Always On's network, as it said. */
+  mirror(net: NonNullable<MachineSync['net']>): void;
 }
 
 interface Joining {
@@ -160,6 +176,8 @@ export class Machines {
   readonly files: FileCache;
   /** Each computer's last state on this Mac (cache.ts, BLG-792): cleared for a computer forgotten. */
   readonly states: StateCache;
+  /** Push tokens of your set's phones paired elsewhere (BLG-850). */
+  private readonly pushes: PhonePushes;
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
   private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
@@ -172,6 +190,8 @@ export class Machines {
   private retry?: NodeJS.Timeout;
   private poller?: NodeJS.Timeout;
   private readonly live = new Map<string, Live>();
+  /** When each device of yours last answered a sync (BLG-799: how long your Always On has been silent). */
+  private readonly heard = new Map<string, number>();
   private stopped = false;
   readonly platform: MachinePlatform;
 
@@ -179,6 +199,7 @@ export class Machines {
     this.keys = opts.keys ?? loadDeviceKeys(path.join(opts.dir, 'device-key.json'));
     this.set = new DeviceSet({ file: path.join(opts.dir, 'device-set.json'), keys: this.keys, identity: opts.identity });
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
+    this.pushes = new PhonePushes(path.join(opts.dir, 'phone-push.json'));
     this.platform = opts.platform ?? platformHere();
     this.files = new FileCache({ dir: path.join(opts.dir, 'cache', 'computer-files'), ...(opts.log ? { log: opts.log } : {}) });
     this.states = new StateCache({ dir: path.join(opts.dir, 'cache', 'computer-state'), ...(opts.log ? { log: opts.log } : {}) });
@@ -245,6 +266,48 @@ export class Machines {
     return this.set.admit(linkHex, ['app', 'computer']);
   }
 
+  /** A phone of your set coming in on the companion address (BLG-809): it gets the phone's door and limits, never an app's. */
+  phone(linkHex: string): DeviceCert | undefined {
+    return this.set.admit(linkHex, ['phone']);
+  }
+
+  /** The phones of your set that still hold (a computer names them in its relay record). */
+  phones(): readonly DeviceCert[] {
+    return this.set.devices().filter((c) => roleOf(c) === 'phone');
+  }
+
+  /** Where to push to a phone of your set paired elsewhere (BLG-850): its token, kept while it's in your set. */
+  keepPush(id: string, push: Parameters<PhonePushes['set']>[1]): void {
+    if (this.phones().some((c) => deviceId(c) === id)) this.pushes.set(id, push);
+  }
+
+  pushOf(id: string): ReturnType<PhonePushes['get']> {
+    return this.phones().some((c) => deviceId(c) === id) ? this.pushes.get(id) : undefined;
+  }
+
+  /** Your computers as your phones dial them (BLG-809): the `computers` frame, with each one's Runs on line for `runtime` (BLG-810). */
+  forPhones(runtime = 'claude'): PhoneComputer[] {
+    const at = this.opts.alwaysOn?.at();
+    const views = new Map(this.list().map((m) => [m.id, m]));
+    return phoneComputers(this.computers(), {
+      ...(at ? { alwaysOn: at } : {}),
+      words: (id) => {
+        const m = views.get(id);
+        return m ? runsOnWords(m, runtime) : undefined;
+      },
+      look: (id) => {
+        const info = this.live.get(id)?.info;
+        return info ? { ...(info.name ? { name: info.name } : {}), ...(info.icon ? { icon: info.icon } : {}) } : undefined;
+      },
+    });
+  }
+
+  /** Your computers may have changed for your phones: one joined, went, moved or was renamed. */
+  onComputers(listener: () => void): () => void {
+    const offs = [this.book.onChange(listener), this.set.onChange(listener)];
+    return () => offs.forEach((off) => off());
+  }
+
   /** The node must run: a pairing is open, a join is under way, or there are devices to keep in step. */
   wanted(): boolean {
     return this.pairing.isOpen || this.joining !== undefined || this.book.all().length > 0 || this.set.devices().some((c) => roleOf(c) !== 'phone' && c.device !== this.set.self()?.device);
@@ -266,6 +329,12 @@ export class Machines {
     socket.once('close', () => clearTimeout(timer));
     socket.once('message', async (text) => {
       const frame = parseSync(text);
+      if (!frame && isAlwaysOnHello(text)) {
+        clearTimeout(timer);
+        if (!this.opts.alwaysOn) return socket.close(4001, 'No Always On here');
+        this.track(cert.device, socket);
+        return this.opts.alwaysOn.serve(socket, cert, text);
+      }
       if (!frame && isTunnelsHello(text)) {
         clearTimeout(timer);
         if (roleOf(cert) !== 'app' || !this.opts.tunnels) return socket.close(4001, 'No tunnels here');
@@ -291,7 +360,9 @@ export class Machines {
       if (frame.look && roleOf(cert) === 'app' && (frame.look.name || frame.look.icon)) this.opts.setLook?.(frame.look);
       const fresh = frame.look && wantsInfo ? await this.opts.info!().catch(() => undefined) : info;
       if (!socket.isOpen) return;
-      const answer: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(cert), ...(fresh ? { info: fresh } : {}), ...(updated ? { updated } : {}) };
+      // Your app showing the network this computer runs as your Always On (BLG-796).
+      const net = frame.want?.includes('net') && roleOf(cert) === 'app' ? this.opts.alwaysOn?.net() : undefined;
+      const answer: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(cert), ...(fresh ? { info: fresh } : {}), ...(updated ? { updated } : {}), ...(net ? { net } : {}) };
       socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
@@ -337,7 +408,14 @@ export class Machines {
 
   /** A computer this app may drive: one of yours, signed in and not forgotten. */
   drives(r: MachineRecord): boolean {
-    return roleOf(r.cert) === 'computer' && this.set.holds(r.cert) && this.set.holdsIdentity;
+    return roleOf(r.cert) === 'computer' && this.set.holds(r.cert) && this.isApp();
+  }
+
+  /** This install is an app of yours: it holds your identity, or it did and handed it to your Always On (BLG-796). */
+  isApp(): boolean {
+    if (this.set.holdsIdentity) return true;
+    const self = this.set.self();
+    return Boolean(self && roleOf(self) === 'app' && this.set.holds(self) && self.owner === this.set.owner().peerId);
   }
 
   /** A fresh end-to-end link to a device of yours (direct, LAN or relay, whichever opens first). */
@@ -385,6 +463,9 @@ export class Machines {
   joinStart(ticket: string): Promise<ComputerOffer> {
     this.sshHost = undefined;
     if (this.joining) this.joining.decide?.(false);
+    const at = this.opts.alwaysOn?.at();
+    const elsewhere = at ? this.book.get(at)?.name : undefined;
+    if (!this.set.holdsIdentity && elsewhere) return Promise.reject(new Error(`${elsewhere} is your Always On and holds your identity: make this Mac Always On again to add a computer from here`));
     if (!this.set.holdsIdentity) return Promise.reject(new Error('This computer belongs to another of your Beluga apps: add computers from there'));
     let offered!: (o: ComputerOffer) => void;
     let failed!: (err: unknown) => void;
@@ -505,7 +586,10 @@ export class Machines {
 
   /** The computers this app drives. */
   list(): MachineView[] {
-    return [...this.computers().map((r) => this.view(r)), ...(this.opts.demo?.() ?? [])];
+    const at = this.opts.alwaysOn?.at();
+    // The demo's Always On is wherever Make Always On last put it.
+    const demo = (this.opts.demo?.() ?? []).map(({ alwaysOn, ...m }) => ((this.opts.alwaysOn ? m.id === at : alwaysOn) ? { ...m, alwaysOn: true } : m));
+    return [...this.computers().map((r) => this.view(r)), ...demo];
   }
 
   private computers(): MachineRecord[] {
@@ -562,7 +646,7 @@ export class Machines {
   }
 
   async poll(): Promise<void> {
-    if (this.stopped || !this.set.holdsIdentity) return;
+    if (this.stopped || !this.isApp()) return;
     await Promise.all(
       this.computers().map(async (r) => {
         const id = deviceId(r.cert);
@@ -570,6 +654,18 @@ export class Machines {
         if (!ok) this.live.set(id, { ...this.live.get(id), at: Date.now(), ok: false, rttMs: undefined });
       }),
     );
+  }
+
+  /** When a device of yours last answered this install (since it started). */
+  lastHeard(id: string): number | undefined {
+    return this.heard.get(id);
+  }
+
+  /** Whether a computer of yours answers right now (a sync, BLG-799). */
+  async reach(id: string): Promise<boolean> {
+    const r = this.book.get(id);
+    if (!r || !this.drives(r)) return false;
+    return this.syncWith(r, true).catch(() => false);
   }
 
   /** Every device of your set this install knows (`beluga computers`: who may drive it). */
@@ -592,7 +688,9 @@ export class Machines {
   /** Devices cut off here: phones lose their link and certificate, computers leave the book. */
   private merged(cut: readonly DeviceCert[]): void {
     if (!cut.length) return;
-    for (const c of cut) if (roleOf(c) === 'phone' && this.opts.devices.get(deviceId(c))) this.opts.removePhone(deviceId(c));
+    // A phone paired here loses its certificate; one of your set linked here (BLG-809) loses its link.
+    for (const c of cut) if (roleOf(c) === 'phone') this.opts.removePhone(deviceId(c));
+    this.pushes.keepOnly(new Set(this.phones().map((c) => deviceId(c))));
     // Every link to or from it closes now: a screen driving this computer, this app's screens on it.
     for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
     // Its files kept here go with it.
@@ -655,11 +753,15 @@ export class Machines {
   /** Dial one device of yours, swap device sets, merge its answer; `info`: ask a computer what it has free too. */
   async syncWith(r: MachineRecord, info = false): Promise<boolean> {
     const socket = await this.openLink(r);
-    const ask: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(r.cert), ...(info ? { want: ['info' as const] } : {}) };
+    // Your Always On also says how your network is, for this app to show (BLG-796).
+    const net = info && this.opts.alwaysOn?.at() === deviceId(r.cert);
+    const ask: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(r.cert), ...(info ? { want: net ? ['info' as const, 'net' as const] : ['info' as const] } : {}) };
     const sent = Date.now();
     const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
+    this.heard.set(deviceId(r.cert), Date.now());
     if (info) this.live.set(deviceId(r.cert), { at: Date.now(), ok: true, rttMs: Date.now() - sent, ...(answer.info ? { info: answer.info } : {}) });
+    if (net && answer.net) this.opts.alwaysOn?.mirror(answer.net);
     this.keepLook(deviceId(r.cert), answer.info);
     this.book.update(deviceId(r.cert), { lastSeen: Date.now() });
     this.merged(this.set.merge(answer));
@@ -724,6 +826,7 @@ export class Machines {
       ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
       ...(this.opts.settings?.secretsOn(deviceId(r.cert)) ? { secrets: true } : {}),
       ...(r.ssh ? { ssh: r.ssh } : {}),
+      ...(this.opts.alwaysOn?.at() === deviceId(r.cert) ? { alwaysOn: true } : {}),
     };
   }
 }

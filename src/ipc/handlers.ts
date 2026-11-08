@@ -1,4 +1,5 @@
 import { git } from '../workspaces/git.js';
+import { type WorktreeMover, worktreeMover } from '../core/worktree-move.js';
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
@@ -60,6 +61,12 @@ export type Handlers = { readonly [M in Method]: Handler<M> };
 
 // Without projects (some tests, the guest-only mode) these do nothing, as before.
 const ctl = (s: Session): WorkspaceController | undefined => s.workspaces;
+/** Continue On's part here (BLG-808): it needs the workspaces. */
+const moverIn = (s: Session): WorktreeMover => {
+  const c = ctl(s);
+  if (!c) throw new Error('Worktrees need the Beluga app (its daemon)');
+  return worktreeMover(s.store, c);
+};
 const rootOf = (s: Session, projectId: string): string | undefined => s.store.getState().projects.find((p) => p.id === projectId)?.root || undefined;
 const expandHome = (p: string): string => p.replace(/^~(?=$|\/)/, os.homedir());
 const bench = (s: Session): Workbench | undefined => s.workbench;
@@ -207,6 +214,13 @@ export const HANDLERS = {
   'workspaces.continueInWorktree': async (s, id, opts) =>
     // Claude starts there once whatever runs in the conversation now has finished (its session is complete then).
     (await ctl(s)?.continueInWorktree(id, (prompt) => s.nameTask(prompt), { ...(opts?.task ? { task: opts.task } : {}), ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), after: s.host.idle(`ws:${id}`) }))?.id,
+  'workspaces.moveCheck': (s, id) => moverIn(s).check(id),
+  'workspaces.movePack': (s, id, opts) => moverIn(s).packOut(id, opts),
+  'workspaces.moveChunk': (s, token, n) => moverIn(s).chunk(token, n),
+  'workspaces.moveReceive': (s, token, n, total, data) => moverIn(s).receive(token, n, total, data),
+  'workspaces.moveLand': (s, token, projectId, from) => moverIn(s).landIn(token, projectId, from),
+  'workspaces.moveDone': (s, id, to) => moverIn(s).done(id, to),
+  'workspaces.moveUndo': (s, id) => moverIn(s).undo(id),
   'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, { ...(opts?.quiet ? { quiet: true } : {}) }),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),

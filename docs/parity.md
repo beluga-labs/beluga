@@ -247,6 +247,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.secrets` | ✓ Settings › Your Computers › a computer › ••• › Keep My Secrets in Sync With… (asked once for it) / Stop Syncing My Secrets |
 | `machines.settingsSync` | ✓ Settings › Your Computers › Your Settings: they follow you to every computer, and a conflict is said |
 | `machines.settingsSync.clear` | ✓ Settings › Your Computers › Your Settings › a conflict's Got It |
+| `machines.alwaysOn` | ✓ Settings › Your Computers › a computer › ••• › Make Always On… (one confirmation, and Run New Work On There Too), and Make This Mac Always On under You on the Network |
+| `machines.alwaysOn.status` | ✓ Settings › Your Computers › You on the Network: this Mac or your Always On, and a move under way; the Always On tag on its computer |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
 | `machines.ready.start` | ✓ a new worktree, plan or sentinel sent to a computer that doesn't have the project: Getting … ready, on the new worktree (BLG-787, BLG-788) |
 | `machines.ready.status` | ✓ the same, each step as it goes (folder, clone, tools, setup) and any error in plain words |
@@ -329,6 +331,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.editPrompt` | Edit on your own message (hover, or right-click › Edit Message) › the message opens in place: Rewind Here or New Fork, then ↩ |
 | `workspaces.continueInWorktree` | Continue in New Worktree… (toolbar and the ask banner) › sheet: Task, Based on, Agent (BLG-506: one that can't resume the conversation starts fresh, handed it, and the sheet says so), Name (the chat becomes the worktree) |
 | `workspaces.archive` | ✓ |
+| `workspaces.moveCheck` | ✓ a worktree's ⋯ › Continue On ▸ (a computer): it asks first about changes not committed (Commit Them and Continue) and waits for its agent's turn to end |
+| `workspaces.movePack` | ✓ a worktree's ⋯ › Continue On ▸, on the computer it's on (its branch pushed, or bundled over the link) |
+| `workspaces.moveChunk` | ✓ a worktree's ⋯ › Continue On ▸ (your app fetches it in pieces) |
+| `workspaces.moveReceive` | ✓ a worktree's ⋯ › Continue On ▸, on the computer it goes to |
+| `workspaces.moveLand` | ✓ a worktree's ⋯ › Continue On ▸: a worktree there on its branch with its conversation (the .env ask follows, as for any new one) |
+| `workspaces.moveDone` | ✓ a worktree's ⋯ › Continue On ▸: the old one archived once the new one is there (Continued on … in its details) |
+| `workspaces.moveUndo` | ✓ a worktree's ⋯ › Continue On ▸: a new one whose move didn't finish is archived again |
 | `workspaces.restore` | ✓ |
 | `workspaces.archivePlan` | ✓ the Archive dialog says how much space it frees |
 | `workspaces.deletePlan` | ✓ the Delete dialog says how many commits were never pushed or merged, and leads with Archive (the phone's Delete step says it too) |
@@ -555,6 +564,12 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sentinel.test` | not in the window yet (the Sentinel page rework gives it a Test button); Run Now already runs a paused sentinel without turning it on · the agent's `sentinel_test` (its sources only, paused or not; what they find is kept), and `sentinel_create` / `sentinel_update` run a source they add or change once before saving, answering with its preview; `sentinel_try_source` runs one alone to read the schema (BLG-302, BLG-304) |
 | `sentinel.stop` | ✓ a running run's page › ⋯ › Stop |
 | `sentinel.pause` | ✓ Turn On and Pause on a sentinel's page and its row's ⋯ and right-click; Resume on the paused-after-failures banner; Turn On on the agent's banner; the phone's sentinel page (••• › Pause / Turn On) · the agent's `sentinel_pause` (pause only) |
+| `sentinel.moveCheck` | ✓ a sentinel's ⋯ › Move To ▸ (a computer): Move To, or Pause and Move To while it runs |
+| `sentinel.movePack` | ✓ a sentinel's ⋯ › Move To ▸, on the computer it runs on (its steps, runs, kept numbers and tiles) |
+| `sentinel.moveChunk` | ✓ a sentinel's ⋯ › Move To ▸ (your app fetches it in pieces) |
+| `sentinel.moveReceive` | ✓ a sentinel's ⋯ › Move To ▸, on the computer it goes to |
+| `sentinel.moveLand` | ✓ a sentinel's ⋯ › Move To ▸: it lands paused there, its sources checked, what it lacks there said |
+| `sentinel.moveDrop` | ✓ a sentinel's ⋯ › Move To ▸: gone from where it was once the copy is in (or the copy, when the move didn't finish) |
 | `sentinel.runs` | ✓ a sentinel's page › History (the dot strip, then the runs as rows); the phone's sentinel page draws the same runs from its `sentinel:<id>` topic |
 | `sentinel.runGet` | ✓ a run's page: the steps' outputs (Show output) and the report; the phone opens a run's report |
 | `sentinel.ask` | ✓ a sentinel's page › the box under its header, "Ask Your Agent to change this sentinel…" (⌘↩; the agent's last line while it works, its answer and Open Chat after) · New Sentinel › Describe It (an empty paused sentinel, then this) |
@@ -642,6 +657,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.remove` | ✓ a plan's ⋯ › Delete Plan… (its tasks stay on the board) |
 | `plans.tidyUp` | ✓ Tidy Up / No on a plan's leftover task worktrees (merged into its branch, then archived) |
 | `plans.setStyle` | ✓ Plans › ⋯ › Planning Style… |
+| `plans.moveCheck` | ✓ a plan's ⋯ › Move To ▸ (a computer): Move To when nothing runs in it, Pause and Move when something does |
+| `plans.movePack` | ✓ a plan's ⋯ › Move To ▸, on the computer it runs on (Commit Them and Move when its worktrees have changes not committed) |
+| `plans.moveChunk` | ✓ a plan's ⋯ › Move To ▸ (your app fetches the packed plan in pieces) |
+| `plans.moveReceive` | ✓ a plan's ⋯ › Move To ▸, on the computer it goes to |
+| `plans.moveLand` | ✓ a plan's ⋯ › Move To ▸, on the computer it goes to (it opens there once it's in) |
+| `plans.moveDone` | ✓ a plan's ⋯ › Move To ▸: the old copy becomes its record once the new one is in (Moved to … on its page) |
+| `plans.moveUndo` | ✓ a plan's ⋯ › Move To ▸: a copy whose move didn't finish is taken back off |
 | `dialogues.start` | ✓ the composer: `@my:claude @my:codex talk about X, 6 turns` or `/dialogue claude codex …` (`session.submit` proposes it; the API starts one too) |
 | `dialogues.confirm` | ✓ the dialogue's card in the chat › Start (Turns and Budget set on the card first) |
 | `dialogues.continue` | ✓ the dialogue's card › Continue (when it paused at its cap) · the phone's card |
