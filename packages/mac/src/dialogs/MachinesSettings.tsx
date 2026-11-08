@@ -20,6 +20,7 @@ import { ICON_CHOICES, healthOf, kindLine, loadLine, runOnOptions } from '../mac
 import c from '../machines/machines.module.css';
 import { Group, Row, Select, Switch } from './settings-controls.js';
 import s from './settings.module.css';
+import { everyWhileShown } from '../lib/window-active.js';
 
 /**
  * Settings › Your Computers (BLG-780): where new work runs, adding a computer (over SSH, or with
@@ -48,9 +49,8 @@ export function MachinesSettings() {
   }, [client]);
   useEffect(() => {
     refresh();
-    // The daemon asks each computer every 30 s; what it has is read more often while you look.
-    const timer = setInterval(refresh, 5_000);
-    return () => clearInterval(timer);
+    // The daemon asks each computer every 30 s; what it has is read more often while you look (and not while the window can't be seen).
+    return everyWhileShown(refresh, 5_000);
   }, [refresh, runOn]);
   const here = upFirst(thisComputer());
   return (

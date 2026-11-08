@@ -37,7 +37,7 @@ export const SENTINEL_API = {
   // There: one piece coming in (its number, how many in all, the piece).
   'sentinel.moveReceive': { args: z.tuple([z.string().uuid(), z.number().int().min(0).max(200), z.number().int().min(1).max(201), z.string().max(2 * 1024 * 1024)]) },
   // There: every piece is in, landed paused in that project (null: none), its sources checked there → SentinelLanding.
-  'sentinel.moveLand': { args: z.tuple([z.string().uuid(), z.string().min(1).max(200).nullable(), z.string().min(1).max(80)]) },
+  'sentinel.moveLand': { args: z.tuple([z.string().uuid(), z.string().min(1).max(200).nullish(), z.string().min(1).max(80)]) },
   // Gone from here with the tiles that showed only it: the copy runs on the other computer (or, there, a copy whose move didn't finish).
   'sentinel.moveDrop': { args: z.tuple([id]) },
   // Its whole index (the last 200 runs), newest first, without outputs.

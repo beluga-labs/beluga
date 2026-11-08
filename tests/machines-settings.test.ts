@@ -126,7 +126,7 @@ describe('the brand marks', () => {
 
 describe('a one-colour mark’s mask', () => {
   it('quotes its URL, so an inlined SVG (quotes, spaces) still masks instead of showing a coloured square', async () => {
-    const { maskOf } = await import('../packages/mac/src/machines/MachineMark.js');
+    const { maskOf } = await import('../packages/mac/src/machines/mask.js');
     const inlined = `data:image/svg+xml,%3csvg role='img' viewBox='0 0 24 24'%3e%3cpath d='M1 2z'/%3e%3c/svg%3e`;
     expect(maskOf(inlined)).toBe(`url(${JSON.stringify(inlined)})`);
     expect(maskOf('/assets/ubuntu-3f2a.svg')).toBe('url("/assets/ubuntu-3f2a.svg")');

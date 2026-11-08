@@ -8,6 +8,7 @@ import { OnceEach, type RawNotice, machineNotice, noticeKey } from '@beluga/mach
 import { dndActive } from '@beluga/shared/quiet.js';
 import { currentMachines } from './use-machines.js';
 import { watchLink } from './link-health.js';
+import { everyWhileShown } from '../lib/window-active.js';
 
 /**
  * This window's screens on your computers (BLG-784), one per computer, kept while the window runs:
@@ -115,7 +116,8 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
       if (entries.get(id) !== mine) return client.close();
       const offToasts = forwardToasts(client, home);
       const offHome = home.onClose(() => client.close());
-      const offLink = watchLink(id, client);
+      // Pinged while the window can be seen: a link nobody's looking at isn't measured.
+      const offLink = watchLink(id, client, everyWhileShown);
       client.onClose((reason) => {
         offToasts();
         offHome();

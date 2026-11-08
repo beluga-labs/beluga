@@ -200,7 +200,11 @@ describe('link health', () => {
   it('a screen’s pings: answered is a round trip, unanswered goes lost, closed is not connected', async () => {
     vi.useFakeTimers();
     let answer: ((ms: number) => void) | undefined;
-    const stop = watchLink('mini', { ping: () => new Promise<number>((r) => (answer = r)) }, 1_000);
+    const beat = (tick: () => void, ms: number): (() => void) => {
+      const t = setInterval(tick, ms);
+      return () => clearInterval(t);
+    };
+    const stop = watchLink('mini', { ping: () => new Promise<number>((r) => (answer = r)) }, beat, 1_000);
     answer!(85);
     await vi.advanceTimersByTimeAsync(0);
     expect(linkSampleOf('mini')).toEqual({ connected: true, rttMs: 85 });

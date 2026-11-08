@@ -25,8 +25,11 @@ const subscribe = (l: () => void): (() => void) => {
   return () => void listeners.delete(l);
 };
 
-/** Ping computer `id` through its screen until the returned stop; then it's said lost (the screen went). */
-export function watchLink(id: string, client: Pick<SocketClient, 'ping'>, everyMs = PING_EVERY_MS): () => void {
+/** A beat: `tick` every `ms` until the returned stop (the window's everyWhileShown, so it rests while nobody looks). */
+export type Beat = (tick: () => void, ms: number) => () => void;
+
+/** Ping computer `id` through its screen on `beat` until the returned stop; then it's said lost (the screen went). */
+export function watchLink(id: string, client: Pick<SocketClient, 'ping'>, beat: Beat, everyMs = PING_EVERY_MS): () => void {
   let sentAt: number | undefined;
   let rttMs: number | undefined;
   let stopped = false;
@@ -48,10 +51,10 @@ export function watchLink(id: string, client: Pick<SocketClient, 'ping'>, everyM
   };
   set(id, { connected: true });
   tick();
-  const timer = setInterval(tick, Math.min(everyMs, 1_000));
+  const stop = beat(tick, Math.min(everyMs, 1_000));
   return () => {
     stopped = true;
-    clearInterval(timer);
+    stop();
     set(id, NONE);
   };
 }

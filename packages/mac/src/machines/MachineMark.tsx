@@ -4,6 +4,7 @@ import { Icon } from '../components/Icon.js';
 import { BRANDS } from './brands.js';
 import { machineLook } from './model.js';
 import c from './machines.module.css';
+import { maskOf } from './mask.js';
 
 /**
  * A computer's mark: a brand's own, or a glyph from the app's set. A full-colour mark (AWS, Azure)
@@ -26,11 +27,6 @@ export function MachineMark({ machine, size = 18 }: { machine: Pick<MachineView,
   );
 }
 
-/**
- * A mask from a mark's URL, quoted: Vite inlines a small SVG as a data: URL whose quotes and spaces
- * would break a bare url(…), and the browser would then drop the whole mask (a plain coloured square).
- */
-export const maskOf = (url: string): string => `url(${JSON.stringify(url)})`;
 
 /** A brand colour too dark to see on a dark window (CentOS's navy, Gentoo's purple): lifted there in CSS. */
 function deep(color: string): boolean {

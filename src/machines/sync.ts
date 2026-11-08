@@ -23,6 +23,9 @@ import { Settings } from '../shared/settings-schema.js';
 /** Settings that are yours: the same on every computer. */
 export const SYNCED_SETTINGS = [
   'theme',
+  // How you work, and which experimental features you turned on (a computer then runs them too).
+  'pushToPr',
+  'experiments',
   'runOn',
   'selfApproval',
   'notify',
@@ -87,6 +90,8 @@ export const LOCAL_SETTINGS = [
 /** What Settings calls each synced setting, for a conflict said in words. */
 export const SETTING_LABELS: Readonly<Record<SyncedSetting, string>> = {
   theme: 'Theme',
+  pushToPr: 'Keep open pull requests current',
+  experiments: 'Experimental features',
   runOn: 'Run New Work On',
   selfApproval: 'Ask before risky actions',
   notify: 'Notifications',

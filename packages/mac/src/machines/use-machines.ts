@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import type { MachineView } from '@beluga/machines/machines.js';
+import { everyWhileShown } from '../lib/window-active.js';
 
 /**
  * Your computers as this Mac's daemon lists them (machines.list), shared by every view that names
@@ -11,7 +12,8 @@ import type { MachineView } from '@beluga/machines/machines.js';
 const REFRESH_MS = 15_000;
 let list: readonly MachineView[] = [];
 let users = 0;
-let timer: ReturnType<typeof setInterval> | undefined;
+/** Stops the refresh beat (everyWhileShown: it rests while the window can't be seen). */
+let stopRefresh: (() => void) | undefined;
 let asking: SocketClient | undefined;
 const listeners = new Set<() => void>();
 
@@ -38,16 +40,16 @@ export function refreshMachines(home: SocketClient): void {
 export function useMachines(home: SocketClient): readonly MachineView[] {
   useEffect(() => {
     users++;
-    if (asking !== home || !timer) {
-      clearInterval(timer);
+    if (asking !== home || !stopRefresh) {
+      stopRefresh?.();
       asking = home;
       refreshMachines(home);
-      timer = setInterval(() => refreshMachines(home), REFRESH_MS);
+      stopRefresh = everyWhileShown(() => refreshMachines(home), REFRESH_MS);
     }
     return () => {
       if (--users > 0) return;
-      clearInterval(timer);
-      timer = undefined;
+      stopRefresh?.();
+      stopRefresh = undefined;
     };
   }, [home]);
   return useSyncExternalStore(subscribe, () => list);
