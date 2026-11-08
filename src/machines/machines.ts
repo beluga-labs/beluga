@@ -22,6 +22,7 @@ import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
 import type { SettingsSync, SettingsSyncView } from './sync.js';
+import type { RunOnDevice } from './run-on.js';
 
 /**
  * Your devices in the daemon (BLG-774): this install's device key, your device set, the computers
@@ -459,6 +460,12 @@ export class Machines {
       throw new Error(`The pictures ${offer.name} printed over SSH aren’t the ones its link showed: nothing was added. Try again.`);
     }
     return { ...offer, ...(there ? { sshChecked: true } : {}) };
+  }
+
+  /** This install as Run New Work On reads it (run-on.ts): your app or one of your computers, its id, the computers it knows. */
+  runOnDevice(): RunOnDevice {
+    const self = this.set.self();
+    return { role: self && roleOf(self) === 'computer' ? 'computer' : 'app', id: hex(this.keys.device.publicKey).slice(0, 16), computers: this.list().map((m) => m.id) };
   }
 
   /** What this install is called (its own name, as its computers know it). */
