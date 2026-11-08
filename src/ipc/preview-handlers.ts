@@ -23,7 +23,7 @@ async function open(s: Session, wsId: string, spec: Args<'preview.open'>[1]): Pr
     return previews().open(root, { target: { kind: 'url', url } });
   }
   const t = target.kind === 'component' ? { kind: 'component' as const, file: target.file, ...(target.export ? { export: target.export } : {}) } : { kind: 'html' as const, file: target.file };
-  return previews().open(root, { target: t, ...(spec.props ? { props: spec.props } : {}), ...(spec.css ? { css: spec.css } : {}) });
+  return previews().open(root, { target: t, ...(spec.props ? { props: spec.props } : {}), ...(spec.css ? { css: spec.css } : {}), ...(spec.wrap ? { wrap: spec.wrap } : {}) });
 }
 
 export const PREVIEW_HANDLERS = {

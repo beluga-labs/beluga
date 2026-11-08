@@ -1,16 +1,20 @@
 import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { type FSWatcher, watch } from 'chokidar';
 import { isSecretPath } from '../core/shares.js';
 import { type PreviewProblem, type PreviewResult, problem } from '../shared/preview/opened.js';
-import { findComponents, pickComponent } from '../shared/preview/props.js';
+import { pickComponent } from '../shared/preview/props.js';
+import { componentsOf, frameworkOf } from '../shared/preview/components.js';
+import { findStorybookPreview, findWrapper, packageMajor, sourceLoader, tailwindEntry } from './project.js';
 import type { PreviewTarget } from '../shared/preview/ref.js';
 import { PICTURE, placeholderSvg, sampleProps } from '../shared/preview/samples.js';
 import type { ComponentInfo } from '../shared/preview/shape.js';
 import { type Bundle, type Bundler, makeBundler, stopEsbuild } from './bundle.js';
 import { RELOAD_JS, RUNTIME_CSS, RUNTIME_JS } from './runtime.js';
+import { TOOLS_JS } from './tools.js';
 import { previewsStarted } from './off.js';
 import { COMPONENT_CSP, PAGE_CSP, PreviewServer, pageFile, send, sendFile } from './server.js';
 
@@ -28,6 +32,8 @@ export interface OpenSpec {
   readonly props?: Readonly<Record<string, unknown>>;
   /** A stylesheet in the worktree to bundle with it. */
   readonly css?: string;
+  /** A wrapper in the worktree that gives the component its providers (else the project's preview-wrapper file). */
+  readonly wrap?: string;
 }
 
 const IDLE_MS = 2 * 60_000;
@@ -189,6 +195,7 @@ class LiveComponent extends Live {
     }
     if (file === 'runtime.js') return send(res, 200, 'text/javascript; charset=utf-8', RUNTIME_JS), true;
     if (file === 'runtime.css') return send(res, 200, 'text/css; charset=utf-8', RUNTIME_CSS), true;
+    if (file === 'tools.js') return send(res, 200, 'text/javascript; charset=utf-8', TOOLS_JS), true;
     if (file === 'bundle.js') return send(res, 200, 'text/javascript; charset=utf-8', this.bundle?.js ?? ''), true;
     if (file === 'bundle.css') return send(res, 200, 'text/css; charset=utf-8', this.bundle?.css ?? ''), true;
     if (file === 'events') return this.events(req, res);
@@ -288,21 +295,30 @@ export class PreviewManager {
     }
     const info = await stat(found.abs);
     if (info.size > MAX_SOURCE) return problem('build', `${found.rel.split('/').pop()} is too big to preview`, 'Previews are for components, not whole bundles.');
-    const components = findComponents(await readFile(found.abs, 'utf8'));
+    const framework = frameworkOf(found.abs);
+    // Types imported from the project's other files are followed (inside the worktree only).
+    const components = componentsOf(found.abs, await readFile(found.abs, 'utf8'), sourceLoader(root, found.abs));
     const comp = pickComponent(components, t.export);
     if (!comp) return noComponent(found.rel, t.export, components);
-    let css: string | undefined;
+    const css: string[] = [];
     if (spec.css) {
       const sheet = await worktreeFile(root, spec.css);
-      if (!isProblem(sheet)) css = sheet.abs;
+      if (!isProblem(sheet)) css.push(sheet.abs);
     }
-    const key = `component\0${found.abs}\0${comp.name}\0${css ?? ''}`;
+    // A Tailwind project's stylesheet comes along, so its classes are styled as in the app.
+    const tw = tailwindEntry(root);
+    if (tw && !css.includes(tw)) css.push(tw);
+    const react = framework === 'react';
+    const wrapper = react ? findWrapper(root, spec.wrap) : undefined;
+    const storybook = react ? findStorybookPreview(root) : undefined;
+    const entry = { framework, pick: comp.isDefault ? 'default' : comp.name, css, ...(wrapper ? { wrapper } : {}), ...(storybook ? { storybook } : {}), ...(framework === 'svelte' ? { svelte: packageMajor(root, 'svelte') ?? 5 } : {}) };
+    const key = `component\0${found.abs}\0${comp.name}\0${css.join('\0')}\0${wrapper ?? ''}`;
     let live = this.byKey.get(key) as LiveComponent | undefined;
     if (!live) {
       let start = this.starting.get(key);
       if (!start) {
         start = (async () => {
-          const bundler = await makeBundler(root, found.abs, found.rel, comp.isDefault ? 'default' : comp.name, css);
+          const bundler = await makeBundler(root, found.abs, found.rel, entry);
           const made = this.keep(new LiveComponent(key, root, found.rel, bundler));
           await made.rebuild();
           return made;
@@ -321,8 +337,10 @@ export class PreviewManager {
       url: `${await this.server.origin()}/p/${live.id}/?v=${live.version}`,
       kind: 'component',
       version: live.version,
-      component: { name: comp.name, exports: components.map((c) => c.name), props: comp.props },
+      component: { name: comp.name, exports: components.map((c) => c.name), props: comp.props, framework, ...(wrapper ? { wrapper: path.relative(realpathSync(root), wrapper) } : {}) },
       props: live.props,
+      // Every component of the file with its own samples, for Show All (React: one build has them all).
+      ...(react && components.length > 1 ? { gallery: components.map((c) => ({ name: c.isDefault ? 'default' : c.name, label: c.name, props: sampleProps(c.props) })) } : {}),
     };
   }
 

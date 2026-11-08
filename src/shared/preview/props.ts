@@ -102,13 +102,76 @@ function docDefault(doc: string | undefined): unknown {
 /** A doc without its @tags, for a tooltip. */
 const plainDoc = (doc: string | undefined): string | undefined => doc?.split(/\n\s*@/)[0]?.trim() || undefined;
 
+/**
+ * Another file of the project, for a type this one imports (`import type { User } from './types'`):
+ * its source, and how to read the files it imports in turn. The daemon reads them (inside the
+ * worktree only); the window has none, so imported types stay "unknown" there.
+ */
+export type SourceLoader = (spec: string) => { readonly src: string; readonly load: SourceLoader } | undefined;
+
+/** How many files a type is followed through. */
+const MAX_FILES = 4;
+
+interface Imported {
+  /** Where from ('./types', '@/lib/user'). */
+  readonly from: string;
+  /** Its name there. */
+  readonly name: string;
+}
+
+/** What a file imports and re-exports by name, and the files it re-exports whole (`export * from`). */
+function importsOf(src: string): { names: Map<string, Imported>; all: string[] } {
+  const names = new Map<string, Imported>();
+  const re = /\b(?:import|export)\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+  for (const m of src.matchAll(re)) {
+    for (const part of m[1]!.split(',')) {
+      const [name, as] = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/);
+      if (name && /^[\w$]+$/.test(name)) names.set((as ?? name).trim(), { from: m[2]!, name });
+    }
+  }
+  const all = [...src.matchAll(/\bexport\s+\*\s+from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]!);
+  return { names, all };
+}
+
 class TypeReader {
   private readonly decls: Map<string, Decl>;
   private readonly resolving = new Set<string>();
   private readonly cache = new Map<string, Shape>();
+  private imports?: ReturnType<typeof importsOf>;
 
-  constructor(private readonly src: string) {
+  constructor(
+    private readonly src: string,
+    private readonly load?: SourceLoader,
+    private readonly files = 0,
+  ) {
     this.decls = declarations(src);
+  }
+
+  /** A type another file declares, as this one imports it (unknown past MAX_FILES, or without a loader). */
+  private foreign(name: string, depth: number): Shape | undefined {
+    if (!this.load || this.files >= MAX_FILES) return undefined;
+    this.imports ??= importsOf(this.src);
+    const imported = this.imports.names.get(name);
+    if (!imported) return undefined;
+    const other = this.load(imported.from);
+    if (!other) return undefined;
+    return new TypeReader(other.src, other.load, this.files + 1).exported(imported.name, depth + 1);
+  }
+
+  /** A type this file exports: its own, one it re-exports, or one from a file it re-exports whole. */
+  exported(name: string, depth: number): Shape {
+    if (this.decls.has(name)) return this.named(name, depth);
+    const again = this.foreign(name, depth);
+    if (again) return again;
+    if (this.load && this.files < MAX_FILES) {
+      this.imports ??= importsOf(this.src);
+      for (const from of this.imports.all) {
+        const other = this.load(from);
+        const shape = other ? new TypeReader(other.src, other.load, this.files + 1).exported(name, depth + 1) : undefined;
+        if (shape && shape.kind !== 'unknown') return shape;
+      }
+    }
+    return { kind: 'unknown', name };
   }
 
   /** The type that starts at `at`. */
@@ -313,7 +376,7 @@ class TypeReader {
     if (last === 'VariantProps' && first?.kind === 'unknown' && first.name?.startsWith('typeof ')) return variantsOf(this.src, first.name.slice(7));
     if (last === 'Function' || last === 'VoidFunction' || FUNCTION_TYPE.test(last)) return { kind: 'function' };
     if (this.decls.has(name)) return this.named(name, depth + 1);
-    return { kind: 'unknown', name };
+    return this.foreign(name, depth) ?? { kind: 'unknown', name };
   }
 
   object(lx: Lexer, depth: number): Shape {
@@ -677,9 +740,9 @@ function candidates(reader: TypeReader, src: string): Candidate[] {
 }
 
 /** The components a file exports, each with its props (the default export first). */
-export function findComponents(src: string): ComponentInfo[] {
+export function findComponents(src: string, load?: SourceLoader): ComponentInfo[] {
   if (src.length > MAX_SOURCE) return [];
-  const reader = new TypeReader(src);
+  const reader = new TypeReader(src, load);
   const { names, defaultName } = exportsOf(src);
   const found: ComponentInfo[] = candidates(reader, src).flatMap((c) => {
     const isDefault = c.isDefault || c.name === defaultName;

@@ -32,12 +32,14 @@ export interface PreviewRef {
   readonly props?: Readonly<Record<string, unknown>>;
   /** A stylesheet in the worktree the component needs (the app's global CSS). */
   readonly css?: string;
+  /** A wrapper in the worktree giving it its providers (else the project's preview-wrapper file). */
+  readonly wrap?: string;
   readonly size?: PreviewSize;
   readonly note?: string;
 }
 
 /** Files that can be drawn as a component. */
-export const COMPONENT_FILE = /\.(tsx|jsx|ts|js|mjs)$/i;
+export const COMPONENT_FILE = /\.(tsx|jsx|ts|js|mjs|vue|svelte)$/i;
 export const HTML_FILE = /\.html?$/i;
 
 /** Only pages on this computer: a preview never frames the open web into the chat. */
@@ -90,25 +92,27 @@ export function parsePreviewRef(code: string): PreviewRef | undefined {
   let exported: string | undefined;
   let props: Record<string, unknown> | undefined;
   let css: string | undefined;
+  let wrap: string | undefined;
   let size: PreviewSize | undefined;
   let note: string | undefined;
   // props may run over several lines: the JSON is everything after "props:" up to the next key.
   const rest = lines.slice(1);
   for (let i = 0; i < rest.length; i++) {
-    const m = /^(export|props|css|size|note)\s*:\s*(.*)$/i.exec(rest[i]!);
+    const m = /^(export|props|css|wrap|size|note)\s*:\s*(.*)$/i.exec(rest[i]!);
     if (!m) continue;
     const key = m[1]!.toLowerCase();
     let value = m[2]!.trim();
     if (key === 'props') {
-      while (i + 1 < rest.length && !/^(export|css|size|note)\s*:/i.test(rest[i + 1]!)) value += `\n${rest[++i]!}`;
+      while (i + 1 < rest.length && !/^(export|css|wrap|size|note)\s*:/i.test(rest[i + 1]!)) value += `\n${rest[++i]!}`;
       props = propsOf(value);
     } else if (key === 'export' && /^[A-Za-z_$][\w$]*$/.test(value)) exported = value;
     else if (key === 'css') css = relativeFile(value);
+    else if (key === 'wrap') wrap = relativeFile(value);
     else if (key === 'size') size = (PREVIEW_SIZES as readonly string[]).includes(value.toLowerCase()) ? (value.toLowerCase() as PreviewSize) : undefined;
     else if (key === 'note') note = value || undefined;
   }
   const withExport: PreviewTarget = target.kind === 'component' && exported ? { ...target, export: exported } : target;
-  return { target: withExport, ...(props ? { props } : {}), ...(css ? { css } : {}), ...(size ? { size } : {}), ...(note ? { note } : {}) };
+  return { target: withExport, ...(props ? { props } : {}), ...(css ? { css } : {}), ...(wrap ? { wrap } : {}), ...(size ? { size } : {}), ...(note ? { note } : {}) };
 }
 
 /** What a preview is called on its header: the component, the file, or the page. */

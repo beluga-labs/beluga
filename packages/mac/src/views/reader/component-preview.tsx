@@ -8,7 +8,7 @@ import { useApp } from '../../lib/beluga.js';
 
 /**
  * Files' Preview view of a component file (Settings › Experimental › Live previews): offered for a
- * .tsx or .jsx file of your own worktree that exports a component, beside its Source. Off: the
+ * .tsx, .jsx, .vue or .svelte file of your own worktree that holds a component, beside its Source. Off: the
  * file shows as it always has.
  */
 
@@ -28,7 +28,7 @@ export function useComponentPreview(viewer: ViewerState, wsId: string | undefine
     if (!worth) return setComponents(false);
     let alive = true;
     // The props reader, loaded the first time it's needed.
-    void import('@beluga/shared/preview/props.js').then((m) => alive && setComponents(m.looksLikeComponents(viewer.path, viewer.content)));
+    void import('@beluga/shared/preview/components.js').then((m) => alive && setComponents(m.looksLikeComponentFile(viewer.path, viewer.content)));
     return () => {
       alive = false;
     };

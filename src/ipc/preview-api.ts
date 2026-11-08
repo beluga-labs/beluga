@@ -16,5 +16,5 @@ const PreviewTargetSchema = z.discriminatedUnion('kind', [
 export const PREVIEW_API = {
   // Build (or find built) a preview in workspace `id` → PreviewResult (shared/preview/opened.ts): where the
   // frame loads it and its props, or why it can't be drawn, in plain words.
-  'preview.open': { args: z.tuple([z.string().min(1).max(200), z.object({ target: PreviewTargetSchema, props: z.record(z.string().max(200), z.unknown()).optional(), css: file.optional() })]) },
+  'preview.open': { args: z.tuple([z.string().min(1).max(200), z.object({ target: PreviewTargetSchema, props: z.record(z.string().max(200), z.unknown()).optional(), css: file.optional(), wrap: file.optional() })]) },
 } as const;

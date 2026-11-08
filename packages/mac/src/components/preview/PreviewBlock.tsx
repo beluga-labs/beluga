@@ -161,7 +161,7 @@ export function PreviewView({ ref_: ref, wsId, embedded = false }: { ref_: Previ
   const problemNow = result && !result.ok ? result : failure;
 
   // What to ask the daemon for (the same request is the same preview: it's built once).
-  const spec = useMemo(() => ({ target, ...(ref.props ? { props: ref.props as Record<string, unknown> } : {}), ...(ref.css ? { css: ref.css } : {}) }), [JSON.stringify(ref)]);
+  const spec = useMemo(() => ({ target, ...(ref.props ? { props: ref.props as Record<string, unknown> } : {}), ...(ref.css ? { css: ref.css } : {}), ...(ref.wrap ? { wrap: ref.wrap } : {}) }), [JSON.stringify(ref)]);
 
   const open = useCallback(async () => {
     if (asking.current) return;

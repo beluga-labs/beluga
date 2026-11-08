@@ -5,6 +5,8 @@ import type { BuildContext, Message, Plugin } from 'esbuild';
 import { isSecretPath } from '../core/shares.js';
 import type { PreviewProblem } from '../shared/preview/opened.js';
 import { OUTSIDE, buildProblem } from './problems.js';
+import { nextPlugin, sveltePlugin, tailwindPlugin, vuePlugin } from './plugins.js';
+import type { Framework } from '../shared/preview/components.js';
 
 /**
  * A component file built for its preview frame with esbuild, against the project's own React:
@@ -30,14 +32,63 @@ export interface Bundler {
 /** Files a component may import that aren't code: drawn inline, so the frame needs nothing else. */
 const ASSETS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.bmp', '.woff', '.woff2', '.ttf', '.otf', '.eot', '.mp4', '.webm', '.mp3', '.wav'] as const;
 
-/** The script that mounts the component (preview/runtime.ts's __belugaPreview). */
-export function entryOf(file: string, pick: string | undefined, css: string | undefined): string {
+/** What a preview's entry brings together (bundle.ts entryOf). */
+export interface EntryOptions {
+  readonly framework: Framework;
+  /** The export to draw (React: a name, or 'default'). */
+  readonly pick?: string;
+  /** Stylesheets to bundle with it: one named in the block, the project's Tailwind one. */
+  readonly css?: readonly string[];
+  /** The project's preview wrapper (its providers), default-exported: React only. */
+  readonly wrapper?: string;
+  /** Storybook's preview file, whose decorators wrap every story: React only. */
+  readonly storybook?: string;
+  /** Svelte's major version (4 mounts with `new`, 5 with mount()). */
+  readonly svelte?: number;
+}
+
+/**
+ * The script that mounts the component (preview/runtime.ts's __belugaPreview): React's with the
+ * project's wrapper and decorators, or a Vue or Svelte one through a small adapter that draws,
+ * updates and takes the component away.
+ */
+export function entryOf(file: string, o: EntryOptions): string {
+  const css = (o.css ?? []).map((c) => `import ${JSON.stringify(c)};`);
+  if (o.framework === 'vue') {
+    return [
+      `import Comp from ${JSON.stringify(file)};`,
+      ...css,
+      `import { createApp, h, reactive } from 'vue';`,
+      `window.__belugaPreview.mount({ kind: 'custom', Mod: { default: Comp }, pick: null, render(el, C, props, fail) {`,
+      `  const state = reactive({ props });`,
+      `  const app = createApp({ render: () => h(C, state.props) });`,
+      `  app.config.errorHandler = (e) => fail(e);`,
+      `  app.mount(el);`,
+      `  return { update(p) { state.props = p; }, unmount() { app.unmount(); } };`,
+      `} });`,
+    ].join('\n');
+  }
+  if (o.framework === 'svelte') {
+    const v5 = (o.svelte ?? 5) >= 5;
+    return [
+      `import Comp from ${JSON.stringify(file)};`,
+      ...css,
+      ...(v5 ? [`import { mount, unmount } from 'svelte';`] : []),
+      `window.__belugaPreview.mount({ kind: 'custom', Mod: { default: Comp }, pick: null, render(el, C, props) {`,
+      ...(v5
+        ? [`  let inst = mount(C, { target: el, props });`, `  return { update(p) { unmount(inst); el.textContent = ''; inst = mount(C, { target: el, props: p }); }, unmount() { unmount(inst); } };`]
+        : [`  const inst = new C({ target: el, props });`, `  return { update(p) { inst.$set(p); }, unmount() { inst.$destroy(); } };`]),
+      `} });`,
+    ].join('\n');
+  }
   return [
     `import * as Mod from ${JSON.stringify(file)};`,
-    ...(css ? [`import ${JSON.stringify(css)};`] : []),
+    ...css,
     `import * as React from 'react';`,
     `import * as ReactDOM from 'react-dom/client';`,
-    `window.__belugaPreview.mount({ Mod, React, ReactDOM, pick: ${JSON.stringify(pick ?? null)} });`,
+    ...(o.wrapper ? [`import Wrapper from ${JSON.stringify(o.wrapper)};`] : []),
+    ...(o.storybook ? [`import * as Story from ${JSON.stringify(o.storybook)};`] : []),
+    `window.__belugaPreview.mount({ kind: 'react', Mod, React, ReactDOM, pick: ${JSON.stringify(o.pick ?? null)}${o.wrapper ? ', Wrapper' : ''}${o.storybook ? ', decorators: (Story.default && Story.default.decorators) || Story.decorators || []' : ''} });`,
   ].join('\n');
 }
 
@@ -100,16 +151,16 @@ export function fencePlugin(root: string): Plugin {
 
 /**
  * `root`: the worktree (paths in messages are relative to it). `file`: the component, absolute.
- * `rel`: its path in the worktree. `css`: a stylesheet to bundle with it, absolute.
+ * `rel`: its path in the worktree. `entry`: what the entry brings with it (EntryOptions).
  */
-export async function makeBundler(root: string, file: string, rel: string, pick: string | undefined, css?: string): Promise<Bundler> {
+export async function makeBundler(root: string, file: string, rel: string, entry: EntryOptions): Promise<Bundler> {
   const esbuild = await loadEsbuild();
   const loader = Object.fromEntries(ASSETS.map((ext) => [ext, 'dataurl' as const]));
   let ctx: BuildContext<{ write: false; metafile: true }> | undefined;
   let disposed = false;
   const context = async (): Promise<BuildContext<{ write: false; metafile: true }>> =>
     (ctx ??= await esbuild.context({
-      stdin: { contents: entryOf(file, pick, css), resolveDir: path.dirname(file), sourcefile: 'beluga-preview.tsx', loader: 'tsx' },
+      stdin: { contents: entryOf(file, entry), resolveDir: path.dirname(file), sourcefile: 'beluga-preview.tsx', loader: 'tsx' },
       absWorkingDir: root,
       bundle: true,
       write: false,
@@ -125,12 +176,15 @@ export async function makeBundler(root: string, file: string, rel: string, pick:
       minifySyntax: true,
       outfile: path.join(os.tmpdir(), 'beluga-preview', 'bundle.js'),
       loader: { ...loader, '.js': 'jsx' },
-      define: { 'process.env.NODE_ENV': '"production"', global: 'globalThis' },
-      conditions: ['browser', 'module'],
+      define: { 'process.env.NODE_ENV': '"production"', global: 'globalThis', __VUE_OPTIONS_API__: 'true', __VUE_PROD_DEVTOOLS__: 'false', __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false' },
+      // Svelte libraries publish their components under the "svelte" condition.
+      conditions: entry.framework === 'svelte' ? ['svelte', 'browser', 'module'] : ['browser', 'module'],
+      ...(entry.framework === 'svelte' ? { mainFields: ['svelte', 'browser', 'module', 'main'] } : {}),
       logLevel: 'silent',
       legalComments: 'none',
       charset: 'utf8',
-      plugins: [fencePlugin(root)],
+      // The fence first: nothing outside the worktree is read by the others either.
+      plugins: [fencePlugin(root), tailwindPlugin(root), nextPlugin(), ...(entry.framework === 'vue' ? [vuePlugin(root)] : []), ...(entry.framework === 'svelte' ? [sveltePlugin(root)] : [])],
     }));
   return {
     async build(): Promise<BuildResult> {
