@@ -214,6 +214,8 @@ function WorkspaceDetails({ id }: { id: string }) {
         {state.disk !== undefined ? <Field label="Disk">{formatBytes(state.disk)}</Field> : null}
         {setup ? <Field label="Setup">{setup.status === 'running' ? 'Running…' : setup.status === 'done' ? 'Done' : `Failed${setup.detail ? ` (${setup.detail})` : ''}`}</Field> : null}
         {ws.handedTo ? <Field label="Handed to">{ws.handedTo}</Field> : null}
+        {ws.continuedOn ? <Field label="Continued on">{ws.continuedOn}</Field> : null}
+        {ws.continuedFrom ? <Field label="Continued from">{ws.continuedFrom}</Field> : null}
         {ws.handedFrom ? <Field label="From">{ws.handedFrom}</Field> : null}
         <div className={s.buttons}>
           <Button size="small" icon="folder" onClick={() => void api.workspaces.openInFinder(ws.id)}>

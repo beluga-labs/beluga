@@ -1337,6 +1337,11 @@ export class WorkspaceManager {
     this.patchRecord(id, { handedTo: to });
   }
 
+  /** Continued on another computer of yours (BLG-808): said on it, in the Archive. */
+  markContinuedOn(id: string, to: string): void {
+    this.patchRecord(id, { continuedOn: to });
+  }
+
   // ---------------------------------------------------------------- scripts
 
   /** The setup / run commands for a project (yours, then beluga.json, then a guess). */
