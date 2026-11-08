@@ -12,8 +12,6 @@ const PATHS = {
   diff: 'M5 3v6 M2 6h6 M8.5 12.5h5.5 M11 2.5l-2 11',
   terminal: 'M2.5 3.5h11v9h-11z M4.5 6.5l2 1.5-2 1.5 M8 10h3',
   // Your computers (BLG-780): the generic set a computer's icon is picked from.
-  server: 'M3 2.5h10v4.5H3z M3 9h10v4.5H3z M5.25 4.75h.01 M5.25 11.25h.01 M8 4.75h3 M8 11.25h3',
-  cloud: 'M4.75 12.5h6.5a2.75 2.75 0 0 0 .35-5.48A3.75 3.75 0 0 0 4.4 6.4 3.05 3.05 0 0 0 4.75 12.5z',
   desktop: 'M2.5 3h11v7.5h-11z M6 13.5h4 M8 10.5v3',
   chip: 'M5 5h6v6H5z M6.5 2.5V5 M9.5 2.5V5 M6.5 11v2.5 M9.5 11v2.5 M2.5 6.5H5 M2.5 9.5H5 M11 6.5h2.5 M11 9.5h2.5',
   box: 'M8 2.5l5 2.5v6l-5 2.5-5-2.5V5z M3 5l5 2.5L13 5 M8 7.5v6',

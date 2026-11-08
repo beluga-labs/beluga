@@ -18,6 +18,7 @@ import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
 import { attachScreenDoor, machinesOf } from '../machines/registry.js';
+import { isDemoMachine } from '../machines/demo.js';
 import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 import { publicWords } from './reach/public.js';
@@ -127,6 +128,8 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
   // screens on one of yours go out through the machines' door.
   attachScreenDoor(core.session, server);
   server.routeMachines((id, ws, hello) => {
+    // The demo's computers (BLG-779) are this daemon itself: their pages open and stream as a computer's would (BLG-784).
+    if (config.mode === 'demo' && isDemoMachine(id)) return server.serveAsMachine(ws, hello);
     const machines = machinesOf(core.session);
     if (machines) machines.door.open(id, ws, hello);
     else ws.close(4404, 'No computers here');

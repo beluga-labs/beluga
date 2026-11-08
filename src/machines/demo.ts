@@ -23,6 +23,10 @@ function awsWork(state: Pick<DomainState, 'projects'>): NonNullable<MachineInfo[
   return api && ws ? [{ project: api.name, worktree: ws.name, channel: `ws:${ws.id}` }] : [];
 }
 
+/** The demo's computers' ids (the demo daemon serves their pages itself). */
+const DEMO_IDS: ReadonlySet<string> = new Set(['de30a1c0ffee0001', 'de30a1c0ffee0002']);
+export const isDemoMachine = (id: string): boolean => DEMO_IDS.has(id);
+
 export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.now()): MachineView[] {
   const origin = (name: string): string => `git@github.com:kayraucklnc/${name}.git`;
   const work = awsWork(state);

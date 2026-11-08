@@ -12,8 +12,7 @@ import { MenuSheet } from './dialogs/MenuSheet.js';
 import { Palette } from './dialogs/Palette.js';
 import { Settings } from './dialogs/Settings.js';
 import type { SettingsPane } from './lib/beluga.js';
-import { RightPanel } from './layout/RightPanel.js';
-import { Main } from './layout/Main.js';
+import { Pane } from './machines/MachinePane.js';
 import { Sidebar } from './layout/Sidebar.js';
 import { useActions } from './lib/actions.js';
 import { SHORTCUTS, TALK_ID, keyPlatform, shortcutFor } from './lib/shortcuts-model.js';
@@ -225,8 +224,8 @@ export function App() {
       {/* Behind the welcome the app can't be tabbed to or read out. */}
       <div className={s.app} inert={welcome.open} data-app-root>
         {prefs.sidebar ? <Sidebar /> : null}
-        <Main />
-        <RightPanel />
+        {/* This Mac's center and panel, or a page on one of your computers drawn with its client (BLG-784). */}
+        <Pane />
       </div>
       <MenuSheet />
       <AddProjectSheet />

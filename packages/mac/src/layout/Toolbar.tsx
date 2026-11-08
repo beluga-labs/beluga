@@ -12,7 +12,8 @@ import { Button, Dot, IconButton, Segmented, Tip, cx } from '../components/ui.js
 import { ConvoSwitch, SWITCH_ICONS_W, SWITCH_W } from '../agent-term/ConvoSwitch.js';
 import { terminalCapable } from '../lib/convo-mode.js';
 import { useActions } from '../lib/actions.js';
-import { toast, useApp, useBeluga } from '../lib/beluga.js';
+import { AtHome, toast, useApp, useBeluga } from '../lib/beluga.js';
+import { MachineTag } from '../machines/MachineTag.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import type { AppState } from '@beluga/core/store.js';
 import { type ToolAction, isPrStep, shortOf, toolbarActions } from './toolbar-actions.js';
@@ -97,7 +98,10 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
       )}
       <NavButtons />
       <div className={s.titles} data-tauri-drag-region>
-        <div className={s.title}>{title}</div>
+        <div className={s.title}>
+          <MachineTag />
+          {title}
+        </div>
         {subtitle ? <div className={s.subtitle}>{subtitle}</div> : null}
       </div>
       <div className={s.center} data-tauri-drag-region>
@@ -106,8 +110,11 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
       <div className={s.right}>
         {/* Whatever still doesn't fit is cut here, never the window buttons: the panel's toggle always shows where there's a panel. */}
         {right ? <div className={s.extra}>{right}</div> : null}
-        <SearchButton />
-        <NotificationBell />
+        {/* The window's own wherever you are: this Mac's search and one bell (BLG-790 brings every computer's). */}
+        <AtHome>
+          <SearchButton />
+          <NotificationBell />
+        </AtHome>
         {/* No panel here, no button for it: a button that can only say so is nothing to click. */}
         {fits ? (
           <IconButton

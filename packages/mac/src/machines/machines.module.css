@@ -142,3 +142,33 @@
   font-size: 0.85rem;
   color: var(--text-2);
 }
+
+/* A computer's page (BLG-784): its center and panel sit in the window's row as this Mac's do. */
+.pane {
+  display: contents;
+}
+/* "on AWS server" beside a computer's page's title. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  padding: 1px 7px 1px 4px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 500;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tag .mark {
+  margin-top: 0;
+}
+.work {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+}

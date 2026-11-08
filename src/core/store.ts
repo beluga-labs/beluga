@@ -398,7 +398,13 @@ export type View =
   /** Sentinel › Dashboard (docs/sentinel.md §10): your dashboards, one open (none: the first). */
   | { readonly kind: 'dashboard'; readonly id?: string }
   /** The Sentinel chat (docs/sentinel.md §12), one of its conversations (none: the first), docked beside Sentinel's page, or beside a sentinel's own page (`about`, its id) when you asked from there. */
-  | { readonly kind: 'sentinel_chat'; readonly chat?: string; readonly about?: string };
+  | { readonly kind: 'sentinel_chat'; readonly chat?: string; readonly about?: string }
+  /**
+   * A page on one of your computers (BLG-784, Mac app): the app draws `view` itself, with that
+   * computer's state and calls (its screen over /machine/<id>). Only this window's screen has it;
+   * the computer's own screen shows `view`.
+   */
+  | { readonly kind: 'machine'; readonly machine: string; readonly view: View };
 
 /** Tabs of a workspace someone shared with you: the chat, its files, a read-only shell over them, and what changed. */
 export type SharedTab = 'chat' | 'files' | 'terminal' | 'diff';

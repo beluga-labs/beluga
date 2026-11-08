@@ -37,3 +37,46 @@ test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Wo
   await expect(pane.getByRole('textbox', { name: 'user@host' })).toBeVisible();
   await pane.screenshot({ path: path.join(SHOTS, 'blg-780-add-a-computer.png') });
 });
+
+/**
+ * A computer's page (BLG-784): the AWS server's webhook-retries opens from Your Computers and draws
+ * with that computer's client (the demo daemon serves its demo computers' screens itself), tagged
+ * with the computer. The same worktree on this Mac is another page: Back and Forward go between the
+ * two, and each keeps its own unsent words.
+ */
+test('a computer’s worktree opens in the pane, tagged, and keeps its own state beside this Mac’s', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const composer = page.locator('textarea:not(.xterm-helper-textarea)');
+  const tag = page.getByTitle('Runs on AWS server');
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  // This Mac's webhook-retries first, with words left in its box.
+  await expect(sidebar.getByRole('button', { name: 'bob-api' }).first()).toBeVisible();
+  if (!(await sidebar.getByRole('button', { name: 'webhook-retries', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await sidebar.getByRole('button', { name: 'webhook-retries', exact: true }).click();
+  await expect(composer).toHaveAttribute('placeholder', /webhook-retries/);
+  await composer.fill('words for this Mac');
+  await expect(tag).toHaveCount(0);
+
+  // The AWS server's, from Your Computers.
+  await page.keyboard.press('Meta+,');
+  const pane = settings(page);
+  await pane.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await pane.getByRole('button', { name: 'Open webhook-retries on AWS server' }).click();
+  await expect(pane).toBeHidden();
+  await expect(tag).toBeVisible();
+  await expect(composer).toHaveAttribute('placeholder', /webhook-retries/);
+  // Its own box: this Mac's words stay with this Mac's page.
+  await expect(composer).toHaveValue('');
+  await composer.fill('words for the AWS server');
+  await page.screenshot({ path: path.join(SHOTS, 'blg-784-computer-pane.png') });
+
+  // Back: this Mac's page, as it was.
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await expect(tag).toHaveCount(0);
+  await expect(composer).toHaveValue('words for this Mac');
+  // Forward: the AWS server's again, as it was.
+  await page.getByRole('button', { name: 'Go forward', exact: true }).click();
+  await expect(tag).toBeVisible();
+  await expect(composer).toHaveValue('words for the AWS server');
+});
