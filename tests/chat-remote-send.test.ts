@@ -158,6 +158,18 @@ function setup(opts: { trust?: TrustLevel; ownerOnline?: boolean } = {}) {
 
 const SHARED_REF = `${OWNER}/${SHARED}`;
 
+describe('with the flag off on the owner’s Mac', () => {
+  it('a message with an origin is a plain request: no header, no chat card, no chat limits', async () => {
+    const t = setup();
+    t.owner.dispatch({ type: 'prefs', prefs: { chatLinks: false } });
+    expect(t.owner.getState().prefs.chatLinks).toBe(false);
+    await t.arrive('m-off', SHARED);
+    await waitFor(() => t.runsIn(SHARED).length === 1);
+    expect(t.runsIn(SHARED)[0]).toBe('please look');
+    expect(t.ownerCard('m-off')?.origin).toBeUndefined();
+  });
+});
+
 describe('an agent sends to a chat another person shared with its user', () => {
   it.each<TrustLevel>(['trusted', 'full'])('%s: the owner’s agent runs it at once, and the answer comes back', async (trust) => {
     const t = setup({ trust });

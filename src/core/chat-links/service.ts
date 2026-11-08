@@ -174,7 +174,8 @@ export class ChatSendService {
       viaAgent: false,
       channel: target,
       urgent: false,
-      plan: false,
+      // A message never takes a chat out of plan mode (another person's chat: its owner's computer decides).
+      plan: !remote && state.planMode[target] === true,
       origin: {
         ref: `${self}/${run.channel}`,
         title: (source.title ?? '').slice(0, 200),
@@ -236,7 +237,7 @@ export class ChatSendService {
     const messageId = randomUUID();
     const prompt = 'Your user chose Continue: this chain has a new budget. Go on with what you were sending, if you still need to.';
     void this.deps.deliver(
-      { kind: 'agent_request', requestId: messageId, prompt, viaAgent: false, channel: ask.source, urgent: false, plan: false, origin: { ref: `${self}/${ask.source}`, title: title.slice(0, 200), agent: BELUGA_AGENT, chainId: ask.chainId, hop: ask.hop, messageId } },
+      { kind: 'agent_request', requestId: messageId, prompt, viaAgent: false, channel: ask.source, urgent: false, plan: this.deps.store.getState().planMode[ask.source] === true, origin: { ref: `${self}/${ask.source}`, title: title.slice(0, 200), agent: BELUGA_AGENT, chainId: ask.chainId, hop: ask.hop, messageId } },
       false,
     );
   }

@@ -1,4 +1,4 @@
-import { type ChatRef, parseChatRef } from '../shared/chat-ref.js';
+import { type ChatRef, isAddressableChannel, parseChatRef } from '../shared/chat-ref.js';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -892,8 +892,10 @@ export class AgentHost {
 
   async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
     // A chain comes from this computer's own sends, or from a peer's chat into one shared with them (admitPeerChat checks it).
+    // With chat links off, a peer's origin is dropped: the request is a plain one, as before chat links.
     const { origin, ...rest } = request;
-    const body: BodyOf<'agent_request'> = origin && (from === this.selfId || request.channel !== 'room') ? request : rest;
+    const keep = origin && this.store.getState().prefs.chatLinks && (from === this.selfId || request.channel !== 'room');
+    const body: BodyOf<'agent_request'> = keep ? request : rest;
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -955,7 +957,8 @@ export class AgentHost {
     const queued = this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0;
     const limit = this.chatSends.admitFromPeer(from, origin, body.channel, queued);
     if (!limit.allow) return deny(limit.text);
-    const admitted: BodyOf<'agent_request'> = { ...body, origin: { ...origin, hop: limit.hop } };
+    // Your chat's plan mode holds, whatever the peer's request says.
+    const admitted: BodyOf<'agent_request'> = { ...body, plan: state.planMode[body.channel] === true, origin: { ...origin, hop: limit.hop } };
     if (!(await this.authorizeRequest(from, admitted))) return deny('Request declined by the machine owner.');
     this.fromChats.set(body.requestId, { origin: admitted.origin!, text: body.prompt });
     return admitted;
@@ -1385,7 +1388,7 @@ export class AgentHost {
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
       // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
-      const chats = this.readsChats(from) ? chatToolsOf({ state: () => this.store.getState(), requester: from, chain: () => ({ ...chain }), load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))), messages: this.chatSends.forRun({ channel: body.channel, requester: from, chain: () => ({ ...chain }), signal: controller.signal }) }) : undefined;
+      const chats = this.readsChats(from, body.channel) ? chatToolsOf({ state: () => this.store.getState(), requester: from, chain: () => ({ ...chain }), load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))), messages: this.chatSends.forRun({ channel: body.channel, requester: from, chain: () => ({ ...chain }), signal: controller.signal }) }) : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
@@ -1728,8 +1731,9 @@ export class AgentHost {
   }
 
   /** May this person's run find and read other chats? */
-  private readsChats(from: string): boolean {
-    return from === this.selfId && this.store.getState().prefs.chatLinks;
+  private readsChats(from: string, channel: string): boolean {
+    // Not in a place other people see (the room, friends' chats): their words could ask it to quote your chats there.
+    return from === this.selfId && isAddressableChannel(channel) && this.store.getState().prefs.chatLinks;
   }
 
   /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
@@ -1739,7 +1743,7 @@ export class AgentHost {
     const said = body.origin ? chatMessagePrompt(body.origin, body.prompt) : body.prompt;
     const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
     // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
-    const prompt = this.readsChats(from) ? explainChatMentions(tasks) : tasks;
+    const prompt = this.readsChats(from, body.channel) ? explainChatMentions(tasks) : tasks;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
     // What was added to a message from another chat names no skill either (a task's title, the carried chat).

@@ -51,6 +51,9 @@ function backend() {
   return { agent, chains, steered, followed, live };
 }
 
+/** A chat of yours: the room's runs have no chat tools, so the chain is read here. */
+const CHAT = 'ws:chat1';
+
 function host(agent: AgentBackend) {
   const state = initialState('room', 'auto');
   const store = new Store({ ...state, prefs: { ...state.prefs, chatLinks: true } });
@@ -67,9 +70,10 @@ function host(agent: AgentBackend) {
     system: () => undefined,
     approvalTimeoutMs: () => 60_000,
     refreshUsage: async () => undefined,
+    workspaces: { place: (channel: string) => (channel === CHAT ? { cwd: '/p/chat1', additionalDirectories: [], autoEdit: true, onSession: () => undefined } : undefined), ensureLoaded: () => undefined, inChannel: () => undefined, agentIn: () => undefined, refreshWorkspace: async () => undefined, manager: { list: [] } } as never,
   });
   const ask = (requestId: string, prompt: string, extra: Partial<BodyOf<'agent_request'>> = {}, from = ME): Promise<void> =>
-    h.onAgentRequest(from, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel: 'room', urgent: false, plan: false, ...extra });
+    h.onAgentRequest(from, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel: CHAT, urgent: false, plan: false, ...extra });
   return { h, ask };
 }
 
@@ -81,7 +85,7 @@ describe('the chain of a run', () => {
     await waitFor(() => b.chains.length === 1);
     await t.ask('r2', 'two');
     await waitFor(() => b.chains.length === 2);
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
     const [first, second] = [b.chains[0]!(), b.chains[1]!()];
     expect(first.hop).toBe(0);
     expect(second.hop).toBe(0);
@@ -94,7 +98,7 @@ describe('the chain of a run', () => {
     const t = host(b.agent);
     await t.ask('r1', 'one', { origin: origin('c1', 2) });
     await waitFor(() => b.chains.length === 1);
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
     expect(b.chains[0]!()).toMatchObject({ chainId: 'c1', hop: 2 });
   });
 
@@ -107,7 +111,7 @@ describe('the chain of a run', () => {
     expect(b.chains[0]!().hop).toBe(0);
     b.live.finish!();
     await waitFor(() => b.chains.length === 2);
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
     expect(b.chains[1]!()).toMatchObject({ chainId: 'c1', hop: 3 });
     expect(b.chains[0]!().chainId).not.toBe('c1');
   });
@@ -125,7 +129,7 @@ describe('the chain of a run', () => {
     await t.ask('r4', 'from you', { urgent: true });
     expect(b.chains[0]!()).toMatchObject({ chainId: 'c1', hop: 3 });
     b.live.finish!();
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
   });
 
   it('a steer that interrupts a long step sets the hop too', async () => {
@@ -138,7 +142,7 @@ describe('the chain of a run', () => {
     expect(b.chains).toHaveLength(1);
     expect(b.chains[0]!()).toMatchObject({ chainId: 'c1', hop: 3 });
     b.live.finish!();
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
   });
 
   it('a turn that a background task starts keeps the chain of its lane', async () => {
@@ -154,7 +158,7 @@ describe('the chain of a run', () => {
     expect(b.chains[0]!()).toEqual(before);
     expect(before).toMatchObject({ chainId: 'c1', hop: 2 });
     b.live.finish!();
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
   });
 
   it('a follow-up between turns is a turn of its own: from the user a new chain, with an origin its chain', async () => {
@@ -171,7 +175,7 @@ describe('the chain of a run', () => {
     await t.ask('r3', 'from a chat', { origin: origin('c9', 4) });
     expect(b.chains[0]!()).toMatchObject({ chainId: 'c9', hop: 4 });
     b.live.finish!();
-    await t.h.idle('room');
+    await t.h.idle(CHAT);
   });
 
   it('an origin from a friend never sets a chain unchecked: a chat not shared with them gets no run (tests/chat-remote-send.test.ts)', async () => {
@@ -186,7 +190,7 @@ describe('the chain of a run', () => {
 });
 
 describe('agent_request on the wire', () => {
-  const base = { kind: 'agent_request', requestId: 'r1', prompt: 'hi', channel: 'room' };
+  const base = { kind: 'agent_request', requestId: 'r1', prompt: 'hi', channel: CHAT };
 
   it('an old peer without the field still works', () => {
     expect(AgentRequestBody.parse(base).origin).toBeUndefined();

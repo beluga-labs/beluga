@@ -37,6 +37,7 @@ function setup(opts: { lateEvents?: boolean } = {}) {
     shared: [{ owner: FRIEND, id: 'theirs', name: 'Their work', project: 'x', role: 'contribute', share: 's' }],
   } as unknown as DomainState);
   const prompts: Array<[string, string]> = [];
+  const plans: Array<[string, boolean]> = [];
   const tools = new Map<string, ChatTools>();
   const requesters = new Map<string, string>();
   const finish = new Map<string, (text: string) => void>();
@@ -47,6 +48,7 @@ function setup(opts: { lateEvents?: boolean } = {}) {
     run: (input: AgentRunInput) => {
       const channel = input.channel!;
       prompts.push([channel, input.prompt]);
+      plans.push([channel, input.plan === true]);
       requesters.set(channel, input.requesterName);
       if (input.chatTools) tools.set(channel, input.chatTools);
       return new Promise<string>((resolve, reject) => {
@@ -78,7 +80,8 @@ function setup(opts: { lateEvents?: boolean } = {}) {
   const show = (e: BodyOf<'agent_event'>): void => {
     store.dispatch({ type: 'agent_event', owner: ME, requestId: e.requestId, requester: e.requester, event: e.event, text: e.text, ts: Date.now(), channel: e.channel, ...(e.fromChat ? { fromChat: e.fromChat } : {}) });
   };
-  const place = (channel: string): AgentPlace | undefined => (channel.startsWith('ws:') ? ({ cwd: `/p/${channel}`, additionalDirectories: [], autoEdit: true, onSession: () => undefined, ...places.get(channel) } as AgentPlace) : undefined);
+  // A friends' chat runs in Your Mac's folder (assistant.forChat).
+  const place = (channel: string): AgentPlace | undefined => (/^(ws|dm):/.test(channel) ? ({ cwd: `/p/${channel}`, additionalDirectories: [], autoEdit: true, onSession: () => undefined, ...places.get(channel) } as AgentPlace) : undefined);
   const driving = new Set<string>();
   const h = new AgentHost({
     store,
@@ -116,7 +119,7 @@ function setup(opts: { lateEvents?: boolean } = {}) {
       if (h.runningIn(channel)) await end(channel);
     }
   };
-  return { h, store, say, working, card, runsIn, finish, steered, live, places, driving, end, tools, requesters };
+  return { h, store, say, working, card, runsIn, finish, steered, live, places, driving, end, tools, requesters, plans };
 }
 
 const parsed = (text: string): { message_id: string; state: string; delivery: string; note?: string; answer?: string } => JSON.parse(text);
@@ -212,9 +215,9 @@ describe('send_to_chat: the state of the target', () => {
     const from = await t.working(SOURCE);
     await expect(from.send('room', 'hi', {})).rejects.toThrow(/^not_addressable:/);
     await t.end(SOURCE);
-    const room = await t.working('room');
+    // A room run has no chat tools at all; the service still refuses a source with no ref.
+    const room = t.h.chatSends.forRun({ channel: 'room', requester: ME, chain: () => ({ chainId: 'c', hop: 0 }), signal: new AbortController().signal });
     await expect(room.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^source_not_addressable:/);
-    await t.end('room');
   });
 
   it('a chat shared with you, its owner not online: refused with offline (tests/chat-remote-send.test.ts has the rest)', async () => {
@@ -247,6 +250,16 @@ describe('send_to_chat: the state of the target', () => {
 });
 
 describe('mode_wider', () => {
+  it('a chat in plan mode stays in plan mode for a message from another chat', async () => {
+    const t = setup();
+    t.store.dispatch({ type: 'plan_mode', channel: TARGET, on: true });
+    const from = await t.working(SOURCE);
+    expect(parsed(await from.send(refOf(TARGET), 'implement it now and edit the files', {})).delivery).toBe('started');
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(t.plans.filter(([c]) => c === TARGET)).toEqual([[TARGET, true]]);
+    await t.end(SOURCE, TARGET);
+  });
+
   it('a chat in plan mode cannot send to a chat that can act', async () => {
     const t = setup();
     const from = await t.working(SOURCE);
@@ -408,6 +421,17 @@ describe('wait_for_chat', () => {
 });
 
 describe('the tools', () => {
+  it('a run in a place other people see gets no chat tools: the room, a friends’ chat', async () => {
+    const t = setup();
+    await t.say('room', 'r-room');
+    await waitFor(() => t.finish.has('room'));
+    void t.h.runChat('dm:friend', 'hi');
+    await waitFor(() => t.finish.has('dm:friend'));
+    expect(t.tools.has('room')).toBe(false);
+    expect(t.tools.has('dm:friend')).toBe(false);
+    await t.end('room', 'dm:friend');
+  });
+
   const chats: ChatTools = { chain: () => ({ chainId: 'c', hop: 0 }), list: () => '', read: () => '', send: async (ref, text, opts) => JSON.stringify({ ref, text, opts }), wait: async (id, sec) => JSON.stringify({ id, sec }) };
 
   it('have no way to set the chain or the source', () => {
