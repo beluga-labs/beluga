@@ -433,6 +433,13 @@ export const PHONE: Record<Method, Side> = {
   'plans.resumeTask': 'phone',
   'plans.remove': 'mac',
   'plans.setStyle': 'mac',
+  'plans.moveCheck': 'mac',
+  'plans.movePack': 'mac',
+  'plans.moveChunk': 'mac',
+  'plans.moveReceive': 'mac',
+  'plans.moveLand': 'mac',
+  'plans.moveDone': 'mac',
+  'plans.moveUndo': 'mac',
 
   // ---- GitHub issues: the Mac's Issues view for now. Reading them and handing one to Claude fits the
   // phone too (BLG-170): until its screen exists, a task made from one shows on the phone's board.

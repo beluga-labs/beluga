@@ -634,6 +634,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.remove` | ✓ a plan's ⋯ › Delete Plan… (its tasks stay on the board) |
 | `plans.tidyUp` | ✓ Tidy Up / No on a plan's leftover task worktrees (merged into its branch, then archived) |
 | `plans.setStyle` | ✓ Plans › ⋯ › Planning Style… |
+| `plans.moveCheck` | ✓ a plan's ⋯ › Move To ▸ (a computer): Move To when nothing runs in it, Pause and Move when something does |
+| `plans.movePack` | ✓ a plan's ⋯ › Move To ▸, on the computer it runs on (Commit Them and Move when its worktrees have changes not committed) |
+| `plans.moveChunk` | ✓ a plan's ⋯ › Move To ▸ (your app fetches the packed plan in pieces) |
+| `plans.moveReceive` | ✓ a plan's ⋯ › Move To ▸, on the computer it goes to |
+| `plans.moveLand` | ✓ a plan's ⋯ › Move To ▸, on the computer it goes to (it opens there once it's in) |
+| `plans.moveDone` | ✓ a plan's ⋯ › Move To ▸: the old copy becomes its record once the new one is in (Moved to … on its page) |
+| `plans.moveUndo` | ✓ a plan's ⋯ › Move To ▸: a copy whose move didn't finish is taken back off |
 | `dialogues.start` | ✓ the composer: `@my:claude @my:codex talk about X, 6 turns` or `/dialogue claude codex …` (`session.submit` proposes it; the API starts one too) |
 | `dialogues.confirm` | ✓ the dialogue's card in the chat › Start (Turns and Budget set on the card first) |
 | `dialogues.continue` | ✓ the dialogue's card › Continue (when it paused at its cap) · the phone's card |

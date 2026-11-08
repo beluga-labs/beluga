@@ -1430,7 +1430,7 @@ export class Sentinels {
     const tasks = st.board.enabled ? describeList(filterIssues(st.board, { scope: 'all', selfId: this.deps.selfId(), ...(projectId ? { repos: [projectId] } : {}) }).filter((i) => isOpen(i.status))) : '';
     const projects = st.projects.filter((p) => !projectId || p.id === projectId);
     const worktrees = projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree' && !w.archived).map((w) => `${p.name}/${w.name}${w.branch ? ` (${w.branch})` : ''}`)).join('\n');
-    const plans = st.plans.plans.filter((p) => (!projectId || p.projectId === projectId) && p.status !== 'done').map((p) => `${planTitle(p)} · ${p.status}`).join('\n');
+    const plans = st.plans.plans.filter((p) => (!projectId || p.projectId === projectId) && p.status !== 'done' && !p.movedTo).map((p) => `${planTitle(p)} · ${p.status}`).join('\n');
     return { tasks, worktrees, plans };
   }
 

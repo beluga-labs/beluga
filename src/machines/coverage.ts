@@ -440,6 +440,13 @@ export const MACHINE: Record<Method, MachineSide> = {
   'plans.resumeTask': 'drive',
   'plans.remove': 'drive',
   'plans.setStyle': 'drive',
+  'plans.moveCheck': 'drive',
+  'plans.movePack': 'drive',
+  'plans.moveChunk': 'drive',
+  'plans.moveReceive': 'drive',
+  'plans.moveLand': 'drive',
+  'plans.moveDone': 'drive',
+  'plans.moveUndo': 'drive',
   // ---- dialogues
   'dialogues.start': 'drive',
   'dialogues.confirm': 'drive',

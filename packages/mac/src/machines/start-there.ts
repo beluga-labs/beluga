@@ -97,7 +97,7 @@ const CONNECT_MS = 20_000;
 const POLL_MS = 700;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-async function clientOf(machine: MachineView, d: StartDeps): Promise<SocketClient> {
+export async function clientOf(machine: MachineView, d: Pick<StartDeps, 'home' | 'windowUi'>): Promise<SocketClient> {
   ensureMachine(machine.id, d.home, d.windowUi);
   const until = Date.now() + CONNECT_MS;
   for (;;) {
@@ -111,21 +111,30 @@ async function clientOf(machine: MachineView, d: StartDeps): Promise<SocketClien
 /** The project's id on that computer: there already, or made ready there (each step shown). */
 async function projectOn(client: SocketClient, machine: MachineView, project: { readonly id: string; readonly name: string }, d: StartDeps): Promise<string> {
   const origin = ((await d.home.call('projects.origin', project.id).catch(() => null)) as string | null) ?? undefined;
+  return projectReadyOn(client, machine, { name: project.name, ...(origin ? { origin } : {}) }, (run) => patch({ phase: 'ready', run, client }));
+}
+
+/**
+ * A project (by its git origin, else its name) on a computer: there already, or got ready there
+ * from its origin, each step of that run told to `onRun` → its id there. Move To uses it too (BLG-806).
+ */
+export async function projectReadyOn(client: SocketClient, machine: MachineView, project: { readonly name: string; readonly origin?: string }, onRun?: (run: ReadyRun) => void): Promise<string> {
+  const { origin } = project;
   // There already: the project with the same origin (as the computer reports its projects), else the same name.
-  const named = projectThere(machine, { name: project.name, ...(origin ? { origin } : {}) }) ?? project.name;
+  const named = projectThere(machine, project) ?? project.name;
   const known = client.store.getState().projects.find((p) => p.name === named && p.root);
   if (known) return known.id;
   // Not there: the computer gets it ready from its origin.
   if (!origin) throw new Error(`${project.name} has no git origin here to get it from, so ${machine.name} can’t get it`);
   let run = (await client.call('machines.ready.start', origin, project.name)) as ReadyRun;
-  patch({ phase: 'ready', run, client });
+  onRun?.(run);
   while (run.state !== 'done') {
     if (run.state === 'failed') throw new Error(readyLine(run));
     await sleep(POLL_MS);
     const next = (await client.call('machines.ready.status', run.id).catch(() => undefined)) as ReadyRun | null | undefined;
     if (!next) throw new Error(`${machine.name} stopped getting ${project.name} ready`);
     run = next;
-    patch({ run });
+    onRun?.(run);
   }
   if (!run.projectId) throw new Error(`${machine.name} got ${project.name} ready, but it isn’t listed there`);
   return run.projectId;
