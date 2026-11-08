@@ -1,8 +1,11 @@
-import { appendFile, mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { appendFile, mkdir, open, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Uploads } from '../companion/uploads.js';
 import { safeFileName, uniquePath } from '../core/downloads.js';
+import { belugaHome } from '../core/home.js';
 import { isSecretPath } from '../core/shares.js';
+import { isEnvFileName } from '../workspaces/env.js';
+import { refusedOnThisMac } from './env-send.js';
 import { uploadsDir } from '../daemon/web-files.js';
 import { MAX_UPLOAD_BYTES, UPLOAD_PIECE } from '../shared/uploads.js';
 
@@ -63,11 +66,32 @@ export interface SentPiece {
 }
 
 /**
+ * What becomes of a file dropped on a chat on a computer (BLG-854), the env send's rules: `refuse`
+ * (keys, certificates, anything in a credential folder or Beluga's own, followed through links)
+ * with why, `ask` for an env file (its name only, then Send Once or Don't Send), else `send`.
+ */
+export type DropVerdict = { readonly path: string; readonly name: string } & ({ readonly verdict: 'send' | 'ask' } | { readonly verdict: 'refuse'; readonly reason: string });
+
+export async function checkDrop(file: string, home: string = belugaHome()): Promise<DropVerdict> {
+  const name = path.basename(file);
+  if (!path.isAbsolute(file)) return { path: file, name, verdict: 'refuse', reason: 'not a file on this Mac' };
+  const real = await realpath(file).catch(() => file);
+  const insideHome = (p: string): boolean => p === home || p.startsWith(home + path.sep);
+  const reason = refusedOnThisMac(file) ?? refusedOnThisMac(real) ?? (insideHome(file) || insideHome(real) ? 'Beluga’s own files stay on this Mac' : undefined);
+  if (reason) return { path: file, name, verdict: 'refuse', reason };
+  return { path: file, name, verdict: isEnvFileName(name) || isEnvFileName(path.basename(real)) ? 'ask' : 'send' };
+}
+
+/**
  * In the app: read the piece of local `file` at `off` and put it on computer `machine` through
  * `call` (the door's own call over a screen's link). Upload `id` names the file there until its last piece.
+ * A refused file never goes; an env file only with `env` (you said Send Once).
  */
-export async function sendPiece(call: (method: string, args: readonly unknown[]) => Promise<unknown>, id: number, file: string, off: number): Promise<SentPiece> {
+export async function sendPiece(call: (method: string, args: readonly unknown[]) => Promise<unknown>, id: number, file: string, off: number, opts: { readonly env?: boolean } = {}): Promise<SentPiece> {
   if (!path.isAbsolute(file)) throw new Error('Pick a file on this Mac');
+  const check = await checkDrop(file);
+  if (check.verdict === 'refuse') throw new Error(`${check.name} stays on this Mac: ${check.reason}`);
+  if (check.verdict === 'ask' && !opts.env) throw new Error(`${check.name} holds secrets: say Send Once first`);
   const info = await stat(file);
   if (!info.isFile()) throw new Error('Only files go with a message (not folders)');
   if (info.size > MAX_UPLOAD_BYTES) throw new Error(`That file is too big to send (up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)`);

@@ -543,6 +543,7 @@ export const PHONE: Record<Method, Side> = {
   'machines.download.fetch': 'mac',
   'machines.editor': 'mac',
   'machines.upload.send': 'mac',
+  'machines.upload.check': 'mac',
   'machines.env.receive': 'mac',
   'machines.env.decide': 'mac',
   'machines.env.always': 'mac',

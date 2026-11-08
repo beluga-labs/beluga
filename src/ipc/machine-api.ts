@@ -67,7 +67,10 @@ export const MACHINE_API = {
     ]),
   },
   // In the app: send the piece of a file on this Mac at `off` to computer `id`, upload `n` → { sent, total, name, path?, image? } (path: where it is there, once all of it is).
-  'machines.upload.send': { args: z.tuple([deviceId, z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), z.string().min(1).max(4096), z.number().int().min(0)]) },
+  // `env`: you said Send Once for this env file (BLG-854); a refused file never goes.
+  'machines.upload.send': { args: z.tuple([deviceId, z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), z.string().min(1).max(4096), z.number().int().min(0), z.object({ env: z.boolean().optional() }).strict().optional()]) },
+  // In the app: what becomes of files dropped on a chat on a computer → [{ path, name, verdict: send | ask | refuse, reason? }] (an env file asks first; keys and credential folders are refused).
+  'machines.upload.check': { args: z.tuple([z.array(z.string().min(1).max(4096)).min(1).max(64)]) },
   // Open in Finder and editors, for a computer (BLG-794). On the computer: the piece of a file (its whole path) at `off`, for your app to download → { b64, total, eof }; never a secret.
   'machines.download.piece': { args: z.tuple([z.string().min(1).max(4096), z.number().int().min(0)]) },
   // In the app: download a file of computer `id` (its whole path there) into ~/Downloads/Beluga → where it's saved.

@@ -579,6 +579,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.upload.put': 'drive',
   // Refused: it reads this computer's files to send them to another computer of yours; your app on this computer does that itself.
   'machines.upload.send': 'refuse',
+  'machines.upload.check': 'refuse',
   // A file there for your app's Download (BLG-794).
   'machines.download.piece': 'drive',
   // Refused: your app on this computer downloads into its own folders, and picks its own editor.

@@ -44,6 +44,7 @@ describe('the table of what your app may do on a computer', () => {
         'machines.env.decide',
         // Sending this Mac's files to a computer is your app's own (BLG-793).
         'machines.upload.send',
+        'machines.upload.check',
         'machines.download.fetch',
         'machines.editor',
         'machines.env.always',

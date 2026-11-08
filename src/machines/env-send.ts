@@ -38,6 +38,18 @@ export function refusedEnvPath(rel: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Why a file of this Mac (its whole path) never goes to a computer, whatever you say (a drop on a
+ * chat there, BLG-854): keys and certificates, and anything in the credential folders above. None:
+ * it may go (an env file only once you say so).
+ */
+export function refusedOnThisMac(absPath: string): string | undefined {
+  const parts = absPath.split(/[\\/]/).filter(Boolean);
+  if (parts.slice(0, -1).some((d) => REFUSED_DIRS.has(d))) return 'keys and credentials stay on this Mac';
+  if (KEY_NAME.test(parts.at(-1) ?? '')) return 'keys and certificates stay on this Mac';
+  return undefined;
+}
+
 /** `dir` is `top` or inside it. */
 const inside = (top: string, dir: string): boolean => dir === top || dir.startsWith(top + path.sep);
 

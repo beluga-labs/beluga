@@ -5,7 +5,7 @@ import { machinesOf, needMachines } from '../machines/registry.js';
 import { readyingOf } from '../machines/ready.js';
 import { runOnHere } from '../machines/run-on.js';
 import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
-import { downloadThere, readPieceHere, receivePiece, sendPiece } from '../machines/uploads.js';
+import { checkDrop, downloadThere, readPieceHere, receivePiece, sendPiece } from '../machines/uploads.js';
 import { editorHere } from '../machines/open.js';
 import { DEFAULT_DOWNLOAD_DIR } from '../core/downloads.js';
 import { existsSync } from 'node:fs';
@@ -59,7 +59,8 @@ export const MACHINE_HANDLERS = {
   'machines.share': (s, wsId, port) => needForwarder(s).share(wsId, port),
   'machines.unshare': (s, wsId, port) => needForwarder(s).unshare(wsId, port),
   'machines.upload.put': (s, id, piece) => receivePiece(s, id, piece),
-  'machines.upload.send': (s, id, n, file, off) => sendPiece((method, args) => needMachines(s).door.call(id, method, args), n, file, off),
+  'machines.upload.send': (s, id, n, file, off, opts) => sendPiece((method, args) => needMachines(s).door.call(id, method, args), n, file, off, opts?.env ? { env: true } : {}),
+  'machines.upload.check': (_s, files) => Promise.all(files.map((f) => checkDrop(f))),
   'machines.download.piece': (_s, file, off) => readPieceHere(file, off),
   'machines.download.fetch': (s, id, file) => downloadThere((method, args) => needMachines(s).door.call(id, method, args), file, DEFAULT_DOWNLOAD_DIR),
   'machines.editor': () => editorHere(process.env, (app) => existsSync(app === 'cursor' ? '/Applications/Cursor.app' : '/Applications/Visual Studio Code.app')),

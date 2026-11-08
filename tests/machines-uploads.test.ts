@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { receivePiece, sendPiece } from '../src/machines/uploads.js';
+import { checkDrop, receivePiece, sendPiece } from '../src/machines/uploads.js';
 import { UPLOAD_PIECE } from '../src/shared/uploads.js';
-import { type Sending, sendFiles, sentShare } from '../packages/mac/src/chat/attachments.js';
+import { type Sending, envAsk, planDrop, sendFiles, sentShare } from '../packages/mac/src/chat/attachments.js';
 
 /**
  * Images and files you add go to that computer (BLG-793): a file dropped on this Mac goes to the
@@ -101,5 +101,74 @@ describe('sendFiles', () => {
     expect(failed).toEqual(['gone.txt']);
     expect(progress.filter((s) => s?.name === 'big.mov').map((s) => sentShare(s!))).toEqual(['0%', '99%', '100%']);
     expect(progress.at(-1)).toBeUndefined();
+  });
+});
+
+/**
+ * Dropping a .env on a remote chat asks like a send (BLG-854): the env send's rules decide before a
+ * byte goes. An env file asks first, by its name, never its value; a key, a certificate or a file
+ * in a credential folder or Beluga's own is refused with why (links followed); anything else goes.
+ */
+describe('a file dropped on a chat on a computer', () => {
+  const SECRET = 'STRIPE_KEY=sk_live_never_shown';
+
+  function files() {
+    const here = tmp();
+    const write = (rel: string, text: string): string => {
+      const p = path.join(here, rel);
+      mkdirSync(path.dirname(p), { recursive: true });
+      writeFileSync(p, text);
+      return p;
+    };
+    const pem = write('server.pem', 'KEY');
+    const link = path.join(here, 'looks-plain.txt');
+    symlinkSync(pem, link);
+    return {
+      env: write('.env', SECRET),
+      envLocal: write('.env.local', SECRET),
+      plain: write('notes.txt', 'hello'),
+      pem,
+      inCredentials: write(path.join('.aws', 'config'), 'KEY'),
+      link,
+    };
+  }
+
+  it('asks for an env file, refuses keys and credential folders with why, and lets the rest go', async () => {
+    const f = files();
+    expect(await checkDrop(f.env)).toMatchObject({ name: '.env', verdict: 'ask' });
+    expect(await checkDrop(f.envLocal)).toMatchObject({ verdict: 'ask' });
+    expect(await checkDrop(f.plain)).toMatchObject({ verdict: 'send' });
+    expect(await checkDrop(f.pem)).toMatchObject({ verdict: 'refuse', reason: 'keys and certificates stay on this Mac' });
+    expect(await checkDrop(f.inCredentials)).toMatchObject({ verdict: 'refuse', reason: 'keys and credentials stay on this Mac' });
+    // A plain name that links to a key is the key.
+    expect(await checkDrop(f.link)).toMatchObject({ verdict: 'refuse' });
+  });
+
+  it('refuses Beluga’s own folder', async () => {
+    const own = path.join(process.env.BELUGA_HOME!, 'device-key.json');
+    writeFileSync(own, '{}');
+    expect(await checkDrop(own)).toMatchObject({ verdict: 'refuse', reason: 'Beluga’s own files stay on this Mac' });
+  });
+
+  it('sends an env file only after Send Once, never a refused one, and the rest as before', async () => {
+    const f = files();
+    const call = computer({});
+    await expect(sendPiece(call, 20, f.env, 0)).rejects.toThrow(/\.env holds secrets: say Send Once first/);
+    expect(await sendPiece(call, 21, f.env, 0, { env: true })).toMatchObject({ path: expect.any(String), sent: SECRET.length });
+    await expect(sendPiece(call, 22, f.pem, 0, { env: true })).rejects.toThrow(/server\.pem stays on this Mac/);
+    expect(await sendPiece(call, 23, f.plain, 0)).toMatchObject({ path: expect.any(String) });
+  });
+
+  it('splits a drop, and the ask names the files, never their values', async () => {
+    const f = files();
+    const info = (p: string) => ({ path: p, name: path.basename(p), kind: 'file' as const, size: 1, image: false });
+    const picked = [f.env, f.plain, f.pem].map(info);
+    const plan = planDrop(picked, await Promise.all(picked.map((p) => checkDrop(p.path))));
+    expect(plan.send.map((x) => x.name)).toEqual(['notes.txt']);
+    expect(plan.ask.map((x) => x.name)).toEqual(['.env']);
+    expect(plan.refused).toEqual([{ name: 'server.pem', reason: 'keys and certificates stay on this Mac' }]);
+    const ask = envAsk(plan.ask, 'AWS server', () => undefined);
+    expect(ask).toMatchObject({ title: 'Send .env to AWS server?', confirm: 'Send Once', cancel: 'Don’t Send' });
+    expect(JSON.stringify(ask)).not.toContain('sk_live');
   });
 });

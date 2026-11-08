@@ -4,7 +4,9 @@ import { Icon } from '../components/Icon.js';
 import { inApp, webServed } from '../lib/boot.js';
 import { toast, useApi, useBeluga, useMachine, useScopedKey } from '../lib/beluga.js';
 import { cx } from '../components/ui.js';
-import { type Sending, sendFiles, sentShare } from './attachments.js';
+import { type DropVerdict, type Sending, envAsk, planDrop, sendFiles, sentShare } from './attachments.js';
+import { openSheet } from '../lib/sheets.js';
+import { currentMachines } from '../machines/use-machines.js';
 import { type Box, MAX_DROPPED, dropHits, droppedFiles, sameBox } from './drop-model.js';
 import { imageLinksIn } from '@beluga/shared/attachment-links.js';
 import { type RefKey, boxRef, plainRefs, refKey, referencedImages, withoutRef } from './image-refs.js';
@@ -231,15 +233,28 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     const { files: picked, skipped } = droppedFiles(infos);
     if (skipped) toast(client, picked.length ? `Only files go with a message: ${skipped} left out` : 'Only files go with a message (not folders)', 'warn');
     if (!picked.length) return;
-    const arrived = await sendFiles(
-      (machine, n, file, off) => home.call('machines.upload.send', machine, n, file, off),
-      there,
-      picked,
-      setSending,
-      (f, err) => toast(client, `Couldn't send ${f.name}: ${errorText(err)}`, 'error'),
-    );
-    if (arrived.length) await addPaths(arrived);
-    box.current?.focus();
+    // The env send's rules (BLG-854): keys and credential folders stay here; an env file asks first.
+    let checks: readonly DropVerdict[];
+    try {
+      checks = await home.call('machines.upload.check', picked.map((f) => f.path));
+    } catch (err) {
+      return toast(client, `Couldn't add what you dropped: ${errorText(err)}`, 'error');
+    }
+    const plan = planDrop(picked, checks);
+    for (const r of plan.refused) toast(client, `${r.name} stays on this Mac: ${r.reason}`, 'warn');
+    const go = async (files: readonly PathInfo[], env: boolean): Promise<void> => {
+      const arrived = await sendFiles(
+        (machine, n, file, off) => home.call('machines.upload.send', machine, n, file, off, env ? { env: true } : undefined),
+        there,
+        files,
+        setSending,
+        (f, err) => toast(client, `Couldn't send ${f.name}: ${errorText(err)}`, 'error'),
+      );
+      if (arrived.length) await addPaths(arrived);
+      box.current?.focus();
+    };
+    if (plan.send.length) await go(plan.send, false);
+    if (plan.ask.length) openSheet(envAsk(plan.ask, currentMachines().find((m) => m.id === there)?.name ?? 'that computer', () => void go(plan.ask, true)));
   };
 
   /** Paths dropped from Finder: the files among them go as a paste of their paths would. */
