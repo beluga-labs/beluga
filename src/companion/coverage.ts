@@ -302,6 +302,10 @@ export const PHONE: Record<Method, Side> = {
   'stripe.connect': 'mac',
   'stripe.disconnect': 'mac',
   'stripe.refresh': 'mac',
+  'revenuecat.connect': 'mac',
+  'revenuecat.disconnect': 'mac',
+  'revenuecat.refresh': 'mac',
+  'revenuecat.setApps': 'mac',
 
   // ---- supporting Beluga: the star and coffee asks are the Mac's (they open web pages there)
   'support.answer': 'mac',
