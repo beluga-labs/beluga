@@ -34,11 +34,14 @@ async function setUp(page: Page): Promise<{ words: string; name: string }> {
   const refunds = sidebar(page).getByRole('button', { name: 'refunds' });
   if (!(await refunds.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api, shared by bob' }).getByRole('button', { name: "Show what's in bob-api" }).click();
   await refunds.click();
+  // The click returns before the view moves: words typed now would stay in the last chat's box (its draft).
+  await expect(page.locator(`[data-chat-box="${REFUNDS}"]`)).toBeVisible();
   return { words: `compare with @${mine.name} (chat: ${mine.self}/ws:${mine.id})`, name: mine.name };
 }
 
 async function sendAndAsk(page: Page, words: string, name: string) {
   await composer(page).fill(words);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await composer(page).press('Enter');
   const sheet = page.getByRole('alertdialog', { name: `Share a copy of “${name}” with bob?` });
   await expect(sheet).toBeVisible();
@@ -57,10 +60,12 @@ test('Share Copy: the copy of your chat goes with the message', async ({ page })
 
 test('Send Without It: the words go, and no copy', async ({ page }) => {
   const { words, name } = await setUp(page);
+  // The file's tests share one demo: only the message this test sends counts.
+  const before = (await sentThere(page)).length;
   const sheet = await sendAndAsk(page, words, name);
   await sheet.getByRole('button', { name: 'Send Without It' }).click();
-  await expect.poll(async () => (await sentThere(page)).some((t) => t.startsWith('compare with'))).toBe(true);
-  expect((await sentThere(page)).some((t) => t.includes('A copy of the chat'))).toBe(false);
+  await expect.poll(async () => (await sentThere(page)).slice(before).some((t) => t.startsWith('compare with'))).toBe(true);
+  expect((await sentThere(page)).slice(before).some((t) => t.includes('A copy of the chat'))).toBe(false);
 });
 
 test('Cancel: nothing leaves, and the words stay in the box', async ({ page }) => {
