@@ -343,6 +343,8 @@ export const API = {
   'workspaces.addProject': args(path),
   'workspaces.addFolder': args(path),
   'workspaces.selectFile': args(z.number().int().min(0)),
+  // Work out changed file N's diff ahead of a click (the file under the pointer): the pick then shows it at once (BLG-853).
+  'workspaces.diffAhead': args(z.number().int().min(0)),
   // Load (or reload) what changed in a workspace without going to it (the Mac app's Changes panel).
   'workspaces.review': args(id),
   // A workspace's scratch folder (.beluga/scratch/): where it is and its files, newest first. → { root, dir, files: [{ path, size, mtime }] }

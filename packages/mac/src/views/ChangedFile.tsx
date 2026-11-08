@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { type AppState, type Location, type ViewerState, fileKey } from '@beluga/core/store.js';
 import type { ChangedFile as Change } from '@beluga/workspaces/git.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
@@ -7,13 +7,15 @@ import type { DocVariant } from '../components/markdown/MarkdownDoc.js';
 import { hasRenderedLook, isVisualFile } from './reader/reader-model.js';
 import { peekFirst, readFirst } from './reader/streamed.js';
 import r from './reader/reader.module.css';
+import { ReaderContent } from './reader/reader-lazy.js';
 
 /**
  * A changed file as itself, next to its diff: Markdown formatted, web pages drawn, pictures and PDFs as they look,
  * code as it is now. Read on its own, so the Files tab's open file stays where it is.
  */
 
-const FileContent = lazy(() => import('./reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+// Drawn at once when the reader's code is already here (read ahead, BLG-853).
+const FileContent = ReaderContent;
 
 /** How a changed file can be looked at: its diff, or the file (a picture or a PDF only as itself). */
 export type ChangeLook = 'diff' | 'file';

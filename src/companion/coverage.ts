@@ -170,6 +170,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.addProject': 'mac',
   'workspaces.addFolder': 'mac',
   'workspaces.selectFile': 'mac',
+  'workspaces.diffAhead': 'mac',
   'workspaces.review': 'mac',
   // Paths on the Mac: the phone sees the scratch folder's files as outputs in a view instead.
   'workspaces.scratch': 'mac',

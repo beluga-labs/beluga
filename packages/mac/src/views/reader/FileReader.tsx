@@ -22,6 +22,7 @@ import { FileEditor } from './FileEditor.js';
 import { doneRevealing, scrollToLine, useReveal } from './reveal.js';
 import { peekFirst, useRest } from './streamed.js';
 import r from './reader.module.css';
+import { useFirstPaintMark } from '../../lib/first-paint.js';
 
 /**
  * One open file, read the right way: Markdown formatted (or as source), code with line numbers and
@@ -143,6 +144,7 @@ export function FileContent({ viewer, variant, mode, onMode, wrap, onOpenInEdito
   // Still opening: the first piece read ahead under the pointer shows meanwhile.
   const ahead = viewer.loading && !viewer.content && !viewer.error ? peekFirst(viewer) : undefined;
   const content = (ahead?.binary ? '' : (ahead?.content ?? viewer.content)) + rest.text;
+  useFirstPaintMark('beluga:file-shown', viewer.path, content.length > 0 && !viewer.error);
   const reveal = useReveal(viewer);
   const box = useRef<HTMLDivElement>(null);
   const markdown = isMarkdownFile(viewer.path);

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Location, ViewerState } from '@beluga/core/store.js';
 import type { FsEntry } from '@beluga/protocol.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
@@ -18,7 +18,7 @@ import { useRowItems } from '../../views/FilesView.js';
 import { type ReaderMode, hasRenderedLook, initialMode, isPdfFile } from '../../views/reader/reader-model.js';
 import { EditTools } from '../../views/reader/EditTools.js';
 import { pendingLine, revealLine } from '../../views/reader/reveal.js';
-import { aheadOnHover } from '../../views/reader/streamed.js';
+import { aheadOnHover, peekFirst } from '../../views/reader/streamed.js';
 import { ContentResultsList, FlagToggles, type SearchFlags, useContentSearch, useNameSearch } from './ContentSearch.js';
 import { useEditSession } from '../../views/reader/edit-store.js';
 import { SCROLL_ROOT } from '../../components/markdown/md-dom.js';
@@ -29,9 +29,11 @@ import s from './panel.module.css';
 import k from './content-search.module.css';
 import { revealLabel } from '../../lib/os-words.js';
 import { showWorktreeFolder, useRevealLabel } from '../../lib/remote-open.js';
+import { ReaderContent } from '../../views/reader/reader-lazy.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
-const FileContent = lazy(() => import('../../views/reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+// Drawn at once when the reader's code is already here (read ahead, BLG-853).
+const FileContent = ReaderContent;
 
 /** Folders you opened in each workspace's tree, kept while the window is open. */
 const opened = new Map<string, ReadonlySet<string>>();
@@ -177,7 +179,15 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
   const shown = viewer && viewer.owner === selfId && viewer.share === share ? viewer : undefined;
   // Open full size, the file is across the center: no second, smaller copy of it here.
   const inFocus = usePanelRuntime((r) => r.focus?.wsId === wsId && r.focus.kind === 'file');
-  const previewed = inFocus ? undefined : shown;
+  // Clicked, read ahead, and not answered yet (on a computer, a round trip away): drawn at once
+  // from the read-ahead until Beluga's own viewer has it (BLG-853).
+  const [opening, setOpening] = useState<Location>();
+  const answered = Boolean(opening && shown && shown.path === opening.path && !shown.loading);
+  useEffect(() => {
+    if (answered) setOpening(undefined);
+  }, [answered]);
+  const early: ViewerState | undefined = opening && !answered ? { ...opening, content: '', truncated: false, loading: true, scroll: 0 } : undefined;
+  const previewed = inFocus ? undefined : (early ?? shown);
   useEffect(() => {
     if (!shown) return;
     const up = ancestorsOf(shown.path);
@@ -221,7 +231,9 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
   const activate = (row: TreeRow): void => {
     setCursor(row.path);
     if (row.dir) return q ? undefined : toggle(row.path);
-    void api.files.open(at(row.path));
+    const where = at(row.path);
+    setOpening(peekFirst(where) ? where : undefined);
+    void api.files.open(where).catch(() => setOpening(undefined));
   };
   const localOf = (path: string): string | undefined => localPathOf(client.store.getState(), at(path));
   const itemsFor = (row: TreeRow): ActionItem[] => {

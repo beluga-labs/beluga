@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useRef, useState } from 'react';
 import type { BrowserRow, ViewerState } from '@beluga/core/store.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { formatBytes } from '@beluga/shared/format.js';
@@ -15,11 +15,13 @@ import { SearchField, SearchResults } from './SharedSearch.js';
 import s from './files.module.css';
 import { revealLabel } from '../lib/os-words.js';
 import { useRevealFileLabel, useRevealLabel } from '../lib/remote-open.js';
+import { ReaderContent } from './reader/reader-lazy.js';
 
 export { LANG, ext } from './reader/reader-model.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
-const FileContent = lazy(() => import('./reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+// Drawn at once when the reader's code is already here (read ahead, BLG-853).
+const FileContent = ReaderContent;
 
 /** A decoded image (RGBA pixels) drawn at its size, scaled down to fit. */
 export function Bitmap({ image }: { image: NonNullable<ViewerState['image']> }) {

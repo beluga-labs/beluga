@@ -22,6 +22,7 @@ import { ResizeHandle } from './ResizeHandle.js';
 import { showGitTrouble } from '../../lib/git-trouble.js';
 import s from './panel.module.css';
 import { shortcutKeys } from '../../lib/shortcuts.js';
+import { useFirstPaintMark } from '../../lib/first-paint.js';
 
 /** The last answer Claude finished in this workspace (its edits may have changed what's shown). */
 function useLastTurn(wsId: string): string {
@@ -163,6 +164,28 @@ function Actions({ wsId }: { wsId: string }) {
   );
 }
 
+/** Diffs read ahead under the pointer (workspaces.diffAhead), for the changes they were read in. */
+const diffsAhead = new Map<string, { readonly diff: string; readonly data: object; readonly at: number }>();
+const DIFF_AHEAD_MS = 10_000;
+
+function readDiffAhead(api: ReturnType<typeof useApi>, wsId: string, path: string, index: number, data: object | undefined): void {
+  if (!data) return;
+  void api.workspaces.diffAhead(index).then(
+    (diff) => {
+      if (typeof diff !== 'string') return;
+      if (diffsAhead.size >= 32) diffsAhead.delete(diffsAhead.keys().next().value as string);
+      diffsAhead.set(`${wsId}\0${path}`, { diff, data, at: Date.now() });
+    },
+    () => undefined,
+  );
+}
+
+/** A diff read ahead for these very changes, moments ago. */
+function peekDiff(wsId: string, path: string, data: object): string | undefined {
+  const ahead = diffsAhead.get(`${wsId}\0${path}`);
+  return ahead && ahead.data === data && Date.now() - ahead.at < DIFF_AHEAD_MS ? ahead.diff : undefined;
+}
+
 /**
  * The selected file, compact: its diff, or the file as itself (Markdown formatted, a picture or a
  * PDF only as itself), with the way to see it full size or in Files.
@@ -178,8 +201,10 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
   // Keep showing the last diff of this file while it reloads.
   const last = useRef<{ path: string; diff: string } | undefined>(undefined);
   if (current !== undefined) last.current = { path, diff: current };
-  const diff = current ?? (last.current?.path === path ? last.current.diff : undefined);
+  // Picked a moment ago and read ahead: drawn now, while the pick goes to where it runs (BLG-853).
+  const diff = current ?? (last.current?.path === path ? last.current.diff : undefined) ?? (review?.data ? peekDiff(wsId, path, review.data) : undefined);
   const lines = useMemo(() => (diff ? parseDiff(diff) : []), [diff]);
+  useFirstPaintMark('beluga:diff-shown', path, lines.length > 0);
   const name = path.split('/').pop() ?? path;
   const mine = file?.path === path ? file : undefined;
   const st = mine ? STATE[mine.state] : undefined;
@@ -346,7 +371,11 @@ export function ChangesTab({ wsId }: { wsId: string }) {
           aria-selected={on}
           className={cx(s.row, inFolder && s.rowInFolder, on && s.rowOn)}
           title={f.path}
-          {...aheadOnHover(api, () => (asFiles && canShowFile(f) ? changeLocation(client.store.getState(), f.path) : undefined))}
+          {...aheadOnHover(api, () => {
+            // Shown as its diff: the diff is worked out ahead instead (BLG-853).
+            if (!asFiles && !onlyAsFile(f.path) && !on) readDiffAhead(api, wsId, f.path, i, data);
+            return asFiles && canShowFile(f) ? changeLocation(client.store.getState(), f.path) : undefined;
+          })}
           onClick={() => show(i)} onDoubleClick={() => (show(i), openFocus('diff', wsId))}>
           <span className={cx(d.letter, st.tone)}>{st.letter}</span>
           <span className={s.rowName}>

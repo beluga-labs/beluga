@@ -368,6 +368,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.removeProject` | a project's ⋯ / right-click menu › Delete Project… (out of Beluga; its folder goes to the Trash only if ticked) |
 | `workspaces.addFolder` | ✓ |
 | `workspaces.selectFile` | ✓ |
+| `workspaces.diffAhead` | ✓ (no surface of its own) the changed file under the pointer in Changes: its diff worked out ahead, so the click shows it at once (BLG-853) |
 | `workspaces.review` | the right panel's Changes tab (loads and refreshes the changes while you stay in the chat) |
 | `workbench.run` | ✓ |
 | `workbench.stopRun` | ✓ |

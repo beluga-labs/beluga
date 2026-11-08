@@ -172,6 +172,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'workspaces.addProject': 'drive',
   'workspaces.addFolder': 'drive',
   'workspaces.selectFile': 'drive',
+  'workspaces.diffAhead': 'drive',
   'workspaces.review': 'drive',
   'workspaces.scratch': 'drive',
   // ---- workbench

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { type Location, type ViewerDomain, clean } from '@beluga/core/store.js';
 import { FIRST_RANGE, MAX_STREAM_BYTES, type RangeOptions, type TextRange } from '@beluga/shared/text-range.js';
 import { isVisualFile } from './reader-model.js';
+import { loadReader } from './reader-lazy.js';
 
 /**
  * Files read in pieces (BLG-791): the first screen first, the rest as you scroll, and the file under
@@ -49,6 +50,8 @@ export function readFirst(api: RangeApi, at: Location, cache: boolean): Promise<
 /** Read a file's first piece ahead of a click (pictures and PDFs are read as themselves, not here). */
 export function readAhead(api: RangeApi, at: Location): void {
   const key = keyOf(at);
+  // The reader's own code comes ahead too: the click draws, never waits for a chunk to load.
+  void loadReader();
   if (isVisualFile(at.path) || asking.has(key)) return;
   const p = readFirst(api, at, true)
     .catch(() => undefined)
