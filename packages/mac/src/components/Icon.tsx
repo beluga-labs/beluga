@@ -171,6 +171,8 @@ const PATHS = {
   macStudio: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3z M4.5 10.25h1.75 M7.5 10.25h1.75 M11.5 10.25h.01',
   /** An iMac: the screen, its chin and its stand. */
   imac: 'M2.5 2.5h11a1 1 0 0 1 1 1v6h-13v-6a1 1 0 0 1 1-1z M1.5 9.5h13v1a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z M6.5 11.5l-.5 2h4l-.5-2',
+  /** A virtual machine: a computer inside a computer (VirtualBox, Parallels, Hyper-V, Apple Virtualization). */
+  vm: 'M2.5 3h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M5 5.75h6v4.5H5z M6.75 12.25v.01 M9.25 12.25v.01',
   /** A PC: a screen beside its tower (Windows' own mark isn't ours to use). */
   pc: 'M1.5 3.5h7.5v6H1.5z M3.5 12.75h3.5 M5.25 9.5v3.25 M11 2.5h3.5v11H11z M12.75 4.75h.01',
   server: 'M3 2.5h10a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z M3 9h10a.5.5 0 0 1 .5.5V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V9.5A.5.5 0 0 1 3 9z M5 4.75h.01 M5 11.25h.01',

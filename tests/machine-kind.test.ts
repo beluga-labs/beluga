@@ -5,9 +5,10 @@ import { type KindReaders, METADATA_TIMEOUT_MS, cloudRegion, detectKind, distroF
 
 type Files = Record<string, string>;
 
-function readers(platform: NodeJS.Platform, files: Files = {}, sysctl: Record<string, string> = {}, fetch?: KindReaders['fetch']): KindReaders {
+function readers(platform: NodeJS.Platform, files: Files = {}, sysctl: Record<string, string> = {}, fetch?: KindReaders['fetch'], env?: Record<string, string>): KindReaders {
   return {
     platform,
+    ...(env ? { env } : {}),
     read: async (f) => files[f]?.trim() || undefined,
     exists: async (f) => f in files,
     sysctl: async (n) => sysctl[n],
@@ -27,13 +28,31 @@ const LINUX: Array<[string, Files, string]> = [
   ['an EC2 instance known by its asset tag alone', dmi('', '', { board: 'i-0abc1234def567890' }), 'aws'],
   ['Google Compute Engine', dmi('Google', 'Google Compute Engine'), 'gcp'],
   ['an Azure VM', dmi('Microsoft Corporation', 'Virtual Machine', { chassis: '7783-7084-3265-9085-8269-3286-77' }), 'azure'],
-  ['Hyper-V on a desk (no Azure tag)', dmi('Microsoft Corporation', 'Virtual Machine', { chassis: 'None' }), 'linux'],
+  ['Hyper-V on a desk (no Azure tag)', dmi('Microsoft Corporation', 'Virtual Machine', { chassis: 'None' }), 'hyperv'],
   ['a DigitalOcean droplet', dmi('DigitalOcean', 'Droplet'), 'digitalocean'],
   ['a Hetzner cloud server', dmi('Hetzner', 'vServer'), 'hetzner'],
   ['a Raspberry Pi 5', { '/proc/device-tree/model': 'Raspberry Pi 5 Model B Rev 1.0\0' }, 'raspberry-pi'],
   ['a Docker container', { '/.dockerenv': '' }, 'docker'],
   ['a Docker container on EC2 (the container is what Beluga runs in)', { '/.dockerenv': '', ...dmi('Amazon EC2', 'm6i.large') }, 'docker'],
-  ['a container known by its cgroup', { '/proc/1/cgroup': '0::/system.slice/containerd.service/kubepods-besteffort' }, 'docker'],
+  ['a Kubernetes pod known by its cgroup', { '/proc/1/cgroup': '0::/system.slice/containerd.service/kubepods-besteffort' }, 'kubernetes'],
+  ['a container known by its cgroup', { '/proc/1/cgroup': '0::/system.slice/containerd.service/cri-containerd-3f2a.scope' }, 'docker'],
+  ['an Oracle Cloud instance', dmi('Oracle Corporation', 'Standard PC (i440FX + PIIX, 1996)', { chassis: 'OracleCloud.com' }), 'oracle'],
+  ['VirtualBox 7 (Oracle as vendor, not Oracle Cloud)', dmi('Oracle Corporation', 'VirtualBox'), 'virtualbox'],
+  ['older VirtualBox', dmi('innotek GmbH', 'VirtualBox'), 'virtualbox'],
+  ['a Linode', dmi('Linode', 'Compute Instance'), 'linode'],
+  ['a Vultr server', dmi('Vultr', 'VC2'), 'vultr'],
+  ['a Scaleway instance', dmi('Scaleway', 'SCW-DEV1-S'), 'scaleway'],
+  ['an OVH VPS', dmi('OVH SAS', 'vps-2024'), 'ovh'],
+  ['an Alibaba Cloud ECS', dmi('Alibaba Cloud', 'Alibaba Cloud ECS'), 'alibaba'],
+  ['an UpCloud server', dmi('UpCloud', 'Cloud Server'), 'upcloud'],
+  ['an Exoscale instance', dmi('Exoscale', 'Compute'), 'exoscale'],
+  ['a VMware VM', dmi('VMware, Inc.', 'VMware Virtual Platform'), 'vmware'],
+  ['a Parallels VM', dmi('Parallels International GmbH.', 'Parallels ARM Virtual Machine'), 'parallels'],
+  ['Proxmox (QEMU)', dmi('QEMU', 'Standard PC (Q35 + ICH9, 2009)'), 'qemu'],
+  ['KVM by Red Hat', dmi('Red Hat', 'KVM'), 'qemu'],
+  ['Apple Virtualization', dmi('Apple Inc.', 'Apple Virtualization Generic Platform'), 'apple-vm'],
+  ['WSL 2', { '/proc/version': 'Linux version 5.15.153.1-microsoft-standard-WSL2 (root@941d701f84f1)' }, 'wsl'],
+  ['a Docker container in WSL (the container is what Beluga runs in)', { '/.dockerenv': '', '/proc/version': 'Linux version 5.15.153.1-microsoft-standard-WSL2' }, 'docker'],
   ['a Podman container', { '/run/.containerenv': '' }, 'podman'],
   ['a Podman container known by its cgroup', { '/proc/1/cgroup': '0::/machine.slice/libpod-3f2a.scope' }, 'podman'],
   ['a plain Linux box', dmi('Dell Inc.', 'OptiPlex 7090'), 'linux'],
@@ -157,5 +176,22 @@ describe('which Linux, from os-release', () => {
     expect(await detectKind(readers('linux', { ...ubuntu, ...dmi('Amazon EC2', 'm6i.large') }))).toEqual({ kind: 'aws', distro: 'ubuntu', distroVersion: '24.04' });
     expect(await detectKind(readers('linux', { '/usr/lib/os-release': 'ID=fedora\nVERSION_ID=41\n' }))).toEqual({ kind: 'linux', distro: 'fedora', distroVersion: '41' });
     expect(await detectKind(readers('darwin', ubuntu, { 'hw.model': 'Mac14,3' }))).toEqual({ kind: 'mac-mini' });
+  });
+});
+
+describe('hosts that say what they are in their environment', () => {
+  const ENV: Array<[string, Record<string, string>, string]> = [
+    ['GitHub Codespaces', { CODESPACES: 'true' }, 'codespaces'],
+    ['Fly.io', { FLY_APP_NAME: 'beluga-box' }, 'fly'],
+    ['Railway', { RAILWAY_ENVIRONMENT: 'production' }, 'railway'],
+    ['Render', { RENDER: 'true' }, 'render'],
+    ['Kubernetes', { KUBERNETES_SERVICE_HOST: '10.0.0.1' }, 'kubernetes'],
+  ];
+  it.each(ENV)('%s', async (_name, env, kind) => {
+    // They run in containers: the host wins over the container.
+    expect(await localKind(readers('linux', { '/.dockerenv': '' }, {}, undefined, env))).toBe(kind);
+  });
+  it('a variable that says nothing changes nothing', async () => {
+    expect(await localKind(readers('linux', {}, {}, undefined, { CODESPACES: 'false', HOME: '/root' }))).toBe('linux');
   });
 });

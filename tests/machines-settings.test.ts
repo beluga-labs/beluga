@@ -30,6 +30,13 @@ describe('a computer’s row', () => {
     expect(machineLook({ kind: 'docker', platform: 'linux', distro: 'debian' }).brand).toBe('docker');
     expect(kindLine({ kind: 'linux', platform: 'linux', distro: 'ubuntu', distroVersion: '24.04' })).toBe('Ubuntu 24.04');
     expect(kindLine({ kind: 'linux', platform: 'linux', distro: 'arch' })).toBe('Arch Linux');
+    // WSL shows its distribution and says it's WSL; other clouds, hosts and VMs have their own mark or the app's.
+    expect(machineLook({ kind: 'wsl', platform: 'linux', distro: 'ubuntu' }).brand).toBe('ubuntu');
+    expect(kindLine({ kind: 'wsl', platform: 'linux', distro: 'ubuntu', distroVersion: '24.04' })).toBe('Ubuntu 24.04 · WSL');
+    expect(machineLook({ kind: 'codespaces', platform: 'linux' }).brand).toBe('github');
+    expect(machineLook({ kind: 'linode', platform: 'linux' }).brand).toBe('akamai');
+    expect(machineLook({ kind: 'virtualbox', platform: 'linux' })).toEqual({ glyph: 'vm' });
+    expect(machineLook({ kind: 'oracle', platform: 'linux' })).toEqual({ glyph: 'cloud' });
     expect(machineLook({ kind: 'docker', platform: 'linux' })).toEqual({ brand: 'docker', glyph: 'box' });
     expect(machineLook({ kind: 'raspberry-pi', platform: 'linux' }).brand).toBe('raspberrypi');
     // The icon kept on the computer wins; `auto` is the kind's own.
@@ -94,7 +101,7 @@ describe('the brand marks', () => {
   it('every shipped mark is listed with its source in THIRD_PARTY_ICONS.md', () => {
     const doc = readFileSync('THIRD_PARTY_ICONS.md', 'utf8');
     const files = readdirSync('packages/mac/src/machines/icons/brands').filter((f) => f.endsWith('.svg'));
-    expect(files.sort()).toEqual(['almalinux.svg', 'alpinelinux.svg', 'archlinux.svg', 'aws.svg', 'azure.svg', 'centos.svg', 'debian.svg', 'digitalocean.svg', 'docker.svg', 'fedora.svg', 'gentoo.svg', 'googlecloud.svg', 'hetzner.svg', 'kalilinux.svg', 'linux.svg', 'linuxmint.svg', 'manjaro.svg', 'nixos.svg', 'opensuse.svg', 'podman.svg', 'popos.svg', 'raspberrypi.svg', 'redhat.svg', 'rockylinux.svg', 'ubuntu.svg']);
+    expect(files.sort()).toEqual(['akamai.svg', 'alibabacloud.svg', 'almalinux.svg', 'alpinelinux.svg', 'archlinux.svg', 'aws.svg', 'azure.svg', 'centos.svg', 'debian.svg', 'digitalocean.svg', 'docker.svg', 'exoscale.svg', 'fedora.svg', 'flydotio.svg', 'gentoo.svg', 'github.svg', 'googlecloud.svg', 'hetzner.svg', 'kalilinux.svg', 'kubernetes.svg', 'linux.svg', 'linuxmint.svg', 'manjaro.svg', 'nixos.svg', 'opensuse.svg', 'ovh.svg', 'podman.svg', 'popos.svg', 'qemu.svg', 'railway.svg', 'raspberrypi.svg', 'redhat.svg', 'render.svg', 'rockylinux.svg', 'scaleway.svg', 'ubuntu.svg', 'upcloud.svg', 'vmware.svg', 'vultr.svg']);
     for (const f of files) expect(doc).toMatch(new RegExp(`\\| \`${f.replace('.', '\\.')}\` \\|[^\\n]*https://`));
     // As they came: a plain Simple Icons file, its own title, nothing added.
     for (const f of files.filter((f) => !(f in FULL_COLOUR))) expect(readFileSync(`packages/mac/src/machines/icons/brands/${f}`, 'utf8')).toMatch(/^<svg role="img" viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg"><title>[^<]+<\/title><path d="[^"]+"\/><\/svg>\n?$/);

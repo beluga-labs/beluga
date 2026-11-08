@@ -37,7 +37,21 @@ export type Brand =
   | 'manjaro'
   | 'popos'
   | 'gentoo'
-  | 'kalilinux';
+  | 'kalilinux'
+  | 'github'
+  | 'akamai'
+  | 'vultr'
+  | 'scaleway'
+  | 'ovh'
+  | 'alibabacloud'
+  | 'upcloud'
+  | 'exoscale'
+  | 'flydotio'
+  | 'railway'
+  | 'render'
+  | 'kubernetes'
+  | 'vmware'
+  | 'qemu';
 
 // Said the same on the phone (BLG-810).
 export { KIND_WORDS } from '../../../../src/machines/words.js';
@@ -53,6 +67,19 @@ const KIND_LOOK: Record<MachineKind, { readonly brand?: Brand; readonly glyph: I
   azure: { brand: 'azure', glyph: 'cloud' },
   digitalocean: { brand: 'digitalocean', glyph: 'cloud' },
   hetzner: { brand: 'hetzner', glyph: 'server' },
+  oracle: { glyph: 'cloud' },
+  linode: { brand: 'akamai', glyph: 'cloud' },
+  vultr: { brand: 'vultr', glyph: 'cloud' },
+  scaleway: { brand: 'scaleway', glyph: 'cloud' },
+  ovh: { brand: 'ovh', glyph: 'cloud' },
+  alibaba: { brand: 'alibabacloud', glyph: 'cloud' },
+  upcloud: { brand: 'upcloud', glyph: 'cloud' },
+  exoscale: { brand: 'exoscale', glyph: 'cloud' },
+  codespaces: { brand: 'github', glyph: 'cloud' },
+  fly: { brand: 'flydotio', glyph: 'cloud' },
+  railway: { brand: 'railway', glyph: 'cloud' },
+  render: { brand: 'render', glyph: 'cloud' },
+  kubernetes: { brand: 'kubernetes', glyph: 'box' },
   'mac-mini': { glyph: 'macMini' },
   macbook: { glyph: 'laptop' },
   'mac-studio': { glyph: 'macStudio' },
@@ -61,6 +88,14 @@ const KIND_LOOK: Record<MachineKind, { readonly brand?: Brand; readonly glyph: I
   'raspberry-pi': { brand: 'raspberrypi', glyph: 'chip' },
   docker: { brand: 'docker', glyph: 'box' },
   podman: { brand: 'podman', glyph: 'box' },
+  // Oracle's own marks (Oracle Cloud, VirtualBox), Parallels', Microsoft's and Apple's aren't ours to use: the app's own.
+  wsl: { glyph: 'pc' },
+  vmware: { brand: 'vmware', glyph: 'vm' },
+  qemu: { brand: 'qemu', glyph: 'vm' },
+  virtualbox: { glyph: 'vm' },
+  parallels: { glyph: 'vm' },
+  hyperv: { glyph: 'vm' },
+  'apple-vm': { glyph: 'vm' },
   linux: { brand: 'linux', glyph: 'server' },
   windows: { glyph: 'pc' },
 };
@@ -100,7 +135,7 @@ export const ICON_CHOICES: ReadonlyArray<{ readonly value: MachineIcon; readonly
 export function machineLook(m: Pick<MachineView, 'icon' | 'kind' | 'platform'> & { readonly distro?: LinuxDistro }): { readonly brand?: Brand; readonly glyph: IconName } {
   if (m.icon && m.icon !== 'auto') return { glyph: m.icon };
   // A plain Linux box (or one whose kind isn't known yet) shows its distribution's mark.
-  if (m.distro && (!m.kind || m.kind === 'linux')) return { brand: DISTRO_BRAND[m.distro], glyph: 'server' };
+  if (m.distro && (!m.kind || m.kind === 'linux' || m.kind === 'wsl')) return { brand: DISTRO_BRAND[m.distro], glyph: 'server' };
   if (m.kind) return KIND_LOOK[m.kind];
   return m.platform === 'macos' ? { glyph: 'desktop' } : m.platform === 'windows' ? { glyph: 'pc' } : { brand: 'linux', glyph: 'server' };
 }
@@ -108,7 +143,7 @@ export function machineLook(m: Pick<MachineView, 'icon' | 'kind' | 'platform'> &
 /** "AWS · eu-west-1", "Mac mini", or the platform when the kind isn't known yet. */
 export function kindLine(m: Pick<MachineView, 'kind' | 'region' | 'platform'> & { readonly distro?: LinuxDistro; readonly distroVersion?: string }): string {
   // A plain Linux box says which one: "Ubuntu 24.04".
-  if (m.distro && (!m.kind || m.kind === 'linux')) return [DISTRO_WORDS[m.distro], m.distroVersion].filter(Boolean).join(' ');
+  if (m.distro && (!m.kind || m.kind === 'linux' || m.kind === 'wsl')) return [DISTRO_WORDS[m.distro], m.distroVersion].filter(Boolean).join(' ') + (m.kind === 'wsl' ? ' · WSL' : '');
   const kind = m.kind ? KIND_WORDS[m.kind] : m.platform === 'macos' ? 'Mac' : m.platform === 'windows' ? 'Windows' : 'Linux';
   return m.region ? `${kind} · ${m.region}` : kind;
 }

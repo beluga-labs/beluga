@@ -1,3 +1,5 @@
+import akamai from './icons/brands/akamai.svg';
+import alibabacloud from './icons/brands/alibabacloud.svg';
 import almalinux from './icons/brands/almalinux.svg';
 import alpinelinux from './icons/brands/alpinelinux.svg';
 import archlinux from './icons/brands/archlinux.svg';
@@ -7,22 +9,34 @@ import centos from './icons/brands/centos.svg';
 import debian from './icons/brands/debian.svg';
 import digitalocean from './icons/brands/digitalocean.svg';
 import docker from './icons/brands/docker.svg';
+import exoscale from './icons/brands/exoscale.svg';
 import fedora from './icons/brands/fedora.svg';
+import flydotio from './icons/brands/flydotio.svg';
 import gentoo from './icons/brands/gentoo.svg';
+import github from './icons/brands/github.svg';
 import googlecloud from './icons/brands/googlecloud.svg';
 import hetzner from './icons/brands/hetzner.svg';
 import kalilinux from './icons/brands/kalilinux.svg';
+import kubernetes from './icons/brands/kubernetes.svg';
 import linux from './icons/brands/linux.svg';
 import linuxmint from './icons/brands/linuxmint.svg';
 import manjaro from './icons/brands/manjaro.svg';
 import nixos from './icons/brands/nixos.svg';
 import opensuse from './icons/brands/opensuse.svg';
+import ovh from './icons/brands/ovh.svg';
 import podman from './icons/brands/podman.svg';
 import popos from './icons/brands/popos.svg';
+import qemu from './icons/brands/qemu.svg';
+import railway from './icons/brands/railway.svg';
 import raspberrypi from './icons/brands/raspberrypi.svg';
 import redhat from './icons/brands/redhat.svg';
+import render from './icons/brands/render.svg';
 import rockylinux from './icons/brands/rockylinux.svg';
+import scaleway from './icons/brands/scaleway.svg';
 import ubuntu from './icons/brands/ubuntu.svg';
+import upcloud from './icons/brands/upcloud.svg';
+import vmware from './icons/brands/vmware.svg';
+import vultr from './icons/brands/vultr.svg';
 import type { Brand } from './model.js';
 
 /**
@@ -62,4 +76,19 @@ export const BRANDS: Record<Brand, BrandMark> = {
   popos: { url: popos, color: '#48B9C7', title: 'Pop!_OS' },
   gentoo: { url: gentoo, color: '#54487A', title: 'Gentoo' },
   kalilinux: { url: kalilinux, color: '#557C94', title: 'Kali Linux' },
+  // Other clouds, hosts and virtual machines (GitHub for Codespaces; Akamai for Linode).
+  akamai: { url: akamai, color: '#0096D6', title: 'Akamai' },
+  alibabacloud: { url: alibabacloud, color: '#FF6A00', title: 'Alibaba Cloud' },
+  exoscale: { url: exoscale, color: '#DA291C', title: 'Exoscale' },
+  flydotio: { url: flydotio, color: '#24175B', title: 'Fly.io' },
+  github: { url: github, color: 'var(--text)', title: 'GitHub' },
+  kubernetes: { url: kubernetes, color: '#326CE5', title: 'Kubernetes' },
+  ovh: { url: ovh, color: '#123F6D', title: 'OVH' },
+  qemu: { url: qemu, color: '#FF6600', title: 'QEMU' },
+  railway: { url: railway, color: 'var(--text)', title: 'Railway' },
+  render: { url: render, color: 'var(--text)', title: 'Render' },
+  scaleway: { url: scaleway, color: '#4F0599', title: 'Scaleway' },
+  upcloud: { url: upcloud, color: '#7B00FF', title: 'UpCloud' },
+  vmware: { url: vmware, color: '#607078', title: 'VMware' },
+  vultr: { url: vultr, color: '#007BFC', title: 'Vultr' },
 };

@@ -1,5 +1,6 @@
-import type { SocketClient } from '@beluga/ipc/socket-client.js';
-import type { PortForward } from '@beluga/shared/forwards.js';
+// Relative, not @beluga: the root's tests read this file too.
+import type { SocketClient } from '../../../../src/ipc/socket-client.js';
+import type { PortForward } from '../../../../src/shared/forwards.js';
 
 /**
  * A page a computer serves on its own localhost (a live preview, a dev server), as this Mac reaches

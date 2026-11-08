@@ -32,10 +32,11 @@ export type RuntimeHealth = z.infer<typeof RuntimeHealth>;
 export const MachineInfo = z.object({
   at: z.number().int().min(0),
   /** What kind of computer it is and, for a cloud server, its region (BLG-782, kind.ts). */
-  kind: z.enum(MACHINE_KINDS).optional(),
+  // A kind or distribution this side doesn't know yet (a newer computer) is left out, never the whole info.
+  kind: z.enum(MACHINE_KINDS).optional().catch(undefined),
   region: z.string().max(40).optional(),
   /** On Linux, which distribution and its version (kind.ts): its mark and "Ubuntu 24.04". */
-  distro: z.enum(LINUX_DISTROS).optional(),
+  distro: z.enum(LINUX_DISTROS).optional().catch(undefined),
   distroVersion: z.string().max(16).optional(),
   /** Its Beluga and the app protocol it speaks (BLG-777). */
   version: z.string().max(40).optional(),

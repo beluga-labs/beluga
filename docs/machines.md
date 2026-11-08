@@ -33,12 +33,18 @@ through a relay that carries only ciphertext when it doesn't.
 
 A computer works out what it is on its own, and each kind has its own mark:
 
-- **A cloud server** (AWS, Google Cloud, Azure, DigitalOcean, Hetzner), with its maker's logo and
-  its region.
+- **A cloud server**: AWS, Google Cloud, Azure, DigitalOcean and Hetzner with their logo and
+  region; Oracle Cloud, Akamai (Linode), Vultr, Scaleway, OVHcloud, Alibaba Cloud, UpCloud and
+  Exoscale with their logo.
+- **An app host** that says so in its environment: GitHub Codespaces, Fly.io, Railway, Render, or
+  a Kubernetes pod.
 - **A Linux computer** by its distribution (Ubuntu, Debian, Fedora, Arch, Alpine, CentOS, Red Hat,
   Rocky, AlmaLinux, openSUSE, NixOS, Linux Mint, Manjaro, Pop!_OS, Gentoo, Kali), with its logo and
   version ("Ubuntu 24.04"); any other Linux gets Tux.
-- **A Raspberry Pi, or a Docker or Podman container**, with its logo.
+- **A Raspberry Pi, or a Docker or Podman container**, with its logo; **WSL** shows its
+  distribution ("Ubuntu 24.04 · WSL").
+- **A virtual machine**: VMware and QEMU/KVM (Proxmox, UTM) with their logo; VirtualBox,
+  Parallels, Hyper-V and Apple Virtualization in Beluga's own icon.
 - **A Mac by model** (Mac mini, Mac Studio, iMac, MacBook) or **a Windows PC**, each drawn in
   Beluga's own icons: Apple and Microsoft don't let others use their logos.
 

@@ -40,9 +40,24 @@ endorses Beluga.
 | `popos.svg` | Pop!_OS | System76, Inc. | https://system76.com/pop | https://system76.com/trademark |
 | `gentoo.svg` | Gentoo | Gentoo Foundation, Inc. | https://www.gentoo.org | https://www.gentoo.org/inside-gentoo/foundation/name-logo-guidelines.html |
 | `kalilinux.svg` | Kali Linux | OffSec Services Limited | https://www.kali.org | https://www.kali.org/docs/policy/trademark/ |
+| `akamai.svg` | Akamai | Akamai Technologies (Linode) | https://www.akamai.com | https://www.akamai.com |
+| `alibabacloud.svg` | Alibaba Cloud | Alibaba Group | https://www.alibabagroup.com/en/ir/reports | https://www.alibabagroup.com/en/ir/reports |
+| `exoscale.svg` | Exoscale | Exoscale (A1 Digital) | https://www.exoscale.com/press/ | https://www.exoscale.com/press/ |
+| `flydotio.svg` | Fly.io | Fly.io, Inc. | https://fly.io/docs/about/brand | https://fly.io/docs/about/brand |
+| `github.svg` | GitHub | GitHub, Inc. (Codespaces) | https://github.com/logos | https://github.com/logos |
+| `kubernetes.svg` | Kubernetes | The Linux Foundation (CNCF) | https://github.com/kubernetes/kubernetes/tree/cac53883f4714452f3084a22e4be20d042a9df33/logo | https://github.com/kubernetes/kubernetes/tree/cac53883f4714452f3084a22e4be20d042a9df33/logo |
+| `ovh.svg` | OVH | OVH SAS | https://www.ovh.com/ca/en/newsroom/ | https://www.ovh.com/ca/en/newsroom/ |
+| `qemu.svg` | QEMU | The QEMU project | https://wiki.qemu.org/Logo | https://wiki.qemu.org/Logo |
+| `railway.svg` | Railway | Railway Corp. | https://railway.app | https://railway.app |
+| `render.svg` | Render | Render Services, Inc. | https://render.com | https://render.com |
+| `scaleway.svg` | Scaleway | Scaleway SAS | https://ultraviolet.scaleway.com | https://ultraviolet.scaleway.com |
+| `upcloud.svg` | UpCloud | UpCloud Ltd | https://upcloud.com/brand-assets/ | https://upcloud.com/brand-assets/ |
+| `vmware.svg` | VMware | Broadcom (VMware) | https://myvmware.workspaceair.com | https://myvmware.workspaceair.com |
+| `vultr.svg` | Vultr | Vultr Holdings | https://www.vultr.com/company/brand-assets | https://www.vultr.com/company/brand-assets |
 
 Any Linux without its own mark here gets Tux; a known distribution (read from its `os-release`)
-gets its own. Apple hardware (Mac mini, Mac Studio, iMac, MacBook) and Windows PCs get Beluga's own
-drawing of each, never Apple's or Microsoft's marks, which they don't let others use.
+gets its own. Apple hardware (Mac mini, Mac Studio, iMac, MacBook), Windows PCs and WSL, Oracle Cloud, and
+VirtualBox, Parallels, Hyper-V and Apple Virtualization machines get Beluga's own drawing, never
+Apple's, Microsoft's, Oracle's or Parallels' marks, which they don't let others use.
 
 Every other icon in the app is Beluga's own set (`packages/mac/src/components/Icon.tsx`).

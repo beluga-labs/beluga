@@ -14,7 +14,47 @@ import { access, readFile } from 'node:fs/promises';
  * without it the kind stands, without a region.
  */
 
-export const MACHINE_KINDS = ['aws', 'gcp', 'azure', 'digitalocean', 'hetzner', 'mac-mini', 'macbook', 'mac-studio', 'imac', 'mac', 'raspberry-pi', 'docker', 'podman', 'linux', 'windows'] as const;
+export const MACHINE_KINDS = [
+  // Clouds (the first five also say their region).
+  'aws',
+  'gcp',
+  'azure',
+  'digitalocean',
+  'hetzner',
+  'oracle',
+  'linode',
+  'vultr',
+  'scaleway',
+  'ovh',
+  'alibaba',
+  'upcloud',
+  'exoscale',
+  // Where an app is hosted, told by the variables it sets.
+  'codespaces',
+  'fly',
+  'railway',
+  'render',
+  'kubernetes',
+  // Macs by model.
+  'mac-mini',
+  'macbook',
+  'mac-studio',
+  'imac',
+  'mac',
+  // Boards, containers, virtual machines.
+  'raspberry-pi',
+  'docker',
+  'podman',
+  'wsl',
+  'vmware',
+  'qemu',
+  'virtualbox',
+  'parallels',
+  'hyperv',
+  'apple-vm',
+  'linux',
+  'windows',
+] as const;
 export type MachineKind = (typeof MACHINE_KINDS)[number];
 export type CloudKind = Extract<MachineKind, 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner'>;
 
@@ -38,6 +78,8 @@ export interface KindReaders {
   readonly exists: (file: string) => Promise<boolean>;
   /** `sysctl -n <name>` on a Mac. */
   readonly sysctl: (name: string) => Promise<string | undefined>;
+  /** Its environment variables: hosts like Codespaces, Fly.io, Railway and Render say so there. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
   /** A request to the metadata address; left out, no metadata is asked. */
   readonly fetch?: (url: string, init: { method?: 'GET' | 'PUT'; headers: Record<string, string>; signal: AbortSignal }) => Promise<{ ok: boolean; text(): Promise<string> }>;
 }
@@ -81,13 +123,48 @@ export function cloudFromDmi(dmi: { vendor?: string; product?: string; board?: s
   return undefined;
 }
 
-/** A container this runs in, from its marker files and PID 1's cgroup. */
-async function containerKind(r: KindReaders): Promise<'docker' | 'podman' | undefined> {
+/** Any other cloud or virtual machine from DMI (no region for these): the vendor's own words, recorded on each. */
+export function otherFromDmi(dmi: { vendor?: string; product?: string; chassis?: string }): MachineKind | undefined {
+  const vendor = dmi.vendor ?? '';
+  const product = dmi.product ?? '';
+  // VirtualBox before Oracle: since 7.0 its vendor is Oracle too.
+  if (/^VirtualBox$/i.test(product) || /^innotek/i.test(vendor)) return 'virtualbox';
+  if (/^Oracle Corporation$/i.test(vendor) && /^OracleCloud\.com$/i.test(dmi.chassis ?? '')) return 'oracle';
+  if (/^(Linode|Akamai)/i.test(vendor)) return 'linode';
+  if (/^Vultr$/i.test(vendor)) return 'vultr';
+  if (/^Scaleway$/i.test(vendor)) return 'scaleway';
+  if (/^OVH/i.test(vendor)) return 'ovh';
+  if (/^Alibaba Cloud$/i.test(vendor) || /^Alibaba Cloud ECS$/i.test(product)) return 'alibaba';
+  if (/^UpCloud$/i.test(vendor)) return 'upcloud';
+  if (/^Exoscale$/i.test(vendor)) return 'exoscale';
+  if (/^VMware/i.test(vendor) || /^VMware/i.test(product)) return 'vmware';
+  if (/^Parallels/i.test(vendor)) return 'parallels';
+  if (/^Microsoft Corporation$/i.test(vendor) && /^Virtual Machine$/i.test(product)) return 'hyperv';
+  if (/^Apple Inc\.?$/i.test(vendor) && /Virtuali[sz]ation/i.test(product)) return 'apple-vm';
+  // QEMU and KVM: Proxmox, libvirt, UTM's QEMU machines.
+  if (/^QEMU$/i.test(vendor) || /\bKVM\b/.test(product)) return 'qemu';
+  return undefined;
+}
+
+/** A host that says what it is in its environment (it also runs in a container: the host wins). */
+function hostFromEnv(env: Readonly<Record<string, string | undefined>> | undefined): MachineKind | undefined {
+  if (!env) return undefined;
+  if (env['CODESPACES'] === 'true') return 'codespaces';
+  if (env['FLY_APP_NAME'] || env['FLY_MACHINE_ID']) return 'fly';
+  if (env['RAILWAY_ENVIRONMENT'] || env['RAILWAY_PROJECT_ID']) return 'railway';
+  if (env['RENDER'] === 'true' || env['RENDER_SERVICE_ID']) return 'render';
+  if (env['KUBERNETES_SERVICE_HOST']) return 'kubernetes';
+  return undefined;
+}
+
+/** A container this runs in, from its marker files and PID 1's cgroup (a Kubernetes pod says kubepods). */
+async function containerKind(r: KindReaders): Promise<'docker' | 'podman' | 'kubernetes' | undefined> {
+  const cgroup = (await r.read('/proc/1/cgroup')) ?? '';
+  if (/kubepods/.test(cgroup)) return 'kubernetes';
   if (await r.exists('/run/.containerenv')) return 'podman';
   if (await r.exists('/.dockerenv')) return 'docker';
-  const cgroup = (await r.read('/proc/1/cgroup')) ?? '';
   if (/libpod/.test(cgroup)) return 'podman';
-  if (/docker|containerd|kubepods/.test(cgroup)) return 'docker';
+  if (/docker|containerd/.test(cgroup)) return 'docker';
   return undefined;
 }
 
@@ -95,13 +172,18 @@ async function containerKind(r: KindReaders): Promise<'docker' | 'podman' | unde
 export async function localKind(r: KindReaders): Promise<MachineKind> {
   if (r.platform === 'darwin') return macKind(await r.sysctl('hw.model'));
   if (r.platform === 'win32') return 'windows';
+  const host = hostFromEnv(r.env);
+  if (host) return host;
   const container = await containerKind(r);
   if (container) return container;
+  // Linux inside Windows (WSL 1 and 2 both say so in the kernel's version).
+  if (/microsoft|WSL/i.test((await r.read('/proc/version')) ?? '')) return 'wsl';
   const model = await r.read('/proc/device-tree/model');
   if (model && /Raspberry Pi/i.test(model)) return 'raspberry-pi';
   const dmi = '/sys/class/dmi/id';
   const [vendor, product, board, chassis] = await Promise.all(['sys_vendor', 'product_name', 'board_asset_tag', 'chassis_asset_tag'].map((f) => r.read(`${dmi}/${f}`)));
-  return cloudFromDmi({ ...(vendor ? { vendor } : {}), ...(product ? { product } : {}), ...(board ? { board } : {}), ...(chassis ? { chassis } : {}) }) ?? 'linux';
+  const said = { ...(vendor ? { vendor } : {}), ...(product ? { product } : {}), ...(board ? { board } : {}), ...(chassis ? { chassis } : {}) };
+  return cloudFromDmi(said) ?? otherFromDmi(said) ?? 'linux';
 }
 
 /** A region as clouds name them: letters, digits and dashes. */
@@ -202,6 +284,7 @@ export const realKindReaders: KindReaders = {
   platform: process.platform,
   read: (file) => readFile(file, 'utf8').then((t) => t.replace(/\0/g, '').trim() || undefined, () => undefined),
   exists: (file) => access(file).then(() => true, () => false),
+  env: process.env,
   sysctl: (name) =>
     new Promise((resolve) => {
       execFile('sysctl', ['-n', name], { timeout: 2_000 }, (err, out) => resolve(err ? undefined : String(out).trim() || undefined));
