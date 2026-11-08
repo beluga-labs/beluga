@@ -17,6 +17,7 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
   { id: 'environment', label: 'Environment', icon: 'lock', keywords: 'env .env variables secrets api keys' },
   { id: 'people', label: 'People & access', icon: 'people', keywords: 'friends trust network permissions' },
   { id: 'phone', label: 'Phone', icon: 'phone', keywords: 'android iphone mobile companion' },
+  { id: 'computers', label: 'Your Computers', icon: 'server', keywords: 'machines servers mac mini aws cloud ssh remote linux pair' },
   { id: 'voice', label: 'Voice', icon: 'mic', keywords: 'dictation speech microphone talk transcribe' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command', keywords: 'shortcuts keys hotkeys bindings' },
   { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser' },
@@ -239,6 +240,9 @@ export const SETTINGS: readonly Entry[] = [
   ]),
 
   // Phone
+  group('computers', 'Where new work runs', 'This computer, one of yours, or the least busy.', 'run new work machine best available'),
+  ...rows('computers', 'Where new work runs', [['Run New Work On', 'Worktrees, runs, plans and sentinels you start.', 'here best available machine computer']]),
+  group('computers', 'Your computers', 'Add one over SSH or with a code; rename, icon, Update It, Forget.', 'add ssh link code fingerprint rename icon forget update health'),
   group('phone', 'On the cable', 'A phone plugged into this computer.', 'usb cable adb plugged'),
   group('phone', 'Your phones', 'Paired phones, and Remove.', 'devices paired remove'),
   ...rows('phone', undefined, [

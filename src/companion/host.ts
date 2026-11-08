@@ -30,6 +30,7 @@ import { pathNote } from './diagnose.js';
 import {
   COMPANION_PROTO,
   type CompanionSlice,
+  type DeviceCert,
   type DataListView,
   type DialAttempt,
   type LinkPath,
@@ -131,6 +132,19 @@ export interface CompanionHostOptions {
   readonly home?: string;
   /** Where saved phone flows live (BLG-175); default ~/.beluga/phone-macros.json via launch. */
   readonly macrosFile?: string;
+  /** Your other devices (BLG-774, src/machines): apps and computers of your set come in here too. */
+  readonly machines?: MachinesPort;
+}
+
+/** What the host asks of your device set (src/machines/machines.ts). */
+export interface MachinesPort {
+  /** An app or computer of yours with this link key (hex), never a phone. */
+  admit(linkHex: string): DeviceCert | undefined;
+  /** Keep the node running (a computer pairing, a join, devices to keep in step). */
+  wanted(): boolean;
+  /** A computer pairing's temporary keys (they get a relay record too). */
+  keyPairs(): readonly KeyPair[];
+  accept(stream: NoiseSocket, cert: DeviceCert, overRelay: boolean): void;
 }
 
 /** The companion address's key pair: HKDF of your identity's seed, 'companion-v1'. */
@@ -928,9 +942,13 @@ export class CompanionHost {
   }
 
   private accept(stream: NoiseSocket, overRelay = false): void {
+    const linkHex = stream.remotePublicKey.toString('hex');
+    const device = this.opts.devices.byLink(linkHex);
+    // An app or computer of yours (BLG-774): its own door, never a phone's.
+    const mine = !device && !this.stopped ? this.opts.machines?.admit(linkHex) : undefined;
+    if (mine) return this.opts.machines!.accept(stream, mine, overRelay);
     const socket = fromStream(stream, { maxBytes: MAX_IN_BYTES, open: true });
     socket.on('error', () => undefined);
-    const device = this.opts.devices.byLink(stream.remotePublicKey.toString('hex'));
     if (!device || this.stopped) return socket.terminate();
     const link = new PhoneLink(device, socket, this);
     link.overRelay = overRelay;
@@ -1118,7 +1136,7 @@ export class CompanionHost {
   /** Run the node and the server while there's a phone or a pairing; stop them when there's neither. */
   private async sync(): Promise<void> {
     if (this.stopped) return;
-    const wanted = this.opts.devices.size > 0 || this.pairing.isOpen;
+    const wanted = this.wanted();
     if (wanted) {
       await this.ensureNode().catch((err: unknown) => this.logLine(`could not start: ${String(err)}`));
       // A pairing that just opened gets its relay record too.
@@ -1128,9 +1146,24 @@ export class CompanionHost {
       await this.reach.publish().catch(() => undefined);
       // That put can take seconds on the real DHT: a pairing opened meanwhile (`beluga pair` again,
       // BLG-674) listens on this node, which must then stay.
-      if (this.stopped || this.opts.devices.size > 0 || this.pairing.isOpen) return;
+      if (this.stopped || this.wanted()) return;
       await this.shutdownNode();
     }
+  }
+
+  private wanted(): boolean {
+    return this.opts.devices.size > 0 || this.pairing.isOpen || Boolean(this.opts.machines?.wanted());
+  }
+
+  /** Your device set changed (a computer pairing opened, a computer joined): run or stop the node, publish again. */
+  machinesChanged(): void {
+    this.publish();
+    void this.sync();
+  }
+
+  /** The DHT node as soon as it's up (BLG-774: computer pairings listen and dial on it too). */
+  dhtNode(): Promise<DHT> {
+    return this.readyNode();
   }
 
   /** The DHT node as soon as it's up, while the companion's own server and the relay still start. */
@@ -1160,13 +1193,14 @@ export class CompanionHost {
       this.node = node;
       up(node);
       // Only phones you paired (and haven't removed) get through; `true` turns a connection away.
-      const firewall = (remote: Buffer): boolean => !this.opts.devices.byLink(remote.toString('hex'));
+      // and the apps and computers of your set (BLG-774), each by its role: a phone never passes as one.
+      const firewall = (remote: Buffer): boolean => !this.opts.devices.byLink(remote.toString('hex')) && !this.opts.machines?.admit(remote.toString('hex'));
       const server = node.createServer({ firewall: this.opts.dht?.refuseDirect ? () => true : firewall }, (stream: NoiseSocket) => this.accept(stream));
       await server.listen(keyPair);
       // The same, through the relay: the companion key answers there behind the same firewall.
       this.reach.server.add({ keyPair, firewall, accept: (stream) => this.accept(stream, true) });
       await this.reach.start().catch((err: unknown) => this.logLine(`no relay: ${String(err)}`));
-      this.reach.publishOn(node, () => [keyPair, ...this.pairing.keyPairs()]);
+      this.reach.publishOn(node, () => [keyPair, ...this.pairing.keyPairs(), ...(this.opts.machines?.keyPairs() ?? [])]);
       this.server = server;
       return node;
     })()

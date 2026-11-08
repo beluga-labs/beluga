@@ -275,6 +275,8 @@ export interface Prefs {
   readonly tunnel: Settings['tunnel'];
   /** Keep the Mac awake while a phone is paired (companion/awake.ts). */
   readonly keepAwake: Settings['keepAwake'];
+  /** Run New Work On (BLG-780): `here`, `best`, or one of your computers by id (src/machines/placement.ts). */
+  readonly runOn: Settings['runOn'];
   /** Low Power mode: when Beluga saves power (core/power-saver.ts). */
   readonly lowPower: Settings['lowPower'];
   /** 'never': your own Claude just works; 'ask': it asks before risky actions. */
@@ -688,6 +690,7 @@ export const DEFAULT_PREFS: Prefs = {
   mouse: true,
   tunnel: 'auto',
   keepAwake: 'off',
+  runOn: 'here',
   lowPower: 'off',
   selfApproval: 'never',
   notify: NotifySchema.parse({}),

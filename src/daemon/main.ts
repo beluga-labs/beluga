@@ -17,6 +17,7 @@ import { keepLogSmall } from './log-size.js';
 import type { Readable } from 'node:stream';
 import { stopWhenInputEnds } from './stop-on-input.js';
 import { DaemonServer } from './server.js';
+import { attachScreenDoor, machinesOf } from '../machines/registry.js';
 import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 import { publicWords } from './reach/public.js';
@@ -122,6 +123,14 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
   }, { network: true });
   server = new DaemonServer({ session: core.session, token, version: opts.version, terminals: core.terminals, log, ...(opts.port ? { port: opts.port } : {}), ...(opts.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : {}) });
   const port = await server.listen();
+  // Your computers (BLG-775): an app of yours driving this one comes in as a screen; this app's
+  // screens on one of yours go out through the machines' door.
+  attachScreenDoor(core.session, server);
+  server.routeMachines((id, ws, hello) => {
+    const machines = machinesOf(core.session);
+    if (machines) machines.door.open(id, ws, hello);
+    else ws.close(4404, 'No computers here');
+  });
   web = new WebAccess({ door: server, log, ...(opts.web?.root ? { root: opts.web.root } : {}) });
   attachWebAccess(core.session, web);
   let webAt: string | undefined;

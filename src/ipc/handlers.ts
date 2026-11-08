@@ -39,6 +39,7 @@ import { GIT_HANDLERS } from './git-handlers.js';
 import { VIEWS_HANDLERS } from './views-handlers.js';
 import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
+import { MACHINE_HANDLERS } from './machine-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
 import { VOICE_HANDLERS } from './voice-handlers.js';
 import { CALLS_HANDLERS } from './calls-handlers.js';
@@ -415,6 +416,7 @@ export const HANDLERS = {
   ...VIEWS_HANDLERS,
   ...FILES_EDIT_HANDLERS,
   ...COMPANION_HANDLERS,
+  ...MACHINE_HANDLERS,
   ...ASSISTANT_HANDLERS,
   ...VOICE_HANDLERS,
   ...CALLS_HANDLERS,

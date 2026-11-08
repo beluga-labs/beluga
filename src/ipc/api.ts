@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
 import { EmojiSchema } from '../shared/reactions.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, SETTLE_IDLE_DAYS_MAX, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
@@ -30,6 +30,7 @@ import { GIT_API } from './git-api.js';
 import { VIEWS_API } from './views-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
+import { MACHINE_API } from './machine-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
 import { VOICE_API } from './voice-api.js';
 import { CALLS_API } from './calls-api.js';
@@ -80,6 +81,7 @@ export const PrefsPatch = z
     mouse: bool,
     tunnel: z.enum(['auto', 'p2p', 'cloudflared', 'ngrok', 'none']),
     keepAwake: z.enum(KEEP_AWAKE),
+    runOn: z.string().regex(RUN_ON),
     lowPower: z.enum(LOW_POWER),
     selfApproval: z.enum(['never', 'ask']),
     notify: NotifySettings,
@@ -503,6 +505,8 @@ export const API = {
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)
   ...COMPANION_API,
+  // ---- your devices and computers: pairing one, your device set, forgetting a device (machine-api.ts)
+  ...MACHINE_API,
   // ---- Your Mac's chats, as tabs on the Mac (assistant-api.ts)
   ...ASSISTANT_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)

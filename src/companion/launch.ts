@@ -5,7 +5,7 @@ import path from 'node:path';
 import { claudeCodeOf } from '../core/claude-code/launch.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { belugaHome } from '../core/home.js';
-import { loadSettings } from '../core/settings.js';
+import { loadSettings, saveSettings } from '../core/settings.js';
 import type { Session } from '../core/session.js';
 import type { Store } from '../core/store.js';
 import { installedVersion } from '../core/version.js';
@@ -21,6 +21,12 @@ import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
+import { demoMachines } from '../machines/demo.js';
+import { collectInfo, realInfoDeps } from '../machines/info.js';
+import { ComputerUpdater, psHere, updateRunner } from '../machines/versions.js';
+import { IPC_VERSION } from '../ipc/protocol.js';
+import { Machines } from '../machines/machines.js';
+import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 
 /**
  * Start the phone companion for the daemon (the Mac app's Beluga): the device book in
@@ -168,6 +174,51 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const dir = opts.demo ? mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-companion-')) : belugaHome();
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host: CompanionHost | undefined;
+  // Your device set and computers (BLG-774): they share the phones' node, relay and address.
+  // Its name and icon as kept here (BLG-780): what every device of yours shows.
+  const infoDeps = { ...realInfoDeps(() => opts.store.getState(), { version: installedVersion(), ipc: IPC_VERSION }), look: () => ({ name: macName(), ...(loadSettings().computerIcon ? { icon: loadSettings().computerIcon! } : {}) }) };
+  // Update It from your app (BLG-777): `beluga update` here once nothing runs, or what runs is said.
+  const run = opts.demo ? undefined : updateRunner();
+  const updater = new ComputerUpdater({
+    state: () => opts.store.getState(),
+    shells: () => (opts.terminals?.list() ?? []).filter((p) => p.running && p.pid !== undefined).map((p) => p.pid!),
+    ps: psHere,
+    ...(run ? { run } : {}),
+    name: macName,
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  const machines = new Machines({
+    dir,
+    identity: opts.identity,
+    devices,
+    node: () => host!.dhtNode(),
+    address: () => host!.address(),
+    relayUrl: () => host?.relayUrl(),
+    relay: { add: (route) => host?.reach.server.add(route), remove: (key) => host?.reach.server.remove(key) },
+    name: macName,
+    version: installedVersion(),
+    removePhone: (id) => void host?.removeDevice(id, 'This phone was forgotten on another of your devices'),
+    onChange: () => host?.machinesChanged(),
+    // What this computer has free, for an app of yours that asks (BLG-778).
+    info: () => collectInfo(infoDeps),
+    updater,
+    // Renamed or a new icon from your app: this computer's own settings, so every device agrees.
+    setLook: (look) => {
+      saveSettings({ ...(look.name ? { computerName: look.name } : {}), ...(look.icon ? { computerIcon: look.icon } : {}) });
+      if (look.name) named = undefined;
+    },
+    // Add Over SSH (BLG-781): your own ssh, keys and agent.
+    ssh: belugaEnv('SSH') ?? 'ssh',
+    // An app of yours driving this computer: a screen of the daemon's, of kind machine (BLG-775).
+    adopt: (socket, hello) => {
+      const door = screenDoorOf(opts.session);
+      if (door) door.adoptMachine(socket, hello);
+      else socket.close(1013, 'Beluga is starting');
+    },
+    // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
+    ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());
   host = new CompanionHost({
     identity: opts.identity,
@@ -197,14 +248,21 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     // or it's the demo (nothing leaves the computer).
     relay: opts.demo || ['p2p', 'none'].includes(opts.store.getState().prefs.tunnel) ? 'off' : 'cloudflared',
     ...(opts.log ? { log: opts.log } : {}),
+    machines,
   });
   attachCompanion(opts.session, host);
-  void host.start().catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
+  attachMachines(opts.session, machines);
+  void host
+    .start()
+    .then(() => machines.start())
+    .catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
   // A phone on this Mac's USB: set up by itself, or what to switch on said in Settings › Phone (BLG-190).
   if (!opts.demo) host.watchCable();
   return async () => {
     outputs.stop();
     detachCompanion(opts.session);
+    detachMachines(opts.session);
+    await machines.stop();
     await host?.stop();
     host = undefined;
   };
