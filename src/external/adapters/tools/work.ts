@@ -25,7 +25,11 @@ export const WORK_ROWS: readonly MethodRow[] = [
   { name: 'chat_react', method: 'session.react', params: ['channel', 'message', 'emoji', 'on'], scope: channel, writes: true, description: 'Put an emoji on a message in a chat, or take yours off. A person is asked below full.' },
   { name: 'chat_rename', method: 'workspaces.rename', params: ['chat', 'name'], scope: chat, writes: true, description: 'Rename a chat or worktree.' },
   { name: 'chat_regenerate_title', method: 'workspaces.regenerateTitle', params: ['chat'], scope: chat, writes: true, description: 'Have a new title made for a chat.' },
-  { name: 'chat_remind_later', method: 'workspaces.remindLater', params: ['chat', 'minutes'], scope: chat, writes: true, description: 'Remind you of a chat later. No minutes takes the reminder off.' },
+  { name: 'chat_settle', method: 'triage.settle', params: ['channel'], scope: channel, writes: true, description: 'Settle a chat: it leaves the Inbox until something new happens in it. Refused while its turn runs.' },
+  { name: 'chat_unsettle', method: 'triage.unsettle', params: ['channel'], scope: channel, writes: true, description: 'Put a settled chat back in the Inbox.' },
+  { name: 'chat_remind_later', method: 'triage.snooze', params: ['channel', 'until'], scope: channel, writes: true, description: 'Remind you of a chat later: it waits in Later until this time (ms since 1970). A time in the past is refused.' },
+  { name: 'chat_show_again_now', method: 'triage.wake', params: ['channel'], scope: channel, writes: true, description: 'End a chat\'s Remind Me Later now, so it is back in the Inbox.' },
+  { name: 'chat_set_auto_settle', method: 'triage.setAutoSettle', params: ['channel', 'on'], scope: channel, writes: true, description: 'Let a chat settle by itself when its work is done, or not.' },
   { name: 'chat_delete_plan', method: 'workspaces.deletePlan', params: ['chat'], scope: chat, writes: true, description: 'Delete a chat\'s plan file. A person is asked each time.' },
   { name: 'chat_can_hand_off', method: 'remote.canHandOff', params: ['chat', 'peer'], scope: chat, description: 'Whether a chat can be handed over to this person.' },
   // ---- the queue

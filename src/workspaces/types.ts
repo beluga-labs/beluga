@@ -108,9 +108,8 @@ export interface WorkspaceRecord {
    */
   readonly mergeWhenReady?: MergeWait;
   /**
-   * Remind Me Later (BLG-748): when to remind you (epoch ms). Until then its news, failing checks and
-   * conflicts stay quiet in the sidebar, the Unread section, the Dock and on the desktop (your
-   * agent's own asks still show); then Beluga reminds you once, and this clears.
+   * Remind Me Later from before BLG-770 (epoch ms): read once at start, carried into triage.json
+   * (core/triage/service.ts, which keeps Remind Me Later now, per person), then cleared.
    */
   readonly remindAt?: number;
   /**
