@@ -119,8 +119,10 @@ export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
  * (`BranchView.threads`, answered in `companion.branchStep`'s third argument). An older Mac leaves them
  * out: flat rows, no Threads sheet, no question. The phone sends the third argument only to a Mac with
  * SINCE.threads: an older Mac refuses an argument it doesn't know, so its children stay.
+ * SINCE.threadAgents: a family also lists the chat's native sub-agents (`ThreadFamilyView.agents`),
+ * read-only. An older Mac leaves them out: the sheet lists threads only.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, threads: 44 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, threads: 44, threadAgents: 44 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -614,6 +616,8 @@ export const ThreadFamilyView = z.object({
   /** No `topic`: nothing to open (removed, or a Your Mac chat). `gone`: removed, and only its title stays. */
   parent: z.object({ title: z.string().max(300), topic: Topic.optional(), state: ThreadStateView.optional(), gone: z.boolean() }).optional(),
   children: z.array(z.object({ id, topic: Topic, title: z.string().max(300), state: ThreadStateView, working: z.boolean(), harness: AgentRefView })).max(100),
+  /** SINCE.threadAgents: its native sub-agents, read-only (no Stop, no page of their own), with the chat's harness. */
+  agents: z.array(z.object({ id, title: z.string().max(300), state: ThreadStateView, startedAt: ts.optional(), harness: AgentRefView })).max(40).optional(),
   /** This chat's workspace id: `threads.stopAll` takes it. */
   chat: id,
   /** Every working thread under this chat, each after its own children. */

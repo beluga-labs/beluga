@@ -283,7 +283,10 @@ Work shows its chat's harness mark and a child sits under its parent (`ConvSumma
 a kept child, or one whose parent is gone, is a row of its own). A chat's ••• › Threads opens its parent
 and children with their live state, and Stop on each one at work (`ConvView.threadFamily`, `threads.stop`, `threads.stopAll`):
 the Mac's own stop, so those under it stop too. The sheet carries titles and states only, never a
-thread's task or result, and native sub-agents stay on the conversation's strip. A need in a child names
+thread's task or result. Its native sub-agents share the list as read-only rows (`ThreadFamilyView.agents`,
+`SINCE.threadAgents`): the chat's harness mark, a quiet "sub-agent" word, no Stop and no page of their own
+(their steps stay on the conversation's strip); one "N running" counts both kinds. An older Mac leaves them
+out: the sheet lists threads only. A need in a child names
 it (`NeedsYou.thread`). Archive and Delete ask once about a chat's threads, with the Mac's defaults:
 archive takes them, delete keeps them (`BranchView.threads`, and the third argument of
 `companion.branchStep`, `with` or `keep`). The phone sends that argument only to a Mac with

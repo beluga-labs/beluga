@@ -192,6 +192,10 @@ export function makeWorld(now = Date.now()): DemoWorld {
         { id: 'pair-android', topic: 'conv:beluga.pair-android', title: 'Check pairing on Android', state: 'running', working: true, harness: { runtime: 'codex', label: 'Codex' } },
         { id: 'pair-e2e', topic: 'conv:beluga.pair-e2e', title: 'Write the pairing e2e', state: 'done', working: false, harness: { runtime: 'claude', label: 'Claude Code' } },
       ],
+      agents: [
+        { id: 'sa-explore', title: 'Find the pairing screens', state: 'running', startedAt: now - 6 * MIN, harness: { runtime: 'claude', label: 'Claude Code' } },
+        { id: 'sa-fonts', title: 'Check the font licenses', state: 'done', startedAt: now - 20 * MIN, harness: { runtime: 'claude', label: 'Claude Code' } },
+      ],
       stoppable: ['pair-fonts', 'pair-android'],
     },
     turns: [

@@ -19,6 +19,9 @@ import { outsideLocation } from './outside-model.js';
 import { useChatSelection } from './chat-selection-view.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
 import { HarnessMark } from '../threads/HarnessMark.js';
+import { FamilyEnd, FamilyMark } from '../threads/FamilyRow.js';
+import { threadFamilyRow } from '../threads/threads-model.js';
+import { useNow } from '../chat/Items.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -98,7 +101,7 @@ export interface WorkspaceFold {
  * when it needs you (the row faintly tinted), a count and a bold name when Claude finished or
  * someone wrote while you were elsewhere, Claude's pulse while it works; otherwise its git state.
  */
-export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { ws: Workspace; indent: number; fold?: WorkspaceFold }) {
+export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFamily }: { ws: Workspace; indent: number; fold?: WorkspaceFold; inFamily?: boolean }) {
   const actions = useActions();
   const { client } = useBeluga();
   const [renaming, setRenaming] = useState(false);
@@ -118,6 +121,9 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
     }),
     sameDeep,
   );
+  // A child thread in its parent's fold: the row a native sub-agent has too (threads/FamilyRow.tsx).
+  const family = useApp((state) => (inFamily && ws.thread ? threadFamilyRow(state, ws) : undefined), sameDeep);
+  const now = useNow(family?.state === 'running');
   const regenerateTitle = async (): Promise<void> => {
     if (regenerating) return;
     setRegenerating(true);
@@ -132,6 +138,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
   };
   const icon: IconName = ws.kind === 'chat' ? 'chat' : ws.kind === 'main' ? 'folder' : 'branch';
   const mark = <HarnessMark ws={ws} />;
+  const kindIcon = family ? <FamilyMark row={family} /> : <Icon name={icon} size={14} />;
   // Being made: its page opens here (the core has nothing to open yet), with nothing to do on it until it's there.
   if (ws.pending) {
     return (
@@ -183,10 +190,10 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
               >
                 <Icon name="chevronRight" size={9} className={cx(s.agentDisclosure, fold.open && s.agentDisclosureOpen)} />
               </button>
-              <Icon name={icon} size={14} />
+              {kindIcon}
             </span>
           ) : (
-            <Icon name={icon} size={14} />
+            kindIcon
           )
         }
         onKeyDown={(e) => {
@@ -237,8 +244,14 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
                   {fold.count}
                 </span>
               ) : null}
-              <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
-              {mark}
+              {family ? (
+                <FamilyEnd row={family} now={now} />
+              ) : (
+                <>
+                  <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+                  {mark}
+                </>
+              )}
             </>
           )
         }

@@ -380,7 +380,7 @@ function HomeComposer({ project }: { project: Project }) {
     }
   };
   // Speaking instead of typing (Settings › Voice), as in every chat's box.
-  useDictationTarget(ref, () => void send());
+  useDictationTarget(ref, () => void send(), `new-chat:${project.id}`);
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (box.onKey(e)) return;

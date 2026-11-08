@@ -57,6 +57,23 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The title gives way first, so the kind word stays in a narrow row. */
+.titleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.titleLine .title {
+  min-width: 0;
+}
+/* A native sub-agent's kind word: quieter than its title. */
+.kind {
+  flex: none;
+  color: var(--text-3);
+  font-size: 0.84em;
+}
 /* The timer and Stop share one cell, so nothing moves when they swap. */
 .end {
   display: inline-grid;
@@ -148,8 +165,11 @@
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
 }
+/* On the agent's text column: chat.module.css .message's side padding, avatar column and gap. */
 .startLine {
-  padding: 3px 16px;
+  max-width: var(--chat-max);
+  margin: 0 auto;
+  padding: 3px 24px 3px calc(24px + 34px + 10px);
 }
 .startLine > span:first-child {
   display: inline-flex;

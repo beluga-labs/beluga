@@ -13,7 +13,8 @@ import { type Residue, type SubAgent, agentResidue, agentTitle, cappedAgents, is
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { useNow } from '../chat/Items.js';
 import { agoText } from '../views/project/home-model.js';
-import { type FoldRow, type ThreadChild, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf } from '../threads/threads-model.js';
+import { type FoldRow, type ThreadChild, THREAD_WORDS, agentFamilyRow, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf } from '../threads/threads-model.js';
+import { FamilyEnd, FamilyMark, FamilyTitle } from '../threads/FamilyRow.js';
 import { sameDeep } from '../lib/stable.js';
 import { Row } from './sidebar-parts.js';
 import { WorkspaceRow, type WorkspaceFold } from './workspace-row.js';
@@ -88,6 +89,34 @@ function AgentRow({ s: sub, indent, worktree, residue, menu }: { s: SubAgent; in
   return menu ? <ActionsContext items={menu}>{row}</ActionsContext> : row;
 }
 
+/**
+ * A native sub-agent under its chat with threads on: the row a child thread has (threads/FamilyRow.tsx),
+ * with its parent's harness and a quiet "sub-agent" word. No Stop: it runs inside its parent's session.
+ */
+function FamilyAgentRow({ sub, parent, indent, worktree }: { sub: SubAgent; parent: Workspace; indent: number; worktree?: Workspace }) {
+  const { client } = useBeluga();
+  const actions = useActions();
+  const selected = useSelectedAgent();
+  const row = useApp((st) => agentFamilyRow(st, parent, sub), sameDeep);
+  const now = useNow(row.state === 'running');
+  const on = selected.agent === sub.agent.id || (worktree !== undefined && selected.ws === worktree.id);
+  const word = THREAD_WORDS[row.state];
+  return (
+    <Row
+      data-subagent={sub.agent.id}
+      indent={indent}
+      selected={on}
+      className={s.row}
+      icon={<FamilyMark row={row} />}
+      aria-label={`Sub-agent ${row.title}, ${word}`}
+      label={<FamilyTitle row={row} />}
+      detail={[`Sub-agent: ${row.title}`, row.agent, row.model, word].filter(Boolean).join(' · ')}
+      onClick={() => openSubAgent(client, actions, sub)}
+      trailing={<FamilyEnd row={row} now={now} />}
+    />
+  );
+}
+
 /** A worktree's sub-agents (the ones it started), and whether they're folded under its row. */
 function useSubAgentFold(ws: Workspace): { list: SubAgent[]; folded: boolean; toggle: () => void } {
   const sessions = useCcSessions();
@@ -111,7 +140,7 @@ function useThreadChildren(id: string): readonly ThreadChild[] {
  * there are. Folded, only the way down to the chat you're in stays. `threadsOnly`: a list that shows
  * no sub-agents (the Chats section).
  */
-export function WorkspaceWithAgents({ ws, indent, threadsOnly }: { ws: Workspace; indent: number; threadsOnly?: boolean }) {
+export function WorkspaceWithAgents({ ws, indent, threadsOnly, inFamily }: { ws: Workspace; indent: number; threadsOnly?: boolean; inFamily?: boolean }) {
   const { list: agents, folded, toggle } = useSubAgentFold(ws);
   const threads = useThreadChildren(ws.id);
   const open = useOpenThreads();
@@ -122,7 +151,7 @@ export function WorkspaceWithAgents({ ws, indent, threadsOnly }: { ws: Workspace
   const shown = folded ? rows.filter((r) => r.kind === 'thread' && open.has(r.ws.id)) : rows;
   return (
     <>
-      <WorkspaceRow ws={ws} indent={indent} {...(fold ? { fold } : {})} />
+      <WorkspaceRow ws={ws} indent={indent} {...(fold ? { fold } : {})} {...(inFamily ? { inFamily } : {})} />
       {shown.length ? <FoldedRows ws={ws} list={shown} noun={foldNoun(rows)} indent={indent + 1} /> : null}
     </>
   );
@@ -149,6 +178,8 @@ function FoldedRows({ ws, list, noun, indent }: { ws: Workspace; list: readonly 
   // The newest few, in start order: an agent finishing never moves or hides a row (BLG-21).
   const { shown, hidden } = expanded ? { shown: list, hidden: 0 } : capFold(list, SHOWN, isOn);
   const onlyAgents = noun === 'sub-agents';
+  // Threads on: what the chat started draws as one kind of row, whatever started it.
+  const unified = useApp((st) => st.prefs.agentThreads);
   return (
     <div role="group" aria-label={onlyAgents ? `Sub-agents of ${ws.name}` : `Threads of ${ws.name}`}>
       {/* The tucked-away ones are the earlier ones: the toggle sits above the rows, where they unfold. */}
@@ -162,8 +193,9 @@ function FoldedRows({ ws, list, noun, indent }: { ws: Workspace; list: readonly 
         />
       ) : null}
       {shown.map((row) => {
-        if (row.kind === 'thread') return <WorkspaceWithAgents key={row.ws.id} ws={row.ws} indent={indent} />;
+        if (row.kind === 'thread') return <WorkspaceWithAgents key={row.ws.id} ws={row.ws} indent={indent} inFamily />;
         const wt = worktreeOf(row.sub);
+        if (unified) return <FamilyAgentRow key={`${row.sub.session.id}:${row.sub.agent.id}`} sub={row.sub} parent={ws} indent={indent} {...(wt ? { worktree: wt } : {})} />;
         return <AgentRow key={`${row.sub.session.id}:${row.sub.agent.id}`} s={row.sub} indent={indent} {...(wt ? { worktree: wt } : {})} />;
       })}
     </div>
