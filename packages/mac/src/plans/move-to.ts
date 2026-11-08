@@ -8,6 +8,7 @@ import { openSheet } from '../lib/sheets.js';
 import { type MoveTarget, useMoveTargets } from '../machines/move-targets.js';
 import { onMachine } from '../machines/pane-model.js';
 import { stepSays } from './use-plans.js';
+import { placeMark } from '../machines/MachineMark.js';
 
 /**
  * Move To ▸ in a plan's ••• (BLG-806): your other computers (and This Mac, from a computer's page)
@@ -63,7 +64,7 @@ export function useMoveTo(plan: Plan, view: PlanView, step: Step): ActionItem | 
     hint: runs ? 'Its agents finish their turn first' : 'Its chat, tasks and progress go with it',
     separate: true,
     disabled: !where.targets.length,
-    submenu: where.targets.map((t) => ({ label: t.place.name, onSelect: () => go(t, runs ? { pause: true } : {}) })),
+    submenu: where.targets.map((t) => ({ label: t.place.name, mark: placeMark(t.machine), onSelect: () => go(t, runs ? { pause: true } : {}) })),
     onSelect: () => undefined,
   };
 }

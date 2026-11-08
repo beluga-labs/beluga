@@ -10,7 +10,7 @@ import { expect, test, type Page } from './fixtures.js';
 const SHOTS = process.env.E2E_SHOTS ?? path.join(import.meta.dirname, '../../../.beluga/scratch');
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings' });
 
-test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Work On and Add a Computer', async ({ page }) => {
+test('Your Computers lists the demo’s Mac mini and build-box, with Run New Work On and Add a Computer', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('navigation', { name: 'Sidebar' })).toBeVisible();
   await page.keyboard.press('Meta+,');
@@ -25,8 +25,8 @@ test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Wo
   await expect(mini.getByText('Mac mini', { exact: true })).toBeVisible();
   await expect(aws.getByText('AWS · eu-west-1')).toBeVisible();
   await expect(aws.getByText(/% busy · .* GB free/)).toBeVisible();
-  // Codex isn't signed in on the AWS server: its fix, with the command to copy.
-  await expect(aws.getByText('Sign Codex in on AWS server')).toBeVisible();
+  // Codex isn't signed in on the build-box: its fix, with the command to copy.
+  await expect(aws.getByText('Sign Codex in on build-box')).toBeVisible();
   await expect(aws.getByText('codex login')).toBeVisible();
   await pane.screenshot({ path: path.join(SHOTS, 'blg-780-your-computers.png') });
 
@@ -39,7 +39,7 @@ test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Wo
 });
 
 /**
- * A computer's page (BLG-784): the AWS server's webhook-retries opens from Your Computers and draws
+ * A computer's page (BLG-784): the build-box's webhook-retries opens from Your Computers and draws
  * with that computer's client (the demo daemon serves its demo computers' screens itself), tagged
  * with the computer. The same worktree on this Mac is another page: Back and Forward go between the
  * two, and each keeps its own unsent words.
@@ -47,7 +47,7 @@ test('Your Computers lists the demo’s Mac mini and AWS server, with Run New Wo
 test('a computer’s worktree opens in the pane, tagged, and keeps its own state beside this Mac’s', async ({ page }) => {
   const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
   const composer = page.locator('textarea:not(.xterm-helper-textarea)');
-  const tag = page.getByTitle('Runs on AWS server');
+  const tag = page.getByTitle('Runs on build-box');
   await page.goto('/');
   await expect(sidebar).toBeVisible();
   // This Mac's webhook-retries first, with words left in its box.
@@ -58,27 +58,27 @@ test('a computer’s worktree opens in the pane, tagged, and keeps its own state
   await composer.fill('words for this Mac');
   await expect(tag).toHaveCount(0);
 
-  // The AWS server's, from Your Computers.
+  // The build-box's, from Your Computers.
   await page.keyboard.press('Meta+,');
   const pane = settings(page);
   await pane.getByRole('button', { name: 'Your Computers', exact: true }).click();
-  await pane.getByRole('button', { name: 'Open webhook-retries on AWS server' }).click();
+  await pane.getByRole('button', { name: 'Open webhook-retries on build-box' }).click();
   await expect(pane).toBeHidden();
   await expect(tag).toBeVisible();
   await expect(composer).toHaveAttribute('placeholder', /webhook-retries/);
   // Its own box: this Mac's words stay with this Mac's page.
   await expect(composer).toHaveValue('');
-  await composer.fill('words for the AWS server');
+  await composer.fill('words for the build-box');
   await page.screenshot({ path: path.join(SHOTS, 'blg-784-computer-pane.png') });
 
   // Back: this Mac's page, as it was.
   await page.getByRole('button', { name: 'Go back', exact: true }).click();
   await expect(tag).toHaveCount(0);
   await expect(composer).toHaveValue('words for this Mac');
-  // Forward: the AWS server's again, as it was.
+  // Forward: the build-box's again, as it was.
   await page.getByRole('button', { name: 'Go forward', exact: true }).click();
   await expect(tag).toBeVisible();
-  await expect(composer).toHaveValue('words for the AWS server');
+  await expect(composer).toHaveValue('words for the build-box');
 });
 
 /**
@@ -101,17 +101,17 @@ test('Runs on picks where new work goes, remembers it for the project, and label
   const menu = page.getByRole('menu', { name: 'Runs on' });
   await expect(menu.getByRole('menuitem', { name: /^This Mac: The computer in front of you/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /^Mac mini at home: Mac mini · \d+ GB free/ })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: /^AWS server: AWS · \d+ GB free · 1 task running/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^build-box: AWS · \d+ GB free · 1 task running/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /^Best Available: Picks the computer with the most room\./ })).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-menu.png') });
-  await menu.getByRole('menuitem', { name: /^AWS server/ }).click();
-  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await menu.getByRole('menuitem', { name: /^build-box/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on build-box' })).toBeVisible();
 
   // Kept for the project.
   await page.reload();
   await expect(sidebar).toBeVisible();
   await openHome();
-  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Runs on build-box' })).toBeVisible();
 
   // An existing chat: where it runs, as a label; MCP is at the chat's top right.
   if (!(await sidebar.getByRole('button', { name: 'add-auth', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
@@ -122,7 +122,7 @@ test('Runs on picks where new work goes, remembers it for the project, and label
 });
 
 /**
- * Every computer in one sidebar (BLG-785): the AWS server's webhook-retries lists under bob-api
+ * Every computer in one sidebar (BLG-785): the build-box's webhook-retries lists under bob-api
  * with the computer's mark and short name, the sidebar's search finds it there too, and it opens in
  * the pane with that computer's client.
  */
@@ -130,24 +130,26 @@ test('a computer’s worktree lists under its project, tagged, and search finds 
   const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
   await page.goto('/');
   await expect(sidebar).toBeVisible();
-  const remote = sidebar.getByRole('button', { name: 'webhook-retries on AWS server' });
+  const remote = sidebar.getByRole('button', { name: 'webhook-retries on build-box' });
   if (!(await remote.isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
   await expect(remote).toBeVisible();
-  await expect(remote).toContainText('AWS server');
+  // The row shows the computer's mark (AWS's), with its name on hover.
+  await expect(remote.getByTitle('On build-box')).toBeVisible();
+  await expect(remote.getByRole('img', { name: 'AWS' })).toBeVisible();
   // This Mac's own webhook-retries is still its own row.
   await expect(sidebar.getByRole('button', { name: 'webhook-retries', exact: true })).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, 'blg-785-sidebar.png') });
 
   await sidebar.getByRole('textbox', { name: 'Search chats and messages' }).fill('webhook');
   const results = page.getByRole('listbox', { name: 'Search results' });
-  await expect(results.getByRole('option').filter({ hasText: 'bob-api · AWS server' })).toBeVisible();
+  await expect(results.getByRole('option').filter({ hasText: 'bob-api · build-box' })).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, 'blg-785-search.png') });
-  await results.getByRole('option').filter({ hasText: 'bob-api · AWS server' }).click();
-  await expect(page.getByTitle('Runs on AWS server')).toBeVisible();
+  await results.getByRole('option').filter({ hasText: 'bob-api · build-box' }).click();
+  await expect(page.getByTitle('Runs on build-box')).toBeVisible();
 });
 
 /**
- * Start the work on that computer (BLG-788): with Runs on set to the AWS server, Create Worktree in
+ * Start the work on that computer (BLG-788): with Runs on set to the build-box, Create Worktree in
  * bob-api's home makes the worktree there, in the same project, and opens it at once in the pane,
  * tagged with the computer, listed under bob-api with its tag.
  */
@@ -158,15 +160,15 @@ test('a worktree started with Runs on a computer is made there and opens tagged'
   await sidebar.getByText('bob-api', { exact: true }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
   await page.getByRole('button', { name: /^Runs on / }).click();
-  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
-  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^build-box/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on build-box' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Worktree name' }).fill('health-check');
   await page.locator('textarea:not(.xterm-helper-textarea)').first().fill('Add a health check endpoint');
   await page.getByRole('button', { name: /Create Worktree/ }).first().click();
   // Opened at once in the pane, with the computer's tag.
-  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTitle('Runs on build-box')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('main').getByText('health-check').first()).toBeVisible();
-  await expect(sidebar.getByRole('button', { name: 'health-check on AWS server' })).toBeVisible({ timeout: 15_000 });
+  await expect(sidebar.getByRole('button', { name: 'health-check on build-box' })).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: path.join(SHOTS, 'blg-788-started-there.png') });
 });
 
@@ -185,11 +187,11 @@ test('a chat outside a project starts on the picked computer, and on Run New Wor
   await expect(sidebar).toBeVisible();
   await newChat();
   await page.getByRole('button', { name: /^Runs on / }).click();
-  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
-  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^build-box/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on build-box' })).toBeVisible();
   await composer.fill('What is using the disk on this server?');
   await composer.press('Enter');
-  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTitle('Runs on build-box')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('main').getByText('What is using the disk on this server?').first()).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, 'blg-841-chat-on-aws.png') });
 

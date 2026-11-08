@@ -20,8 +20,8 @@ async function openThere(page: Page): Promise<void> {
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
-  await settings.getByRole('button', { name: 'Open webhook-retries on AWS server' }).click();
-  await expect(page.getByTitle(/Runs on AWS server/)).toBeVisible();
+  await settings.getByRole('button', { name: 'Open webhook-retries on build-box' }).click();
+  await expect(page.getByTitle(/Runs on build-box/)).toBeVisible();
 }
 
 /** The worktree's folder (the demo's computer is this same daemon, so it's on this disk). */

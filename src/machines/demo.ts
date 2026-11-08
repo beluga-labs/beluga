@@ -16,7 +16,7 @@ const wave = (now: number, lo: number, hi: number, periodMs: number, phase = 0):
 
 const usage = (now: number, fiveHour: number, week: number) => ({ plan: 'max', fiveHour: { pct: fiveHour, resetsAt: now + 2 * HOUR }, week: { pct: week, resetsAt: now + 3 * 24 * HOUR }, updatedAt: now - 60_000 });
 
-/** The demo worktree the AWS server runs: bob-api's webhook-retries, by its conversation. */
+/** The demo worktree the build-box runs: bob-api's webhook-retries, by its conversation. */
 function awsWork(state: Pick<DomainState, 'projects'>): NonNullable<MachineInfo['work']> {
   const api = state.projects.find((p) => p.name === 'bob-api');
   const ws = api?.workspaces.find((w) => w.name === 'webhook-retries');
@@ -74,7 +74,7 @@ export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.no
     },
     {
       id: 'de30a1c0ffee0002',
-      name: 'AWS server',
+      name: 'build-box',
       platform: 'linux',
       version: '0.6.2',
       pairedAt: now - 6 * 24 * HOUR,

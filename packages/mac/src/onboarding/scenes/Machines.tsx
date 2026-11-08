@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Icon, type IconName } from '../../components/Icon.js';
+import { MachineMark } from '../../machines/MachineMark.js';
 import { usePrefs } from '../../lib/prefs.js';
 import { thisComputer, upFirst } from '../../lib/os-words.js';
 import { SPRING } from '../fx.js';
@@ -9,7 +10,7 @@ import m from './machines.module.css';
 
 /**
  * Your computers (BLG-813): the app stays here, the work goes where you send it. This Mac and
- * your phone are wired to a Mac mini at home (your Always On), an AWS server and a Linux box. A
+ * your phone are wired to a Mac mini at home (your Always On), build-box on AWS and a Linux box. A
  * task's Runs on flips to AWS, the task hops there and its steps stream back to the chat. Then
  * the lid closes, and the phone keeps up until it's done.
  */
@@ -17,6 +18,8 @@ import m from './machines.module.css';
 interface Machine {
   readonly id: 'mini' | 'aws' | 'linux';
   readonly icon: IconName;
+  /** A cloud's own mark (the AWS logo), drawn instead of the glyph. */
+  readonly brand?: 'aws';
   readonly name: string;
   readonly where: string;
   readonly hue: number;
@@ -24,9 +27,12 @@ interface Machine {
 
 const MACHINES: readonly Machine[] = [
   { id: 'mini', icon: 'macMini', name: 'Mac mini', where: 'At home', hue: 160 },
-  { id: 'aws', icon: 'cloud', name: 'AWS server', where: 'EC2 · us-east-1', hue: 250 },
+  { id: 'aws', icon: 'cloud', brand: 'aws', name: 'build-box', where: 'AWS · us-east-1', hue: 250 },
   { id: 'linux', icon: 'server', name: 'Linux box', where: 'Ubuntu · office', hue: 60 },
 ];
+
+/** What the AWS mark is drawn from: an AWS computer's kind. */
+const AWS_MARK = { kind: 'aws', platform: 'linux' } as const;
 
 const STEPS: ReadonlyArray<{ icon: IconName; text: string; code?: string; short: string }> = [
   { icon: 'terminal', text: 'Ran', code: 'npm ci', short: 'npm ci' },
@@ -143,7 +149,7 @@ export function Machines() {
                       <Icon name="claude" size={10} /> Opus
                     </span>
                     <motion.span key={String(onAws)} className={m.chip} data-on={onAws || undefined} initial={still || !onAws ? false : { scale: 0.86 }} animate={{ scale: 1 }} transition={SPRING}>
-                      <Icon name={onAws ? 'cloud' : 'laptop'} size={10} /> Runs on {onAws ? 'AWS' : thisComputer()}
+                      {onAws ? <MachineMark machine={AWS_MARK} size={10} /> : <Icon name="laptop" size={10} />} Runs on {onAws ? 'build-box' : thisComputer()}
                     </motion.span>
                   </div>
                 </motion.div>
@@ -201,7 +207,7 @@ export function Machines() {
             <div key={mc.id} className={m.machine} data-busy={(mc.id === 'aws' && working && beat < DONE) || undefined}>
               <div className={m.head}>
                 <span className={m.tile} style={{ ['--hue' as string]: mc.hue }}>
-                  <Icon name={mc.icon} size={14} />
+                  {mc.brand ? <MachineMark machine={AWS_MARK} size={14} /> : <Icon name={mc.icon} size={14} />}
                 </span>
                 <div>
                   <strong>{mc.name}</strong>

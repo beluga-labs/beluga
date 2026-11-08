@@ -221,11 +221,11 @@ describe('Make Always On', () => {
   });
 
   it('moves it from one computer to another, through this Mac, without starting it here', async () => {
-    const { me, app, computers } = world(['Mac mini', 'AWS server']);
+    const { me, app, computers } = world(['Mac mini', 'build-box']);
     const [mini, aws] = computers as [Install, Install];
     await app.ao.make(deviceId(mini.cert!));
     const view = await app.ao.make(deviceId(aws.cert!));
-    expect(view).toMatchObject({ here: false, name: 'AWS server' });
+    expect(view).toMatchObject({ here: false, name: 'build-box' });
     expect(aws.you.current().peerId).toBe(me.peerId);
     expect(aws.set.holdsIdentity).toBe(true);
     expect(mini.set.holdsIdentity).toBe(false);

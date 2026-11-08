@@ -63,6 +63,13 @@
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
 }
+/* A full-colour mark (AWS, Azure): the owner's file as it came. */
+.brandFull {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: 4px;
+}
 .main {
   min-width: 0;
   display: grid;
@@ -147,7 +154,7 @@
 .pane {
   display: contents;
 }
-/* "on AWS server" beside a computer's page's title. */
+/* "on build-box" beside a computer's page's title. */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -285,14 +292,12 @@
 .rowTag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 5px 0 3px;
-  height: 16px;
-  border-radius: 8px;
-  background: var(--bg-sunken);
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border-radius: 6px;
   color: var(--text-3);
-  font-size: 0.72rem;
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 .rowTag .mark {
   width: auto;

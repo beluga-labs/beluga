@@ -8,6 +8,7 @@ import { openSheet } from '../lib/sheets.js';
 import { type MoveTarget, useMoveTargets } from './move-targets.js';
 import { onMachine } from './pane-model.js';
 import { noteStarted } from './started.js';
+import { placeMark } from './MachineMark.js';
 
 /**
  * Continue On ▸ in a worktree's ••• (BLG-808): your other computers (This Mac from a computer's
@@ -57,7 +58,7 @@ export function useContinueOn(ws: Workspace | undefined): ActionItem | undefined
     hint: 'Its branch and conversation go along',
     separate: true,
     disabled: !where.targets.length,
-    submenu: where.targets.map((t) => ({ label: t.place.name, onSelect: () => void go(t, {}) })),
+    submenu: where.targets.map((t) => ({ label: t.place.name, mark: placeMark(t.machine), onSelect: () => void go(t, {}) })),
     onSelect: () => undefined,
   };
 }

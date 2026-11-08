@@ -21,12 +21,14 @@ import c from './machines.module.css';
  * pane, drawn with that computer's client (BLG-784).
  */
 
-/** The computer a row runs on: its mark and short name. */
+/**
+ * The computer a row runs on: its mark alone (the AWS logo, a server, a Mac mini), so a narrow row
+ * keeps its own name; the computer's name is on hover, and the row's label says it.
+ */
 export function MachineChip({ machine, offline }: { machine: MachineView; offline?: boolean }) {
   return (
-    <span className={cx(c.rowTag, offline && c.rowTagOff)}>
-      <MachineMark machine={machine} size={10} />
-      {shortName(machine.name)}
+    <span className={cx(c.rowTag, offline && c.rowTagOff)} title={`On ${machine.name}`} data-machine-chip={shortName(machine.name)}>
+      <MachineMark machine={machine} size={13} />
     </span>
   );
 }

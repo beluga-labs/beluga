@@ -11,8 +11,8 @@ const AWS = 'de30a1c0ffee0002';
 
 describe('a computer’s notice through this app', () => {
   it('says which computer, and tags what it’s about with it', () => {
-    const shown = machineNotice({ id: AWS, name: 'AWS server' }, { title: 'Claude asks', body: 'Run the migration?', sound: true, channel: 'ws:w1', approval: 'a1' });
-    expect(shown.title).toBe('AWS server · Claude asks');
+    const shown = machineNotice({ id: AWS, name: 'build-box' }, { title: 'Claude asks', body: 'Run the migration?', sound: true, channel: 'ws:w1', approval: 'a1' });
+    expect(shown.title).toBe('build-box · Claude asks');
     expect(shown.body).toBe('Run the migration?');
     expect(untag(shown.channel)).toEqual({ machine: AWS, id: 'ws:w1' });
     expect(untag(shown.approval)).toEqual({ machine: AWS, id: 'a1' });

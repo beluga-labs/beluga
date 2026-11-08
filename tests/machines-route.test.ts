@@ -31,7 +31,7 @@ describe('where new work goes', () => {
 
   it('a computer that can’t run it now (Codex signed out there) runs here, said in words', () => {
     const route = routeWork({ ...base, runtime: 'codex', runsOn: aws!.id });
-    expect(route).toEqual({ where: 'here', why: 'AWS server can’t run it now (codex isn’t signed in there), so it runs on This Mac.' });
+    expect(route).toEqual({ where: 'here', why: 'build-box can’t run it now (codex isn’t signed in there), so it runs on This Mac.' });
   });
 
   it('an offline one runs here', () => {

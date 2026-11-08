@@ -14,16 +14,16 @@ const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' }
 const composer = (page: Page) => page.locator('main textarea:not(.xterm-helper-textarea)').last();
 const panel = (page: Page) => page.getByRole('complementary', { name: 'Panel' });
 const tab = (page: Page, name: string) => panel(page).getByRole('tablist', { name: 'Panel' }).getByRole('tab', { name, exact: true });
-const tag = (page: Page) => page.getByTitle(/Runs on AWS server/);
+const tag = (page: Page) => page.getByTitle(/Runs on build-box/);
 
-/** The AWS server's webhook-retries, opened from Your Computers (`box`: wait for its message box; the terminal view may open without one). */
+/** The build-box's webhook-retries, opened from Your Computers (`box`: wait for its message box; the terminal view may open without one). */
 async function openThere(page: Page, box = true): Promise<void> {
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
-  await settings.getByRole('button', { name: 'Open webhook-retries on AWS server' }).click();
+  await settings.getByRole('button', { name: 'Open webhook-retries on build-box' }).click();
   await expect(settings).toBeHidden();
   await expect(tag(page)).toBeVisible();
   if (box) await expect(composer(page)).toHaveAttribute('placeholder', /webhook-retries/);
@@ -118,18 +118,18 @@ test('Claude’s terminal view streams from a computer’s worktree', async ({ p
   await page.screenshot({ path: path.join(SHOTS, 'blg-795-remote-terminal-view.png') });
 });
 
-test('a worktree started with Runs on the AWS server is made there, then archived there', async ({ page }) => {
+test('a worktree started with Runs on the build-box is made there, then archived there', async ({ page }) => {
   await page.goto('/');
   await expect(sidebar(page)).toBeVisible();
   await sidebar(page).getByText('bob-api', { exact: true }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
   await page.getByRole('button', { name: /^Runs on / }).click();
-  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^build-box/ }).click();
   await page.getByRole('textbox', { name: 'Worktree name' }).fill('remote-check');
   await page.locator('textarea:not(.xterm-helper-textarea)').first().fill('Check the retries on the server');
   await page.getByRole('button', { name: /Create Worktree/ }).first().click();
   await expect(tag(page)).toBeVisible({ timeout: 20_000 });
-  const row = sidebar(page).getByRole('button', { name: 'remote-check on AWS server' });
+  const row = sidebar(page).getByRole('button', { name: 'remote-check on build-box' });
   await expect(row).toBeVisible({ timeout: 15_000 });
 
   await row.click({ button: 'right' });
@@ -163,12 +163,12 @@ test('a task’s page on a computer says Copy Path for its worktree’s folder, 
   await go({ kind: 'task', id: task });
   await expect(page.getByRole('button', { name: 'Open Worktree' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reveal Folder' }).first()).toBeVisible();
-  // The same task on the AWS server: Copy Path, and the path is copied, never Finder over there.
+  // The same task on the build-box: Copy Path, and the path is copied, never Finder over there.
   await go({ kind: 'machine', machine: 'de30a1c0ffee0002', view: { kind: 'task', id: task } });
   await expect(tag(page)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reveal Folder' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Copy Path' }).first().click();
-  await expect(page.getByText(/Copied the path on AWS server/)).toBeVisible();
+  await expect(page.getByText(/Copied the path on build-box/)).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^\/.+/);
   await page.screenshot({ path: path.join(SHOTS, 'blg-852-task-copy-path.png') });
 });

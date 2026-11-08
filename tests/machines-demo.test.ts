@@ -4,7 +4,7 @@ import { createDemoWorkspaces } from '../src/demo.js';
 import { demoMachines } from '../src/machines/demo.js';
 import { MachineInfo, runningWork } from '../src/machines/info.js';
 
-/** The demo's computers (BLG-779): a Mac mini at home (Always On) and an AWS server running a demo worktree. */
+/** The demo's computers (BLG-779): a Mac mini at home (Always On) and build-box (an AWS server) running a demo worktree. */
 
 describe('the demo’s computers', () => {
   it('lists two machines with load figures that stay believable over time', () => {
@@ -13,7 +13,7 @@ describe('the demo’s computers', () => {
       const machines = demoMachines({ projects: [] }, now);
       expect(machines.map((m) => [m.name, m.platform, m.status])).toEqual([
         ['Mac mini at home', 'macos', 'online'],
-        ['AWS server', 'linux', 'online'],
+        ['build-box', 'linux', 'online'],
       ]);
       for (const m of machines) {
         expect(m.id).toMatch(/^[0-9a-f]{16}$/);
@@ -28,7 +28,7 @@ describe('the demo’s computers', () => {
     }
   });
 
-  it('the AWS server runs one of the demo’s own worktrees, so it opens and streams as a local one', async () => {
+  it('the build-box runs one of the demo’s own worktrees, so it opens and streams as a local one', async () => {
     const mgr = await createDemoWorkspaces();
     const [, aws] = demoMachines({ projects: mgr.list });
     const work = aws!.info!.work!;

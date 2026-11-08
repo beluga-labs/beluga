@@ -167,8 +167,8 @@ describe('a file dropped on a chat on a computer', () => {
     expect(plan.send.map((x) => x.name)).toEqual(['notes.txt']);
     expect(plan.ask.map((x) => x.name)).toEqual(['.env']);
     expect(plan.refused).toEqual([{ name: 'server.pem', reason: 'keys and certificates stay on this Mac' }]);
-    const ask = envAsk(plan.ask, 'AWS server', () => undefined);
-    expect(ask).toMatchObject({ title: 'Send .env to AWS server?', confirm: 'Send Once', cancel: 'Don’t Send' });
+    const ask = envAsk(plan.ask, 'build-box', () => undefined);
+    expect(ask).toMatchObject({ title: 'Send .env to build-box?', confirm: 'Send Once', cancel: 'Don’t Send' });
     expect(JSON.stringify(ask)).not.toContain('sk_live');
   });
 });

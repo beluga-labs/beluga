@@ -248,7 +248,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       if (door) door.adoptMachine(socket, hello);
       else socket.close(1013, 'Beluga is starting');
     },
-    // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
+    // The demo's Mac mini and build-box (BLG-779), for the e2e tests and GIFs.
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
     // An app of yours forwarding this computer's dev servers to itself, or sharing its own ports here (BLG-802/804).
     tunnels: (socket) => void serveTunnels(socket, { name: macName, ...(opts.log ? { log: opts.log } : {}) }),

@@ -79,7 +79,7 @@ export const remoteSentinels = (sources: readonly RemoteSource[]) => sources.fla
 export const remoteTasks = (sources: readonly RemoteSource[]) => sources.flatMap((src) => (src.snapshot?.tasks ?? []).map((t) => tag(src, { ...t, project: projectName(src, t.projectId) })));
 export const remoteDashboards = (sources: readonly RemoteSource[]) => sources.flatMap((src) => (src.snapshot?.dashboards ?? []).map((d) => tag(src, d)));
 
-/** "AWS server", or "AWS server · offline, seen 5 min ago". */
+/** "build-box", or "build-box · offline, seen 5 min ago". */
 export function whereLine(t: Pick<Tagged<unknown>, 'machine' | 'offline' | 'at'>, now = Date.now()): string {
   if (!t.offline) return t.machine.name;
   const seen = t.machine.lastSeen ?? t.at;

@@ -8,7 +8,7 @@ import { MachineMark } from './MachineMark.js';
 import { useMachineView } from './use-machines.js';
 import c from './machines.module.css';
 
-/** Inside a computer's page: its mark and name, for the toolbar's title ("on AWS server"). */
+/** Inside a computer's page: its mark and name, for the toolbar's title ("on build-box"). */
 export function MachineTag() {
   const machine = useMachine();
   const { home } = useBeluga();

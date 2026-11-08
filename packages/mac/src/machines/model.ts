@@ -11,20 +11,19 @@ import { KIND_WORDS } from '../../../../src/machines/words.js';
  * and what isn't ready there with its fix. Pure, so it's tested without a window.
  */
 
-export type Brand = 'googlecloud' | 'digitalocean' | 'hetzner' | 'raspberrypi' | 'docker' | 'podman';
+export type Brand = 'aws' | 'azure' | 'googlecloud' | 'digitalocean' | 'hetzner' | 'raspberrypi' | 'docker' | 'podman';
 
 // Said the same on the phone (BLG-810).
 export { KIND_WORDS } from '../../../../src/machines/words.js';
 
 /**
- * A kind's own look: a brand mark where one ships (THIRD_PARTY_ICONS.md), else a glyph. AWS and
- * Azure have no mark here yet (their marks aren't free to copy), so a cloud; Apple hardware gets a
- * plain desktop or laptop, never Apple's marks.
+ * A kind's own look: a brand mark where one ships (THIRD_PARTY_ICONS.md), else a glyph. Apple
+ * hardware gets a plain desktop or laptop, never Apple's marks.
  */
 const KIND_LOOK: Record<MachineKind, { readonly brand?: Brand; readonly glyph: IconName }> = {
-  aws: { glyph: 'cloud' },
+  aws: { brand: 'aws', glyph: 'cloud' },
   gcp: { brand: 'googlecloud', glyph: 'cloud' },
-  azure: { glyph: 'cloud' },
+  azure: { brand: 'azure', glyph: 'cloud' },
   digitalocean: { brand: 'digitalocean', glyph: 'cloud' },
   hetzner: { brand: 'hetzner', glyph: 'server' },
   'mac-mini': { glyph: 'desktop' },

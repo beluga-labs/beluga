@@ -7,6 +7,7 @@ import { useActions } from '../lib/actions.js';
 import { openSheet } from '../lib/sheets.js';
 import { type MoveTarget, useMoveTargets } from '../machines/move-targets.js';
 import { onMachine } from '../machines/pane-model.js';
+import { placeMark } from '../machines/MachineMark.js';
 
 /**
  * Move To ▸ in a sentinel's ••• (BLG-807): your other computers (This Mac from a computer's page),
@@ -68,7 +69,7 @@ export function useSentinelMoveTo(item: Sentinel): ActionItem | undefined {
     hint: running ? 'Its run ends first' : 'Its runs, numbers and tiles go with it',
     separate: true,
     disabled: !where.targets.length,
-    submenu: where.targets.map((t) => ({ label: t.place.name, onSelect: () => void go(t, running) })),
+    submenu: where.targets.map((t) => ({ label: t.place.name, mark: placeMark(t.machine), onSelect: () => void go(t, running) })),
     onSelect: () => undefined,
   };
 }

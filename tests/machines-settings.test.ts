@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { demoMachines } from '../src/machines/demo.js';
@@ -15,14 +16,15 @@ describe('a computer’s row', () => {
     expect(kindLine(aws)).toBe('AWS · eu-west-1');
     expect(kindLine(mini)).toBe('Mac mini');
     expect(kindLine({ platform: 'linux' })).toBe('Linux');
-    // AWS has no shipped mark: a cloud. Apple hardware: a plain desktop, never Apple's mark.
-    expect(machineLook(aws)).toEqual({ glyph: 'cloud' });
+    // AWS and Azure: their own marks, from their icon sets. Apple hardware: a plain desktop, never Apple's mark.
+    expect(machineLook(aws)).toEqual({ brand: 'aws', glyph: 'cloud' });
+    expect(machineLook({ kind: 'azure', platform: 'linux' }).brand).toBe('azure');
     expect(machineLook(mini)).toEqual({ glyph: 'desktop' });
     expect(machineLook({ kind: 'docker', platform: 'linux' })).toEqual({ brand: 'docker', glyph: 'box' });
     expect(machineLook({ kind: 'raspberry-pi', platform: 'linux' }).brand).toBe('raspberrypi');
     // The icon kept on the computer wins; `auto` is the kind's own.
     expect(machineLook({ ...aws, icon: 'server' })).toEqual({ glyph: 'server' });
-    expect(machineLook({ ...aws, icon: 'auto' })).toEqual({ glyph: 'cloud' });
+    expect(machineLook({ ...aws, icon: 'auto' })).toEqual({ brand: 'aws', glyph: 'cloud' });
   });
 
   it('a line of what it has free, or how it is when it isn’t online', () => {
@@ -40,7 +42,7 @@ describe('a computer’s row', () => {
     ]);
     expect(healthOf(mini)[0]!.usage).toBe('18% of 5 h');
     const aws2 = healthOf(aws);
-    expect(aws2.find((h) => h.key === 'codex')).toMatchObject({ ok: false, fix: { words: 'Sign Codex in on AWS server', command: 'codex login' } });
+    expect(aws2.find((h) => h.key === 'codex')).toMatchObject({ ok: false, fix: { words: 'Sign Codex in on build-box', command: 'codex login' } });
     const bare = healthOf({ name: 'pi', info: { ...aws.info!, runtimes: [], gh: 'signed_out' } });
     // Claude not set up is a fix; Codex not there at all isn't shown (you may not use it).
     expect(bare.map((h) => h.key)).toEqual(['claude', 'gh', 'mcp']);
@@ -57,7 +59,7 @@ describe('Run New Work On', () => {
   it('here, a computer by name, or the least busy that’s ready', () => {
     expect(placeNewWork('here', [mini, aws], here)).toMatchObject({ where: 'here' });
     expect(placeNewWork(aws.id, [mini, aws], here)).toMatchObject({ where: 'computer', id: aws.id });
-    // The Mac mini is far less busy than the AWS server and this Mac.
+    // The Mac mini is far less busy than the build-box and this Mac.
     expect(placeNewWork('best', [mini, aws], here)).toMatchObject({ where: 'computer', id: mini.id });
     expect(placeNewWork('best', [mini, aws], { name: 'This Mac', loadPerCore: 0 })).toMatchObject({ where: 'here' });
   });
@@ -72,13 +74,25 @@ describe('Run New Work On', () => {
   });
 });
 
+/** The full-colour marks (AWS's and Azure's own icon sets), by their files' sha256. */
+const FULL_COLOUR: Record<string, string> = {
+  'aws.svg': '63d73df1aac59dab323df732f82e196e359fb7b6370c0ca8e51e7b897cd350be',
+  'azure.svg': 'dcc1d690bc18e7c7401fb545c51790b4974a69c9d997b27c4fbd9f1f26fe6815',
+};
+
 describe('the brand marks', () => {
   it('every shipped mark is listed with its source in THIRD_PARTY_ICONS.md', () => {
     const doc = readFileSync('THIRD_PARTY_ICONS.md', 'utf8');
     const files = readdirSync('packages/mac/src/machines/icons/brands').filter((f) => f.endsWith('.svg'));
-    expect(files.sort()).toEqual(['digitalocean.svg', 'docker.svg', 'googlecloud.svg', 'hetzner.svg', 'podman.svg', 'raspberrypi.svg']);
+    expect(files.sort()).toEqual(['aws.svg', 'azure.svg', 'digitalocean.svg', 'docker.svg', 'googlecloud.svg', 'hetzner.svg', 'podman.svg', 'raspberrypi.svg']);
     for (const f of files) expect(doc).toMatch(new RegExp(`\\| \`${f.replace('.', '\\.')}\` \\|[^\\n]*https://`));
     // As they came: a plain Simple Icons file, its own title, nothing added.
-    for (const f of files) expect(readFileSync(`packages/mac/src/machines/icons/brands/${f}`, 'utf8')).toMatch(/^<svg role="img" viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg"><title>[^<]+<\/title><path d="[^"]+"\/><\/svg>\n?$/);
+    for (const f of files.filter((f) => !(f in FULL_COLOUR))) expect(readFileSync(`packages/mac/src/machines/icons/brands/${f}`, 'utf8')).toMatch(/^<svg role="img" viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg"><title>[^<]+<\/title><path d="[^"]+"\/><\/svg>\n?$/);
+    // AWS's and Azure's, byte for byte as their icon sets ship them, and nothing that runs or loads.
+    for (const [f, sha] of Object.entries(FULL_COLOUR)) {
+      const svg = readFileSync(`packages/mac/src/machines/icons/brands/${f}`);
+      expect(createHash('sha256').update(svg).digest('hex')).toBe(sha);
+      expect(svg.toString('utf8')).not.toMatch(/<script|<foreignObject|\bon\w+=|href=/i);
+    }
   });
 });
