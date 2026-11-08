@@ -460,6 +460,17 @@
 .agentDisclosureOpen {
   transform: rotate(90deg);
 }
+/* The harness of a chat, at the row's edge: one width, so nothing beside it moves. */
+.harnessMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  /* One quiet tone in each theme, as the Scratch panel's beluga: never the makers' own colors (BLG-345). */
+  color: var(--text-3);
+  opacity: 0.8;
+}
 .agentCount {
   display: inline-flex;
   align-items: center;

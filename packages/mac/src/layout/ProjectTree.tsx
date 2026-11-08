@@ -27,6 +27,7 @@ import { type Entry, type Place, type Target, keyOfEntry, stepOf, useArrange, us
 import { OutsideWorktrees } from './OtherWorktrees.js';
 import { ProjectAgents, WorkspaceWithAgents, useAgentOrigins, useCcSessions } from './SubAgents.js';
 import { hasRowsInside } from './project-rows.js';
+import { threadNesting } from '../threads/threads-model.js';
 import { type Tally, groupTally, groupWorking, projectPlans, projectTally, projectWorking, tallyTip } from './attention-model.js';
 import { TallyMark } from './signal-marks.js';
 import { Row } from './sidebar-parts.js';
@@ -180,8 +181,10 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   // A plan you asked to show its tasks' chats: they sit under its row (its home is the plan's page).
   const showTasks = usePrefs().planTaskChats;
   const taskChats = (planId: string) => (showTasks.includes(planId) ? live.filter((w) => !planHomes.has(`ws:${w.id}`) && planConversations(state, planId).includes(w.id)) : []);
-  const mine = live.filter((w) => w.kind !== 'main' && worktreeOrigin(w) === 'beluga' && !isPlanOwned(state, w.id) && (!planHomes.has(`ws:${w.id}`) || w.id === here) && notLater(putOff, w));
-  // Put off till later (Remind Me Later): folded at the bottom, back in place once it reminds you.
+  // A child thread sits under its parent's row (SubAgents.tsx), not here.
+  const { nested } = useApp(threadNesting);
+  const mine = live.filter((w) => w.kind !== 'main' && worktreeOrigin(w) === 'beluga' && !isPlanOwned(state, w.id) && (!planHomes.has(`ws:${w.id}`) || w.id === here) && !nested.has(w.id) && notLater(putOff, w));
+  // Put off till later (Remind Me Later): folded at the bottom, back in place once it reminds you. A child thread too: back under its parent then.
   const later = laterOf(putOff, live.filter((w) => w.kind !== 'main' && !isPlanOwned(state, w.id) && !planHomes.has(`ws:${w.id}`)));
   const inPlan = planOfPlace(plansState, board, view);
   // You're in this project: on its home page, in one of its worktrees or chats, or in one of its plans.

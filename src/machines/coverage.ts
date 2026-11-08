@@ -645,6 +645,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'calls.list': 'drive',
   // ---- terminalImport
   'terminalImport.detect': 'drive',
+  // A chat's sub-agent threads (BLG-172): stopping your own agents' work there.
+  'threads.stop': 'drive',
+  'threads.stopAll': 'drive',
   // ---- agentTerm
   'agentTerm.open': 'drive',
   'agentTerm.takeOver': 'drive',

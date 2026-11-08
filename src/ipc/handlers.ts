@@ -32,6 +32,7 @@ import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
 import { plansOf } from '../core/plans/registry.js';
+import { stopChat, stopThreadsUnder } from '../core/threads/launch.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
@@ -121,7 +122,12 @@ export const HANDLERS = {
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
   'host.cancelSteer': (s, requestId) => s.host.cancelSteer(requestId),
-  'host.stopRun': (s, channel) => s.host.stopRun(channel),
+  'host.stopRun': (s, channel) => stopChat(s, channel),
+  'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
+    if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
+    return HANDLERS['host.stopRun'](s, `ws:${id}`);
+  },
+  'threads.stopAll': (s, id) => stopThreadsUnder(s, id),
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 
@@ -222,12 +228,12 @@ export const HANDLERS = {
   'workspaces.moveLand': (s, token, projectId, from) => moverIn(s).landIn(token, projectId, from),
   'workspaces.moveDone': (s, id, to) => moverIn(s).done(id, to),
   'workspaces.moveUndo': (s, id) => moverIn(s).undo(id),
-  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, { ...(opts?.quiet ? { quiet: true } : {}) }),
+  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, opts),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
   'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
-  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, { ...(opts?.quiet ? { quiet: true } : {}) }),
+  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, opts),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
   'workspaces.merge': (s, id) => ctl(s)?.merge(id),
   'workspaces.prepareRemoval': (s, id) => ctl(s)?.prepareRemoval(id),

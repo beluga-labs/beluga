@@ -26,6 +26,7 @@ export const SYNCED_SETTINGS = [
   // How you work, and which experimental features you turned on (a computer then runs them too).
   'pushToPr',
   'experiments',
+  'agentThreads',
   'runOn',
   'selfApproval',
   'notify',
@@ -73,6 +74,8 @@ export const LOCAL_SETTINGS = [
   'shellLogin',
   'shellArgs',
   'parallelRuns',
+  // How many threads run at once here is this computer's capacity, like parallelRuns.
+  'threadLimits',
   'autoContinueOff',
   'autoContinueSkip',
   'autoCompactChosen',
@@ -92,6 +95,7 @@ export const SETTING_LABELS: Readonly<Record<SyncedSetting, string>> = {
   theme: 'Theme',
   pushToPr: 'Keep open pull requests current',
   experiments: 'Experimental features',
+  agentThreads: 'Agent threads',
   runOn: 'Run New Work On',
   selfApproval: 'Ask before risky actions',
   notify: 'Notifications',

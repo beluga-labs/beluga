@@ -749,7 +749,7 @@ class Store {
         this.setState({ phase: 'closed', detail: f.reason });
         return;
       case 'computers':
-        // Your Mac says where your computers are (1.47): each is linked by itself from now on.
+        // Your Mac says where your computers are (1.49): each is linked by itself from now on.
         this.computerLinks?.setList(f.list);
         return;
     }

@@ -180,7 +180,7 @@ export default function Plan() {
               </View>
             ) : null}
 
-            {/* What the plan has decided (1.45): a replaced decision stays, crossed out. */}
+            {/* What the plan has decided (1.47): a replaced decision stays, crossed out. */}
             {p.decisions?.length ? (
               <View style={{ marginTop: 22, paddingHorizontal: 20, gap: 8 }}>
                 <T v="eyebrow">Decisions</T>

@@ -1,4 +1,4 @@
-import type { AgentBackend, AgentRunInput, FollowUp, RoomBridge } from './types.js';
+import type { AgentBackend, AgentRunInput, FollowUp, RoomBridge, ThreadTools } from './types.js';
 import type { McpServerRow } from '../shared/mcp.js';
 import { demoAnswerFromPrompt } from '../core/chat/demo-answers.js';
 import { cleanPlanTitle, slugify } from './namer.js';
@@ -775,6 +775,19 @@ export function mockBtw(question: string): string {
   return `Short answer: yes. For “${q.slice(0, 80)}”, what I’ve done so far keeps the change inside \`src/core\`, and the tests I ran passed. I haven’t touched the phone app yet, so nothing there depends on it.`;
 }
 
+/** The demo's agent starting child threads through the real tools: `title=runtime:task`, split by semicolons. */
+async function mockStartThreads(input: AgentRunInput, tools: ThreadTools, list: string, pace: number): Promise<string> {
+  const answers: string[] = [];
+  for (const item of list.split(';')) {
+    const m = /^\s*(.+?)=(\w+):(.+?)\s*$/.exec(item);
+    if (!m) continue;
+    await sleep(200 * pace, input.signal);
+    input.onEvent('tool', 'thread_start');
+    answers.push(await tools.start({ title: m[1]!, agent: { runtime: m[2]! }, task: m[3]! }));
+  }
+  return answers.join('\n');
+}
+
 export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
   const context = new MockContext();
   let mcp = DEMO_MCP;
@@ -857,8 +870,8 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     if (/^\/compact/.test(input.prompt.trim())) return context.compact(input, (ms) => sleep(ms * pace, input.signal));
     // Claude Code's sign-in ran out mid-run (BLG-589): the failed card offers Sign In's choices.
     if (/^sign-in expired$/i.test(input.prompt.trim())) throw new RunFailedError(classifyRun({ result: 'Failed to authenticate: Auth session expired and could not be refreshed', apiError: 'authentication_failed' }));
-    // Your plan's usage limit (BLG-757): the card says when Beluga continues it, two hours from now.
-    if (/^usage limit$/i.test(input.prompt.trim())) throw new RunFailedError({ kind: 'usage_limit', resetsAt: Date.now() + 2 * 60 * 60_000, detail: 'You’ve hit your limit' });
+    // Your plan's usage limit (BLG-757): the card says when Beluga continues it, two hours from now. Also a child thread's task (its last line).
+    if (/(^|\n)usage limit$/i.test(input.prompt.trim())) throw new RunFailedError({ kind: 'usage_limit', resetsAt: Date.now() + 2 * 60 * 60_000, detail: 'You’ve hit your limit' });
     // Updating main (the one thing a main-folder run may change): what real Claude would report.
     if (input.place?.syncMain) return mockSyncMain(input, input.place.syncMain, pace);
     // A sentinel's run (core/sentinel): its brief, before the main folder's "move it to a worktree".
@@ -879,6 +892,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       await input.continueInWorktree(input.prompt.trim());
       return 'Moving this to a new worktree; I’ll continue there.';
     }
+    // The demo's agent as a parent: "start threads: Login tests=codex:finish; Docs=claude:keep working".
+    const kids = /^start threads: (.+)$/im.exec(input.prompt);
+    if (kids && input.threadTools) return mockStartThreads(input, input.threadTools, kids[1]!, pace);
+    // A child told to keep working (a run with thread tools): it works until someone stops it.
+    if (input.threadTools && /\bkeep working$/i.test(input.prompt.trim())) await sleep(3_600_000, input.signal);
     // Plan mode, and questions back to you, work in the demo too.
     if (input.plan) return mockPlan(input, pace);
     // A friend's Claude answered after this conversation's turn ended: carry on with it.

@@ -17,7 +17,8 @@ import { PhoneMark } from '../phone/Phone.js';
 import { ChatsMenu } from './ChatsMenu.js';
 import { Projects, ProjectsAddMenu } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
-import { WorkspaceRow } from './workspace-row.js';
+import { WorkspaceWithAgents } from './SubAgents.js';
+import { threadNesting } from '../threads/threads-model.js';
 import { ChatSelectionCount, SidebarChatSelection } from './chat-selection-view.js';
 import { UnreadSection } from './UnreadSection.js';
 import { CategorySections } from './CategorySections.js';
@@ -114,6 +115,8 @@ export function Sidebar() {
     };
   }, sameDeep);
   const later = useLater();
+  // A child thread sits under its parent's row (SubAgents.tsx); put off till later, it is in Later.
+  const { nested } = useApp(threadNesting);
   const files = tabs.find((t) => t.kind === 'files');
   return (
     <SidebarChatSelection>
@@ -181,8 +184,8 @@ export function Sidebar() {
                 </>
               }
             >
-              {liveChats.filter((w) => notLater(later, w)).map((w) => (
-                <WorkspaceRow key={w.id} ws={w} indent={0} />
+              {liveChats.filter((w) => !nested.has(w.id) && notLater(later, w)).map((w) => (
+                <WorkspaceWithAgents key={w.id} ws={w} indent={0} threadsOnly />
               ))}
               {/* Put off till later (Remind Me Later): folded at the bottom. */}
               <LaterRows list={laterOf(later, liveChats)} indent={0} foldKey="later:chats" />

@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 47 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 49 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -119,15 +119,23 @@ export const COMPANION_PROTO = { major: 1, minor: 47 } as const;
  * 1.45 (BLG-772): a plan's decisions (`PlanView.decisions`), and verifying its draft when you ask
  * (`plans.verify`, with `thenApprove`; `PlanView.review`: reviewing, or what it found), with Fix
  * (`plans.fixReview`). An older Mac leaves them out: Approve as before.
- * 1.46 (BLG-798): your own direct message says Delivered or Seen (`ChatMessageView.delivery`). An older Mac leaves it out.
- * 1.47 (BLG-809): your computers, where to dial each (`computers`, sent after the welcome and when
+ * 1.47 (BLG-172): child threads: each chat's harness and parent in Work (`ConvSummary.harness` /
+ * `parent`), a chat's family (`ConvView.threadFamily`, Stop with `threads.stop`), which thread a need
+ * belongs to (`NeedsYou.thread`), and what archive and delete would take with them
+ * (`BranchView.threads`, answered in `companion.branchStep`'s third argument). An older Mac leaves them
+ * out: flat rows, no Threads sheet, no question. The phone sends the third argument only to a Mac with
+ * SINCE.threads: an older Mac refuses an argument it doesn't know, so its children stay.
+ * SINCE.threadAgents: a family also lists the chat's native sub-agents (`ThreadFamilyView.agents`),
+ * read-only. An older Mac leaves them out: the sheet lists threads only.
+ * 1.48 (BLG-798): your own direct message says Delivered or Seen (`ChatMessageView.delivery`). An older Mac leaves it out.
+ * 1.49 (BLG-809): your computers, where to dial each (`computers`, sent after the welcome and when
  * they change), so the phone links to each by itself with the certificate it has. Each computer lets
  * in the phones of your device set, with this phone table's limits. An older Mac sends none, an
  * older phone drops the frame: nothing changes for either. Each says its Runs on line as the Mac's
  * menu does (`line`, `why`), and the phone shows every computer's work, Needs You and New Task's
  * Runs on from its own links (BLG-810).
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, seen: 46, computers: 47 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -259,6 +267,8 @@ export const NeedsYou = z.object({
   from: z.string().max(100).optional(),
   /** The conversation it holds up, to open. */
   topic: Topic.optional(),
+  /** 1.47: that conversation's title when it is a child thread, so a need says which one asks. */
+  thread: z.string().max(300).optional(),
   askedAt: ts.optional(),
   timeoutMs: z.number().int().min(0).optional(),
   /** A question's options (pick one, or several). */
@@ -490,6 +500,10 @@ export const ConvSummary = z.object({
   back: z.literal(true).optional(),
   /** 1.46 (BLG-840): commits in its worktree that its open PR doesn't have, the Mac row's ↑N chip: merging now would leave them out. */
   notOnPr: z.object({ count: z.number().int().min(1).max(100_000), pr: z.number().int().positive() }).optional(),
+  /** 1.47, with threads on: the agent this chat runs, for its mark. */
+  harness: AgentRefView.optional(),
+  /** 1.47: the chat it sits under in Work. Only a live parent in the same project; a kept child has none. */
+  parent: Topic.optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
 
@@ -556,6 +570,10 @@ export const BranchStepView = z.object({
 export type BranchStepView = z.infer<typeof BranchStepView>;
 
 /** 1.6: where a worktree's branch stands, as the Mac's toolbar shows it (core/branch-state.ts), and its next step in words. */
+/** How many threads a step would touch, and how many of them work now (for the question's words). */
+export const ThreadCountView = z.object({ count: z.number().int().min(0), running: z.number().int().min(0) });
+export type ThreadCountView = z.infer<typeof ThreadCountView>;
+
 export const BranchView = z.object({
   kind: z.string().max(40),
   /** "Merged", "Ready to merge", "Conflicts". */
@@ -570,6 +588,8 @@ export const BranchView = z.object({
   next: z.object({ id: z.string().max(40), label: z.string().max(80), claude: z.boolean().optional() }).optional(),
   /** 1.8: every step, the main one first (the Mac's toolbar button, then its menu); the phone does them with companion.branchStep. */
   steps: z.array(BranchStepView).max(20).optional(),
+  /** 1.47: the threads archiving or deleting it would ask about. Unset: it has none. */
+  threads: z.object({ archive: ThreadCountView, delete: ThreadCountView }).optional(),
 });
 export type BranchView = z.infer<typeof BranchView>;
 
@@ -609,6 +629,29 @@ export const AgentPickerView = z.object({
 });
 export type AgentPickerView = z.infer<typeof AgentPickerView>;
 
+/** A thread's state, or a newer Mac's word this phone doesn't know yet. */
+const ThreadStateView = z.union([z.enum(['queued', 'running', 'needs_you', 'waiting_limit', 'done', 'failed', 'stopped', 'interrupted']), z.string().max(20)]);
+
+/**
+ * 1.47: a chat's family, the Mac's Threads panel without its native sub-agents (the phone's strip has
+ * those): the chat that started it and the threads it started, most urgent first. Titles only, never
+ * a thread's task or result.
+ */
+export const ThreadFamilyView = z.object({
+  /** No `topic`: nothing to open (removed, or a Your Mac chat). `gone`: removed, and only its title stays. */
+  parent: z.object({ title: z.string().max(300), topic: Topic.optional(), state: ThreadStateView.optional(), gone: z.boolean() }).optional(),
+  children: z.array(z.object({ id, topic: Topic, title: z.string().max(300), state: ThreadStateView, working: z.boolean(), harness: AgentRefView })).max(100),
+  /** SINCE.threadAgents: its native sub-agents, read-only (no Stop, no page of their own), with the chat's harness. */
+  agents: z.array(z.object({ id, title: z.string().max(300), state: ThreadStateView, startedAt: ts.optional(), harness: AgentRefView })).max(40).optional(),
+  /** This chat's workspace id: `threads.stopAll` takes it. */
+  chat: id,
+  /** BLG-345: whether harness marks show (the chats listed run two or more harnesses). Left out by an older Mac: they show. */
+  marks: z.boolean().optional(),
+  /** Every working thread under this chat, each after its own children. */
+  stoppable: z.array(id).max(200),
+});
+export type ThreadFamilyView = z.infer<typeof ThreadFamilyView>;
+
 export const ConvView = z.object({
   topic: Topic,
   title: z.string().max(300),
@@ -620,6 +663,8 @@ export const ConvView = z.object({
   /** You may write here (it's yours, or shared with you to work in). */
   canSend: z.boolean(),
   working: z.boolean(),
+  /** 1.47: its parent and child threads. Unset: it has neither, or threads are off. */
+  threadFamily: ThreadFamilyView.optional(),
   /** 1.3: its project's id and icon, everything its worktree made (scratch files, reports, its Claude's and sub-agents' outputs, newest first), and what of yours waits its turn. */
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
@@ -1035,7 +1080,7 @@ export const ChatMessageView = z.object({
   files: z.array(OutputView).max(20).optional(),
   /** 1.41 (BLG-702): the emoji reactions under it, in the order they were first put there. */
   reactions: z.array(ChatReactionView).max(20).optional(),
-  /** 1.46 (BLG-798): your own direct message: it reached them (your Always On has theirs the same way), or it was on their screen. */
+  /** 1.48 (BLG-798): your own direct message: it reached them (your Always On has theirs the same way), or it was on their screen. */
   delivery: z.enum(['delivered', 'seen']).optional(),
   /** A friend's Claude answering you can't touch their Mac from the chat: what it offers to do there as a request (gateway.ask `to`). */
   offer: z.object({ to: id, ask: z.string().max(500), needs: z.array(z.enum(['project', 'shell', 'files', 'screen', 'device'])).max(5).optional() }).optional(),
@@ -1371,7 +1416,7 @@ export const RelayRecord = z.object({ v: z.literal(1), relay: RelayUrl.optional(
 export type RelayRecord = z.infer<typeof RelayRecord>;
 
 /**
- * 1.47 (BLG-809): one of your computers as your Mac tells its phones: who it is, how it looks, and
+ * 1.49 (BLG-809): one of your computers as your Mac tells its phones: who it is, how it looks, and
  * where to dial it (its companion address and relays). Nothing secret: keys are public, and a
  * computer lets the phone in only because your identity signed the phone's certificate.
  */

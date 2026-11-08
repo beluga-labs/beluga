@@ -27,6 +27,7 @@ import { type CompactMark, type ContextInfo, applyContextEvent, parseContextEven
 import { AUTO_COMPACT_DEFAULT } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, type SlotWait } from '../shared/run-slots.js';
 import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
+import { THREAD_LIMITS_DEFAULT, type ThreadLimits } from '../shared/threads.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
 import { type ChatTriage, triageKey } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
@@ -330,6 +331,10 @@ export interface Prefs {
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
   readonly chatLimit: number;
+  /** Your agents may start child threads (core/threads): off means your runs have no thread tools. */
+  readonly agentThreads: boolean;
+  /** How far those threads go (see shared/threads.ts). */
+  readonly threadLimits: ThreadLimits;
   /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
   readonly chatCategories: boolean;
   /** A merged PR settles its chat. */
@@ -754,6 +759,8 @@ export const DEFAULT_PREFS: Prefs = {
   autoContinueSkip: 0,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
+  agentThreads: false,
+  threadLimits: THREAD_LIMITS_DEFAULT,
   chatCategories: false,
   settleOnMerge: true,
   settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
