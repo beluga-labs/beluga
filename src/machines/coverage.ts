@@ -145,6 +145,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'workspaces.keepEnvHere': 'drive',
   'workspaces.saveEnvInBeluga': 'drive',
   'workspaces.checkEnv': 'drive',
+  'workspaces.ports': 'drive',
   'workspaces.askClaudeToReview': 'drive',
   'workspaces.askClaudeToMerge': 'drive',
   'workspaces.compact': 'drive',

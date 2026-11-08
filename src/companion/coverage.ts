@@ -141,6 +141,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.keepEnvHere': 'mac',
   'workspaces.saveEnvInBeluga': 'mac',
   'workspaces.checkEnv': 'mac',
+  'workspaces.ports': 'mac',
   'workspaces.askClaudeToReview': 'mac',
   'workspaces.askClaudeToMerge': 'mac',
   'workspaces.compact': 'mac',
