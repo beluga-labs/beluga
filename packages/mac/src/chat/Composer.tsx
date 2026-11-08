@@ -443,7 +443,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     deliver(text, urgent);
   };
   // Speaking instead of typing (Settings › Voice): the words come here when this is the box you're in; Send right away sends them as ↩ would.
-  useDictationTarget(ref, () => send(false));
+  useDictationTarget(ref, () => send(false), draftKey);
   const dictation = useDictation();
   const talking = dictation.kind !== 'off' && dictatingInto(ref.current);
   /** A queued message pulled back to edit: into the box, ahead of anything already there. */
