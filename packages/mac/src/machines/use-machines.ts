@@ -20,6 +20,9 @@ const subscribe = (l: () => void): (() => void) => {
   return () => void listeners.delete(l);
 };
 
+/** Your computers as last listed (for what starts work outside a view). */
+export const currentMachines = (): readonly MachineView[] => list;
+
 /** Ask this Mac's daemon now. */
 export function refreshMachines(home: SocketClient): void {
   void home.call('machines.list').then(

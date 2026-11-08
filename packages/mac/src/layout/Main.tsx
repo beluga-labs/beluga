@@ -14,6 +14,8 @@ import s from './Shell.module.css';
 import side from './Sidebar.module.css';
 import { SharedPlanPage } from '../team/SharedPlans.js';
 import { CallRoom } from '../call/CallRoom.js';
+import { StartingThere } from '../machines/StartingThere.js';
+import { useStarting } from '../machines/start-there.js';
 
 const OverviewView = lazy(() => import('../views/OverviewView.js').then((m) => ({ default: m.OverviewView })));
 const SearchView = lazy(() => import('../views/SearchView.js').then((m) => ({ default: m.SearchView })));
@@ -74,6 +76,9 @@ function MakingWorktree() {
 function Route() {
   const view = useApp((st) => st.view);
   const making = useMaking();
+  // New work on its way to one of your computers (BLG-788): its steps here until it opens there.
+  const starting = useStarting(view);
+  if (starting) return <StartingThere start={starting} />;
   if (making) return <MakingWorktree />;
   switch (view.kind) {
     case 'room':

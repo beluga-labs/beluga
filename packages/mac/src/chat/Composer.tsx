@@ -23,10 +23,11 @@ import { getPrefs, usePrefs } from '../lib/prefs.js';
 import { sendsToTerminal } from '../lib/convo-mode.js';
 import { chordLabel } from '../lib/shortcuts-model.js';
 import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
-import { ModelPicker } from './ModelPicker.js';
+import { ModelPicker, myRuntime } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
 import { RunsOnLabel, RunsOnPicker } from './RunsOn.js';
+import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { useMachines } from '../machines/use-machines.js';
 import { QueueTray } from './QueueTray.js';
 import { BtwCard, askBtw } from './BtwCard.js';
@@ -270,6 +271,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // New work (a new chat or worktree): Runs on picks where it goes.
   const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId } : undefined;
   const paired = useMachines(useBeluga().home).length > 0;
+  const startDeps = useStartDeps();
   const choiceKey = draftProject ? scopedKey(machine, draftProject) : undefined;
   const [worktree, setWorktreeState] = useState<WorktreeChoice>(() => (choiceKey && worktreeChoices.get(choiceKey)) || { name: '' });
   useEffect(() => setWorktreeState((choiceKey && worktreeChoices.get(choiceKey)) || { name: '' }), [choiceKey]);
@@ -387,6 +389,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     // Started in the mode the picker shows (Act, Plan First or Plan with Tasks).
     const mode = worktreeMode({ terminal, plan: client.store.getState().planMode.draft === true, tasks: armed });
     arm(false);
+    const opts = { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode };
+    // Runs on one of your computers (BLG-788): made there, in the same project, and opened at once.
+    if (!machine && sendToComputer(startDeps, projectId, worktree.agent?.runtime ?? myRuntime(client.store.getState().prefs), { kind: 'worktree', text, opts })) return;
     void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
   };
   const deliver = (text: string, urgent: boolean): void => {
@@ -399,6 +404,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     // /invite adds a friend, or adds friends to what's on screen (BLG-203): done here, where the view is known.
     if (handleInvite(client, ui, text)) return;
     if (draftProject && !text.startsWith('/')) return createWorktree(draftProject, text);
+    // A new chat in a project, Runs on one of your computers (BLG-788): started there.
+    const v = client.store.getState().view;
+    if (!machine && v.kind === 'draft' && v.projectId !== 'chats' && !v.dir && !text.startsWith('/') && sendToComputer(startDeps, v.projectId, myRuntime(client.store.getState().prefs), { kind: 'chat', text })) return;
     if (to && !text.startsWith('/')) {
       ui.patch({ to: undefined });
       return actions.submit(`${recipientPrefix(to)}${text}`, urgent);

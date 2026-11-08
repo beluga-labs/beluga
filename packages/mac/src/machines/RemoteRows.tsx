@@ -56,10 +56,14 @@ function RemoteWorkRow({ t, indent }: { t: Tagged<{ readonly id: string; readonl
   );
 }
 
-/** A project's worktrees and chats on your computers, under this Mac's project of the same name. */
-export function RemoteWorkRows({ name, indent }: { name: string; indent: number }) {
+/** A project's worktrees and chats on your computers, under this Mac's project of the same name (`onlyHere`: folded, only the one you're on). */
+export function RemoteWorkRows({ name, indent, onlyHere = false }: { name: string; indent: number; onlyHere?: boolean }) {
   const sources = useRemoteSources();
-  const rows = useMemo(() => remoteWorkIn(name, sources), [name, sources]);
+  const here = useApp((st) => {
+    const { machine, view } = paneOf(st.view);
+    return machine && view.kind === 'workspace' ? `${machine}/${view.id}` : undefined;
+  });
+  const rows = useMemo(() => remoteWorkIn(name, sources).filter((t) => !onlyHere || `${t.machine.id}/${t.item.id}` === here), [name, sources, onlyHere, here]);
   return (
     <>
       {rows.map((t) => (

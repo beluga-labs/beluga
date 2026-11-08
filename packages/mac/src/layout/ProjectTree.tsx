@@ -285,6 +285,7 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
         <>
           {plans.filter((x) => x.id === inPlan).map((x) => <PlanRow key={x.id} plan={x} indent={kids} />)}
           {live.filter((w) => w.id === here && w.kind !== 'main' && !isPlanOwned(state, w.id)).map((w) => <WorkspaceRow key={w.id} ws={w} indent={kids} />)}
+          <RemoteWorkRows name={p.name} indent={kids} onlyHere />
         </>
       ) : (
         <>

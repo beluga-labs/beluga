@@ -6,6 +6,7 @@ import { type UiStore, useBeluga } from '../lib/beluga.js';
 import { ensureMachine, machineClientOf, onMachines } from './pane-clients.js';
 import { type RemoteSnapshot, type RemoteSource, onlyItsWork, snapshotOf } from './remote-work.js';
 import { useMachines } from './use-machines.js';
+import { onStarted, startedOn } from './started.js';
 
 /**
  * Every computer's work for this window's lists (BLG-785): a screen kept open to each computer
@@ -60,15 +61,17 @@ const subscribe = (l: () => void): (() => void) => {
 /** Take what the lists need from a computer's state when it changed, at most once a second. */
 function watch(machine: MachineView, client: SocketClient): () => void {
   let last: unknown[] = [];
+  let force = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const take = (): void => {
     timer = undefined;
     const st = client.store.getState();
     const parts = [st.projects, st.plans, st.sentinel, st.board];
-    if (parts.every((p, i) => p === last[i])) return;
+    if (!force && parts.every((p, i) => p === last[i])) return;
+    force = false;
     last = parts;
     const all = snapshotOf(st);
-    kept = new Map(kept).set(machine.id, { snapshot: isDemoMachine(machine.id) ? onlyItsWork(all, machine.info?.work) : all, at: Date.now() });
+    kept = new Map(kept).set(machine.id, { snapshot: isDemoMachine(machine.id) ? onlyItsWork(all, [...(machine.info?.work ?? []), ...startedOn(machine.id)]) : all, at: Date.now() });
     save();
     emit();
   };
@@ -76,9 +79,15 @@ function watch(machine: MachineView, client: SocketClient): () => void {
   const off = client.store.subscribe(() => {
     timer ??= setTimeout(take, EVERY_MS);
   });
+  // Work started there from this window counts as its own at once (a demo computer's, see started.ts).
+  const offStarted = onStarted(() => {
+    force = true;
+    timer ??= setTimeout(take, 0);
+  });
   return () => {
     clearTimeout(timer);
     off();
+    offStarted();
   };
 }
 

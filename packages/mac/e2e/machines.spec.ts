@@ -145,3 +145,27 @@ test('a computer’s worktree lists under its project, tagged, and search finds 
   await results.getByRole('option').filter({ hasText: 'bob-api · AWS server' }).click();
   await expect(page.getByTitle('Runs on AWS server')).toBeVisible();
 });
+
+/**
+ * Start the work on that computer (BLG-788): with Runs on set to the AWS server, Create Worktree in
+ * bob-api's home makes the worktree there, in the same project, and opens it at once in the pane,
+ * tagged with the computer, listed under bob-api with its tag.
+ */
+test('a worktree started with Runs on a computer is made there and opens tagged', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await sidebar.getByText('bob-api', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Worktree name' }).fill('health-check');
+  await page.locator('textarea:not(.xterm-helper-textarea)').first().fill('Add a health check endpoint');
+  await page.getByRole('button', { name: /Create Worktree/ }).first().click();
+  // Opened at once in the pane, with the computer's tag.
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('health-check').first()).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'health-check on AWS server' })).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: path.join(SHOTS, 'blg-788-started-there.png') });
+});

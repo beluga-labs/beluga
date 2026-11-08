@@ -7,6 +7,8 @@ import { Icon, type IconName } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
 import { RunsOnRow } from '../chat/RunsOn.js';
+import { myRuntime } from '../chat/ModelPicker.js';
+import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { useTasksPrefs } from '../tasks/use-tasks.js';
 import { modeChange } from './plans-model.js';
 import { usePlanActions, usePlanView, usePlans } from './use-plans.js';
@@ -22,6 +24,8 @@ const AUTONOMY_ICON: Record<Autonomy, IconName> = { step: 'hand', gated: 'flag',
  * milestones and tasks (BLG-497; your default agent unless you pick another).
  */
 export function NewPlanSheet({ projectId, close }: { projectId?: string; close: () => void }) {
+  const startDeps = useStartDeps();
+  const prefsNow = () => startDeps.home.store.getState().prefs;
   const prefs = useTasksPrefs();
   const all = useApp((s) => s.projects);
   const projects = useMemo(() => all.filter((p) => p.root && !p.error), [all]);
@@ -56,7 +60,11 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
       onCancel={close}
       onSubmit={async () => {
         close();
-        await act(() => api.create({ projectId: project, goal: goal.trim(), autonomy, testsAt, ...(agent !== YOUR_AGENT ? { agent: agentForChoice(agent, runtimes) } : {}) }));
+        const chosen = agent !== YOUR_AGENT ? agentForChoice(agent, runtimes) : undefined;
+        const input = { goal: goal.trim(), autonomy, testsAt, ...(chosen ? { agent: chosen } : {}) };
+        // Runs on one of your computers (BLG-788): the plan is made there and opens at once.
+        if (sendToComputer(startDeps, project, chosen?.runtime ?? myRuntime(prefsNow()), { kind: 'plan', input })) return;
+        await act(() => api.create({ projectId: project, ...input }));
       }}
     >
       <div className={p.newPlan}>
@@ -189,8 +197,6 @@ export function PlanModeSheet({ planId, close }: { planId: string; close: () => 
       }}
     >
       <div className={p.newPlan}>
-        {/* Where it runs (BLG-786): the plan and its worktrees. Only with a computer paired. */}
-        <RunsOnRow project={project} className={p.newPlanRow} labelClassName={p.newPlanLabel} />
         <div className={p.newPlanLabel} id="plan-runs">
           How it runs
         </div>
