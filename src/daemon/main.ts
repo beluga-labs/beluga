@@ -24,6 +24,7 @@ import { type WebArgs, sshWords } from './web.js';
 import { WebAccess, attachWebAccess, readWebConfig } from './web-access.js';
 import { publicWords } from './reach/public.js';
 import { tailscaleWords } from './reach/tailscale.js';
+import { dropGitLocalEnv } from '../core/git-env.js';
 
 /** How long the daemon waits after the last screen closes before leaving the room. */
 export const LINGER_MS = 3000;
@@ -193,6 +194,8 @@ export async function startDaemon(config: Config, opts: DaemonOptions): Promise<
 
 /** Run the daemon as this process: signals stop it, problems are logged and shown, never fatal. */
 export async function runDaemon(config: Config, opts: DaemonOptions): Promise<void> {
+  // Started from inside git (a hook, an alias, git bisect run): its git commands must not land in that repository (git-env.ts).
+  dropGitLocalEnv();
   const log = (line: string): void => {
     blackbox.record('log', line);
     if (opts.log) opts.log(line);
