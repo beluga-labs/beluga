@@ -138,9 +138,9 @@ export async function connect(caps: Capabilities): Promise<SocketClient> {
 
 /**
  * What a computer may ask of this window (BLG-776 COMPUTER_CAPS, less): copy, open a page, read a
- * pasted image. Its notifications come through this Mac's one bell (BLG-790), never on their own.
+ * pasted image, and notify through this Mac's one bell (BLG-790: machines/pane-clients.ts wraps it).
  */
-const MACHINE_CAPS = ['copyText', 'openExternal', 'readClipboardImage'] as const;
+const MACHINE_CAPS = ['copyText', 'openExternal', 'readClipboardImage', 'notify'] as const;
 
 /**
  * Attach to one of your computers (BLG-784): this Mac's daemon pipes the screen there over

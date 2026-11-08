@@ -3,6 +3,10 @@ import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { capabilities, connectMachine } from '../lib/boot.js';
 import { UiStore } from '../lib/beluga.js';
 import { zoom } from '../lib/prefs.js';
+import type { Capabilities } from '@beluga/ipc/socket-client.js';
+import { OnceEach, type RawNotice, machineNotice, noticeKey } from '@beluga/machines/attention.js';
+import { dndActive } from '@beluga/shared/quiet.js';
+import { currentMachines } from './use-machines.js';
 
 /**
  * This window's screens on your computers (BLG-784), one per computer, kept while the window runs:
@@ -62,6 +66,28 @@ function forwardToasts(client: SocketClient, home: SocketClient): () => void {
   });
 }
 
+const once = new OnceEach();
+
+/**
+ * What this window does for a computer's screen: as for this Mac's, but its notices come through
+ * the one bell (BLG-790): once each, with the computer's name, tagged so opening or answering one
+ * acts there, and not at all while Do Not Disturb is on here.
+ */
+function machineCaps(id: string, home: SocketClient): Capabilities {
+  const base = capabilities(zoom);
+  const notify = base.notify as ((raw: RawNotice) => Promise<void>) | undefined;
+  if (!notify) return base;
+  return {
+    ...base,
+    notify: async (raw: RawNotice) => {
+      if (dndActive(home.store.getState().prefs.notify)) return;
+      if (!once.first(noticeKey(id, raw))) return;
+      const name = currentMachines().find((m) => m.id === id)?.name ?? 'Your computer';
+      await notify(machineNotice({ id, name }, raw));
+    },
+  };
+}
+
 /** A screen nobody looks at: on a page with no conversation, and away. */
 export function background(client: SocketClient): void {
   client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
@@ -79,7 +105,7 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
   if (entry.state.client || entry.connecting) return;
   const mine = entry;
   set(id, { error: undefined });
-  mine.connecting = connectMachine(id, capabilities(zoom))
+  mine.connecting = connectMachine(id, machineCaps(id, home))
     .then((client) => {
       // This Mac's own screen went meanwhile (its Beluga restarted): this one goes with it.
       if (entries.get(id) !== mine) return client.close();
