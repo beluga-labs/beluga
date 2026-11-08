@@ -35,13 +35,16 @@ export interface VerifyRun {
   readonly ts: number;
   readonly status: string;
   readonly between?: 'thinking' | 'writing';
+  /** What it said before a later step (a check's line, then a tool): the store keeps those apart from its text. */
+  readonly remarks?: ReadonlyArray<{ readonly text: string }>;
 }
 
 const plain = (line: string): string => line.replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
 
 /** Where the verification stands (no run yet: it's starting). */
 export function verifyProgress(run: VerifyRun | undefined): VerifyProgress {
-  const paragraphs = (run?.text ?? '')
+  const paragraphs = [...(run?.remarks ?? []).map((r) => r.text), run?.text ?? '']
+    .join('\n')
     .split(/\n+/)
     .map(plain)
     .filter(Boolean);

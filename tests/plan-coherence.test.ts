@@ -361,6 +361,12 @@ describe('verifying shows where it is, never a still line (BLG-772)', () => {
     expect(p.startedAt).toBe(1000);
   });
 
+  it('a check named before a step still counts once its words became a remark', () => {
+    const p = verifyProgress({ text: '', steps: ['plan_get'], ts: 1000, status: 'started', remarks: [{ text: 'Contradictions: reading every task.' }, { text: 'Duplicates: comparing 8 tasks.' }] });
+    expect(p.checks.map((c) => c.state)).toEqual(['done', 'now', 'todo', 'todo']);
+    expect(p.now).toBe('Duplicates: comparing 8 tasks.');
+  });
+
   it('recording what it found: every check is behind it', () => {
     const p = verifyProgress(run('Order: checking what builds on what.', ['plan_get', 'plan_review']));
     expect(p.checks.every((c) => c.state === 'done')).toBe(true);

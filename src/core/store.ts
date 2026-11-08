@@ -121,8 +121,16 @@ export type LogItem =
       readonly between?: 'thinking' | 'writing';
       /** Since when it has been `between` that way. */
       readonly betweenAt?: number;
+      /** What it said before a later step: drawn quietly among its steps, not as its answer (see agentRemarks). */
+      readonly remarks?: readonly Remark[];
     }
   | ShellItem;
+
+/** Words Claude said between its steps, and when (a step came after them, so they aren't its answer). */
+export interface Remark {
+  readonly text: string;
+  readonly ts: number;
+}
 
 /**
  * Who wrote a line of a shared workspace's earlier conversation (it arrives as a system line,
@@ -699,6 +707,8 @@ const TRANSFER_LIMIT = 20;
 /** Strip control characters (terminal escapes) and invisible bidi/zero-width marks from remote text. */
 export const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u202A-\u202E\u2066-\u2069]/g, '');
 const MAX_STEPS = 6;
+/** What a card keeps of what Claude said between its steps (the newest). */
+const MAX_REMARKS = 40;
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'calm',
@@ -926,23 +936,30 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
   const between = a.event === 'started' || (a.event === 'progress' && !a.text && !subOpen) ? 'thinking' : a.event === 'text' ? 'writing' : a.event === 'tool' || a.event === 'progress' ? undefined : wasBetween;
   const betweenAt = between === undefined ? undefined : between === wasBetween && wasAt !== undefined ? wasAt : a.ts;
   const noted = base.text === READS_AFTER_STEP || base.text === STOPPING_FOR;
+  const subagents = a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents;
+  // A step after its words (a tool, a sub-agent starting) makes them something it said on the way, not its answer.
+  const stepped = a.event === 'tool' || subagents.length > base.subagents.length;
+  const remark = stepped && base.text && !noted ? { text: base.text, ts: wasBetween === 'writing' && wasAt !== undefined ? wasAt : a.ts } : undefined;
   const updated = {
     ...rest,
     ...(progress ? { progress } : {}),
     ...(between ? { between, betweenAt } : {}),
+    ...(remark ? { remarks: [...(base.remarks ?? []), remark].slice(-MAX_REMARKS) } : {}),
     status: a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? 'started' : a.event,
     // The run ended: ones still running end with it; one that failed or was stopped stays so.
-    subagents: a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents,
+    subagents,
     text:
       // A steered message's note ("reads this after its current step") isn't Claude's words: its own turn starting (or going back in line) ends it, a newer note replaces it.
       noted && (a.event === 'started' || a.event === 'text' || a.event === 'queued')
         ? a.event === 'text' ? a.text : ''
-        : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
-          a.event === 'text'
-        ? (base.text ? `${base.text}\n\n` : '') + a.text
-        : a.event === 'done' || a.event === 'error' || a.event === 'denied'
-          ? a.text || base.text
-          : base.text,
+        : remark
+          ? ''
+          : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
+            a.event === 'text'
+            ? (base.text ? `${base.text}\n\n` : '') + a.text
+            : a.event === 'done' || a.event === 'error' || a.event === 'denied'
+              ? a.text || base.text
+              : base.text,
     steps: a.event === 'tool' ? [...base.steps, a.text].slice(-MAX_STEPS) : base.steps,
     endTs: a.event === 'done' || a.event === 'error' || a.event === 'denied' ? a.ts : base.endTs,
     ...(a.event === 'started' || a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? { lastAt: a.ts } : {}),
