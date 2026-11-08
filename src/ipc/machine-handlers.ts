@@ -2,6 +2,7 @@ import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
 import { needMachines } from '../machines/registry.js';
+import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
 
 /** This computer's 1-minute load per core, as a computer reports its own. */
 const hereLoad = (): number => Math.round(((os.loadavg()[0] ?? 0) / Math.max(1, os.cpus().length)) * 100) / 100;
@@ -28,4 +29,9 @@ export const MACHINE_HANDLERS = {
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.env.here': (s, wsId) => envHere(s.store.getState(), wsId),
+  'machines.env.receive': (s, wsIds, files) => receiveEnv(s.store.getState(), wsIds, files),
+  'machines.env.decide': (s, askId, choice) => needEnvSend(s).decide(askId, choice),
+  'machines.env.always': (s) => needEnvSend(s).always(),
+  'machines.env.forget': (s, root) => needEnvSend(s).forget(root),
 } satisfies MachineHandlers;

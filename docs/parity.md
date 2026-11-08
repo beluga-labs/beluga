@@ -244,6 +244,11 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.list` | ✓ Settings › Your Computers: each computer's icon, name, kind and region, online or offline, its load and health with fixes (also `beluga computers`) |
 | `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
+| `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
+| `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
+| `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |
+| `machines.env.always` | ✓ Settings › Your Computers › Env files sent without asking |
+| `machines.env.forget` | ✓ Settings › Your Computers › Env files sent without asking › Ask Again |
 | `companion.phone.use` | ✓ Settings › Phone › Let your agent use this phone: Off · Ask each time · Use · Full (BLG-150) |
 | `companion.phone.pairAdb` | ✓ Settings › Phone › Connect, once the phone shows a Wireless-debugging pairing code (runs `adb pair`) |
 | `companion.phone.wifi` | ✓ Settings › Phone › Over Wi‑Fi: Use over Wi‑Fi while the phone is on a cable (turns on its Wireless debugging, reached through the link), or Turn Off (BLG-187) |

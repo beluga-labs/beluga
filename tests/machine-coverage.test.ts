@@ -37,6 +37,10 @@ describe('the table of what your app may do on a computer', () => {
         'machines.update',
         'machines.leftBehind',
         'machines.look',
+        // The .env asks and Always for This Project are your app's own (BLG-800).
+        'machines.env.decide',
+        'machines.env.always',
+        'machines.env.forget',
         'session.quit',
         'daemon.stop',
       ].sort(),

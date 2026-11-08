@@ -125,6 +125,8 @@ export interface MachinesOptions {
   readonly updater?: ComputerUpdater;
   /** On a computer: keep a new name or icon your app gave it (its own settings, BLG-780). */
   readonly setLook?: (look: { readonly name?: string; readonly icon?: MachineIcon }) => void;
+  /** In the app: a screen of yours made a worktree on a computer (the .env ask, BLG-800). */
+  readonly onWorktree?: (machineId: string, workspaceId: string) => void;
   readonly log?: (line: string) => void;
 }
 
@@ -159,7 +161,7 @@ export class Machines {
     this.set = new DeviceSet({ file: path.join(opts.dir, 'device-set.json'), keys: this.keys, identity: opts.identity });
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
     this.platform = opts.platform ?? platformHere();
-    this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}) });
+    this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
     this.pairing = new ComputerPairing({
       node: opts.node,
       identity: opts.identity,

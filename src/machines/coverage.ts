@@ -558,6 +558,13 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',
+  // Your app asks what a worktree's project has and sends what you said to send (BLG-800); the asks
+  // and Always for This Project are the app's own, never a computer's.
+  'machines.env.here': 'drive',
+  'machines.env.receive': 'drive',
+  'machines.env.decide': 'refuse',
+  'machines.env.always': 'refuse',
+  'machines.env.forget': 'refuse',
   // ---- assistant
   'assistant.newChat': 'drive',
   'assistant.openChat': 'drive',

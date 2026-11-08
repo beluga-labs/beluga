@@ -5,6 +5,7 @@ import type { MachineView } from '@beluga/machines/machines.js';
 import type { Placement } from '@beluga/machines/placement.js';
 import type { UpdateAnswer } from '@beluga/machines/versions.js';
 import type { MachineIcon } from '@beluga/shared/settings-schema.js';
+import type { EnvSendAlways } from '@beluga/shared/env-send.js';
 import { Icon } from '../components/Icon.js';
 import { Button, Dot, IconButton, Segmented } from '../components/ui.js';
 import m from '../components/SpecMenu.module.css';
@@ -51,7 +52,29 @@ export function MachinesSettings() {
         <AddComputer onAdded={refresh} />
         {machines === undefined ? <div className={s.note}>Looking…</div> : machines.length === 0 ? <div className={s.note}>None yet. A Mac mini, a cloud server or a Linux box: add one, and your work can run there.</div> : machines.map((mc) => <Computer key={mc.id} machine={mc} onChange={refresh} />)}
       </Group>
+      <EnvSentAlways />
     </>
+  );
+}
+
+/** Projects whose .env files go to your computers without asking (BLG-800): Ask Again takes it back. */
+function EnvSentAlways() {
+  const { client } = useBeluga();
+  const [always, setAlways] = useState<readonly EnvSendAlways[]>([]);
+  useEffect(() => {
+    void client.call('machines.env.always').then((list) => setAlways(list as readonly EnvSendAlways[]), () => undefined);
+  }, [client]);
+  if (!always.length) return null;
+  return (
+    <Group title="Env files sent without asking">
+      {always.map((a) => (
+        <Row key={a.root} label={a.name} detail="Its .env files go to your computers when a worktree there lacks them.">
+          <Button size="small" variant="quiet" onClick={() => void client.call('machines.env.forget', a.root).then((list) => setAlways(list as readonly EnvSendAlways[]), () => undefined)}>
+            Ask Again
+          </Button>
+        </Row>
+      ))}
+    </Group>
   );
 }
 

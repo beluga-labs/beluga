@@ -525,6 +525,12 @@ export const PHONE: Record<Method, Side> = {
   'machines.list': 'mac',
   'machines.devices': 'mac',
   'machines.forget': 'mac',
+  // .env files never reach the phone, not even their names (BLG-800).
+  'machines.env.here': 'mac',
+  'machines.env.receive': 'mac',
+  'machines.env.decide': 'mac',
+  'machines.env.always': 'mac',
+  'machines.env.forget': 'mac',
   'companion.older': 'phone',
   'companion.ask': 'phone',
   'companion.post': 'phone',

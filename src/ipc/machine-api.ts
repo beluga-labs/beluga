@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MACHINE_ICONS } from '../shared/settings-schema.js';
+import { MAX_ENV_SEND_BYTES, MAX_ENV_SEND_FILES } from '../shared/env-send.js';
 
 /**
  * Your devices and computers in the API (BLG-774, src/machines): a computer opening a pairing for
@@ -41,4 +42,20 @@ export const MACHINE_API = {
   'machines.devices': { args: z.tuple([]) },
   // Forget a device of yours (by id): cut off here at once, and on every other device of yours as they hear.
   'machines.forget': { args: z.tuple([deviceId]) },
+  // .env files for a worktree on a computer (BLG-800). On the computer, asked by your app over its link:
+  // the worktree's project and the env files its folder has → { project: { name, remote? }, files } (names only).
+  'machines.env.here': { args: z.tuple([z.string().min(1).max(200)]) },
+  // On the computer: env files your app sent (base64), written 0600 into those worktrees' project folders and the worktrees, never over one there → { written }.
+  'machines.env.receive': {
+    args: z.tuple([
+      z.array(z.string().min(1).max(200)).min(1).max(16),
+      z.array(z.object({ path: z.string().min(1).max(400), data: z.string().max(Math.ceil((MAX_ENV_SEND_BYTES * 4) / 3) + 4) }).strict()).max(MAX_ENV_SEND_FILES),
+    ]),
+  },
+  // In the app: answer an ask (Send Once, Always for This Project, Don't Send) → { sent } (file names).
+  'machines.env.decide': { args: z.tuple([z.string().uuid(), z.enum(['once', 'always', 'never'])]) },
+  // The projects whose env files go to your computers without asking (Settings › Your Computers).
+  'machines.env.always': { args: z.tuple([]) },
+  // Take Always back for a project (by its folder): asked again next time → the list now.
+  'machines.env.forget': { args: z.tuple([z.string().min(1).max(4096)]) },
 } as const;

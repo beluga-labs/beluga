@@ -1,3 +1,4 @@
+import { EnvSend, attachEnvSend } from '../machines/env-send.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
@@ -187,6 +188,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     name: macName,
     ...(opts.log ? { log: opts.log } : {}),
   });
+  // .env files for worktrees made on your computers (BLG-800): asked with names, sent over the link.
+  let envSend: EnvSend | undefined;
   const machines = new Machines({
     dir,
     identity: opts.identity,
@@ -217,8 +220,18 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     },
     // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
+    onWorktree: (machineId, workspaceId) => void envSend?.offer(machineId, workspaceId).catch((err: unknown) => opts.log?.(`env-send: couldn't offer env files: ${err instanceof Error ? err.message : String(err)}`)),
     ...(opts.log ? { log: opts.log } : {}),
   });
+  envSend = new EnvSend({
+    file: path.join(dir, 'env-send.json'),
+    projects: () => opts.store.getState().projects,
+    machineName: (id) => machines.book.get(id)?.name ?? 'Your computer',
+    call: (machineId, method, args) => machines.door.call(machineId, method, args),
+    publish: (asks) => opts.store.dispatch({ type: 'env_sends', asks }),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  attachEnvSend(opts.session, envSend);
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());
   host = new CompanionHost({
     identity: opts.identity,

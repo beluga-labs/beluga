@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import createTestnet, { type Testnet } from 'hyperdht/testnet.js';
@@ -13,6 +13,7 @@ import { IPC_VERSION, encodeFrame, parseDaemonFrame } from '../src/ipc/protocol.
 import { SocketClient } from '../src/ipc/socket-client.js';
 import { Machines } from '../src/machines/machines.js';
 import { attachMachines } from '../src/machines/registry.js';
+import { EnvSend, type EnvSendAsk } from '../src/machines/env-send.js';
 import { generateIdentity } from '../src/net/crypto.js';
 import { TerminalManager } from '../src/terminal/pty-host.js';
 import { posixSh } from '../src/terminal/pty.js';
@@ -40,7 +41,7 @@ afterEach(async () => {
 
 const TOKEN = 't'.repeat(32);
 
-async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?: boolean; backoffMs?: number[] } = {}) {
+async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?: boolean; backoffMs?: number[]; workspaces?: object; onWorktree?: (machineId: string, workspaceId: string) => void } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-door-'));
   const identity = generateIdentity();
   const store = new Store(initialState(`${name}'s room`));
@@ -48,7 +49,7 @@ async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?:
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   const terminals = new TerminalManager();
   // The daemon's side the door needs: the store, intents, attention (daemon-broadcast.test.ts does the same).
-  const session = { store, intents: { subscribe: () => () => undefined }, attend: () => undefined, detach: () => undefined };
+  const session = { store, intents: { subscribe: () => () => undefined }, attend: () => undefined, detach: () => undefined, ...(opts.workspaces ? { workspaces: opts.workspaces } : {}) };
   const server = new DaemonServer({ session: session as never, token: TOKEN, version: '0.9.0', terminals });
   let host!: CompanionHost;
   const machines = new Machines({
@@ -70,6 +71,7 @@ async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?:
     pollMs: 60_000,
     staggerMs: 0,
     ...(opts.refuseDirect ? { refuseDirect: true } : {}),
+    ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}),
   });
   attachMachines(session, machines);
   server.routeMachines((id, ws, hello) => machines.door.open(id, ws, hello));
@@ -233,6 +235,47 @@ describe('driving a computer from the app', () => {
     const bye = parseDaemonFrame(frames[0]!);
     expect(bye).toMatchObject({ t: 'bye', update: 'computer' });
     expect(bye.t === 'bye' && bye.reason).toMatch(/mini runs an older Beluga \(0\.9\.0\).*Update It runs `beluga update` there/);
+  }, 120_000);
+});
+
+describe('.env files for a worktree made on a computer (BLG-800)', () => {
+  it('the app sees the worktree made, asks with names only, and sends over the link: 0600 there', async () => {
+    const made: Array<[string, string]> = [];
+    const app = await install('MacBook', { onWorktree: (m, ws) => void made.push([m, ws]) });
+    const mini = await install('mini', { workspaces: { fork: async () => ({ id: 'ws-new' }) } });
+    const id = await join(app, mini);
+    // The same project on both: a .env here, none there.
+    const here = mkdtempSync(path.join(os.tmpdir(), 'beluga-env-here-'));
+    const there = mkdtempSync(path.join(os.tmpdir(), 'beluga-env-there-'));
+    cleanup.push(() => [here, there].forEach((d) => rmSync(d, { recursive: true, force: true })));
+    writeFileSync(path.join(here, '.env'), 'STRIPE_KEY=sk_live_secret\n');
+    mkdirSync(path.join(there, 'wt'));
+    mini.store.dispatch({ type: 'projects', projects: [{ id: 'p-mini', name: 'shop', root: there, base: 'main', workspaces: [{ id: 'ws-new', path: path.join(there, 'wt') }] }] as never });
+
+    const screen = await screenOn(app, id);
+    expect(await screen.call('workspaces.fork', 'ws-old', 'try it')).toBe('ws-new');
+    await waitFor(() => made.length === 1, 10_000);
+    expect(made[0]).toEqual([id, 'ws-new']);
+
+    const asks: (readonly EnvSendAsk[])[] = [];
+    const send = new EnvSend({
+      file: path.join(app.dir, 'env-send.json'),
+      projects: () => [{ id: 'p-here', name: 'shop', root: here }],
+      machineName: () => 'mini',
+      call: (m, method, args) => app.machines.door.call(m, method, args),
+      publish: (a) => void asks.push(a),
+      origin: async () => undefined,
+    });
+    expect(await send.offer(id, 'ws-new')).toBe('asked');
+    expect(asks.at(-1)![0]!.files).toEqual(['.env']);
+    expect(JSON.stringify(asks)).not.toContain('sk_live_secret');
+    expect(await send.decide(asks.at(-1)![0]!.id, 'once')).toEqual({ sent: ['.env'] });
+    for (const dir of [there, path.join(there, 'wt')]) {
+      expect(readFileSync(path.join(dir, '.env'), 'utf8')).toBe('STRIPE_KEY=sk_live_secret\n');
+      expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
+    }
+    // The app's own calls never reach the screen; a computer not connected says so.
+    await expect(app.machines.door.call('0123456789abcdef', 'machines.env.here', ['ws-new'])).rejects.toThrow(/isn’t connected/);
   }, 120_000);
 });
 
