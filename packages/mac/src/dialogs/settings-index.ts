@@ -242,6 +242,7 @@ export const SETTINGS: readonly Entry[] = [
   // Phone
   group('computers', 'Where new work runs', 'This computer, one of yours, or the least busy.', 'run new work machine best available'),
   ...rows('computers', 'Where new work runs', [['Run New Work On', 'Worktrees, runs, plans and sentinels you start.', 'here best available machine computer']]),
+  ...rows('computers', 'Your settings', [['Your settings on every computer', 'They follow you by themselves; a conflict is said here.', 'sync settings conflicts same everywhere secrets keep in sync']]),
   group('computers', 'Your computers', 'Add one over SSH or with a code; rename, icon, Update It, Forget.', 'add ssh link code fingerprint rename icon forget update health'),
   group('phone', 'On the cable', 'A phone plugged into this computer.', 'usb cable adb plugged'),
   group('phone', 'Your phones', 'Paired phones, and Remove.', 'devices paired remove'),

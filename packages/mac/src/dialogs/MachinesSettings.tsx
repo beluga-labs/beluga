@@ -3,6 +3,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import type { ComputerOffer } from '@beluga/machines/enroll.js';
 import type { MachineView } from '@beluga/machines/machines.js';
 import type { Placement } from '@beluga/machines/placement.js';
+import type { SettingsSyncView } from '@beluga/machines/sync.js';
 import type { UpdateAnswer } from '@beluga/machines/versions.js';
 import type { MachineIcon } from '@beluga/shared/settings-schema.js';
 import { Icon } from '../components/Icon.js';
@@ -22,16 +23,20 @@ import s from './settings.module.css';
  * the link or code `beluga pair --computer` printed there, after the four pictures match), and
  * each computer: its icon, name, kind, status, load and health with the fix for what isn't ready.
  * Renaming and the icon are kept on the computer, so every device shows the same. Forget is
- * behind •••, and reaches every device of yours.
+ * behind •••, and reaches every device of yours. Your settings follow you to all of them by
+ * themselves (BLG-805): a conflict is said under Your Settings, and your secrets go to a computer
+ * only after you said Keep My Secrets in Sync for it (•••).
  */
 export function MachinesSettings() {
   const { client } = useBeluga();
   const runOn = useApp((st) => st.prefs.runOn);
   const [machines, setMachines] = useState<readonly MachineView[] | undefined>();
   const [placement, setPlacement] = useState<Placement | undefined>();
+  const [sync, setSync] = useState<SettingsSyncView | undefined>();
   const refresh = useCallback(() => {
     void client.call('machines.list').then((list) => setMachines(list as readonly MachineView[]), () => setMachines([]));
     void client.call('machines.placement').then((p) => setPlacement(p as Placement), () => undefined);
+    void client.call('machines.settingsSync').then((v) => setSync(v as SettingsSyncView), () => undefined);
   }, [client]);
   useEffect(() => {
     refresh();
@@ -51,7 +56,37 @@ export function MachinesSettings() {
         <AddComputer onAdded={refresh} />
         {machines === undefined ? <div className={s.note}>Looking…</div> : machines.length === 0 ? <div className={s.note}>None yet. A Mac mini, a cloud server or a Linux box: add one, and your work can run there.</div> : machines.map((mc) => <Computer key={mc.id} machine={mc} onChange={refresh} />)}
       </Group>
+      {machines?.length ? <YourSettings sync={sync} onClear={() => void client.call('machines.settingsSync.clear').then(refresh, () => undefined)} /> : null}
     </>
+  );
+}
+
+const when = (at: number): string => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/** Your settings on every computer (BLG-805): what follows you, what stays, and conflicts said. */
+function YourSettings({ sync, onClear }: { sync: SettingsSyncView | undefined; onClear: () => void }) {
+  const conflicts = sync?.conflicts ?? [];
+  return (
+    <Group title="Your settings">
+      <Row label="Your settings on every computer" detail="Models, effort, notifications, Run New Work On and the rest follow you by themselves. Each computer keeps its own paths, shell, service, web access and phones.">
+        <span className={c.kind}>{sync ? `${sync.synced} in sync` : ''}</span>
+      </Row>
+      {conflicts.length ? (
+        <div className={c.add} data-testid="sync-conflicts">
+          {conflicts.map((k) => (
+            <div key={`${k.key}-${k.at}-${k.kept.at}`} className={c.kind}>
+              <Icon name="alert" size={11} /> {k.secret ? `Your secret ${k.label}` : k.label} changed on {k.kept.name} and {k.lost.name} while they were apart: kept {k.kept.name}’s{k.kept.value ? ` (${k.kept.value})` : ''} from {when(k.kept.at)}
+              {k.secret ? '' : `, over ${k.lost.value ?? 'its'} from ${when(k.lost.at)}`}.
+            </div>
+          ))}
+          <div className={c.addRow}>
+            <Button size="small" variant="quiet" onClick={onClear}>
+              Got It
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Group>
   );
 }
 
@@ -195,6 +230,7 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
   const [naming, setNaming] = useState<string | undefined>();
   const [said, setSaid] = useState<string | undefined>();
   const [asked, setAsked] = useState<UpdateAnswer | undefined>();
+  const [askSecrets, setAskSecrets] = useState(false);
   const fail = (err: unknown): void => setSaid(err instanceof Error ? err.message : String(err));
   const look = (patch: { name?: string; icon?: MachineIcon }): void =>
     void client.call('machines.look', machine.id, patch).then(() => {
@@ -211,6 +247,12 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
       const answer = a as UpdateAnswer;
       setAsked(answer.state === 'busy' ? answer : undefined);
       setSaid(answer.message);
+    }, fail);
+  const secrets = (on: boolean): void =>
+    void client.call('machines.secrets', machine.id, on).then(() => {
+      setAskSecrets(false);
+      setSaid(on ? `Your secrets now follow you to ${machine.name}.` : `Your secrets no longer go to ${machine.name}; the ones there stay.`);
+      onChange();
     }, fail);
   const forget = (): void =>
     void client.call('machines.forget', machine.id).then(() => {
@@ -234,6 +276,11 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
           )}
           <span className={c.kind}>{kindLine(machine)}</span>
         </div>
+        {machine.secrets ? (
+          <div className={c.kind}>
+            <Icon name="lock" size={11} /> Your secrets sync with it
+          </div>
+        ) : null}
         <div className={c.load}>
           <Dot tone={tone} />
           {loadLine(machine)}
@@ -286,6 +333,10 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
                 </Dropdown.Item>
               ))}
               <Dropdown.Separator className={m.separator} />
+              <Dropdown.Item className={m.item} onSelect={() => (machine.secrets ? secrets(false) : setAskSecrets(true))}>
+                <span className={m.label}>{machine.secrets ? 'Stop Syncing My Secrets' : `Keep My Secrets in Sync With ${machine.name}…`}</span>
+              </Dropdown.Item>
+              <Dropdown.Separator className={m.separator} />
               <Dropdown.Item className={m.item} onSelect={forget}>
                 <span className={m.label}>Forget {machine.name}</span>
               </Dropdown.Item>
@@ -293,6 +344,17 @@ function Computer({ machine, onChange }: { machine: MachineView; onChange: () =>
           </Dropdown.Portal>
         </Dropdown.Root>
       </div>
+      {askSecrets ? (
+        <div className={c.said}>
+          Your own variables (Settings › Environment) go to {machine.name} over your end-to-end link, and every change follows, both ways. Never into a log.{' '}
+          <Button size="small" variant="primary" onClick={() => secrets(true)}>
+            Keep Them in Sync
+          </Button>{' '}
+          <Button size="small" variant="quiet" onClick={() => setAskSecrets(false)}>
+            Not Now
+          </Button>
+        </div>
+      ) : null}
       {said ? (
         <div className={c.said}>
           {said}{' '}

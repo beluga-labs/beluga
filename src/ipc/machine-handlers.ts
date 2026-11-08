@@ -1,6 +1,7 @@
 import type { Session } from '../core/session.js';
 import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
+import { runOnHere } from '../machines/run-on.js';
 import { needMachines } from '../machines/registry.js';
 
 /** This computer's 1-minute load per core, as a computer reports its own. */
@@ -24,8 +25,12 @@ export const MACHINE_HANDLERS = {
   'machines.update': (s, id, mode) => needMachines(s).update(id, mode),
   'machines.leftBehind': (s, ipc) => needMachines(s).leftBehind(ipc),
   'machines.look': (s, id, look) => needMachines(s).look(id, look),
-  'machines.placement': (s) => placeNewWork(s.store.getState().prefs.runOn, needMachines(s).list(), { name: needMachines(s).hereName(), loadPerCore: hereLoad() }),
+  // Run New Work On as this device reads it: here on a computer, or when it names this device or one it doesn't know (BLG-836).
+  'machines.placement': (s) => placeNewWork(runOnHere(s.store.getState().prefs.runOn, needMachines(s).runOnDevice()), needMachines(s).list(), { name: needMachines(s).hereName(), loadPerCore: hereLoad() }),
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.secrets': (s, id, on) => needMachines(s).keepSecrets(id, on),
+  'machines.settingsSync': (s) => needMachines(s).settingsSync(),
+  'machines.settingsSync.clear': (s) => needMachines(s).clearSettingsConflicts(),
 } satisfies MachineHandlers;
