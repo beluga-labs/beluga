@@ -1,6 +1,7 @@
 import type { CombinedEarnings } from '@beluga/core/earnings-combined.js';
+import type { MoneyTotal } from '@beluga/core/earnings-store.js';
 import { useEffect, useRef, useState } from 'react';
-import { formatMoney, missingNote, newestPaid, openEarnings, ratesWhen, sourcesOf, updatedAgo, useConverted, useMoney, usePaymentArrivals, useProjectEarnings } from '../lib/earnings.js';
+import { formatMoney, missingNote, newestPaid, openEarnings, ratesWhen, sourcesOf, updatedAgo, useConverted, useMoney, usePaymentArrivals, useProjectEarnings, useRevenueRises } from '../lib/earnings.js';
 import { brandText } from '../lib/brand.js';
 import { Icon } from './Icon.js';
 import { PixelBurst } from './PixelBurst.js';
@@ -19,6 +20,21 @@ export function EarningsTipBody({ earnings }: { earnings: CombinedEarnings }) {
   const note = missingNote(money.missing);
   const head = earnings.refreshing && !earnings.totals ? `Counting all-time earnings from ${sourcesOf([earnings])}…` : `All-time earnings · ${earnings.refreshing ? 'updating…' : `updated ${updatedAgo(earnings.updatedAt)}`}`;
   const newest = newestPaid(earnings);
+  // With both sources, what each one counted (the total above is the two added).
+  const stripeMoney = useConverted(earnings.stripe?.totals);
+  const rcMoney = useConverted(earnings.revenuecat?.totals);
+  const both = Boolean(earnings.stripe && earnings.revenuecat);
+  const part = (name: string, source: { totals?: readonly MoneyTotal[]; refreshing?: boolean } | undefined, m: ReturnType<typeof useConverted>) =>
+    source ? (
+      <span key={name} className={s.tipLine}>
+        <span>{name}</span>
+        <span className={s.num}>{source.totals ? `${m.converted ? '≈ ' : ''}${formatMoney(m.amount, m.currency)}` : 'counting…'}</span>
+      </span>
+    ) : null;
+  const errors = [
+    ['Stripe', earnings.stripe?.error],
+    ['RevenueCat', earnings.revenuecat?.error],
+  ] as const;
   return (
     <span className={s.tipBody}>
       <span>{head}</span>
@@ -31,6 +47,7 @@ export function EarningsTipBody({ earnings }: { earnings: CombinedEarnings }) {
             </span>
           ))
         : null}
+      {both ? [part('Stripe', earnings.stripe, stripeMoney), part('RevenueCat', earnings.revenuecat, rcMoney)] : null}
       {note ? <span className={s.tipDim}>{note}</span> : null}
       {newest ? (
         <span className={s.tipDim}>
@@ -39,7 +56,7 @@ export function EarningsTipBody({ earnings }: { earnings: CombinedEarnings }) {
       ) : null}
       {money.converted && fx ? <span className={s.tipDim}>Converted at the European Central Bank’s rates, updated {ratesWhen(fx.at)}; approximate.</span> : null}
       {earnings.mode === 'test' && !earnings.revenuecat ? <span className={s.tipDim}>Test mode</span> : null}
-      {earnings.error ? <span className={s.tipError}>{brandText(earnings.error.message)}</span> : null}
+      {errors.map(([name, error]) => (error ? <span key={name} className={s.tipError}>{both ? `${name}: ` : ''}{brandText(error.message)}</span> : null))}
     </span>
   );
 }
@@ -57,7 +74,7 @@ function usePulse(arrivals: number): boolean {
 }
 
 /**
- * A project's all-time earnings beside its name in the sidebar: one amount, compact ("$12.4K"),
+ * A project's all-time earnings (Stripe and RevenueCat added) beside its name in the sidebar: one amount, compact ("$12.4K"),
  * in the currency you show earnings in (other currencies converted at today's rates; each shows
  * on hover). Just the figure, in a quiet money green; it shimmers while earnings are being read, and
  * when a new payment arrives it hops and tints for a moment (`celebrate`, the sidebar's: with a
@@ -68,7 +85,9 @@ export function EarningsPill({ root, projectId, celebrate }: { root: string | un
   const earnings = useProjectEarnings(root);
   const ref = useRef<HTMLButtonElement>(null);
   const arrivals = usePaymentArrivals(earnings);
-  const pulse = usePulse(arrivals);
+  const rises = useRevenueRises(root);
+  // A rise in RevenueCat's total pulses the pill too, but only Stripe's payments throw confetti.
+  const pulse = usePulse(arrivals + rises);
   const [burst, setBurst] = useState(0);
   useEffect(() => {
     if (arrivals && celebrate) setBurst(arrivals);

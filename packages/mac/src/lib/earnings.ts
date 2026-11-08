@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { type CombinedEarnings, combineAll } from '@beluga/core/earnings-combined.js';
+import { type CombinedEarnings, combineAll, revenueRose } from '@beluga/core/earnings-combined.js';
 import { type FxRates, type MoneyTotal, type ProjectEarnings, type RecentPayment, convertParts, currencyChoices, earningsCurrency, mainCurrency, sumTotals } from '@beluga/core/earnings-store.js';
 import type { ProjectRevenueCat } from '@beluga/core/revenuecat-store.js';
 import type { Project } from '@beluga/workspaces/types.js';
@@ -183,6 +183,24 @@ export function usePaymentArrivals(earnings: CombinedEarnings | undefined): numb
   return count;
 }
 
+/**
+ * Counts up each time RevenueCat's all-time total rises between two counts while this is shown:
+ * never on first show, when RevenueCat is first connected, or when the currency, the rates or
+ * the counted apps change (core/earnings-combined.ts, revenueRose). RevenueCat has no payments
+ * to show, so this only pulses; the confetti stays with Stripe's payments.
+ */
+export function useRevenueRises(root: string | undefined): number {
+  const rc = useApp((st) => (root ? st.revenuecat[root] : undefined));
+  const last = useRef(rc);
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const was = last.current;
+    last.current = rc;
+    if (revenueRose(was, rc)) setCount((n) => n + 1);
+  }, [rc]);
+  return count;
+}
+
 /** The ids of the payments that arrived while this was shown (marked New). */
 export function useArrived(latest: readonly RecentPayment[] | undefined): ReadonlySet<string> {
   const first = useRef<ReadonlySet<string> | undefined>(undefined);
@@ -270,6 +288,9 @@ export const STRIPE_KEY_URL = 'https://dashboard.stripe.com/apikeys/create?name=
 
 /** RevenueCat's guide to making an API key. */
 export const REVENUECAT_KEY_URL = 'https://www.revenuecat.com/docs/projects/authentication';
+
+/** A RevenueCat project's overview in the dashboard (its ids start with "proj"). */
+export const revenueCatUrl = (projectId: string): string => `https://app.revenuecat.com/projects/${projectId.replace(/^proj/, '')}/overview`;
 
 /** Test or live, and whether it's a full secret key, from what was typed (before asking Stripe). */
 export function keyKind(key: string): { mode?: 'test' | 'live'; secret: boolean; publishable: boolean } {

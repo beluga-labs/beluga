@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { EARNINGS_RANGES, type EarningsActivity, type EarningsRange, type FxRates, type MoneyTotal, type PaymentStatus, type RangeDay, type RecentPayment, convertParts, rangeFigures } from '@beluga/core/earnings-store.js';
+import { EARNINGS_RANGES, type EarningsActivity, type EarningsRange, type FxRates, type MoneyTotal, type PaymentStatus, type RangeDay, type RecentPayment, convertParts, lastDays, rangeFigures } from '@beluga/core/earnings-store.js';
+import type { ProjectRevenueCat } from '@beluga/core/revenuecat-store.js';
 import type { Project } from '@beluga/workspaces/types.js';
 import { Icon } from '../../components/Icon.js';
 import { Button, Segmented, Tip, cx } from '../../components/ui.js';
 import { brandText } from '../../lib/brand.js';
-import { type CombinedEarnings, formatGlance, formatMoney, missingNote, newestPaid, openEarnings, sourcesOf, stripePaymentsUrl, updatedAgo, useArrived, useMoney, useProjectEarnings } from '../../lib/earnings.js';
+import { type CombinedEarnings, formatGlance, formatMoney, missingNote, newestPaid, openEarnings, revenueCatUrl, sourcesOf, stripePaymentsUrl, updatedAgo, useArrived, useMoney, useProjectEarnings } from '../../lib/earnings.js';
 import { openExternal } from '../../lib/system.js';
 import { agoText } from './home-model.js';
 import h from '../project-home.module.css';
@@ -15,9 +16,10 @@ import s from './earnings-section.module.css';
  * of the page, like its other sections. Folded, the row says what it earned in the last 7, 30 or
  * 90 days (your pick, kept for every project) against the span before, how many payments and
  * paying customers, and when the last payment came. Unfolded (kept too): the range, what came in
- * each day, and the latest payments, filtered to refunds or failed ones when there are any. Money
- * shows in the currency you show earnings in; the Earnings sheet has the rest. Nothing when neither
- * is connected.
+ * each day, what each source brought in (when both are connected), RevenueCat's own figures, and
+ * Stripe's latest payments, filtered to refunds or failed ones when there are any. Money shows in
+ * the currency you show earnings in; the Earnings sheet has the rest. Paying customers and
+ * payments are Stripe's alone (RevenueCat has neither). Nothing when neither is connected.
  */
 export function EarningsSection({ project }: { project: Project }) {
   const earnings = useProjectEarnings(project.root);
@@ -118,6 +120,12 @@ function Summary({ activity, earnings, range, open, onToggle }: { activity: Earn
   const before = fig.before ? shownOf(fig.before.totals, currency, fx) : undefined;
   const span = `the ${range} days before`;
   const last = newestPaid(earnings);
+  const both = Boolean(earnings.stripe && earnings.revenuecat);
+  const counted = both
+    ? 'Stripe: captured minus refunds, before its fees. RevenueCat: net of refunds, before store fees and taxes.'
+    : earnings.stripe
+      ? 'Captured minus refunds, before Stripe’s fees.'
+      : 'Net of refunds, before store fees and taxes.';
   const money = `${earned.approx ? '≈ ' : ''}${formatGlance(earned.amount, currency)}`;
   return (
     <button type="button" className={h.row} aria-expanded={open} aria-label={`${money} in the last ${range} days`} onClick={onToggle} data-earnings-summary>
@@ -126,7 +134,7 @@ function Summary({ activity, earnings, range, open, onToggle }: { activity: Earn
       </span>
       <span className={h.rowMain}>
         <span className={h.rowTitle}>
-          <Tip label={`${formatMoney(earned.amount, currency)} in the last ${range} days${before ? `, ${formatMoney(before.amount, currency)} in ${span}` : ''}. Captured minus refunds, before Stripe’s fees.`}>
+          <Tip label={`${formatMoney(earned.amount, currency)} in the last ${range} days${before ? `, ${formatMoney(before.amount, currency)} in ${span}` : ''}. ${counted}`}>
             <span className={h.rowName}>{money}</span>
           </Tip>
           <span className={s.range}>in the last {range} days</span>
@@ -139,6 +147,7 @@ function Summary({ activity, earnings, range, open, onToggle }: { activity: Earn
             <>
               {' · '}
               {plural(fig.payers, 'paying customer', 'paying customers')}
+              {both ? ' (Stripe)' : ''}
               <Change now={fig.payers} before={fig.before?.payers} />
             </>
           ) : null}
@@ -188,6 +197,7 @@ function Details({ activity, earnings, range, onRange }: { activity: EarningsAct
         ) : null}
       </div>
       <DayBars days={fig.days} currency={currency} fx={fx} />
+      {earnings.stripe && earnings.revenuecat ? <BySource earnings={earnings} range={range} /> : null}
       {note || activity.partial ? (
         <p className={s.dim}>
           {note}
@@ -195,7 +205,77 @@ function Details({ activity, earnings, range, onRange }: { activity: EarningsAct
           {activity.partial ? 'A busy account: Beluga read the newest 5,000 payments, so the oldest days may show only part.' : ''}
         </p>
       ) : null}
-      <Latest latest={activity.latest} mode={earnings.mode ?? 'live'} />
+      {earnings.revenuecat ? <RevenueCatBlock rc={earnings.revenuecat} range={range} /> : null}
+      {earnings.stripe ? <Latest latest={earnings.stripe.activity?.latest ?? []} mode={earnings.stripe.mode} /> : null}
+    </div>
+  );
+}
+
+/** What each source brought in over the range (the row above adds them). */
+function BySource({ earnings, range }: { earnings: CombinedEarnings; range: EarningsRange }) {
+  const { currency, fx } = useMoney();
+  const rows = [
+    { name: 'Stripe', activity: earnings.stripe?.activity },
+    { name: 'RevenueCat', activity: earnings.revenuecat?.activity ? { ...earnings.revenuecat.activity, payers: [], latest: [] } : undefined },
+  ];
+  return (
+    <ul className={s.split} aria-label="By source">
+      {rows.map(({ name, activity }) => {
+        const fig = activity ? rangeFigures(activity, range) : undefined;
+        const shown = fig ? shownOf(fig.totals, currency, fx) : undefined;
+        return (
+          <li key={name} className={s.splitItem}>
+            <span className={s.splitName}>{name}</span>
+            <span className={s.splitAmount}>{shown ? `${shown.approx ? '≈ ' : ''}${formatMoney(shown.amount, currency)}` : 'counting…'}</span>
+            {fig ? <span className={s.dim}>{plural(fig.payments, 'payment', 'payments')}</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** RevenueCat's own figures: subscriptions right now, and what's kept of the range after store fees and taxes. */
+function RevenueCatBlock({ rc, range }: { rc: ProjectRevenueCat; range: EarningsRange }) {
+  const { currency, fx } = useMoney();
+  const subs = rc.subscriptions;
+  const inRange = new Set(lastDays(range, Date.now()));
+  const kept = (rc.activity?.days ?? []).filter((d) => inRange.has(d.day) && d.proceeds).flatMap((d) => d.proceeds!);
+  const keep = rc.activity?.days.some((d) => d.proceeds) ? shownOf(kept, currency, fx) : undefined;
+  const mrr = subs?.mrr !== undefined ? shownOf([{ currency: rc.currency, amount: subs.mrr }], currency, fx) : undefined;
+  const stats: Array<[string, string | undefined]> = [
+    ['MRR', mrr ? `${mrr.approx ? '≈ ' : ''}${formatMoney(mrr.amount, currency)}` : undefined],
+    ['Active subscriptions', subs?.activeSubscriptions?.toLocaleString()],
+    ['Active trials', subs?.activeTrials?.toLocaleString()],
+    ['New customers (28 days)', subs?.newCustomers?.toLocaleString()],
+  ];
+  return (
+    <div className={s.latest} role="group" aria-label="RevenueCat">
+      <div className={s.latestHead}>
+        <h4 className={s.latestTitle}>RevenueCat</h4>
+        <span className={h.flex} />
+        <button type="button" className={s.link} onClick={() => void openExternal(revenueCatUrl(rc.project.id))}>
+          Open RevenueCat
+          <Icon name="external" size={10} />
+        </button>
+      </div>
+      {subs ? (
+        <dl className={s.stats}>
+          {stats.map(([label, value]) =>
+            value === undefined ? null : (
+              <div key={label} className={s.stat}>
+                <dt className={s.dim}>{label}</dt>
+                <dd className={s.statValue}>{value}</dd>
+              </div>
+            ),
+          )}
+        </dl>
+      ) : null}
+      {keep ? (
+        <p className={s.dim}>
+          You keep ≈ {formatMoney(keep.amount, currency)} (after store fees and taxes)
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -209,7 +289,8 @@ const longDay = (day: string): string => dateOf(day).toLocaleDateString(undefine
 
 /** What came in each day: a bar per day, the quiet ones a stub, today's a shade stronger. */
 function DayBars({ days, currency, fx }: { days: readonly RangeDay[]; currency: string; fx: FxRates | undefined }) {
-  const values = days.map((d) => convertParts(d.totals, currency, fx).amount);
+  // A day can be negative (refunds are booked on the refund day): its bar is a stub, never below the line.
+  const values = days.map((d) => Math.max(0, convertParts(d.totals, currency, fx).amount));
   const max = Math.max(1, ...values);
   return (
     <div className={s.chartWrap}>
@@ -265,7 +346,7 @@ function Latest({ latest, mode }: { latest: readonly RecentPayment[]; mode: 'tes
   return (
     <div className={s.latest}>
       <div className={s.latestHead}>
-        <h4 className={s.latestTitle}>Latest payments</h4>
+        <h4 className={s.latestTitle}>Latest payments from Stripe</h4>
         {offered.length > 1 ? (
           <div className={s.filters} role="radiogroup" aria-label="Show">
             {offered.map((f) => (

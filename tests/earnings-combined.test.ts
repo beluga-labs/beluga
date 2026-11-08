@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EarningsActivity, ProjectEarnings } from '../src/core/earnings-store.js';
 import { dayKey, lastDays, rangeFigures } from '../src/core/earnings-store.js';
-import { combineAll, combineEarnings } from '../src/core/earnings-combined.js';
+import { combineAll, combineEarnings, revenueRose } from '../src/core/earnings-combined.js';
 import { type ProjectRevenueCat, initialRevenueCat, reduceRevenueCat } from '../src/core/revenuecat-store.js';
 
 const usd = (amount: number) => ({ currency: 'usd', amount });
@@ -156,5 +156,30 @@ describe('combineAll', () => {
     expect(all['/a']!.revenuecat).toBeUndefined();
     expect(all['/b']!.stripe).toBeUndefined();
     expect(all['/both']!.totals).toEqual([usd(14_000), { currency: 'eur', amount: 700 }]);
+  });
+});
+
+describe('revenueRose: when the pill should pulse for RevenueCat', () => {
+  const app = (id: string, counted = true) => ({ id, name: id, store: 'app_store', counted, reason: 'store' as const });
+  const a = rc({ currency: 'usd', apps: [app('a'), app('b')], totals: [usd(1000)] });
+
+  it('is true when the all-time total goes up between two counts', () => {
+    expect(revenueRose(a, { ...a, totals: [usd(1500)] })).toBe(true);
+  });
+  it('is false when it stays, falls, or either side has no count yet', () => {
+    expect(revenueRose(a, a)).toBe(false);
+    expect(revenueRose(a, { ...a, totals: [usd(900)] })).toBe(false);
+    const { totals: _t, ...pending } = a;
+    expect(revenueRose(pending, { ...a, totals: [usd(1500)] })).toBe(false);
+    expect(revenueRose(a, pending)).toBe(false);
+  });
+  it('is false on first show and after a disconnect', () => {
+    expect(revenueRose(undefined, a)).toBe(false);
+    expect(revenueRose(a, undefined)).toBe(false);
+  });
+  it('is false when the currency, the project or the counted apps changed (that is a recount, not a sale)', () => {
+    expect(revenueRose(a, { ...a, currency: 'eur', totals: [{ currency: 'eur', amount: 5000 }] })).toBe(false);
+    expect(revenueRose(a, { ...a, project: { id: 'projOTHER', name: 'Other' }, totals: [usd(1500)] })).toBe(false);
+    expect(revenueRose(a, { ...a, apps: [app('a'), app('b', false)], totals: [usd(1500)] })).toBe(false);
   });
 });

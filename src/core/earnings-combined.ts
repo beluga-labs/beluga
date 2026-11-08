@@ -80,3 +80,17 @@ export function combineAll(
   }
   return out;
 }
+
+const countedIds = (rc: ProjectRevenueCat): string => rc.apps.filter((a) => a.counted).map((a) => a.id).sort().join(',');
+
+/**
+ * Whether RevenueCat's all-time total went up between two counts of the same connection: a sale
+ * (or a day's worth) arrived. Not on first show or a disconnect, and not when the currency, the
+ * RevenueCat project or the set of counted apps changed, because then the total moved for
+ * another reason.
+ */
+export function revenueRose(was: ProjectRevenueCat | undefined, now: ProjectRevenueCat | undefined): boolean {
+  if (!was?.totals || !now?.totals) return false;
+  if (was.currency !== now.currency || was.project.id !== now.project.id || countedIds(was) !== countedIds(now)) return false;
+  return sumTotals([now.totals]).reduce((n, t) => n + t.amount, 0) > sumTotals([was.totals]).reduce((n, t) => n + t.amount, 0);
+}
