@@ -37,6 +37,15 @@ describe('the table of what your app may do on a computer', () => {
         'machines.update',
         'machines.leftBehind',
         'machines.look',
+        // The .env asks and Always for This Project are your app's own (BLG-800).
+        'machines.forwards',
+        'machines.share',
+        'machines.unshare',
+        'machines.env.decide',
+        'machines.env.always',
+        'machines.env.forget',
+        // Who gets your secrets is said from your app's own Settings (BLG-805).
+        'machines.secrets',
         'session.quit',
         'daemon.stop',
       ].sort(),

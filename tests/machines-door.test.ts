@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import createTestnet, { type Testnet } from 'hyperdht/testnet.js';
@@ -13,6 +13,11 @@ import { IPC_VERSION, encodeFrame, parseDaemonFrame } from '../src/ipc/protocol.
 import { SocketClient } from '../src/ipc/socket-client.js';
 import { Machines } from '../src/machines/machines.js';
 import { attachMachines } from '../src/machines/registry.js';
+import { EnvSend, type EnvSendAsk } from '../src/machines/env-send.js';
+import { Forwarder, type PortForward, serveTunnels } from '../src/machines/forward.js';
+import { spawn } from 'node:child_process';
+import net from 'node:net';
+import { realpathSync } from 'node:fs';
 import { generateIdentity } from '../src/net/crypto.js';
 import { TerminalManager } from '../src/terminal/pty-host.js';
 import { posixSh } from '../src/terminal/pty.js';
@@ -40,7 +45,7 @@ afterEach(async () => {
 
 const TOKEN = 't'.repeat(32);
 
-async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?: boolean; backoffMs?: number[] } = {}) {
+async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?: boolean; backoffMs?: number[]; workspaces?: object; onWorktree?: (machineId: string, workspaceId: string) => void } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-door-'));
   const identity = generateIdentity();
   const store = new Store(initialState(`${name}'s room`));
@@ -48,7 +53,7 @@ async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?:
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   const terminals = new TerminalManager();
   // The daemon's side the door needs: the store, intents, attention (daemon-broadcast.test.ts does the same).
-  const session = { store, intents: { subscribe: () => () => undefined }, attend: () => undefined, detach: () => undefined };
+  const session = { store, intents: { subscribe: () => () => undefined }, attend: () => undefined, detach: () => undefined, ...(opts.workspaces ? { workspaces: opts.workspaces } : {}) };
   const server = new DaemonServer({ session: session as never, token: TOKEN, version: '0.9.0', terminals });
   let host!: CompanionHost;
   const machines = new Machines({
@@ -70,6 +75,8 @@ async function install(name: string, opts: { relay?: RelayTunnel; refuseDirect?:
     pollMs: 60_000,
     staggerMs: 0,
     ...(opts.refuseDirect ? { refuseDirect: true } : {}),
+    ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}),
+    tunnels: (socket) => void serveTunnels(socket),
   });
   attachMachines(session, machines);
   server.routeMachines((id, ws, hello) => machines.door.open(id, ws, hello));
@@ -233,6 +240,189 @@ describe('driving a computer from the app', () => {
     const bye = parseDaemonFrame(frames[0]!);
     expect(bye).toMatchObject({ t: 'bye', update: 'computer' });
     expect(bye.t === 'bye' && bye.reason).toMatch(/mini runs an older Beluga \(0\.9\.0\).*Update It runs `beluga update` there/);
+  }, 120_000);
+});
+
+describe('.env files for a worktree made on a computer (BLG-800)', () => {
+  it('the app sees the worktree made, asks with names only, and sends over the link: 0600 there', async () => {
+    const made: Array<[string, string]> = [];
+    const app = await install('MacBook', { onWorktree: (m, ws) => void made.push([m, ws]) });
+    const mini = await install('mini', { workspaces: { fork: async () => ({ id: 'ws-new' }) } });
+    const id = await join(app, mini);
+    // The same project on both: a .env here, none there.
+    const here = mkdtempSync(path.join(os.tmpdir(), 'beluga-env-here-'));
+    const there = mkdtempSync(path.join(os.tmpdir(), 'beluga-env-there-'));
+    cleanup.push(() => [here, there].forEach((d) => rmSync(d, { recursive: true, force: true })));
+    writeFileSync(path.join(here, '.env'), 'STRIPE_KEY=sk_live_secret\n');
+    mkdirSync(path.join(there, 'wt'));
+    mini.store.dispatch({ type: 'projects', projects: [{ id: 'p-mini', name: 'shop', root: there, base: 'main', workspaces: [{ id: 'ws-new', path: path.join(there, 'wt') }] }] as never });
+
+    const screen = await screenOn(app, id);
+    expect(await screen.call('workspaces.fork', 'ws-old', 'try it')).toBe('ws-new');
+    await waitFor(() => made.length === 1, 10_000);
+    expect(made[0]).toEqual([id, 'ws-new']);
+
+    const asks: (readonly EnvSendAsk[])[] = [];
+    const send = new EnvSend({
+      file: path.join(app.dir, 'env-send.json'),
+      projects: () => [{ id: 'p-here', name: 'shop', root: here }],
+      machineName: () => 'mini',
+      call: (m, method, args) => app.machines.door.call(m, method, args),
+      publish: (a) => void asks.push(a),
+      origin: async () => undefined,
+    });
+    expect(await send.offer(id, 'ws-new')).toBe('asked');
+    expect(asks.at(-1)![0]!.files).toEqual(['.env']);
+    expect(JSON.stringify(asks)).not.toContain('sk_live_secret');
+    expect(await send.decide(asks.at(-1)![0]!.id, 'once')).toEqual({ sent: ['.env'] });
+    for (const dir of [there, path.join(there, 'wt')]) {
+      expect(readFileSync(path.join(dir, '.env'), 'utf8')).toBe('STRIPE_KEY=sk_live_secret\n');
+      expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
+    }
+    // The app's own calls never reach the screen; a computer not connected says so.
+    await expect(app.machines.door.call('0123456789abcdef', 'machines.env.here', ['ws-new'])).rejects.toThrow(/isn’t connected/);
+  }, 120_000);
+});
+
+/** A dev server like vite's on the computer: a page, a big bundle, and an upgrade that echoes (HMR's websocket). */
+const DEV_SERVER = `
+const http = require('http');
+const big = Buffer.alloc(3 * 1024 * 1024, 120);
+const s = http.createServer((q, r) => r.end(q.url === '/big' ? big : 'hello from the mini'));
+s.on('upgrade', (req, sock) => {
+  sock.write('HTTP/1.1 101 Switching Protocols\\r\\nUpgrade: echo\\r\\nConnection: Upgrade\\r\\n\\r\\n');
+  sock.on('data', (d) => sock.write(d));
+});
+s.listen(0, '127.0.0.1', () => console.log(s.address().port));
+`;
+
+describe('a computer’s dev server on this Mac (BLG-802)', () => {
+  it('is forwarded to localhost here (the next free port when its own is taken), HMR’s upgrade included, and goes when it stops', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    const id = await join(app, mini);
+    const wt = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-fwd-wt-')));
+    cleanup.push(() => rmSync(wt, { recursive: true, force: true }));
+    mini.store.dispatch({ type: 'projects', projects: [{ id: 'p', name: 'shop', root: wt, base: 'main', workspaces: [{ id: 'ws-1', path: wt }] }] as never });
+    const server = spawn(process.execPath, ['-e', DEV_SERVER], { cwd: wt, stdio: ['ignore', 'pipe', 'inherit'] });
+    cleanup.push(() => void server.kill('SIGKILL'));
+    const port = await new Promise<number>((resolve) => server.stdout!.once('data', (d: Buffer) => resolve(Number(String(d).trim()))));
+
+    await screenOn(app, id);
+    let forwards: readonly PortForward[] = [];
+    const fwd = new Forwarder({
+      live: () => app.machines.door.live(),
+      machineName: () => 'mini',
+      call: (m, method, args) => app.machines.door.call(m, method, args),
+      openLink: (m) => app.machines.openLink(app.machines.book.get(m)!),
+      publish: (f) => void (forwards = f),
+      pollMs: 60_000,
+    });
+    cleanup.push(() => fwd.stop());
+    for (let i = 0; i < 50 && !forwards.length; i++) {
+      await fwd.tick();
+      if (!forwards.length) await new Promise((r) => setTimeout(r, 200));
+    }
+    // Both ends on this one Mac: its own port is the mini's server's, so the next free one, said.
+    expect(forwards).toEqual([{ machineId: id, machineName: 'mini', workspaceId: 'ws-1', port, local: expect.any(Number), name: 'node' }]);
+    const local = forwards[0]!.local;
+    expect(local).not.toBe(port);
+    expect(local).toBeGreaterThan(port);
+
+    expect(await (await fetch(`http://127.0.0.1:${local}/`)).text()).toBe('hello from the mini');
+    expect((await (await fetch(`http://127.0.0.1:${local}/big`)).arrayBuffer()).byteLength).toBe(3 * 1024 * 1024);
+    // An upgrade (HMR's websocket): the 101, then bytes both ways.
+    const echoed = await new Promise<string>((resolve, reject) => {
+      const sock = net.connect(local, '127.0.0.1');
+      let got = '';
+      sock.on('data', (d) => {
+        got += String(d);
+        if (got.includes('\r\n\r\n') && !got.includes('ping')) sock.write('ping');
+        if (got.endsWith('ping')) {
+          sock.end();
+          resolve(got);
+        }
+      });
+      sock.on('error', reject);
+      sock.write('GET /hmr HTTP/1.1\r\nHost: localhost\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\n');
+    });
+    expect(echoed).toMatch(/^HTTP\/1.1 101/);
+
+    // The server stops: its forward goes, and nothing listens here any more.
+    server.kill('SIGKILL');
+    for (let i = 0; i < 50 && forwards.length; i++) {
+      await fwd.tick();
+      if (forwards.length) await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(forwards).toEqual([]);
+    await expect(fetch(`http://127.0.0.1:${local}/`)).rejects.toThrow();
+  }, 120_000);
+});
+
+describe('a port of this Mac shared with a computer (BLG-804)', () => {
+  it('is reachable from the worktree there at localhost, unsharing closes it at once, and it goes with the worktree', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    const id = await join(app, mini);
+    const wt = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-share-wt-')));
+    cleanup.push(() => rmSync(wt, { recursive: true, force: true }));
+    const project = { id: 'p', name: 'shop', root: wt, base: 'main', workspaces: [{ id: 'ws-1', path: wt }] };
+    mini.store.dispatch({ type: 'projects', projects: [project] as never });
+    // A local database on this Mac (stand-in): it answers and stays connected.
+    const db = net.createServer((sock) => sock.write('from the laptop\n'));
+    await new Promise<void>((r) => db.listen(0, '127.0.0.1', r));
+    cleanup.push(() => void db.close());
+    const dbPort = (db.address() as net.AddressInfo).port;
+    // The port shared: free on this Mac, so the computer (this same Mac, in the test) can take it.
+    const probe = net.createServer();
+    await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
+    const shared = (probe.address() as net.AddressInfo).port;
+    await new Promise((r) => probe.close(r));
+
+    await screenOn(app, id);
+    let on: Readonly<Record<string, string>> = {};
+    const fwd = new Forwarder({
+      live: () => app.machines.door.live(),
+      machineName: () => 'mini',
+      call: (m, method, args) => app.machines.door.call(m, method, args),
+      openLink: (m) => app.machines.openLink(app.machines.book.get(m)!),
+      publish: () => undefined,
+      publishShares: (_s, o) => void (on = o),
+      // Both ends on one Mac: this Mac's side reaches the stand-in for the shared port.
+      connect: (port) => net.connect(port === shared ? dbPort : port, '127.0.0.1'),
+      pollMs: 60_000,
+    });
+    cleanup.push(() => fwd.stop());
+    await fwd.tick();
+    expect(on).toEqual({ 'ws-1': id });
+    await expect(fwd.share('nope', shared)).rejects.toThrow(/isn’t on one of your computers/);
+    expect(await fwd.share('ws-1', shared)).toEqual([{ machineId: id, workspaceId: 'ws-1', port: shared }]);
+
+    // From the worktree's side: localhost:<shared> reaches this Mac's service.
+    const conn = net.connect(shared, '127.0.0.1');
+    const first = await new Promise<string>((resolve) => conn.once('data', (d) => resolve(String(d))));
+    expect(first).toBe('from the laptop\n');
+    // Unsharing closes what's connected at once, and the port there.
+    const closed = new Promise<void>((resolve) => conn.once('close', () => resolve()));
+    expect(fwd.unshare('ws-1', shared)).toEqual([]);
+    await closed;
+    for (let i = 0; i < 50; i++) {
+      const refused = await new Promise<boolean>((resolve) => {
+        const c = net.connect(shared, '127.0.0.1');
+        c.once('error', () => resolve(true));
+        c.once('connect', () => (c.destroy(), resolve(false)));
+      });
+      if (refused) break;
+      await new Promise((r) => setTimeout(r, 100));
+      if (i === 49) throw new Error('still listening after Unshare');
+    }
+
+    // Shared again, then the worktree goes: the share goes with it.
+    await fwd.share('ws-1', shared);
+    mini.store.dispatch({ type: 'projects', projects: [{ ...project, workspaces: [] }] as never });
+    await fwd.tick();
+    expect(fwd.shares()).toEqual([]);
+    expect(on).toEqual({});
   }, 120_000);
 });
 

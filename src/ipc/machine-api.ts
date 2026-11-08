@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MACHINE_ICONS } from '../shared/settings-schema.js';
+import { MAX_ENV_SEND_BYTES, MAX_ENV_SEND_FILES } from '../shared/env-send.js';
 
 /**
  * Your devices and computers in the API (BLG-774, src/machines): a computer opening a pairing for
@@ -47,4 +48,34 @@ export const MACHINE_API = {
   'machines.ready.status': { args: z.tuple([z.string().uuid()]) },
   // You said yes: install what's missing there (a user-level way first), then go on.
   'machines.ready.install': { args: z.tuple([z.string().uuid()]) },
+  // .env files for a worktree on a computer (BLG-800). On the computer, asked by your app over its link:
+  // the worktree's project and the env files its folder has → { project: { name, remote? }, files } (names only).
+  'machines.env.here': { args: z.tuple([z.string().min(1).max(200)]) },
+  // On the computer: env files your app sent (base64), written 0600 into those worktrees' project folders and the worktrees, never over one there → { written }.
+  'machines.env.receive': {
+    args: z.tuple([
+      z.array(z.string().min(1).max(200)).min(1).max(16),
+      z.array(z.object({ path: z.string().min(1).max(400), data: z.string().max(Math.ceil((MAX_ENV_SEND_BYTES * 4) / 3) + 4) }).strict()).max(MAX_ENV_SEND_FILES),
+    ]),
+  },
+  // On a computer: every worktree's listening ports (BLG-802), for your app to forward → [{ workspaceId, port, name }].
+  'machines.ports': { args: z.tuple([]) },
+  // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].
+  'machines.forwards': { args: z.tuple([]) },
+  // In the app: share this Mac's localhost:<port> with a worktree on one of your computers (BLG-804), reachable there at localhost:<port> → the shares.
+  'machines.share': { args: z.tuple([z.string().min(1).max(200), z.number().int().min(1).max(65535)]) },
+  // Stop sharing it with that worktree: closed there at once → the shares.
+  'machines.unshare': { args: z.tuple([z.string().min(1).max(200), z.number().int().min(1).max(65535)]) },
+  // In the app: answer an ask (Send Once, Always for This Project, Don't Send) → { sent } (file names).
+  'machines.env.decide': { args: z.tuple([z.string().uuid(), z.enum(['once', 'always', 'never'])]) },
+  // The projects whose env files go to your computers without asking (Settings › Your Computers).
+  'machines.env.always': { args: z.tuple([]) },
+  // Take Always back for a project (by its folder): asked again next time → the list now.
+  'machines.env.forget': { args: z.tuple([z.string().min(1).max(4096)]) },
+  // Keep My Secrets in Sync With a computer (BLG-805: your own variables follow, after this one ask per computer), or stop → the computer.
+  'machines.secrets': { args: z.tuple([deviceId, z.boolean()]) },
+  // How your settings sync across your devices: how many, and conflicts to say (the same setting changed on two while apart).
+  'machines.settingsSync': { args: z.tuple([]) },
+  // Clear the conflicts Settings says (Got It).
+  'machines.settingsSync.clear': { args: z.tuple([]) },
 } as const;

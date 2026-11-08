@@ -46,6 +46,7 @@ import { VOICE_HANDLERS } from './voice-handlers.js';
 import { CALLS_HANDLERS } from './calls-handlers.js';
 import { TERMINAL_IMPORT_HANDLERS } from './terminal-import-handlers.js';
 import { AGENT_TERM_HANDLERS } from './agent-term-handlers.js';
+import { worktreePorts } from '../workspaces/ports.js';
 import { waitingNeeds } from '../companion/needs-you.js';
 import { saveDismissedNeeds, withDismissed } from '../core/dismissed-needs.js';
 
@@ -218,6 +219,10 @@ export const HANDLERS = {
   'workspaces.keepEnvHere': (s, id) => ctl(s)?.keepEnvHere(id),
   'workspaces.saveEnvInBeluga': (s, id) => ctl(s)?.saveEnvInBeluga(id),
   'workspaces.checkEnv': (s, projectId) => ctl(s)?.checkEnv(projectId, false),
+  'workspaces.ports': (s, id) => {
+    const ws = s.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
+    return ws ? worktreePorts(ws.path) : [];
+  },
   'workspaces.askClaudeToReview': (s, id) => ctl(s)?.askClaudeToReview(id),
   'workspaces.askClaudeToMerge': (s, id) => ctl(s)?.askClaudeToMerge(id),
   'workspaces.compact': (s, id, instructions) => ctl(s)?.compact(id, instructions),

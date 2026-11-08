@@ -7,6 +7,8 @@ import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema, SETTLE_IDLE_DAYS
 import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
+import type { EnvSendAsk } from '../shared/env-send.js';
+import type { PortForward, PortShare } from '../shared/forwards.js';
 import type { Bitmap } from '../image/bitmap.js';
 import { type CollabAction, type CollabState, initialCollab, reduceCollab } from './collab-store.js';
 import { type SearchState, type WorkAction, type WorkState, initialWork, reduceWork } from './work-store.js';
@@ -517,6 +519,13 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly envChanges: Readonly<Record<string, readonly EnvChange[]>>;
   /** Worktrees whose env files changed and the main folder doesn't have it: copy it there, or keep it here (BLG-369). */
   readonly envAsks: Readonly<Record<string, readonly EnvChange[]>>;
+  /** Worktrees made on your computers whose project lacks .env files this Mac has: send them? Names only, never on the phone (BLG-800). */
+  readonly envSends: readonly EnvSendAsk[];
+  /** Your computers' dev servers open on this Mac at localhost (BLG-802). */
+  readonly forwards: readonly PortForward[];
+  /** Ports of this Mac shared with worktrees on your computers, and which worktrees are on which computer (BLG-804). */
+  readonly portShares: readonly PortShare[];
+  readonly onComputers: Readonly<Record<string, string>>;
   readonly hosting?: Hosting;
   readonly invite?: string;
   /** Your peer id on this computer (known before the room answers). */
@@ -628,6 +637,9 @@ export type Action =
   | { type: 'runs_interrupted'; owner: string }
   | { type: 'env_changes'; id: string; changes: readonly EnvChange[] }
   | { type: 'env_asks'; asks: Readonly<Record<string, readonly EnvChange[]>> }
+  | { type: 'env_sends'; asks: readonly EnvSendAsk[] }
+  | { type: 'forwards'; forwards: readonly PortForward[] }
+  | { type: 'port_shares'; shares: readonly PortShare[]; onComputers: Readonly<Record<string, string>> }
   | { type: 'approval_add'; approval: Approval }
   | { type: 'approval_remove'; id: string }
   | { type: 'browser_root' }
@@ -747,6 +759,10 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     btw: {},
     envChanges: {},
     envAsks: {},
+    envSends: [],
+    forwards: [],
+    portShares: [],
+    onComputers: {},
     status: 'connecting',
     peers: [],
     log: [],
@@ -1086,6 +1102,12 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, envChanges: { ...state.envChanges, [action.id]: action.changes } };
     case 'env_asks':
       return { ...state, envAsks: action.asks };
+    case 'env_sends':
+      return { ...state, envSends: action.asks };
+    case 'forwards':
+      return { ...state, forwards: action.forwards };
+    case 'port_shares':
+      return { ...state, portShares: action.shares, onComputers: action.onComputers };
     case 'runs_interrupted': {
       const log = state.log.map((l) => (l.type === 'agent' && l.owner === action.owner ? settleRun(l) : l));
       return log.every((l, i) => l === state.log[i]) ? state : { ...state, log };
