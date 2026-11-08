@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -39,7 +39,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 describe('types from the project’s other files', () => {
   it('follows relative imports, tsconfig aliases and re-exports, inside the worktree only', () => {
     expect(aliasesOf(root).map((a) => a.prefix)).toEqual(['~/']);
-    expect(resolveImport(root, path.join(root, 'src', 'Card.tsx'), '~/lib')).toMatch(/src\/lib\/index\.ts$/);
+    expect(resolveImport(root, path.join(root, 'src', 'Card.tsx'), '~/lib')).toBe(realpathSync(path.join(root, 'src', 'lib', 'index.ts')));
     expect(resolveImport(root, path.join(root, 'src', 'Card.tsx'), '../../outside')).toBeUndefined();
     const card = componentsOf(path.join(root, 'src', 'Card.tsx'), "import type { User } from './lib/types';\nimport { type Tone } from '~/lib';\nexport default function Card({ user, tone }: { user: User; tone: Tone }) { return null }", sourceLoader(root, path.join(root, 'src', 'Card.tsx')));
     expect(props(card[0]!.props)).toEqual({ user: '{name,email}', tone: '"sky"|"rose"' });
@@ -54,8 +54,8 @@ describe('types from the project’s other files', () => {
       writeFileSync(path.join(next, 'tsconfig.json'), '{ "extends": "./tsconfig.base.json", "include": ["**/*.ts"] }');
       writeFileSync(path.join(next, 'lib', 'user.ts'), 'export interface User { name: string }');
       expect(aliasesOf(next).map((a) => a.prefix)).toEqual(['@/']);
-      expect(resolveImport(next, path.join(next, 'page.tsx'), '@/lib/user')).toMatch(/lib\/user\.ts$/);
-      expect(resolveImport(next, path.join(next, 'page.tsx'), './lib/user.js')).toMatch(/lib\/user\.ts$/);
+      expect(resolveImport(next, path.join(next, 'page.tsx'), '@/lib/user')).toBe(realpathSync(path.join(next, 'lib', 'user.ts')));
+      expect(resolveImport(next, path.join(next, 'page.tsx'), './lib/user.js')).toBe(realpathSync(path.join(next, 'lib', 'user.ts')));
     } finally {
       rmSync(next, { recursive: true, force: true });
     }

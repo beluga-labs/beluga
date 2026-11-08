@@ -176,7 +176,8 @@ describe('deleting a worktree with commits pushed nowhere (BLG-617)', () => {
     expect(await mgr.deletePlan(ws.id)).toMatchObject({ unpushed: 1, subjects: ['after the merge'] });
   });
 
-  it('with a git older than merge-tree --write-tree, it warns as before', async () => {
+  // The old git is a shell script put first on PATH: Windows finds git.exe instead.
+  it.skipIf(process.platform === 'win32')('with a git older than merge-tree --write-tree, it warns as before', async () => {
     commitIn(repo, 'notes.md', ['top', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'bottom'].join('\n'));
     sh(repo, 'push', 'origin', 'main');
     const ws = await mgr.createWorktree(project().id, 'old-git');
