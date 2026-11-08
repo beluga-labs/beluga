@@ -269,7 +269,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // A new worktree: the branch it starts from and its name (empty: named from the task).
   const draftProject = state.view.kind === 'draft_worktree' ? state.view.projectId : undefined;
   // New work (a new chat or worktree): Runs on picks where it goes.
-  const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId } : undefined;
+  const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId, folder: state.view.kind === 'draft' ? state.view.dir || undefined : undefined } : undefined;
   const paired = useMachines(useBeluga().home).length > 0;
   const startDeps = useStartDeps();
   const choiceKey = draftProject ? scopedKey(machine, draftProject) : undefined;
@@ -381,18 +381,25 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   /** The first message of a new worktree starts it (on the chosen branch, with the chosen name). */
   const createWorktree = (projectId: string, text: string): void => {
     const name = worktree.name.trim();
-    // Its words left the box when it was sent; its branch and name go with them.
-    worktreeChoices.delete(scopedKey(machine, projectId));
-    setWorktreeState({ name: '' });
     // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
     const terminal = Boolean(text.trim()) && sendsToTerminal(client.store.getState(), getPrefs(), 'draft', worktree.agent?.runtime);
     // Started in the mode the picker shows (Act, Plan First or Plan with Tasks).
     const mode = worktreeMode({ terminal, plan: client.store.getState().planMode.draft === true, tasks: armed });
-    arm(false);
     const opts = { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode };
     // Runs on one of your computers (BLG-788): made there, in the same project, and opened at once.
-    if (!machine && sendToComputer(startDeps, projectId, worktree.agent?.runtime ?? myRuntime(client.store.getState().prefs), { kind: 'worktree', text, opts })) return;
+    // Held (the computer Runs on names can't take it now): nothing starts, the words stay in the box.
+    const sent = sendToComputer(startDeps, projectId, worktree.agent?.runtime ?? myRuntime(client.store.getState().prefs), { kind: 'worktree', text, opts });
+    if (sent === 'held') return keepWords(text);
+    // Its words left the box when it was sent; its branch and name go with them.
+    worktreeChoices.delete(scopedKey(machine, projectId));
+    setWorktreeState({ name: '' });
+    arm(false);
+    if (sent === 'sent') return;
     void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+  };
+  /** Held for a computer that can't take it now: the words go back in the box, nothing was sent. */
+  const keepWords = (text: string): void => {
+    if (!ui.get().buffer) ui.patch({ buffer: text, cursor: text.length });
   };
   const deliver = (text: string, urgent: boolean): void => {
     if (readOnly) return;
@@ -404,9 +411,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     // /invite adds a friend, or adds friends to what's on screen (BLG-203): done here, where the view is known.
     if (handleInvite(client, ui, text)) return;
     if (draftProject && !text.startsWith('/')) return createWorktree(draftProject, text);
-    // A new chat in a project, Runs on one of your computers (BLG-788): started there.
+    // A new chat (in a project, outside one, or in a folder), Runs on one of your computers (BLG-788,
+    // BLG-841): started there; held, never here instead, when the computer named can't take it.
     const v = client.store.getState().view;
-    if (!machine && v.kind === 'draft' && v.projectId !== 'chats' && !v.dir && !text.startsWith('/') && sendToComputer(startDeps, v.projectId, myRuntime(client.store.getState().prefs), { kind: 'chat', text })) return;
+    if (v.kind === 'draft' && !text.startsWith('/')) {
+      const sent = sendToComputer(startDeps, v.projectId, myRuntime(client.store.getState().prefs), { kind: 'chat', text }, v.dir || undefined);
+      if (sent === 'held') return keepWords(text);
+      if (sent === 'sent') return;
+    }
     if (to && !text.startsWith('/')) {
       ui.patch({ to: undefined });
       return actions.submit(`${recipientPrefix(to)}${text}`, urgent);
@@ -685,7 +697,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
           {/* Where new work runs (BLG-786); a chat that runs somewhere already says where. Only with a computer paired. */}
-          {shared ? null : newWork ? <RunsOnPicker {...(newWork.project ? { project: newWork.project } : {})} {...(worktree.agent?.runtime && draftProject ? { runtime: worktree.agent.runtime } : {})} /> : <RunsOnLabel />}
+          {shared ? null : newWork ? <RunsOnPicker {...(newWork.project ? { project: newWork.project } : {})} {...(worktree.agent?.runtime && draftProject ? { runtime: worktree.agent.runtime } : {})} {...(newWork.folder ? { folder: newWork.folder } : {})} /> : <RunsOnLabel />}
           {/* With a computer paired, the MCP chip is at the chat's top right (views/ChatView.tsx) to make room. */}
           {!shared && !paired ? <McpChip /> : null}
           {burning && state.prefs.effort === 'max' ? (

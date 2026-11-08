@@ -41,3 +41,14 @@
   align-self: flex-start;
   border: 1px solid var(--hairline-strong);
 }
+/* The computer named can't take it now (BLG-841): said on the chip, in the warning tone. */
+.held {
+  color: var(--warn);
+}
+.why {
+  color: var(--warn);
+  font-weight: 400;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

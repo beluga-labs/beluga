@@ -59,11 +59,13 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
       canSubmit={Boolean(goal.trim() && project)}
       onCancel={close}
       onSubmit={async () => {
-        close();
         const chosen = agent !== YOUR_AGENT ? agentForChoice(agent, runtimes) : undefined;
         const input = { goal: goal.trim(), autonomy, testsAt, ...(chosen ? { agent: chosen } : {}) };
-        // Runs on one of your computers (BLG-788): the plan is made there and opens at once.
-        if (sendToComputer(startDeps, project, chosen?.runtime ?? myRuntime(prefsNow()), { kind: 'plan', input })) return;
+        // Runs on one of your computers (BLG-788): the plan is made there and opens at once; held, the sheet stays.
+        const sent = sendToComputer(startDeps, project, chosen?.runtime ?? myRuntime(prefsNow()), { kind: 'plan', input });
+        if (sent === 'held') return;
+        close();
+        if (sent === 'sent') return;
         await act(() => api.create({ projectId: project, ...input }));
       }}
     >

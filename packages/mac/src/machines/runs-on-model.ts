@@ -106,3 +106,14 @@ export function rememberPick(picks: Readonly<Record<string, RunsOn>>, project: s
   const kept = entries.length >= REMEMBERED_PICKS ? entries.slice(entries.length - REMEMBERED_PICKS + 1) : entries;
   return { ...Object.fromEntries(kept), [project]: value };
 }
+
+/**
+ * Why work for the computer Runs on names doesn't start (BLG-841; none: it can go): that computer
+ * can't take it now (it's never made here instead), or a folder chat's folder is on this Mac.
+ */
+export function holdReason(route: { readonly where: 'here' } | { readonly where: 'computer'; readonly machine: Pick<MachineView, 'name'> }, picked: RunsOn, machines: readonly MachineView[], runtime: string, hereName: string, folder?: string, now = Date.now()): string | undefined {
+  const named = machines.find((m) => m.id === picked);
+  if (route.where === 'here' && named) return `${named.name} can’t take it now (${whyNot(named, runtime, now) ?? 'not ready'}). Nothing was started: pick another computer in Runs on, or wait for it.`;
+  if (route.where === 'computer' && folder) return `That folder is on ${hereName}, so ${route.machine.name} can’t use it. Open ${route.machine.name}’s page to start a chat in one of its folders, or pick ${hereName} in Runs on.`;
+  return undefined;
+}

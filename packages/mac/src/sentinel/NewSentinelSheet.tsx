@@ -51,9 +51,14 @@ export function NewSentinelSheet({ projectId, way: first = 'describe', close }: 
 
   const where = project === MAC_SCOPE ? null : project;
   /** Runs on one of your computers (BLG-788): made there, opened at once. */
-  const there = (what: WorkToStart): boolean => sendToComputer(startDeps, where ?? undefined, 'claude', what);
+  // Sent there: the sheet closes; held (the computer named can't take it now): it stays, nothing made.
+  const there = (what: WorkToStart): boolean => {
+    const sent = sendToComputer(startDeps, where ?? undefined, 'claude', what);
+    if (sent === 'sent') close();
+    return sent !== 'here';
+  };
   const make = async (draft: SentinelDraft): Promise<string | void> => {
-    if (there({ kind: 'sentinel', draft: { ...draft } })) return void close();
+    if (there({ kind: 'sentinel', draft: { ...draft } })) return;
     const made = await a.act(() => a.create({ ...draft, projectId: where }));
     if (!made) return 'Couldn’t make it: see the message above';
     close();
@@ -63,7 +68,7 @@ export function NewSentinelSheet({ projectId, way: first = 'describe', close }: 
   const describe = async (): Promise<string | void> => {
     const text = words.trim();
     if (!text) return;
-    if (there({ kind: 'sentinel', draft: { name: describedName(text), trigger: { kind: 'manual' }, steps: [] }, ask: text })) return void close();
+    if (there({ kind: 'sentinel', draft: { name: describedName(text), trigger: { kind: 'manual' }, steps: [] }, ask: text })) return;
     const made = await a.act(() => a.create({ name: describedName(text), projectId: where, trigger: { kind: 'manual' }, steps: [] }));
     if (!made) return 'Couldn’t make it: see the message above';
     close();
@@ -73,7 +78,7 @@ export function NewSentinelSheet({ projectId, way: first = 'describe', close }: 
   /** A recipe: its sentinel filled in (paused), and the one that runs after it when it has one. */
   const pick = async (r: Recipe): Promise<void> => {
     if (busy) return;
-    if (there({ kind: 'sentinel', draft: { ...r.sentinel }, ...(r.then ? { then: { draft: { ...r.then.sentinel }, on: r.then.on } } : {}) })) return void close();
+    if (there({ kind: 'sentinel', draft: { ...r.sentinel }, ...(r.then ? { then: { draft: { ...r.then.sentinel }, on: r.then.on } } : {}) })) return;
     setBusy(r.id);
     const made = await a.act(() => a.create({ ...r.sentinel, projectId: where }));
     if (made && r.then) await a.act(() => a.create({ ...r.then!.sentinel, projectId: where, trigger: { kind: 'after', sentinelId: made.id, on: r.then!.on } }));

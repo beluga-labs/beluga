@@ -345,7 +345,10 @@ function HomeComposer({ project }: { project: Project }) {
       : worktree
         ? { kind: "worktree", text: message, opts: { ...(base ? { base } : {}), ...(named ? { name: named } : {}), ...(agent ? { agent } : {}) } }
         : { kind: "chat", text: message };
-    if (sendToComputer(startDeps, project.id, agent?.runtime ?? myRuntime(client.store.getState().prefs), there)) {
+    const sent = sendToComputer(startDeps, project.id, agent?.runtime ?? myRuntime(client.store.getState().prefs), there);
+    // Held (the computer Runs on names can't take it now): nothing starts, the words stay.
+    if (sent === "held") return putBack();
+    if (sent === "sent") {
       setText("");
       setName("");
       return;

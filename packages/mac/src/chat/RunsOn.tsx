@@ -76,7 +76,7 @@ function Mark({ value, machines }: { value: RunsOn; machines: readonly MachineVi
  * The picker: "Runs on [icon] build-box", its menu headed Runs on. On a computer's own page
  * (BLG-784) new work there runs there: the label instead.
  */
-export function RunsOnPicker({ project, runtime, bare = false }: { project?: string; runtime?: string; bare?: boolean }) {
+export function RunsOnPicker({ project, runtime, folder, bare = false }: { project?: string; runtime?: string; /** A folder chat's folder, on this Mac (BLG-841). */ folder?: string; bare?: boolean }) {
   const machine = useMachine();
   const { value, set, machines } = useRunsOn(project);
   const agentRuntime = useApp((st) => runtime ?? myRuntime(st.prefs));
@@ -85,13 +85,17 @@ export function RunsOnPicker({ project, runtime, bare = false }: { project?: str
   const here = upFirst(thisComputer());
   const rows = runsOnRows(machines, agentRuntime, here);
   const name = runsOnName(value, machines, here);
+  // The computer it names can't take it now, or the folder is this Mac's: said on the chip, and sending waits (BLG-841).
+  const picked = machines.find((x) => x.id === value);
+  const why = picked ? (rows.find((row) => row.value === value)?.disabled ? rows.find((row) => row.value === value)!.line : folder ? `this folder is on ${here}` : undefined) : undefined;
   return (
     <Dropdown.Root modal={false}>
       <Dropdown.Trigger asChild>
-        <button type="button" className={cx(s.chip, r.chip, bare && r.bare)} aria-label={`Runs on ${name}`} data-runs-on={value}>
+        <button type="button" className={cx(s.chip, r.chip, bare && r.bare, why && r.held)} aria-label={`Runs on ${name}${why ? `: ${why}` : ''}`} title={why ? `Nothing starts until it can: ${why}` : undefined} data-runs-on={value}>
           {bare ? null : <span className={r.words}>Runs on</span>}
           <Mark value={value} machines={machines} />
           <span className={s.chipLabel}>{name}</span>
+          {why ? <span className={r.why}>· {why}</span> : null}
           <Icon name="chevronDown" size={9} />
         </button>
       </Dropdown.Trigger>

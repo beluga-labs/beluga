@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MachineView } from '../src/machines/machines.js';
-import { BEST, HERE, REMEMBERED_PICKS, rememberPick, runsOnName, runsOnRows, startingPick, statusLine, whyNot } from '../packages/mac/src/machines/runs-on-model.js';
+import { BEST, HERE, REMEMBERED_PICKS, holdReason, rememberPick, runsOnName, runsOnRows, startingPick, statusLine, whyNot } from '../packages/mac/src/machines/runs-on-model.js';
 
 /**
  * Runs on (BLG-786): the rows of its menu, why a computer can't take the work, the one plain line
@@ -114,5 +114,18 @@ describe('where a project’s new work starts', () => {
     picks = rememberPick(picks, 'p10', box.id);
     expect(picks.p10).toBe(box.id);
     expect(Object.keys(picks).at(-1)).toBe('p10');
+  });
+});
+
+describe('nothing starts here when the chip names another computer (BLG-841)', () => {
+  const off = computer({ id: 'b'.repeat(16), name: 'pi', status: 'offline' });
+  it.each([
+    ['the named computer is offline: held, said why', { where: 'here' as const }, off.id, undefined, 'pi can’t take it now (Offline). Nothing was started: pick another computer in Runs on, or wait for it.'],
+    ['This Mac picked: goes here', { where: 'here' as const }, HERE, undefined, undefined],
+    ['Best Available landing here: goes here', { where: 'here' as const }, BEST, undefined, undefined],
+    ['a computer that can take it: goes there', { where: 'computer' as const, machine: box }, box.id, undefined, undefined],
+    ['a folder of this Mac sent to a computer: refused', { where: 'computer' as const, machine: box }, box.id, '/Users/k/notes', 'That folder is on This Mac, so build-box can’t use it. Open build-box’s page to start a chat in one of its folders, or pick This Mac in Runs on.'],
+  ])('%s', (_case, route, picked, folder, why) => {
+    expect(holdReason(route, picked, [box, off], 'claude', 'This Mac', folder, NOW)).toBe(why);
   });
 });

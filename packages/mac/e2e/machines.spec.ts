@@ -169,3 +169,54 @@ test('a worktree started with Runs on a computer is made there and opens tagged'
   await expect(sidebar.getByRole('button', { name: 'health-check on AWS server' })).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: path.join(SHOTS, 'blg-788-started-there.png') });
 });
+
+/**
+ * A chat outside a project runs where Runs on says (BLG-841): picked, or from Run New Work On with
+ * no pick, it starts on that computer, in its own chats, and opens tagged in the pane; never on this Mac.
+ */
+test('a chat outside a project starts on the picked computer, and on Run New Work On’s without a pick', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const composer = page.locator('textarea:not(.xterm-helper-textarea)').first();
+  const newChat = async (): Promise<void> => {
+    await sidebar.getByRole('button', { name: 'New chat (not tied to a project)' }).click();
+    await expect(page.getByRole('button', { name: /^Runs on / })).toBeVisible();
+  };
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await newChat();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+  await composer.fill('What is using the disk on this server?');
+  await composer.press('Enter');
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('What is using the disk on this server?').first()).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-841-chat-on-aws.png') });
+
+  // No pick for chats any more (back to This Mac), then Run New Work On says the Mac mini: it goes there.
+  await newChat();
+  await page.getByRole('button', { name: /^Runs on / }).click();
+  await page.getByRole('menu', { name: 'Runs on' }).getByRole('menuitem', { name: /^This Mac/ }).click();
+  await page.evaluate(() => localStorage.removeItem('beluga.runsOn.v1'));
+  await page.keyboard.press('Meta+,');
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await settings.getByRole('combobox', { name: 'Run New Work On' }).click();
+  await page.getByRole('option', { name: 'Mac mini at home' }).click();
+  await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await newChat();
+  await expect(page.getByRole('button', { name: 'Runs on Mac mini at home' })).toBeVisible();
+  await composer.fill('Which disks are mounted?');
+  await composer.press('Enter');
+  await expect(page.getByTitle('Runs on Mac mini at home')).toBeVisible({ timeout: 20_000 });
+
+  // Back to This Mac for what comes after.
+  await page.keyboard.press('Meta+,');
+  await settings.getByRole('button', { name: 'Your Computers', exact: true }).click();
+  await settings.getByRole('combobox', { name: 'Run New Work On' }).click();
+  await page.getByRole('option', { name: 'This Mac' }).click();
+  await page.keyboard.press('Escape');
+});

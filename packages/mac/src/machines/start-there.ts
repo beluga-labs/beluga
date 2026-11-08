@@ -12,6 +12,7 @@ import { runsOnFor } from '../chat/RunsOn.js';
 import { ensureMachine, machineClientOf } from './pane-clients.js';
 import { onMachine, paneOf, sameView } from './pane-model.js';
 import { currentMachines } from './use-machines.js';
+import { holdReason } from './runs-on-model.js';
 import { noteStarted } from './started.js';
 
 /**
@@ -139,10 +140,16 @@ async function make(client: SocketClient, projectId: string | undefined, what: W
       return { kind: 'workspace', id, tab: 'chat' };
     }
     case 'chat': {
-      await client.call('workspaces.startChat', projectId!, what.text);
-      // The computer shows its new chat on the screen that asked.
+      // In the project there, or (none) in the computer's own chats, outside any project.
+      const space = projectId ?? 'chats';
+      const before = new Set(client.store.getState().projects.flatMap((p) => p.workspaces.map((w) => w.id)));
+      await client.call('workspaces.startChat', space, what.text);
+      // The computer shows its new chat on the screen that asked; else the chat that wasn't there before.
       const shown = client.store.getState().view;
-      return shown.kind === 'workspace' ? shown : { kind: 'project', id: projectId! };
+      if (shown.kind === 'workspace' && !before.has(shown.id)) return shown;
+      const made = client.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.kind === 'chat' && !before.has(w.id));
+      if (made) return { kind: 'workspace', id: made.id, tab: 'chat' };
+      return projectId ? { kind: 'project', id: projectId } : { kind: 'assistant' };
     }
     case 'plan': {
       const plan = (await client.call('plans.create', { ...what.input, projectId: projectId! } as never)) as { id: string };
@@ -195,19 +202,28 @@ export function useStartDeps(): StartDeps {
   return { home, windowUi: ui.windowStore, go: (view) => actions.run({ type: 'view', view }), ...(machine ? { machine } : {}) };
 }
 
+/** Sent to a computer; held (the chip names a computer that can't take it now: nothing starts, the words stay); or here. */
+export type Sent = 'sent' | 'held' | 'here';
+
 /**
- * Where Runs on sends work in this Mac's `projectId` (none: outside a project): when it's one of
- * your computers, it's started there (true); else nothing happens here (false) and the caller makes
- * it on this Mac, after saying why when a computer was picked but can't take it now.
+ * Where Runs on sends work in this Mac's `projectId` ('chats' or none: outside a project, `folder`:
+ * a folder chat's folder on this Mac): started there ('sent'); held when the chip names a computer
+ * that can't take it, said in words and nothing started ('held'); or made here by the caller ('here').
  */
-export function sendToComputer(d: StartDeps, projectId: string | undefined, runtime: string, what: WorkToStart): boolean {
-  if (d.machine) return false;
-  const project = projectId ? d.home.store.getState().projects.find((p) => p.id === projectId) : undefined;
+export function sendToComputer(d: StartDeps, projectId: string | undefined, runtime: string, what: WorkToStart, folder?: string): Sent {
+  if (d.machine) return 'here';
+  const project = projectId && projectId !== 'chats' ? d.home.store.getState().projects.find((p) => p.id === projectId) : undefined;
+  const machines = currentMachines();
   const route = routeFor(d.home, project ? { id: project.id, name: project.name } : undefined, runtime);
+  const why = holdReason(route, runsOnFor(project?.id, d.home.store.getState().prefs.runOn, machines), machines, runtime, upFirst(thisComputer()), folder);
+  if (why) {
+    toast(d.home, why, 'warn');
+    return 'held';
+  }
   if (route.where === 'here') {
     if (route.why) toast(d.home, route.why, 'info');
-    return false;
+    return 'here';
   }
   void startThere(d, route.machine, project ? { id: project.id, name: project.name } : undefined, what);
-  return true;
+  return 'sent';
 }
