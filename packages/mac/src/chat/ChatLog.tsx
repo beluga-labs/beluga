@@ -13,7 +13,8 @@ import { FindBar } from './FindBar.js';
 import { AgentCard, ChatRow, ShellCard, SystemRow } from './Items.js';
 import { CompactDivider } from './CompactDivider.js';
 import { isCompactItem } from './context-model.js';
-import { ShippedDivider, isShippedItem } from './ShippedDivider.js';
+import { MergedDivider, ShippedDivider } from './ShippedDivider.js';
+import { isMergedItem, isShippedItem, withoutDoubleMerge } from './merged-model.js';
 import { DialogueCard, isDialogueItem } from './DialogueCard.js';
 import { useClaudeStarting } from './flight.js';
 import { withLiveTails } from './live-tail.js';
@@ -136,7 +137,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const agentRef = ownAgent ?? myAgent;
   const agent = agentName(agentRef);
   // A shared workspace's earlier messages arrive as system lines; drawn here as normal messages.
-  const items = useMemo(() => mine.map(chatRowOf), [mine]);
+  const items = useMemo(() => withoutDoubleMerge(mine.map(chatRowOf)), [mine]);
   // What waits its turn is in the queue above the box; once it runs, it's drawn where it ran (BLG-317).
   const sent = useMemo(() => asSent(items, (card) => inYourQueue(card, selfId)), [items, selfId]);
   // A message you steered in shows itself whether Claude has read it (BLG-54): its note card isn't drawn.
@@ -301,6 +302,8 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
                   <CompactDivider item={item} />
                 ) : isShippedItem(item) ? (
                   <ShippedDivider item={item} />
+                ) : isMergedItem(item) ? (
+                  <MergedDivider item={item} />
                 ) : isDialogueItem(item) ? (
                   <DialogueCard item={item} />
                 ) : (

@@ -147,6 +147,8 @@ export const Settings = z.object({
   settleOnMerge: z.boolean().catch(true),
   /** Days without activity before a chat settles; 0: never. */
   settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  pushToPr: z.boolean().catch(true),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
   /** How much of Claude's sub-agent work the chat shows. */
@@ -172,6 +174,8 @@ export const Settings = z.object({
   /** Your own flags for `claude` and `codex` on your own runs (shared/agent-args.ts), e.g. --dangerously-skip-permissions. */
   claudeArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
   codexArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
+  /** Experimental features you turned on (shared/experiments.ts); ids a newer Beluga knows are kept. */
+  experiments: z.array(z.string().max(40)).max(20).catch([]).default([]),
   /** Show every earnings total in this currency (lowercase ISO code; unset: the one most was earned in). */
   earningsCurrency: z.string().regex(/^[a-z]{3}$/).optional(),
   /** Be on the Beluga network (friends, groups, presence) while the Mac app's daemon runs. Off by default for now. */

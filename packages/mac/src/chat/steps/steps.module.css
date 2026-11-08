@@ -611,7 +611,9 @@ button.head:focus-visible {
   .countNow {
     animation: none;
   }
-  .shimmer {
+  /* The current step's gradient too: it outranks `.shimmer`, and without its clip it paints a box over the words. */
+  .shimmer,
+  .rowCurrent .shimmer {
     color: inherit;
     background: none;
   }

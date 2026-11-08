@@ -3,6 +3,7 @@ import { trayName } from '../lib/os-words.js';
 import type { PaneInfo, SettingEntry, SettingsPane } from '../lib/settings-search.js';
 // Relative, not @beluga/ui: the root's tests and typecheck read this file too.
 import { HIDEABLE_BUTTONS } from '../../../../src/ui/settings-menus.js';
+import { EXPERIMENTS, EXPERIMENT_INFO } from '../../../../src/shared/experiments.js';
 
 /** Settings' panes, in sidebar order, with other words people use for them. */
 export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; keywords?: string }> = [
@@ -20,6 +21,7 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
   { id: 'voice', label: 'Voice', icon: 'mic', keywords: 'dictation speech microphone talk transcribe' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command', keywords: 'shortcuts keys hotkeys bindings' },
   { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser agent threads' },
+  { id: 'experimental', label: 'Experimental', icon: 'flask', keywords: 'labs beta early preview features try' },
   { id: 'about', label: 'About', icon: 'globe', keywords: 'version logs support' },
 ];
 
@@ -157,6 +159,7 @@ export const SETTINGS: readonly Entry[] = [
   ...rows('workspaces', undefined, [
     ['Run setup in new worktrees', 'The project’s setup command runs in each new worktree.', 'npm install setup command auto setup'],
     ['Branch prefix', 'What new worktrees’ branches start with.', 'git branch name prefix'],
+    ['Keep open pull requests current', 'Your agent pushes its commits to an open pull request when its turn ends.', 'push pr pull request git agent commits'],
     ['Friends may start work here', 'They ask to start a worktree or hand work to you.', 'friend worktrees'],
   ]),
   group('workspaces', 'Hidden projects', 'Projects you hid from the sidebar.', 'hide show unhide project sidebar'),
@@ -284,6 +287,9 @@ export const SETTINGS: readonly Entry[] = [
     ['Let a browser in', 'A link that works once, for 10 minutes.', 'link browser login'],
   ]),
   ...rows('advanced', 'Agent threads', [['Let your agents start threads', 'Child chats, each with its own agent.', 'threads child sub-agent family orchestrate']]),
+
+  // Experimental: one group per experiment, its switch the row (made from shared/experiments.ts).
+  ...EXPERIMENTS.flatMap((id) => rows('experimental', EXPERIMENT_INFO[id].title, [[EXPERIMENT_INFO[id].title, EXPERIMENT_INFO[id].summary, `${id} experimental early ${EXPERIMENT_INFO[id].keywords}`]])),
 
   // About
   ...rows('about', undefined, [

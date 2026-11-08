@@ -3,7 +3,7 @@ import { OFFER_DETAIL, knockWords, offerWords } from '../core/team/model.js';
 import type { PendingQuestion } from '../core/collab-store.js';
 import type { TaskView as GwTask } from '../core/gateway/model.js';
 import { parseDecisionQid } from '../core/plans/decisions.js';
-import { type Plan, planTitle } from '../core/plans/model.js';
+import { type Plan, planTitle, reviewState } from '../core/plans/model.js';
 import { firstLine, sentinelById } from '../core/sentinel/model.js';
 import { type PlanView as PlanProgress, planView } from '../core/plans/progress.js';
 import { type NeedsYou, Topic } from './protocol.js';
@@ -251,6 +251,27 @@ function gateItems(plan: Plan, progress: PlanProgress, title: string, at: Pick<N
   const next = progress.next;
   // Claude is still writing the first plan: nothing to approve yet (the Mac's Approve Plan waits too).
   if (next.kind === 'approve' && !progress.body?.milestones.length) return [];
+  // A fresh agent is verifying the draft, as you asked (BLG-772): the Mac's Approve Plan waits for it too.
+  const review = reviewState(plan);
+  if (next.kind === 'approve' && review === 'reviewing') return [];
+  if (next.kind === 'approve' && review === 'findings' && plan.review && !plan.review.fixAsked) {
+    const found = plan.review.findings;
+    return [
+      {
+        id: `plan:${plan.id}:review:${plan.draftRev}`,
+        kind: 'decision',
+        title: `The reviewer found ${found.length === 1 ? 'one thing' : `${found.length} things`} to fix in “${title}”`,
+        detail: clip(found.map((f, i) => `${i + 1}. ${plainLine(f.text, 1000)}`).join('\n'), 64_000),
+        ...at,
+        askedAt: plan.review.at,
+        actions: [
+          { label: 'Fix', tone: 'main', method: 'plans.fixReview', args: [plan.id] },
+          { label: 'Approve anyway', tone: 'plain', method: 'plans.approve', args: [plan.id] },
+          { label: 'Discard', tone: 'danger', method: 'plans.discard', args: [plan.id] },
+        ],
+      },
+    ];
+  }
   if (next.kind === 'approve' || next.kind === 'review_changes') {
     return [
       {
@@ -262,6 +283,8 @@ function gateItems(plan: Plan, progress: PlanProgress, title: string, at: Pick<N
         askedAt: plan.updatedAt,
         actions: [
           { label: 'Approve', tone: 'main', method: 'plans.approve', args: [plan.id] },
+          // A first draft can be read by a fresh agent first, and approved once it reads well (BLG-772).
+          ...(next.kind === 'approve' ? [{ label: 'Verify, then approve', tone: 'plain' as const, method: 'plans.verify', args: [plan.id, { thenApprove: true }] }] : []),
           { label: 'Discard', tone: 'danger', method: 'plans.discard', args: [plan.id] },
         ],
       },

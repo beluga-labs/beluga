@@ -5,7 +5,7 @@ import { ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgentMarkIcon, agentMark } from '../../components/AgentMark';
-import { AgentDots, convHref, statusIcon } from '../../components/Conv';
+import { AgentDots, NotOnPrChip, convHref, notOnPrWords, statusIcon } from '../../components/Conv';
 import { PlansList } from '../../components/Plans';
 import { type Option, Options } from '../../components/Options';
 import { Header, Screen, useScrolled } from '../../components/Screen';
@@ -56,16 +56,16 @@ export default function Work() {
     <Card style={{ marginHorizontal: 16, marginTop: 6 }}>
       {nestRows(list).map(({ conv: c, depth }, i) => {
         const st = statusIcon(c.needsYou ? 'waiting' : c.status);
-        const signal = c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null;
+        const signal = c.notOnPr ? <NotOnPrChip gap={c.notOnPr} /> : c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null;
         return (
-          // A child sits under its parent, one step in (1.45).
+          // A child sits under its parent, one step in (1.47).
           <View key={c.topic} style={{ paddingLeft: depth * CHILD_INDENT }}>
             <Row
               first={i === 0}
               Icon={st.Icon}
               tone={st.tone}
               label={c.title}
-              sub={[...triageWords(c), flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
+              sub={[...triageWords(c), c.notOnPr ? notOnPrWords(c.notOnPr) : undefined, flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
               right={
                 c.harness ? (
                   <View accessible accessibilityLabel={c.harness.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

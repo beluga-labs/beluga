@@ -579,7 +579,7 @@ export class DemoTransport implements Transport {
         }
         return ok({ stopped: true, returned: [] });
       }
-      // 1.45: a child thread stops, and those under it, as stopChat does on a real Mac.
+      // 1.47: a child thread stops, and those under it, as stopChat does on a real Mac.
       case 'threads.stop': {
         this.stopThread(str(0));
         return ok({ stopped: true, returned: [] });

@@ -38,6 +38,7 @@ import { StripeSheet } from './dialogs/StripeSheet.js';
 import { SupportSheets } from './dialogs/SupportSheets.js';
 import { useIdleAway, useTrayPresence } from './network/net-native.js';
 import { useUpdateActivity } from './lib/updates.js';
+import { useChunkCare } from './lib/lazy-view.js';
 import { useState } from 'react';
 import { Onboarding, useOnboarding } from './onboarding/Onboarding.js';
 import { Lightbox } from './chat/ChatImages.js';
@@ -206,6 +207,8 @@ export function App() {
   useDictationSetup(client);
   useRememberProject();
   useSettingsWindow();
+  // The views fetched early, and any that don't load noted in the black box (#370).
+  useChunkCare();
   useNative(client, ui, actions, setJoining);
   useTrayStatus(client);
   useTraySpout();

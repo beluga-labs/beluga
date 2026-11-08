@@ -124,6 +124,8 @@ export interface AgentRunInput {
   /** Your phone (core/phone): tools to act on your own paired phone, and what Claude is told about it. */
   readonly phoneTools?: PhoneTools;
   readonly phoneBrief?: string;
+  /** Live previews are on (Settings › Experimental): what Claude is told about showing them. */
+  readonly previewBrief?: string;
   /** Your own runs: sentinels (core/sentinel), and what Claude is told (a sentinel run's brief, or a short note). */
   readonly sentinelTools?: SentinelTools;
   readonly sentinelBrief?: string;
@@ -230,6 +232,8 @@ export interface PlanTools {
   write(body: import('../core/plans/edit.js').BodyInput): string;
   update(ops: readonly import('../core/plans/edit.js').PlanOp[], reason?: string): string;
   gate(milestone: string, verdict: 'pass' | 'fail', notes: string): string;
+  /** The draft's reviewer records what it found (see core/plans/draft-review.ts). */
+  review?(findings: readonly import('../core/plans/model.js').ReviewFinding[]): string;
   start(task: string): Promise<string>;
   /** `queue` (default): read when its current turn ends. `steer`: now, interrupting a long command or a dead run. */
   message(task: string, text: string, mode?: 'queue' | 'steer'): string;
@@ -476,6 +480,20 @@ export interface AgentPlace {
   readonly alsoEdit?: readonly string[];
   /** Continue After Merge: this worktree's earlier work went out in this pull request, merged into `into`. */
   readonly shipped?: { readonly number: number; readonly url?: string; readonly into: string };
+  /** Its pull request is open (BLG-840): the run pushes its commits there (see prompt.ts buildCommitAppend). */
+  readonly openPr?: OpenPr;
+}
+
+/** A worktree's open pull request, for its run's commit rules (BLG-840). */
+export interface OpenPr {
+  readonly number: number;
+  readonly url?: string;
+  /** The branch it's from: what to push. */
+  readonly branch: string;
+  /** Push to it at the end of a turn that committed (Settings › Workspaces, on by default). */
+  readonly push: boolean;
+  /** Someone's fork's pull request, checked out here (BLG-756): nothing here can push to it. */
+  readonly fork?: boolean;
 }
 
 export interface SubAgentEvent {

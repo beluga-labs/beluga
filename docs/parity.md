@@ -348,12 +348,12 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workbench.signInClaude` | ✓ Sign In on a failed Claude card that says Claude Code isn’t signed in or its sign-in expired: a menu of a Claude subscription, an Anthropic Console account (runs `claude auth login --claudeai` or `--console` in a shell, then Claude continues) or a 3rd-party platform (opens its setup page) |
 | `workbench.fixChecks` | ✓ the toolbar's branch state › Fix Checks… (the PR's checks failed and nothing still runs); while they run it says Checks running, calm, with Fix Checks… under its chevron |
 | `workbench.resolvePrConflicts` | ✓ Resolve Conflicts… (the toolbar's branch state "Conflicts with main", folded "Resolve Conflicts"; PR sheet, the PR strip above the chat) when GitHub says the PR conflicts (never while GitHub is still working it out) |
-| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words) |
+| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words). A merge itself (Merge, Merge When Ready, on GitHub or anywhere else, Merge into its base, into the main folder) draws its own line in the chat as it's seen, “Above was merged into main in PR #N”, also on the phone; one that merged while Beluga was closed shows on the next start if nothing was said there since |
 | `workbench.openPr` | ✓ |
 | `workbench.refreshPrs` | ✓ |
-| `workbench.mergePr` | ✓ the PR sheet › Merge on GitHub (squash, merge or rebase; Merge When Checks Pass; Merge Now, Skipping Checks), also in the PR strip above the chat |
+| `workbench.mergePr` | ✓ the PR sheet › Merge on GitHub (squash, merge or rebase; Merge When Checks Pass; Merge Now, Skipping Checks), also in the PR strip above the chat. With commits here the PR doesn't have it's Push and Merge: the daemon pushes them first and merges only the head that has them (BLG-840), on the Mac and the phone alike |
 | `workbench.prStep` | ✓ the toolbar's branch state › Update Branch (the PR is behind its base), Mark Ready for Review (a draft) |
-| `workbench.pushPr` | ✓ the toolbar's branch state "Not pushed" › Push N Commits: the worktree has commits its open PR doesn't, so GitHub's checks and conflicts are for an older commit (phone: the branch band's Push) |
+| `workbench.pushPr` | ✓ the toolbar's branch state "N commits not on PR #n" › Push N Commits to PR #n: the worktree has commits its open PR doesn't, so merging would leave them out and GitHub's checks and conflicts are for an older commit (its menu: Push and Merge When Ready; the sidebar row's ↑N chip says the same; phone: the branch band's Push) |
 | `workbench.rerunChecks` | ✓ the toolbar's branch state "Checks failed" › its chevron › Re-run Failed Checks (`gh run rerun --failed`, for a flaky test; phone: the branch band's ••• too) |
 | `workbench.prConversation` | ✓ the PR page (the PR strip's comments count, or the PR sheet's Comments): comments, reviews and threads on lines with their code; a `beluga-pr-comments` block in chat shows them read-only (phone: not yet) |
 | `workbench.prPost` | ✓ the PR page: Reply in a thread, Resolve / Reopen, and a comment on the PR |
@@ -456,6 +456,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `stripe.disconnect` | ✓ the Connect Stripe sheet › Disconnect |
 | `stripe.refresh` | ✓ Refresh in the sheet and the Overview's Earnings card (the daemon also looks for new payments every 10 minutes by itself) |
 | `diagnostics.report` | ✓ Settings › About › Report a Problem: makes the report, shows it in Finder and opens a GitHub issue to attach it to |
+| `diagnostics.windowProblem` | ✓ by itself: a part of the window that stalled or failed to load (a view, the file reader) is noted in the black box, so Report a Problem shows which and when |
 | `support.answer` | ✓ the Star sheet after your first merge (Star on GitHub / Maybe Later) and the coffee sheet after your fifth (an amount, Not Now, Don't Ask Again) |
 | `stats.get` | ✓ Usage (the whole window, no panel beside it) › your card at the top (your pass on a lanyard you can swing and flip, with your picture, name and a title earned from your stats, the others to wear, and Play Your Recap: a Wrapped-style story of your numbers ending on your title), Sessions (each 5-hour session and week of your plan: how much you used, what was left, how often you ran out; only the agents and windows your plans report, and no card when none do, e.g. an API key) and Your stats: the strip of numbers (agent time, prompts, pasted, dictated, worktrees, PRs merged, lines shipped, tokens) for a week, month, year or all time, that number over time stacked by project or agent (point for a step, press a name to hide it, Share for parts of 100%), highlights, the year's calendar, each one's share in a ring, when you work |
 | `stats.note` | ✓ the composer reports how much text you pasted (its length) and dictation how long you spoke, for Usage › Your stats |
@@ -584,6 +585,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.here` | ✓ the composer's mode menu › Plan with Tasks (the agent plans in the conversation you're in) |
 | `plans.approve` | ✓ Approve Plan / Apply Changes on a plan's page and its strip above the conversation; Approve Plan's ▾ › Approve, worked by ▸ (BLG-506: `plans.setWorkAgent`, then approve) |
 | `plans.discard` | ✓ Discard Draft / Discard Changes on a plan's page |
+| `plans.verify` | ✓ Approve Plan's ▾ › Verify, Then Approve on a plan's page and its strip above the conversation; ••• › Verify the Plan; Verify, Then Approve on the findings line once Fix was sent (BLG-772); the phone's approve card |
+| `plans.fixReview` | ✓ Fix on the findings line and the plan page's main button, when verifying found something (BLG-772); the phone's card too |
 | `plans.edit` | ✓ editing a plan's outline (rename, criteria, move, remove, what waits on what) |
 | `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu); the phone plan page's autonomy chip (1.5) |
 | `plans.setPaused` | ✓ Pause / Resume on a plan's page |
@@ -623,6 +626,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `agent.steps` | ✓ an agent card's steps as disclosure rows (an icon per tool, ✓/✗, how long it took), thinking as “Thought for 12s”, sub-agents' steps |
 | `agent.step` | ✓ opening a step on an agent card: Bash's command and output (colours kept), the file read, an edit's diff, a search's matches, a page fetched, an MCP tool's input and output as JSON, the thinking |
 | `view.fetch` | ✓ a live table, chart, stats or code view in a conversation fetching its next page, sorted or searched, or refreshing it (docs/views.md) |
+| `preview.open` | ✓ a live preview in a conversation (Settings › Experimental › Live previews, docs/previews.md) as it scrolls into view, and a component file's Preview in Files: built on this computer, drawn in its frame with props from its types; off, it says so with Turn On… |
+| `preview.snapshot` | ✓ a live preview's ••• › Save as Picture (a PNG in the worktree's .beluga/scratch/previews); with a phone paired, each preview's newest picture is kept there too, for the phone to show |
 | `git.fetch` | ✓ Fetch on a project's home (“fetched 3 min ago”, or why it couldn't: sign-in needed, offline) |
 | `git.fetchIfStale` | ✓ opening a project's home fetches quietly when the last fetch is a few minutes old (the daemon also fetches every project every ~15 min) |
 | `git.updateMain` | ✓ Update main on a project's home: fetch and fast-forward the default branch; what can't fast-forward asks (changes in the way, or Let Your Agent Handle It) |

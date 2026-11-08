@@ -1,6 +1,7 @@
 import type { AppState } from '@beluga/core/store.js';
 import type { Workspace } from '@beluga/workspaces/types.js';
 import { stateOf } from '@beluga/ui/workspace-models.js';
+import { notOnPr, notOnPrLabel } from '@beluga/core/branch-state.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { cx } from '../components/ui.js';
@@ -99,7 +100,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
   const selection = useChatSelection();
   const inSelection = ws.kind === 'chat' && Boolean(selection?.ids.includes(ws.id));
   // Only what the row shows: another conversation streaming doesn't draw it again (KLD-48).
-  const { selected, st, signal, where, archiving } = useApp(
+  const { selected, st, signal, where, archiving, gap } = useApp(
     (state) => ({
       selected: state.view.kind === 'workspace' && state.view.id === ws.id,
       st: stateOf(state, ws, 0),
@@ -108,6 +109,8 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
       where: outsideLocation(state, ws),
       // Being archived: how far along (it leaves the sidebar when done).
       archiving: state.archiving[ws.id],
+      // Commits its open PR doesn't have yet (BLG-840): a chip, since merging now would leave them out.
+      gap: ws.kind === 'worktree' && !ws.archived ? notOnPr(state.prs[ws.id], ws) : undefined,
     }),
     sameDeep,
   );
@@ -234,11 +237,17 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
                   {fold.count}
                 </span>
               ) : null}
+              {gap ? (
+                <span className={s.notOnPr} title={notOnPrLabel(gap)} aria-label={notOnPrLabel(gap)} data-not-on-pr={gap.count}>
+                  <Icon name="up" size={10} />
+                  {gap.count}
+                </span>
+              ) : null}
               {family ? (
                 <FamilyEnd row={family} now={now} />
               ) : (
                 <>
-                  <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+                  <SignalMark signal={signal} fallback={gap ? null : quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
                   {mark}
                 </>
               )}
