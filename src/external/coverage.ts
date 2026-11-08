@@ -25,6 +25,8 @@ const INBOX = 'The inbox marks what a person has read, and an agent\'s mark woul
 const NO_SCOPE = 'A file name does not say which chat the image is in, so a grant cannot check it.';
 const VIEW_SOURCE = 'It runs a view\'s source, which can be a command: sentinel_try_source tries one under its own class.';
 const AGENT_TERM = 'A terminal app for a person to type in: an agent works through beluga_chat_send.';
+const STATS = 'The Usage tab counts the person\'s work in every project, past any grant\'s scope.';
+const SAVE_PANEL = 'It writes a file where a person chose in the Save panel.';
 
 export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'session.submit': 'covered',
@@ -543,4 +545,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'agentTerm.open': { refused: AGENT_TERM },
   'agentTerm.takeOver': { refused: AGENT_TERM },
   'agentTerm.visual': 'ui_only',
+  'stats.get': { refused: STATS },
+  'stats.note': { refused: STATS },
+  'stats.saveImage': { refused: SAVE_PANEL },
 };
