@@ -3,6 +3,7 @@ import type { ThreadStartInput, ThreadTools } from '../../agent/types.js';
 import type { AgentRef } from '../../protocol.js';
 import { ASSISTANT_TITLE, isAssistant } from '../../shared/assistant.js';
 import { autoContinueFor, limitResumeAt } from '../../shared/auto-continue.js';
+import { limitStops } from '../auto-continue.js';
 import { LOCAL_RUNTIME } from '../../shared/local-endpoints.js';
 import { decodeFailure } from '../../shared/run-failure.js';
 import type { Effort } from '../../shared/settings-schema.js';
@@ -459,11 +460,18 @@ export class ThreadService {
   private placeOf(parent: string): ParentPlace {
     // With agentThreads off, results wait on the child's record until the switch is on again.
     if (!this.deps.store.getState().prefs.agentThreads) return 'held';
+    // A parent whose newest run stopped on your usage limit would hit it again: its next turn's end brings them.
+    if (this.onLimit(parent)) return 'held';
     if (isAssistant(parent)) return this.deps.hasMacChat(parent) ? 'here' : 'gone';
     const ws = parent.startsWith(WS) ? this.deps.find(parent.slice(WS.length)) : undefined;
     if (!ws) return 'gone';
     // A thread that was stopped stays stopped: a child's result does not start it again.
     return ws.archived || ws.thread?.stopped || this.deps.leaving?.(ws.id) || this.deps.terminalDriving(parent) ? 'held' : 'here';
+  }
+
+  private onLimit(channel: string): boolean {
+    const state = this.deps.store.getState();
+    return limitStops(state.log.filter((l) => l.channel === channel), state.selfId).length > 0;
   }
 
   /** A wake of a parent that is a thread itself is an agent's turn, so its answer goes up the chain. */

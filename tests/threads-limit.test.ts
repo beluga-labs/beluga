@@ -16,7 +16,7 @@ function setup() {
   store.dispatch({ type: 'identity', selfId: ME, isHost: true, home: '/home/me' });
   store.dispatch({ type: 'prefs', prefs: { agentThreads: true } });
   const chats = new Map<string, Workspace>();
-  const wakes: Array<{ channel: string; prompt: string }> = [];
+  const wakes: Array<{ channel: string; prompt: string; requestId: string }> = [];
   const asks: Array<{ channel: string; id: string }> = [];
   let n = 0;
   const add = (id: string, fields: Partial<Workspace> = {}): Workspace => {
@@ -39,7 +39,7 @@ function setup() {
     stopRun: () => undefined,
     runsAgent: () => true,
     canSteer: () => true,
-    wake: (channel, prompt) => void wakes.push({ channel, prompt }),
+    wake: (channel, prompt, _line, requestId) => void wakes.push({ channel, prompt, requestId }),
     wakeMs: WAKE_MS,
     hasMacChat: () => true,
     terminalDriving: () => false,
@@ -53,7 +53,12 @@ function setup() {
   const end = (channel: string, requestId: string, event: 'done' | 'error', text: string) => store.dispatch({ type: 'agent_event', owner: ME, requestId, requester: ME, event, text, ts: Date.now(), channel });
   const limit = (channel: string, requestId: string, resetsAt?: number) => end(channel, requestId, 'error', encodeFailure({ kind: 'usage_limit', detail: 'limit', ...(resetsAt ? { resetsAt } : {}) }));
   const status = async (id: string) => JSON.parse(await service.forRun('ws:root')!.status({ id })) as Record<string, unknown>;
-  return { store, service, chats, wakes, start, end, limit, status };
+  const startUnder = async (parent: string, task: string): Promise<{ id: string; channel: string; request: string }> => {
+    const answer = await service.forRun(parent)!.start({ task, title: task });
+    const id = /thread "([^"]+)"/.exec(answer)![1]!;
+    return { id, channel: `ws:${id}`, request: asks.at(-1)!.id };
+  };
+  return { store, service, chats, wakes, start, startUnder, end, limit, status };
 }
 
 describe('a thread that hits the usage limit', () => {
@@ -124,5 +129,32 @@ describe('a thread that hits the usage limit', () => {
     expect(t.service.skipsContinue(k.channel)).toBe(true);
     await settle();
     expect(t.wakes).toEqual([]);
+  });
+
+  it('holds a child’s result while its parent waits on the limit, and brings it once after the parent goes on', async () => {
+    const t = setup();
+    const p = await t.start('lead');
+    const g = await t.startUnder(p.channel, 'grand');
+    t.limit(p.channel, p.request, Date.now() + 3_600_000);
+    t.end(g.channel, g.request, 'done', 'Grandchild result');
+    await settle();
+    expect(t.wakes).toEqual([]);
+    expect(t.chats.get(g.id)!.thread!.outcome?.delivered).toBe(false);
+    t.service.limitContinued(p.channel, 'cont-p');
+    t.store.dispatch({ type: 'agent_event', owner: 'me', requestId: 'cont-p', requester: 'me', event: 'started', text: '', ts: Date.now(), channel: p.channel });
+    t.end(p.channel, 'cont-p', 'done', 'Lead result');
+    // The parent goes on: the held result wakes it once, and that turn's answer goes up to the root.
+    await waitFor(() => t.wakes.length === 1);
+    await settle();
+    expect(t.wakes).toHaveLength(1);
+    expect(t.wakes[0]).toMatchObject({ channel: p.channel });
+    expect(t.wakes[0]!.prompt).toContain('Grandchild result');
+    t.store.dispatch({ type: 'agent_event', owner: 'me', requestId: t.wakes[0]!.requestId, requester: 'me', event: 'started', text: '', ts: Date.now(), channel: p.channel });
+    t.end(p.channel, t.wakes[0]!.requestId, 'done', 'Lead read the grandchild');
+    await waitFor(() => t.wakes.length === 2);
+    await settle();
+    expect(t.wakes).toHaveLength(2);
+    expect(t.wakes[1]).toMatchObject({ channel: 'ws:root' });
+    expect(t.wakes[1]!.prompt).toContain('Lead read the grandchild');
   });
 });
