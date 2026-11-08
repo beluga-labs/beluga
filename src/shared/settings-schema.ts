@@ -28,6 +28,10 @@ export const BRANCH_PREFIX_DEFAULT = 'beluga/';
 /** A prefix git accepts in front of a slug: letters, digits, `. _ - /`, no `..`, `//`, or part starting with `.` `-` `/`. */
 export const BRANCH_PREFIX_RE = /^(?![./-])(?!.*\.\.)(?!.*\/\/)(?!.*\/[.-])[\w./-]{0,40}$/;
 
+/** How many days without activity settle a chat (core/triage); 0: never. */
+export const SETTLE_IDLE_DAYS_DEFAULT = 3;
+export const SETTLE_IDLE_DAYS_MAX = 365;
+
 /** Keep the Mac awake for your phone: never, only on power, or always (the display may still sleep). */
 export const KEEP_AWAKE = ['off', 'power', 'always'] as const;
 export type KeepAwake = (typeof KEEP_AWAKE)[number];
@@ -137,6 +141,12 @@ export const Settings = z.object({
   agentThreads: z.boolean().default(false),
   /** How far those threads go (shared/threads.ts). */
   threadLimits: ThreadLimitsSchema.catch(THREAD_LIMITS_DEFAULT),
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
+  chatCategories: z.boolean().catch(false),
+  /** A merged PR settles its chat. */
+  settleOnMerge: z.boolean().catch(true),
+  /** Days without activity before a chat settles; 0: never. */
+  settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
   /** How much of Claude's sub-agent work the chat shows. */

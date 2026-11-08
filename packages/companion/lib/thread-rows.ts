@@ -1,7 +1,7 @@
 import { type ThreadChildren, type ThreadState, isThreadWorking, threadRank } from '../../../src/shared/threads';
 import type { ConvSummary, ThreadCountView, ThreadFamilyView } from './link/protocol';
 
-/** Child threads as the phone lists them and asks about them (1.44). Pure: no React. */
+/** Child threads as the phone lists them and asks about them (1.45). Pure: no React. */
 
 export interface ConvRow {
   readonly conv: ConvSummary;

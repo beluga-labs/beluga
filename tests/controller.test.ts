@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFile
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { Board } from '../src/core/board/board.js';
+import { BoardWork } from '../src/core/board/work.js';
 import { runCommand } from '../src/core/commands.js';
+import { planForHome } from '../src/core/plans/model.js';
+import { Plans } from '../src/core/plans/plans.js';
+import { PlansWork } from '../src/core/plans/work.js';
 import type { Session } from '../src/core/session.js';
 import { ShareService } from '../src/core/shares.js';
 import { Store, initialState } from '../src/core/store.js';
@@ -413,6 +418,53 @@ describe('WorkspaceController', () => {
     expect(asked).toEqual([{ prompt: 'Explain this repo', channel: `ws:${chat.id}` }]);
     expect(askedInPlan).toEqual([plan === true]);
     expect(store.getState().planMode[`ws:${chat.id}`] === true).toBe(plan === true);
+  });
+
+  it('starts a worktree as a plan’s home with Plan with Tasks: the draft plan is there before its agent hears the first message', async () => {
+    const work = new PlansWork({ store, plans: new Plans({ store, dir: null }), board: new BoardWork({ store, board: new Board({ store, dir: null, projectName: () => 'app' }), controller: ctl, selfId: () => 'me', selfName: () => 'Kay', askClaude: () => undefined }), git: null, askClaude: () => 'ask', intend: () => undefined, delayMs: 0 });
+    const heard: Array<{ prompt: string; channel: string; planned: boolean; plan: boolean; terminal: boolean }> = [];
+    const c = new WorkspaceController({
+      manager: new WorkspaceManager(new WorkspaceStore(path.join(repo, '..', '..', 'home'))),
+      store,
+      shares,
+      selfId: () => 'me',
+      toast: (t) => void toasts.push(t),
+      intend: () => undefined,
+      planHere: (channel) => void work.here(channel),
+      askClaude: (prompt, channel, o) =>
+        void heard.push({ prompt, channel, planned: Boolean(planForHome(store.getState().plans, channel)), plan: store.getState().planMode[channel] === true, terminal: o?.terminal === true }),
+      claudeHome: claude,
+    });
+    await c.refresh();
+    const args = API['workspaces.startWorktree'].args.parse([projectId(), 'Add refunds to the admin', { name: 'refunds', tasks: true, terminal: true }]);
+    const id = await HANDLERS['workspaces.startWorktree']({ workspaces: c, nameTask: async () => 'refunds' } as unknown as Session, ...args);
+    const channel = `ws:${id}`;
+    // Planned in the chat (milestones and tasks need it), never plan mode: a plan's own conversation has none.
+    expect(heard).toEqual([{ prompt: 'Add refunds to the admin', channel, planned: true, plan: false, terminal: false }]);
+    const plan = planForHome(store.getState().plans, channel)!;
+    expect(plan.body).toBeUndefined();
+    expect(work.forRun(channel, 'me')?.brief).toContain('a draft only you and the user see');
+  });
+
+  it('a worktree whose plan can’t be made plans first instead, and says why', async () => {
+    const heard: Array<{ channel: string; plan: boolean }> = [];
+    const c = new WorkspaceController({
+      manager: new WorkspaceManager(new WorkspaceStore(path.join(repo, '..', '..', 'home'))),
+      store,
+      shares,
+      selfId: () => 'me',
+      toast: (t) => void toasts.push(t),
+      intend: () => undefined,
+      planHere: () => {
+        throw new Error('Plans need the Beluga app');
+      },
+      askClaude: (_prompt, channel) => void heard.push({ channel, plan: store.getState().planMode[channel] === true }),
+      claudeHome: claude,
+    });
+    await c.refresh();
+    const ws = (await c.startWorktree(projectId(), 'Add refunds', async () => 'refunds', { name: 'refunds', tasks: true }))!;
+    expect(heard).toEqual([{ channel: `ws:${ws.id}`, plan: true }]);
+    expect(toasts).toContain('Couldn’t plan it with tasks (Plans need the Beluga app): its agent plans first instead');
   });
 
   it('organizes projects into groups and hides them', async () => {
