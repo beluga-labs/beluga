@@ -1384,6 +1384,7 @@ function messageView(state: DomainState, ctx: ViewContext, m: MessageView): Chat
     ...(m.mine && !m.claude && !m.task && m.conversation.startsWith('dm:') && text === m.text && text.trim() ? { editable: true } : {}),
     ...(files.length ? { files: files.slice(0, 20) } : {}),
     ...(m.reactions?.length ? { reactions: reactionsView(state, m) } : {}),
+    ...(m.mine && (m.status === 'delivered' || m.status === 'seen') ? { delivery: m.status } : {}),
     ...(offerOf(state, m) ? { offer: offerOf(state, m) } : {}),
     ...(chatTaskOf(state, m) ? { task: chatTaskOf(state, m) } : {}),
   };

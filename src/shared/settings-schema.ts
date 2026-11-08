@@ -159,6 +159,8 @@ export const Settings = z.object({
   chatClaude: z.enum(['everyone', 'trusted', 'off']).default('everyone'),
   /** Who sees how much of your plans (Claude Code, Codex…) you have left, on your profile: people you trust, every friend, or no one (BLG-597). */
   shareUsage: z.enum(['trusted', 'everyone', 'off']).default('trusted'),
+  /** Tell friends when you've seen their direct messages (BLG-798: Seen, sent only from a screen of yours, never by your Always On itself). */
+  readReceipts: z.boolean().default(true),
   /** Your main channel: a group with all your friends (made the first time you open it). */
   mainChannel: z.string().regex(/^[0-9a-f]{32}$/).optional(),
   /** People you chose a trust level for (by their key-derived id). */

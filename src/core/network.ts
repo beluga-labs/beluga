@@ -117,9 +117,12 @@ export async function startNetwork(opts: NetworkOptions): Promise<NetworkService
       if (!stopped) store.dispatch({ type: 'net_summary', summary: mesh.summary() });
     });
   };
-  // A conversation a screen shows is read as messages arrive.
+  // A conversation a screen shows is read as messages arrive; a direct one on a screen in front is Seen,
+  // unless you turned that off (BLG-798). Only screens count: an Always On on its own has none.
   const readShown = (): void => {
-    for (const c of store.getState().attention.shown) if (c.startsWith('dm:') || c.startsWith('group:')) mesh.markRead(c);
+    const { attention, prefs } = store.getState();
+    for (const c of attention.shown) if (c.startsWith('dm:') || c.startsWith('group:')) mesh.markRead(c);
+    if (prefs.readReceipts !== false && attention.front) for (const c of attention.visible) mesh.markSeen(c);
   };
   let stopped = false;
   mesh.on('change', push);
@@ -130,7 +133,7 @@ export async function startNetwork(opts: NetworkOptions): Promise<NetworkService
   };
   mesh.on('message', (message) => {
     store.dispatch({ type: 'net_message', message: local(message) });
-    if (store.getState().attention.shown.includes(message.conversation)) mesh.markRead(message.conversation);
+    if (store.getState().attention.shown.includes(message.conversation)) readShown();
   });
   mesh.on('unsent', (conversation, id) => store.dispatch({ type: 'net_unsent', conversation, id }));
   mesh.on('cleared', (conversation) => store.dispatch({ type: 'net_cleared', conversation }));

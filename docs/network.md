@@ -61,9 +61,17 @@ knows. Two Macs dialing each other at once keep the same connection (direct over
 the one dialed by the lower address); a reconnection after a restart replaces the stale link
 at once. A relayed link is retried directly now and then and replaced once that works. Each link has a heartbeat (dropped after 3 missed),
 2 MB frames and token-bucket limits on messages and bytes. Messages are versioned JSON (`hello` carries
-`proto: 1`; unknown kinds are ignored): `hello`, `presence`, `dm`/`dm_ack`,
+`proto: 1`; unknown kinds are ignored): `hello`, `presence`, `dm`/`dm_ack`/`dm_seen`,
 `av_get`/`av_data` (profile pictures), `g_heads`/`g_sync`/`g_entries`, `tun_open`/`tun_in`/`tun_data`/`tun_close`, `gw` (the gateway), `share`
 (sharing with friends), `team` (team boards: friends on the same GitHub repository, see docs/tasks-and-plans.md phase 3).
+
+**Delivered, then Seen** (BLG-798). A direct message is Delivered once the install that is them on the network
+(their Mac, or their Always On) acks it with `dm_ack`. `dm_seen { id }` says their messages up to that one were on
+a screen of theirs: a conversation visible in a Beluga window in front, or opened on their phone (`network.read`),
+said by whichever install runs their network, never by an Always On on its own (it has no screens; your Mac's
+attention reaches it through your link). Once per newest message, only while linked, and not at all when Say
+When You've Seen a Message is off (`readReceipts`, a setting that follows you to every device). An older Beluga
+ignores the frame and never sends it, so its messages stay Delivered. Seen is kept as a `{ seen }` line in the DM log.
 
 **Versions and features.** `hello` also carries the Beluga version (`app`) and what this Mac does (`can`,
 `src/net/mesh/features.ts`: `chat.*` always, `task.*` while the gateway listens, `share.*` while sharing with friends

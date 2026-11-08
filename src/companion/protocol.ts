@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 45 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -116,8 +116,9 @@ export const COMPANION_PROTO = { major: 1, minor: 44 } as const;
  * 1.44 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
  * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Remind Me Later, Show Again
  * Now and Un-settle from the phone (`triage.*`). Its Snoozed category is Later on the screens (BLG-770). An older Mac or phone never sees them: Work stays one list by project.
+ * 1.45 (BLG-798): your own direct message says Delivered or Seen (`ChatMessageView.delivery`). An older Mac leaves it out.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, seen: 45 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -1010,6 +1011,8 @@ export const ChatMessageView = z.object({
   files: z.array(OutputView).max(20).optional(),
   /** 1.41 (BLG-702): the emoji reactions under it, in the order they were first put there. */
   reactions: z.array(ChatReactionView).max(20).optional(),
+  /** 1.45 (BLG-798): your own direct message: it reached them (your Always On has theirs the same way), or it was on their screen. */
+  delivery: z.enum(['delivered', 'seen']).optional(),
   /** A friend's Claude answering you can't touch their Mac from the chat: what it offers to do there as a request (gateway.ask `to`). */
   offer: z.object({ to: id, ask: z.string().max(500), needs: z.array(z.enum(['project', 'shell', 'files', 'screen', 'device'])).max(5).optional() }).optional(),
   /**
