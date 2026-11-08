@@ -128,6 +128,13 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.editPrompt': 'phone',
   'workspaces.continueInWorktree': 'mac',
   'workspaces.archive': 'mac',
+  'workspaces.moveCheck': 'mac',
+  'workspaces.movePack': 'mac',
+  'workspaces.moveChunk': 'mac',
+  'workspaces.moveReceive': 'mac',
+  'workspaces.moveLand': 'mac',
+  'workspaces.moveDone': 'mac',
+  'workspaces.moveUndo': 'mac',
   'workspaces.restore': 'mac',
   'workspaces.archivePlan': 'mac',
   // The phone's Delete step carries the same warning in its hint (core/branch-state.ts, from status.unpushed).
@@ -433,6 +440,13 @@ export const PHONE: Record<Method, Side> = {
   'plans.resumeTask': 'phone',
   'plans.remove': 'mac',
   'plans.setStyle': 'mac',
+  'plans.moveCheck': 'mac',
+  'plans.movePack': 'mac',
+  'plans.moveChunk': 'mac',
+  'plans.moveReceive': 'mac',
+  'plans.moveLand': 'mac',
+  'plans.moveDone': 'mac',
+  'plans.moveUndo': 'mac',
 
   // ---- GitHub issues: the Mac's Issues view for now. Reading them and handing one to Claude fits the
   // phone too (BLG-170): until its screen exists, a task made from one shows on the phone's board.
@@ -612,6 +626,12 @@ export const PHONE: Record<Method, Side> = {
   // Testing a sentinel's sources is setting it up: the Mac's.
   'sentinel.test': 'mac',
   'sentinel.pause': 'phone',
+  'sentinel.moveCheck': 'mac',
+  'sentinel.movePack': 'mac',
+  'sentinel.moveChunk': 'mac',
+  'sentinel.moveReceive': 'mac',
+  'sentinel.moveLand': 'mac',
+  'sentinel.moveDrop': 'mac',
   'sentinel.runs': 'phone',
   'sentinel.runGet': 'phone',
   'sentinel.decide': 'phone',

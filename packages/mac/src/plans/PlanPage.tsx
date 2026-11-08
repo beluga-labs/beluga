@@ -35,6 +35,9 @@ import p from './plans.module.css';
 import { TeamReviews, usePlanTeamItems } from '../team/SharedPlans.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { revealLabel } from '../lib/os-words.js';
+import { useActions } from '../lib/actions.js';
+import { onMachine } from '../machines/pane-model.js';
+import { useMoveTo } from './move-to.js';
 
 const PlanCanvas = lazy(() => import('./PlanCanvas.js'));
 
@@ -78,6 +81,25 @@ export function PlanPage({ id, task }: { id: string; task?: string }) {
   }, [view, picked]);
   if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={<Button onClick={() => openList()}>Back to Plans</Button>} />;
   return <Page view={view} prefs={prefs} setPrefs={setPrefs} picked={picked} setPicked={setPicked} />;
+}
+
+/** It moved to another computer (BLG-806): this is its record here; it runs there. */
+function MovedAway({ plan }: { plan: Plan }) {
+  const actions = useActions();
+  const to = plan.movedTo;
+  if (!to) return null;
+  const page = { kind: 'plan' as const, id: to.planId ?? plan.id };
+  return (
+    <div className={p.changes} role="status">
+      <Icon name="send" size={13} />
+      <strong>Moved to {to.name}</strong>
+      <span>It runs there now, with its chat and tasks; this is its record.</span>
+      <span className={p.grow} />
+      <Button size="small" onClick={() => actions.run({ type: 'view', view: to.id ? onMachine(to.id, page) : page })}>
+        Open There
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -268,6 +290,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   })();
 
   const teamItems = usePlanTeamItems(plan.id, plan.projectId);
+  // Move To ▸ another computer of yours (BLG-806): Pause and Move To while something runs in it.
+  const moveTo = useMoveTo(plan, view, step);
   // Agent for Its Work ▸ (BLG-498): who works what starts from now on; milestones at work keep theirs (the toast says so).
   const workAgent = (v: string): void =>
     void act(() => api.setWorkAgent(plan.id, v === YOUR_AGENT ? null : agentForChoice(v, runtimes))).then((said) => {
@@ -298,6 +322,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
     ...(conflictHere ? [{ label: revealLabel('Conflict'), onSelect: () => void act(() => api.showConflict(plan.id)) }] : []),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     ...teamItems,
+    ...(moveTo ? [moveTo] : []),
     { label: 'Copy as Markdown', separate: true, onSelect: () => void copyText(markdownOf(view)) },
     { label: 'Planning Style…', onSelect: () => openSheet({ kind: 'plan_style' }) },
     ...(plan.draft ? [{ label: plan.body ? 'Discard Changes' : 'Discard Draft', danger: true, separate: true, onSelect: () => openSheet({ kind: 'confirm', title: plan.body ? 'Discard the proposed changes?' : 'Discard this draft?', message: plan.body ? 'The plan stays as you approved it.' : 'Nothing was put on the board, so nothing else changes.', confirm: 'Discard', destructive: true, run: () => void act(() => api.discard(plan.id)) }) }] : []),
@@ -368,6 +393,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
           ) : null}
         </div>
       ) : null}
+      <MovedAway plan={plan} />
       <ConflictLine view={view} onShow={setPicked} />
       <MergeFailed view={view} onPass={(id, title) => void step.run(`pass “${title}”`, 'Passing…', () => api.pass(plan.id, id))} />
       <LimitPause view={view} />

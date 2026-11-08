@@ -94,6 +94,10 @@ export interface WorkspaceRecord {
   readonly handedTo?: string;
   /** Came from a friend's handoff (their name). */
   readonly handedFrom?: string;
+  /** Continued on another computer of yours (its name, BLG-808): archived here once it ran there. */
+  readonly continuedOn?: string;
+  /** Continued here from another computer of yours (its name). */
+  readonly continuedFrom?: string;
   /** A conversation started for one job: 'sync_main' is Claude bringing the main folder up to date. */
   readonly purpose?: 'sync_main';
   /** You carried on after this PR merged (Continue After Merge): it and older ones are done, so the branch can have a new one. */

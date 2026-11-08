@@ -855,7 +855,8 @@ const planState = (plan: Plan, progress: PlanProgress): string => (plan.status =
 
 export function plansView(state: DomainState): PlansView {
   return {
-    plans: state.plans.plans.slice(0, 100).map((plan) => {
+    // One that moved to another computer runs there (BLG-806): its record here stays off the list.
+    plans: state.plans.plans.filter((p) => !p.movedTo).slice(0, 100).map((plan) => {
       const progress = progressOf(state, plan);
       const topic = planTopic(plan.id);
       return { id: clip(plan.id, 200), title: clip(planTitle(plan), 300), state: planState(plan, progress), ...(topic ? { topic } : {}), done: progress.done, total: progress.total };
