@@ -68,6 +68,12 @@ export const MACHINE_API = {
   },
   // In the app: send the piece of a file on this Mac at `off` to computer `id`, upload `n` → { sent, total, name, path?, image? } (path: where it is there, once all of it is).
   'machines.upload.send': { args: z.tuple([deviceId, z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), z.string().min(1).max(4096), z.number().int().min(0)]) },
+  // Open in Finder and editors, for a computer (BLG-794). On the computer: the piece of a file (its whole path) at `off`, for your app to download → { b64, total, eof }; never a secret.
+  'machines.download.piece': { args: z.tuple([z.string().min(1).max(4096), z.number().int().min(0)]) },
+  // In the app: download a file of computer `id` (its whole path there) into ~/Downloads/Beluga → where it's saved.
+  'machines.download.fetch': { args: z.tuple([deviceId, z.string().min(1).max(4096)]) },
+  // In the app: the editor that opens a computer's folders over Remote-SSH → 'vscode' or 'cursor'.
+  'machines.editor': { args: z.tuple([]) },
   // On a computer: every worktree's listening ports (BLG-802), for your app to forward → [{ workspaceId, port, name }].
   'machines.ports': { args: z.tuple([]) },
   // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].

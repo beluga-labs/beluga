@@ -28,6 +28,7 @@ import { type TreeRow, ancestorsOf, foundRows, treeRows } from './tree.js';
 import s from './panel.module.css';
 import k from './content-search.module.css';
 import { revealLabel } from '../../lib/os-words.js';
+import { showWorktreeFolder, useRevealLabel } from '../../lib/remote-open.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
 const FileContent = lazy(() => import('../../views/reader/FileReader.js').then((m) => ({ default: m.FileContent })));
@@ -117,6 +118,7 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
 export function FilesTab({ wsId, project = false }: { wsId: string; project?: boolean }) {
   const api = useApi();
   const { client } = useBeluga();
+  const revealWords = useRevealLabel();
   const prefs = usePrefs();
   const selfId = useApp((st) => st.selfId);
   const cache = useApp((st) => st.dirCache);
@@ -291,7 +293,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
             <FlagToggles flags={flags} onChange={setFlags} />
           </label>
           {contents ? null : <IconButton icon="chevronUp" label="Collapse all folders" onClick={() => expand(new Set())} disabled={!expanded.size} />}
-          <IconButton icon="folder" label={revealLabel()} onClick={() => void api.workspaces.openInFinder(wsId)} />
+          <IconButton icon="folder" label={revealWords} onClick={() => void showWorktreeFolder(client, wsId)} />
         </div>
         <div className={k.modeRow}>
           <Segmented

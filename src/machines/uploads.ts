@@ -1,6 +1,8 @@
-import { open, stat } from 'node:fs/promises';
+import { appendFile, mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Uploads } from '../companion/uploads.js';
+import { safeFileName, uniquePath } from '../core/downloads.js';
+import { isSecretPath } from '../core/shares.js';
 import { uploadsDir } from '../daemon/web-files.js';
 import { MAX_UPLOAD_BYTES, UPLOAD_PIECE } from '../shared/uploads.js';
 
@@ -83,4 +85,55 @@ export async function sendPiece(call: (method: string, args: readonly unknown[])
   const answer = (await call('machines.upload.put', [id, piece])) as PutAnswer;
   if ('received' in answer) return { sent: answer.received, total: info.size, name };
   return { sent: info.size, total: info.size, name: answer.name, path: answer.path, image: answer.image };
+}
+
+/** A piece of a file on this computer, for your app to download (BLG-794). */
+export interface DownPiece {
+  readonly b64: string;
+  readonly total: number;
+  readonly eof: boolean;
+}
+
+/** On the computer: the piece of `file` at `off` (a file, never a secret, up to MAX_UPLOAD_BYTES). */
+export async function readPieceHere(file: string, off: number): Promise<DownPiece> {
+  if (!path.isAbsolute(file)) throw new Error('Name the file by its whole path');
+  if (isSecretPath(file)) throw new Error('That file is private');
+  const info = await stat(file);
+  if (!info.isFile()) throw new Error('Only a file downloads (copy a folder’s path instead)');
+  if (info.size > MAX_UPLOAD_BYTES) throw new Error(`That file is too big to download (up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)`);
+  if (off < 0 || off > info.size) throw new Error('That download went wrong; try again');
+  const length = Math.min(UPLOAD_PIECE, info.size - off);
+  const bytes = Buffer.alloc(length);
+  const handle = await open(file, 'r');
+  try {
+    if (length) await handle.read(bytes, 0, length, off);
+  } finally {
+    await handle.close();
+  }
+  return { b64: bytes.toString('base64'), total: info.size, eof: off + length >= info.size };
+}
+
+/**
+ * In the app: a file on one of your computers, down to `dir` on this Mac (~/Downloads/Beluga) a
+ * piece at a time through `call` (the door) → where it's saved. A half-done one is removed.
+ */
+export async function downloadThere(call: (method: string, args: readonly unknown[]) => Promise<unknown>, file: string, dir: string): Promise<string> {
+  await mkdir(dir, { recursive: true });
+  const to = await uniquePath(dir, safeFileName(path.posix.basename(file.replace(/\\/g, '/'))));
+  const tmp = `${to}.part`;
+  try {
+    for (let off = 0; ; ) {
+      const piece = (await call('machines.download.piece', [file, off])) as DownPiece;
+      const bytes = Buffer.from(piece.b64, 'base64');
+      await appendFile(tmp, bytes, { mode: 0o600 });
+      off += bytes.length;
+      if (piece.eof || off >= piece.total) break;
+      if (!bytes.length) throw new Error('The download stopped moving; try again');
+    }
+    await rename(tmp, to);
+    return to;
+  } catch (err) {
+    await rm(tmp, { force: true });
+    throw err;
+  }
 }

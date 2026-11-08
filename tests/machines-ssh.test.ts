@@ -159,6 +159,9 @@ describe.skipIf(WINDOWS)('adding a computer over SSH', () => {
     const added = await app.machines.joinApprove();
     expect(app.machines.list().map((m) => m.name)).toEqual(['mini']);
     expect(added.name).toBe('mini');
+    // Its ssh host is kept: Open in Editor opens its folders over Remote-SSH (BLG-794).
+    expect(added.ssh).toBe('kayra@mini');
+    expect(app.machines.list()[0]?.ssh).toBe('kayra@mini');
     await waitFor(() => mini.machines.pairStatus().last?.kind === 'joined', 10_000);
 
     // What ran over ssh: your own ssh with keys only (BatchMode), the install line, up, then the pairing.

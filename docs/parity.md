@@ -257,6 +257,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.unshare` | ✓ a worktree on a computer › Background › a port shared from this Mac › Unshare |
 | `machines.upload.put` | – asked by your app over a computer's link (BLG-793): one piece of a file you dropped on a chat there, written into its uploads |
 | `machines.upload.send` | ✓ a file dropped from Finder on a chat that runs on a computer: sent there a piece at a time, its progress in the box (BLG-793) |
+| `machines.download.piece` | – asked by your app over a computer's link (BLG-794): a piece of a file there for Download |
+| `machines.download.fetch` | ✓ Download on a computer's page: Show in Finder for a file there brings it to ~/Downloads/Beluga and shows it in Finder (BLG-794) |
+| `machines.editor` | ✓ (no surface of its own) which editor Open in Editor uses for a computer's folder over Remote-SSH: VS Code or Cursor (BLG-794) |
 | `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
 | `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
 | `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |

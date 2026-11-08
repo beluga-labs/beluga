@@ -79,6 +79,8 @@ export interface MachineView {
   readonly region?: string;
   /** Your secrets sync with it (you said Keep My Secrets in Sync for it, BLG-805). */
   readonly secrets?: boolean;
+  /** The ssh host it was added over: Open in Editor opens its folders over Remote-SSH (BLG-794). */
+  readonly ssh?: string;
 }
 
 interface Live {
@@ -163,6 +165,8 @@ export class Machines {
   private joining?: Joining;
   /** A pairing opened over SSH, while it waits for your Join (BLG-781). */
   private ssh?: SshPairing;
+  /** The host of the pairing opened over SSH, kept on the computer once it's added. */
+  private sshHost?: string;
   private readonly offs: Array<() => void> = [];
   private readonly pending = new Set<string>();
   private retry?: NodeJS.Timeout;
@@ -379,6 +383,7 @@ export class Machines {
    * itself and the four pictures, once it answers. Then joinApprove or joinCancel.
    */
   joinStart(ticket: string): Promise<ComputerOffer> {
+    this.sshHost = undefined;
     if (this.joining) this.joining.decide?.(false);
     if (!this.set.holdsIdentity) return Promise.reject(new Error('This computer belongs to another of your Beluga apps: add computers from there'));
     let offered!: (o: ComputerOffer) => void;
@@ -437,7 +442,11 @@ export class Machines {
     await j.offer;
     j.decide(true);
     const record = await j.done;
-    return this.view(record);
+    const host = this.sshHost;
+    this.sshHost = undefined;
+    if (!host) return this.view(record);
+    this.book.update(deviceId(record.cert), { ssh: host });
+    return this.view(this.book.get(deviceId(record.cert)) ?? record);
   }
 
   async joinCancel(): Promise<void> {
@@ -470,6 +479,7 @@ export class Machines {
     let offer: ComputerOffer;
     try {
       offer = await this.joinStart(pairing.link);
+      this.sshHost = host;
     } catch (err) {
       pairing.stop();
       throw err;
@@ -713,6 +723,7 @@ export class Machines {
       skew,
       ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
       ...(this.opts.settings?.secretsOn(deviceId(r.cert)) ? { secrets: true } : {}),
+      ...(r.ssh ? { ssh: r.ssh } : {}),
     };
   }
 }

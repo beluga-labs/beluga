@@ -44,6 +44,8 @@ describe('the table of what your app may do on a computer', () => {
         'machines.env.decide',
         // Sending this Mac's files to a computer is your app's own (BLG-793).
         'machines.upload.send',
+        'machines.download.fetch',
+        'machines.editor',
         'machines.env.always',
         'machines.env.forget',
         // Who gets your secrets is said from your app's own Settings (BLG-805).
