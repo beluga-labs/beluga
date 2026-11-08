@@ -245,15 +245,24 @@ export async function checkKey(key: string, opts: StripeOptions = {}): Promise<v
 }
 
 /**
- * The account's display name, if the key may read the account (restricted keys need
- * Connect › Accounts: Read for that; without it there's just no name).
+ * The account's id and display name, if the key may read the account (restricted keys need
+ * Connect › Accounts: Read for that; without it there's just nothing). The id lets RevenueCat
+ * tell which of its apps bill through an account Beluga already counts.
  */
-export async function accountName(key: string, opts: StripeOptions = {}): Promise<string | undefined> {
+export async function accountInfo(key: string, opts: StripeOptions = {}): Promise<{ readonly id?: string; readonly name?: string }> {
   try {
-    const a = (await get(key, '/v1/account', { ...opts, maxRetries: 1 })) as { settings?: { dashboard?: { display_name?: string } }; business_profile?: { name?: string }; email?: string } | undefined;
+    const a = (await get(key, '/v1/account', { ...opts, maxRetries: 1 })) as { id?: unknown; settings?: { dashboard?: { display_name?: string } }; business_profile?: { name?: string }; email?: string } | undefined;
     const name = a?.settings?.dashboard?.display_name || a?.business_profile?.name || a?.email;
-    return typeof name === 'string' && name.trim() ? name.trim().slice(0, 120) : undefined;
+    return {
+      ...(typeof a?.id === 'string' && /^acct_[A-Za-z0-9]+$/.test(a.id) ? { id: a.id } : {}),
+      ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 120) } : {}),
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+/** Just the account's display name (see accountInfo). */
+export async function accountName(key: string, opts: StripeOptions = {}): Promise<string | undefined> {
+  return (await accountInfo(key, opts)).name;
 }
