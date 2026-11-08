@@ -40,6 +40,7 @@ export interface ThreadResult {
 export function deriveThreadState(thread: ThreadRecord, live?: ThreadLive): ThreadState {
   if (live) return live.needsYou ? 'needs_you' : live.run;
   if (thread.owed.length) return 'interrupted';
+  if (thread.limit) return 'waiting_limit';
   if (thread.outcome) return thread.outcome.state;
   return thread.stopped ? 'stopped' : 'queued';
 }
@@ -76,7 +77,7 @@ export function isDescendant(nodes: readonly ThreadNode[], ancestor: string, id:
 }
 
 /** A result that still has to reach the parent. A thread with another owed turn reports when that turn ends. */
-export const isReportable = (thread: ThreadRecord): boolean => Boolean(thread.outcome && !thread.outcome.delivered && !thread.owed.length);
+export const isReportable = (thread: ThreadRecord): boolean => Boolean(thread.outcome && !thread.outcome.delivered && !thread.owed.length && !thread.limit);
 
 /** Why one more thread does not fit, in words for the agent: the numbers, what frees a slot, where to raise it. */
 export function threadLimitProblem(counts: ThreadCounts, limits: ThreadLimits): string | undefined {

@@ -34,3 +34,11 @@ describe('BLG-331: the demo agent waits on "keep working" only in a run with thr
     await run.catch(() => undefined);
   });
 });
+
+describe('BLG-344: the demo agent stops on the usage limit in a child thread too', () => {
+  it('a task whose last line is "usage limit" stops on the limit with a reset time', async () => {
+    const agent = createMockBackend({} as never, 0.01);
+    const run = agent.run(input('A task from the agent in the chat “lead”.\n\nusage limit', { threadTools: {} as never }));
+    await expect(run).rejects.toMatchObject({ failure: { kind: 'usage_limit', resetsAt: expect.any(Number) } });
+  });
+});

@@ -3,6 +3,7 @@ import { type ThreadNode, stopOrder } from '../../../../src/core/threads/model.j
 import { type AgentRef, defaultAgentOf } from '../../../../src/protocol.js';
 import { type AgentMark, agentMark } from '../../../../src/shared/agent-marks.js';
 import { span } from '../../../../src/shared/clock.js';
+import { resetWords } from '../../../../src/shared/run-failure.js';
 import { agentName } from '../../../../src/shared/agent-label.js';
 import { THREAD_WORDS, type ThreadState, isThreadWorking } from '../../../../src/shared/threads.js';
 import { type ThreadFamilyParent, type ThreadNesting, threadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
@@ -38,6 +39,8 @@ export interface ThreadFamilyRow {
   /** When its current turn began. */
   readonly since: number;
   readonly endedAt?: number;
+  /** Waiting on your usage limit: when Beluga's auto-continue sends it on. */
+  readonly resumesAt?: number;
 }
 
 /** A chat's one line for a thread it started. */
@@ -180,6 +183,7 @@ export function familyRowOf(state: ThreadFamilySource, parent: Workspace, row: F
 
 /** A row's last word: its timer while it works, else what it is now. */
 export function rowEnd(row: ThreadFamilyRow, now: number): string {
+  if (row.state === 'waiting_limit' && row.resumesAt !== undefined) return `Waiting · ${resetWords(row.resumesAt, now)}`;
   return row.state === 'running' ? span(now - row.since) : THREAD_WORDS[row.state];
 }
 
@@ -218,6 +222,7 @@ export function threadFamilyRow(state: ThreadFamilySource, w: Workspace): Thread
     ...(model ? { model } : {}),
     since: isThreadWorking(stateNow) ? (activityOf(state.log, `${WS}${w.id}`).startedAt ?? thread.startedAt) : thread.startedAt,
     ...(endedAt !== undefined ? { endedAt } : {}),
+    ...(stateNow === 'waiting_limit' && thread.limit ? { resumesAt: thread.limit.at } : {}),
   };
 }
 

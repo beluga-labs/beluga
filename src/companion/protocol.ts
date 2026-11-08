@@ -623,7 +623,7 @@ export const AgentPickerView = z.object({
 export type AgentPickerView = z.infer<typeof AgentPickerView>;
 
 /** A thread's state, or a newer Mac's word this phone doesn't know yet. */
-const ThreadStateView = z.union([z.enum(['queued', 'running', 'needs_you', 'done', 'failed', 'stopped', 'interrupted']), z.string().max(20)]);
+const ThreadStateView = z.union([z.enum(['queued', 'running', 'needs_you', 'waiting_limit', 'done', 'failed', 'stopped', 'interrupted']), z.string().max(20)]);
 
 /**
  * 1.47: a chat's family, the Mac's Threads panel without its native sub-agents (the phone's strip has

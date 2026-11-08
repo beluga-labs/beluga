@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { ThreadStartInput, ThreadTools } from '../../agent/types.js';
 import type { AgentRef } from '../../protocol.js';
 import { ASSISTANT_TITLE, isAssistant } from '../../shared/assistant.js';
+import { autoContinueFor, limitResumeAt } from '../../shared/auto-continue.js';
 import { LOCAL_RUNTIME } from '../../shared/local-endpoints.js';
+import { decodeFailure } from '../../shared/run-failure.js';
 import type { Effort } from '../../shared/settings-schema.js';
 import { type ThreadRecord, type ThreadState } from '../../shared/threads.js';
 import { CHATS_PROJECT } from '../../workspaces/manager.js';
@@ -19,7 +21,7 @@ import { type ThreadLive, type ThreadNode, capSummary, deriveThreadState, isDesc
 
 const WS = 'ws:';
 /** A status wait goes on through these. */
-const STILL_WORKING: readonly ThreadState[] = ['queued', 'running'];
+const STILL_WORKING: readonly ThreadState[] = ['queued', 'running', 'waiting_limit'];
 /** What a run that a person's Stop reached gets when it tries to do more. */
 const RUN_STOPPED = 'A person stopped this chat, so this run cannot start threads or message them. Beluga did nothing. End your turn.';
 
@@ -126,6 +128,23 @@ export class ThreadService {
   }
 
   /**
+   * Beluga's auto-continue told a thread waiting on your usage limit to go on (core/auto-continue.ts):
+   * that turn is owed to the parent, as the one the limit stopped was.
+   */
+  limitContinued(channel: string, requestId: string): void {
+    const n = this.nodes().find((x) => x.channel === channel);
+    if (!n?.thread.limit) return;
+    const { limit: _limit, ...thread } = n.thread;
+    this.sent.add(requestId);
+    this.deps.setThread(n.id, { ...thread, owed: [...thread.owed, requestId] });
+  }
+
+  /** A thread that a stop reached is not sent on after the limit resets. */
+  skipsContinue(channel: string): boolean {
+    return Boolean(this.nodes().find((x) => x.channel === channel)?.thread.stopped);
+  }
+
+  /**
    * After a restart: a turn that was owed has no run behind it now, so it is interrupted. Nothing
    * starts it again: the parent gets the report once and decides. Call it when the workspaces are loaded.
    */
@@ -136,6 +155,7 @@ export class ThreadService {
       if (!n.thread.owed.length || live.has(n.channel)) continue;
       this.deps.setThread(n.id, { ...n.thread, owed: [], outcome: { state: 'interrupted', summary: 'Beluga stopped during this turn, so the turn did not finish. Beluga did not start it again. Use thread_message to continue it.', at, delivered: Boolean(n.thread.stopped) } });
     }
+    this.releaseLimits();
     this.delivery.recover();
   }
 
@@ -309,6 +329,7 @@ export class ThreadService {
       ...(n.thread.outcome ? { endedAt: n.thread.outcome.at } : {}),
       ...(ws?.archived ? { archived: true } : {}),
       ...(n.thread.readOnly ? { readOnly: true } : {}),
+      ...(n.thread.limit ? { resumesAt: n.thread.limit.at } : {}),
       ...(answer ? { answer: answer.text, ...(answer.cut ? { answerCut: true } : {}) } : {}),
     };
   }
@@ -378,12 +399,13 @@ export class ThreadService {
     let ended = 0;
     for (const n of order) {
       const running = live.has(n.channel);
-      if (!running && !n.thread.owed.length && deriveThreadState(n.thread) !== 'queued') {
+      if (!running && !n.thread.owed.length && !n.thread.limit && deriveThreadState(n.thread) !== 'queued') {
         ended++;
         continue;
       }
       try {
-        const mark = { ...n.thread, stopped: { by, at } };
+        const { limit: _limit, ...rest } = n.thread;
+        const mark = { ...rest, stopped: { by, at } };
         // Nothing is running, so no final event comes: the outcome is written now.
         this.deps.setThread(n.id, running ? mark : { ...mark, owed: [], outcome: { state: 'stopped', summary: reason ?? `${who}.`, at, delivered: true } });
         if (running) this.deps.stopRun(n.channel);
@@ -457,6 +479,8 @@ export class ThreadService {
     this.delivery.onAction(action);
     // agentThreads turned on: the results held while it was off go to their parents, in one wake each.
     if (action.type === 'prefs' && action.prefs.agentThreads) this.delivery.recover();
+    // Auto-continue turned off for a waiting thread: its limit is the result now.
+    if (action.type === 'prefs') this.releaseLimits();
     for (const w of [...this.waiters]) w.check();
   }
 
@@ -469,19 +493,48 @@ export class ThreadService {
     const id = action.channel.slice(WS.length);
     const thread = this.deps.find(id)?.thread;
     if (!thread) return;
-    const owedTurn = thread.owed.includes(action.requestId);
+    // A thread waiting on the limit still owes its parent a result, whatever turn ends there next.
+    const owedTurn = thread.owed.includes(action.requestId) || thread.limit !== undefined;
     const by = thread.stopped?.by;
+    const { limit: _limit, ...open } = thread;
+    const resumeAt = owedTurn && !by ? this.limitResume(action.channel, action.text, action.ts) : undefined;
+    if (resumeAt !== undefined) {
+      this.deps.setThread(id, { ...open, owed: thread.owed.filter((r) => r !== action.requestId), limit: { at: resumeAt, summary: end.summary } });
+      return;
+    }
     // Owed: the parent gets it, unless its side stopped it, or a person's Stop on the tree did (written before the final event, also when the turn just ended by itself). A person's turn: nothing new is owed, and a result on its way stays on its way.
     const delivered = owedTurn ? by === 'person' || (end.state === 'stopped' && by === 'agent') : (thread.outcome?.delivered ?? true);
     // A turn that ended on its own means someone carried the thread on: the old stop no longer holds.
-    const { stopped: _stopped, ...rest } = thread;
+    const { stopped: _stopped, ...rest } = open;
     const next: ThreadRecord = {
-      ...(end.state === 'stopped' ? thread : rest),
+      ...(end.state === 'stopped' ? open : rest),
       owed: thread.owed.filter((r) => r !== action.requestId),
       outcome: { state: end.state, summary: end.summary, at: action.ts, delivered },
       ...(end.state === 'stopped' && !by ? { stopped: { by: 'person' as const, at: action.ts } } : {}),
     };
     this.deps.setThread(id, next);
     if (isReportable(next)) this.delivery.resultSaved(next.parent);
+  }
+
+  /** When a turn that stopped on your usage limit is sent on by the auto-continue: only with a known reset and the auto-continue on for that chat. */
+  private limitResume(channel: string, text: string, stoppedAt: number): number | undefined {
+    const failure = decodeFailure(text);
+    if (failure?.kind !== 'usage_limit' || failure.resetsAt === undefined) return undefined;
+    const at = limitResumeAt(failure, stoppedAt);
+    return autoContinueFor(this.deps.store.getState().prefs, channel, at, Date.now()).kind === 'scheduled' ? at : undefined;
+  }
+
+  /** Threads waiting on the limit that the auto-continue will not send on any more (off, or too late): the limit is their result. */
+  private releaseLimits(): void {
+    const prefs = this.deps.store.getState().prefs;
+    const now = Date.now();
+    for (const n of this.nodes()) {
+      const limit = n.thread.limit;
+      if (!limit || autoContinueFor(prefs, n.channel, limit.at, now).kind === 'scheduled') continue;
+      const { limit: _limit, ...thread } = n.thread;
+      const next: ThreadRecord = { ...thread, outcome: { state: 'failed', summary: limit.summary, at: now, delivered: false } };
+      this.deps.setThread(n.id, next);
+      if (isReportable(next)) this.delivery.resultSaved(next.parent);
+    }
   }
 }

@@ -5,16 +5,17 @@
  */
 
 export type ThreadEnd = 'done' | 'failed' | 'stopped' | 'interrupted';
-export type ThreadState = 'queued' | 'running' | 'needs_you' | ThreadEnd;
+/** `waiting_limit`: its turn stopped on your usage limit, and Beluga's auto-continue sends it on after the reset (shared/auto-continue.ts). */
+export type ThreadState = 'queued' | 'running' | 'needs_you' | 'waiting_limit' | ThreadEnd;
 
 /** The states where a thread's turn has ended (a status wait ends on these, and on needs_you). */
 export const THREAD_ENDS: readonly ThreadEnd[] = ['done', 'failed', 'stopped', 'interrupted'];
 
 /** A thread's state in words, on both screens. */
-export const THREAD_WORDS: Readonly<Record<ThreadState, string>> = { queued: 'Queued', running: 'Running', needs_you: 'Needs you', done: 'Done', failed: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted' };
+export const THREAD_WORDS: Readonly<Record<ThreadState, string>> = { queued: 'Queued', running: 'Running', needs_you: 'Needs you', waiting_limit: 'Waiting for limit', done: 'Done', failed: 'Failed', stopped: 'Stopped', interrupted: 'Interrupted' };
 
 /** A thread that is not settled: its row stays in view, whatever the cap. */
-export const isThreadWorking = (state: ThreadState): boolean => state === 'queued' || state === 'running' || state === 'needs_you';
+export const isThreadWorking = (state: ThreadState): boolean => state === 'queued' || state === 'running' || state === 'needs_you' || state === 'waiting_limit';
 
 /** Needs you, then working, then finished: the order of a chat's list of threads. */
 export const threadRank = (state: ThreadState): number => (state === 'needs_you' ? 0 : isThreadWorking(state) ? 1 : 2);
@@ -47,6 +48,8 @@ export interface ThreadRecord {
   readonly owed: readonly string[];
   readonly outcome?: ThreadOutcome;
   readonly stopped?: { readonly by: 'person' | 'agent'; readonly at: number };
+  /** Its owed turn stopped on your usage limit: Beluga's auto-continue sends it on at `at`. `summary`: the limit's words, the result if it does not. */
+  readonly limit?: { readonly at: number; readonly summary: string };
   /** A person archived or deleted the parent and kept this thread: it stands on its own, with parentTitle as words and no link. */
   readonly parentGone?: true;
 }

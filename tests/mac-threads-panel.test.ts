@@ -115,6 +115,14 @@ describe('child threads in the sidebar', () => {
     expect(rowEnd({ ...base, state: 'done', endedAt: 5 }, 65_000)).toBe('Done');
   });
 
+  it('BLG-344: a thread waiting on the usage limit says so, with the time it goes on', () => {
+    const at = new Date(2026, 10, 8, 14, 5).getTime();
+    const kid = ws('kid', { thread: thread('ws:top', 1, { limit: { at, summary: 'You hit your Claude plan usage limit' } }) });
+    const row = familyRowOf(source([ws('top'), kid]), ws('top'), { kind: 'thread', ws: kid, state: 'waiting_limit', startedAt: 1 });
+    expect(row).toMatchObject({ state: 'waiting_limit', resumesAt: at });
+    expect(rowEnd(row, at - 3_600_000)).toBe('Waiting · 14:05');
+  });
+
   it('keeps the way down to an open grandchild', () => {
     const n = threadNesting(source([ws('top'), ws('kid', { thread: thread('ws:top') }), ws('grand', { thread: thread('ws:kid') })]));
     expect([...openPath(n, 'grand')].sort()).toEqual(['grand', 'kid']);

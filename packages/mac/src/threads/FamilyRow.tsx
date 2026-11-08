@@ -10,7 +10,7 @@ import s from './threads.module.css';
  * native sub-agent adds a quiet "sub-agent" word; it has no Stop (it runs inside its parent's session).
  */
 
-export const DOT: Readonly<Record<ThreadState, Parameters<typeof Dot>[0]['tone']>> = { queued: 'muted', running: 'claude', needs_you: 'warn', done: 'ok', failed: 'error', stopped: 'muted', interrupted: 'warn' };
+export const DOT: Readonly<Record<ThreadState, Parameters<typeof Dot>[0]['tone']>> = { queued: 'muted', running: 'claude', needs_you: 'warn', waiting_limit: 'muted', done: 'ok', failed: 'error', stopped: 'muted', interrupted: 'warn' };
 
 /** The harness that runs it, with how it's doing on its corner. */
 export function FamilyMark({ row }: { row: ThreadFamilyRow }) {
