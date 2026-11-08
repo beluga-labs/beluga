@@ -5,6 +5,7 @@ import type { MachineView } from '@beluga/machines/machines.js';
 import { isDemoMachine } from '@beluga/machines/demo.js';
 import { dockCount, workingCount } from '../layout/attention-model.js';
 import { type Waiting, bellCount, waitingList } from '../layout/waiting-model.js';
+import { type NeedsThere, needsThere, overviewItems } from '../views/overview/overview-model.js';
 import { machineClientOf, onMachines } from './pane-clients.js';
 import { currentMachines, useMachines } from './use-machines.js';
 
@@ -20,6 +21,8 @@ export interface RemoteAttention {
   /** The bell's count there: what waits, and unread notices not about one of those. */
   readonly bell: number;
   readonly counts: Counts;
+  /** Its worktrees and plans that need you, for the Overview's Needs You (BLG-843). */
+  readonly needs: readonly NeedsThere[];
 }
 
 const EVERY_MS = 1000;
@@ -46,6 +49,7 @@ function take(machine: MachineView, client: SocketClient): void {
     waiting,
     bell: bellCount(st, waiting),
     counts: { new: dockCount(st), waiting: st.approvals.length + st.questions.length + st.knocks.length, working: workingCount(st) },
+    needs: needsThere(overviewItems(st)),
   });
   publish();
 }
