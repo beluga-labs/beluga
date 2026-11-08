@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MACHINE_ICONS } from '../shared/settings-schema.js';
 import { MAX_ENV_SEND_BYTES, MAX_ENV_SEND_FILES } from '../shared/env-send.js';
+import { MAX_UPLOAD_BYTES, UPLOAD_PIECE } from '../shared/uploads.js';
 
 /**
  * Your devices and computers in the API (BLG-774, src/machines): a computer opening a pairing for
@@ -58,6 +59,24 @@ export const MACHINE_API = {
       z.array(z.object({ path: z.string().min(1).max(400), data: z.string().max(Math.ceil((MAX_ENV_SEND_BYTES * 4) / 3) + 4) }).strict()).max(MAX_ENV_SEND_FILES),
     ]),
   },
+  // Files you add to a chat on a computer (BLG-793). On the computer: one piece of a file your app sends → { received }, or for the last { path, name, size, image } (in ~/.beluga/uploads there).
+  'machines.upload.put': {
+    args: z.tuple([
+      z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      z.object({ name: z.string().min(1).max(200), mime: z.string().max(100), size: z.number().int().min(0).max(MAX_UPLOAD_BYTES), off: z.number().int().min(0), b64: z.string().max(Math.ceil(UPLOAD_PIECE / 3) * 4 + 4), eof: z.boolean() }).strict(),
+    ]),
+  },
+  // In the app: send the piece of a file on this Mac at `off` to computer `id`, upload `n` → { sent, total, name, path?, image? } (path: where it is there, once all of it is).
+  // `env`: you said Send Once for this env file (BLG-854); a refused file never goes.
+  'machines.upload.send': { args: z.tuple([deviceId, z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), z.string().min(1).max(4096), z.number().int().min(0), z.object({ env: z.boolean().optional() }).strict().optional()]) },
+  // In the app: what becomes of files dropped on a chat on a computer → [{ path, name, verdict: send | ask | refuse, reason? }] (an env file asks first; keys and credential folders are refused).
+  'machines.upload.check': { args: z.tuple([z.array(z.string().min(1).max(4096)).min(1).max(64)]) },
+  // Open in Finder and editors, for a computer (BLG-794). On the computer: the piece of a file (its whole path) at `off`, for your app to download → { b64, total, eof }; never a secret.
+  'machines.download.piece': { args: z.tuple([z.string().min(1).max(4096), z.number().int().min(0)]) },
+  // In the app: download a file of computer `id` (its whole path there) into ~/Downloads/Beluga → where it's saved.
+  'machines.download.fetch': { args: z.tuple([deviceId, z.string().min(1).max(4096)]) },
+  // In the app: the editor that opens a computer's folders over Remote-SSH → 'vscode' or 'cursor'.
+  'machines.editor': { args: z.tuple([]) },
   // On a computer: every worktree's listening ports (BLG-802), for your app to forward → [{ workspaceId, port, name }].
   'machines.ports': { args: z.tuple([]) },
   // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].

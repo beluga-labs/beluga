@@ -10,7 +10,9 @@ import { noticeAgo, noticeLook } from '@beluga/ui/notice-models.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Button, Dot, Tip } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { useApi, useApp, useBeluga } from '../lib/beluga.js';
+import { useApi, useApp, useBeluga, useMachine } from '../lib/beluga.js';
+import { showWorktreeFolder } from '../lib/remote-open.js';
+import { revealThereLabel } from '@beluga/machines/open.js';
 import { openExternal } from '../lib/system.js';
 import { Switch } from '../dialogs/settings-controls.js';
 import { openPerson } from '../dialogs/native/PersonPopover.js';
@@ -162,7 +164,9 @@ function ProjectTeam({ projectId }: { projectId: string }) {
 function WorkspaceDetails({ id }: { id: string }) {
   const api = useApi();
   const actions = useActions();
-  const { ui } = useBeluga();
+  const { ui, client } = useBeluga();
+  // On a computer's page, its folder's path is copied instead (BLG-794).
+  const machine = useMachine();
   // What this panel shows, worked out from the shared state: drawn again only when part of it changes.
   const state = useApp(
     (full) => {
@@ -218,8 +222,8 @@ function WorkspaceDetails({ id }: { id: string }) {
         {ws.continuedFrom ? <Field label="Continued from">{ws.continuedFrom}</Field> : null}
         {ws.handedFrom ? <Field label="From">{ws.handedFrom}</Field> : null}
         <div className={s.buttons}>
-          <Button size="small" icon="folder" onClick={() => void api.workspaces.openInFinder(ws.id)}>
-            {fileManager()}
+          <Button size="small" icon="folder" onClick={() => void showWorktreeFolder(client, ws.id)}>
+            {machine ? revealThereLabel('folder') : fileManager()}
           </Button>
           {project?.root ? (
             <Button size="small" icon="terminal" onClick={() => ui.openMenu({ kind: 'scripts', projectId: ws.projectId })}>

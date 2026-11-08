@@ -237,6 +237,7 @@ export function NativeSheets() {
               sheet.run();
             },
           }}
+          {...(sheet.cancel ? { cancel: sheet.cancel } : {})}
           onCancel={close}
         />
       );

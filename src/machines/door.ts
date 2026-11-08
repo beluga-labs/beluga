@@ -1,6 +1,9 @@
 import type { WebSocket } from 'ws';
-import { COMPUTER_CAPS, type ClientFrame, type DaemonFrame, encodeFrame, parseClientFrame, parseDaemonFrame, webUrl } from '../ipc/protocol.js';
+import { COMPUTER_CAPS, type ClientFrame, type DaemonFrame, IPC_VERSION, encodeFrame, parseClientFrame, parseDaemonFrame, webUrl } from '../ipc/protocol.js';
 import type { MessageSocket } from '../net/transport.js';
+import type { TextRange } from '../shared/text-range.js';
+import type { StateCache } from './cache.js';
+import { FRESH_MS, type FileCache, type RangeAsk, rangeAsk } from './files.js';
 import type { Machines } from './machines.js';
 
 /**
@@ -26,7 +29,9 @@ const BACKOFF_MS = [300, 1_000, 2_000, 4_000, 8_000, 15_000] as const;
 /** Close codes that end a screen rather than reconnect: forgotten, another protocol, wrong token, gone from the book. */
 const FINAL = new Set([4003, 4004, 4010, 4404]);
 
-type Hello = Extract<ReturnType<typeof parseClientFrame>, { t: 'hello' }>;
+type ScreenFrame = NonNullable<ReturnType<typeof parseClientFrame>>;
+type Hello = Extract<ScreenFrame, { t: 'hello' }>;
+type CallFrame = Extract<ScreenFrame, { t: 'call' }>;
 
 /** Calls that make a worktree on the computer → its id (BLG-800: the .env ask follows). */
 const MAKES_WORKTREE = new Set(['workspaces.startWorktree', 'workspaces.newWorktree', 'workspaces.continueInWorktree', 'workspaces.fork', 'workspaces.moveLand']);
@@ -40,6 +45,11 @@ export interface DoorOptions {
   readonly log?: (line: string) => void;
   /** A screen made a worktree on computer `machineId` (BLG-800). */
   readonly onWorktree?: (machineId: string, workspaceId: string) => void;
+  /** The computers' files your screens read, kept on this Mac (files.ts, BLG-791). */
+  readonly files?: FileCache;
+  /** Each computer's last state, so a screen draws at once and catches up (cache.ts, BLG-792). */
+  readonly states?: StateCache;
+  readonly now?: () => number;
 }
 
 export class MachineDoor {
@@ -56,6 +66,7 @@ export class MachineDoor {
     if (!record || !this.machines.drives(record)) return ws.close(4404, 'That computer isn’t one of yours here');
     const screen = new MachineScreen(this.machines, id, ws, hello, this.opts, () => this.screens.delete(screen));
     this.screens.add(screen);
+    screen.fromCache();
     screen.connect();
   }
 
@@ -95,6 +106,8 @@ class MachineScreen {
   private attention?: string;
   /** Calls sent and not yet answered (failed at once when the link drops), with their method. */
   private readonly inflight = new Map<string, string>();
+  /** files.readRange calls sent, by id: what to keep their answer as. */
+  private readonly ranges = new Map<string, RangeAsk>();
   /** This app's own calls (call()), by id. */
   private readonly own = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private ownSeq = 0;
@@ -112,6 +125,18 @@ class MachineScreen {
     });
     ws.once('close', () => this.end());
     ws.on('error', () => undefined);
+  }
+
+  /**
+   * Its last state kept here, if any, as the screen's welcome now: it draws at once (after this
+   * Mac's Beluga restarted too, or with the computer offline), and the computer's own welcome comes
+   * as a fresh snapshot once the link is up.
+   */
+  fromCache(): void {
+    const kept = this.opts.states?.get(this.machineId);
+    if (!kept || this.welcomed) return;
+    this.welcomed = true;
+    this.toScreen(encodeFrame({ t: 'welcome', clientId: `kept:${this.machineId}`, version: kept.version, ipc: IPC_VERSION, snapshot: kept.snapshot, seq: kept.seq, clients: 1 }));
   }
 
   private get name(): string {
@@ -145,6 +170,8 @@ class MachineScreen {
     } catch {
       return;
     }
+    if (frame.t === 'welcome' || frame.t === 'snapshot') this.opts.states?.reset(this.machineId, frame.snapshot, frame.seq, frame.t === 'welcome' ? frame.version : undefined);
+    else if (frame.t === 'action') this.opts.states?.apply(this.machineId, frame.seq, frame.action);
     if (frame.t === 'welcome') {
       this.attempt = 0;
       if (!this.welcomed) {
@@ -168,6 +195,9 @@ class MachineScreen {
       }
       const method = this.inflight.get(frame.id);
       this.inflight.delete(frame.id);
+      const range = this.ranges.get(frame.id);
+      this.ranges.delete(frame.id);
+      if (range && frame.ok && frame.value) this.opts.files?.put(this.machineId, range, frame.value as TextRange);
       if (frame.ok && method && MAKES_WORKTREE.has(method) && typeof frame.value === 'string') this.opts.onWorktree?.(this.machineId, frame.value);
     }
     if (frame.t === 'cap_call' && !(COMPUTER_CAPS.includes(frame.cap) && (frame.cap !== 'openExternal' || webUrl(frame.args[0])))) {
@@ -181,6 +211,34 @@ class MachineScreen {
   private fromScreen(text: string): void {
     const frame = parseClientFrame(text);
     if (!frame || frame.t === 'hello') return;
+    if (frame.t === 'call' && frame.method === 'files.readRange' && this.opts.files) {
+      void this.readRange(frame, text, this.opts.files);
+      return;
+    }
+    this.pass(frame, text);
+  }
+
+  /**
+   * A piece of a file (BLG-791): one fetched moments ago answers a `cache` read here, without the
+   * round trip, and any kept one answers while the computer can't be reached (marked stale). Else it
+   * goes on, and what comes back is kept.
+   */
+  private async readRange(frame: CallFrame, text: string, files: FileCache): Promise<void> {
+    const ask = rangeAsk(frame.args);
+    if (ask && !frame.id.startsWith(OWN_CALL)) {
+      const hit = await files.get(this.machineId, ask.key).catch(() => undefined);
+      const live = this.live;
+      const now = this.opts.now?.() ?? Date.now();
+      if (hit && (!live || (ask.cache && now - hit.at <= FRESH_MS))) {
+        this.toScreen(encodeFrame({ t: 'result', id: frame.id, ok: true, value: live ? hit.value : { ...hit.value, stale: true } }));
+        return;
+      }
+      if (live) this.ranges.set(frame.id, ask);
+    }
+    this.pass(frame, text);
+  }
+
+  private pass(frame: ScreenFrame, text: string): void {
     if (frame.t === 'term_attach') this.terms.add(frame.term);
     if (frame.t === 'term_detach') this.terms.delete(frame.term);
     if (frame.t === 'attention') this.attention = text;
@@ -229,6 +287,7 @@ class MachineScreen {
   private dropped(socket: MessageSocket, code: number): void {
     if (this.link !== socket) return;
     this.link = undefined;
+    this.ranges.clear();
     for (const id of this.inflight.keys()) this.toScreen(encodeFrame({ t: 'result', id, ok: false, error: `The link to ${this.name} dropped before it answered; try again` }));
     this.inflight.clear();
     this.failOwn(`The link to ${this.name} dropped before it answered`);

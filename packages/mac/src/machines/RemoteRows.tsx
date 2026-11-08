@@ -4,7 +4,9 @@ import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { Row } from '../layout/sidebar-parts.js';
 import side from '../layout/Sidebar.module.css';
-import { useActions } from '../lib/actions.js';
+import { makeActions, useActions } from '../lib/actions.js';
+import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
+import { machineClientOf, machineUiOf } from './pane-clients.js';
 import { useApp } from '../lib/beluga.js';
 import { MachineMark } from './MachineMark.js';
 import { onMachine, paneOf } from './pane-model.js';
@@ -37,22 +39,42 @@ function useOnPage(machine: string, id: string): boolean {
   });
 }
 
+/**
+ * A computer's worktree's right-click menu (BLG-795): Open, and Archive… and Delete… as on this
+ * Mac's rows, asked and done there with its own screen. Offline, or a chat: Open only.
+ */
+function remoteItems(t: Tagged<{ readonly id: string; readonly kind: string }>, open: () => void): ActionItem[] {
+  const items: ActionItem[] = [{ label: 'Open', icon: 'chevronRight', onSelect: open }];
+  const client = machineClientOf(t.machine.id);
+  const ui = machineUiOf(t.machine.id);
+  if (t.offline || t.item.kind !== 'worktree' || !client || !ui) return items;
+  const run = (action: 'archive' | 'delete') => () => makeActions(client, ui).run({ type: 'ws', id: t.item.id, action });
+  return [
+    ...items,
+    { label: 'Archive…', icon: 'archive', hint: 'Keeps your work; restore it any time', separate: true, onSelect: run('archive') },
+    { label: 'Delete…', icon: 'trash', danger: true, onSelect: run('delete') },
+  ];
+}
+
 function RemoteWorkRow({ t, indent }: { t: Tagged<{ readonly id: string; readonly name: string; readonly kind: string }>; indent: number }) {
   const actions = useActions();
   const here = useOnPage(t.machine.id, t.item.id);
+  const open = (): void => actions.run({ type: 'view', view: onMachine(t.machine.id, { kind: 'workspace', id: t.item.id, tab: 'chat' }) });
   return (
-    <Row
-      indent={indent}
-      selected={here}
-      className={cx(t.offline && c.offlineRow)}
-      aria-label={`${t.item.name} on ${t.machine.name}`}
-      data-machine-row={t.machine.id}
-      icon={<Icon name={t.item.kind === 'chat' ? 'chat' : 'branch'} size={13} />}
-      label={t.item.name}
-      detail={`${t.item.name} · ${whereLine(t)}`}
-      trailing={<MachineChip machine={t.machine} offline={t.offline} />}
-      onClick={() => actions.run({ type: 'view', view: onMachine(t.machine.id, { kind: 'workspace', id: t.item.id, tab: 'chat' }) })}
-    />
+    <ActionsContext items={() => remoteItems(t, open)}>
+      <Row
+        indent={indent}
+        selected={here}
+        className={cx(t.offline && c.offlineRow)}
+        aria-label={`${t.item.name} on ${t.machine.name}`}
+        data-machine-row={t.machine.id}
+        icon={<Icon name={t.item.kind === 'chat' ? 'chat' : 'branch'} size={13} />}
+        label={t.item.name}
+        detail={`${t.item.name} · ${whereLine(t)}`}
+        trailing={<MachineChip machine={t.machine} offline={t.offline} />}
+        onClick={open}
+      />
+    </ActionsContext>
   );
 }
 

@@ -84,6 +84,7 @@ export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.no
       rttMs: Math.round(wave(now, 58, 84, 75_000, 2)),
       kind: 'aws',
       region: 'eu-west-1',
+      ssh: 'ubuntu@aws-server',
       info: {
         at: now - 9_000,
         version: '0.6.2',

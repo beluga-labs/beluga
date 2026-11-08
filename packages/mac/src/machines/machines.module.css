@@ -165,6 +165,28 @@
 .tag .mark {
   margin-top: 0;
 }
+/* The link is slow or lost (BLG-792): the tag quiets and says so in a small pill. */
+.tagDim {
+  color: var(--text-3);
+}
+.linkBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+.linkSlow {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+.linkLost {
+  background: var(--bg-raised, var(--bg-sunken));
+  color: var(--text-2);
+}
 .work {
   display: flex;
   flex-wrap: wrap;

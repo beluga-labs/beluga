@@ -113,6 +113,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'files.readImageFile': 'drive',
   'files.version': 'drive',
   'files.read': 'drive',
+  'files.readRange': 'drive',
   'files.searchContent': 'drive',
   'files.searchNames': 'drive',
   'files.save': 'drive',
@@ -178,6 +179,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'workspaces.addProject': 'drive',
   'workspaces.addFolder': 'drive',
   'workspaces.selectFile': 'drive',
+  'workspaces.diffAhead': 'drive',
   'workspaces.review': 'drive',
   'workspaces.scratch': 'drive',
   // ---- workbench
@@ -593,6 +595,16 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.share': 'refuse',
   'machines.unshare': 'refuse',
   'machines.env.here': 'drive',
+  // Your app's files for a chat there (BLG-793): written into its uploads.
+  'machines.upload.put': 'drive',
+  // Refused: it reads this computer's files to send them to another computer of yours; your app on this computer does that itself.
+  'machines.upload.send': 'refuse',
+  'machines.upload.check': 'refuse',
+  // A file there for your app's Download (BLG-794).
+  'machines.download.piece': 'drive',
+  // Refused: your app on this computer downloads into its own folders, and picks its own editor.
+  'machines.download.fetch': 'refuse',
+  'machines.editor': 'refuse',
   'machines.env.receive': 'drive',
   'machines.env.decide': 'refuse',
   'machines.env.always': 'refuse',

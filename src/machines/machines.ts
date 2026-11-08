@@ -15,6 +15,8 @@ import { DeviceSet, type SetDeviceView } from './controllers.js';
 import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
+import { StateCache } from './cache.js';
+import { FileCache } from './files.js';
 import { MachineDoor } from './door.js';
 import { isTunnelsHello } from './forward.js';
 import { isAlwaysOnHello } from './always-on-bundle.js';
@@ -79,6 +81,8 @@ export interface MachineView {
   readonly region?: string;
   /** Your secrets sync with it (you said Keep My Secrets in Sync for it, BLG-805). */
   readonly secrets?: boolean;
+  /** The ssh host it was added over: Open in Editor opens its folders over Remote-SSH (BLG-794). */
+  readonly ssh?: string;
 }
 
 interface Live {
@@ -168,6 +172,10 @@ export class Machines {
   readonly pairing: ComputerPairing;
   /** Screens of this app on your computers (/machine/<id>, BLG-775). */
   readonly door: MachineDoor;
+  /** The computers' files your screens read, kept on this Mac (files.ts, BLG-791): cleared for a computer forgotten. */
+  readonly files: FileCache;
+  /** Each computer's last state on this Mac (cache.ts, BLG-792): cleared for a computer forgotten. */
+  readonly states: StateCache;
   /** Push tokens of your set's phones paired elsewhere (BLG-850). */
   private readonly pushes: PhonePushes;
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
@@ -175,6 +183,8 @@ export class Machines {
   private joining?: Joining;
   /** A pairing opened over SSH, while it waits for your Join (BLG-781). */
   private ssh?: SshPairing;
+  /** The host of the pairing opened over SSH, kept on the computer once it's added. */
+  private sshHost?: string;
   private readonly offs: Array<() => void> = [];
   private readonly pending = new Set<string>();
   private retry?: NodeJS.Timeout;
@@ -191,7 +201,9 @@ export class Machines {
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
     this.pushes = new PhonePushes(path.join(opts.dir, 'phone-push.json'));
     this.platform = opts.platform ?? platformHere();
-    this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
+    this.files = new FileCache({ dir: path.join(opts.dir, 'cache', 'computer-files'), ...(opts.log ? { log: opts.log } : {}) });
+    this.states = new StateCache({ dir: path.join(opts.dir, 'cache', 'computer-state'), ...(opts.log ? { log: opts.log } : {}) });
+    this.door = new MachineDoor(this, { files: this.files, states: this.states, ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
     this.pairing = new ComputerPairing({
       node: opts.node,
       identity: opts.identity,
@@ -241,6 +253,7 @@ export class Machines {
     clearTimeout(this.retry);
     clearInterval(this.poller);
     this.door.closeAll('Beluga is shutting down');
+    await Promise.all([this.states.flush(), this.files.flush()]);
     for (const set of this.links.values()) for (const s of set) s.close(1001, 'Beluga is shutting down');
     this.joining?.decide?.(false);
     await this.pairing.cancel('Beluga on this computer is shutting down');
@@ -309,7 +322,7 @@ export class Machines {
    * link closes), or, an app of yours, to drive this computer (its first frame is a hello, BLG-775).
    */
   accept(stream: NoiseSocket, cert: DeviceCert): void {
-    const socket = fromStream(stream, { maxBytes: MAX_LINK_BYTES, open: true });
+    const socket = fromStream(stream, { maxBytes: MAX_LINK_BYTES, open: true, compress: true });
     socket.on('error', () => undefined);
     const timer = setTimeout(() => socket.terminate(), SYNC_TIMEOUT_MS);
     timer.unref();
@@ -419,7 +432,7 @@ export class Machines {
       ...(this.opts.refuseDirect ? { noP2p: true } : {}),
     });
     if (dialed.relay && !r.relays.includes(dialed.relay)) this.book.update(deviceId(r.cert), { relays: [dialed.relay, ...r.relays].slice(0, 4) });
-    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_LINK_BYTES, open: true });
+    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_LINK_BYTES, open: true, compress: true });
     socket.on('error', () => undefined);
     this.track(r.cert.device, socket);
     return socket;
@@ -448,6 +461,7 @@ export class Machines {
    * itself and the four pictures, once it answers. Then joinApprove or joinCancel.
    */
   joinStart(ticket: string): Promise<ComputerOffer> {
+    this.sshHost = undefined;
     if (this.joining) this.joining.decide?.(false);
     const at = this.opts.alwaysOn?.at();
     const elsewhere = at ? this.book.get(at)?.name : undefined;
@@ -509,7 +523,11 @@ export class Machines {
     await j.offer;
     j.decide(true);
     const record = await j.done;
-    return this.view(record);
+    const host = this.sshHost;
+    this.sshHost = undefined;
+    if (!host) return this.view(record);
+    this.book.update(deviceId(record.cert), { ssh: host });
+    return this.view(this.book.get(deviceId(record.cert)) ?? record);
   }
 
   async joinCancel(): Promise<void> {
@@ -542,6 +560,7 @@ export class Machines {
     let offer: ComputerOffer;
     try {
       offer = await this.joinStart(pairing.link);
+      this.sshHost = host;
     } catch (err) {
       pairing.stop();
       throw err;
@@ -674,6 +693,9 @@ export class Machines {
     this.pushes.keepOnly(new Set(this.phones().map((c) => deviceId(c))));
     // Every link to or from it closes now: a screen driving this computer, this app's screens on it.
     for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
+    // Its files kept here go with it.
+    for (const c of cut) void this.files.clear(deviceId(c));
+    for (const c of cut) void this.states.clear(deviceId(c));
     this.book.drop(new Set(cut.map((c) => c.device)));
   }
 
@@ -803,6 +825,7 @@ export class Machines {
       skew,
       ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
       ...(this.opts.settings?.secretsOn(deviceId(r.cert)) ? { secrets: true } : {}),
+      ...(r.ssh ? { ssh: r.ssh } : {}),
       ...(this.opts.alwaysOn?.at() === deviceId(r.cert) ? { alwaysOn: true } : {}),
     };
   }

@@ -23,6 +23,7 @@ import { MAC_SCOPE, type Need, dotsOf, doesLine, durationText, filterSentinels, 
 import { sentinelMenu, useRunsFolder, useSentinelActions, useSentinelState, type SentinelActions } from './use-sentinel.js';
 import s from './home.module.css';
 import { thisComputer } from '../lib/os-words.js';
+import { useOpenFolderLabel } from '../lib/remote-open.js';
 
 /**
  * Sentinel, one page (BLG-300): what needs you, your board's numbers at a glance, and every
@@ -169,6 +170,8 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
   const needs = needsOf(state, scoped);
   const shown = filterSentinels(state.items, { ...(scoped ? { scope: scoped } : {}), show: 'all', query });
   const groups = groupSentinels(shown, projects);
+  // A sentinel on a computer: its runs folder in your editor over Remote-SSH, else its path copied (BLG-852).
+  const runsFolder = useOpenFolderLabel('Open the Runs Folder', 'Copy the Runs Folder’s Path');
   const more: ActionItem[] = [
     {
       label: 'Run at Once',
@@ -176,7 +179,7 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
       submenu: Array.from({ length: MAX_RUN_AT_ONCE }, (_, i) => i + 1).map((n) => ({ label: n === 1 ? '1 at a time' : `${n} at once`, checked: state.runAtOnce === n, onSelect: () => void a.act(() => a.api.setRunAtOnce(n)) })),
       onSelect: () => undefined,
     },
-    ...(folder ? [{ label: 'Open the Runs Folder', icon: 'folder' as const, hint: 'Each run’s outputs and report', onSelect: () => a.openFolder(folder) }] : []),
+    ...(folder ? [{ label: runsFolder, icon: 'folder' as const, hint: 'Each run’s outputs and report', onSelect: () => a.openFolder(folder) }] : []),
   ];
   const projectOf = (id: string | undefined) => projects.find((p) => p.id === id);
   return (

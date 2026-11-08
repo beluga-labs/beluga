@@ -114,6 +114,7 @@ export const PHONE: Record<Method, Side> = {
   'files.readImageFile': 'mac',
   'files.version': 'mac',
   'files.read': 'mac',
+  'files.readRange': 'mac',
 
   // ---- projects and workspaces: a new chat in a project, and loading a conversation to read it
   'workspaces.open': 'mac',
@@ -176,6 +177,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.addProject': 'mac',
   'workspaces.addFolder': 'mac',
   'workspaces.selectFile': 'mac',
+  'workspaces.diffAhead': 'mac',
   'workspaces.review': 'mac',
   // Paths on the Mac: the phone sees the scratch folder's files as outputs in a view instead.
   'workspaces.scratch': 'mac',
@@ -550,6 +552,12 @@ export const PHONE: Record<Method, Side> = {
   'machines.share': 'mac',
   'machines.unshare': 'mac',
   'machines.env.here': 'mac',
+  'machines.upload.put': 'mac',
+  'machines.download.piece': 'mac',
+  'machines.download.fetch': 'mac',
+  'machines.editor': 'mac',
+  'machines.upload.send': 'mac',
+  'machines.upload.check': 'mac',
   'machines.env.receive': 'mac',
   'machines.env.decide': 'mac',
   'machines.env.always': 'mac',

@@ -17,6 +17,7 @@ import { useRemoteAttention } from '../machines/remote-attention.js';
 import { useOverviewPrefs } from './overview/use-overview-prefs.js';
 import s from './overview.module.css';
 import { primaryKey } from '../lib/shortcuts-model.js';
+import { openFolderThere } from '../lib/remote-open.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const sameRows = (a: readonly OverviewItem[], b: readonly OverviewItem[]): boolean => sameDeep(a, b, 3);
@@ -91,7 +92,7 @@ export function OverviewView() {
         .finally(() => setRestoring(undefined));
     },
     read: (item) => setPeek(item.ws.id),
-    finder: (item) => void api.local.openFolder(item.project.root).catch((err: unknown) => toast(client, `Couldn’t open the folder: ${errorText(err)}`, 'error')),
+    finder: (item) => void openFolderThere(client, item.project.root).catch((err: unknown) => toast(client, `Couldn’t open the folder: ${errorText(err)}`, 'error')),
     remove: (item) => setDeleting(item.ws.id),
   };
   const open = (item: OverviewItem): void => (item.archived ? act.read(item) : item.plan ? actions.run({ type: 'view', view: { kind: 'plan', id: item.plan.plan.id } }) : actions.run({ type: 'open_ws', id: item.ws.id }));

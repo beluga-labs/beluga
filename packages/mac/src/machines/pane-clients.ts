@@ -7,6 +7,7 @@ import type { Capabilities } from '@beluga/ipc/socket-client.js';
 import { OnceEach, type RawNotice, machineNotice, noticeKey } from '@beluga/machines/attention.js';
 import { dndActive } from '@beluga/shared/quiet.js';
 import { currentMachines } from './use-machines.js';
+import { watchLink } from './link-health.js';
 
 /**
  * This window's screens on your computers (BLG-784), one per computer, kept while the window runs:
@@ -25,6 +26,8 @@ export interface MachinePaneState {
 
 interface Entry {
   state: MachinePaneState;
+  /** This Mac's own screen (what a computer's page does on this Mac goes through it). */
+  home?: SocketClient;
   /** The window it was opened for (a new window's, after this Mac's Beluga restarted, starts again). */
   readonly windowUi: UiStore;
   connecting?: Promise<void>;
@@ -102,6 +105,7 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
     entry = { state: { ui: new UiStore(windowUi) }, windowUi };
     entries.set(id, entry);
   }
+  entry.home = home;
   if (entry.state.client || entry.connecting) return;
   const mine = entry;
   set(id, { error: undefined });
@@ -111,9 +115,11 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
       if (entries.get(id) !== mine) return client.close();
       const offToasts = forwardToasts(client, home);
       const offHome = home.onClose(() => client.close());
+      const offLink = watchLink(id, client);
       client.onClose((reason) => {
         offToasts();
         offHome();
+        offLink();
         if (entries.get(id) === mine && mine.state.client === client) set(id, { client: undefined, ...(reason === 'closed' ? {} : { error: reason }) });
       });
       // In the background until a pane shows it: looking at nothing there, so its chats stay unread and its notices come.
@@ -136,6 +142,15 @@ export function retryMachine(id: string, home: SocketClient, windowUi: UiStore):
 
 /** Hear screens open and close (the lists of every computer's work follow them). */
 export const onMachines = subscribe;
+
+/** Which computer a screen is on (and this Mac's own screen beside it); undefined for this Mac's. */
+export function machineOfClient(client: object): { readonly id: string; readonly home: SocketClient } | undefined {
+  for (const [id, e] of entries) if (e.state.client === client && e.home) return { id, home: e.home };
+  return undefined;
+}
+
+/** The pane's own UI state for computer `id` (its sheets read through to the window's). */
+export const machineUiOf = (id: string): UiStore | undefined => entries.get(id)?.state.ui;
 
 /** The screen open on computer `id`, if it is. */
 export const machineClientOf = (id: string): SocketClient | undefined => entries.get(id)?.state.client;

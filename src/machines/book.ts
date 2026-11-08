@@ -21,6 +21,8 @@ export const MachineRecord = z.object({
   version: z.string().max(40).optional(),
   pairedAt: z.number().int().min(0),
   lastSeen: z.number().int().min(0).optional(),
+  /** The ssh host it was added over (Add Over SSH, BLG-781): your editor opens its folders over Remote-SSH (BLG-794). */
+  ssh: z.string().min(1).max(255).optional(),
 });
 export type MachineRecord = z.infer<typeof MachineRecord>;
 
@@ -45,7 +47,7 @@ export class MachineBook {
     return record;
   }
 
-  update(id: string, patch: Partial<Pick<MachineRecord, 'name' | 'icon' | 'version' | 'lastSeen' | 'relays' | 'address'>>): void {
+  update(id: string, patch: Partial<Pick<MachineRecord, 'name' | 'icon' | 'version' | 'lastSeen' | 'relays' | 'address' | 'ssh'>>): void {
     const current = this.get(id);
     if (current) this.save(this.list.map((r) => (r === current ? { ...r, ...patch } : r)));
   }

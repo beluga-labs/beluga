@@ -220,6 +220,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `files.version` | ✓ (no surface of its own) a picture in a chat answer or the Markdown reader is read again when its file was rewritten since it was kept, so a screenshot re-taken to the same name shows the new one |
 | `workspaces.scratch` | ✓ the panel's Scratch tab: the workspace's `.beluga/scratch/` and `.context/` folders, newest first, live, with how many files there are and how much they hold; the preview shows the newest until you pick one, and a file scrolled to its end (or Follow the End) follows what's written to it; drawn in outline (moving while the agent works) until something lands; the sort menu puts what can be looked at first (pictures, videos, PDFs, web pages; BLG-111), web pages are drawn in a sandboxed frame (no scripts), and full size ← → steps through the viewable files in that order, stopping at the ends; the images and files you sent the agent are copied into `.beluga/scratch/sent/` as it gets the message, and listed apart under From Your Agent · Sent by You (BLG-771; never on the new-file dot or the phone's outputs; an archive throws them away, deleting a chat its own `sent/<chat>/`) |
 | `files.read` | ✓ a changed file as itself in Changes (Markdown formatted), without moving the Files tab's open file |
+| `files.readRange` | ✓ (no surface of its own) a file read in pieces: a changed file's first screen, the rest of a big file as you scroll the reader, and the file under the pointer read ahead (on a computer, answered from this Mac's cache) |
 | `files.searchContent` | ✓ the Files tab's search box on Contents: lines by file (ripgrep, else Node), Match Case / Whole Word / Regular Expression; a line opens the file there |
 | `files.searchNames` | ✓ the Files tab's search box on Names: every file in the folder whose path matches (ripgrep's list, else git's), Match Case / Whole Word / Regular Expression; shown as a tree, a file opens |
 | `files.save` | ✓ Edit in a file's header (files open read-only), then Save or ⌘S; asks before overwriting a change made since |
@@ -256,6 +257,12 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.forwards` | ✓ a worktree on a computer › the panel's Background tab › Ports: each server with Open at localhost:<port>, and which port when the same was taken |
 | `machines.share` | ✓ a worktree on a computer › the panel's Background tab › Share a Port from This Mac: a port and Share |
 | `machines.unshare` | ✓ a worktree on a computer › Background › a port shared from this Mac › Unshare |
+| `machines.upload.put` | – asked by your app over a computer's link (BLG-793): one piece of a file you dropped on a chat there, written into its uploads |
+| `machines.upload.send` | ✓ a file dropped from Finder on a chat that runs on a computer: sent there a piece at a time, its progress in the box (BLG-793) |
+| `machines.upload.check` | ✓ (no surface of its own) files dropped on a chat on a computer, checked first: an env file asks (Send Once or Don't Send, its name only), a key or a credential folder's file is refused with why (BLG-854) |
+| `machines.download.piece` | – asked by your app over a computer's link (BLG-794): a piece of a file there for Download |
+| `machines.download.fetch` | ✓ Download on a computer's page: Show in Finder for a file there brings it to ~/Downloads/Beluga and shows it in Finder (BLG-794) |
+| `machines.editor` | ✓ (no surface of its own) which editor Open in Editor uses for a computer's folder over Remote-SSH: VS Code or Cursor (BLG-794) |
 | `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
 | `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
 | `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |
@@ -371,6 +378,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.removeProject` | a project's ⋯ / right-click menu › Delete Project… (out of Beluga; its folder goes to the Trash only if ticked) |
 | `workspaces.addFolder` | ✓ |
 | `workspaces.selectFile` | ✓ |
+| `workspaces.diffAhead` | ✓ (no surface of its own) the changed file under the pointer in Changes: its diff worked out ahead, so the click shows it at once (BLG-853) |
 | `workspaces.review` | the right panel's Changes tab (loads and refreshes the changes while you stay in the chat) |
 | `workbench.run` | ✓ |
 | `workbench.stopRun` | ✓ |

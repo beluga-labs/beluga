@@ -217,6 +217,13 @@ export function App() {
   // Low Power mode (BLG-621): the daemon says when it saves; the window follows.
   const saving = useApp((st) => st.powerSaving);
   useEffect(() => setPowerSaving(saving), [saving]);
+  // Development builds only: e2e goes straight to a page no click reaches yet (a computer's task page, BLG-852).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __belugaGo?: (view: unknown) => void; __belugaState?: () => unknown };
+    w.__belugaGo = (view) => actions.run({ type: 'view', view: view as never });
+    w.__belugaState = () => client.store.getState();
+  }, [actions, client]);
   useMenuState(client);
   useMenuKeys();
   useWindowFocus(client);

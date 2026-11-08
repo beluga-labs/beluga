@@ -23,7 +23,7 @@ export type NativeSheet =
   /** "Are you sure?" before a menu option that removes something; Confirm picks it. */
   | { readonly kind: 'confirm_option'; readonly menu: MenuKind; readonly index: number; readonly id: string }
   /** "Are you sure?" for something that isn't a menu option (from the palette). */
-  | { readonly kind: 'confirm'; readonly title: string; readonly message: string; readonly confirm: string; readonly destructive?: boolean; readonly run: () => void }
+  | { readonly kind: 'confirm'; readonly title: string; readonly message: string; readonly confirm: string; readonly cancel?: string; readonly destructive?: boolean; readonly run: () => void }
   /** What a workspace action that starts Claude or changes git will do, before it does (see work-confirm.ts). */
   | { readonly kind: 'work'; readonly wsId: string; readonly action: AskedWork }
   /** A project's worktrees made outside Beluga that can go, ticked, before removing them. */
