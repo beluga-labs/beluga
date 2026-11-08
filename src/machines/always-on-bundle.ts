@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { DeviceSetSync } from '../companion/protocol.js';
 import { readJson, writeJson } from '../net/mesh/files.js';
 import { Settings } from '../shared/settings-schema.js';
+import { IDENTITY_FILE } from './identity-load.js';
 
 /**
  * What moves when a computer becomes your Always On (BLG-796), and how it travels: your identity,
@@ -21,7 +22,7 @@ import { Settings } from '../shared/settings-schema.js';
 
 export const NETWORK_FILES = ['friends.json', 'invitations.json', 'outbox.json', 'dm-changes.json', 'dm-reactions.json', 'reads.json', 'presence.json'] as const;
 export const NETWORK_DIRS = ['dms', 'groups', 'avatars'] as const;
-export const IDENTITY_FILE = 'identity.json';
+export { IDENTITY_FILE };
 /** The settings that are you to friends: they follow your identity, and leave with it. */
 export const CARRIED_SETTINGS = ['name', 'people', 'policy', 'askMeFor', 'askFreely', 'capabilities', 'mailbox', 'mailboxAfterMin'] as const;
 

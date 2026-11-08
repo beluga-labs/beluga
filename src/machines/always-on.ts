@@ -5,7 +5,7 @@ import { deviceId } from '../companion/devices.js';
 import type { DeviceCert } from '../companion/protocol.js';
 import type { SwappableIdentity } from '../core/identity.js';
 import { type Identity, identityFromPem, identityPem, loadIdentity, saveIdentity } from '../net/crypto.js';
-import { readJson } from '../net/mesh/files.js';
+import { STANDBY_IDENTITY, readIdentityFile, standbyIdentity } from './identity-load.js';
 import { rmSync } from 'node:fs';
 import type { MessageSocket } from '../net/transport.js';
 import type { Settings } from '../shared/settings-schema.js';
@@ -35,8 +35,8 @@ import type { Machines } from './machines.js';
 
 const STEP_MS = 120_000;
 const RETRY_MS = 60_000;
-/** This Mac's own copy of your identity once it made a computer your Always On (BLG-799): used only to stand in while that one is down for long. It never leaves this Mac. */
-export const STANDBY_IDENTITY = 'identity-standby.json';
+/** This Mac's own copy of your identity once it made a computer your Always On (BLG-799): to stand in while that one is down for long, and for rooms here (BLG-846). It never leaves this Mac. */
+export { STANDBY_IDENTITY };
 
 export interface AlwaysOnView {
   /** This install is you on the network. */
@@ -530,17 +530,7 @@ export class AlwaysOn {
   leaseIdentity(): Identity | undefined {
     if (this.holding()) return this.opts.you.current();
     const owner = this.opts.machines.set.owner().peerId;
-    for (const file of [STANDBY_IDENTITY, IDENTITY_FILE]) {
-      const raw = readJson(path.join(this.opts.dir, file)) as { privateKey?: unknown } | undefined;
-      if (typeof raw?.privateKey !== 'string') continue;
-      try {
-        const identity = identityFromPem(raw.privateKey);
-        if (identity.peerId === owner) return identity;
-      } catch {
-        // Not a key: try the next.
-      }
-    }
-    return undefined;
+    return standbyIdentity(this.opts.dir, owner) ?? readIdentityFile(path.join(this.opts.dir, IDENTITY_FILE), owner);
   }
 
   /** This install could stand in now: your Always On is elsewhere, and it has your identity and a network to run. */

@@ -386,3 +386,57 @@ describe('never two of you, never none (BLG-799)', () => {
     expect(readdirSync(path.join(app.dir, 'always-on-standby'))).toHaveLength(1);
   });
 });
+
+describe('rooms on this Mac after a handover and a restart (BLG-846)', () => {
+  it('a room hosted here and a friend’s room joined from here both see you, never the stand-in key', async () => {
+    const { identitiesAtStart } = await import('../src/machines/identity-load.js');
+    const { startHub } = await import('../src/net/hub.js');
+    const { PeerClient } = await import('../src/net/peer-client.js');
+    const { deriveKeys, generateSecret } = await import('../src/net/crypto.js');
+    const { me, app, computers } = world();
+    const [mini] = computers as [Install];
+    await app.ao.make(deviceId(mini.cert!));
+    // The daemon starts again: what it reads from disk now.
+    const started = identitiesAtStart(app.dir);
+    expect(started.local.peerId).not.toBe(me.peerId);
+    expect(started.you.peerId).toBe(me.peerId);
+
+    const profile = { name: 'kayra', shares: [], agent: false };
+    const join = async (port: number, keys: ReturnType<typeof deriveKeys>, identity: Identity) => {
+      const client = new PeerClient({ url: `ws://127.0.0.1:${port}`, keys, profile, identity, reconnect: false });
+      const welcomed = new Promise<{ peerId: string; host?: boolean }>((resolve) => client.once('welcome', (you) => resolve(you)));
+      client.connect();
+      return { client, you: await welcomed };
+    };
+
+    // Hosting: the hub marks you as its host, and you are your own peer id.
+    const hostKeys = deriveKeys(generateSecret());
+    const hosted = await startHub({ keys: hostKeys, port: 0, host: '127.0.0.1', roomName: 'kayra', hostId: started.you.peerId });
+    const mine = await join(hosted.port, hostKeys, started.you);
+    expect(mine.you).toMatchObject({ peerId: me.peerId, host: true });
+    mine.client.close();
+    await hosted.close();
+
+    // Joining mia's room: mia sees your own peer id, the one her trust levels are kept by.
+    const mia = generateIdentity();
+    const miaKeys = deriveKeys(generateSecret());
+    const theirs = await startHub({ keys: miaKeys, port: 0, host: '127.0.0.1', roomName: 'mia', hostId: mia.peerId });
+    const miaClient = await join(theirs.port, miaKeys, mia);
+    const seenByMia = new Promise<string[]>((resolve) => miaClient.client.on('peers', (peers) => peers.length > 1 && resolve(peers.map((p) => p.peerId))));
+    const joined = await join(theirs.port, miaKeys, started.you);
+    expect(joined.you.peerId).toBe(me.peerId);
+    expect(await seenByMia).toContain(me.peerId);
+    expect(await seenByMia).not.toContain(started.local.peerId);
+    joined.client.close();
+    miaClient.client.close();
+    await theirs.close();
+  });
+
+  it('an install that never handed its identity on uses identity.json for rooms, as before', async () => {
+    const { identitiesAtStart } = await import('../src/machines/identity-load.js');
+    const { me, app } = world();
+    const started = identitiesAtStart(app.dir);
+    expect(started.local.peerId).toBe(me.peerId);
+    expect(started.you.peerId).toBe(me.peerId);
+  });
+});
