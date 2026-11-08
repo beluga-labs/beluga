@@ -206,7 +206,7 @@ More: [Sentinel](docs/sentinel.md)
     <img src="assets/scenes/archive-dark-still.png" alt="Archiving fix/safari-scroll: the folder goes and the disk drops to 0.6 MB, while the branch and the conversation stay" width="420">
   </picture>
 </p>
-<p align="center"><sub><b>Earnings</b>: connect Stripe and each project shows what it earns, next to the work. <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
+<p align="center"><sub><b>Earnings</b>: connect Stripe, RevenueCat or both and each project shows what it earns, next to the work ([how it counts](docs/earnings.md)). <b>Archive</b>: the folder goes, so your disk stays light; the branch and the conversation stay.</sub></p>
 
 <p align="center">
   <img src="assets/mac/hero.png" alt="Beluga for Mac: a worktree with the agent's finished run in the middle, its changes and diff in the right panel, projects and friends in the sidebar" width="900">
@@ -333,7 +333,7 @@ Your agent is Claude Code, signed in with your own subscription. It can also run
 
 The engine (projects, agents, terminals, friends) runs in the background on your computer, and the app is the window onto it. Claude runs through the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview).
 
-More: [how it works](docs/how-it-works.md) · [security](docs/security.md) · [peer-to-peer connections](docs/p2p.md) · [updates](docs/updates.md) · [every action and where it is](docs/parity.md)
+More: [how it works](docs/how-it-works.md) · [security](docs/security.md) · [peer-to-peer connections](docs/p2p.md) · [updates](docs/updates.md) · [every action and where it is](docs/parity.md) · [earnings](docs/earnings.md)
 
 ## Development
 
