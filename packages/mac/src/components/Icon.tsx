@@ -159,6 +159,11 @@ const PATHS = {
   eraser: 'M9.2 3.3l3.5 3.5a1 1 0 0 1 0 1.4L8.4 12.5H5.6l-2.3-2.3a1 1 0 0 1 0-1.4l4.5-4.5a1 1 0 0 1 1.4 0z M6.2 6.3l3.5 3.5 M8.4 12.5h5',
   square: 'M4.5 3h7A1.5 1.5 0 0 1 13 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3z',
   speaker: 'M2.75 6.25h2.5L8.5 3.5v9L5.25 9.75h-2.5z M10.75 5.75a3 3 0 0 1 0 4.5 M12.5 4a5.5 5.5 0 0 1 0 8',
+  // Your computers (BLG-813): a Mac mini, a server in a rack, a cloud machine, one that's always on.
+  macMini: 'M3 5.5h10a1.5 1.5 0 0 1 1.5 1.5v2.5a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 3 5.5z M4.5 12.75h7 M11.25 8.25h.01',
+  server: 'M3 2.5h10a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z M3 9h10a.5.5 0 0 1 .5.5V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V9.5A.5.5 0 0 1 3 9z M5 4.75h.01 M5 11.25h.01',
+  cloud: 'M4.5 12.5a3 3 0 0 1-.4-5.97A4 4 0 0 1 11.8 5.6 3.5 3.5 0 0 1 11.5 12.5z',
+  power: 'M8 2.5v5 M5 4.25a5 5 0 1 0 6 0',
 } as const;
 
 /** Agents and model makers (BLG-497) are their makers' own logos, filled (shared/agent-marks.ts; the phone draws the same). */
