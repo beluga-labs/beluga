@@ -516,7 +516,7 @@ export class AgentHost {
       if (answer === 'no') return 'The owner of this computer declined moving to a new worktree. Stay read-only here and say so.';
     }
     const carryOn = (): ReturnType<typeof ctl.continueInWorktree> => ctl.continueInWorktree(id, (p) => this.deps.nameTask?.(p) ?? Promise.resolve('worktree'), { task, after: finished });
-    // An external agent's run goes on there as that agent's, not as yours.
+    // An external agent's run goes on there under its own grant and label: you on another screen.
     const ws = await (via ? asActingAgent(via, carryOn) : carryOn());
     if (!ws) return "Couldn't create the worktree (Beluga showed the user why). Don't change anything here; tell the user briefly.";
     return `Done: this chat is becoming the worktree "${ws.name}" (branch ${ws.branch}, from ${ws.base}); once this turn ends you continue the task there automatically. Do not do the work now; end your turn with one short line.`;

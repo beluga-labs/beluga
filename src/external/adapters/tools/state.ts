@@ -18,8 +18,8 @@ import { DATA_NOTICE, untrusted } from './read.js';
  * The board, sentinel, dashboard and plan tools your own agent has, for an external agent: the same
  * definitions, with a named target instead of "this conversation", the agent as actor, and its
  * grant's projects as the limit. plan_gate stays with a plan's checker. No tool here approves a plan
- * or turns a sentinel on. A message to a plan's task goes through the chat port, so it runs as the
- * agent and not as you.
+ * or turns a sentinel on. A message to a plan's task goes through the chat port, so it runs as you on
+ * another screen: under the agent's grant, with its label.
  */
 
 const CARD_DETAIL_MAX = 1000;
