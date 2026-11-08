@@ -74,7 +74,7 @@ afterEach(async () => {
 });
 
 /** One install as the daemon runs it: a companion host and its device set beside it. */
-async function install(name: string) {
+async function install(name: string, opts: { tellsFriends?: boolean } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-phones-'));
   const identity = generateIdentity();
   const store = new Store(initialState('room'));
@@ -113,6 +113,7 @@ async function install(name: string) {
     dht: { bootstrap: testnet.bootstrap, host: '127.0.0.1' },
     coalesceMs: 50,
     machines,
+    ...(opts.tellsFriends !== undefined ? { tellsFriends: () => opts.tellsFriends! } : {}),
   });
   let stopped = false;
   const stop = async () => {
@@ -153,11 +154,12 @@ async function pairPhone(app: Install) {
 
 type Phone = Awaited<ReturnType<typeof pairPhone>>;
 
-function link(phone: Phone, address: string, computers?: PhoneComputer[][]) {
+function link(phone: Phone, address: string, computers?: PhoneComputer[][], nudges?: Array<{ from: string; nudge: Extract<MacFrame, { t: 'nudge' }> }>, from = '') {
   const client = new CompanionClient({ node: phone.node, address, link: phone.keys.link, app: '1.0.0', platform: 'android', topics: [] });
   const closes: number[] = [];
   client.on('close', (code) => closes.push(code));
   if (computers) client.on('computers', (f: Extract<MacFrame, { t: 'computers' }>) => computers.push(f.list));
+  if (nudges) client.on('nudge', (nudge) => nudges.push({ from, nudge }));
   cleanup.push(() => client.close());
   return { client, closes };
 }
@@ -213,5 +215,51 @@ describe('the phone reaches your computers by itself', () => {
     mini.machines.forget(phoneId);
     await waitFor(() => toMini.closes.length > 0, 5_000);
     expect(toMini.closes[0]).toBe(4010);
+  }, 240_000);
+});
+
+describe('friends on the phone with your Mac closed', () => {
+  it('a friend’s message notifies once, from your Always On, whether the Mac is open or not; the request is answered there', async () => {
+    // Your Always On (mini) runs your friends network; the Mac only shows it (BLG-797).
+    const app = await install('MacBook', { tellsFriends: false });
+    const mini = await install('mini', { tellsFriends: true });
+    await join(app, mini);
+    const phone = await pairPhone(app);
+    await waitFor(() => mini.machines.phone(phone.cert.link), 15_000);
+
+    // The phone in the background (Stay connected): linked to both, showing nothing.
+    const nudges: Array<{ from: string; nudge: Extract<MacFrame, { t: 'nudge' }> }> = [];
+    const toMac = link(phone, phone.address, undefined, nudges, 'mac');
+    const toMini = link(phone, mini.host.address(), undefined, nudges, 'mini');
+    await toMac.client.connect();
+    await toMini.client.connect();
+    toMac.client.focus(false);
+    toMini.client.focus(false);
+    // Each side has a baseline before the message (what's there when a phone links isn't news).
+    await new Promise((r) => setTimeout(r, 300));
+
+    // The same message reaches both: the Always On's network, and the Mac's mirror of it.
+    const message = { id: 'm1', conversation: 'dm:mia', from: 'mia', name: 'Mia', text: 'are you there?', ts: Date.now(), mine: false };
+    for (const i of [mini, app]) i.store.dispatch({ type: 'net_message', message });
+    await waitFor(() => nudges.length > 0, 5_000);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(nudges).toEqual([{ from: 'mini', nudge: { t: 'nudge', kind: 'mentions', title: 'Mia', body: 'are you there?', topic: 'chat:dm:mia' } }]);
+
+    // The Mac closes: the next one still comes, from the Always On.
+    toMac.client.close();
+    await app.stop();
+    mini.store.dispatch({ type: 'net_message', message: { ...message, id: 'm2', text: 'ping', ts: Date.now() } });
+    await waitFor(() => nudges.length > 1, 5_000);
+    expect(nudges[1]).toMatchObject({ from: 'mini', nudge: { kind: 'mentions', body: 'ping' } });
+
+    // Reading and answering go to the Always On with the phone's limits.
+    expect(await toMini.client.call('network.dm.send', ['mia', 'here'])).toBe('mini did network.dm.send');
+    expect(await toMini.client.call('network.groups.approve', ['g1', 'bob'])).toBe('mini did network.groups.approve');
+    await expect(toMini.client.call('network.groups.create', ['x'])).rejects.toThrow(/only on your Mac/);
+
+    // Its push token is kept on the Always On for this phone (Beluga Push, when it exists, uses it).
+    toMini.client.registerPush('fcm', 'tok', 'rk');
+    await waitFor(() => mini.machines.pushOf(deviceId(phone.cert)), 5_000);
+    expect(mini.machines.pushOf(deviceId(phone.cert))).toEqual({ platform: 'fcm', token: 'tok', relayKey: 'rk' });
   }, 240_000);
 });

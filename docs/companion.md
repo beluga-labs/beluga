@@ -451,6 +451,15 @@ which one worked (`src/companion/dial.ts`):
   your computers with the same line as the Mac's menu (`src/machines/words.ts`); picking one lists
   its projects and starts the work there. Pictures, files, terminals and merges in a computer's
   conversation stay on that computer for now.
+- **Friends with your Mac closed (BLG-850).** Your Always On runs your friends network, so while
+  the Mac's link is down the phone's People, Chats and chat screens read from the Always On's link,
+  and `network.*` calls (send, read, approve) go there; with the Mac back they go to the Mac again.
+  A friend's new message is a `mentions` nudge on its chat (`newMessages`, `src/companion/push.ts`),
+  told only by the install that runs the network: a Mac that only shows your Always On's network
+  doesn't also tell a phone that links there, so one message is one notification. With Stay
+  connected on, the Always On's link stays open while the app is away, so those nudges notify with
+  the Mac closed. A push token sent on that link is kept there (`phone-push.json`) for Beluga Push.
+  An older phone, linked only to the Mac, hears them from the Mac as before.
 
 ## When it can't connect
 

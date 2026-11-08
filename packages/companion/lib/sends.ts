@@ -81,6 +81,10 @@ class Sends {
     );
     for (const s of this.list) this.watchTopic(s.where);
     store.subscribe('linked', () => this.onLinked());
+    // Your Always On linked (BLG-850): a chat message waiting for your Mac can go there.
+    store.subscribe('computers', () => {
+      if (store.friendsOn()) for (const s of this.list) if (s.state === 'waiting' && s.where.startsWith('chat:')) this.run(s.id);
+    });
   }
 
   // ---- for screens
@@ -148,9 +152,11 @@ class Sends {
   private async run(id: string): Promise<void> {
     const s = this.get(id);
     if (!s) return;
+    // A chat with your Mac away goes through your Always On, which runs your friends network (BLG-850).
+    const on = s.on ?? (s.where.startsWith('chat:') && !store.linked ? store.friendsOn() : undefined);
     // On a computer: over its own link now, or not at all (nothing waits for a computer that's away).
-    if (s.on && !store.linkedTo(s.on)) return this.fail(id, `${store.computerName(s.on) ?? 'That computer'} is away.`);
-    if (!s.on && !store.linked) {
+    if (on && !store.linkedTo(on)) return this.fail(id, `${store.computerName(on) ?? 'That computer'} is away.`);
+    if (!on && !store.linked) {
       // A photo goes up only while linked; everything else waits for the Mac.
       if (s.photo && !s.call) return this.fail(id, 'Your Mac is away, and a photo only goes while it answers.');
       return this.patch(id, { state: 'waiting' });
@@ -166,7 +172,7 @@ class Sends {
     } catch (e) {
       return this.fail(id, (e as Error).message);
     }
-    store.call<unknown>(call, { queue: false, ...(s.on ? { on: s.on } : {}) }).then(
+    store.call<unknown>(call, { queue: false, ...(on ? { on } : {}) }).then(
       (value) => this.onOk(id, value),
       (e: Error & { lost?: boolean }) => (e.lost ? this.onLost(id) : this.fail(id, e.message)),
     );
@@ -247,7 +253,7 @@ class Sends {
       this.changed();
     }
     // A view straight from the Mac after the link came back, without it: it didn't get there.
-    if (view && !view.stale && (on ? store.linkedTo(on) : store.linked)) for (const s of this.list) if (s.where === where && s.state === 'unsure') this.patch(s.id, { state: 'failed', error: "It didn't reach your Mac." });
+    if (view && !view.stale && (on ? store.linkedTo(on) : store.linked || Boolean(store.friendsOn()))) for (const s of this.list) if (s.where === where && s.state === 'unsure') this.patch(s.id, { state: 'failed', error: "It didn't reach your Mac." });
   }
 
   // ---- state

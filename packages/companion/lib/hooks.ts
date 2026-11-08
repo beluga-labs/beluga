@@ -66,7 +66,10 @@ export function useAllNeeds(mac: readonly NeedsYou[] | undefined): NeedsYou[] {
     (fn) => store.subscribe('computer-needs', fn),
     () => store.computerNeeds(),
   );
-  return useVisibleNeeds(theirs.length ? [...(mac ?? []), ...theirs] : mac);
+  // Your Always On's friends' requests are also on your Mac while it shows that network: listed once (BLG-850).
+  const macIds = new Set((mac ?? []).map((n) => n.id));
+  const others = theirs.filter((n) => !macIds.has(n.id.slice(n.id.indexOf('|') + 1)));
+  return useVisibleNeeds(others.length ? [...(mac ?? []), ...others] : mac);
 }
 
 /** Needs-you items minus the ones you've just answered (until the Mac drops them). */

@@ -1,5 +1,6 @@
 import { roleOf } from '../companion/device-crypto.js';
-import { type DeviceRecord, deviceId, isPhoneCert } from '../companion/devices.js';
+import { DeviceRecord, deviceId, isPhoneCert } from '../companion/devices.js';
+import { readJson, writeJson } from '../net/mesh/files.js';
 import { type DeviceCert, MAX_PHONE_COMPUTERS, type PhoneComputer } from '../companion/protocol.js';
 import type { MachineRecord } from './book.js';
 import type { MachineView } from './machines.js';
@@ -20,6 +21,46 @@ import { statusLine, whyNot } from './words.js';
 /** A phone of your set that wasn't paired on this install: known from the set's certificate only. */
 export function setPhoneRecord(cert: DeviceCert): DeviceRecord | undefined {
   return isPhoneCert(cert) ? { cert, pairedAt: cert.issuedAt } : undefined;
+}
+
+type Push = NonNullable<DeviceRecord['push']>;
+const Push = DeviceRecord.shape.push.unwrap();
+
+/**
+ * Where to push to the phones of your set on this install (BLG-850): a phone paired elsewhere
+ * registers its push token with your Always On over its own link, kept here (~/.beluga/phone-push.json,
+ * 0600; devices.json keeps those of phones paired here). Only phones still in your set.
+ */
+export class PhonePushes {
+  private map: Readonly<Record<string, Push>>;
+
+  constructor(private readonly file: string) {
+    const raw = readJson(file);
+    const entries = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.entries(raw as Record<string, unknown>) : [];
+    this.map = Object.fromEntries(entries.flatMap(([id, v]) => {
+      const p = Push.safeParse(v);
+      return /^[0-9a-f]{16}$/.test(id) && p.success ? [[id, p.data]] : [];
+    }));
+  }
+
+  get(id: string): Push | undefined {
+    return this.map[id];
+  }
+
+  set(id: string, push: Push): void {
+    this.save({ ...this.map, [id]: push });
+  }
+
+  /** Only the phones in `ids` keep theirs (one forgotten loses it). */
+  keepOnly(ids: ReadonlySet<string>): void {
+    const kept = Object.fromEntries(Object.entries(this.map).filter(([id]) => ids.has(id)));
+    if (Object.keys(kept).length !== Object.keys(this.map).length) this.save(kept);
+  }
+
+  private save(next: Readonly<Record<string, Push>>): void {
+    this.map = next;
+    writeJson(this.file, next);
+  }
 }
 
 /** How many phones a companion key's relay record names (RelayRecord.phones). */

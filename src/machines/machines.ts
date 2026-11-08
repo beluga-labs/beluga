@@ -21,7 +21,7 @@ import { isAlwaysOnHello } from './always-on-bundle.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
 import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
-import { phoneComputers, runsOnWords } from './phones.js';
+import { PhonePushes, phoneComputers, runsOnWords } from './phones.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
 import type { SettingsSync, SettingsSyncView } from './sync.js';
@@ -168,6 +168,8 @@ export class Machines {
   readonly pairing: ComputerPairing;
   /** Screens of this app on your computers (/machine/<id>, BLG-775). */
   readonly door: MachineDoor;
+  /** Push tokens of your set's phones paired elsewhere (BLG-850). */
+  private readonly pushes: PhonePushes;
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
   private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
@@ -187,6 +189,7 @@ export class Machines {
     this.keys = opts.keys ?? loadDeviceKeys(path.join(opts.dir, 'device-key.json'));
     this.set = new DeviceSet({ file: path.join(opts.dir, 'device-set.json'), keys: this.keys, identity: opts.identity });
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
+    this.pushes = new PhonePushes(path.join(opts.dir, 'phone-push.json'));
     this.platform = opts.platform ?? platformHere();
     this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
     this.pairing = new ComputerPairing({
@@ -258,6 +261,15 @@ export class Machines {
   /** The phones of your set that still hold (a computer names them in its relay record). */
   phones(): readonly DeviceCert[] {
     return this.set.devices().filter((c) => roleOf(c) === 'phone');
+  }
+
+  /** Where to push to a phone of your set paired elsewhere (BLG-850): its token, kept while it's in your set. */
+  keepPush(id: string, push: Parameters<PhonePushes['set']>[1]): void {
+    if (this.phones().some((c) => deviceId(c) === id)) this.pushes.set(id, push);
+  }
+
+  pushOf(id: string): ReturnType<PhonePushes['get']> {
+    return this.phones().some((c) => deviceId(c) === id) ? this.pushes.get(id) : undefined;
   }
 
   /** Your computers as your phones dial them (BLG-809): the `computers` frame, with each one's Runs on line for `runtime` (BLG-810). */
@@ -659,6 +671,7 @@ export class Machines {
     if (!cut.length) return;
     // A phone paired here loses its certificate; one of your set linked here (BLG-809) loses its link.
     for (const c of cut) if (roleOf(c) === 'phone') this.opts.removePhone(deviceId(c));
+    this.pushes.keepOnly(new Set(this.phones().map((c) => deviceId(c))));
     // Every link to or from it closes now: a screen driving this computer, this app's screens on it.
     for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
     this.book.drop(new Set(cut.map((c) => c.device)));

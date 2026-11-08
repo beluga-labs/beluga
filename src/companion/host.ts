@@ -60,7 +60,8 @@ import type { SentinelData } from '../core/sentinel/sentinels.js';
 import { type MirrorStatus, PhoneControl, type PhoneLinkHandle, type PhoneTouch, type TunnelEnd, type TunnelSide, type VideoPiece, phoneErrorText } from './phone-control.js';
 import { type Macro, PhoneMacros } from './phone-macros.js';
 import { type SystemPort, realSystem } from '../core/gateway/device.js';
-import { type Delivery, NO_PUSH, type Nudge, type Pusher, atMac, deliver } from './push.js';
+import { chatTopic } from './needs-you.js';
+import { type Delivery, NO_PUSH, type Nudge, type Pusher, atMac, deliver, newMessages } from './push.js';
 import { type ConvOutput, type ViewContext, channelOf, chatMessages, convTopic, convTurns, needsYou, phoneChannel, sentinelDone, viewOf } from './views.js';
 
 /**
@@ -141,6 +142,11 @@ export interface CompanionHostOptions {
   readonly macrosFile?: string;
   /** Your other devices (BLG-774, src/machines): apps and computers of your set come in here too. */
   readonly machines?: MachinesPort;
+  /**
+   * This install runs your friends network (BLG-850): no Always On, or it's this one. A Mac that
+   * only shows your Always On's network doesn't also tell a phone that links there what comes in.
+   */
+  readonly tellsFriends?: () => boolean;
 }
 
 /** What the host asks of your device set (src/machines/machines.ts). */
@@ -159,6 +165,9 @@ export interface MachinesPort {
   /** Your computers as phones dial them (the `computers` frame), and when they change. */
   forPhones?(runtime?: string): PhoneComputer[];
   onComputers?(listener: () => void): () => void;
+  /** Where to push to a phone of your set paired elsewhere (BLG-850). */
+  keepPush?(id: string, push: NonNullable<DeviceRecord['push']>): void;
+  pushOf?(id: string): DeviceRecord['push'];
 }
 
 const companionSeed = (identity: Identity): Buffer => {
@@ -512,6 +521,8 @@ export class CompanionHost {
   private readonly awake: Awake;
   /** The state at the last notice: what finished since is told to phones away from the app (BLG-128). */
   private lastState?: DomainState;
+  /** Messages sent before this aren't news (a history that arrives at once). */
+  private readonly noticeSince = Date.now();
 
   constructor(private readonly opts: CompanionHostOptions) {
     this.awake = opts.awake ?? new Awake(opts.log ? { log: opts.log } : {});
@@ -981,7 +992,9 @@ export class CompanionHost {
   }
 
   setPush(link: PhoneLink, push: NonNullable<DeviceRecord['push']>): void {
-    this.opts.devices.update(link.deviceId, { push });
+    if (this.opts.devices.get(link.deviceId)) return this.opts.devices.update(link.deviceId, { push });
+    // A phone of your set paired elsewhere: kept by your device set here (your Always On pushes to it).
+    this.opts.machines?.keepPush?.(link.deviceId, push);
   }
 
   /** The conversations phones have open (their outputs are kept fresh). */
@@ -1062,7 +1075,7 @@ export class CompanionHost {
     const fresh = seen ? items.filter((n) => !seen.has(n.id)) : [];
     this.seenNeeds = new Set(items.map((n) => n.id));
     const nudges: Nudge[] = fresh.map((n: NeedsYou) => {
-      const nudge: Nudge = { kind: 'needsYou', title: n.title.slice(0, 200), body: (n.detail ?? n.from ?? '').slice(0, 1000), ...(n.topic ? { topic: n.topic } : {}), priority: 'high' };
+      const nudge: Nudge = { kind: 'needsYou', title: n.title.slice(0, 200), body: (n.detail ?? n.from ?? '').slice(0, 1000), ...(n.topic ? { topic: n.topic } : {}), priority: 'high', ...(n.id.startsWith('join:') ? { friends: true } : {}) };
       this.needOf.set(nudge, n.id);
       return nudge;
     });
@@ -1092,6 +1105,8 @@ export class CompanionHost {
         nudges.push({ kind: 'done', title: e.title.slice(0, 200), body: e.body.replace(/```[\s\S]*?(```|$)/g, '(code)').slice(0, 300), ...(topic ? { topic } : {}), priority: 'normal', collapse: `done:${e.channel}`, away: true });
       }
     }
+    // A friend's new message (BLG-850), on its chat.
+    if (prev && prev.network !== state.network) nudges.push(...newMessages(prev.network, state.network, this.noticeSince, chatTopic));
     if (!nudges.length) return;
     // Asked once: are you at the Mac (used it in the last five minutes)?
     const idle = await this.opts.idleMs?.().catch(() => undefined);
@@ -1109,8 +1124,10 @@ export class CompanionHost {
       const linked = [...this.links].filter((l) => l.deviceId === id && l.hello);
       const onScreen = new Set<string>(linked.flatMap((l) => [...l.topics.keys()]));
       const inFront = linked.some((l) => l.inFront);
+      const leaves = this.leavesFriends(linked);
       for (const nudge of nudges) {
         if (nudge.away && (!linked.length || inFront)) continue;
+        if (nudge.friends && leaves) continue;
         const how: Delivery = deliver(nudge, { linked: linked.length > 0, onScreen, inFront, macFront: state.attention.front, canPush: Boolean(record.push), ...(idle !== undefined ? { macIdleMs: idle } : {}) });
         if (how === 'nudge') for (const l of linked) l.send({ t: 'nudge', kind: nudge.kind, title: nudge.title, body: nudge.body, ...(nudge.topic ? { topic: nudge.topic } : {}) });
         else if (how === 'push' && record.push) await (this.opts.pusher ?? NO_PUSH).push({ deviceId: id, ...record.push, box: record.cert.box }, nudge).catch((err: unknown) => this.logLine(`push failed: ${String(err)}`));
@@ -1119,11 +1136,27 @@ export class CompanionHost {
     }
   }
 
-  /** The phones told what's new: those paired here, and those of your set linked here now (BLG-809). */
+  /** The phones told what's new: those paired here, and those of your set linked here now or that left a push token here (BLG-809, BLG-850). */
   private phonesToTell(): DeviceRecord[] {
     const here = this.opts.devices.all();
-    const linked = [...this.links].filter((l) => l.isOpen && !here.some((r) => r.cert.device === l.device.cert.device)).map((l) => l.device);
-    return [...here, ...new Map(linked.map((r) => [r.cert.device, r])).values()];
+    const linked = new Set([...this.links].filter((l) => l.isOpen).map((l) => l.device.cert.device));
+    const others = (this.opts.machines?.phones?.() ?? []).filter((c) => !here.some((r) => r.cert.device === c.device)).flatMap((c) => {
+      const record = setPhoneRecord(c);
+      const push = this.opts.machines?.pushOf?.(deviceId(c));
+      return record && (push || linked.has(c.device)) ? [{ ...record, ...(push ? { push } : {}) }] : [];
+    });
+    return [...here, ...others];
+  }
+
+  /**
+   * A friends nudge isn't this install's to tell `linked` (BLG-850): your Always On runs your
+   * network, and this phone hears it there (one that links to your computers, or one this would
+   * push to). An older phone linked here still hears it from here.
+   */
+  private leavesFriends(linked: readonly PhoneLink[]): boolean {
+    if (this.opts.tellsFriends?.() ?? true) return false;
+    const reachesComputers = (l: PhoneLink): boolean => Boolean(l.hello && (l.hello.v.major > COMPANION_PROTO.major || l.hello.v.minor >= SINCE.computers));
+    return !linked.length || linked.some(reachesComputers);
   }
 
   /** Needs-you nudges held while you're at the Mac, by the item they're about. */

@@ -29,6 +29,8 @@ export interface ComputerWorkOptions {
   readonly load?: () => Record<string, { data: unknown; rev: number; at: number }> | undefined;
   readonly save?: (kept: Record<string, { data: unknown; rev: number; at: number }>) => void;
   readonly now?: () => number;
+  /** Topics a computer is asked for besides its own screens' (your Always On: the friends screens', BLG-850). */
+  readonly extra?: (id: string) => readonly Topic[];
   /** How long a call waits for its answer. */
   readonly timeoutMs?: number;
 }
@@ -74,14 +76,14 @@ export class ComputerWork {
 
   /** The topics on screen for a computer (its hello says them, and each `sub`). */
   topics(id: string): Topic[] {
-    return [...(this.subs.get(id)?.keys() ?? [])].slice(0, MAX_TOPICS);
+    return [...new Set([...(this.subs.get(id)?.keys() ?? []), ...(this.opts.extra?.(id) ?? [])])].slice(0, MAX_TOPICS);
   }
 
   view<T>(id: string, topic: Topic): ComputerView<T> | undefined {
     return this.views.get(viewKey(id, topic)) as ComputerView<T> | undefined;
   }
 
-  /** Its link opened: say what's on screen (the hello said what was then). */
+  /** Its link opened, or what's asked of it changed: say what's on screen (the hello said what was then). */
   opened(id: string): void {
     this.resub(id);
   }

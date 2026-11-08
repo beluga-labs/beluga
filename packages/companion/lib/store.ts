@@ -96,6 +96,9 @@ type Fetch = { key: string; ref: string; variant: 'thumb' | 'full' | 'text'; par
 type Saving = { resolve: (uri: string) => void; reject: (e: Error) => void };
 
 const APP = 'beluga-companion/0.16.0';
+
+/** Your friends' screens: what your Always On has while your Mac is away (BLG-850). */
+export const isFriendsTopic = (topic: string): boolean => topic === 'people' || topic === 'chats' || topic.startsWith('chat:');
 const PLATFORM: 'android' | 'ios' = Platform.OS === 'ios' ? 'ios' : 'android';
 
 class Store {
@@ -166,6 +169,7 @@ class Store {
     this.state = { ...this.state, ...patch };
     if (this.state.phase !== was) this.stayNote();
     this.emit('state');
+    if (this.state.phase !== was && (was === 'open' || this.state.phase === 'open')) this.friendsMoved();
   }
 
   // ---- starting up, pairing, signing out
@@ -218,7 +222,11 @@ class Store {
       emit: (key) => {
         this.emit(key);
         if (key.endsWith('|home')) this.emit('computer-needs');
+        // Your Always On's friends views stand in for the Mac's while it's away (BLG-850): their screens re-read.
+        const topic = key.slice(key.indexOf('|') + 1) as Topic;
+        if (isFriendsTopic(topic)) this.emit(`view:${topic}`);
       },
+      extra: (id) => (id === this.alwaysOnId() ? [...this.subCounts.keys()].filter(isFriendsTopic) : []),
       load: () => kv.get('computer-views'),
       save: (kept) => kv.set('computer-views', kept),
     });
@@ -237,6 +245,7 @@ class Store {
       onChange: () => {
         this.emit('computers');
         this.emit('computer-needs');
+        this.friendsMoved();
       },
       onOpen: (id) => work.opened(id),
       onDown: (id) => work.closed(id),
@@ -301,6 +310,30 @@ class Store {
       this.needRoutes.set(id, { on, id: n.id });
       return { ...n, id, from: [name, n.from].filter(Boolean).join(' · ').slice(0, 200) };
     });
+  }
+
+  // ---- friends with your Mac closed (BLG-850): your Always On has them
+
+  /** Your Always On, when it's one of your computers. */
+  private alwaysOnId(): string | undefined {
+    return this.computerLinks?.states().find((s) => s.computer.alwaysOn)?.computer.id;
+  }
+
+  /**
+   * Where your friends are reached now: your Mac while it answers, else your Always On while its
+   * link is open (it runs your network); none: your Mac (its kept views, or waiting for it).
+   */
+  friendsOn(): string | undefined {
+    if (this.state.phase === 'open') return undefined;
+    const id = this.alwaysOnId();
+    return id && this.linkedTo(id) ? id : undefined;
+  }
+
+  /** Where the friends views come from may have changed: their screens re-read, and your Always On hears what's on them. */
+  private friendsMoved(): void {
+    const id = this.alwaysOnId();
+    if (id) this.computerWork?.opened(id);
+    for (const t of this.subCounts.keys()) if (isFriendsTopic(t)) this.emit(`view:${t}`);
   }
 
   /** That computer's link is open now. */
@@ -535,6 +568,8 @@ class Store {
     this.stayingAway = true;
     this.active = false;
     this.awayAt ??= Date.now();
+    // Your Always On stays linked too: with your Mac closed, your friends' messages and requests notify from there (BLG-850).
+    this.computerLinks?.stayAway(this.alwaysOnId());
     if (this.state.phase === 'open') {
       this.transport?.send({ t: 'focus', on: false });
       this.transport?.send({ t: 'sub', topics: this.topics() });
@@ -547,6 +582,7 @@ class Store {
     if (!stayOn()) {
       this.stayingAway = false;
       stayService(undefined);
+      if (!this.active) this.computerLinks?.close('background');
       return;
     }
     this.stayNote(true);
@@ -844,11 +880,17 @@ class Store {
     this.subTimer = setTimeout(() => {
       this.subTimer = undefined;
       if (this.state.phase === 'open') this.transport?.send({ t: 'sub', topics: this.topics() });
+      const ao = this.alwaysOnId();
+      if (ao) this.computerWork?.opened(ao);
     }, 50);
   }
 
   view<T>(topic: Topic): CachedView<T> | undefined {
-    return this.views.get(topic) as CachedView<T> | undefined;
+    const mine = this.views.get(topic) as CachedView<T> | undefined;
+    // With your Mac away, your friends come from your Always On (BLG-850): its view, or its kept one when newer.
+    const ao = isFriendsTopic(topic) && this.state.phase !== 'open' ? this.alwaysOnId() : undefined;
+    const theirs = ao ? this.computerWork?.view<T>(ao, topic) : undefined;
+    return theirs && (!mine || this.linkedTo(ao!) || theirs.at > mine.at) ? theirs : mine;
   }
 
   /** Every view kept now (on screen, or the last ones), newest first. */
@@ -905,7 +947,9 @@ class Store {
 
   /** Make a call; while your Mac is away it waits in the outbox (and resolves `undefined`). */
   call<T = unknown>(c: Call, opts: { queue?: boolean; /** One of your computers: on its own link, never queued (BLG-810). */ on?: string } = {}): Promise<T | undefined> {
-    if (opts.on) return this.computerWork ? this.computerWork.call<T>(opts.on, c.method, c.args) : Promise.reject(new Error('That computer is away.'));
+    // Your friends network with your Mac away: on your Always On's link (BLG-850).
+    const on = opts.on ?? (c.method.startsWith('network.') ? this.friendsOn() : undefined);
+    if (on) return this.computerWork ? this.computerWork.call<T>(on, c.method, c.args) : Promise.reject(new Error('That computer is away.'));
     if (this.state.phase !== 'open' || !this.transport) {
       if (opts.queue === false) return Promise.reject(new Error('Your Mac is away.'));
       this.outbox = [...this.outbox, { id: `o${Date.now()}${this.seq++}`, call: c, at: Date.now() }];

@@ -1,5 +1,5 @@
 import type { MacFrame, PhoneComputer, PhoneFrame } from './protocol';
-import { retryDelay } from './resume';
+import { RETRY_LIMIT, retryDelay } from './resume';
 import type { LinkHints, LinkPhase } from './rpc';
 import type { Transport } from './transport';
 
@@ -69,11 +69,15 @@ interface Entry {
 }
 
 const hintsOf = (c: PhoneComputer): LinkHints => ({ relays: [...c.relays], prefer: {} });
+/** A kept link that keeps dropping while away is tried this often (lib/store.ts does the same for the Mac's). */
+const AWAY_RETRY_MS = 120_000;
 
 export class ComputerLinks {
   private readonly entries = new Map<string, Entry>();
   private seen: Record<string, number>;
   private active = false;
+  /** Kept open while the app is away (Stay connected): your Always On, so its nudges notify (BLG-850). */
+  private kept: string | undefined;
   private disposed = false;
 
   constructor(private readonly opts: ComputerLinksOptions) {
@@ -124,19 +128,46 @@ export class ComputerLinks {
     this.opts.onChange?.();
   }
 
-  /** The app is in front: dial every computer that isn't open or dialing. */
+  /** The app is in front: dial every computer that isn't open or dialing; one kept open while away is back in front. */
   open(): void {
     this.active = true;
+    this.kept = undefined;
     for (const e of this.entries.values()) {
       e.attempt = 0;
       this.clearRetry(e);
-      if (e.state.phase !== 'open' && e.state.phase !== 'dialing' && e.state.phase !== 'refused') this.dial(e);
+      if (e.state.phase === 'open') {
+        e.transport.send({ t: 'focus', on: true });
+        this.opts.onOpen?.(e.computer.id);
+      } else if (e.state.phase !== 'dialing' && e.state.phase !== 'refused') this.dial(e);
+    }
+  }
+
+  /**
+   * Away with Stay connected: only `keep` stays linked (dialed if it isn't), told the app is away
+   * and showing nothing, so it sends nudges and no views; the others close. None: all close.
+   */
+  stayAway(keep: string | undefined): void {
+    this.active = false;
+    this.kept = keep;
+    for (const e of this.entries.values()) {
+      this.clearRetry(e);
+      if (e.computer.id !== keep) {
+        if (e.state.phase === 'open') e.transport.send({ t: 'bye' });
+        if (e.state.phase === 'open' || e.state.phase === 'dialing') e.transport.close('background');
+        continue;
+      }
+      e.attempt = 0;
+      if (e.state.phase === 'open') {
+        e.transport.send({ t: 'focus', on: false });
+        e.transport.send({ t: 'sub', topics: [] });
+      } else if (e.state.phase !== 'dialing' && e.state.phase !== 'refused') this.dial(e);
     }
   }
 
   /** The app went away past the grace (or you signed out): every link closes, nothing retries. */
   close(reason: string): void {
     this.active = false;
+    this.kept = undefined;
     for (const e of this.entries.values()) {
       this.clearRetry(e);
       if (e.state.phase === 'open') e.transport.send({ t: 'bye' });
@@ -206,6 +237,12 @@ export class ComputerLinks {
       this.seen = { ...this.seen, [e.computer.id]: this.now() };
       this.keep();
       this.update(e, { phase: next, detail: undefined, lastSeen: this.seen[e.computer.id] });
+      // Kept while away: it hears so, and sends nudges only.
+      if (!this.active && this.kept === e.computer.id) {
+        e.transport.send({ t: 'focus', on: false });
+        e.transport.send({ t: 'sub', topics: [] });
+        return;
+      }
       this.opts.onOpen?.(e.computer.id);
       return;
     }
@@ -232,11 +269,14 @@ export class ComputerLinks {
   private scheduleRetry(e: Entry): void {
     this.clearRetry(e);
     const phase = e.state.phase === 'asleep' ? 'unreachable' : 'closed';
-    const delay = retryDelay({ phase, active: this.active, attempt: e.attempt }, this.opts.random?.() ?? Math.random());
+    const keptAway = !this.active && this.kept === e.computer.id;
+    const fast = retryDelay({ phase, active: this.active || keptAway, attempt: e.attempt }, this.opts.random?.() ?? Math.random());
+    // Away, after the quick ones: every two minutes, as the Mac's kept link does.
+    const delay = fast !== undefined && keptAway && e.attempt >= RETRY_LIMIT ? AWAY_RETRY_MS : fast;
     if (delay === undefined) return;
     e.retry = setTimeout(() => {
       e.retry = undefined;
-      if (!this.active || this.entries.get(e.computer.id) !== e) return;
+      if (!(this.active || this.kept === e.computer.id) || this.entries.get(e.computer.id) !== e) return;
       if (e.state.phase !== 'closed' && e.state.phase !== 'asleep') return;
       e.attempt++;
       this.dial(e);
