@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { parseChatRef } from '../../shared/chat-ref.js';
 import { READS_AFTER_STEP, STEERED_IN } from '../../shared/claude-notices.js';
 import type { ChatChain, ChatTools } from '../../agent/types.js';
-import type { AgentRef, BodyOf } from '../../protocol.js';
+import type { AgentRef, BodyOf, ChatOrigin } from '../../protocol.js';
 import type { LogItem, Store } from '../store.js';
 import { chatAccessOf } from './access.js';
 import { type GuardRefusal, type GuardState, NO_SENDS, checkSend, renewChain, sentSoFar } from './guard.js';
@@ -15,7 +15,7 @@ import { REFUSAL_WORDS, refOf } from './transcript.js';
  * message's request id is its message id, and its card says how it is.
  */
 
-export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'shared_chat' | 'mode_wider' | 'not_delivered' | 'chain_stopped' | 'requester_refused' | 'not_addressable' | 'view_only';
+export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'offline' | 'mode_wider' | 'not_delivered' | 'chain_stopped' | 'requester_refused' | 'not_addressable' | 'view_only';
 
 /** How a message reached its chat. `readBy`: a steered message's answer comes from that run. */
 export interface Delivered {
@@ -32,6 +32,8 @@ export interface ChatSendDeps {
   readonly queuedFromChats: (channel: string) => number;
   /** Undefined: the chat did not take it. */
   readonly deliver: (body: BodyOf<'agent_request'>, steer: boolean) => Promise<Delivered | undefined>;
+  /** A message for a chat another person shared with you, to their computer. False: it did not go. */
+  readonly deliverTo: (owner: string, body: BodyOf<'agent_request'>) => boolean;
   /** Higher can do more on its own. */
   readonly permissionRank: (channel: string) => number;
   readonly agentIn: (channel: string) => AgentRef;
@@ -54,6 +56,8 @@ export interface SendingRun {
 
 interface SentMessage {
   readonly source: string;
+  /** Who holds the target: you, or the person who shared it. */
+  readonly owner: string;
   readonly target: string;
   readonly title: string;
   delivered: Delivered;
@@ -74,7 +78,7 @@ const WORDS: Readonly<Record<SendRefusal, string>> = {
   chat_loading: 'Beluga is still loading your projects. Try again in a minute.',
   terminal_driving: 'its terminal is driving that chat, so it takes no message now.',
   source_not_addressable: 'this chat has no ref, so it cannot send. The room, DMs, groups and drafts have no ref.',
-  shared_chat: 'you can send only to chats on this computer for now.',
+  offline: 'the person who shared that chat is not online. Nothing was queued. Try again later.',
   mode_wider: 'this chat runs with less permission than that chat, so it cannot ask that chat to act. Tell your user.',
   not_delivered: 'that chat did not take the message.',
   chain_stopped: 'your user stopped this chain. Do not send again. End your turn.',
@@ -124,15 +128,17 @@ export class ChatSendService {
     const chat = parsed && resolveChat(state, parsed);
     if (!access.allow && !(access.code === 'not_found' && chat?.ownership === 'own')) throw refused(access.code);
     if (!parsed || !chat) throw refused('not_addressable');
-    if (chat.ownership !== 'own') throw refused('shared_chat');
+    // A chat shared with you: its owner's computer decides the rest, with their trust in you.
+    const remote = chat.ownership === 'shared';
     if (chat.state === 'archived') throw refused('chat_archived');
     if (chat.state === 'loading') throw refused('chat_loading');
     // A main checkout is no conversation of its own: its chat if it moved to one, else nowhere to run.
-    const target = chat.view?.kind === 'workspace' ? `ws:${chat.view.id}` : chat.view?.kind === 'project' ? undefined : parsed.channel;
+    const target = remote ? parsed.channel : chat.view?.kind === 'workspace' ? `ws:${chat.view.id}` : chat.view?.kind === 'project' ? undefined : parsed.channel;
     if (chat.state === 'removed' || !target) throw refused('not_found');
     if (!parseChatRef(`${self}/${run.channel}`)) throw refused('source_not_addressable');
-    if (this.deps.terminalDriving(target)) throw refused('terminal_driving');
-    if (this.deps.permissionRank(run.channel) < this.deps.permissionRank(target)) throw refused('mode_wider');
+    if (remote && !state.peers.some((p) => p.peerId === parsed.owner)) throw refused('offline');
+    if (!remote && this.deps.terminalDriving(target)) throw refused('terminal_driving');
+    if (!remote && this.deps.permissionRank(run.channel) < this.deps.permissionRank(target)) throw refused('mode_wider');
 
     const chain = run.chain();
     if (this.stopped.has(chain.chainId)) throw refused('chain_stopped');
@@ -141,10 +147,11 @@ export class ChatSendService {
       requestId: opts.requestId ?? asked,
       messageId: asked,
       source: run.channel,
-      target,
+      target: remote ? `${parsed.owner}/${target}` : target,
       chainId: chain.chainId,
       hop: chain.hop,
-      queued: this.deps.queuedFromChats(target),
+      // What waits at another person's chat, their computer counts.
+      queued: remote ? 0 : this.deps.queuedFromChats(target),
       now: this.now(),
     };
     const { state: guard, decision } = checkSend(this.guard, ask);
@@ -158,7 +165,7 @@ export class ChatSendService {
       return receipt(decision.messageId, this.stateOf(decision.messageId), message?.delivered.delivery ?? 'queued');
     }
 
-    this.deps.load(target);
+    if (!remote) this.deps.load(target);
     const source = resolveChat(state, { owner: self, channel: run.channel });
     const request: BodyOf<'agent_request'> = {
       kind: 'agent_request',
@@ -178,16 +185,30 @@ export class ChatSendService {
         ...(opts.reply === 'wanted' ? { replyWanted: true } : {}),
       },
     };
-    const message: SentMessage = { source: run.channel, target, title: chat.title ?? parsed.channel, delivered: { delivery: 'queued' } };
+    const message: SentMessage = { source: run.channel, owner: parsed.owner, target, title: chat.title ?? parsed.channel, delivered: { delivery: 'queued' } };
     this.keep(decision.messageId, message);
-    const delivered = await this.deps.deliver(request, opts.mode === 'steer');
+    // To another person: it goes now or not at all (never queued here), and its card says what became of it.
+    const delivered = remote ? (this.deps.deliverTo(parsed.owner, request) ? { delivery: 'queued' as const } : undefined) : await this.deps.deliver(request, opts.mode === 'steer');
     if (!delivered) {
       this.sent.delete(decision.messageId);
-      throw refused('not_delivered');
+      throw refused(remote ? 'offline' : 'not_delivered');
     }
     message.delivered = delivered;
     const note = opts.mode === 'steer' && delivered.delivery !== 'steered' ? 'That chat could not take a steer now, so the message went the normal way.' : undefined;
     return receipt(decision.messageId, this.stateOf(decision.messageId), delivered.delivery, note);
+  }
+
+  /**
+   * A message from another person's chat, on this computer (the owner's): the same limits as for
+   * your own chats. What the peer says about its chain is a claim: its hop counts from the higher
+   * of the claim and the highest hop this computer saw in that chain. Pairs count per peer.
+   */
+  admitFromPeer(peer: string, origin: ChatOrigin, target: string, queued: number): { readonly allow: true; readonly hop: number } | { readonly allow: false; readonly text: string } {
+    const seen = this.guard.chains[origin.chainId]?.highestHop ?? 0;
+    const ask = { requestId: origin.messageId, messageId: origin.messageId, source: `${peer}\n${origin.ref}`, target, chainId: origin.chainId, hop: Math.max(origin.hop - 1, seen, 0), queued, now: this.now() };
+    const { state, decision } = checkSend(this.guard, ask);
+    this.guard = state;
+    return decision.allow ? { allow: true, hop: decision.hop } : { allow: false, text: refused(decision.code, decision.retryAt).message };
   }
 
   /** One question per chain, however many sends it refuses meanwhile. */
@@ -256,7 +277,7 @@ export class ChatSendService {
     if (!card) {
       // Its card is gone with its chat, so nothing can answer. Else its first event has not come back yet.
       const state = this.deps.store.getState();
-      if (resolveChat(state, { owner: this.deps.selfId(), channel: message.target }).state === 'removed') return 'lost';
+      if (resolveChat(state, { owner: message.owner, channel: message.target }).state === 'removed') return 'lost';
       return message.delivered.delivery === 'queued' ? 'queued' : 'working';
     }
     if (card.status === 'done') return 'answered';
@@ -298,6 +319,11 @@ const isFinal = (state: MessageState): boolean => state === 'answered' || state 
 
 function receipt(messageId: string, state: MessageState, delivery: Delivered['delivery'], note?: string): string {
   return JSON.stringify({ message_id: messageId, state, delivery, ...(note ? { note } : {}) }, null, 2);
+}
+
+/** What an agent reads for a refusal: its code first, so it can tell refusals apart. */
+export function refusalText(code: SendRefusal): string {
+  return refused(code).message;
 }
 
 function refused(code: SendRefusal, retryAt?: number): Error {
