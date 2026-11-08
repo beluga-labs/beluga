@@ -55,6 +55,9 @@ export interface MachineView {
   readonly info?: MachineInfo;
   /** It's your Always On: you on the network while this Mac sleeps (the demo's Mac mini, for now). */
   readonly alwaysOn?: boolean;
+  /** What kind of computer it is and its cloud region, as it said (BLG-782). */
+  readonly kind?: MachineInfo['kind'];
+  readonly region?: string;
 }
 
 interface Live {
@@ -441,6 +444,8 @@ export class Machines {
       status,
       ...(status === 'online' && live?.rttMs !== undefined ? { rttMs: live.rttMs } : {}),
       ...(live?.info ? { info: live.info } : {}),
+      ...(live?.info?.kind ? { kind: live.info.kind } : {}),
+      ...(live?.info?.region ? { region: live.info.region } : {}),
     };
   }
 }

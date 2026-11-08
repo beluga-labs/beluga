@@ -37,8 +37,10 @@ export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.no
       status: 'online',
       rttMs: Math.round(wave(now, 14, 26, 90_000)),
       alwaysOn: true,
+      kind: 'mac-mini',
       info: {
         at: now - 4_000,
+        kind: 'mac-mini',
         cpus: 10,
         loadPerCore: wave(now, 0.08, 0.22, 120_000),
         memory: { freeGB: wave(now, 18.5, 21, 300_000, 1), totalGB: 32 },
@@ -69,8 +71,12 @@ export function demoMachines(state: Pick<DomainState, 'projects'>, now = Date.no
       lastSeen: now - 9_000,
       status: 'online',
       rttMs: Math.round(wave(now, 58, 84, 75_000, 2)),
+      kind: 'aws',
+      region: 'eu-west-1',
       info: {
         at: now - 9_000,
+        kind: 'aws',
+        region: 'eu-west-1',
         cpus: 16,
         loadPerCore: wave(now, 0.46, 0.71, 60_000, 0.5),
         memory: { freeGB: wave(now, 22, 27.5, 200_000), totalGB: 64 },

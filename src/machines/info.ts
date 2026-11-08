@@ -9,6 +9,7 @@ import { DeviceSetSync } from '../companion/protocol.js';
 import { type DomainState, isRunning } from '../core/store.js';
 import { Usage } from '../protocol.js';
 import { git } from '../workspaces/git.js';
+import { type KindFound, MACHINE_KINDS, detectKind, realKindReaders } from './kind.js';
 
 /**
  * What a computer has free (BLG-778), as it says it to your app: its load per core, free memory and
@@ -28,6 +29,9 @@ export type RuntimeHealth = z.infer<typeof RuntimeHealth>;
 
 export const MachineInfo = z.object({
   at: z.number().int().min(0),
+  /** What kind of computer it is and, for a cloud server, its region (BLG-782, kind.ts). */
+  kind: z.enum(MACHINE_KINDS).optional(),
+  region: z.string().max(40).optional(),
   cpus: z.number().int().min(1).max(4096),
   /** The 1-minute load average over the cores (1 = every core busy). */
   loadPerCore: z.number().min(0).max(1000),
@@ -56,6 +60,8 @@ export interface InfoDeps {
   readonly mcp: (folders: readonly string[]) => ReadonlyArray<{ name: string; from: 'user' | 'project' | 'plugin' }>;
   readonly origin: (root: string) => Promise<string | undefined>;
   readonly now: () => number;
+  /** What kind of computer this is, once known (worked out once at start). */
+  readonly kind?: () => KindFound | undefined;
 }
 
 export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
@@ -71,8 +77,10 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
   ]);
   const seen = new Set<string>();
   const mcp = deps.mcp(projects.map((p) => p.root)).filter((s) => !seen.has(s.name) && seen.add(s.name));
+  const kind = deps.kind?.();
   return {
     at: deps.now(),
+    ...(kind ? { kind: kind.kind, ...(kind.region ? { region: kind.region } : {}) } : {}),
     cpus,
     loadPerCore: Math.round(((deps.os.loadavg()[0] ?? 0) / cpus) * 100) / 100,
     memory: { freeGB: round1(deps.os.freemem() / GB), totalGB: round1(deps.os.totalmem() / GB) },
@@ -126,7 +134,11 @@ export function realInfoDeps(state: () => DomainState): InfoDeps {
   const runtimes = kept(() => runtimeStatuses().then((all) => all.map((r) => ({ id: r.id, state: r.state }))), SLOW_TTL_MS, now);
   const gh = kept(ghStatus, SLOW_TTL_MS, now);
   const origin = kept((root) => git(root, ['remote', 'get-url', 'origin'], 5_000).then((s) => s.trim() || undefined), SLOW_TTL_MS, now);
+  // Once, in the background: it never holds up an answer (the metadata waits 300 ms at most).
+  let kind: KindFound | undefined;
+  void detectKind(realKindReaders).then((k) => (kind = k), () => undefined);
   return {
+    kind: () => kind,
     os,
     state,
     disk: async (dir) => {

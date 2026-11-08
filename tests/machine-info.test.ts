@@ -74,4 +74,11 @@ describe('what a computer has free', () => {
     expect(info.gh).toBe('missing');
     expect(info.projects).toEqual([{ name: 'beluga' }, { name: 'scratch' }]);
   });
+
+  it('carries what kind of computer it is and its region, once known (BLG-782)', async () => {
+    expect((await collectInfo(deps())).kind).toBeUndefined();
+    const info = await collectInfo(deps({ kind: () => ({ kind: 'aws', region: 'eu-west-1' }) }));
+    expect(info).toMatchObject({ kind: 'aws', region: 'eu-west-1' });
+    expect(MachineInfo.parse(info).kind).toBe('aws');
+  });
 });
