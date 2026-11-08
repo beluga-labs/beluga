@@ -41,4 +41,10 @@ export const MACHINE_API = {
   'machines.devices': { args: z.tuple([]) },
   // Forget a device of yours (by id): cut off here at once, and on every other device of yours as they hear.
   'machines.forget': { args: z.tuple([deviceId]) },
+  // Keep My Secrets in Sync With a computer (BLG-805: your own variables follow, after this one ask per computer), or stop → the computer.
+  'machines.secrets': { args: z.tuple([deviceId, z.boolean()]) },
+  // How your settings sync across your devices: how many, and conflicts to say (the same setting changed on two while apart).
+  'machines.settingsSync': { args: z.tuple([]) },
+  // Clear the conflicts Settings says (Got It).
+  'machines.settingsSync.clear': { args: z.tuple([]) },
 } as const;

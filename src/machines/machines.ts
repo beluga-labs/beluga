@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import type DHT from 'hyperdht';
 import type { KeyPair, NoiseSocket } from 'hyperdht';
-import { type DeviceKeys, roleOf } from '../companion/device-crypto.js';
+import { type DeviceKeys, hex, roleOf } from '../companion/device-crypto.js';
 import { type OpenRelay, dialMac } from '../companion/dial.js';
 import { type DeviceBook, deviceId } from '../companion/devices.js';
 import type { DeviceCert } from '../companion/protocol.js';
@@ -21,6 +21,7 @@ import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, le
 import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
+import type { SettingsSync, SettingsSyncView } from './sync.js';
 
 /**
  * Your devices in the daemon (BLG-774): this install's device key, your device set, the computers
@@ -72,6 +73,8 @@ export interface MachineView {
   /** What kind of computer it is and its cloud region, as it said (BLG-782). */
   readonly kind?: MachineInfo['kind'];
   readonly region?: string;
+  /** Your secrets sync with it (you said Keep My Secrets in Sync for it, BLG-805). */
+  readonly secrets?: boolean;
 }
 
 interface Live {
@@ -125,6 +128,8 @@ export interface MachinesOptions {
   readonly updater?: ComputerUpdater;
   /** On a computer: keep a new name or icon your app gave it (its own settings, BLG-780). */
   readonly setLook?: (look: { readonly name?: string; readonly icon?: MachineIcon }) => void;
+  /** Your settings, the same on every device of yours (sync.ts, BLG-805): they ride every sync. */
+  readonly settings?: SettingsSync;
   readonly log?: (line: string) => void;
 }
 
@@ -192,6 +197,8 @@ export class Machines {
       }),
     );
     this.phonesChanged();
+    // A setting changed here (or taken from one device, for the others): every device of yours hears now.
+    this.opts.settings?.start({ self: () => ({ id: hex(this.keys.device.publicKey).slice(0, 16), name: this.opts.name() }), push: () => this.syncAll() });
     // What changed while this install was off reaches the others now.
     if (this.book.all().length) this.syncAll();
     // The app asks its computers what they have free, now and every 30 s.
@@ -203,6 +210,7 @@ export class Machines {
   async stop(): Promise<void> {
     this.stopped = true;
     for (const off of this.offs.splice(0)) off();
+    this.opts.settings?.stop();
     clearTimeout(this.retry);
     clearInterval(this.poller);
     this.door.closeAll('Beluga is shutting down');
@@ -247,6 +255,7 @@ export class Machines {
       this.merged(this.set.merge(frame));
       // It may have been forgotten by what it just said (or before): it hears so and goes.
       if (!this.admit(cert.link)) return socket.close(4010, 'This device was forgotten');
+      this.takeSettings(cert, frame);
       // An app of yours asking what this computer has free hears it too (BLG-778).
       const wantsInfo = frame.want?.includes('info') && roleOf(cert) === 'app' && this.opts.info;
       const info = wantsInfo ? await this.opts.info!().catch((err: unknown) => void this.opts.log?.(`machines: couldn't say what's free: ${String(err)}`)) : undefined;
@@ -257,7 +266,7 @@ export class Machines {
       if (frame.look && roleOf(cert) === 'app' && (frame.look.name || frame.look.icon)) this.opts.setLook?.(frame.look);
       const fresh = frame.look && wantsInfo ? await this.opts.info!().catch(() => undefined) : info;
       if (!socket.isOpen) return;
-      const answer: MachineSync = { ...this.set.syncFrame(), ...(fresh ? { info: fresh } : {}), ...(updated ? { updated } : {}) };
+      const answer: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(cert), ...(fresh ? { info: fresh } : {}), ...(updated ? { updated } : {}) };
       socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
@@ -537,6 +546,7 @@ export class Machines {
     if (!cert) throw new Error('No device of yours has that id');
     this.set.forget(cert.device);
     this.merged([cert]);
+    this.opts.settings?.forget(id);
     return { forgotten: cert.name };
   }
 
@@ -605,7 +615,7 @@ export class Machines {
   /** Dial one device of yours, swap device sets, merge its answer; `info`: ask a computer what it has free too. */
   async syncWith(r: MachineRecord, info = false): Promise<boolean> {
     const socket = await this.openLink(r);
-    const ask: MachineSync = { ...this.set.syncFrame(), ...(info ? { want: ['info' as const] } : {}) };
+    const ask: MachineSync = { ...this.set.syncFrame(), ...this.settingsFor(r.cert), ...(info ? { want: ['info' as const] } : {}) };
     const sent = Date.now();
     const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
@@ -613,7 +623,41 @@ export class Machines {
     this.keepLook(deviceId(r.cert), answer.info);
     this.book.update(deviceId(r.cert), { lastSeen: Date.now() });
     this.merged(this.set.merge(answer));
+    if (this.set.holds(r.cert)) this.takeSettings(r.cert, answer);
     return true;
+  }
+
+  // ---- your settings on every device (BLG-805)
+
+  /** Your settings as this install tells `cert`'s device (with your secrets only where they sync). */
+  private settingsFor(cert: DeviceCert): Pick<MachineSync, 'settings'> {
+    const sync = this.opts.settings;
+    if (!sync || roleOf(cert) === 'phone') return {};
+    return { settings: sync.frame({ id: deviceId(cert) }, this.set.holdsIdentity) };
+  }
+
+  private takeSettings(cert: DeviceCert, frame: MachineSync): void {
+    if (frame.settings === undefined || roleOf(cert) === 'phone') return;
+    this.opts.settings?.merge({ id: deviceId(cert), name: cert.name, role: roleOf(cert) }, frame.settings, this.set.holdsIdentity);
+  }
+
+  /** Keep My Secrets in Sync With a computer (the one ask for it, in Settings), or stop; it hears at once. */
+  keepSecrets(id: string, on: boolean): MachineView {
+    const r = this.book.get(id);
+    if (!r || !this.drives(r)) throw new Error('That computer isn’t one of yours here');
+    if (!this.opts.settings) throw new Error('Settings don’t sync on this Beluga');
+    this.opts.settings.setSecretsWith(id, on);
+    this.syncAll();
+    return this.view(r);
+  }
+
+  /** How your settings sync: how many, and the conflicts to say. */
+  settingsSync(): SettingsSyncView {
+    return this.opts.settings?.view() ?? { synced: 0, conflicts: [] };
+  }
+
+  clearSettingsConflicts(): void {
+    this.opts.settings?.clearConflicts();
   }
 
   private view(r: MachineRecord): MachineView {
@@ -638,6 +682,7 @@ export class Machines {
       ...(live?.info?.region ? { region: live.info.region } : {}),
       skew,
       ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
+      ...(this.opts.settings?.secretsOn(deviceId(r.cert)) ? { secrets: true } : {}),
     };
   }
 }

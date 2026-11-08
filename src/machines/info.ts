@@ -64,6 +64,8 @@ export const MachineSync = DeviceSetSync.extend({
   updated: UpdateAnswer.optional(),
   /** Rename it or pick its icon from your app (BLG-780): kept on the computer itself. */
   look: z.object({ name: z.string().trim().min(1).max(64).optional(), icon: z.enum(MACHINE_ICONS).optional() }).optional(),
+  /** Your settings, each with when and where it changed (BLG-805, sync.ts reads it: a part it can't read never holds up the rest). */
+  settings: z.unknown().optional(),
 });
 export type MachineSync = z.infer<typeof MachineSync>;
 

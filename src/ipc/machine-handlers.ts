@@ -28,4 +28,7 @@ export const MACHINE_HANDLERS = {
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.secrets': (s, id, on) => needMachines(s).keepSecrets(id, on),
+  'machines.settingsSync': (s) => needMachines(s).settingsSync(),
+  'machines.settingsSync.clear': (s) => needMachines(s).clearSettingsConflicts(),
 } satisfies MachineHandlers;

@@ -558,6 +558,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',
+  'machines.secrets': 'refuse',
+  'machines.settingsSync': 'drive',
+  'machines.settingsSync.clear': 'drive',
   // ---- assistant
   'assistant.newChat': 'drive',
   'assistant.openChat': 'drive',
