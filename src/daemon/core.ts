@@ -33,6 +33,7 @@ import { launchStats } from '../core/stats/counter.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
 import { launchExternal } from '../external/launch.js';
+import { closePreviews } from '../preview/off.js';
 import { Store, initialState, prefsFrom } from '../core/store.js';
 import { createDemoFolders, createDemoWorkspaces, seedDemoContext, startDemoFriend, startDemoGuest } from '../demo.js';
 import { type Identity, deriveKeys, generateSecret, loadIdentity } from '../net/crypto.js';
@@ -455,6 +456,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     stopAutoContinue();
     stopBoard();
     stopDialogues();
+    await closePreviews().catch(() => undefined);
     await stopCompanion();
     await stopNetwork();
     stopEarnings();

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { type Criterion, criteria } from '@beluga/core/board/criteria.js';
-import type { Plan } from '@beluga/core/plans/model.js';
+import { type Plan, shownBody, taskById } from '@beluga/core/plans/model.js';
+import { staleTasks } from '@beluga/core/plans/coherence.js';
 import { taskProof } from '@beluga/core/board/model.js';
 import { FINISHED, type MilestoneView, type PlanView, type TaskView, taskOrder } from '@beluga/core/plans/progress.js';
 import { Markdown } from '../chat/Markdown.js';
@@ -25,6 +26,8 @@ import { revealLabel } from '../lib/os-words.js';
 export const FEED = 'feed';
 /** …and where its work goes (milestones into its branch, the branch into main) when this is. */
 export const BRANCH = 'branch';
+/** …and what the plan has decided (BLG-772) when this is. */
+export const DECISIONS = 'decisions';
 
 /**
  * What you picked on the plan: a task (its goal, criteria, what it waits on, where it runs), a
@@ -33,10 +36,11 @@ export const BRANCH = 'branch';
 export function PlanDetails({ view, picked, canStart, onPick, onClose }: { view: PlanView; picked: string; canStart: boolean; onPick: (id: string) => void; onClose: () => void }) {
   const feed = picked === FEED;
   const branch = picked === BRANCH;
+  const decided = picked === DECISIONS;
   const gate = picked.startsWith('gate:') ? view.milestones.find((m) => `gate:${m.milestone.id}` === picked) : undefined;
-  const task = gate || feed || branch ? undefined : view.milestones.flatMap((m) => m.tasks).find((t) => t.task.id === picked);
+  const task = gate || feed || branch || decided ? undefined : view.milestones.flatMap((m) => m.tasks).find((t) => t.task.id === picked);
   const [scrolled, setScrolled] = useState(false);
-  const shown = Boolean(feed || branch || gate || task);
+  const shown = Boolean(feed || branch || decided || gate || task);
   // Another pick starts at its top (the body is keyed by it).
   useEffect(() => setScrolled(false), [picked]);
   // Esc closes it, unless you're typing or a sheet is open (those take Esc first).
@@ -53,13 +57,13 @@ export function PlanDetails({ view, picked, canStart, onPick, onClose }: { view:
   }, [shown, onClose]);
   if (!shown) return null;
   return (
-    <aside className={p.details} aria-label={feed ? 'What happened' : branch ? 'Where the work goes' : 'Details'}>
+    <aside className={p.details} aria-label={feed ? 'What happened' : branch ? 'Where the work goes' : decided ? 'Decisions' : 'Details'}>
       <header className={p.detailsHead} data-scrolled={scrolled ? 'true' : 'false'}>
-        <div className={p.detailsHeadText}>{feed ? <FeedHead /> : branch ? <BranchHead view={view} /> : gate ? <GateHead m={gate} /> : <TaskHead t={task!} />}</div>
+        <div className={p.detailsHeadText}>{feed ? <FeedHead /> : branch ? <BranchHead view={view} /> : decided ? <DecisionsHead /> : gate ? <GateHead m={gate} /> : <TaskHead t={task!} />}</div>
         <IconButton icon="x" label="Close" className={p.detailsClose} onClick={onClose} />
       </header>
       <div key={picked} className={p.detailsBody} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
-        {feed ? <PlanFeed plan={view.plan} /> : branch ? <BranchFlow view={view} /> : gate ? <GateDetails plan={view.plan} m={gate} onPick={onPick} /> : <TaskDetails view={view} t={task!} canStart={canStart} />}
+        {feed ? <PlanFeed plan={view.plan} /> : branch ? <BranchFlow view={view} /> : decided ? <PlanDecisions plan={view.plan} onPick={onPick} /> : gate ? <GateDetails plan={view.plan} m={gate} onPick={onPick} /> : <TaskDetails view={view} t={task!} canStart={canStart} />}
       </div>
     </aside>
   );
@@ -71,6 +75,47 @@ function FeedHead() {
       <div className={p.detailsKind}>Plan</div>
       <h3 className={p.detailsTitle}>What happened</h3>
     </>
+  );
+}
+
+function DecisionsHead() {
+  return (
+    <>
+      <div className={p.detailsKind}>Plan</div>
+      <h3 className={p.detailsTitle}>Decisions</h3>
+      <p className={p.muted}>What the plan has decided along the way. A decision that replaced another is kept, crossed out.</p>
+    </>
+  );
+}
+
+/** The plan's decisions, newest first: each one in force, or replaced (and by which), with the tasks still written the old way. */
+function PlanDecisions({ plan, onPick }: { plan: Plan; onPick: (id: string) => void }) {
+  const body = shownBody(plan);
+  const list = [...(body?.decisions ?? [])].reverse();
+  if (!list.length) return <p className={p.muted}>No decisions recorded yet. Your agent records them here as you settle things in the conversation.</p>;
+  return (
+    <ol className={p.decisions}>
+      {list.map((d) => {
+        const stale = body ? staleTasks(body, d) : [];
+        return (
+          <li key={d.id} className={cx(p.decision, d.supersededBy && p.decisionOld)}>
+            <span className={cx(p.decisionText, 'selectable')}>{d.text}</span>
+            {d.supersededBy ? <span className={p.muted}>Replaced by “{body?.decisions?.find((x) => x.id === d.supersededBy)?.text ?? d.supersededBy}”</span> : null}
+            {stale.length ? (
+              <span className={p.decisionStale}>
+                Still written the old way:{' '}
+                {stale.map((id, i) => (
+                  <button key={id} type="button" className={p.linkButton} onClick={() => onPick(id)}>
+                    {i ? ', ' : ''}
+                    {taskById(body, id)?.title ?? id}
+                  </button>
+                ))}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

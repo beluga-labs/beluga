@@ -27,6 +27,8 @@ const VIEW_SOURCE = 'It runs a view\'s source, which can be a command: sentinel_
 const AGENT_TERM = 'A terminal app for a person to type in: an agent works through beluga_chat_send.';
 const STATS = 'The Usage tab counts the person\'s work in every project, past any grant\'s scope.';
 const WEB_SESSION = 'A browser session can answer approvals and read secret values, which no agent does (BLG-244).';
+const WINDOW_LOAD = 'The window notes a part of itself that did not load: an agent has no window.';
+const PREVIEW = 'A live preview is built for a window\'s frame and drawn there: an agent has no frame.';
 const SAVE_PANEL = 'It writes a file where a person chose in the Save panel.';
 
 export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
@@ -408,6 +410,8 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'plans.resumeTask': 'covered',
   'plans.remove': 'covered',
   'plans.setStyle': 'covered',
+  'plans.verify': 'gated',
+  'plans.fixReview': 'covered',
   'dialogues.start': 'covered',
   'dialogues.confirm': 'covered',
   'dialogues.continue': 'covered',
@@ -523,6 +527,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'files.version': 'gated',
   'local.browse': 'gated',
   'diagnostics.report': 'gated',
+  'diagnostics.windowProblem': { refused: WINDOW_LOAD },
   'voice.load': 'gated',
   'calls.start': 'gated',
   'calls.join': 'gated',
@@ -554,4 +559,6 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'stats.get': { refused: STATS },
   'stats.note': { refused: STATS },
   'stats.saveImage': { refused: SAVE_PANEL },
+  'preview.open': { refused: PREVIEW },
+  'preview.snapshot': { refused: PREVIEW },
 };

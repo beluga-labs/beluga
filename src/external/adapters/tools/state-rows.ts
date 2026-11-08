@@ -45,6 +45,7 @@ export const STATE_ROWS: readonly MethodRow[] = [
   { name: 'plan_tidy_up', method: 'plans.tidyUp', params: ['plan', 'on'], scope: plan, description: 'Turn a plan\'s tidying up on or off.' },
   { name: 'plan_pass', method: 'plans.pass', params: ['plan', 'milestone'], scope: { on: 'plan_not_its_own', arg: 'plan' }, description: 'Pass a milestone, so the next one opens. A person is asked each time. Refused on a plan that this agent changed: a checker stays separate.' },
   { name: 'plan_recheck', method: 'plans.recheck', params: ['plan', 'milestone'], scope: plan, description: 'Ask the plan\'s agent to check a milestone again.' },
+  { name: 'plan_fix_review', method: 'plans.fixReview', params: ['plan'], scope: plan, description: 'Send what the review of a plan\'s draft found to the plan\'s agent, to fix.' },
   { name: 'plan_send_back', method: 'plans.sendBack', params: ['plan', 'milestone', 'why'], scope: plan, description: 'Send a milestone back, with what is missing.' },
   { name: 'plan_open_pr', method: 'plans.openPr', params: ['plan'], scope: plan, description: 'Open a plan\'s pull request. A person is asked each time.' },
   { name: 'plan_merge_pr', method: 'plans.mergePr', params: ['plan', 'options'], scope: plan, description: 'Merge a plan\'s pull request. A person is asked each time.' },

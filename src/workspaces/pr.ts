@@ -276,6 +276,7 @@ interface GhPr {
   mergeStateStatus?: string;
   autoMergeRequest?: unknown;
   headRefOid?: string;
+  mergedAt?: string;
 }
 
 function toPr(raw: GhPr): PullRequest | undefined {
@@ -284,6 +285,7 @@ function toPr(raw: GhPr): PullRequest | undefined {
   const review = raw.reviewDecision === 'APPROVED' || raw.reviewDecision === 'CHANGES_REQUESTED' || raw.reviewDecision === 'REVIEW_REQUIRED' ? raw.reviewDecision : undefined;
   const checkRuns = parseChecks(raw.statusCheckRollup);
   const open = state === 'OPEN';
+  const mergedAt = state === 'MERGED' && typeof raw.mergedAt === 'string' ? Date.parse(raw.mergedAt) : NaN;
   return {
     number: raw.number,
     url: raw.url,
@@ -296,6 +298,7 @@ function toPr(raw: GhPr): PullRequest | undefined {
     ...(open && raw.mergeable === 'CONFLICTING' ? { conflicts: true } : {}),
     ...(open && raw.autoMergeRequest ? { autoMerge: true } : {}),
     ...(typeof raw.headRefOid === 'string' && raw.headRefOid ? { head: raw.headRefOid } : {}),
+    ...(Number.isFinite(mergedAt) ? { mergedAt } : {}),
     ...(open && raw.mergeStateStatus === 'BEHIND' ? { mergeState: 'behind' as const } : open && raw.mergeStateStatus === 'BLOCKED' ? { mergeState: 'blocked' as const } : {}),
   };
 }
@@ -332,7 +335,7 @@ export function parsePrList(json: string): Map<string, PullRequest> | undefined 
   return out;
 }
 
-const PR_FIELDS = 'number,url,state,title,isDraft,statusCheckRollup,reviewDecision,mergeable,mergeStateStatus,autoMergeRequest,headRefOid';
+const PR_FIELDS = 'number,url,state,title,isDraft,statusCheckRollup,reviewDecision,mergeable,mergeStateStatus,autoMergeRequest,headRefOid,mergedAt';
 /** How many PRs one `gh pr list` asks for. */
 export const PR_LIST_LIMIT = 60;
 

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Location, ViewerState } from '@beluga/core/store.js';
 import type { FsEntry } from '@beluga/protocol.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
@@ -8,6 +8,7 @@ import { Icon } from '../../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../../components/SpecMenu.js';
 import { IconButton, Segmented, cx } from '../../components/ui.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
+import { ViewBoundary, lazyView } from '../../lib/lazy-view.js';
 import { localPathOf, openWithDefaultApp } from '../../lib/files.js';
 import { focusFor, openFocus, showChange, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
@@ -17,6 +18,7 @@ import { STATE } from '../../views/DiffView.js';
 import { useRowItems } from '../../views/FilesView.js';
 import { type ReaderMode, hasRenderedLook, initialMode, isPdfFile } from '../../views/reader/reader-model.js';
 import { EditTools } from '../../views/reader/EditTools.js';
+import { ComponentPreview, PreviewToggle, useComponentPreview, usePreviewing } from '../../views/reader/component-preview.js';
 import { pendingLine, revealLine } from '../../views/reader/reveal.js';
 import { ContentResultsList, FlagToggles, type SearchFlags, useContentSearch, useNameSearch } from './ContentSearch.js';
 import { useEditSession } from '../../views/reader/edit-store.js';
@@ -28,8 +30,8 @@ import s from './panel.module.css';
 import k from './content-search.module.css';
 import { revealLabel } from '../../lib/os-words.js';
 
-/** The reader comes in its own chunk, the first time a file is opened. */
-const FileContent = lazy(() => import('../../views/reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+/** The reader comes in its own chunk, fetched early so opening a file never waits on it (#370). */
+const FileContent = lazyView('views/reader/FileReader', () => import('../../views/reader/FileReader.js').then((m) => m.FileContent), 'first');
 
 /** Folders you opened in each workspace's tree, kept while the window is open. */
 const opened = new Map<string, ReadonlySet<string>>();
@@ -72,6 +74,10 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
   const dir = viewer.path.slice(0, viewer.path.length - name.length).replace(/\/$/, '');
   const editing = Boolean(useEditSession(viewer));
   const markdown = hasRenderedLook(viewer.path) && !viewer.image && !editing;
+  // A component file, with Live previews on: drawn live beside its source.
+  const component = useComponentPreview(viewer, wsId);
+  const [previewing, setPreviewing] = usePreviewing(viewer.path);
+  const drawing = Boolean(component && previewing && !editing);
   return (
     <section className={s.preview} aria-label={name}>
       <div className={s.previewHead}>
@@ -93,15 +99,18 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
             ]}
           />
         ) : null}
+        {component && !editing ? <PreviewToggle previewing={previewing} onChange={setPreviewing} /> : null}
         {changed ? <IconButton icon="diff" label="Show Changes" onClick={() => showChange(client.store.getState(), viewer.path)} /> : null}
         {local ? <IconButton icon="external" label={isPdfFile(viewer.path) ? 'Open in Preview' : 'Open in Editor'} onClick={() => void openWithDefaultApp(client, local)} /> : null}
         <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => openFocus('file', wsId)} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={() => void api.files.closeViewer()} />
       </div>
       <div ref={body} className={cx(s.previewBody, s.previewFile, 'selectable')} tabIndex={0} {...{ [SCROLL_ROOT]: '' }}>
-        <Suspense fallback={<div className={s.dimPad}>Opening…</div>}>
-          <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />
-        </Suspense>
+        <ViewBoundary at={viewer.path}>
+          <Suspense fallback={<div className={s.dimPad}>Opening…</div>}>
+            {drawing && component ? <ComponentPreview previewRef={component} wsId={wsId} /> : <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />}
+          </Suspense>
+        </ViewBoundary>
       </div>
     </section>
   );

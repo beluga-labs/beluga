@@ -292,6 +292,7 @@ export const MORE_STATE_TOOLS = [
   'plan_pass',
   'plan_recheck',
   'plan_send_back',
+  'plan_fix_review',
   'plan_open_pr',
   'plan_merge_pr',
   'plan_merge_local',
@@ -465,6 +466,7 @@ export const GATED_TOOLS = [
   'sentinel_decide',
   'sentinel_set_run_at_once',
   'plans_approve',
+  'plans_verify',
   'team_answer',
   'team_leave',
   'team_befriend',
@@ -778,6 +780,7 @@ export const TOOL_ACCESS: ToolAccess<ExternalTool> = {
   plan_pass: 'destructive',
   plan_recheck: 'launch_or_send',
   plan_send_back: 'state_write',
+  plan_fix_review: 'launch_or_send',
   plan_open_pr: 'destructive',
   plan_merge_pr: 'destructive',
   plan_merge_local: 'destructive',
@@ -940,6 +943,7 @@ export const TOOL_ACCESS: ToolAccess<ExternalTool> = {
   sentinel_decide: 'gated',
   sentinel_set_run_at_once: 'gated',
   plans_approve: 'gated',
+  plans_verify: 'gated',
   team_answer: 'gated',
   team_leave: 'gated',
   team_befriend: 'gated',
@@ -1003,4 +1007,6 @@ export const NOT_EXPOSED: Readonly<Record<string, 'chat_only' | 'checker_only'>>
   read_earlier: 'chat_only',
   // A milestone's checker records its verdict. An outside agent never passes its own work.
   plan_gate: 'checker_only',
+  // A draft's reviewer records what it found (BLG-772): a fresh agent, not the one that wrote it.
+  plan_review: 'checker_only',
 };

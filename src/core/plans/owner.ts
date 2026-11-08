@@ -59,6 +59,8 @@ function foldMap(plans: PlansState, board: BoardState): ReadonlyMap<string, Plan
   for (const plan of plans.plans) if (isLivePlan(plan) && plan.home.startsWith('ws:')) map.set(plan.home.slice(3), plan);
   // The conversations that check its milestones.
   for (const plan of plans.plans) if (isLivePlan(plan)) for (const run of Object.values(plan.runs ?? {})) if (run?.checker) map.set(run.checker, plan);
+  // The conversation that reviews its draft (BLG-772).
+  for (const plan of plans.plans) if (isLivePlan(plan) && plan.review?.chat) map.set(plan.review.chat, plan);
   for (const [ws, id] of planWorktrees(plans, board)) map.set(ws, planById(plans, id)!);
   folds.set(plans, { board, map });
   return map;

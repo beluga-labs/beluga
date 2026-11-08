@@ -10,6 +10,7 @@ import { capabilities, connect, inApp } from './lib/boot.js';
 import { BelugaProvider } from './lib/beluga.js';
 import { apply, zoom } from './lib/prefs.js';
 import { watchWindow } from './lib/window-active.js';
+import { watchPreloadErrors } from './lib/lazy-view.js';
 import { Button } from './components/ui.js';
 import { UpdateLayer } from './dialogs/UpdateSheet.js';
 import { FolderBrowserHost } from './dialogs/FolderBrowser.js';
@@ -20,6 +21,7 @@ import './styles/base.css';
 apply();
 if (inApp()) document.documentElement.dataset.app = 'tauri';
 watchWindow();
+watchPreloadErrors();
 
 /** Attach to Beluga, and keep trying while it starts (or comes back). */
 function Root() {

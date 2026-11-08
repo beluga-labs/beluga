@@ -310,6 +310,7 @@ export const PHONE: Record<Method, Side> = {
   'stats.note': 'mac',
   'stats.saveImage': 'mac',
   'diagnostics.report': 'mac',
+  'diagnostics.windowProblem': 'mac',
 
   // ---- browsers on the web port (BLG-650): let in and revoked from the Mac's Settings or `beluga web`
   'web.link': 'mac',
@@ -410,6 +411,8 @@ export const PHONE: Record<Method, Side> = {
   'plans.here': 'mac',
   'plans.approve': 'phone',
   'plans.discard': 'phone',
+  'plans.fixReview': 'phone',
+  'plans.verify': 'phone',
   'plans.edit': 'mac',
   'plans.setAutonomy': 'phone',
   'plans.setPaused': 'mac',
@@ -488,6 +491,9 @@ export const PHONE: Record<Method, Side> = {
   'git.filters': 'mac',
   'git.worktreeAt': 'mac',
   'view.fetch': 'mac',
+  // A live preview builds and runs code on the Mac for its own window's frame; the phone shows a plain card.
+  'preview.open': 'mac',
+  'preview.snapshot': 'mac',
   'files.searchContent': 'mac',
   'files.searchNames': 'mac',
   'files.save': 'mac',
