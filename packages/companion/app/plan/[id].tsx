@@ -7,7 +7,7 @@ import { agentName } from '../../../../src/shared/agent-label';
 import { openOnMac } from '../../lib/mac';
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import Animated, { LinearTransition, FadeIn } from 'react-native-reanimated';
+import Animated, { LinearTransition, FadeIn, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { convHref } from '../../components/Conv';
 import { answer, NeedButtons, NeedFace } from '../../components/Needs';
@@ -150,6 +150,8 @@ export default function Plan() {
                   </T>
                 </View>
               ) : null}
+              {/* A fresh agent reads the draft before you approve it (1.45, BLG-772); what it finds waits on you below. */}
+              {p.review?.state === 'reviewing' ? <Verifying review={p.review} /> : null}
               {p.topic ? <PlanChat topic={p.topic} drafting={drafting} /> : null}
             </View>
 
@@ -174,6 +176,21 @@ export default function Plan() {
                       <NeedButtons item={n} onAnswer={(t) => answer(n, t)} />
                     </Card>
                   </Animated.View>
+                ))}
+              </View>
+            ) : null}
+
+            {/* What the plan has decided (1.45): a replaced decision stays, crossed out. */}
+            {p.decisions?.length ? (
+              <View style={{ marginTop: 22, paddingHorizontal: 20, gap: 8 }}>
+                <T v="eyebrow">Decisions</T>
+                {p.decisions.map((d, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+                    <Check color={d.replaced ? color.text3 : color.ok} size={14} strokeWidth={2} style={{ marginTop: 3 }} />
+                    <T v="callout" c={d.replaced ? color.text3 : color.text} style={{ flex: 1, ...(d.replaced ? { textDecorationLine: 'line-through' as const } : {}) }}>
+                      {d.text}
+                    </T>
+                  </View>
                 ))}
               </View>
             ) : null}
@@ -204,6 +221,45 @@ export default function Plan() {
         )}
       </ScrollView>
     </Screen>
+  );
+}
+
+/**
+ * A fresh agent verifying the plan (1.45, BLG-772): a breathing dot, how many of its four checks are
+ * behind it, and its latest line (each new one fading in), so it never looks stuck.
+ */
+function Verifying({ review }: { review: NonNullable<PlanView['review']> }) {
+  const breath = useSharedValue(0.35);
+  const reduced = useReducedMotion();
+  useEffect(() => {
+    if (!reduced) breath.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
+  }, [breath, reduced]);
+  const dot = useAnimatedStyle(() => ({ opacity: breath.value }));
+  const done = review.checksDone ?? 0;
+  return (
+    <View style={{ gap: 6, padding: 12, borderRadius: 14, backgroundColor: toneBg('lavender') }} accessibilityRole="summary" accessibilityLabel={`Verifying the plan: ${done} of 4 checks done`}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Animated.View style={[{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneInk('lavender') }, dot]} />
+        <T v="caption" c={toneInk('lavender')} style={{ fontWeight: '700', flex: 1 }}>
+          Verifying the plan
+        </T>
+        <T v="caption" c={toneInk('lavender')}>
+          {done} of 4 checks
+        </T>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 4 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: toneInk('lavender'), opacity: i < done ? 0.8 : i === done ? 0.4 : 0.15 }} />
+        ))}
+      </View>
+      {review.now ? (
+        <Animated.View key={review.now} entering={FadeIn.duration(220)}>
+          <T v="caption" c={color.text2} numberOfLines={2}>
+            {review.now}
+          </T>
+        </Animated.View>
+      ) : null}
+    </View>
   );
 }
 

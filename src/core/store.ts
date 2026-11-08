@@ -87,7 +87,7 @@ export type LogItem =
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
       readonly reacts?: readonly ReactionEvent[];
     }
-  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
+  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly merged?: MergedMark; readonly dialogue?: DialogueMark }
   | {
       readonly id: string;
       readonly type: 'agent';
@@ -123,8 +123,16 @@ export type LogItem =
       readonly between?: 'thinking' | 'writing';
       /** Since when it has been `between` that way. */
       readonly betweenAt?: number;
+      /** What it said before a later step: drawn quietly among its steps, not as its answer (see agentRemarks). */
+      readonly remarks?: readonly Remark[];
     }
   | ShellItem;
+
+/** Words Claude said between its steps, and when (a step came after them, so they aren't its answer). */
+export interface Remark {
+  readonly text: string;
+  readonly ts: number;
+}
 
 /**
  * Who wrote a line of a shared workspace's earlier conversation (it arrives as a system line,
@@ -142,6 +150,19 @@ export interface ShippedMark {
 
 /** A shipped divider's words, where it's drawn as plain text (the phone, a log). */
 export const shippedText = (number: number, into: string): string => `Above this line went to PR #${number}, merged into ${into}. New work starts here, for a new pull request.`;
+
+/**
+ * The worktree's work merged (Beluga's Merge, Merge When Ready, on GitHub, or into the main
+ * folder): `number` is its pull request (none: merged without one). Drawn as a divider.
+ */
+export interface MergedMark {
+  readonly into: string;
+  readonly number?: number;
+  readonly url?: string;
+}
+
+/** A merged divider's words, where it's drawn as plain text (the phone, a log). */
+export const mergedText = (m: MergedMark): string => `Above this line was merged into ${m.into}${m.number !== undefined ? ` in PR #${m.number}` : ''}.`;
 
 /** Where a dialogue shows in a conversation: its header card (a system line) and its turns (chat lines). */
 export interface DialogueMark {
@@ -315,8 +336,12 @@ export interface Prefs {
   readonly settleOnMerge: boolean;
   /** Days without activity before a chat settles; 0: never. */
   readonly settleIdleDays: number;
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  readonly pushToPr: boolean;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
+  /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
+  readonly experiments: readonly string[];
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -626,7 +651,7 @@ export type Action =
   | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; dialogue?: DialogueMark }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
-  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
+  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
   | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
@@ -707,6 +732,8 @@ const TRANSFER_LIMIT = 20;
 /** Strip control characters (terminal escapes) and invisible bidi/zero-width marks from remote text. */
 export const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u202A-\u202E\u2066-\u2069]/g, '');
 const MAX_STEPS = 6;
+/** What a card keeps of what Claude said between its steps (the newest). */
+const MAX_REMARKS = 40;
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'calm',
@@ -730,7 +757,9 @@ export const DEFAULT_PREFS: Prefs = {
   chatCategories: false,
   settleOnMerge: true,
   settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
+  pushToPr: true,
   scratchFolder: true,
+  experiments: [],
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',
@@ -938,23 +967,30 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
   const between = a.event === 'started' || (a.event === 'progress' && !a.text && !subOpen) ? 'thinking' : a.event === 'text' ? 'writing' : a.event === 'tool' || a.event === 'progress' ? undefined : wasBetween;
   const betweenAt = between === undefined ? undefined : between === wasBetween && wasAt !== undefined ? wasAt : a.ts;
   const noted = base.text === READS_AFTER_STEP || base.text === STOPPING_FOR;
+  const subagents = a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents;
+  // A step after its words (a tool, a sub-agent starting) makes them something it said on the way, not its answer.
+  const stepped = a.event === 'tool' || subagents.length > base.subagents.length;
+  const remark = stepped && base.text && !noted ? { text: base.text, ts: wasBetween === 'writing' && wasAt !== undefined ? wasAt : a.ts } : undefined;
   const updated = {
     ...rest,
     ...(progress ? { progress } : {}),
     ...(between ? { between, betweenAt } : {}),
+    ...(remark ? { remarks: [...(base.remarks ?? []), remark].slice(-MAX_REMARKS) } : {}),
     status: a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? 'started' : a.event,
     // The run ended: ones still running end with it; one that failed or was stopped stays so.
-    subagents: a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents,
+    subagents,
     text:
       // A steered message's note ("reads this after its current step") isn't Claude's words: its own turn starting (or going back in line) ends it, a newer note replaces it.
       noted && (a.event === 'started' || a.event === 'text' || a.event === 'queued')
         ? a.event === 'text' ? a.text : ''
-        : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
-          a.event === 'text'
-        ? (base.text ? `${base.text}\n\n` : '') + a.text
-        : a.event === 'done' || a.event === 'error' || a.event === 'denied'
-          ? a.text || base.text
-          : base.text,
+        : remark
+          ? ''
+          : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
+            a.event === 'text'
+            ? (base.text ? `${base.text}\n\n` : '') + a.text
+            : a.event === 'done' || a.event === 'error' || a.event === 'denied'
+              ? a.text || base.text
+              : base.text,
     steps: a.event === 'tool' ? [...base.steps, a.text].slice(-MAX_STEPS) : base.steps,
     endTs: a.event === 'done' || a.event === 'error' || a.event === 'denied' ? a.ts : base.endTs,
     ...(a.event === 'started' || a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? { lastAt: a.ts } : {}),
@@ -1086,7 +1122,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'system':
       return {
         ...state,
-        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
+        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.merged ? { merged: action.merged } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
       };
     case 'conflicts': {
       const { [action.id]: _old, ...rest } = state.conflicts;

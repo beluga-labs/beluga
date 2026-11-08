@@ -319,6 +319,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   'stats.saveImage': 'drive',
   // ---- diagnostics
   'diagnostics.report': 'drive',
+  // The window couldn't load a part of itself (#370): noted in that computer's black box.
+  'diagnostics.windowProblem': 'drive',
   // ---- claudeCode
   'claudeCode.steps': 'drive',
   'claudeCode.step': 'drive',
@@ -436,6 +438,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'plans.approve': 'drive',
   'plans.discard': 'drive',
   'plans.edit': 'drive',
+  // A fresh agent's read of a draft, and Fix (BLG-772): a plan's own work, wherever it runs.
+  'plans.verify': 'drive',
+  'plans.fixReview': 'drive',
   'plans.setAutonomy': 'drive',
   'plans.setPaused': 'drive',
   'plans.setParallel': 'drive',
@@ -462,6 +467,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'plans.moveLand': 'drive',
   'plans.moveDone': 'drive',
   'plans.moveUndo': 'drive',
+  // Live previews (BLG-769): built and served on the computer; the app forwards their server's port to this Mac.
+  'preview.open': 'drive',
+  'preview.snapshot': 'drive',
   // ---- dialogues
   'dialogues.start': 'drive',
   'dialogues.confirm': 'drive',

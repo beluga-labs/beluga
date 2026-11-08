@@ -84,11 +84,59 @@ export interface PlanMilestone {
   readonly dependsOn?: readonly string[];
 }
 
+/**
+ * Something the plan has decided ("one app, your own client"): the plan's own, so superseding one
+ * is explicit, and the tasks still written the old way can be found (BLG-772).
+ */
+export interface Decided {
+  readonly id: string;
+  readonly text: string;
+  /** Words that mark text following it ("New Window"): once it's superseded, tasks still using them are listed. */
+  readonly terms?: readonly string[];
+  /** Words it retires (an old name: "machine", "Auto"): tasks still using them are listed. */
+  readonly retires?: readonly string[];
+  /** The decision it replaced (an id). */
+  readonly supersedes?: string;
+  /** Replaced by a later decision (its id): kept for the record, no longer in force. */
+  readonly supersededBy?: string;
+}
+
 /** What a plan says: the part Claude writes and you approve. */
 export interface PlanBody {
   readonly title: string;
   readonly goal: string;
   readonly milestones: readonly PlanMilestone[];
+  /** What it has decided along the way, in the order decided (superseded ones kept, marked). */
+  readonly decisions?: readonly Decided[];
+}
+
+/** One thing a draft's reviewer found (see draft-review.ts). */
+export interface ReviewFinding {
+  readonly kind: 'contradiction' | 'duplicate' | 'stale' | 'order' | 'other';
+  readonly text: string;
+  /** The plan's task (or milestone) ids it's about. */
+  readonly ids?: readonly string[];
+}
+
+export const FINDING_KINDS: readonly ReviewFinding['kind'][] = ['contradiction', 'duplicate', 'stale', 'order', 'other'];
+
+/**
+ * A fresh agent's read of the draft, when you ask for it (Verify, Then Approve: see draft-review.ts):
+ * for one revision of it. `reviewing` while it reads; `done` with what it found (none: it reads
+ * well); `failed` when it ended without a verdict (Approve Plan is offered as before).
+ */
+export interface DraftReview {
+  /** The draftRev it read. */
+  readonly rev: number;
+  readonly at: number;
+  readonly state: 'reviewing' | 'done' | 'failed';
+  readonly findings: readonly ReviewFinding[];
+  /** Its conversation (a workspace id), kept across rounds: it remembers what it found before. */
+  readonly chat?: string;
+  /** Fix was sent to the plan's agent for this revision. */
+  readonly fixAsked?: boolean;
+  /** Approve the plan once it reads well (Verify, Then Approve). */
+  readonly thenApprove?: boolean;
 }
 
 /** Claude's check of a milestone's pass criteria. */
@@ -299,6 +347,8 @@ export interface Plan {
   readonly movedTo?: PlanMove;
   /** It came here from another computer. */
   readonly movedFrom?: PlanMove;
+  /** The first draft's review by a fresh agent, when you asked for one (see draft-review.ts). */
+  readonly review?: DraftReview;
   readonly activity: readonly PlanEvent[];
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -410,6 +460,32 @@ export function checkerOf(state: PlansState, channel: string): { readonly plan: 
   for (const plan of state.plans) for (const [milestone, run] of Object.entries(plan.runs ?? {})) if (run?.checker === id) return { plan, milestone };
   return undefined;
 }
+
+/** The draft plan a conversation reviews (see DraftReview.chat). */
+export function reviewerOf(state: PlansState, channel: string): Plan | undefined {
+  if (!channel.startsWith('ws:')) return undefined;
+  const id = channel.slice(3);
+  return state.plans.find((p) => p.review?.chat === id);
+}
+
+/**
+ * Where the review of a first draft stands, for the draft as it is now: `off` (no first draft to
+ * review: approved, or nothing in it yet), `none` (not verified: only when you ask), `reviewing`,
+ * `findings` (Fix, or Approve Anyway), `clean`, or `failed` (it didn't finish).
+ */
+export type ReviewState = 'off' | 'none' | 'reviewing' | 'findings' | 'clean' | 'failed';
+
+export function reviewState(plan: Plan): ReviewState {
+  if (plan.body || plan.status !== 'draft' || !plan.draft?.milestones.length) return 'off';
+  const r = plan.review;
+  if (!r || r.rev !== plan.draftRev) return 'none';
+  if (r.state === 'reviewing') return 'reviewing';
+  if (r.state === 'failed') return 'failed';
+  return r.findings.length ? 'findings' : 'clean';
+}
+
+/** The decisions in force (not superseded). */
+export const activeDecisions = (body: PlanBody | undefined): readonly Decided[] => (body?.decisions ?? []).filter((d) => !d.supersededBy);
 
 /**
  * The conversation is a live plan's own (its head Claude plans and runs it there): it has no

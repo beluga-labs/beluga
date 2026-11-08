@@ -34,6 +34,7 @@ import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
 import { swappableIdentity } from '../core/identity.js';
 import { identitiesAtStart } from '../machines/identity-load.js';
+import { closePreviews } from '../preview/off.js';
 import { Store, initialState, prefsFrom } from '../core/store.js';
 import { createDemoFolders, createDemoWorkspaces, seedDemoContext, startDemoFriend, startDemoGuest } from '../demo.js';
 import { type Identity, deriveKeys, generateSecret } from '../net/crypto.js';
@@ -455,6 +456,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     stopAutoContinue();
     stopBoard();
     stopDialogues();
+    await closePreviews().catch(() => undefined);
     await stopCompanion();
     await stopNetwork();
     stopEarnings();

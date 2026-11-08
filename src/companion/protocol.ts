@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 46 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 47 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -116,15 +116,18 @@ export const COMPANION_PROTO = { major: 1, minor: 46 } as const;
  * 1.44 (BLG-74): each chat's category in Work while `chatCategories` is on (`WorkView.categories`,
  * `ConvSummary.category`, `snoozedUntil`, `settledWhy`, `back`), and Settle, Remind Me Later, Show Again
  * Now and Un-settle from the phone (`triage.*`). Its Snoozed category is Later on the screens (BLG-770). An older Mac or phone never sees them: Work stays one list by project.
- * 1.45 (BLG-798): your own direct message says Delivered or Seen (`ChatMessageView.delivery`). An older Mac leaves it out.
- * 1.46 (BLG-809): your computers, where to dial each (`computers`, sent after the welcome and when
+ * 1.45 (BLG-772): a plan's decisions (`PlanView.decisions`), and verifying its draft when you ask
+ * (`plans.verify`, with `thenApprove`; `PlanView.review`: reviewing, or what it found), with Fix
+ * (`plans.fixReview`). An older Mac leaves them out: Approve as before.
+ * 1.46 (BLG-798): your own direct message says Delivered or Seen (`ChatMessageView.delivery`). An older Mac leaves it out.
+ * 1.47 (BLG-809): your computers, where to dial each (`computers`, sent after the welcome and when
  * they change), so the phone links to each by itself with the certificate it has. Each computer lets
  * in the phones of your device set, with this phone table's limits. An older Mac sends none, an
  * older phone drops the frame: nothing changes for either. Each says its Runs on line as the Mac's
  * menu does (`line`, `why`), and the phone shows every computer's work, Needs You and New Task's
  * Runs on from its own links (BLG-810).
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, seen: 45, computers: 46 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, seen: 46, computers: 47 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -485,6 +488,8 @@ export const ConvSummary = z.object({
   settledWhy: z.enum(['you', 'pr_merged', 'merged_here', 'idle']).optional(),
   /** 1.44: a snooze ended, and it shows Back until you open it. */
   back: z.literal(true).optional(),
+  /** 1.46 (BLG-840): commits in its worktree that its open PR doesn't have, the Mac row's ↑N chip: merging now would leave them out. */
+  notOnPr: z.object({ count: z.number().int().min(1).max(100_000), pr: z.number().int().positive() }).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
 
@@ -693,6 +698,19 @@ export const PlanView = z.object({
   /** 1.35 (BLG-498): who works its milestones and tasks from here on (none: your default), and the list to change it from (`plans.setWorkAgent`). */
   agent: AgentRefView.optional(),
   agents: AgentPickerView.optional(),
+  /** 1.45 (BLG-772): what the plan has decided, in order (a replaced one marked), and its draft's review before approval. */
+  decisions: z.array(z.object({ text: z.string().max(1000), replaced: z.boolean().optional() })).max(60).optional(),
+  review: z
+    .object({
+      state: z.enum(['reviewing', 'findings', 'clean', 'failed']),
+      fixAsked: z.boolean().optional(),
+      findings: z.array(z.object({ kind: z.string().max(20), text: z.string().max(1000) })).max(20),
+      /** While it verifies: what it's doing now, in a line, how many of its four checks are behind it, and since when. */
+      now: z.string().max(240).optional(),
+      checksDone: z.number().int().min(0).max(4).optional(),
+      since: z.number().optional(),
+    })
+    .optional(),
 });
 export type PlanView = z.infer<typeof PlanView>;
 export const PlansView = z.object({ plans: z.array(PlanView.pick({ id: true, title: true, state: true, topic: true }).extend({ done: z.number().int(), total: z.number().int() })).max(100) });
@@ -1017,7 +1035,7 @@ export const ChatMessageView = z.object({
   files: z.array(OutputView).max(20).optional(),
   /** 1.41 (BLG-702): the emoji reactions under it, in the order they were first put there. */
   reactions: z.array(ChatReactionView).max(20).optional(),
-  /** 1.45 (BLG-798): your own direct message: it reached them (your Always On has theirs the same way), or it was on their screen. */
+  /** 1.46 (BLG-798): your own direct message: it reached them (your Always On has theirs the same way), or it was on their screen. */
   delivery: z.enum(['delivered', 'seen']).optional(),
   /** A friend's Claude answering you can't touch their Mac from the chat: what it offers to do there as a request (gateway.ask `to`). */
   offer: z.object({ to: id, ask: z.string().max(500), needs: z.array(z.enum(['project', 'shell', 'files', 'screen', 'device'])).max(5).optional() }).optional(),
@@ -1353,7 +1371,7 @@ export const RelayRecord = z.object({ v: z.literal(1), relay: RelayUrl.optional(
 export type RelayRecord = z.infer<typeof RelayRecord>;
 
 /**
- * 1.46 (BLG-809): one of your computers as your Mac tells its phones: who it is, how it looks, and
+ * 1.47 (BLG-809): one of your computers as your Mac tells its phones: who it is, how it looks, and
  * where to dial it (its companion address and relays). Nothing secret: keys are public, and a
  * computer lets the phone in only because your identity signed the phone's certificate.
  */

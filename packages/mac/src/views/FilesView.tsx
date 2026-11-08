@@ -20,7 +20,7 @@ import { ReaderContent } from './reader/reader-lazy.js';
 export { LANG, ext } from './reader/reader-model.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
-// Drawn at once when the reader's code is already here (read ahead, BLG-853).
+/** The reader in its own chunk (views/reader/reader-lazy.tsx): fetched early, drawn at once once it's here (BLG-853), giving up on a stalled fetch instead of waiting (#370). */
 const FileContent = ReaderContent;
 
 /** A decoded image (RGBA pixels) drawn at its size, scaled down to fit. */

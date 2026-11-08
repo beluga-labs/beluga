@@ -14,7 +14,7 @@ import { ReaderContent } from './reader/reader-lazy.js';
  * code as it is now. Read on its own, so the Files tab's open file stays where it is.
  */
 
-// Drawn at once when the reader's code is already here (read ahead, BLG-853).
+/** The reader in its own chunk (views/reader/reader-lazy.tsx): fetched early, drawn at once once it's here (BLG-853), giving up on a stalled fetch instead of waiting (#370). */
 const FileContent = ReaderContent;
 
 /** How a changed file can be looked at: its diff, or the file (a picture or a PDF only as itself). */

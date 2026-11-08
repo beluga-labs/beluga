@@ -33,6 +33,7 @@ import { EarningsSettings } from './EarningsSettings.js';
 import { NotificationSettings } from './NotificationSettings.js';
 import { VoiceSettings } from './VoiceSettings.js';
 import { KeyboardSettings } from './KeyboardSettings.js';
+import { ExperimentalSettings } from './ExperimentalSettings.js';
 import { WebAccessSettings } from './WebAccessSettings.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
 import { PANES } from './settings-index.js';
@@ -513,6 +514,9 @@ function Workspaces() {
           <Switch label="Auto setup" on={p.autoSetup} onChange={(v) => void api.session.setPrefs({ autoSetup: v })} />
         </Row>
         <BranchPrefixRow />
+        <Row label="Keep open pull requests current" detail="When your agent commits in a worktree whose pull request is open, it pushes there as its turn ends. Off: it commits here, and you push from the toolbar.">
+          <Switch label="Keep open pull requests current" on={p.pushToPr} onChange={(v) => void api.session.setPrefs({ pushToPr: v })} />
+        </Row>
         <Row label="Friends may start work here" detail="They ask to start a worktree or hand work to you; you approve each one.">
           <Switch label="Friend worktrees" on={p.friendWorktrees === 'ask'} onChange={(v) => void api.session.setFriendWorktrees(v ? 'ask' : 'off')} />
         </Row>
@@ -667,6 +671,7 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
   advanced: WebAccessSettings,
+  experimental: ExperimentalSettings,
   about: About,
 };
 

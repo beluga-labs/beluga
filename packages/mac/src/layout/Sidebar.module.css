@@ -473,3 +473,18 @@
   color: var(--claude);
   opacity: 0.7;
 }
+/* Commits its open PR doesn't have (BLG-840): a soft blue chip, "↑3". */
+.notOnPr {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 4px;
+  padding: 0 5px 0 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+  font-size: 0.78em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+}

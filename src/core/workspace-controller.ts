@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import type { ArchiveManifest, ArchivePhase, ArchivePreview } from '../workspaces/archive.js';
 import { formatBytes } from '../workspaces/disk.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
+import { pullOfBranch } from '../workspaces/github.js';
 import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -9,7 +10,7 @@ import { cleanPlanTitle, slugify } from '../agent/namer.js';
 import { SESSION_RUNTIME_DEFAULT, carrySession, resumeFor } from '../agent/session-carry.js';
 import { sessionBefore } from '../agent/runtime/claude/session-rewind.js';
 import { promptRef, restoreSnapshot, snapshot, snapshotAt } from '../workspaces/snapshots.js';
-import type { AgentPlace } from '../agent/types.js';
+import type { AgentPlace, OpenPr } from '../agent/types.js';
 import type { AgentRef } from '../protocol.js';
 import { placeAgent } from '../shared/agent-picker.js';
 import { agentName } from '../shared/agent-label.js';
@@ -20,7 +21,7 @@ import type { DeletePlan, Project, PullHead, RenameResult, Workspace } from '../
 import { type MergeResult, git } from '../workspaces/git.js';
 import type { FoundConversation } from '../agent/runtime/claude/claude-sessions.js';
 import type { ShareService } from './shares.js';
-import { type LogItem, type Store, type WorkspaceTab, settleRun } from './store.js';
+import { type LogItem, type Store, type WorkspaceTab, mergedText, settleRun } from './store.js';
 import { type Conversation, isImportedItem } from '../agent/transcript.js';
 import type { Intent } from './intents.js';
 import { type OtherTools, OtherWorktrees } from './other-worktrees.js';
@@ -681,9 +682,22 @@ export class WorkspaceController {
       ...(ws.model ? { model: ws.model } : {}),
       ...(ws.effort ? { effort: ws.effort } : {}),
       ...(ws.prShipped && ws.kind === 'worktree' ? { shipped: ws.prShipped } : {}),
+      ...this.openPrOf(ws),
       ...(syncMain ? { syncMain } : {}),
       ...(ws.askOnly && this.fixups.has(ws.id) ? { fixup: this.fixups.get(ws.id)! } : {}),
     };
+  }
+
+  /**
+   * A worktree's open pull request, for its run (BLG-840): the agent pushes its commits there when its
+   * turn ends (unless Settings › Workspaces says not to), so Merge never takes an older version.
+   */
+  private openPrOf(ws: Workspace): { openPr?: OpenPr } {
+    const state = this.deps.store.getState();
+    const pr = state.prs[ws.id];
+    if (ws.kind !== 'worktree' || ws.askOnly || !ws.branch || pr?.state !== 'OPEN') return {};
+    const fork = pullOfBranch(ws.path, ws.branch) !== undefined;
+    return { openPr: { number: pr.number, url: pr.url, branch: ws.branch, push: state.prefs.pushToPr !== false, ...(fork ? { fork: true } : {}) } };
   }
 
   /** The agent a workspace conversation runs on: its pick, else yours (undefined: not a workspace, or the daemon's own runtime). */
@@ -1342,7 +1356,10 @@ export class WorkspaceController {
 
   /** What Delete would lose that Archive keeps: commits pushed nowhere (the Delete dialog warns and leads with Archive). */
   deletePlan(id: string): Promise<DeletePlan | undefined> {
-    return this.deps.manager.deletePlan(id).catch(() => undefined);
+    // Its pull request merged on GitHub: what it merged at shipped, whatever main did to those files since (BLG-831).
+    const pr = this.deps.store.getState().prs[id];
+    const merged = pr?.state === 'MERGED' && pr.head ? [pr.head] : [];
+    return this.deps.manager.deletePlan(id, merged).catch(() => undefined);
   }
 
   /** Free space in a worktree you keep (its dependencies, builds and caches) → bytes freed. */
@@ -1426,6 +1443,10 @@ export class WorkspaceController {
     this.deps.store.dispatch({ type: 'conflicts', id, files: !result.ok && result.reason === 'conflict' ? result.files : [] });
     if (result.ok) {
       this.deps.toast(`Merged ${ws.branch} into the main folder`, 'success');
+      // A line across its chat: what's above it is in the main folder now.
+      this.ensureLoaded(id);
+      const mark = { into: 'the main folder' };
+      this.deps.store.dispatch({ type: 'system', channel: `${WS_PREFIX}${id}`, text: mergedText(mark), merged: mark });
       this.emit({ kind: 'merged', id });
       return result;
     }

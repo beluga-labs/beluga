@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AgentDots, convHref, statusIcon } from '../../components/Conv';
+import { AgentDots, NotOnPrChip, convHref, notOnPrWords, statusIcon } from '../../components/Conv';
 import { ComputersWork } from '../../components/Computers';
 import { PlansList } from '../../components/Plans';
 import { type Option, Options } from '../../components/Options';
@@ -60,8 +60,8 @@ export default function Work() {
             Icon={st.Icon}
             tone={st.tone}
             label={c.title}
-            sub={[...triageWords(c), flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
-            right={c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null}
+            sub={[...triageWords(c), c.notOnPr ? notOnPrWords(c.notOnPr) : undefined, flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
+            right={c.notOnPr ? <NotOnPrChip gap={c.notOnPr} /> : c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null}
             onPress={() => router.push(convHref(c.topic))}
             onLongPress={sections && triageOptions(c).length ? () => setSheet(c) : undefined}
           />
