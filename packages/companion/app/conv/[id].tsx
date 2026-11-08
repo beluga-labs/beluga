@@ -25,7 +25,8 @@ import { agentMark, markIcon, markOfName, runtimeMark } from '../../components/A
 import { Avatar, Card, IconBadge, More, Pill, Press, T, type Tone, toneOf } from '../../components/ui';
 import { ago, elapsed, useComputer, useSince, useSupports, useView, useVisibleNeeds } from '../../lib/hooks';
 import { OnComputer, useOn } from '../../lib/scope';
-import { type Call, calls } from '../../lib/link/calls';
+import { calls } from '../../lib/link/calls';
+import { convAbilities, scoped } from '../../lib/link/scoped';
 import { type ConvView, type HomeView, type OutputView, type SubAgentView, type Topic, type TurnView, isMacTopic } from '../../lib/link/protocol';
 import { type Send as Pending, sends, useSends, whereOf } from '../../lib/sends';
 import { SendStatus } from '../../components/SendStatus';
@@ -86,9 +87,7 @@ function Conversation() {
   const on = useOn();
   const computer = useComputer(on);
   const away = on && computer?.phase !== 'open' ? `${computer?.computer.name ?? 'That computer'} is away: this is what your phone kept.` : undefined;
-  const call = <T = unknown,>(x: Call, o: { queue?: boolean } = {}) => store.call<T>(x, { ...o, ...(on ? { on } : {}) });
-  const supports = (w: Parameters<typeof store.supports>[0]): boolean => (on ? store.supportsOn(on, w) : supports(w));
-  const where = on ? { on } : {};
+  const { call, where } = scoped(store, on);
   const topic = `conv:${decodeURIComponent(id ?? '')}` as Topic;
   const conv = useView<ConvView>(topic);
   const c = conv?.data;
@@ -135,10 +134,11 @@ function Conversation() {
   // What waits its turn is in the queue above the composer, not a turn of its own.
   const turns = c ? c.turns.filter((t) => !(c.queue && t.who === 'claude' && t.status === 'queued')) : [];
   // A worktree (or chat folder) of yours has files to read and terminals to share with the Mac (1.7).
-  const hasFolder = topic.startsWith('conv:ws:') || Boolean(c?.mergeable);
+  const can = convAbilities(scoped(store, on), { topic, agent: c?.agent, mergeable: c?.mergeable, branch: c?.branch, macTopic: isMacTopic(topic), askedTask: topic.startsWith('conv:task:') });
+  const hasFolder = can.hasFolder;
   // Your Mac's chats (1.14): a list to switch between in the header, New chat and Delete under •••.
   const canChats = useSupports('macChats');
-  const macChats = isMacTopic(topic) && canChats && !on;
+  const macChats = canChats && can.macChats;
   const home = useView<HomeView>(macChats ? 'home' : undefined);
   const chatCount = home?.data.macChats?.length ?? 0;
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -183,7 +183,7 @@ function Conversation() {
           ) : c?.branch ? (
             // Where its branch stands (the Mac toolbar's state), unless a merge from here is under way.
             <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10 }}>
-              <BranchBand topic={topic} branch={c.branch} canMerge={Boolean(c.mergeable) && supports('merge')} onMerge={() => setMergeOpen(true)} />
+              <BranchBand topic={topic} branch={c.branch} canMerge={can.branchMerge} onMerge={() => setMergeOpen(true)} />
             </View>
           ) : null}
           {/* The plan this chat writes and runs (1.15): its milestones and map are a tap away. */}
@@ -365,8 +365,7 @@ function Conversation() {
               onPress: () => {
                 const request = unread?.steer?.request;
                 if (!request) return;
-                void store
-                  .call(calls.cancelSteer(request))
+                void call(calls.cancelSteer(request))
                   .then((r) => {
                     const back = r as { cancelled?: boolean; prompt?: string } | undefined;
                     if (back?.cancelled && back.prompt) setRefill({ text: back.prompt, key: Date.now() });
@@ -381,22 +380,22 @@ function Conversation() {
           onClose={() => setMenu(false)}
           title={c?.title}
           options={[
-            { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !c?.agent || !supports('agentPicker'), onPress: () => setPicking(true) },
+            { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !can.agentPicker, onPress: () => setPicking(true) },
             { Icon: Plus, label: 'New chat', sub: 'A fresh chat with your Mac, a new tab there too', tone: 'sky', hidden: !macChats, onPress: () => newMacChat((h) => router.replace(h as never)) },
             { Icon: Square, label: askedTask ? 'Stop asking' : 'Stop the agent', tone: 'rose', hidden: !c?.working, onPress: () => void call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic)) },
             { Icon: Images, label: 'Outputs', sub: all.length ? `${all.length} from this worktree` : 'Nothing yet', tone: 'sky', hidden: !all.length, onPress: () => setOutputsOpen(true) },
-            { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: Boolean(on) || !c?.mergeable || !supports('merge') || Boolean(c?.branch), onPress: () => setMergeOpen(true) },
-            { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: Boolean(on) || !hasFolder || !supports('files'), onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },
-            { Icon: SquareTerminal, label: 'Terminal', sub: 'The same terminal as on your Mac', tone: 'lavender', hidden: Boolean(on) || !hasFolder || !supports('terminal'), onPress: () => router.push({ pathname: '/terminal', params: { topic, title: c?.title ?? '' } }) },
+            { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: !can.merge, onPress: () => setMergeOpen(true) },
+            { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: !can.files, onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },
+            { Icon: SquareTerminal, label: 'Terminal', sub: 'The same terminal as on your Mac', tone: 'lavender', hidden: !can.terminal, onPress: () => router.push({ pathname: '/terminal', params: { topic, title: c?.title ?? '' } }) },
             { Icon: History, label: 'Earlier messages', tone: 'sky', hidden: !c?.more, onPress: () => void older() },
-            { Icon: Monitor, label: 'Open on your Mac', sub: 'Code, changes and the full history', tone: 'plain', hidden: Boolean(on), onPress: () => void openOnMac({ topic }) },
+            { Icon: Monitor, label: 'Open on your Mac', sub: 'Code, changes and the full history', tone: 'plain', hidden: !can.openOnMac, onPress: () => void openOnMac({ topic }) },
             { Icon: Trash2, label: 'Delete this chat', sub: 'For good, here and on your Mac', tone: 'rose', hidden: !macChats, onPress: () => setDeleting(true) },
             {
               Icon: Trash2,
               label: 'Remove',
               sub: c?.working ? 'Stops asking, then takes it off your lists' : 'Takes it off your lists, here and on your Mac',
               tone: 'rose',
-              hidden: !askedTask || !supports('forget'),
+              hidden: !can.forget,
               onPress: () => void call(calls.forgetTask(askedTask!)).then(() => (router.canGoBack() ? router.back() : router.replace('/' as never))),
             },
           ]}
