@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { NeedsYou, OutputView, Topic } from './link/protocol';
 import { kv } from './kv';
 import type { ComputerLinkState } from './link/computers';
+import { mergeNeeds } from './link/needs';
 import { useOn } from './scope';
 import { type CachedView, type FileState, type LinkState, type OutboxItem, store, type Toast } from './store';
 
@@ -66,10 +67,9 @@ export function useAllNeeds(mac: readonly NeedsYou[] | undefined): NeedsYou[] {
     (fn) => store.subscribe('computer-needs', fn),
     () => store.computerNeeds(),
   );
-  // Your Always On's friends' requests are also on your Mac while it shows that network: listed once (BLG-850).
-  const macIds = new Set((mac ?? []).map((n) => n.id));
-  const others = theirs.filter((n) => !macIds.has(n.id.slice(n.id.indexOf('|') + 1)));
-  return useVisibleNeeds(others.length ? [...(mac ?? []), ...others] : mac);
+  // Each thing once: the Mac's copy while its link is open, else your Always On's, where an answer is taken now (BLG-857).
+  const macOpen = useLink().phase === 'open';
+  return useVisibleNeeds(theirs.length ? mergeNeeds(mac, theirs, macOpen) : mac);
 }
 
 /** Needs-you items minus the ones you've just answered (until the Mac drops them). */

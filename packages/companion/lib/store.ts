@@ -4,6 +4,7 @@ import { kv } from './kv';
 import { BareTransport } from './link/bare';
 import { ComputerLinks, type ComputerLinkState, type KeptComputers } from './link/computers';
 import { ComputerWork, type ComputerView } from './link/computer-work';
+import { needRoute, placeNeeds } from './link/needs';
 import { type Call, calls } from './link/calls';
 import { DemoTransport } from './link/demo/transport';
 import { BACKGROUND_GRACE_MS, COMPANION_PIECE, COMPANION_PROTO, compatible, SINCE, MAX_UPLOAD_BYTES, isMacTopic, type MacFrame, type NeedsYou, type OutputView, type HomeView, type PhoneComputer, type PhoneOp, type Topic, viewSchema } from './link/protocol';
@@ -107,8 +108,6 @@ class Store {
   private computerLinks: ComputerLinks | undefined;
   /** What the phone shows of each computer: its views (kept) and calls on its link (BLG-810). */
   private computerWork: ComputerWork | undefined;
-  /** Needs-you items from a computer, by the id they're listed under: which computer, and its own id. */
-  private needRoutes = new Map<string, { readonly on: string; readonly id: string }>();
   private computerFrames = new Set<(id: string, frame: MacFrame) => void>();
   private unsubs: (() => void)[] = [];
   private state: LinkState = { phase: 'idle', ready: false };
@@ -304,12 +303,7 @@ class Store {
 
   /** A computer's needs-you items, under ids of their own and saying which computer: answering one goes back there. */
   placeNeeds(on: string, items: readonly NeedsYou[] | undefined): NeedsYou[] {
-    const name = this.computerName(on);
-    return (items ?? []).map((n) => {
-      const id = `${on}|${n.id}`;
-      this.needRoutes.set(id, { on, id: n.id });
-      return { ...n, id, from: [name, n.from].filter(Boolean).join(' · ').slice(0, 200) };
-    });
+    return placeNeeds(on, this.computerName(on), items);
   }
 
   // ---- friends with your Mac closed (BLG-850): your Always On has them
@@ -347,7 +341,7 @@ class Store {
 
   /** Which computer a needs-you item is from (none: your Mac). */
   needOn(id: string): string | undefined {
-    return this.needRoutes.get(id)?.on;
+    return needRoute(id)?.on;
   }
 
   /** One frame to one of your computers (false: its link isn't open). */
@@ -1017,7 +1011,7 @@ class Store {
    */
   dismiss(item: NeedsYou): void {
     this.hide(item.id);
-    const route = this.needRoutes.get(item.id);
+    const route = needRoute(item.id);
     if (!(route ? this.supportsOn(route.on, 'dismiss') : this.supports('dismiss'))) return;
     this.call(calls.dismissNeed(route?.id ?? item.id), route ? { on: route.on } : {}).catch((e: Error) => {
       this.hide(item.id, false);
@@ -1028,7 +1022,7 @@ class Store {
   /** Answer a needs-you item: hide it now, show it again if the Mac says no. */
   async answer(item: NeedsYou, c: Call, done: string): Promise<void> {
     this.hide(item.id);
-    const on = this.needRoutes.get(item.id)?.on;
+    const on = needRoute(item.id)?.on;
     try {
       await this.call(c, on ? { on } : {});
       this.toast({ text: done, tone: 'ok' });
