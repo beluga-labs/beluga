@@ -12,7 +12,7 @@ import { PLAN_CHAT_TOGGLE } from '../lib/panel.js';
 import { OPEN_DECISION } from './plan-ask-model.js';
 import { ResizeHandle } from '../layout/panel/ResizeHandle.js';
 import { taskChatsItem } from '../layout/plan-task-chats.js';
-import { Button, Empty, IconButton, Segmented, Working, cx } from '../components/ui.js';
+import { Button, Empty, IconButton, Segmented, Tip, Working, cx } from '../components/ui.js';
 import { copyText } from '../lib/copy.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
 import { YOUR_AGENT, agentMenuItems, useAgentEntries, useStartWith } from '../components/agent-options.js';
@@ -350,8 +350,12 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
               {view.milestones.some((m) => m.milestone.autonomy && m.milestone.autonomy !== plan.autonomy) ? ' (mixed)' : ''}
             </Button>
           )}
-          {/* The chat beside the plan, in and out: always here, whichever way it is. */}
-          <IconButton icon="claude" label={chat ? 'Hide the Chat' : 'Show the Chat'} keys={shortcutKeys('toggle-inspector')} active={chat} onClick={() => showChat(!chat)} />
+          {/* The orchestrator's chat beside the plan, in and out: always here, whichever way it is. */}
+          <Tip label={chat ? 'Hide the orchestrator’s chat' : 'Open the orchestrator’s chat'} keys={shortcutKeys('toggle-inspector')}>
+            <Button size="small" variant="quiet" icon="claude" aria-pressed={chat} onClick={() => showChat(!chat)}>
+              {chat ? 'Hide Orchestrator' : 'Open Orchestrator'}
+            </Button>
+          </Tip>
           <ActionsDropdown items={more}>
             <IconButton icon="more" label="Plan Options" />
           </ActionsDropdown>
