@@ -21,6 +21,8 @@ export interface DraftReviewDeps {
   readonly askClaude: (prompt: string, channel: string, echo: boolean) => string | void;
   /** A conversation of its own to review a draft in (its workspace id). None: drafts can't be verified. */
   readonly reviewChat?: (plan: Plan) => Promise<string | undefined>;
+  /** The plan's agent for a conversation it had already (picked since in Verify, Then Approve ▸). */
+  readonly chatAgent?: (chat: string, plan: Plan) => void;
   /** Approve the plan (Verify, Then Approve, once it reads well). */
   readonly approve?: (planId: string) => void;
   /** A run of Claude's is under way in a conversation (the agent runner's run state). */
@@ -128,7 +130,10 @@ export class DraftReviewer {
   private async chatFor(plan: Plan): Promise<string | undefined> {
     const was = plan.review?.chat;
     const ws = was ? this.deps.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === was) : undefined;
-    if (ws && !ws.archived) return ws.id;
+    if (ws && !ws.archived) {
+      this.deps.chatAgent?.(ws.id, plan);
+      return ws.id;
+    }
     return this.deps.reviewChat?.(plan);
   }
 

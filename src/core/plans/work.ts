@@ -80,6 +80,9 @@ export class PlansWork {
               if (ws && plan.agent) deps.controller!.manager.setAgent(ws.id, plan.agent);
               return ws?.id;
             },
+            chatAgent: (chat: string, plan: Plan) => {
+              if (plan.agent) deps.controller!.manager.setAgent(chat, plan.agent);
+            },
           }
         : {}),
       // Verify, Then Approve: you asked for it, so it's approved as you.

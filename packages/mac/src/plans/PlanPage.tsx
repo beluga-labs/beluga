@@ -211,7 +211,13 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
                 label: 'More ways to approve',
                 items: [
                   // A fresh agent reads it first (contradictions, duplicates, stale decisions), and approves it once nothing needs fixing.
-                  { label: 'Verify, Then Approve', icon: 'eye', hint: 'A fresh agent checks the plan holds together first', onSelect: () => verify(true) },
+                  // Who: the same agents and models as Approve, worked by ▸; the one picked verifies it and then works it.
+                  {
+                    label: 'Verify, Then Approve',
+                    icon: 'eye',
+                    onSelect: () => undefined,
+                    submenu: startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.verify(plan.id, { thenApprove: true })), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing'), ''),
+                  },
                   ...startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
                 ],
               },

@@ -82,7 +82,12 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
                 label="More ways to approve"
                 items={[
                   // Verify, Then Approve (BLG-772): a fresh agent checks it holds together first.
-                  { label: 'Verify, Then Approve', icon: 'eye', hint: 'A fresh agent checks the plan holds together first', onSelect: () => void act(() => api.verify(home.id, { thenApprove: true }), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing') },
+                  {
+                    label: 'Verify, Then Approve',
+                    icon: 'eye',
+                    onSelect: () => undefined,
+                    submenu: startWith(home.agent, (a) => void act(async () => (await api.setWorkAgent(home.id, a ?? null), api.verify(home.id, { thenApprove: true })), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing'), ''),
+                  },
                   ...startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
                 ]}
               >
