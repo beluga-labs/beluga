@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import { type ClientFrame, type DaemonFrame, encodeFrame, parseClientFrame, parseDaemonFrame } from '../ipc/protocol.js';
+import { COMPUTER_CAPS, type ClientFrame, type DaemonFrame, encodeFrame, parseClientFrame, parseDaemonFrame, webUrl } from '../ipc/protocol.js';
 import type { MessageSocket } from '../net/transport.js';
 import type { Machines } from './machines.js';
 
@@ -14,6 +14,10 @@ import type { Machines } from './machines.js';
  * hands the screen the fresh state as a snapshot and re-attaches its terminals and attention, so it
  * catches up by itself. Calls made while it's down are answered at once with why. A computer that
  * forgot this app, or speaks another protocol, closes the screen with its reason.
+ *
+ * What the computer may ask of this app's screen is only COMPUTER_CAPS (BLG-776): the screen's
+ * hello offers no more, and a cap_call beyond them, or openExternal of anything but an http(s)
+ * page, is answered no here without reaching the screen.
  */
 
 /** What the app's hello says on the link instead of its token (the computer never reads it there). */
@@ -98,7 +102,7 @@ class MachineScreen {
         this.link = socket;
         socket.on('message', (text) => this.fromComputer(text));
         socket.once('close', (code) => this.dropped(socket, code));
-        const hello: ClientFrame = { ...this.hello, token: LINK_TOKEN };
+        const hello: ClientFrame = { ...this.hello, token: LINK_TOKEN, caps: this.hello.caps.filter((c) => COMPUTER_CAPS.includes(c)) };
         socket.send(encodeFrame(hello));
       },
       (err: unknown) => {
@@ -128,6 +132,11 @@ class MachineScreen {
       return;
     }
     if (frame.t === 'result') this.inflight.delete(frame.id);
+    if (frame.t === 'cap_call' && !(COMPUTER_CAPS.includes(frame.cap) && (frame.cap !== 'openExternal' || webUrl(frame.args[0])))) {
+      const error = frame.cap === 'openExternal' ? 'Your app opens only web pages (http or https) for a computer' : `Your app doesn’t ${frame.cap} for a computer`;
+      this.link?.send(encodeFrame({ t: 'cap_result', id: frame.id, ok: false, error }));
+      return;
+    }
     this.toScreen(text);
   }
 

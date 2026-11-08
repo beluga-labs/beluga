@@ -236,6 +236,39 @@ describe('driving a computer from the app', () => {
   }, 120_000);
 });
 
+describe('what the computer may ask of your app (BLG-776)', () => {
+  it('notices reach your app; web pages open; files, other schemes and zoom never do', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    const id = await join(app, mini);
+    const told: unknown[] = [];
+    const opened: unknown[] = [];
+    const zoomed: unknown[] = [];
+    const screen = await SocketClient.connect({
+      url: `ws://127.0.0.1:${app.port}/machine/${id}`,
+      token: TOKEN,
+      kind: 'test',
+      version: '0.9.0',
+      connect: (url) => new WebSocket(url) as never,
+      timeoutMs: 20_000,
+      caps: { notify: (n: unknown) => void told.push(n), openExternal: (u: unknown) => void opened.push(u), zoom: (d: unknown) => (zoomed.push(d), { ok: true, message: '' }) },
+    });
+    cleanup.push(() => screen.close());
+    // The computer sees a screen that can notify and open pages, and not zoom.
+    expect([...mini.server.clients.list()[0]!.caps].sort()).toEqual(['notify', 'openExternal']);
+    mini.server.notify([{ title: 'Claude finished on mini', body: 'add-auth' }]);
+    await waitFor(() => told.length === 1, 10_000);
+    expect(told[0]).toMatchObject({ title: 'Claude finished on mini' });
+    await mini.server.callCap('openExternal', ['https://github.com/kayraucklnc/beluga/pull/1']);
+    expect(opened).toEqual(['https://github.com/kayraucklnc/beluga/pull/1']);
+    await expect(mini.server.callCap('openExternal', ['file:///etc/hosts'])).rejects.toThrow(/only web pages/);
+    await expect(mini.server.callCap('openExternal', ['vscode://file/etc/hosts'])).rejects.toThrow(/only web pages/);
+    await expect(mini.server.callCap('zoom', ['in'])).rejects.toThrow(/No screen can zoom/);
+    expect(opened).toHaveLength(1);
+    expect(zoomed).toEqual([]);
+  }, 120_000);
+});
+
 describe('the relay', () => {
   it('carries the whole app protocol when the direct way is blocked', async () => {
     const tunnel: RelayTunnel = async (port) => ({ url: `ws://127.0.0.1:${port}/companion`, close: () => undefined });

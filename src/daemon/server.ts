@@ -11,6 +11,7 @@ import { dispatchCall } from './dispatch.js';
 import { companionOf } from '../companion/registry.js';
 import type { MirrorStatus, PhoneTouch, VideoPiece } from '../companion/phone-control.js';
 import type { MessageSocket } from '../net/transport.js';
+import { MACHINE_REFUSED, machineRefuses } from '../machines/coverage.js';
 
 export interface DaemonServerOptions {
   readonly session: Session;
@@ -43,27 +44,6 @@ const byteLength = (raw: Buffer | ArrayBuffer | Buffer[]): number => (Array.isAr
 
 /** What only the Mac app and the command line may do: managing browsers' access (BLG-653). */
 export const WEB_ADMIN: ReadonlySet<string> = new Set(['web.link', 'web.sessions.revoke', 'web.stop', 'web.public', 'web.tailscale']);
-
-/**
- * What your own app driving this computer over its link may not do (BLG-775): manage browsers,
- * pair or forget devices. Those stay with the computer's own Mac app or terminal, and your app
- * does them on its own daemon. (BLG-776 makes this a full table of every method.)
- */
-export const MACHINE_ADMIN: ReadonlySet<string> = new Set([
-  ...WEB_ADMIN,
-  'companion.pair.start',
-  'companion.pair.approve',
-  'companion.pair.cancel',
-  'companion.phone.pairCable',
-  'companion.devices.remove',
-  'machines.pair.start',
-  'machines.pair.cancel',
-  'machines.join.start',
-  'machines.join.approve',
-  'machines.join.cancel',
-  'machines.ssh.pair',
-  'machines.forget',
-]);
 
 /** A computer's screen asked for one: who gets it (src/machines/door.ts). The hello's token was checked. */
 export type MachineRoute = (id: string, ws: WebSocket, hello: Extract<ReturnType<typeof parseClientFrame>, { t: 'hello' }>) => void;
@@ -409,7 +389,8 @@ export class DaemonServer {
   private async call(client: ConnectedClient, id: string, method: string, raw: readonly unknown[]): Promise<DaemonFrame> {
     // A browser's session can't mint, revoke or move browser sessions: a stolen cookie can't outlive its revoke.
     if (client.kind === 'web' && WEB_ADMIN.has(method)) return { t: 'result', id, ok: false, error: 'Browsers are let in and revoked from the Mac app or `beluga web` on the computer Beluga runs on' };
-    if (client.kind === 'machine' && MACHINE_ADMIN.has(method)) return { t: 'result', id, ok: false, error: 'That is done on this computer itself, or for your devices from your app’s own Settings, not from a screen driving it' };
+    // Your app driving this computer: what src/machines/coverage.ts refuses it (BLG-776).
+    if (client.kind === 'machine' && machineRefuses(method)) return { t: 'result', id, ok: false, error: MACHINE_REFUSED };
     return { t: 'result', id, ...(await dispatchCall(this.session, client.id, method, raw)) };
   }
 
