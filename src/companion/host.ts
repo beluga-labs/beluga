@@ -157,7 +157,7 @@ export interface MachinesPort {
   /** The phones of your set (the relay record names them too). */
   phones?(): readonly DeviceCert[];
   /** Your computers as phones dial them (the `computers` frame), and when they change. */
-  forPhones?(): PhoneComputer[];
+  forPhones?(runtime?: string): PhoneComputer[];
   onComputers?(listener: () => void): () => void;
 }
 
@@ -944,7 +944,7 @@ export class CompanionHost {
 
   /** Tell a phone where your computers are (BLG-809), when it can hear it and the list changed since. */
   tellComputers(link: PhoneLink): void {
-    const list = this.opts.machines?.forPhones?.();
+    const list = this.opts.machines?.forPhones?.(this.state().prefs.defaultAgent?.runtime ?? 'claude');
     const v = link.hello?.v;
     if (!list || !v || !link.isOpen || (v.major === COMPANION_PROTO.major && v.minor < SINCE.computers)) return;
     const key = computersKey(list);

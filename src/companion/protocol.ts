@@ -120,7 +120,9 @@ export const COMPANION_PROTO = { major: 1, minor: 46 } as const;
  * 1.46 (BLG-809): your computers, where to dial each (`computers`, sent after the welcome and when
  * they change), so the phone links to each by itself with the certificate it has. Each computer lets
  * in the phones of your device set, with this phone table's limits. An older Mac sends none, an
- * older phone drops the frame: nothing changes for either.
+ * older phone drops the frame: nothing changes for either. Each says its Runs on line as the Mac's
+ * menu does (`line`, `why`), and the phone shows every computer's work, Needs You and New Task's
+ * Runs on from its own links (BLG-810).
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, seen: 45, computers: 46 } as const;
 
@@ -1367,6 +1369,9 @@ export const PhoneComputer = z.object({
   lastSeen: ts.optional(),
   /** It's your Always On (BLG-796). */
   alwaysOn: z.boolean().optional(),
+  /** As the Mac's Runs on menu says it (src/machines/words.ts): what it has free, and why it can't take new work now. */
+  line: z.string().max(200).optional(),
+  why: z.string().max(200).optional(),
 });
 export type PhoneComputer = z.infer<typeof PhoneComputer>;
 /** Computers one Mac tells a phone about (a device set holds at most MAX_SET_DEVICES). */

@@ -2,6 +2,8 @@ import { roleOf } from '../companion/device-crypto.js';
 import { type DeviceRecord, deviceId, isPhoneCert } from '../companion/devices.js';
 import { type DeviceCert, MAX_PHONE_COMPUTERS, type PhoneComputer } from '../companion/protocol.js';
 import type { MachineRecord } from './book.js';
+import type { MachineView } from './machines.js';
+import { statusLine, whyNot } from './words.js';
 
 /**
  * Your phones on your computers (BLG-809): a phone reaches each computer of yours by itself, with
@@ -33,8 +35,11 @@ export function namedPhones(here: readonly DeviceCert[], set: readonly DeviceCer
   return [...new Set(named)].slice(0, NAMED_MAX);
 }
 
-/** Your computers as a phone dials them, from the app's machines.json (only those still in your set). */
-export function phoneComputers(records: readonly MachineRecord[], opts: { readonly alwaysOn?: string; readonly look?: (id: string) => { readonly name?: string; readonly icon?: string } | undefined } = {}): PhoneComputer[] {
+/** Your computers as a phone dials them, from the app's machines.json (only those still in your set), each with its Runs on line. */
+export function phoneComputers(
+  records: readonly MachineRecord[],
+  opts: { readonly alwaysOn?: string; readonly look?: (id: string) => { readonly name?: string; readonly icon?: string } | undefined; readonly words?: (id: string) => { readonly line: string; readonly why?: string } | undefined } = {},
+): PhoneComputer[] {
   return records
     .filter((r) => roleOf(r.cert) === 'computer')
     .slice(0, MAX_PHONE_COMPUTERS)
@@ -51,8 +56,21 @@ export function phoneComputers(records: readonly MachineRecord[], opts: { readon
         relays: r.relays.slice(0, 4),
         ...(r.lastSeen !== undefined ? { lastSeen: r.lastSeen } : {}),
         ...(opts.alwaysOn === id ? { alwaysOn: true } : {}),
+        ...runsOn(opts.words?.(id)),
       };
     });
+}
+
+const runsOn = (w: { readonly line: string; readonly why?: string } | undefined): Pick<PhoneComputer, 'line' | 'why'> => (w ? { line: w.line.slice(0, 200), ...(w.why ? { why: w.why.slice(0, 200) } : {}) } : {});
+
+/**
+ * A computer's Runs on line and why it can't take `runtime`'s work, as the Mac's menu says them.
+ * Only what it said about itself (its version, its runtimes): whether it answers is the phone's to
+ * say from its own link, since the Mac's word goes stale while it sleeps.
+ */
+export function runsOnWords(m: MachineView, runtime: string, now = Date.now()): { line: string; why?: string } {
+  const why = m.info ? whyNot({ ...m, status: 'online' }, runtime, now) : undefined;
+  return { line: statusLine(m), ...(why ? { why } : {}) };
 }
 
 /**

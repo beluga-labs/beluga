@@ -21,7 +21,7 @@ import { isAlwaysOnHello } from './always-on-bundle.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
 import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
-import { phoneComputers } from './phones.js';
+import { phoneComputers, runsOnWords } from './phones.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
 import type { SettingsSync, SettingsSyncView } from './sync.js';
@@ -260,11 +260,16 @@ export class Machines {
     return this.set.devices().filter((c) => roleOf(c) === 'phone');
   }
 
-  /** Your computers as your phones dial them (BLG-809): the `computers` frame. */
-  forPhones(): PhoneComputer[] {
+  /** Your computers as your phones dial them (BLG-809): the `computers` frame, with each one's Runs on line for `runtime` (BLG-810). */
+  forPhones(runtime = 'claude'): PhoneComputer[] {
     const at = this.opts.alwaysOn?.at();
+    const views = new Map(this.list().map((m) => [m.id, m]));
     return phoneComputers(this.computers(), {
       ...(at ? { alwaysOn: at } : {}),
+      words: (id) => {
+        const m = views.get(id);
+        return m ? runsOnWords(m, runtime) : undefined;
+      },
       look: (id) => {
         const info = this.live.get(id)?.info;
         return info ? { ...(info.name ? { name: info.name } : {}), ...(info.icon ? { icon: info.icon } : {}) } : undefined;

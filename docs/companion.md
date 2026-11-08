@@ -443,6 +443,14 @@ which one worked (`src/companion/dial.ts`):
   set through its phone door, with the phone table's limits (`src/companion/coverage.ts`), and names
   them in its relay record; a phone forgotten anywhere is cut off there (`src/machines/phones.ts`,
   `packages/companion/lib/link/computers.ts`). Those links open and close with the Mac's.
+- **Their work on the phone (BLG-810).** Work lists each computer under Your Computers, with its
+  icon, name and one line (what it has free, or offline since when the phone last reached it,
+  greyed); its conversations open over its own link (`?on=<id>`, `lib/scope.ts`), read-only from
+  the phone's cache while it's away. Needs You merges every computer's, each saying which, and an
+  answer goes back to that computer. New Task has one row, Runs on This Mac ›, whose sheet lists
+  your computers with the same line as the Mac's menu (`src/machines/words.ts`); picking one lists
+  its projects and starts the work there. Pictures, files, terminals and merges in a computer's
+  conversation stay on that computer for now.
 
 ## When it can't connect
 

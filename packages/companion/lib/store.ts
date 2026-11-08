@@ -3,9 +3,10 @@ import { fromB64, fromUtf8, toB64 } from './b64';
 import { kv } from './kv';
 import { BareTransport } from './link/bare';
 import { ComputerLinks, type ComputerLinkState, type KeptComputers } from './link/computers';
+import { ComputerWork, type ComputerView } from './link/computer-work';
 import { type Call, calls } from './link/calls';
 import { DemoTransport } from './link/demo/transport';
-import { BACKGROUND_GRACE_MS, COMPANION_PIECE, COMPANION_PROTO, compatible, SINCE, MAX_UPLOAD_BYTES, isMacTopic, type MacFrame, type NeedsYou, type OutputView, type PhoneComputer, type PhoneOp, type Topic, viewSchema } from './link/protocol';
+import { BACKGROUND_GRACE_MS, COMPANION_PIECE, COMPANION_PROTO, compatible, SINCE, MAX_UPLOAD_BYTES, isMacTopic, type MacFrame, type NeedsYou, type OutputView, type HomeView, type PhoneComputer, type PhoneOp, type Topic, viewSchema } from './link/protocol';
 import { controlNote, controlState, mirrorAck, onAccessibilityChange, onControlStop, phoneAllowed, phoneControlAvailable, runOp, setPhoneAllowed, watchAdb, watchMirror } from './phone';
 import { type Diagnosis, type PairRefusal, diagnose } from './link/diagnose';
 import { checkOnline } from './link/online';
@@ -101,6 +102,10 @@ class Store {
   private transport: Transport | undefined;
   /** Your computers, each linked by itself (BLG-809): they answer while your Mac sleeps. */
   private computerLinks: ComputerLinks | undefined;
+  /** What the phone shows of each computer: its views (kept) and calls on its link (BLG-810). */
+  private computerWork: ComputerWork | undefined;
+  /** Needs-you items from a computer, by the id they're listed under: which computer, and its own id. */
+  private needRoutes = new Map<string, { readonly on: string; readonly id: string }>();
   private computerFrames = new Set<(id: string, frame: MacFrame) => void>();
   private unsubs: (() => void)[] = [];
   private state: LinkState = { phase: 'idle', ready: false };
@@ -206,6 +211,18 @@ class Store {
    * only the address it dials (and its relays) are that computer's.
    */
   private linkComputers(): ComputerLinks {
+    const work = new ComputerWork({
+      send: (id, f) => this.computerLinks?.send(id, f) ?? false,
+      proto: (id) => this.computerLinks?.get(id)?.proto,
+      name: (id) => this.computerLinks?.get(id)?.computer.name,
+      emit: (key) => {
+        this.emit(key);
+        if (key.endsWith('|home')) this.emit('computer-needs');
+      },
+      load: () => kv.get('computer-views'),
+      save: (kept) => kv.set('computer-views', kept),
+    });
+    this.computerWork = work;
     return new ComputerLinks({
       make: (c: PhoneComputer) =>
         new BareTransport(async () => {
@@ -213,12 +230,20 @@ class Store {
           const s = await secure.get<DeviceSecret>('device-secret');
           return p && s ? { pairing: { cert: p.cert, address: c.address, macName: c.name, ...(p.me ? { me: p.me } : {}), ...(c.relays[0] ? { relay: c.relays[0] } : {}) }, secret: s } : undefined;
         }),
-      hello: () => ({ t: 'hello', v: { ...COMPANION_PROTO }, app: APP, platform: PLATFORM, topics: [] }),
+      hello: (c) => ({ t: 'hello', v: { ...COMPANION_PROTO }, app: APP, platform: PLATFORM, topics: work.topics(c.id) }),
       load: () => kv.get<KeptComputers>('computers'),
       save: (kept) => kv.set('computers', kept),
       primary: () => this.state.pairing?.address,
-      onChange: () => this.emit('computers'),
-      onFrame: (id, f) => this.onComputerFrame(id, f),
+      onChange: () => {
+        this.emit('computers');
+        this.emit('computer-needs');
+      },
+      onOpen: (id) => work.opened(id),
+      onDown: (id) => work.closed(id),
+      onGone: (id) => work.forget(id),
+      onFrame: (id, f) => {
+        if (!work.take(id, f)) this.onComputerFrame(id, f);
+      },
     });
   }
 
@@ -245,6 +270,53 @@ class Store {
     return () => void this.computerFrames.delete(fn);
   }
 
+  /** A computer's topic on screen: subscribed on its own link while mounted. */
+  watchOn(on: string, topic: Topic): () => void {
+    return this.computerWork?.watch(on, topic) ?? (() => undefined);
+  }
+
+  viewOn<T>(on: string, topic: Topic): ComputerView<T> | undefined {
+    return this.computerWork?.view<T>(on, topic);
+  }
+
+  /** Does that computer have this (its own protocol's minor)? */
+  supportsOn(on: string, what: keyof typeof SINCE): boolean {
+    return this.computerWork?.supports(on, what) ?? false;
+  }
+
+  /** Every computer's needs-you, listed under ids of their own (answering goes to that computer). */
+  computerNeeds(): readonly NeedsYou[] {
+    return this.snapshot('computer-needs', () => {
+      const work = this.computerWork;
+      if (!work) return [];
+      return this.computers().flatMap((c) => this.placeNeeds(c.computer.id, work.view<HomeView>(c.computer.id, 'home')?.data.needsYou));
+    });
+  }
+
+  /** A computer's needs-you items, under ids of their own and saying which computer: answering one goes back there. */
+  placeNeeds(on: string, items: readonly NeedsYou[] | undefined): NeedsYou[] {
+    const name = this.computerName(on);
+    return (items ?? []).map((n) => {
+      const id = `${on}|${n.id}`;
+      this.needRoutes.set(id, { on, id: n.id });
+      return { ...n, id, from: [name, n.from].filter(Boolean).join(' · ').slice(0, 200) };
+    });
+  }
+
+  /** That computer's link is open now. */
+  linkedTo(on: string): boolean {
+    return this.computerLinks?.get(on)?.phase === 'open';
+  }
+
+  computerName(on: string): string | undefined {
+    return this.computerLinks?.get(on)?.computer.name;
+  }
+
+  /** Which computer a needs-you item is from (none: your Mac). */
+  needOn(id: string): string | undefined {
+    return this.needRoutes.get(id)?.on;
+  }
+
   /** One frame to one of your computers (false: its link isn't open). */
   sendToComputer(id: string, frame: Parameters<ComputerLinks['send']>[1]): boolean {
     return this.computerLinks?.send(id, frame) ?? false;
@@ -253,6 +325,7 @@ class Store {
   private dropTransport(): void {
     this.computerLinks?.dispose();
     this.computerLinks = undefined;
+    this.computerWork = undefined;
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.transport?.dispose();
@@ -831,7 +904,8 @@ class Store {
   // ---- calls and the outbox
 
   /** Make a call; while your Mac is away it waits in the outbox (and resolves `undefined`). */
-  call<T = unknown>(c: Call, opts: { queue?: boolean } = {}): Promise<T | undefined> {
+  call<T = unknown>(c: Call, opts: { queue?: boolean; /** One of your computers: on its own link, never queued (BLG-810). */ on?: string } = {}): Promise<T | undefined> {
+    if (opts.on) return this.computerWork ? this.computerWork.call<T>(opts.on, c.method, c.args) : Promise.reject(new Error('That computer is away.'));
     if (this.state.phase !== 'open' || !this.transport) {
       if (opts.queue === false) return Promise.reject(new Error('Your Mac is away.'));
       this.outbox = [...this.outbox, { id: `o${Date.now()}${this.seq++}`, call: c, at: Date.now() }];
@@ -899,8 +973,9 @@ class Store {
    */
   dismiss(item: NeedsYou): void {
     this.hide(item.id);
-    if (!this.supports('dismiss')) return;
-    this.call(calls.dismissNeed(item.id)).catch((e: Error) => {
+    const route = this.needRoutes.get(item.id);
+    if (!(route ? this.supportsOn(route.on, 'dismiss') : this.supports('dismiss'))) return;
+    this.call(calls.dismissNeed(route?.id ?? item.id), route ? { on: route.on } : {}).catch((e: Error) => {
       this.hide(item.id, false);
       this.toast({ text: e.message, tone: 'error' });
     });
@@ -909,8 +984,9 @@ class Store {
   /** Answer a needs-you item: hide it now, show it again if the Mac says no. */
   async answer(item: NeedsYou, c: Call, done: string): Promise<void> {
     this.hide(item.id);
+    const on = this.needRoutes.get(item.id)?.on;
     try {
-      await this.call(c);
+      await this.call(c, on ? { on } : {});
       this.toast({ text: done, tone: 'ok' });
     } catch (e) {
       this.hide(item.id, false);

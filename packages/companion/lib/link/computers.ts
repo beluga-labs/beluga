@@ -48,6 +48,11 @@ export interface ComputerLinksOptions {
   readonly onFrame?: (id: string, frame: MacFrame) => void;
   /** Something any link shows changed (its phase, the list). */
   readonly onChange?: () => void;
+  /** A computer's link opened, or left open (its calls in flight won't be answered). */
+  readonly onOpen?: (id: string) => void;
+  readonly onDown?: (id: string) => void;
+  /** A computer is gone from your devices (its kept work goes too). */
+  readonly onGone?: (id: string) => void;
   /** The address the phone's own pairing dials: that one is never linked twice. */
   readonly primary?: () => string | undefined;
   readonly now?: () => number;
@@ -100,7 +105,10 @@ export class ComputerLinks {
     const next = new Map(list.filter((c) => c.address !== primary).map((c) => [c.id, c]));
     for (const [id, e] of [...this.entries]) {
       const c = next.get(id);
-      if (!c) this.drop(id);
+      if (!c) {
+        this.drop(id);
+        this.opts.onGone?.(id);
+      }
       else if (c.address !== e.computer.address || c.relays.join() !== e.computer.relays.join()) this.drop(id);
       else e.computer = c;
     }
@@ -173,7 +181,10 @@ export class ComputerLinks {
     this.entries.delete(id);
     this.clearRetry(e);
     for (const off of e.offs) off();
-    if (e.state.phase === 'open') e.transport.send({ t: 'bye' });
+    if (e.state.phase === 'open') {
+      e.transport.send({ t: 'bye' });
+      this.opts.onDown?.(id);
+    }
     e.transport.dispose();
   }
 
@@ -195,9 +206,11 @@ export class ComputerLinks {
       this.seen = { ...this.seen, [e.computer.id]: this.now() };
       this.keep();
       this.update(e, { phase: next, detail: undefined, lastSeen: this.seen[e.computer.id] });
+      this.opts.onOpen?.(e.computer.id);
       return;
     }
     // Leaving open: it was there until just now.
+    if (e.state.phase === 'open') this.opts.onDown?.(e.computer.id);
     if (e.state.phase === 'open') {
       this.seen = { ...this.seen, [e.computer.id]: this.now() };
       this.keep();

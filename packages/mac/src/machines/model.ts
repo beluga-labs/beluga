@@ -3,6 +3,7 @@ import type { MachineKind } from '../../../../src/machines/kind.js';
 import type { MachineView } from '../../../../src/machines/machines.js';
 import type { MachineIcon } from '../../../../src/shared/settings-schema.js';
 import type { IconName } from '../components/Icon.js';
+import { KIND_WORDS } from '../../../../src/machines/words.js';
 
 /**
  * How Settings › Your Computers says and draws a computer (BLG-780): its kind in words, its icon
@@ -12,23 +13,8 @@ import type { IconName } from '../components/Icon.js';
 
 export type Brand = 'googlecloud' | 'digitalocean' | 'hetzner' | 'raspberrypi' | 'docker' | 'podman';
 
-export const KIND_WORDS: Record<MachineKind, string> = {
-  aws: 'AWS',
-  gcp: 'Google Cloud',
-  azure: 'Azure',
-  digitalocean: 'DigitalOcean',
-  hetzner: 'Hetzner',
-  'mac-mini': 'Mac mini',
-  macbook: 'MacBook',
-  'mac-studio': 'Mac Studio',
-  imac: 'iMac',
-  mac: 'Mac',
-  'raspberry-pi': 'Raspberry Pi',
-  docker: 'Docker',
-  podman: 'Podman',
-  linux: 'Linux',
-  windows: 'Windows',
-};
+// Said the same on the phone (BLG-810).
+export { KIND_WORDS } from '../../../../src/machines/words.js';
 
 /**
  * A kind's own look: a brand mark where one ships (THIRD_PARTY_ICONS.md), else a glyph. AWS and

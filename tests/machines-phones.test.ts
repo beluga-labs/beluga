@@ -12,7 +12,7 @@ import type { DeviceCert, MacFrame, PhoneComputer } from '../src/companion/proto
 import { Store, initialState } from '../src/core/store.js';
 import type { MachineRecord } from '../src/machines/book.js';
 import { Machines } from '../src/machines/machines.js';
-import { computersKey, namedPhones, phoneComputers, setPhoneRecord } from '../src/machines/phones.js';
+import { computersKey, namedPhones, phoneComputers, runsOnWords, setPhoneRecord } from '../src/machines/phones.js';
 import { generateIdentity } from '../src/net/crypto.js';
 import { waitFor } from './helpers.js';
 
@@ -35,6 +35,15 @@ describe('what a phone hears of your computers', () => {
       { alwaysOn: deviceId(mini), look: () => ({ name: 'Mac mini' }) },
     );
     expect(list).toEqual([{ id: deviceId(mini), name: 'Mac mini', icon: 'server', platform: 'linux', address: hex('f'), relays: ['wss://relay.example/r/1'], lastSeen: 50, alwaysOn: true }]);
+  });
+
+  it('says each one’s Runs on line as the Mac’s menu does, but leaves whether it answers to the phone', () => {
+    const view = { id: '1'.repeat(16), name: 'aws', platform: 'linux' as const, pairedAt: 1, skew: 'same' as never, kind: 'aws' as const, lastSeen: 5 };
+    const info = { at: 1, cpus: 4, loadPerCore: 0.2, memory: { freeGB: 12.4, totalGB: 16 }, agentsRunning: 1, runtimes: [{ id: 'claude', state: 'ready' as const }], gh: 'signed_in' as const, mcp: [], projects: [] };
+    expect(runsOnWords({ ...view, status: 'offline', info } as never, 'claude')).toEqual({ line: 'AWS · 12 GB free · 1 task running' });
+    expect(runsOnWords({ ...view, status: 'online', info: { ...info, runtimes: [{ id: 'claude', state: 'signed_out' as const }] } } as never, 'claude')).toEqual({ line: 'AWS · 12 GB free · 1 task running', why: 'Claude isn’t signed in there' });
+    // Never asked yet: nothing to say against it.
+    expect(runsOnWords({ ...view, status: 'unknown' } as never, 'codex')).toEqual({ line: 'AWS' });
   });
 
   it('says the list again only when more than when each was last seen changed', () => {
