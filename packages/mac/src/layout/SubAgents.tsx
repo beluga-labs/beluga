@@ -13,7 +13,7 @@ import { type Residue, type SubAgent, agentResidue, agentTitle, cappedAgents, is
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { useNow } from '../chat/Items.js';
 import { agoText } from '../views/project/home-model.js';
-import { type FoldRow, type ThreadChild, THREAD_WORDS, agentFamilyRow, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf } from '../threads/threads-model.js';
+import { type FoldRow, type ThreadChild, THREAD_WORDS, agentFamilyRow, capFold, foldNoun, foldRows, foldRunning, foldSummary, openPath, threadNesting, threadStateOf, threadsShownUnder } from '../threads/threads-model.js';
 import { FamilyEnd, FamilyMark, FamilyTitle } from '../threads/FamilyRow.js';
 import { sameDeep } from '../lib/stable.js';
 import { Row } from './sidebar-parts.js';
@@ -33,7 +33,6 @@ import s from './subagents.module.css';
 
 /** How many of a conversation's sub-agents show before "N more". */
 const SHOWN = 3;
-const NO_THREADS: readonly Workspace[] = [];
 
 /** The watched sessions, as the state has them (one array: no new one each render). */
 export const useCcSessions = (): readonly CcSession[] => useApp((st) => st.claudeCode.sessions);
@@ -129,9 +128,16 @@ function useSubAgentFold(ws: Workspace): { list: SubAgent[]; folded: boolean; to
   return { list, folded, toggle };
 }
 
-/** The child threads under a chat's row, as they are now (none with threads off). */
+/** The child threads under a chat's row, as they are now (none with threads off, none put off till later). */
 function useThreadChildren(id: string): readonly ThreadChild[] {
-  return useApp((st) => (threadNesting(st).under.get(id) ?? NO_THREADS).map((w) => ({ ws: w, state: threadStateOf(st, w) ?? 'queued' })), sameDeep);
+  return useApp((st) => threadsShownUnder(st, id).map((w) => ({ ws: w, state: threadStateOf(st, w) ?? 'queued' })), sameDeep);
+}
+
+/** A conversation's child threads under its row outside the project list (the sidebar's categories): the same rows, unfolded. */
+export function WorkspaceThreads({ ws, indent }: { ws: Workspace; indent: number }) {
+  const threads = useThreadChildren(ws.id);
+  const rows = useMemo(() => foldRows([], threads), [threads]);
+  return rows.length ? <FoldedRows ws={ws} list={rows} noun={foldNoun(rows)} indent={indent} /> : null;
 }
 
 /**

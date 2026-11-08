@@ -6,6 +6,7 @@ import { channelsOf, laterUntil, triageFacts } from '../../../../src/core/triage
 import { type ChatCategory, type ChatTriage, categoryOf, triageKey } from '../../../../src/core/triage/model.js';
 import { hhmm, span } from '../../../../src/shared/clock.js';
 import { remindLabel } from '../../../../src/shared/remind.js';
+import { threadNesting } from '../../../../src/ui/thread-tree.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Project, Workspace } from '../../../../src/workspaces/types.js';
 
@@ -388,14 +389,19 @@ export type CategoryEntry = UnreadEntry & {
   readonly sortAt: number;
 };
 
-type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId' | 'prefs'>;
+type CategorySource = ListSource & Pick<AppState, 'triage' | 'selfId' | 'prefs' | 'plans' | 'board'>;
 
-/** Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Later by soonest reminder, Settled by newest. */
+/**
+ * Every conversation by category, each list in its order: Inbox by when it came back to you (hand raised first), Working by your last message, Later by soonest reminder, Settled by newest.
+ * With threads on, a child thread shows under its parent's row (threadsShownUnder), as in the project list: only one put off till later has a row of its own, in Later.
+ */
 export function categoriesOf(state: CategorySource): Readonly<Record<ChatCategory, readonly CategoryEntry[]>> {
   const out: Record<ChatCategory, CategoryEntry[]> = { active: [], working: [], snoozed: [], settled: [] };
+  const { nested } = threadNesting(state);
   for (const e of conversationEntries(state)) {
     if (isQuietOutside(e)) continue;
     const entry = categoryEntry(state, e);
+    if (e.kind === 'workspace' && nested.has(e.ws.id) && entry.category !== 'snoozed') continue;
     out[entry.category].push(entry);
   }
   out.active.sort((a, b) => Number(b.handRaised) - Number(a.handRaised) || b.sortAt - a.sortAt);

@@ -181,8 +181,8 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   // A child thread sits under its parent's row (SubAgents.tsx), not here.
   const { nested } = useApp(threadNesting);
   const mine = live.filter((w) => w.kind !== 'main' && worktreeOrigin(w) === 'beluga' && !isPlanOwned(state, w.id) && (!planHomes.has(`ws:${w.id}`) || w.id === here) && !nested.has(w.id) && notLater(putOff, w));
-  // Put off till later (Remind Me Later): folded at the bottom, back in place once it reminds you.
-  const later = laterOf(putOff, live.filter((w) => w.kind !== 'main' && !isPlanOwned(state, w.id) && !planHomes.has(`ws:${w.id}`) && !nested.has(w.id)));
+  // Put off till later (Remind Me Later): folded at the bottom, back in place once it reminds you. A child thread too: back under its parent then.
+  const later = laterOf(putOff, live.filter((w) => w.kind !== 'main' && !isPlanOwned(state, w.id) && !planHomes.has(`ws:${w.id}`)));
   const inPlan = planOfPlace(plansState, board, view);
   // You're in this project: on its home page, in one of its worktrees or chats, or in one of its plans.
   const current = onHome || (here !== undefined && p.workspaces.some((w) => w.id === here)) || plans.some((x) => x.id === inPlan);

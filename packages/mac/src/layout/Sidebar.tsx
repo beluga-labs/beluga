@@ -108,13 +108,15 @@ export function Sidebar() {
     };
     return {
       tabs: macTabs(state),
-      liveChats: state.projects.find((p) => !p.root)?.workspaces.filter((w) => !w.archived && !threadNesting(state).nested.has(w.id)) ?? [],
+      liveChats: state.projects.find((p) => !p.root)?.workspaces.filter((w) => !w.archived) ?? [],
       view: state.view,
       badges,
       categories: state.prefs.chatCategories,
     };
   }, sameDeep);
   const later = useLater();
+  // A child thread sits under its parent's row (SubAgents.tsx); put off till later, it is in Later.
+  const { nested } = useApp(threadNesting);
   const files = tabs.find((t) => t.kind === 'files');
   return (
     <SidebarChatSelection>
@@ -182,7 +184,7 @@ export function Sidebar() {
                 </>
               }
             >
-              {liveChats.filter((w) => notLater(later, w)).map((w) => (
+              {liveChats.filter((w) => !nested.has(w.id) && notLater(later, w)).map((w) => (
                 <WorkspaceWithAgents key={w.id} ws={w} indent={0} threadsOnly />
               ))}
               {/* Put off till later (Remind Me Later): folded at the bottom. */}

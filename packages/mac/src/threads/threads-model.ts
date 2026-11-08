@@ -5,8 +5,9 @@ import { type AgentMark, agentMark } from '../../../../src/shared/agent-marks.js
 import { span } from '../../../../src/shared/clock.js';
 import { agentName } from '../../../../src/shared/agent-label.js';
 import { THREAD_WORDS, type ThreadState, isThreadWorking } from '../../../../src/shared/threads.js';
-import { type ThreadFamilyParent, type ThreadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
+import { type ThreadFamilyParent, type ThreadNesting, threadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
+import { laterUntil } from '../../../../src/core/triage/facts.js';
 import type { Workspace } from '../../../../src/workspaces/types.js';
 import { type SubAgent, agentTitle, cappedAgents, subAgentsSummary } from '../claude-code/subagents-model.js';
 
@@ -19,6 +20,7 @@ export { THREAD_WORDS, isThreadWorking } from '../../../../src/shared/threads.js
 export { type ThreadFamilyParent, type ThreadNesting, parentIdOf, threadNesting, threadStateOf } from '../../../../src/ui/thread-tree.js';
 
 const WS = 'ws:';
+const NO_THREADS: readonly Workspace[] = [];
 
 export type ThreadFamilySource = Pick<AppState, 'prefs' | 'self' | 'projects' | 'log' | 'approvals' | 'questions' | 'plans' | 'board' | 'assistant'>;
 
@@ -126,6 +128,13 @@ export function panelRows(rows: readonly ThreadFamilyRow[], keepFinished: number
   const finished = rows.filter((r) => !isThreadWorking(r.state));
   const hide = new Set(finished.slice(0, Math.max(0, finished.length - keepFinished)));
   return { shown: rows.filter((r) => !hide.has(r)), earlier: hide.size };
+}
+
+/** The child threads under a chat's row now: none with threads off, and none put off till later (Remind Me Later) until it reminds you. */
+export function threadsShownUnder(state: Parameters<typeof threadNesting>[0] & Parameters<typeof laterUntil>[0], id: string, now = Date.now()): readonly Workspace[] {
+  const list = threadNesting(state).under.get(id) ?? NO_THREADS;
+  const shown = list.filter((w) => laterUntil(state, `${WS}${w.id}`, now) === undefined);
+  return shown.length === list.length ? list : shown;
 }
 
 /** The chats on the way down to the open one: each stays visible under a folded parent. */
