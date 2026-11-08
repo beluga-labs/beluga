@@ -165,6 +165,12 @@ const PATHS = {
   speaker: 'M2.75 6.25h2.5L8.5 3.5v9L5.25 9.75h-2.5z M10.75 5.75a3 3 0 0 1 0 4.5 M12.5 4a5.5 5.5 0 0 1 0 8',
   // Your computers (BLG-813): a Mac mini, a server in a rack, a cloud machine, one that's always on.
   macMini: 'M3 5.5h10a1.5 1.5 0 0 1 1.5 1.5v2.5a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 3 5.5z M4.5 12.75h7 M11.25 8.25h.01',
+  /** A Mac Studio: the Mac mini's taller sibling, its ports along the front. */
+  macStudio: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3z M4.5 10.25h1.75 M7.5 10.25h1.75 M11.5 10.25h.01',
+  /** An iMac: the screen, its chin and its stand. */
+  imac: 'M2.5 2.5h11a1 1 0 0 1 1 1v6h-13v-6a1 1 0 0 1 1-1z M1.5 9.5h13v1a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z M6.5 11.5l-.5 2h4l-.5-2',
+  /** A PC: a screen beside its tower (Windows' own mark isn't ours to use). */
+  pc: 'M1.5 3.5h7.5v6H1.5z M3.5 12.75h3.5 M5.25 9.5v3.25 M11 2.5h3.5v11H11z M12.75 4.75h.01',
   server: 'M3 2.5h10a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z M3 9h10a.5.5 0 0 1 .5.5V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V9.5A.5.5 0 0 1 3 9z M5 4.75h.01 M5 11.25h.01',
   cloud: 'M4.5 12.5a3 3 0 0 1-.4-5.97A4 4 0 0 1 11.8 5.6 3.5 3.5 0 0 1 11.5 12.5z',
   power: 'M8 2.5v5 M5 4.25a5 5 0 1 0 6 0',

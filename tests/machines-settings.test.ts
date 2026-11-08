@@ -16,10 +16,20 @@ describe('a computer’s row', () => {
     expect(kindLine(aws)).toBe('AWS · eu-west-1');
     expect(kindLine(mini)).toBe('Mac mini');
     expect(kindLine({ platform: 'linux' })).toBe('Linux');
-    // AWS and Azure: their own marks, from their icon sets. Apple hardware: a plain desktop, never Apple's mark.
+    // AWS and Azure: their own marks, from their icon sets. Apple hardware and PCs: the app's own drawing of each, never Apple's or Microsoft's marks.
     expect(machineLook(aws)).toEqual({ brand: 'aws', glyph: 'cloud' });
     expect(machineLook({ kind: 'azure', platform: 'linux' }).brand).toBe('azure');
-    expect(machineLook(mini)).toEqual({ glyph: 'desktop' });
+    expect(machineLook(mini)).toEqual({ glyph: 'macMini' });
+    expect(machineLook({ kind: 'mac-studio', platform: 'macos' })).toEqual({ glyph: 'macStudio' });
+    expect(machineLook({ kind: 'imac', platform: 'macos' })).toEqual({ glyph: 'imac' });
+    expect(machineLook({ kind: 'windows', platform: 'windows' })).toEqual({ glyph: 'pc' });
+    // Linux: its distribution's mark and name, else Tux; a cloud or a container keeps its own.
+    expect(machineLook({ kind: 'linux', platform: 'linux', distro: 'ubuntu' })).toEqual({ brand: 'ubuntu', glyph: 'server' });
+    expect(machineLook({ kind: 'linux', platform: 'linux' })).toEqual({ brand: 'linux', glyph: 'server' });
+    expect(machineLook({ kind: 'aws', platform: 'linux', distro: 'ubuntu' }).brand).toBe('aws');
+    expect(machineLook({ kind: 'docker', platform: 'linux', distro: 'debian' }).brand).toBe('docker');
+    expect(kindLine({ kind: 'linux', platform: 'linux', distro: 'ubuntu', distroVersion: '24.04' })).toBe('Ubuntu 24.04');
+    expect(kindLine({ kind: 'linux', platform: 'linux', distro: 'arch' })).toBe('Arch Linux');
     expect(machineLook({ kind: 'docker', platform: 'linux' })).toEqual({ brand: 'docker', glyph: 'box' });
     expect(machineLook({ kind: 'raspberry-pi', platform: 'linux' }).brand).toBe('raspberrypi');
     // The icon kept on the computer wins; `auto` is the kind's own.
@@ -84,7 +94,7 @@ describe('the brand marks', () => {
   it('every shipped mark is listed with its source in THIRD_PARTY_ICONS.md', () => {
     const doc = readFileSync('THIRD_PARTY_ICONS.md', 'utf8');
     const files = readdirSync('packages/mac/src/machines/icons/brands').filter((f) => f.endsWith('.svg'));
-    expect(files.sort()).toEqual(['aws.svg', 'azure.svg', 'digitalocean.svg', 'docker.svg', 'googlecloud.svg', 'hetzner.svg', 'podman.svg', 'raspberrypi.svg']);
+    expect(files.sort()).toEqual(['almalinux.svg', 'alpinelinux.svg', 'archlinux.svg', 'aws.svg', 'azure.svg', 'centos.svg', 'debian.svg', 'digitalocean.svg', 'docker.svg', 'fedora.svg', 'gentoo.svg', 'googlecloud.svg', 'hetzner.svg', 'kalilinux.svg', 'linux.svg', 'linuxmint.svg', 'manjaro.svg', 'nixos.svg', 'opensuse.svg', 'podman.svg', 'popos.svg', 'raspberrypi.svg', 'redhat.svg', 'rockylinux.svg', 'ubuntu.svg']);
     for (const f of files) expect(doc).toMatch(new RegExp(`\\| \`${f.replace('.', '\\.')}\` \\|[^\\n]*https://`));
     // As they came: a plain Simple Icons file, its own title, nothing added.
     for (const f of files.filter((f) => !(f in FULL_COLOUR))) expect(readFileSync(`packages/mac/src/machines/icons/brands/${f}`, 'utf8')).toMatch(/^<svg role="img" viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg"><title>[^<]+<\/title><path d="[^"]+"\/><\/svg>\n?$/);

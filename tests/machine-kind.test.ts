@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type KindReaders, METADATA_TIMEOUT_MS, cloudRegion, detectKind, localKind } from '../src/machines/kind.js';
+import { type KindReaders, METADATA_TIMEOUT_MS, cloudRegion, detectKind, distroFromOsRelease, localKind } from '../src/machines/kind.js';
 
 /** What kind of computer it is (BLG-782), from values recorded on real machines. */
 
@@ -127,5 +127,35 @@ describe('the cloud’s region, from its metadata', () => {
     expect(await detectKind(readers('linux', {}, {}, m.fetch))).toEqual({ kind: 'linux' });
     expect(await detectKind(readers('darwin', {}, { 'hw.model': 'Mac14,3' }, m.fetch))).toEqual({ kind: 'mac-mini' });
     expect(m.asked).toEqual([]);
+  });
+});
+
+describe('which Linux, from os-release', () => {
+  const OS: Array<[string, string, string, string | undefined]> = [
+    ['Ubuntu 24.04', 'NAME="Ubuntu"\nVERSION_ID="24.04"\nID=ubuntu\nID_LIKE=debian\n', 'ubuntu', '24.04'],
+    ['Debian 12', 'PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\nVERSION_ID="12"\nID=debian\n', 'debian', '12'],
+    ['Fedora 41', 'NAME="Fedora Linux"\nVERSION_ID=41\nID=fedora\n', 'fedora', '41'],
+    ['Arch (no version)', 'NAME="Arch Linux"\nID=arch\nBUILD_ID=rolling\n', 'arch', undefined],
+    ['Alpine 3.20', 'NAME="Alpine Linux"\nID=alpine\nVERSION_ID=3.20.3\n', 'alpine', '3.20.3'],
+    ['Rocky Linux 9', 'NAME="Rocky Linux"\nID="rocky"\nID_LIKE="rhel centos fedora"\nVERSION_ID="9.4"\n', 'rocky', '9.4'],
+    ['RHEL 9', 'NAME="Red Hat Enterprise Linux"\nID="rhel"\nVERSION_ID="9.4"\n', 'rhel', '9.4'],
+    ['openSUSE Tumbleweed', 'NAME="openSUSE Tumbleweed"\nID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\nVERSION_ID="20241101"\n', 'opensuse', '20241101'],
+    ['Linux Mint (its own mark, not Ubuntu’s)', 'NAME="Linux Mint"\nID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_ID="22"\n', 'mint', '22'],
+    ['an unknown derivative shows its parent’s', 'NAME="Zorin OS"\nID=zorin\nID_LIKE="ubuntu debian"\nVERSION_ID="17"\n', 'ubuntu', '17'],
+  ];
+  it.each(OS)('%s', (_name, text, distro, version) => {
+    expect(distroFromOsRelease(text)).toEqual({ distro, ...(version ? { version } : {}) });
+  });
+  it('knows nothing it can’t name, and keeps an odd version out', () => {
+    expect(distroFromOsRelease('ID=void\n')).toBeUndefined();
+    expect(distroFromOsRelease(undefined)).toBeUndefined();
+    expect(distroFromOsRelease('ID=ubuntu\nVERSION_ID="24.04; rm -rf /"\n')).toEqual({ distro: 'ubuntu' });
+  });
+  it('detectKind carries it on Linux, a cloud server included, and never on a Mac', async () => {
+    const ubuntu = { '/etc/os-release': 'ID=ubuntu\nVERSION_ID="24.04"\n' };
+    expect(await detectKind(readers('linux', ubuntu))).toEqual({ kind: 'linux', distro: 'ubuntu', distroVersion: '24.04' });
+    expect(await detectKind(readers('linux', { ...ubuntu, ...dmi('Amazon EC2', 'm6i.large') }))).toEqual({ kind: 'aws', distro: 'ubuntu', distroVersion: '24.04' });
+    expect(await detectKind(readers('linux', { '/usr/lib/os-release': 'ID=fedora\nVERSION_ID=41\n' }))).toEqual({ kind: 'linux', distro: 'fedora', distroVersion: '41' });
+    expect(await detectKind(readers('darwin', ubuntu, { 'hw.model': 'Mac14,3' }))).toEqual({ kind: 'mac-mini' });
   });
 });

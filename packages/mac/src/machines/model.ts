@@ -3,7 +3,8 @@ import type { MachineKind } from '../../../../src/machines/kind.js';
 import type { MachineView } from '../../../../src/machines/machines.js';
 import type { MachineIcon } from '../../../../src/shared/settings-schema.js';
 import type { IconName } from '../components/Icon.js';
-import { KIND_WORDS } from '../../../../src/machines/words.js';
+import { DISTRO_WORDS, KIND_WORDS } from '../../../../src/machines/words.js';
+import type { LinuxDistro } from '../../../../src/machines/kind.js';
 
 /**
  * How Settings › Your Computers says and draws a computer (BLG-780): its kind in words, its icon
@@ -11,14 +12,40 @@ import { KIND_WORDS } from '../../../../src/machines/words.js';
  * and what isn't ready there with its fix. Pure, so it's tested without a window.
  */
 
-export type Brand = 'aws' | 'azure' | 'googlecloud' | 'digitalocean' | 'hetzner' | 'raspberrypi' | 'docker' | 'podman';
+export type Brand =
+  | 'aws'
+  | 'azure'
+  | 'googlecloud'
+  | 'digitalocean'
+  | 'hetzner'
+  | 'raspberrypi'
+  | 'docker'
+  | 'podman'
+  | 'linux'
+  | 'ubuntu'
+  | 'debian'
+  | 'fedora'
+  | 'archlinux'
+  | 'alpinelinux'
+  | 'centos'
+  | 'redhat'
+  | 'rockylinux'
+  | 'almalinux'
+  | 'opensuse'
+  | 'nixos'
+  | 'linuxmint'
+  | 'manjaro'
+  | 'popos'
+  | 'gentoo'
+  | 'kalilinux';
 
 // Said the same on the phone (BLG-810).
 export { KIND_WORDS } from '../../../../src/machines/words.js';
 
 /**
- * A kind's own look: a brand mark where one ships (THIRD_PARTY_ICONS.md), else a glyph. Apple
- * hardware gets a plain desktop or laptop, never Apple's marks.
+ * A kind's own look: a brand mark where one ships (THIRD_PARTY_ICONS.md), else a glyph of the app's
+ * own. Apple hardware and Windows PCs get the app's own drawing of each (a Mac mini, a Mac Studio,
+ * an iMac, a MacBook, a PC), never Apple's or Microsoft's marks, which they don't let others use.
  */
 const KIND_LOOK: Record<MachineKind, { readonly brand?: Brand; readonly glyph: IconName }> = {
   aws: { brand: 'aws', glyph: 'cloud' },
@@ -26,16 +53,36 @@ const KIND_LOOK: Record<MachineKind, { readonly brand?: Brand; readonly glyph: I
   azure: { brand: 'azure', glyph: 'cloud' },
   digitalocean: { brand: 'digitalocean', glyph: 'cloud' },
   hetzner: { brand: 'hetzner', glyph: 'server' },
-  'mac-mini': { glyph: 'desktop' },
+  'mac-mini': { glyph: 'macMini' },
   macbook: { glyph: 'laptop' },
-  'mac-studio': { glyph: 'desktop' },
-  imac: { glyph: 'desktop' },
+  'mac-studio': { glyph: 'macStudio' },
+  imac: { glyph: 'imac' },
   mac: { glyph: 'desktop' },
   'raspberry-pi': { brand: 'raspberrypi', glyph: 'chip' },
   docker: { brand: 'docker', glyph: 'box' },
   podman: { brand: 'podman', glyph: 'box' },
-  linux: { glyph: 'server' },
-  windows: { glyph: 'desktop' },
+  linux: { brand: 'linux', glyph: 'server' },
+  windows: { glyph: 'pc' },
+};
+
+/** A Linux distribution's own mark, shown in place of Tux. */
+const DISTRO_BRAND: Record<LinuxDistro, Brand> = {
+  ubuntu: 'ubuntu',
+  debian: 'debian',
+  fedora: 'fedora',
+  arch: 'archlinux',
+  alpine: 'alpinelinux',
+  centos: 'centos',
+  rhel: 'redhat',
+  rocky: 'rockylinux',
+  alma: 'almalinux',
+  opensuse: 'opensuse',
+  nixos: 'nixos',
+  mint: 'linuxmint',
+  manjaro: 'manjaro',
+  pop: 'popos',
+  gentoo: 'gentoo',
+  kali: 'kalilinux',
 };
 
 /** The generic icons to pick from, in order (`auto` is the kind's own). */
@@ -50,14 +97,18 @@ export const ICON_CHOICES: ReadonlyArray<{ readonly value: MachineIcon; readonly
 ];
 
 /** What to draw: a brand mark, or a glyph from the app's own set. */
-export function machineLook(m: Pick<MachineView, 'icon' | 'kind' | 'platform'>): { readonly brand?: Brand; readonly glyph: IconName } {
+export function machineLook(m: Pick<MachineView, 'icon' | 'kind' | 'platform'> & { readonly distro?: LinuxDistro }): { readonly brand?: Brand; readonly glyph: IconName } {
   if (m.icon && m.icon !== 'auto') return { glyph: m.icon };
+  // A plain Linux box (or one whose kind isn't known yet) shows its distribution's mark.
+  if (m.distro && (!m.kind || m.kind === 'linux')) return { brand: DISTRO_BRAND[m.distro], glyph: 'server' };
   if (m.kind) return KIND_LOOK[m.kind];
-  return { glyph: m.platform === 'macos' ? 'desktop' : 'server' };
+  return m.platform === 'macos' ? { glyph: 'desktop' } : m.platform === 'windows' ? { glyph: 'pc' } : { brand: 'linux', glyph: 'server' };
 }
 
 /** "AWS · eu-west-1", "Mac mini", or the platform when the kind isn't known yet. */
-export function kindLine(m: Pick<MachineView, 'kind' | 'region' | 'platform'>): string {
+export function kindLine(m: Pick<MachineView, 'kind' | 'region' | 'platform'> & { readonly distro?: LinuxDistro; readonly distroVersion?: string }): string {
+  // A plain Linux box says which one: "Ubuntu 24.04".
+  if (m.distro && (!m.kind || m.kind === 'linux')) return [DISTRO_WORDS[m.distro], m.distroVersion].filter(Boolean).join(' ');
   const kind = m.kind ? KIND_WORDS[m.kind] : m.platform === 'macos' ? 'Mac' : m.platform === 'windows' ? 'Windows' : 'Linux';
   return m.region ? `${kind} · ${m.region}` : kind;
 }

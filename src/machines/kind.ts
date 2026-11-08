@@ -18,10 +18,17 @@ export const MACHINE_KINDS = ['aws', 'gcp', 'azure', 'digitalocean', 'hetzner', 
 export type MachineKind = (typeof MACHINE_KINDS)[number];
 export type CloudKind = Extract<MachineKind, 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner'>;
 
+/** The Linux distributions known by their own mark; any other Linux is plain Linux (Tux). */
+export const LINUX_DISTROS = ['ubuntu', 'debian', 'fedora', 'arch', 'alpine', 'centos', 'rhel', 'rocky', 'alma', 'opensuse', 'nixos', 'mint', 'manjaro', 'pop', 'gentoo', 'kali'] as const;
+export type LinuxDistro = (typeof LINUX_DISTROS)[number];
+
 export interface KindFound {
   readonly kind: MachineKind;
   /** The cloud region ("eu-west-1", "westeurope"), when its metadata said. */
   readonly region?: string;
+  /** On Linux, which distribution and its version ("24.04"), from os-release. */
+  readonly distro?: LinuxDistro;
+  readonly distroVersion?: string;
 }
 
 export interface KindReaders {
@@ -138,12 +145,56 @@ export async function cloudRegion(kind: CloudKind, fetch: NonNullable<KindReader
 
 const CLOUDS: readonly MachineKind[] = ['aws', 'gcp', 'azure', 'digitalocean', 'hetzner'];
 
-/** The kind, and for a cloud server its region when the metadata says so in time. */
+/** os-release's ID (or one of ID_LIKE) → the distribution. */
+const OS_IDS: Readonly<Record<string, LinuxDistro>> = {
+  ubuntu: 'ubuntu',
+  debian: 'debian',
+  fedora: 'fedora',
+  arch: 'arch',
+  archarm: 'arch',
+  alpine: 'alpine',
+  centos: 'centos',
+  rhel: 'rhel',
+  rocky: 'rocky',
+  almalinux: 'alma',
+  opensuse: 'opensuse',
+  'opensuse-leap': 'opensuse',
+  'opensuse-tumbleweed': 'opensuse',
+  sles: 'opensuse',
+  suse: 'opensuse',
+  nixos: 'nixos',
+  linuxmint: 'mint',
+  manjaro: 'manjaro',
+  pop: 'pop',
+  gentoo: 'gentoo',
+  kali: 'kali',
+};
+
+/**
+ * Which Linux it is, from os-release's text: its ID first, else the first of ID_LIKE we know (a
+ * derivative shows its parent's mark), with VERSION_ID when it's a plain version.
+ */
+export function distroFromOsRelease(text: string | undefined): { readonly distro: LinuxDistro; readonly version?: string } | undefined {
+  if (!text) return undefined;
+  const field = (key: string): string | undefined => {
+    const m = new RegExp(`^${key}=(.*)$`, 'm').exec(text);
+    return m?.[1]?.trim().replace(/^(['"])(.*)\1$/, '$2').toLowerCase();
+  };
+  const ids = [field('ID'), ...(field('ID_LIKE')?.split(/\s+/) ?? [])].filter((id): id is string => !!id);
+  const distro = ids.map((id) => OS_IDS[id]).find((d): d is LinuxDistro => !!d);
+  if (!distro) return undefined;
+  const version = field('VERSION_ID');
+  return { distro, ...(version && /^[a-z0-9._-]{1,16}$/.test(version) ? { version } : {}) };
+}
+
+/** The kind, on Linux its distribution, and for a cloud server its region when the metadata says so in time. */
 export async function detectKind(r: KindReaders, timeoutMs = METADATA_TIMEOUT_MS): Promise<KindFound> {
   const kind = await localKind(r).catch((): MachineKind => (r.platform === 'darwin' ? 'mac' : r.platform === 'win32' ? 'windows' : 'linux'));
-  if (!CLOUDS.includes(kind) || !r.fetch) return { kind };
+  const os = r.platform === 'linux' ? distroFromOsRelease((await r.read('/etc/os-release')) ?? (await r.read('/usr/lib/os-release'))) : undefined;
+  const distro = os ? { distro: os.distro, ...(os.version ? { distroVersion: os.version } : {}) } : {};
+  if (!CLOUDS.includes(kind) || !r.fetch) return { kind, ...distro };
   const region = await cloudRegion(kind as CloudKind, r.fetch, timeoutMs);
-  return { kind, ...(region ? { region } : {}) };
+  return { kind, ...(region ? { region } : {}), ...distro };
 }
 
 /** The real readers, on this computer. */

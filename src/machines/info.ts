@@ -9,7 +9,7 @@ import { DeviceSetSync } from '../companion/protocol.js';
 import { type DomainState, isRunning } from '../core/store.js';
 import { Usage } from '../protocol.js';
 import { git } from '../workspaces/git.js';
-import { type KindFound, MACHINE_KINDS, detectKind, realKindReaders } from './kind.js';
+import { type KindFound, LINUX_DISTROS, MACHINE_KINDS, detectKind, realKindReaders } from './kind.js';
 import { UPDATE_MODES, UpdateAnswer } from './versions.js';
 import { MACHINE_ICONS, type MachineIcon } from '../shared/settings-schema.js';
 
@@ -34,6 +34,9 @@ export const MachineInfo = z.object({
   /** What kind of computer it is and, for a cloud server, its region (BLG-782, kind.ts). */
   kind: z.enum(MACHINE_KINDS).optional(),
   region: z.string().max(40).optional(),
+  /** On Linux, which distribution and its version (kind.ts): its mark and "Ubuntu 24.04". */
+  distro: z.enum(LINUX_DISTROS).optional(),
+  distroVersion: z.string().max(16).optional(),
   /** Its Beluga and the app protocol it speaks (BLG-777). */
   version: z.string().max(40).optional(),
   ipc: z.number().int().min(0).optional(),
@@ -105,7 +108,7 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
   const kind = deps.kind?.();
   return {
     at: deps.now(),
-    ...(kind ? { kind: kind.kind, ...(kind.region ? { region: kind.region } : {}) } : {}),
+    ...(kind ? { kind: kind.kind, ...(kind.region ? { region: kind.region } : {}), ...(kind.distro ? { distro: kind.distro, ...(kind.distroVersion ? { distroVersion: kind.distroVersion } : {}) } : {}) } : {}),
     ...(deps.self ? { version: deps.self.version.slice(0, 40), ipc: deps.self.ipc } : {}),
     ...lookOf(deps.look?.()),
     cpus,

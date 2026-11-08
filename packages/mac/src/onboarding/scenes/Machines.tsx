@@ -18,8 +18,8 @@ import m from './machines.module.css';
 interface Machine {
   readonly id: 'mini' | 'aws' | 'linux';
   readonly icon: IconName;
-  /** A cloud's own mark (the AWS logo), drawn instead of the glyph. */
-  readonly brand?: 'aws';
+  /** What its own mark is drawn from (the AWS logo, Ubuntu's), instead of the glyph. */
+  readonly mark?: { readonly kind: 'aws' | 'linux'; readonly platform: 'linux'; readonly distro?: 'ubuntu' };
   readonly name: string;
   readonly where: string;
   readonly hue: number;
@@ -27,8 +27,8 @@ interface Machine {
 
 const MACHINES: readonly Machine[] = [
   { id: 'mini', icon: 'macMini', name: 'Mac mini', where: 'At home', hue: 160 },
-  { id: 'aws', icon: 'cloud', brand: 'aws', name: 'build-box', where: 'AWS · us-east-1', hue: 250 },
-  { id: 'linux', icon: 'server', name: 'Linux box', where: 'Ubuntu · office', hue: 60 },
+  { id: 'aws', icon: 'cloud', mark: { kind: 'aws', platform: 'linux' }, name: 'build-box', where: 'AWS · us-east-1', hue: 250 },
+  { id: 'linux', icon: 'server', mark: { kind: 'linux', platform: 'linux', distro: 'ubuntu' }, name: 'Linux box', where: 'Ubuntu · office', hue: 60 },
 ];
 
 /** What the AWS mark is drawn from: an AWS computer's kind. */
@@ -207,7 +207,7 @@ export function Machines() {
             <div key={mc.id} className={m.machine} data-busy={(mc.id === 'aws' && working && beat < DONE) || undefined}>
               <div className={m.head}>
                 <span className={m.tile} style={{ ['--hue' as string]: mc.hue }}>
-                  {mc.brand ? <MachineMark machine={AWS_MARK} size={14} /> : <Icon name={mc.icon} size={14} />}
+                  {mc.mark ? <MachineMark machine={mc.mark} size={14} /> : <Icon name={mc.icon} size={14} />}
                 </span>
                 <div>
                   <strong>{mc.name}</strong>

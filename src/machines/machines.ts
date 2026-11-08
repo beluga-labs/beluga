@@ -79,6 +79,8 @@ export interface MachineView {
   /** What kind of computer it is and its cloud region, as it said (BLG-782). */
   readonly kind?: MachineInfo['kind'];
   readonly region?: string;
+  readonly distro?: MachineInfo['distro'];
+  readonly distroVersion?: string;
   /** Your secrets sync with it (you said Keep My Secrets in Sync for it, BLG-805). */
   readonly secrets?: boolean;
   /** The ssh host it was added over: Open in Editor opens its folders over Remote-SSH (BLG-794). */
@@ -822,6 +824,7 @@ export class Machines {
       ...(live?.info ? { info: live.info } : {}),
       ...(live?.info?.kind ? { kind: live.info.kind } : {}),
       ...(live?.info?.region ? { region: live.info.region } : {}),
+      ...(live?.info?.distro ? { distro: live.info.distro, ...(live.info.distroVersion ? { distroVersion: live.info.distroVersion } : {}) } : {}),
       skew,
       ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
       ...(this.opts.settings?.secretsOn(deviceId(r.cert)) ? { secrets: true } : {}),

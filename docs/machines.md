@@ -31,10 +31,18 @@ through a relay that carries only ciphertext when it doesn't.
 
 ### Names, icons and kinds
 
-A computer works out what it is on its own: a cloud server (AWS, Google Cloud, Azure, DigitalOcean,
-Hetzner, with its region), a Mac by model (Mac mini, MacBook, Mac Studio, iMac), a Raspberry Pi,
-a Docker or Podman container, or plain Linux or Windows. That gives it a fitting icon and a name you
-can keep. Click its name to rename it, or use its **••• › Rename…**; **••• › Icon** picks Server,
+A computer works out what it is on its own, and each kind has its own mark:
+
+- **A cloud server** (AWS, Google Cloud, Azure, DigitalOcean, Hetzner), with its maker's logo and
+  its region.
+- **A Linux computer** by its distribution (Ubuntu, Debian, Fedora, Arch, Alpine, CentOS, Red Hat,
+  Rocky, AlmaLinux, openSUSE, NixOS, Linux Mint, Manjaro, Pop!_OS, Gentoo, Kali), with its logo and
+  version ("Ubuntu 24.04"); any other Linux gets Tux.
+- **A Raspberry Pi, or a Docker or Podman container**, with its logo.
+- **A Mac by model** (Mac mini, Mac Studio, iMac, MacBook) or **a Windows PC**, each drawn in
+  Beluga's own icons: Apple and Microsoft don't let others use their logos.
+
+That gives it a fitting mark and a name you can keep. Click its name to rename it, or use its **••• › Rename…**; **••• › Icon** picks Server,
 Cloud, Desktop, Laptop, Chip or Box instead of its kind's.
 
 Each row says, in a line, how it is: its kind, the memory it has free and how many tasks it runs,

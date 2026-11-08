@@ -1,4 +1,4 @@
-import type { MachineKind } from './kind.js';
+import type { LinuxDistro, MachineKind } from './kind.js';
 
 /**
  * How a computer of yours is said, the same on the Mac and the phone (BLG-786, BLG-810): its kind
@@ -41,6 +41,26 @@ export const KIND_WORDS: Record<MachineKind, string> = {
   podman: 'Podman',
   linux: 'Linux',
   windows: 'Windows',
+};
+
+/** A Linux distribution by its name ("Ubuntu"), said in place of plain Linux. */
+export const DISTRO_WORDS: Record<LinuxDistro, string> = {
+  ubuntu: 'Ubuntu',
+  debian: 'Debian',
+  fedora: 'Fedora',
+  arch: 'Arch Linux',
+  alpine: 'Alpine',
+  centos: 'CentOS',
+  rhel: 'Red Hat',
+  rocky: 'Rocky Linux',
+  alma: 'AlmaLinux',
+  opensuse: 'openSUSE',
+  nixos: 'NixOS',
+  mint: 'Linux Mint',
+  manjaro: 'Manjaro',
+  pop: 'Pop!_OS',
+  gentoo: 'Gentoo',
+  kali: 'Kali Linux',
 };
 
 const RUNTIME_WORDS: Readonly<Record<string, string>> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', gemini: 'Gemini' };

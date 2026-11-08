@@ -63,6 +63,10 @@
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
 }
+/* A deep brand colour in a dark window: lifted toward white so the mark still reads. */
+:global([data-theme='dark']) .brand[data-deep] {
+  filter: brightness(1.9) saturate(0.9);
+}
 /* A full-colour mark (AWS, Azure): the owner's file as it came. */
 .brandFull {
   width: 20px;
