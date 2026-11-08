@@ -3,6 +3,7 @@ import { remoteEditorUrl, revealThere, revealThereLabel } from '@beluga/machines
 import { joinPath } from '@beluga/shared/os-path.js';
 import { useMachine } from './beluga.js';
 import { revealLabel } from './os-words.js';
+import { currentMachines } from '../machines/use-machines.js';
 
 /**
  * Open in Finder and editors on a computer's page (BLG-794, src/machines/open.ts): what names a
@@ -96,9 +97,33 @@ export async function openCodeThere(client: SocketClient, wsId: string, file: st
   await goToCode(client, wsId, file, line);
 }
 
+/**
+ * Open a folder (local.openFolder): on a computer's page, in your editor over Remote-SSH when it
+ * was added over SSH, else its path copied. Never a folder opened over there.
+ */
+export async function openFolderThere(client: SocketClient, dir: string): Promise<void> {
+  if (await openThere(client, dir, 'open')) return;
+  await client.api.local.openFolder(dir);
+}
+
 /** The words of a Show in Finder button for a folder: on a computer's page, Copy Path. */
-export function useRevealLabel(): string {
-  return useMachine() ? revealThereLabel('folder') : revealLabel();
+export function useRevealLabel(what?: string): string {
+  return useMachine() ? revealThereLabel('folder') : revealLabel(what);
+}
+
+/**
+ * The words of a button that opens a folder (openFolderThere): `open` here; on a computer's page,
+ * in your editor when it was added over SSH, else `copy`.
+ */
+export function useOpenFolderLabel(open: string, copy: string): string {
+  const machine = useMachine();
+  if (!machine) return open;
+  return currentMachines().find((m) => m.id === machine)?.ssh ? `${open} in Your Editor` : copy;
+}
+
+/** The same for a single file: on a computer's page, Download (it comes to this Mac). */
+export function useRevealFileLabel(what?: string): string {
+  return useMachine() ? (what ? `Download ${what}` : revealThereLabel('file')) : revealLabel(what);
 }
 
 /** An editor's own link (vscode://, cursor://): the system hands it to the editor. */

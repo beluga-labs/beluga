@@ -137,3 +137,38 @@ test('a worktree started with Runs on the AWS server is made there, then archive
   await page.getByRole('alertdialog', { name: /Archive “remote-check”/ }).getByRole('button', { name: 'Archive', exact: true }).click();
   await expect(row).toHaveCount(0, { timeout: 15_000 });
 });
+
+/** A task of the board whose worktree is still there (none yet: ''). */
+const taskWithWorktree = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    type St = { board: { issues: Array<{ id: string; worktrees: string[]; carriedBy?: string }> }; projects: Array<{ workspaces: Array<{ id: string; archived?: boolean }> }> };
+    const st = (window as unknown as { __belugaState?: () => St }).__belugaState?.();
+    const live = new Set(st?.projects.flatMap((p) => p.workspaces.filter((w) => !w.archived).map((w) => w.id)) ?? []);
+    return st?.board.issues.find((i) => live.has(i.carriedBy ?? i.worktrees.at(-1) ?? ''))?.id ?? '';
+  });
+
+/**
+ * Every reveal button on a computer's page (BLG-852): a task's page there copies its worktree's
+ * path (Copy Path) instead of opening Finder over there; on this Mac's page it's Reveal Folder.
+ */
+test('a task’s page on a computer says Copy Path for its worktree’s folder, and copies it', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  // A task with a worktree (the demo's board seeds them a moment after it starts).
+  let task = '';
+  await expect.poll(async () => (task = await taskWithWorktree(page))).not.toBe('');
+  const go = (view: object) => page.evaluate((v) => (window as unknown as { __belugaGo: (v: object) => void }).__belugaGo(v), view);
+  // On this Mac: Reveal Folder.
+  await go({ kind: 'task', id: task });
+  await expect(page.getByRole('button', { name: 'Open Worktree' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reveal Folder' }).first()).toBeVisible();
+  // The same task on the AWS server: Copy Path, and the path is copied, never Finder over there.
+  await go({ kind: 'machine', machine: 'de30a1c0ffee0002', view: { kind: 'task', id: task } });
+  await expect(tag(page)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reveal Folder' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Copy Path' }).first().click();
+  await expect(page.getByText(/Copied the path on AWS server/)).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^\/.+/);
+  await page.screenshot({ path: path.join(SHOTS, 'blg-852-task-copy-path.png') });
+});

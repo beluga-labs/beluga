@@ -14,6 +14,7 @@ import { type ReaderMode, hasRenderedLook, initialMode } from './reader/reader-m
 import { SearchField, SearchResults } from './SharedSearch.js';
 import s from './files.module.css';
 import { revealLabel } from '../lib/os-words.js';
+import { useRevealFileLabel, useRevealLabel } from '../lib/remote-open.js';
 
 export { LANG, ext } from './reader/reader-model.js';
 
@@ -80,6 +81,9 @@ export function Viewer({ viewer }: { viewer: ViewerState }) {
 /** Right-click on a file or folder: open it, find it in Finder, copy its path, mention it, save it. */
 export function useRowItems(): (row: BrowserRow, onOpen: () => void) => ActionItem[] {
   const { client, ui } = useBeluga();
+  // On a computer's page: a file is downloaded, a folder's path copied (BLG-852).
+  const revealFile = useRevealFileLabel();
+  const revealFolder = useRevealLabel();
   const actions = useActions();
   return (row, onOpen) => {
     if (row.target === 'up') return [{ label: 'Back', icon: 'back', onSelect: onOpen }];
@@ -103,7 +107,7 @@ export function useRowItems(): (row: BrowserRow, onOpen: () => void) => ActionIt
     };
     return [
       { label: row.dir ? 'Open Folder' : 'Open', icon: row.dir ? 'folder' : 'file', onSelect: onOpen },
-      ...(local ? [{ label: revealLabel(), icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
+      ...(local ? [{ label: row.dir ? revealFolder : revealFile, icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
       { label: 'Copy Path', icon: 'copy', separate: true, onSelect: () => void copyText(local ?? mentionOf(state, at)).then(() => say('Copied the path')) },
       { label: 'Mention in Chat', icon: 'chat', onSelect: mention },
       ...(row.dir ? [] : [{ label: 'Save a Copy…', icon: 'download' as const, separate: true, onSelect: () => void saveFile(client, at) }]),
