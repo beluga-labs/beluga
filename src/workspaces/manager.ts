@@ -1101,17 +1101,20 @@ export class WorkspaceManager {
   /**
    * What deleting a worktree would lose that archiving keeps (BLG-617): its branch's commits that are
    * on neither its base nor any remote. Undefined: nothing to warn about (not ours, no branch, all pushed).
+   * `mergedHeads`: heads of its pull requests GitHub says merged; with its own prShipped, what's in
+   * them shipped (BLG-831), so only commits made after count.
    */
-  async deletePlan(id: string): Promise<DeletePlan | undefined> {
+  async deletePlan(id: string, mergedHeads: readonly string[] = []): Promise<DeletePlan | undefined> {
     const ws = this.require(id);
     // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
     if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
     const into = ws.base ?? (await this.baseOf(ws.projectRoot));
-    let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+    const shipped = ws.prShipped?.head ? [...mergedHeads, ws.prShipped.head] : mergedHeads;
+    let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
     // Checked against the remote before warning (BLG-746): merged on GitHub a minute ago reads as merged.
     if (lost.count) {
       await g.catchUpForDelete(ws.projectRoot, ws.branch, into);
-      lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into);
+      lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
     }
     return lost.count ? { branch: ws.branch, into, unpushed: lost.count, subjects: lost.subjects } : undefined;
   }
@@ -1253,7 +1256,7 @@ export class WorkspaceManager {
 
   /** Pick the model for one workspace's conversation (undefined: your default). */
   /** Carry on after a merged PR: PR `number` and older are done (see Workbench.continueAfterMerge). */
-  setPrDone(id: string, number: number, shipped?: { readonly url?: string; readonly into: string }): void {
+  setPrDone(id: string, number: number, shipped?: { readonly url?: string; readonly into: string; readonly head?: string }): void {
     this.require(id);
     this.patchRecord(id, { prDone: number, ...(shipped ? { prShipped: { number, ...shipped } } : {}) });
   }

@@ -1337,7 +1337,10 @@ export class WorkspaceController {
 
   /** What Delete would lose that Archive keeps: commits pushed nowhere (the Delete dialog warns and leads with Archive). */
   deletePlan(id: string): Promise<DeletePlan | undefined> {
-    return this.deps.manager.deletePlan(id).catch(() => undefined);
+    // Its pull request merged on GitHub: what it merged at shipped, whatever main did to those files since (BLG-831).
+    const pr = this.deps.store.getState().prs[id];
+    const merged = pr?.state === 'MERGED' && pr.head ? [pr.head] : [];
+    return this.deps.manager.deletePlan(id, merged).catch(() => undefined);
   }
 
   /** Free space in a worktree you keep (its dependencies, builds and caches) → bytes freed. */
