@@ -66,4 +66,10 @@ export const MACHINE_API = {
   'machines.env.always': { args: z.tuple([]) },
   // Take Always back for a project (by its folder): asked again next time → the list now.
   'machines.env.forget': { args: z.tuple([z.string().min(1).max(4096)]) },
+  // Keep My Secrets in Sync With a computer (BLG-805: your own variables follow, after this one ask per computer), or stop → the computer.
+  'machines.secrets': { args: z.tuple([deviceId, z.boolean()]) },
+  // How your settings sync across your devices: how many, and conflicts to say (the same setting changed on two while apart).
+  'machines.settingsSync': { args: z.tuple([]) },
+  // Clear the conflicts Settings says (Got It).
+  'machines.settingsSync.clear': { args: z.tuple([]) },
 } as const;

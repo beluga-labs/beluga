@@ -28,6 +28,7 @@ import { collectInfo, realInfoDeps } from '../machines/info.js';
 import { ComputerUpdater, psHere, updateRunner } from '../machines/versions.js';
 import { IPC_VERSION } from '../ipc/protocol.js';
 import { Machines } from '../machines/machines.js';
+import { SettingsSync } from '../machines/sync.js';
 import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 
 /**
@@ -191,6 +192,17 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   });
   // .env files for worktrees made on your computers (BLG-800): asked with names, sent over the link.
   let envSend: EnvSend | undefined;
+  // Your settings, the same on every device of yours (BLG-805); your own variables only with computers you said yes for.
+  const settings = opts.demo
+    ? undefined
+    : new SettingsSync({
+        file: path.join(dir, 'settings-sync.json'),
+        prefs: () => opts.store.getState().prefs,
+        watch: (listener) => opts.store.subscribe(listener),
+        apply: (patch) => opts.session.setPrefs(patch as Parameters<Session['setPrefs']>[0]),
+        secrets: { read: () => opts.session.env.globals(), write: (key, value) => opts.session.env.setOne(undefined, key, value), watch: (listener) => opts.session.env.watch(listener) },
+        ...(opts.log ? { log: opts.log } : {}),
+      });
   const machines = new Machines({
     dir,
     identity: opts.identity,
@@ -206,6 +218,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
     updater,
+    ...(settings ? { settings } : {}),
     // Renamed or a new icon from your app: this computer's own settings, so every device agrees.
     setLook: (look) => {
       saveSettings({ ...(look.name ? { computerName: look.name } : {}), ...(look.icon ? { computerIcon: look.icon } : {}) });
