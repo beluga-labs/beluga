@@ -28,6 +28,7 @@ import { ISSUES_API } from './issues-api.js';
 import { TEAM_API } from './team-api.js';
 import { GIT_API } from './git-api.js';
 import { VIEWS_API } from './views-api.js';
+import { PREVIEW_API } from './preview-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
@@ -73,6 +74,9 @@ const agentArgs = (runtime: ArgsRuntime) =>
       if (problem) ctx.addIssue({ code: 'custom', message: problem });
     });
 
+/** How many experiment ids a list may hold (more than there are: a newer Beluga's stay). */
+const EXPERIMENTS_MAX = 20;
+
 /** A settings change (no defaults: only the keys you send change). */
 export const PrefsPatch = z
   .object({
@@ -115,6 +119,8 @@ export const PrefsPatch = z
     claudeArgs: agentArgs('claude'),
     codexArgs: agentArgs('codex'),
     earningsCurrency: z.string().regex(/^[a-z]{3}$/).nullable().optional(),
+    // Experimental features that are on (shared/experiments.ts): the whole list each time.
+    experiments: z.array(z.string().max(40)).max(EXPERIMENTS_MAX),
   })
   .partial();
 
@@ -499,6 +505,7 @@ export const API = {
   // ---- git: keeping main current, GitHub, history (git-api.ts)
   ...GIT_API,
   ...VIEWS_API,
+  ...PREVIEW_API,
   // ---- your workspace's files: searching their contents, editing, formatting (files-api.ts)
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)

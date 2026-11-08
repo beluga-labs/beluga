@@ -17,6 +17,7 @@ import { SCROLL_ROOT } from '../../components/markdown/md-dom.js';
 import { EditTools } from './EditTools.js';
 import { useEditSession } from './edit-store.js';
 import { FileContent } from './FileReader.js';
+import { ComponentPreview, PreviewToggle, useComponentPreview, usePreviewing } from './component-preview.js';
 import { pendingLine } from './reveal.js';
 import { type ReaderMode, hasRenderedLook, hasText, initialMode } from './reader-model.js';
 import r from './reader.module.css';
@@ -127,6 +128,10 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
 
   const editing = Boolean(useEditSession(viewer));
   useScratchArrows(viewer, wsId, editing);
+  // A component file, with Live previews on: drawn live beside its source.
+  const component = useComponentPreview(viewer, wsId);
+  const [previewing, setPreviewing] = usePreviewing(viewer.path);
+  const drawing = Boolean(component && previewing && !editing);
   const markdown = hasRenderedLook(viewer.path);
   const isText = hasText(viewer);
   const showsCode = isText && (!markdown || mode === 'source') && !editing;
@@ -178,7 +183,8 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
             ]}
           />
         ) : null}
-        {showsCode ? <IconButton icon="wrap" label={prefs.readerWrap ? 'Don’t wrap long lines' : 'Wrap long lines'} active={prefs.readerWrap} onClick={() => setPrefs({ readerWrap: !prefs.readerWrap })} /> : null}
+        {component && !editing ? <PreviewToggle previewing={previewing} onChange={setPreviewing} /> : null}
+        {showsCode && !drawing ? <IconButton icon="wrap" label={prefs.readerWrap ? 'Don’t wrap long lines' : 'Wrap long lines'} active={prefs.readerWrap} onClick={() => setPrefs({ readerWrap: !prefs.readerWrap })} /> : null}
         <EditTools viewer={viewer} wsId={wsId} selfId={selfId} />
         <span className={r.tools}>
           {isText ? <IconButton icon={copied ? 'check' : 'copy'} label={copied ? 'Copied' : 'Copy the text'} onClick={() => copy(viewer.content)} /> : null}
@@ -190,7 +196,7 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
       <div className={r.body}>
         <div ref={page} className={r.page} tabIndex={0} {...{ [SCROLL_ROOT]: '' }} aria-label={`${name}, ${markdown && mode === 'rendered' ? 'formatted' : 'contents'}`}>
           <div ref={content} className={r.pageInner}>
-            <FileContent
+            {drawing && component ? <ComponentPreview previewRef={component} wsId={wsId} /> : <FileContent
               viewer={viewer}
               variant="focus"
               mode={mode}
@@ -200,7 +206,7 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
               onSaveCopy={() => void saveFile(client, viewer)}
               nav={nav}
               editable
-            />
+            />}
           </div>
         </div>
         {isText ? <DocFind root={content} version={`${viewer.path}\0${mode}\0${viewer.content.length}`} /> : null}

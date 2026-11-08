@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { STILLS_DIR, STILL_SCHEME } from '../shared/preview/ref.js';
+import { SCRATCH_DIR } from '../shared/scratch-dir.js';
 import { dialogueHeader } from '../core/dialogues/view.js';
 import { agentPicker, pickedAgent } from '../shared/agent-picker.js';
 import { roomAgentTags } from '../shared/agent-tags.js';
@@ -94,6 +97,12 @@ const PICTURE = /!\[([^\]\n]*)\]\((?:<([^>\n]+)>|([^)\s]+))\)/g;
 export function withPictures(prose: ProseView, refs: ViewContext['refs'], cwd?: string): ProseView {
   if (!prose.text.includes('![')) return prose;
   const text = prose.text.replace(PICTURE, (all, alt: string, angled: string | undefined, bare: string | undefined) => {
+    // A live preview (strip.ts): its newest picture, from the worktree's scratch folder, else in words.
+    if (bare?.startsWith(STILL_SCHEME)) {
+      const name = bare.slice(STILL_SCHEME.length);
+      const still = cwd && /^[\w.-]+\.png$/.test(name) ? refs.output(path.join(cwd, SCRATCH_DIR, STILLS_DIR, name), { cwd }) : undefined;
+      return still?.kind === 'image' ? `![${alt}](${still.ref})` : `_${alt}._`;
+    }
     // file:///C:/x is C:/x on Windows; ~ is your home there too (USERPROFILE: Windows has no $HOME).
     let p = (angled ?? bare ?? '').replace(/^file:\/\//, '').replace(/^\/(?=[A-Za-z]:[\\/])/, '').replace(/^~(?=[\\/])/, () => process.env.HOME || process.env.USERPROFILE || '~');
     try {

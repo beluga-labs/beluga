@@ -18,6 +18,7 @@ import { STATE } from '../../views/DiffView.js';
 import { useRowItems } from '../../views/FilesView.js';
 import { type ReaderMode, hasRenderedLook, initialMode, isPdfFile } from '../../views/reader/reader-model.js';
 import { EditTools } from '../../views/reader/EditTools.js';
+import { ComponentPreview, PreviewToggle, useComponentPreview, usePreviewing } from '../../views/reader/component-preview.js';
 import { pendingLine, revealLine } from '../../views/reader/reveal.js';
 import { ContentResultsList, FlagToggles, type SearchFlags, useContentSearch, useNameSearch } from './ContentSearch.js';
 import { useEditSession } from '../../views/reader/edit-store.js';
@@ -73,6 +74,10 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
   const dir = viewer.path.slice(0, viewer.path.length - name.length).replace(/\/$/, '');
   const editing = Boolean(useEditSession(viewer));
   const markdown = hasRenderedLook(viewer.path) && !viewer.image && !editing;
+  // A component file, with Live previews on: drawn live beside its source.
+  const component = useComponentPreview(viewer, wsId);
+  const [previewing, setPreviewing] = usePreviewing(viewer.path);
+  const drawing = Boolean(component && previewing && !editing);
   return (
     <section className={s.preview} aria-label={name}>
       <div className={s.previewHead}>
@@ -94,6 +99,7 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
             ]}
           />
         ) : null}
+        {component && !editing ? <PreviewToggle previewing={previewing} onChange={setPreviewing} /> : null}
         {changed ? <IconButton icon="diff" label="Show Changes" onClick={() => showChange(client.store.getState(), viewer.path)} /> : null}
         {local ? <IconButton icon="external" label={isPdfFile(viewer.path) ? 'Open in Preview' : 'Open in Editor'} onClick={() => void openWithDefaultApp(client, local)} /> : null}
         <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => openFocus('file', wsId)} />
@@ -102,7 +108,7 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
       <div ref={body} className={cx(s.previewBody, s.previewFile, 'selectable')} tabIndex={0} {...{ [SCROLL_ROOT]: '' }}>
         <ViewBoundary at={viewer.path}>
           <Suspense fallback={<div className={s.dimPad}>Opening…</div>}>
-            <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />
+            {drawing && component ? <ComponentPreview previewRef={component} wsId={wsId} /> : <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />}
           </Suspense>
         </ViewBoundary>
       </div>
