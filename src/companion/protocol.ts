@@ -1470,22 +1470,103 @@ export const parseMacFrame = (raw: string): MacFrame | undefined => parse(MacFra
 /** `?r=` (additive): the Mac's relay, URL-encoded, so pairing works where the DHT doesn't. */
 export const DEVICE_LINK = /^(?:beluga|klaud):\/\/device#([\w-]{22})(?:\?r=([\w%.-]+))?$/;
 
+/**
+ * What a device of yours is (BLG-774): a phone, a Beluga app you drive from, or a computer that
+ * does the work. A certificate without one is a phone's (every one signed before roles).
+ */
+export const DEVICE_ROLES = ['phone', 'app', 'computer'] as const;
+export type DeviceRole = (typeof DEVICE_ROLES)[number];
+/** Phones are android or ios; apps and computers are macos, linux or windows. */
+export const DEVICE_PLATFORMS = ['android', 'ios', 'macos', 'linux', 'windows'] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
+
 export const DeviceCert = z.object({
   v: z.literal(1),
   /** Your peer id and identity key (base64 SPKI). */
   owner: id,
   ownerKey: z.string().max(200),
-  /** The phone's own Ed25519 key (hex), its Noise link key (hex) and box key (hex X25519). */
-  device: z.string().regex(/^[0-9a-f]{64}$/),
-  link: z.string().regex(/^[0-9a-f]{64}$/),
-  box: z.string().regex(/^[0-9a-f]{64}$/),
+  /** The device's own Ed25519 key (hex), its Noise link key (hex) and box key (hex X25519). */
+  device: hex64,
+  link: hex64,
+  box: hex64,
   name: z.string().min(1).max(64),
-  platform: z.enum(['android', 'ios']),
+  platform: z.enum(DEVICE_PLATFORMS),
+  /** Additive (BLG-774): left out on a phone's, so the certificates phones hold still verify. */
+  role: z.enum(DEVICE_ROLES).optional(),
   issuedAt: ts,
   /** Your identity's signature over the canonical JSON of the rest ('beluga-device-v1'). */
   sig: z.string().max(200),
 });
 export type DeviceCert = z.infer<typeof DeviceCert>;
+
+/**
+ * A device let go (BLG-774): its key, when, and who said so: your identity (`by` 'identity') or a
+ * device of yours (`by` its device key), signed. A certificate issued at or before `at` is refused
+ * everywhere; pairing it again later issues a newer one.
+ */
+export const Forget = z.object({ device: hex64, at: ts, by: z.union([z.literal('identity'), hex64]), sig: z.string().max(200) });
+export type Forget = z.infer<typeof Forget>;
+/** Devices one identity may have in its set (phones are still MAX_DEVICES of them). */
+export const MAX_SET_DEVICES = 64;
+export const MAX_FORGOTTEN = 1024;
+
+/**
+ * Your device set (BLG-774): every certificate your identity signed that still holds, and who was
+ * forgotten, signed as a whole by your identity. `seq` only grows: a computer keeps the newest.
+ */
+export const DeviceRoster = z.object({
+  v: z.literal(1),
+  owner: id,
+  ownerKey: z.string().max(200),
+  seq: z.number().int().min(1),
+  issuedAt: ts,
+  devices: z.array(DeviceCert).max(MAX_SET_DEVICES),
+  forgotten: z.array(Forget).max(MAX_FORGOTTEN),
+  sig: z.string().max(200),
+});
+export type DeviceRoster = z.infer<typeof DeviceRoster>;
+
+/**
+ * Joining a computer (BLG-774, `beluga pair --computer` on it; the app dials with the link or code).
+ * `mac` is the sender's proof that it holds the pairing's secret, as for phones (roles 'app' and
+ * 'computer'). The computer proves it holds the keys it names by signing the handshake with each.
+ *   app      → mp_hello {proto, app cert, name}
+ *   computer → mp_keys {device, link, box, name, platform, address, relay?, sigs}   both show the fingerprint
+ *   (you click Join on the app)
+ *   app      → mp_ok {cert (role computer), roster}
+ *   computer → mp_done                                                              or mp_refused either way
+ */
+export const MachinePair = z.discriminatedUnion('t', [
+  /** `address` and `relay`: where the computer reaches the app back (to tell it what it forgot). */
+  z.object({ t: z.literal('mp_hello'), proto: z.number().int(), mac: z.string().max(100), app: DeviceCert, name: z.string().min(1).max(64), address: hex64.optional(), relay: RelayUrl.optional() }),
+  z.object({
+    t: z.literal('mp_keys'),
+    proto: z.number().int(),
+    mac: z.string().max(100),
+    device: hex64,
+    link: hex64,
+    box: hex64,
+    name: z.string().min(1).max(64),
+    platform: z.enum(['macos', 'linux', 'windows']),
+    version: z.string().max(40),
+    /** Where the app dials it from now on (its companion address), and its relay. */
+    address: hex64,
+    relay: RelayUrl.optional(),
+    /** The handshake hash signed with its device key and with its link key. */
+    deviceSig: z.string().max(200),
+    linkSig: z.string().max(200),
+  }),
+  z.object({ t: z.literal('mp_ok'), mac: z.string().max(100), cert: DeviceCert, roster: DeviceRoster }),
+  z.object({ t: z.literal('mp_done') }),
+  z.object({ t: z.literal('mp_refused'), reason: z.string().max(200), why: z.enum(['expired', 'cancelled', 'unverified', 'tries', 'busy', 'owned', 'version', 'declined']).optional() }),
+]);
+export type MachinePair = z.infer<typeof MachinePair>;
+export const parseMachinePair = (raw: string): MachinePair | undefined => parse(MachinePair, raw);
+
+/** What devices of yours tell each other to stay one set (BLG-774; carried by the links of BLG-775). */
+export const DeviceSetSync = z.object({ t: z.literal('devset'), roster: DeviceRoster.optional(), forgotten: z.array(Forget).max(MAX_FORGOTTEN) });
+export type DeviceSetSync = z.infer<typeof DeviceSetSync>;
 
 /**
  * The pairing's messages. `mac` on dev_hello and dev_ok is the sender's proof that it holds the

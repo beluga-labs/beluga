@@ -319,6 +319,7 @@ beluga web --off
 | `beluga status` | whether it runs, its version, projects and phones |
 | `beluga project add <folder or git URL>` | add a project (a URL is cloned first) |
 | `beluga phones` | list the paired phones, or remove one |
+| `beluga pair --computer` · `beluga computers` | let your Beluga app add this server; list your devices, forget one everywhere |
 | `beluga logs -f` | follow its log |
 | `beluga up` · `beluga stop` | start it, stop it |
 | `beluga update` | the latest version, in place |

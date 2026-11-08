@@ -30,6 +30,7 @@ import { GIT_API } from './git-api.js';
 import { VIEWS_API } from './views-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
+import { MACHINE_API } from './machine-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
 import { VOICE_API } from './voice-api.js';
 import { CALLS_API } from './calls-api.js';
@@ -503,6 +504,8 @@ export const API = {
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)
   ...COMPANION_API,
+  // ---- your devices and computers: pairing one, your device set, forgetting a device (machine-api.ts)
+  ...MACHINE_API,
   // ---- Your Mac's chats, as tabs on the Mac (assistant-api.ts)
   ...ASSISTANT_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)

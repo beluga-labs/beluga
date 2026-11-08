@@ -123,6 +123,22 @@ on the server. When a network blocks a direct connection, it goes through Beluga
 (a Cloudflare tunnel the server opens), still end to end encrypted: Cloudflare carries only
 ciphertext.
 
+## Your Beluga app
+
+The server can also join your devices, so the Beluga app on your Mac drives it. On the server:
+
+```sh
+beluga pair --computer
+```
+
+It prints a link, a code and a QR, good once for 10 minutes. Add the server from the app with
+either; both show the same four pictures, and once you agree the app signs the server in with
+your identity. From then on the server lets in the Beluga apps you signed, and nobody else.
+
+`beluga computers` lists your devices: who may drive this server, the computers you drive, your
+phones. `beluga computers forget <name>` forgets one, on any of them: it's cut off there at once,
+and on your other devices as soon as they hear.
+
 ## In a browser
 
 The whole Beluga app, the one the Mac shows, also opens in any browser. Beluga serves it on the
@@ -233,6 +249,7 @@ phone and browser gets its own way in, which you can take back.
 | Way in | Who can reach it | Who gets in | Opened on the server | Take it back |
 | --- | --- | --- | --- | --- |
 | Phone | anyone, over the internet | a phone you paired, by its own key | nothing | `beluga phones` |
+| Your Beluga app | anyone, over the internet | an app your identity signed, by its own key | nothing | `beluga computers forget` |
 | Tailscale | your tailnet only | your Tailscale login; others with a join link | nothing (Tailscale Serve) | `beluga web --off` |
 | SSH | whoever can ssh in | a browser with a join link | nothing | `beluga web revoke` |
 | Public link | anyone with the address | a browser with a join link | nothing (an outgoing tunnel) | `beluga web --off` |

@@ -21,7 +21,8 @@ export const COMMANDS = {
   stop: { usage: ['beluga stop'], summary: 'stop Beluga', options: {} },
   logs: { usage: ['beluga logs [-f] [-n <lines>]'], summary: "show Beluga's log (-f: keep showing new lines)", options: { follow: { type: 'boolean', short: 'f' }, lines: { type: 'string', short: 'n' } } },
   project: { usage: ['beluga project add <folder or git URL> [--into <folder>]', 'beluga project list', 'beluga project remove <name>'], summary: 'add a project (a git URL is cloned first), list them, or remove one', options: { into: { type: 'string' } } },
-  pair: { usage: ['beluga pair'], summary: 'pair a phone: scan the QR code or type the code, then confirm', options: {} },
+  pair: { usage: ['beluga pair', 'beluga pair --computer [--json]'], summary: 'pair a phone: scan the QR code or type the code, then confirm (--computer: let your Beluga app add this computer)', options: { computer: { type: 'boolean' }, json: { type: 'boolean' } } },
+  computers: { usage: ['beluga computers', 'beluga computers add <link or code>', 'beluga computers forget <name>'], summary: 'your devices: who may drive this computer, the computers you drive; add one, or forget one everywhere', options: {} },
   phones: { usage: ['beluga phones', 'beluga phones remove <name>'], summary: 'list the paired phones, or remove one', options: {} },
   service: { usage: ['beluga service [install | remove]'], summary: 'keep Beluga running, from boot (systemd on Linux, launchd on a Mac)', options: {} },
   web: {

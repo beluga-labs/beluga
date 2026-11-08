@@ -229,6 +229,15 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `companion.pair.approve` | ✓ the Phone popover's “Pair Kayra's Pixel 9?” with the four-picture fingerprint › Pair |
 | `companion.pair.cancel` | ✓ the Phone popover's Cancel while a pairing is open (a waiting phone hears no) |
 | `companion.devices.remove` | ✓ the Phone popover › a phone › Remove (its link drops at once, its key is refused from then on) |
+| `machines.pair.start` | – on the computer: `beluga pair --computer` prints its link, code and QR (one app, 10 minutes, BLG-774) |
+| `machines.pair.status` | – on the computer: `beluga pair --computer` follows it (the app waiting, its four pictures, joined) |
+| `machines.pair.cancel` | – on the computer: Ctrl+C in `beluga pair --computer` |
+| `machines.join.start` | – for now `beluga computers add <link or code>` in a terminal (Settings › Your Computers › Add a Computer is BLG-780) |
+| `machines.join.approve` | – `beluga computers add`'s Add? [y/N] after comparing the four pictures (Settings › Your Computers is BLG-780) |
+| `machines.join.cancel` | – `beluga computers add`'s no or Ctrl+C (Settings › Your Computers is BLG-780) |
+| `machines.list` | – `beluga computers` (Settings › Your Computers is BLG-780) |
+| `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
+| `machines.forget` | – `beluga computers forget <name>` on any of your devices (Settings › Your Computers › Forget is BLG-780) |
 | `companion.phone.use` | ✓ Settings › Phone › Let your agent use this phone: Off · Ask each time · Use · Full (BLG-150) |
 | `companion.phone.pairAdb` | ✓ Settings › Phone › Connect, once the phone shows a Wireless-debugging pairing code (runs `adb pair`) |
 | `companion.phone.wifi` | ✓ Settings › Phone › Over Wi‑Fi: Use over Wi‑Fi while the phone is on a cable (turns on its Wireless debugging, reached through the link), or Turn Off (BLG-187) |

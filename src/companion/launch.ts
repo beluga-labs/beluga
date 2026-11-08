@@ -21,6 +21,8 @@ import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
+import { Machines } from '../machines/machines.js';
+import { attachMachines, detachMachines } from '../machines/registry.js';
 
 /**
  * Start the phone companion for the daemon (the Mac app's Beluga): the device book in
@@ -168,6 +170,21 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const dir = opts.demo ? mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-companion-')) : belugaHome();
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host: CompanionHost | undefined;
+  // Your device set and computers (BLG-774): they share the phones' node, relay and address.
+  const machines = new Machines({
+    dir,
+    identity: opts.identity,
+    devices,
+    node: () => host!.dhtNode(),
+    address: () => host!.address(),
+    relayUrl: () => host?.relayUrl(),
+    relay: { add: (route) => host?.reach.server.add(route), remove: (key) => host?.reach.server.remove(key) },
+    name: macName,
+    version: installedVersion(),
+    removePhone: (id) => void host?.removeDevice(id, 'This phone was forgotten on another of your devices'),
+    onChange: () => host?.machinesChanged(),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());
   host = new CompanionHost({
     identity: opts.identity,
@@ -197,14 +214,21 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     // or it's the demo (nothing leaves the computer).
     relay: opts.demo || ['p2p', 'none'].includes(opts.store.getState().prefs.tunnel) ? 'off' : 'cloudflared',
     ...(opts.log ? { log: opts.log } : {}),
+    machines,
   });
   attachCompanion(opts.session, host);
-  void host.start().catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
+  attachMachines(opts.session, machines);
+  void host
+    .start()
+    .then(() => machines.start())
+    .catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
   // A phone on this Mac's USB: set up by itself, or what to switch on said in Settings › Phone (BLG-190).
   if (!opts.demo) host.watchCable();
   return async () => {
     outputs.stop();
     detachCompanion(opts.session);
+    detachMachines(opts.session);
+    await machines.stop();
     await host?.stop();
     host = undefined;
   };
