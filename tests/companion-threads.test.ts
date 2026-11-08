@@ -31,8 +31,8 @@ const family = () => [ws('top', { agent: codex }), ws('kid', { thread: thread('w
 describe('the protocol', () => {
   it('raises the minor and gates threads in SINCE', () => {
     expect(COMPANION_PROTO.minor).toBeGreaterThanOrEqual(SINCE.threads);
-    expect(SINCE.threads).toBe(44);
-    expect(SINCE.threadAgents).toBe(44);
+    expect(SINCE.threads).toBe(45);
+    expect(SINCE.threadAgents).toBe(45);
   });
 
   it('a family from an older Mac, with no sub-agents, still reads', () => {

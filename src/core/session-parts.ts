@@ -24,7 +24,7 @@ import { LOCAL_RUNTIME, localModels, localWhy } from '../shared/local-endpoints.
 import { useViewEnv } from './views/sources.js';
 import { boardOf } from './board/registry.js';
 import { sentinelOf } from './sentinel/registry.js';
-import { plansOf } from './plans/registry.js';
+import { needPlans, plansOf } from './plans/registry.js';
 import { assistantOf } from './assistant/registry.js';
 import { companionOf } from '../companion/registry.js';
 import { stopTestProcesses } from '../workspaces/test-procs.js';
@@ -83,10 +83,10 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         defaultRuntime: () => opts.runtime?.agent ?? 'claude',
         defaultAgent: (project) => session.agentFor(project),
         toast: (text, level) => session.toast(text, level),
-        remind: (notice) => notifier.notify(notice),
         intend: (intent) => session.intend(intent),
         askClaude: (prompt, channel, o) => (o?.terminal ? session.startInTerminal(prompt, channel, o.shown) : session.askOwnClaude(prompt, channel, false, o?.echo ?? true, o?.shown)),
         showAsk: (prompt, channel) => session.showAsk(prompt, channel),
+        planHere: (channel) => void needPlans(session).here(channel),
         titleChat: (content) => session.titleChat(content),
         compact: (channel, instructions) => session.compact(channel, instructions),
         stopHere: async (channel) => {
@@ -119,6 +119,8 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         toast: (text, level) => session.toast(text, level),
         intend: (intent) => session.intend(intent),
         askClaude: (prompt, channel) => session.askOwnClaude(prompt, channel),
+        savedChats: (loaded) => assistantOf(session)?.savedChats(loaded) ?? [],
+        loadSavedChat: (id) => assistantOf(session)?.loadSaved(id),
         setPrefs: (prefs) => session.setPrefs(prefs),
         confirm: (title, detail) => session.ask('request', title, detail),
         open: opts.open,

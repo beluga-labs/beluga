@@ -16,6 +16,8 @@ import { StepBook, importedKey, runKey } from './step-book.js';
 import { Compactor } from './compactor.js';
 import { BtwDesk } from './btw.js';
 import { SCRATCH_DIR, ensureScratch } from '../workspaces/scratch.js';
+import { withSentFiles } from './sent-files.js';
+import { sentFolder } from '../shared/scratch-dir.js';
 import { isImportedItem } from '../agent/transcript.js';
 import { PHONE_LOOK_TOOLS } from '../agent/phone-tools.js';
 import type { StepPage, StepRecord } from '../shared/steps.js';
@@ -189,6 +191,14 @@ interface Lane {
   held?: boolean;
   /** The slot wait its first message's card shows now ("requestId running/limit"), so it's said once (see pump). */
   slotNoted?: string;
+  /** Where what you send the current run goes (see withSentFiles): your own run with a scratch folder only. */
+  sent?: SentPlace;
+}
+
+/** A conversation's folder and, from its root, the folder copies of what you send it go in. */
+interface SentPlace {
+  readonly root: string;
+  readonly rel: string;
 }
 
 /** A tool running at least this long: a steer interrupts it instead of waiting for Claude's next step. */
@@ -906,7 +916,7 @@ export class AgentHost {
     if (steer?.status && !steer.status().between) return !body.urgent && this.steerIn(lane, { from, body }, steer);
     const emit =(event: BodyOf<'agent_event'>['event'], text = ''): void => this.emitAgent(body.requestId, from, event, text, body.channel);
     const sent = lane.followUps({
-      prompt: this.promptOf(body),
+      prompt: this.promptOf(body, lane.sent),
       ...this.promptIdOf(body),
       requesterName: peerName(this.store.getState(), from),
       viaAgent: body.viaAgent,
@@ -938,7 +948,7 @@ export class AgentHost {
     let read = false;
     const settled = (): void => void lane.steered?.delete(body.requestId);
     return {
-      prompt: this.promptOf(body),
+      prompt: this.promptOf(body, lane.sent),
       ...this.promptIdOf(body),
       requesterName: peerName(this.store.getState(), from),
       viaAgent: body.viaAgent,
@@ -1233,6 +1243,8 @@ export class AgentHost {
     try {
       // A workspace (not a main folder, where nothing may change) gets its scratch folder.
       const scratch = place && !place.askOnly && this.store.getState().prefs.scratchFolder && (await ensureScratch(place.cwd)) ? SCRATCH_DIR : undefined;
+      // What you send it (images, files) is copied into its scratch folder, this message and the ones that join this run.
+      lane.sent = scratch && place && from === this.selfId ? { root: place.cwd, rel: sentFolder(body.channel, this.ownFolder(body.channel)) } : undefined;
       // Your phone (core/phone): your own runs can drive it; a screenshot lands in this run's scratch.
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
@@ -1298,7 +1310,7 @@ export class AgentHost {
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
-        prompt: this.promptOf(body),
+        prompt: this.promptOf(body, lane.sent),
         ...this.promptIdOf(body),
         requesterName,
         viaAgent: body.viaAgent,
@@ -1573,12 +1585,21 @@ export class AgentHost {
     return { promptId: body.requestId };
   }
 
-  /** The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"). */
-  private promptOf(body: BodyOf<'agent_request'>): string {
+  /**
+   * The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)").
+   * `sent`: what the message sends (images, files) is copied there, and the words say where.
+   */
+  private promptOf(body: BodyOf<'agent_request'>, sent?: SentPlace): string {
     const board = this.store.getState().board;
-    const prompt = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    const mentioned = board.issues.length ? explainTaskMentions(body.prompt, (key) => findIssue(board, key)) : body.prompt;
+    const prompt = sent ? withSentFiles(mentioned, this.selfId, sent.root, sent.rel) : mentioned;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     return this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
+  }
+
+  /** A worktree's own conversation, the only one in its folder (others share theirs: Your Mac's chats, a chat in a folder). */
+  private ownFolder(channel: string): boolean {
+    return this.deps.workspaces?.inChannel?.(channel)?.kind === 'worktree';
   }
 
   private recentChat(channel = 'room'): string[] {

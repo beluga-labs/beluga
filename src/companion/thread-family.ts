@@ -9,7 +9,7 @@ import { plainLine } from './strip.js';
 import type { BranchView, ConvSummary, ConvView, ThreadFamilyView, Topic } from './protocol.js';
 
 /**
- * Child threads on the phone (1.44), read by the Mac's own rules (ui/thread-tree.ts). With threads
+ * Child threads on the phone (1.45), read by the Mac's own rules (ui/thread-tree.ts). With threads
  * off a chat says nothing about them, as on the Mac, except what an archive or a delete would touch:
  * the records stay after the setting is turned off.
  */

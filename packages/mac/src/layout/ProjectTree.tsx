@@ -33,7 +33,7 @@ import { TallyMark } from './signal-marks.js';
 import { Row } from './sidebar-parts.js';
 import { WorkspaceRow } from './workspace-row.js';
 import { PlanRow } from './plan-row.js';
-import { LaterRows, laterOf, notLater } from './later-rows.js';
+import { LaterRows, laterOf, notLater, useLater } from './later-rows.js';
 import { useGitHubMenuItems } from '../views/project/GitHubRow.js';
 import { TeamBadge, useTeamMenuItems } from '../team/Team.js';
 import side from './Sidebar.module.css';
@@ -151,6 +151,7 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   const plansState = useApp((st) => st.plans);
   const board = useApp((st) => st.board);
   const state = useMemo(() => ({ plans: plansState, board }), [plansState, board]);
+  const putOff = useLater();
   const earning = useApp((st) => Boolean(st.earnings[p.root]));
   const busy = useApp((st) => projectWorking(st, p));
   // What's inside: how many conversations have news, and whether one needs you (folded, it's how you notice).
@@ -179,9 +180,9 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   const taskChats = (planId: string) => (showTasks.includes(planId) ? live.filter((w) => !planHomes.has(`ws:${w.id}`) && planConversations(state, planId).includes(w.id)) : []);
   // A child thread sits under its parent's row (SubAgents.tsx), not here.
   const { nested } = useApp(threadNesting);
-  const mine = live.filter((w) => w.kind !== 'main' && worktreeOrigin(w) === 'beluga' && !isPlanOwned(state, w.id) && (!planHomes.has(`ws:${w.id}`) || w.id === here) && !nested.has(w.id) && notLater(w));
+  const mine = live.filter((w) => w.kind !== 'main' && worktreeOrigin(w) === 'beluga' && !isPlanOwned(state, w.id) && (!planHomes.has(`ws:${w.id}`) || w.id === here) && !nested.has(w.id) && notLater(putOff, w));
   // Put off till later (Remind Me Later): folded at the bottom, back in place once it reminds you.
-  const later = laterOf(live.filter((w) => w.kind !== 'main' && !isPlanOwned(state, w.id) && !planHomes.has(`ws:${w.id}`) && !nested.has(w.id)));
+  const later = laterOf(putOff, live.filter((w) => w.kind !== 'main' && !isPlanOwned(state, w.id) && !planHomes.has(`ws:${w.id}`) && !nested.has(w.id)));
   const inPlan = planOfPlace(plansState, board, view);
   // You're in this project: on its home page, in one of its worktrees or chats, or in one of its plans.
   const current = onHome || (here !== undefined && p.workspaces.some((w) => w.id === here)) || plans.some((x) => x.id === inPlan);

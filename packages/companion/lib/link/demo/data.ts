@@ -35,7 +35,7 @@ export interface DemoWorld {
   usage: UsageView[];
   needs: NeedsYou[];
   convs: Map<string, ConvView>;
-  /** What a real Mac adds to Work's rows (1.44): each chat's mark, and the chat a child sits under. */
+  /** What a real Mac adds to Work's rows (1.45): each chat's mark, and the chat a child sits under. */
   threadRows: Readonly<Record<string, Partial<Pick<ConvSummary, 'harness' | 'parent'>>>>;
   projects: { id: string; name: string; convs: string[] }[];
   files: Map<string, DemoFile>;
@@ -48,6 +48,8 @@ export interface DemoWorld {
   icons: Record<string, { sum: string; svg: string }>;
   /** Merges started from the phone, by conversation. */
   merges: Map<string, MergeView>;
+  /** Chats you settled or snoozed, by conversation; the others are Active, or Working while they work. */
+  triage: Map<string, { snoozedUntil?: number; settledWhy?: NonNullable<ConvSummary['settledWhy']>; back?: true }>;
 }
 
 /** The demo projects' icons: small SVG marks (what companion.icon hands out, by checksum). */
@@ -486,7 +488,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
     ],
   };
 
-  // ---- child threads of the onboarding work (1.44): one still at work with its own child, one done.
+  // ---- child threads of the onboarding work (1.45): one still at work with its own child, one done.
   const child = (topic: Topic, title: string, working: boolean, text: string, threadFamily: ConvView['threadFamily']): ConvView => ({
     topic,
     title,
@@ -837,6 +839,10 @@ export function makeWorld(now = Date.now()): DemoWorld {
     tasks: demoTasks(now),
     icons: ICONS,
     merges: new Map(),
+    triage: new Map([
+      ['conv:weather.ci', { settledWhy: 'pr_merged' }],
+      ['conv:shop.dashboard', { snoozedUntil: now + 3 * 60 * MIN }],
+    ]),
   };
 }
 
