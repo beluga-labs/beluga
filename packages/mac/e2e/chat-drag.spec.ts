@@ -51,7 +51,14 @@ interface Worktree {
 const rowOf = (page: Page, w: Worktree) => sidebar(page).locator(`[data-chat-row="ws:${w.id}"]`).first();
 const boxIn = (page: Page, w: Worktree) => page.getByRole('textbox', { name: `Tell Claude what to do in ${w.name}` });
 const chip = (self: string, w: Worktree): string => `@${w.name} (chat: ${self}/ws:${w.id})`;
-const sent = (page: Page): Promise<number> => daemon<number>(page, `(c) => c.store.getState().log.filter((l) => l.type === 'chat' && !l.byAgent).length`);
+/**
+ * What you sent from these chats: your words and your agent asks in their channels only. The demo's
+ * friends say things in the room on timers, and those must not count.
+ */
+const sent = (page: Page, ...chats: Worktree[]): Promise<number> => {
+  const channels = JSON.stringify(chats.map((w) => `ws:${w.id}`));
+  return daemon<number>(page, `(c) => { const s = c.store.getState(); const here = ${channels}; return s.log.filter((l) => here.includes(l.channel) && ((l.type === 'chat' && l.from === s.selfId && !l.byAgent) || (l.type === 'agent' && l.requester === s.selfId))).length; }`);
+};
 
 /** Pick a row up and hold it over `to`, as a hand would. */
 async function lift(page: Page, row: Locator, to: Locator): Promise<void> {
@@ -70,7 +77,7 @@ test('a row dropped on the open composer: a chip at the cursor, nothing sent', a
   const box = boxIn(page, a);
   await box.fill('compare this with');
   await box.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 12));
-  const before = await sent(page);
+  const before = await sent(page, a, b);
   await pause(page);
   await lift(page, rowOf(page, b), box);
   await expect(ghost(page)).toHaveText(b.name);
@@ -80,7 +87,7 @@ test('a row dropped on the open composer: a chip at the cursor, nothing sent', a
   await expect(page.getByLabel('Chat mentioned')).toContainText(b.name);
   await expect(ghost(page)).toHaveCount(0);
   await pause(page);
-  expect(await sent(page)).toBe(before);
+  expect(await sent(page, a, b)).toBe(before);
   // Still where it was: the drop opens nothing.
   await expect(box).toBeVisible();
   await box.fill('');
@@ -100,14 +107,14 @@ test('a row dropped on the open chat’s log: the same', async ({ page }) => {
 test('a row dropped on another row: that row lights up, its chat opens with the chip in its draft', async ({ page }) => {
   const { self, a, b } = await setUp(page);
   await sidebar(page).getByText('Your Mac', { exact: true }).click();
-  const before = await sent(page);
+  const before = await sent(page, a, b);
   await lift(page, rowOf(page, a), rowOf(page, b));
   await expect(rowOf(page, b)).toHaveClass(/over/);
   await page.mouse.up();
   const box = boxIn(page, b);
   await expect(box).toHaveValue(`${chip(self, a)} `);
   await pause(page);
-  expect(await sent(page)).toBe(before);
+  expect(await sent(page, a, b)).toBe(before);
   // The chip stays with that chat's draft, not with the others.
   await rowOf(page, a).click();
   await expect(boxIn(page, a)).toHaveValue('');
