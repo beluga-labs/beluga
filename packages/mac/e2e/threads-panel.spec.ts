@@ -22,6 +22,16 @@ async function unfold(page: Page): Promise<void> {
   if (await show.isVisible()) await show.click();
 }
 
+/** How far left of the agent's message text the first 'Started thread' line starts, in pixels. */
+function textOffset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const line = document.querySelector('[data-thread-start]')?.firstElementChild;
+    const body = document.querySelector('[data-turn]')?.children[1];
+    if (!line || !body) return Number.NaN;
+    return Math.round(body.getBoundingClientRect().left - line.getBoundingClientRect().left);
+  });
+}
+
 async function startParent(page: Page, name: string, threads: string): Promise<void> {
   await sidebar(page).getByRole('button', { name: 'bob-api' }).first().hover();
   await sidebar(page).getByRole('button', { name: 'New worktree in bob-api', exact: true }).click();
@@ -158,7 +168,13 @@ test('a child says who started it, and its first message is not yours', async ({
   // The parent's one line for each thread, with a way to it.
   const line = page.locator('[data-thread-start]').filter({ hasText: 'five' });
   await expect(line).toBeVisible();
-  await shot(page, 'parent-line');
+  // The line starts where the agent's text starts, at the wide and the narrow width (Kayra's review of PR 369).
+  for (const width of [1440, 900]) {
+    await page.setViewportSize({ width, height: 900 });
+    await shot(page, `parent-line-${width}`);
+    await expect.poll(() => textOffset(page)).toBe(0);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await line.getByRole('button', { name: 'five' }).click();
 
   await expect(page.locator('[data-started-by]')).toContainText('Started by e2e-parent');
