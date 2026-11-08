@@ -271,6 +271,17 @@ Make Always On…, and Make This Mac Always On under You on the Network (BLG-796
   the ones waiting on you show here as `ao:<id>` and the first answer from any device counts. Call
   signals come back to the window in the call: audio and video stay on this Mac. The last mirror is kept
   in `friends-mirror.json`, so messages that came while this Mac was closed are news when it opens.
+- Never two of you, never none (`src/machines/lease.ts`, BLG-799): whichever install is you renews a
+  lease every minute, a DHT mutable record under a key only your identity derives (`beluga-lease-v1`).
+  The Mac that made a computer its Always On keeps its own copy of your identity
+  (`identity-standby.json`: it never leaves this Mac again) and a replica of the network files, refreshed
+  from the Always On every 10 minutes (never the identity). Once the Always On hasn't answered for 10
+  minutes, its lease is 10 minutes stale (or the DHT can't be read), and one last try over the link fails,
+  this Mac stands in from the replica and Settings › Your Computers says so. When it answers again, the
+  stand-in hands back by itself: chat logs are merged line by line, the rest is the stand-in's. A holder
+  that finds a fresher lease of another install stops at once, and an install that was your Always On
+  asks the lease before its network starts, so it never comes back as a second you. Installs that never
+  took part in an Always On never read or write the lease.
 
 ## Chats: channels, files and agents
 

@@ -21,10 +21,12 @@ export const AlwaysOnFile = z.object({
   at: z.union([z.literal('here'), DeviceRef]),
   since: z.number().int().min(0),
   pending: z.object({ id: z.string().regex(/^[0-9a-f]{16}$/), stage: z.string().regex(/^[0-9a-f]{32}$/) }).optional(),
+  /** Here, standing in for your Always On while it's down (BLG-799): handed back when it answers again. */
+  standIn: DeviceRef.optional(),
 });
 export type AlwaysOnFile = z.infer<typeof AlwaysOnFile>;
 
-export type Whereabouts = { readonly here: true; readonly since?: number } | { readonly here: false; readonly id: string; readonly name: string; readonly since: number };
+export type Whereabouts = { readonly here: true; readonly since?: number; readonly standIn?: { id: string; name: string } } | { readonly here: false; readonly id: string; readonly name: string; readonly since: number };
 
 export const alwaysOnFile = (dir: string): string => path.join(dir, 'always-on.json');
 
@@ -44,7 +46,7 @@ export function clearAlwaysOn(dir: string): void {
 /** Where your network runs, as this install knows. */
 export function whereabouts(dir: string): Whereabouts {
   const state = readAlwaysOn(dir);
-  if (!state || state.at === 'here') return state ? { here: true, since: state.since } : { here: true };
+  if (!state || state.at === 'here') return state ? { here: true, since: state.since, ...(state.standIn ? { standIn: state.standIn } : {}) } : { here: true };
   return { here: false, id: state.at.id, name: state.at.name, since: state.since };
 }
 

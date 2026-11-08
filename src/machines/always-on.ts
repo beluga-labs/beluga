@@ -4,10 +4,12 @@ import { roleOf } from '../companion/device-crypto.js';
 import { deviceId } from '../companion/devices.js';
 import type { DeviceCert } from '../companion/protocol.js';
 import type { SwappableIdentity } from '../core/identity.js';
-import { identityFromPem, identityPem, loadIdentity, saveIdentity } from '../net/crypto.js';
+import { type Identity, identityFromPem, identityPem, loadIdentity, saveIdentity } from '../net/crypto.js';
+import { readJson } from '../net/mesh/files.js';
+import { rmSync } from 'node:fs';
 import type { MessageSocket } from '../net/transport.js';
 import type { Settings } from '../shared/settings-schema.js';
-import { type AoEnd, type AoFrame, IDENTITY_FILE, Staging, carriedFrom, dropStaged, installStaged, parseAo, sendParts, stagedEnd, wipeNetwork } from './always-on-bundle.js';
+import { type AoEnd, type AoFrame, IDENTITY_FILE, STANDBY, Staging, carriedFrom, dropReplicas, dropStaged, installReplica, installStaged, keepOnlyReplica, latestReplica, networkFiles, parseAo, sendParts, stagedEnd, wipeNetwork } from './always-on-bundle.js';
 import { readAlwaysOn, whereabouts, writeAlwaysOn } from './always-on-state.js';
 import type { MachineRecord } from './book.js';
 import type { Machines } from './machines.js';
@@ -33,6 +35,8 @@ import type { Machines } from './machines.js';
 
 const STEP_MS = 120_000;
 const RETRY_MS = 60_000;
+/** This Mac's own copy of your identity once it made a computer your Always On (BLG-799): used only to stand in while that one is down for long. It never leaves this Mac. */
+export const STANDBY_IDENTITY = 'identity-standby.json';
 
 export interface AlwaysOnView {
   /** This install is you on the network. */
@@ -45,6 +49,8 @@ export interface AlwaysOnView {
   readonly busy?: string;
   /** A handover whose last step hasn't been heard back yet (it's asked again by itself). */
   readonly pending?: boolean;
+  /** This install stands in for your Always On while it's down (BLG-799): it hands back once it answers. */
+  readonly standIn?: { readonly id: string; readonly name: string; readonly since?: number };
 }
 
 /** This daemon's friends network, as a handover turns it off and on (core/network.ts NetworkSwitch). */
@@ -149,7 +155,7 @@ export class AlwaysOn {
     if (this.opts.demo) return this.demoAt ? { here: false, ...this.demoAt, ...busy } : { here: true, ...busy };
     const w = whereabouts(this.opts.dir);
     const pending = readAlwaysOn(this.opts.dir)?.pending ? { pending: true } : {};
-    return w.here ? { here: true, ...(w.since ? { since: w.since } : {}), ...busy } : { here: false, id: w.id, name: w.name, since: w.since, ...busy, ...pending };
+    return w.here ? { here: true, ...(w.since ? { since: w.since } : {}), ...(w.standIn ? { standIn: { ...w.standIn, ...(w.since ? { since: w.since } : {}) } } : {}), ...busy } : { here: false, id: w.id, name: w.name, since: w.since, ...busy, ...pending };
   }
 
   /**
@@ -198,18 +204,18 @@ export class AlwaysOn {
 
   // ---- this install gives
 
-  /** Hand your identity and network to computer `r` (this install holds them). */
-  private async handTo(r: MachineRecord): Promise<void> {
-    const { machines, dir } = this.opts;
+  /** Hand your identity and network to computer `r` (this install holds them); `merge`: a stand-in handing back (BLG-799). */
+  private async handTo(r: MachineRecord, how: { merge?: boolean } = {}): Promise<void> {
+    const { machines, dir, you } = this.opts;
     const id = deviceId(r.cert);
     const stage = newStage();
-    this.busy = `Moving you to ${r.name}…`;
+    this.busy = how.merge ? `Handing you back to ${r.name}…` : `Moving you to ${r.name}…`;
     this.opts.onChange?.();
     const socket = await machines.openLink(r);
     const rd = reader(socket);
     const sw = this.opts.network();
     try {
-      send(socket, { t: 'always-on', op: 'take', stage, from: machines.hereName().slice(0, 64) });
+      send(socket, { t: 'always-on', op: 'take', stage, from: machines.hereName().slice(0, 64), ...(how.merge ? { merge: true } : {}) });
       // Off before the first byte leaves: nothing arrives here that the copy wouldn't have.
       await sw?.set(false);
       this.sendBundle(socket, stage);
@@ -220,6 +226,8 @@ export class AlwaysOn {
       await this.restartNetwork();
       throw err;
     }
+    // This Mac keeps its own copy, to stand in with while the Always On is down for long (BLG-799).
+    saveIdentity(path.join(dir, STANDBY_IDENTITY), you.current());
     this.letGo({ id, name: r.name }, stage);
     send(socket, { t: 'ao-commit', stage });
     const done = await rd.next(this.opts.stepMs ?? STEP_MS);
@@ -229,11 +237,11 @@ export class AlwaysOn {
     this.opts.log?.(`always-on: you are on ${r.name} now`);
   }
 
-  /** Everything that moves, on the link: the files, then the end with your identity. */
-  private sendBundle(socket: MessageSocket, stage: string): void {
+  /** Everything that moves, on the link: the files, then the end with your identity (a replica's leaves it out). */
+  private sendBundle(socket: MessageSocket, stage: string, how: { replica?: boolean } = {}): void {
     const { dir, machines, you } = this.opts;
     const files = sendParts(dir, (part) => send(socket, part));
-    const end: AoEnd = { t: 'ao-end', stage, identity: identityPem(you.current()), owner: you.current().peerId, files, settings: carriedFrom(this.opts.settings.load()), devset: machines.set.syncFrame() };
+    const end: AoEnd = { t: 'ao-end', stage, identity: how.replica ? '' : identityPem(you.current()), owner: you.current().peerId, files, settings: carriedFrom(this.opts.settings.load()), devset: machines.set.syncFrame(), ...(how.replica ? { replica: true } : {}) };
     send(socket, end);
   }
 
@@ -337,10 +345,11 @@ export class AlwaysOn {
   }
 
   /** Stage a bundle off the link and check it; returns why not, or undefined when it's whole and yours. */
-  private async receive(socket: MessageSocket, rd: ReturnType<typeof reader>, stage: string): Promise<string | undefined> {
-    const staging = new Staging(this.opts.dir, stage);
+  private async receive(socket: MessageSocket, rd: ReturnType<typeof reader>, stage: string, folder?: string): Promise<string | undefined> {
+    const staging = new Staging(this.opts.dir, stage, folder);
     const fail = (why: string): string => {
-      dropStaged(this.opts.dir);
+      if (folder) rmSync(path.join(this.opts.dir, folder, stage), { recursive: true, force: true });
+      else dropStaged(this.opts.dir);
       return why;
     };
     for (;;) {
@@ -348,12 +357,17 @@ export class AlwaysOn {
       if (!f) return fail('The link dropped before everything arrived: nothing moved.');
       if (f.t === 'ao-no') return fail(f.reason);
       if (f.t === 'ao-end') {
-        const why = staging.finish(f) ?? this.yours(f);
+        const why = staging.finish(f) ?? (folder ? this.ownersReplica(f) : this.yours(f));
         return why ? fail(why) : undefined;
       }
       if (f.t !== 'ao-part') return fail('That handover went wrong: nothing moved.');
       staging.part(f);
     }
+  }
+
+  /** A replica is of your own network: the same owner as this install's set. */
+  private ownersReplica(end: AoEnd): string | undefined {
+    return end.replica && end.owner === this.opts.machines.set.owner().peerId ? undefined : 'That replica isn’t of your network';
   }
 
   /** The identity that came is the one this install's device set belongs to (nobody else's). */
@@ -369,7 +383,7 @@ export class AlwaysOn {
   }
 
   /** Become you: the staged network in place, your identity kept and taken, the network started (unless it goes on at once). */
-  private async install(stage: string, how: { start: boolean }): Promise<void> {
+  private async install(stage: string, how: { start: boolean; merge?: boolean }): Promise<void> {
     const { dir, machines, you } = this.opts;
     const end = stagedEnd(dir, stage);
     if (!end) throw new Error('Nothing is staged for that handover');
@@ -377,9 +391,12 @@ export class AlwaysOn {
     this.opts.pinAddress(you.identity);
     machines.set.takeOver(end.devset, this.opts.phones());
     saveIdentity(path.join(dir, IDENTITY_FILE), identity);
-    installStaged(dir, stage);
+    installStaged(dir, stage, { merge: how.merge === true });
     this.opts.settings.save({ ...end.settings, network: true });
     writeAlwaysOn(dir, { v: 1, at: 'here', since: this.now() });
+    // You're here now: a standby copy and replicas have nothing left to stand in for.
+    rmSync(path.join(dir, STANDBY_IDENTITY), { force: true });
+    dropReplicas(dir);
     you.swap(identity);
     const sw = this.opts.network();
     if (!sw) return;
@@ -400,7 +417,9 @@ export class AlwaysOn {
           socket.close(1000);
           return Promise.resolve();
         case 'take':
-          return this.take(socket, rd, hello.stage);
+          return this.take(socket, rd, hello.stage, hello.merge === true);
+        case 'replica':
+          return this.sendReplica(socket, rd, hello.stage);
         case 'commit':
           return this.commitLater(socket, hello.stage);
         case 'give':
@@ -416,14 +435,16 @@ export class AlwaysOn {
   }
 
   /** An app of yours hands your network to this computer. */
-  private async take(socket: MessageSocket, rd: ReturnType<typeof reader>, stage: string | undefined): Promise<void> {
+  private async take(socket: MessageSocket, rd: ReturnType<typeof reader>, stage: string | undefined, merge: boolean): Promise<void> {
     if (!stage) return void socket.close(4001, 'No handover named');
-    if (this.opts.machines.set.holdsIdentity && this.at() === undefined) {
+    if (this.holding() && !merge) {
       send(socket, { t: 'ao-no', reason: `${this.opts.machines.hereName()} already is you on the network.` });
       return void socket.close(1000);
     }
     this.busy = 'Taking your network…';
     try {
+      // Your app stood in while this one was away, and is newer: never two of you, so this one's network stops first (BLG-799).
+      if (merge) await this.opts.network()?.set(false);
       const why = await this.receive(socket, rd, stage);
       if (why) {
         send(socket, { t: 'ao-no', reason: why });
@@ -432,8 +453,12 @@ export class AlwaysOn {
       send(socket, { t: 'ao-ready', stage, peerId: this.opts.machines.set.owner().peerId });
       const commit = await rd.next(this.opts.stepMs ?? STEP_MS);
       // No commit on this link: the staging waits for one said again.
-      if (commit?.t !== 'ao-commit' || commit.stage !== stage) return void socket.close(1000);
-      await this.install(stage, { start: true });
+      if (commit?.t !== 'ao-commit' || commit.stage !== stage) {
+        socket.close(1000);
+        if (merge) await this.restartNetwork();
+        return;
+      }
+      await this.install(stage, { start: true, merge });
       send(socket, { t: 'ao-done', peerId: this.opts.machines.set.owner().peerId });
       socket.close(1000);
       this.opts.log?.('always-on: this computer is you on the network now');
@@ -478,6 +503,140 @@ export class AlwaysOn {
       this.busy = undefined;
       this.opts.onChange?.();
     }
+  }
+
+  // ---- never two of you, never none (BLG-799, lease.ts decides when)
+
+  /** This install has taken part in an Always On: it keeps where you are in always-on.json. */
+  involved(): boolean {
+    return readAlwaysOn(this.opts.dir) !== undefined;
+  }
+
+  /** This install is you on the network now. */
+  holding(): boolean {
+    return this.at() === undefined && this.opts.machines.set.holdsIdentity;
+  }
+
+  /** Who this install stands in for, while it does. */
+  standingIn(): { id: string; name: string } | undefined {
+    const w = whereabouts(this.opts.dir);
+    return w.here ? w.standIn : undefined;
+  }
+
+  /**
+   * Your identity as the lease is read and written with: the one this install holds, or, while your
+   * Always On is elsewhere, this install's standby (this Mac's own copy, or a computer that stood down).
+   */
+  leaseIdentity(): Identity | undefined {
+    if (this.holding()) return this.opts.you.current();
+    const owner = this.opts.machines.set.owner().peerId;
+    for (const file of [STANDBY_IDENTITY, IDENTITY_FILE]) {
+      const raw = readJson(path.join(this.opts.dir, file)) as { privateKey?: unknown } | undefined;
+      if (typeof raw?.privateKey !== 'string') continue;
+      try {
+        const identity = identityFromPem(raw.privateKey);
+        if (identity.peerId === owner) return identity;
+      } catch {
+        // Not a key: try the next.
+      }
+    }
+    return undefined;
+  }
+
+  /** This install could stand in now: your Always On is elsewhere, and it has your identity and a network to run. */
+  canStandIn(): boolean {
+    return this.at() !== undefined && this.leaseIdentity() !== undefined && (latestReplica(this.opts.dir) !== undefined || networkFiles(this.opts.dir).length > 0);
+  }
+
+  /**
+   * Your Always On has been down for long: this install becomes you, from the last replica it has
+   * (this Mac), or its own files (a computer that stood down), and says so.
+   */
+  standIn(): Promise<void> {
+    const next = this.turn.then(async () => {
+      const at = whereabouts(this.opts.dir);
+      const identity = this.leaseIdentity();
+      if (at.here || !identity) return;
+      const replica = latestReplica(this.opts.dir);
+      if (replica) installReplica(this.opts.dir, replica);
+      this.opts.pinAddress(this.opts.you.identity);
+      writeAlwaysOn(this.opts.dir, { v: 1, at: 'here', since: this.now(), ...(replica ? { standIn: { id: at.id, name: at.name } } : {}) });
+      this.opts.you.swap(identity);
+      await this.opts.network()?.set(true).catch((err: unknown) => this.opts.log?.(`always-on: couldn't stand in: ${words(err)}`));
+      this.opts.log?.(replica ? `always-on: standing in for ${at.name} while it's down` : 'always-on: you are here again');
+      this.opts.onChange?.();
+    });
+    this.turn = next.catch(() => undefined);
+    return next;
+  }
+
+  /**
+   * Another install of yours holds a newer lease: this one stops being you. A stand-in hands back
+   * what came meanwhile; anything else just stops, keeping its files for when it's given back.
+   */
+  standDown(holder: { id: string; name: string }): Promise<void> {
+    if (this.standingIn()?.id === holder.id) return this.handBack();
+    const next = this.turn.then(async () => {
+      if (!this.holding()) return;
+      await this.opts.network()?.set(false);
+      writeAlwaysOn(this.opts.dir, { v: 1, at: holder, since: this.now() });
+      this.opts.log?.(`always-on: ${holder.name} is you on the network now; this one stopped`);
+      this.opts.onChange?.();
+    });
+    this.turn = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Your Always On answers again: what this stand-in got meanwhile goes back to it, merged. */
+  handBack(): Promise<void> {
+    const next = this.turn.then(async () => {
+      const standIn = this.standingIn();
+      const r = standIn ? this.opts.machines.book.get(standIn.id) : undefined;
+      if (!standIn || !r) return;
+      try {
+        await this.handTo(r, { merge: true });
+      } finally {
+        this.busy = undefined;
+        this.opts.onChange?.();
+      }
+    });
+    this.turn = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Keep this Mac's replica of your network fresh (asked of your Always On every few minutes while it answers). */
+  refreshStandby(): Promise<boolean> {
+    const next = this.turn.then(async () => {
+      const id = this.at();
+      const r = id ? this.opts.machines.book.get(id) : undefined;
+      if (!r || !this.opts.machines.drives(r) || !this.leaseIdentity()) return false;
+      const stage = newStage();
+      const socket = await this.opts.machines.openLink(r);
+      const rd = reader(socket);
+      send(socket, { t: 'always-on', op: 'replica', stage });
+      const why = await this.receive(socket, rd, stage, STANDBY);
+      send(socket, why ? { t: 'ao-no', reason: why } : { t: 'ao-done', peerId: this.opts.machines.set.owner().peerId });
+      socket.close(1000);
+      if (why) {
+        this.opts.log?.(`always-on: no fresh replica from ${r.name}: ${why}`);
+        return false;
+      }
+      keepOnlyReplica(this.opts.dir, stage);
+      return true;
+    });
+    this.turn = next.catch(() => undefined);
+    return next.catch(() => false);
+  }
+
+  /** On your Always On: your app asks for a replica of your network (never your identity). */
+  private async sendReplica(socket: MessageSocket, rd: ReturnType<typeof reader>, stage: string | undefined): Promise<void> {
+    if (!stage || !this.holding()) {
+      send(socket, { t: 'ao-no', reason: `${this.opts.machines.hereName()} isn’t you on the network.` });
+      return void socket.close(1000);
+    }
+    this.sendBundle(socket, stage, { replica: true });
+    await rd.next(this.opts.stepMs ?? STEP_MS);
+    socket.close(1000);
   }
 
   private now(): number {

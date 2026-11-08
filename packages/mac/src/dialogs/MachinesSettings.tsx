@@ -141,14 +141,18 @@ function YouOnTheNetwork({ you, here, onChange }: { you: AlwaysOnView | undefine
   };
   const detail = you.busy
     ? you.busy
-    : you.here
+    : you.standIn
+      ? `${you.standIn.name}, your Always On, hasn’t answered for a while, so ${here} stands in for it: friends reach you here. It goes back to ${you.standIn.name} by itself, with what came meanwhile, as soon as it answers.`
+      : you.here
       ? `${here} is you to your friends: their messages and requests come here. Make a computer that never sleeps your Always On (its •••), and you stay reachable while ${here} is closed.`
       : `${you.name} is your Always On: it receives your friends’ messages and requests, runs them, and ${here} shows everything through your link.${you.pending ? ` Finishing the move as soon as ${you.name} answers.` : ''}`;
   return (
     <Group title="You on the network">
       <Row label={you.here ? here : (you.name ?? 'Your Always On')} detail={detail}>
         {you.here || you.busy ? (
-          <span className={c.kind}>{you.here ? 'Always On' : ''}</span>
+          <span className={c.kind} data-testid={you.standIn ? 'standing-in' : undefined}>
+            {you.standIn ? 'Standing In' : you.here ? 'Always On' : ''}
+          </span>
         ) : (
           <Button size="small" onClick={() => setAsking(true)}>
             Make {upFirst(thisComputer())} Always On…

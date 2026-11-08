@@ -1,5 +1,5 @@
 import { createHash, type Hash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { DeviceSetSync } from '../companion/protocol.js';
@@ -26,6 +26,8 @@ export const IDENTITY_FILE = 'identity.json';
 export const CARRIED_SETTINGS = ['name', 'people', 'policy', 'askMeFor', 'askFreely', 'capabilities', 'mailbox', 'mailboxAfterMin'] as const;
 
 const INCOMING = 'always-on-incoming';
+/** Your network as your Always On last sent it (BLG-799): what this Mac stands in with if it's down for long. */
+export const STANDBY = 'always-on-standby';
 /** Raw bytes per part: well under a link frame (8 MB) once in base64. */
 export const CHUNK_BYTES = 1024 * 1024;
 const MAX_FILES = 20_000;
@@ -44,13 +46,22 @@ export type CarriedSettings = z.infer<typeof CarriedSettings>;
 
 const FileEntry = z.object({ path: RelPath, size: z.number().int().min(0), sha256: z.string().regex(/^[0-9a-f]{64}$/) });
 
-export const AoHello = z.object({ t: z.literal('always-on'), op: z.enum(['take', 'give', 'commit', 'status']), stage: Stage.optional(), from: z.string().max(64).optional() });
+export const AoHello = z.object({
+  t: z.literal('always-on'),
+  op: z.enum(['take', 'give', 'commit', 'status', 'replica']),
+  stage: Stage.optional(),
+  from: z.string().max(64).optional(),
+  /** A stand-in handing back (BLG-799): chat logs are merged with what the taker has, and it stops its own network first. */
+  merge: z.boolean().optional(),
+});
 export const AoPart = z.object({ t: z.literal('ao-part'), path: RelPath, at: z.number().int().min(0), data: z.string().max(Math.ceil((CHUNK_BYTES * 4) / 3) + 8) });
 export const AoEnd = z.object({
   t: z.literal('ao-end'),
   stage: Stage,
-  identity: z.string().min(40).max(4000),
+  /** Empty in a replica: your identity isn't sent again. */
+  identity: z.string().max(4000),
   owner: z.string().min(1).max(200),
+  replica: z.boolean().optional(),
   files: z.array(FileEntry).max(MAX_FILES),
   settings: CarriedSettings,
   devset: DeviceSetSync,
@@ -147,7 +158,7 @@ export function wipeNetwork(dir: string): void {
 
 // ---- the taking side
 
-const stageRoot = (dir: string, stage: string): string => path.join(dir, INCOMING, stage);
+const stageRoot = (dir: string, stage: string, folder = INCOMING): string => path.join(dir, folder, stage);
 
 /**
  * A handover coming in: parts written as they arrive (in order, each file from 0), then checked
@@ -161,12 +172,14 @@ export class Staging {
   private broken?: string;
 
   constructor(
-    private readonly dir: string,
+    dir: string,
     readonly stage: string,
+    private readonly folder = INCOMING,
   ) {
-    // One handover at a time: an older staged one is dropped.
-    rmSync(path.join(dir, INCOMING), { recursive: true, force: true });
-    this.root = stageRoot(dir, stage);
+    // One handover at a time: an older staged one is dropped (a replica is kept until a new one is whole).
+    if (folder === INCOMING) rmSync(path.join(dir, INCOMING), { recursive: true, force: true });
+    else rmSync(stageRoot(dir, stage, folder), { recursive: true, force: true });
+    this.root = stageRoot(dir, stage, folder);
     mkdirSync(path.join(this.root, 'files'), { recursive: true, mode: 0o700 });
   }
 
@@ -208,23 +221,93 @@ export class Staging {
 }
 
 /** The end frame of a handover staged here and checked whole, if there is one. */
-export function stagedEnd(dir: string, stage: string): AoEnd | undefined {
-  const parsed = AoEnd.safeParse(readJson(path.join(stageRoot(dir, stage), 'end.json')));
+export function stagedEnd(dir: string, stage: string, folder = INCOMING): AoEnd | undefined {
+  const parsed = AoEnd.safeParse(readJson(path.join(stageRoot(dir, stage, folder), 'end.json')));
   return parsed.success && parsed.data.stage === stage ? parsed.data : undefined;
 }
 
-/** Put a staged network in place of whatever this install had (normally nothing), and drop the staging. */
-export function installStaged(dir: string, stage: string): void {
+/**
+ * Put a staged network in place of whatever this install had (normally nothing), and drop the staging.
+ * `merge` (a stand-in handing back, BLG-799): a chat log keeps every line either side has, in order,
+ * the taker's first; every other file is the giver's (it's the newer).
+ */
+export function installStaged(dir: string, stage: string, how: { merge?: boolean } = {}): void {
   const files = path.join(stageRoot(dir, stage), 'files');
+  if (how.merge) mergeLogs(dir, files);
   for (const f of NETWORK_FILES) {
+    if (!existsSync(path.join(files, f))) continue;
     rmSync(path.join(dir, f), { force: true });
-    if (existsSync(path.join(files, f))) renameSync(path.join(files, f), path.join(dir, f));
+    renameSync(path.join(files, f), path.join(dir, f));
   }
   for (const d of NETWORK_DIRS) {
+    if (!existsSync(path.join(files, d)) && how.merge) continue;
     rmSync(path.join(dir, d), { recursive: true, force: true });
     if (existsSync(path.join(files, d))) renameSync(path.join(files, d), path.join(dir, d));
   }
   dropStaged(dir);
+}
+
+/** Each staged chat log (*.jsonl) gets the lines only this install had, before its own (they're older); logs only here are kept. */
+function mergeLogs(dir: string, files: string): void {
+  const here: string[] = [];
+  for (const d of NETWORK_DIRS) walk(dir, d, here);
+  for (const rel of here.filter((p) => p.endsWith('.jsonl'))) {
+    const staged = path.join(files, rel);
+    const mine = readFileSync(path.join(dir, rel), 'utf8').split('\n').filter(Boolean);
+    if (!existsSync(staged)) {
+      mkdirSync(path.dirname(staged), { recursive: true, mode: 0o700 });
+      writeFileSync(staged, mine.length ? `${mine.join('\n')}\n` : '', { mode: 0o600 });
+      continue;
+    }
+    const theirs = readFileSync(staged, 'utf8').split('\n').filter(Boolean);
+    const known = new Set(theirs);
+    const missing = mine.filter((l) => !known.has(l));
+    if (missing.length) writeFileSync(staged, `${[...missing, ...theirs].join('\n')}\n`, { mode: 0o600 });
+  }
+}
+
+/** Copy a replica in place (it stays staged, for the next time). */
+export function installReplica(dir: string, stage: string): void {
+  const files = path.join(stageRoot(dir, stage, STANDBY), 'files');
+  for (const f of NETWORK_FILES) {
+    rmSync(path.join(dir, f), { force: true });
+    if (existsSync(path.join(files, f))) cpSync(path.join(files, f), path.join(dir, f));
+  }
+  for (const d of NETWORK_DIRS) {
+    rmSync(path.join(dir, d), { recursive: true, force: true });
+    if (existsSync(path.join(files, d))) cpSync(path.join(files, d), path.join(dir, d), { recursive: true });
+  }
+}
+
+/** The newest whole replica here (its stage), if any. */
+export function latestReplica(dir: string): string | undefined {
+  let names: string[];
+  try {
+    names = readdirSync(path.join(dir, STANDBY));
+  } catch {
+    return undefined;
+  }
+  const whole = names.flatMap((stage) => {
+    const end = stagedEnd(dir, stage, STANDBY);
+    const at = end ? statSync(path.join(stageRoot(dir, stage, STANDBY), 'end.json')).mtimeMs : 0;
+    return end ? [{ stage, at }] : [];
+  });
+  return whole.sort((a, b) => b.at - a.at)[0]?.stage;
+}
+
+/** Only the newest replica is kept. */
+export function keepOnlyReplica(dir: string, stage: string): void {
+  let names: string[] = [];
+  try {
+    names = readdirSync(path.join(dir, STANDBY));
+  } catch {
+    return;
+  }
+  for (const n of names) if (n !== stage) rmSync(path.join(dir, STANDBY, n), { recursive: true, force: true });
+}
+
+export function dropReplicas(dir: string): void {
+  rmSync(path.join(dir, STANDBY), { recursive: true, force: true });
 }
 
 export function dropStaged(dir: string): void {

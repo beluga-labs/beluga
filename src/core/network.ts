@@ -222,13 +222,22 @@ interface Launch {
   readonly stop: () => Promise<void>;
 }
 
+/** Asked before this session's network starts (BLG-799: the lease says whether another install of yours is you now). */
+type NetworkGate = () => Promise<string | undefined>;
+const gates = new WeakMap<object, NetworkGate>();
+export const gateNetwork = (session: object, gate: NetworkGate): void => void gates.set(session, gate);
+
+/** The gate, once whatever registers it in the same start has (the companion starts after the network switch). */
+const gated = (session: object): Promise<string | undefined> => new Promise<void>((resolve) => setImmediate(resolve)).then(() => gates.get(session)?.());
+
 function launch(host: NetworkHost): Launch {
   let stopped = false;
   let error: string | undefined;
   const name = host.name.trim().slice(0, 64) || 'Beluga';
   // Your Always On is you on the network: this install never is at the same time (BLG-796).
   const elsewhere = host.demo ? undefined : networkElsewhere(host.dir);
-  const ready = (elsewhere ? Promise.reject(new Error(elsewhere)) : host.demo ? import('./network-demo.js').then((m) => m.startDemoNetwork(host.store, name)) : startNetwork({ store: host.store, identity: host.identity, name, dir: host.dir }))
+  const allowed = elsewhere || host.demo ? Promise.resolve(elsewhere) : gated(host.session);
+  const ready = allowed.then((why) => (why ? Promise.reject(new Error(why)) : host.demo ? import('./network-demo.js').then((m) => m.startDemoNetwork(host.store, name)) : startNetwork({ store: host.store, identity: host.identity, name, dir: host.dir })))
     .then((service) => {
       if (stopped) {
         void service.stop();
@@ -239,7 +248,7 @@ function launch(host: NetworkHost): Launch {
     })
     .catch((err: unknown) => {
       error = err instanceof Error ? err.message : String(err);
-      if (!elsewhere) host.warn(`The Beluga network didn't start: ${error}`);
+      if (!elsewhere && networkElsewhere(host.dir) === undefined) host.warn(`The Beluga network didn't start: ${error}`);
       return undefined;
     });
   return {

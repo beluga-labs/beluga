@@ -177,6 +177,8 @@ export class Machines {
   private retry?: NodeJS.Timeout;
   private poller?: NodeJS.Timeout;
   private readonly live = new Map<string, Live>();
+  /** When each device of yours last answered a sync (BLG-799: how long your Always On has been silent). */
+  private readonly heard = new Map<string, number>();
   private stopped = false;
   readonly platform: MachinePlatform;
 
@@ -589,6 +591,18 @@ export class Machines {
     );
   }
 
+  /** When a device of yours last answered this install (since it started). */
+  lastHeard(id: string): number | undefined {
+    return this.heard.get(id);
+  }
+
+  /** Whether a computer of yours answers right now (a sync, BLG-799). */
+  async reach(id: string): Promise<boolean> {
+    const r = this.book.get(id);
+    if (!r || !this.drives(r)) return false;
+    return this.syncWith(r, true).catch(() => false);
+  }
+
   /** Every device of your set this install knows (`beluga computers`: who may drive it). */
   devicesInSet(): SetDeviceView[] {
     return this.set.views();
@@ -675,6 +689,7 @@ export class Machines {
     const sent = Date.now();
     const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
+    this.heard.set(deviceId(r.cert), Date.now());
     if (info) this.live.set(deviceId(r.cert), { at: Date.now(), ok: true, rttMs: Date.now() - sent, ...(answer.info ? { info: answer.info } : {}) });
     if (net && answer.net) this.opts.alwaysOn?.mirror(answer.net);
     this.keepLook(deviceId(r.cert), answer.info);

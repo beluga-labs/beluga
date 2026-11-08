@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -311,5 +311,78 @@ describe('this install’s address when your identity moves', () => {
     pinCompanionSeed(file, generateIdentity());
     const after = await companionKeyPair(generateIdentity(), file);
     expect(hex(after.publicKey)).toBe(hex(before.publicKey));
+  });
+});
+
+describe('never two of you, never none (BLG-799)', () => {
+  it('this Mac stands in from its replica while your Always On is down, and hands back what came, merged', async () => {
+    const { me, app, computers } = world();
+    const [mini] = computers as [Install];
+    await app.ao.make(deviceId(mini.cert!));
+    // This Mac keeps its own copy of your identity (it never leaves it) and a replica of the network.
+    expect(peerIdIn(app.dir)).not.toBe(me.peerId);
+    expect(loadIdentity(path.join(app.dir, 'identity-standby.json')).peerId).toBe(me.peerId);
+    expect(app.ao.canStandIn()).toBe(false);
+    expect(await app.ao.refreshStandby()).toBe(true);
+    expect(app.ao.canStandIn()).toBe(true);
+    expect(app.ao.holding()).toBe(false);
+
+    // The Mac mini goes down with a message the replica didn't have yet.
+    writeFileSync(path.join(mini.dir, 'dms', 'mia.jsonl'), `${readFileSync(path.join(mini.dir, 'dms', 'mia.jsonl'), 'utf8')}{"text":"before it went down"}\n`);
+    await app.ao.standIn();
+    expect(app.ao.holding()).toBe(true);
+    expect(app.you.current().peerId).toBe(me.peerId);
+    expect(app.ao.view()).toMatchObject({ here: true, standIn: { id: deviceId(mini.cert!), name: 'Mac mini' } });
+    expect(app.net.at(-1)).toBe('on');
+    expect(readFileSync(path.join(app.dir, 'friends.json'), 'utf8')).toBe(JSON.stringify({ friends: ['mia'] }));
+    // Mia writes while this Mac stands in.
+    writeFileSync(path.join(app.dir, 'dms', 'mia.jsonl'), `${readFileSync(path.join(app.dir, 'dms', 'mia.jsonl'), 'utf8')}{"text":"while it was away"}\n`);
+
+    // It answers again: everything goes back, merged, and this Mac lets go.
+    await app.ao.handBack();
+    expect(app.ao.holding()).toBe(false);
+    expect(app.ao.at()).toBe(deviceId(mini.cert!));
+    expect(app.ao.view().standIn).toBeUndefined();
+    expect(mini.ao.holding()).toBe(true);
+    const log = readFileSync(path.join(mini.dir, 'dms', 'mia.jsonl'), 'utf8');
+    expect(log).toContain('before it went down');
+    expect(log).toContain('while it was away');
+    expect(log.split('\n').filter(Boolean)).toHaveLength(5_002);
+    // The Mac mini stopped its own network before taking it back: never two of you.
+    expect(mini.net.slice(-3)).toEqual(['off', 'name:kayra', 'on']);
+  });
+
+  it('an Always On that finds a newer you elsewhere stops, keeping your identity and files to stand in later', async () => {
+    const { me, app, computers } = world();
+    const [mini] = computers as [Install];
+    await app.ao.make(deviceId(mini.cert!));
+    const appId = deviceId(app.set.self()!);
+    await mini.ao.standDown({ id: appId, name: 'MacBook' });
+    expect(mini.ao.holding()).toBe(false);
+    expect(mini.ao.at()).toBe(appId);
+    expect(mini.net.at(-1)).toBe('off');
+    expect(networkElsewhere(mini.dir)).toMatch(/runs on MacBook/);
+    expect(mini.ao.leaseIdentity()?.peerId).toBe(me.peerId);
+    expect(mini.ao.canStandIn()).toBe(true);
+    // Standing in again from its own files (it's your Always On: no stand-in note).
+    await mini.ao.standIn();
+    expect(mini.ao.holding()).toBe(true);
+    expect(mini.ao.view().standIn).toBeUndefined();
+  });
+
+  it('a replica is never your identity, and only an install that is you sends one', async () => {
+    const { app, computers } = world();
+    const [mini] = computers as [Install];
+    // Not you yet: it says so.
+    expect(await app.ao.refreshStandby()).toBe(false);
+    await app.ao.make(deviceId(mini.cert!));
+    expect(await app.ao.refreshStandby()).toBe(true);
+    const staged = readdirSync(path.join(app.dir, 'always-on-standby'));
+    expect(staged).toHaveLength(1);
+    const end = JSON.parse(readFileSync(path.join(app.dir, 'always-on-standby', staged[0]!, 'end.json'), 'utf8')) as { identity: string; replica: boolean };
+    expect(end).toMatchObject({ identity: '', replica: true });
+    // A second one replaces the first.
+    expect(await app.ao.refreshStandby()).toBe(true);
+    expect(readdirSync(path.join(app.dir, 'always-on-standby'))).toHaveLength(1);
   });
 });

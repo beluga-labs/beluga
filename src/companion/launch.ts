@@ -33,6 +33,8 @@ import { SettingsSync } from '../machines/sync.js';
 import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 import { AlwaysOn, attachAlwaysOn, detachAlwaysOn } from '../machines/always-on.js';
 import { FriendsLink, attachFriendsLink, detachFriendsLink } from '../machines/friends.js';
+import { LeaseKeeper, dhtLeaseBoard } from '../machines/lease.js';
+import { gateNetwork } from '../core/network.js';
 import { type SwappableIdentity, swappableIdentity } from '../core/identity.js';
 import { networkSummaryOf, networkSwitchOf } from '../core/network.js';
 import { pinCompanionSeed } from './host.js';
@@ -215,6 +217,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   // Make Always On (BLG-796): your identity and friends network move to one of your computers and back.
   let alwaysOn: AlwaysOn | undefined;
   let friends: FriendsLink | undefined;
+  let lease: LeaseKeeper | undefined;
   const you = opts.you ?? swappableIdentity(opts.identity);
   const machines = new Machines({
     dir,
@@ -353,6 +356,18 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       ...(opts.log ? { log: opts.log } : {}),
     });
     attachFriendsLink(opts.session, friends);
+    // Never two of you, never none (BLG-799): the lease on the DHT, renewed by whichever install is you.
+    const ao = alwaysOn;
+    lease = new LeaseKeeper({
+      host: ao,
+      board: dhtLeaseBoard(() => host!.dhtNode()),
+      self: () => ({ id: machines.runOnDevice().id, name: macName() }),
+      heard: (id) => machines.lastHeard(id),
+      reachable: (id) => machines.reach(id),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+    const keeper = lease;
+    gateNetwork(opts.session, () => keeper.mayRun());
   }
   attachCompanion(opts.session, host);
   attachMachines(opts.session, machines);
@@ -362,6 +377,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       machines.start();
       alwaysOn?.start();
       friends?.start();
+      lease?.start();
     })
     .catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
   // A phone on this Mac's USB: set up by itself, or what to switch on said in Settings › Phone (BLG-190).
@@ -375,6 +391,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     alwaysOn?.stop();
     detachFriendsLink(opts.session);
     friends?.stop();
+    lease?.stop();
     await machines.stop();
     await host?.stop();
     host = undefined;
