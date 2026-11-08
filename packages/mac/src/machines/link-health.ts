@@ -56,9 +56,9 @@ export function watchLink(id: string, client: Pick<SocketClient, 'ping'>, everyM
   };
 }
 
-/** Computer `id`'s link now (no screen open there: not connected). */
-export const linkSampleOf = (id: string): LinkSample => samples.get(id) ?? NONE;
+/** Computer `id`'s link now: undefined until a screen there first connects (connecting isn't lost). */
+export const linkSampleOf = (id: string): LinkSample | undefined => samples.get(id);
 
-export function useLinkSample(id: string): LinkSample {
+export function useLinkSample(id: string): LinkSample | undefined {
   return useSyncExternalStore(subscribe, () => linkSampleOf(id));
 }

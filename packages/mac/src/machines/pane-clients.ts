@@ -149,6 +149,9 @@ export function machineOfClient(client: object): { readonly id: string; readonly
   return undefined;
 }
 
+/** The pane's own UI state for computer `id` (its sheets read through to the window's). */
+export const machineUiOf = (id: string): UiStore | undefined => entries.get(id)?.state.ui;
+
 /** The screen open on computer `id`, if it is. */
 export const machineClientOf = (id: string): SocketClient | undefined => entries.get(id)?.state.client;
 

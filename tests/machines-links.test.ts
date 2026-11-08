@@ -206,9 +206,10 @@ describe('link health', () => {
     expect(linkSampleOf('mini')).toEqual({ connected: true, rttMs: 85 });
     // The next ping never comes back.
     await vi.advanceTimersByTimeAsync(1_000 + LOST_LINK_MS);
-    expect(linkHealth(linkSampleOf('mini')).state).toBe('lost');
+    expect(linkHealth(linkSampleOf('mini')!).state).toBe('lost');
     stop();
     expect(linkSampleOf('mini')).toEqual({ connected: false });
+    expect(linkSampleOf('never-opened')).toBeUndefined();
   });
 });
 

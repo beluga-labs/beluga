@@ -19,7 +19,9 @@ export function MachineTag() {
 function Tag({ machine, home }: { machine: string; home: SocketClient }) {
   const view = useMachineView(home, machine);
   // The link as this window feels it (BLG-792): said when it's slow or lost, never felt as a freeze.
-  const link = linkHealth(useLinkSample(machine), view?.name ?? 'Your computer');
+  const sample = useLinkSample(machine);
+  const name = view?.name ?? 'Your computer';
+  const link = sample ? linkHealth(sample, name) : { state: 'ok' as const, words: `Runs on ${name}` };
   return (
     <span className={cx(c.tag, link.state !== 'ok' && c.tagDim)} title={link.words} data-link={link.state}>
       {view ? <MachineMark machine={view} size={12} /> : null}
