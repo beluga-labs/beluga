@@ -173,6 +173,7 @@ test('a child says who started it, and its first message is not yours', async ({
   // The line starts where the agent's text starts, at the wide and the narrow width (Kayra's review of PR 369).
   for (const width of [1440, 900]) {
     await page.setViewportSize({ width, height: 900 });
+    await line.scrollIntoViewIfNeeded();
     await shot(page, `parent-line-${width}`);
     await expect.poll(() => textOffset(page)).toBe(0);
   }
@@ -221,7 +222,7 @@ test('a native sub-agent and the threads share one row and one running count; th
   const client = await SocketClient.connect({ url: demo.endpoint.url, token: demo.endpoint.token, kind: 'test', version: 'e2e' });
   await client.api.session.setPrefs({ agentThreads: true });
   await page.goto('/');
-  await startParent(page, 'e2e-family', 'scout=codex:keep working; notes=claude:finish now');
+  await startParent(page, 'e2e-family', 'scout=claude:keep working; notes=codex:finish now');
   await unfold(page);
   const group = sidebar(page).getByRole('group', { name: 'Threads of e2e-family' });
   await expect(group.getByRole('button', { name: 'scout', exact: true })).toBeVisible({ timeout: 40_000 });
@@ -254,7 +255,7 @@ test('a native sub-agent and the threads share one row and one running count; th
   await expect(native).toBeVisible({ timeout: 25_000 });
   await expect(native.locator('[data-family-kind="agent"][data-harness]')).toBeVisible();
   await expect(native).toContainText('sub-agent');
-  await expect(group.getByRole('button', { name: 'scout', exact: true }).locator('[data-family-kind="thread"][data-harness="codex"]')).toBeVisible();
+  await expect(group.getByRole('button', { name: 'scout', exact: true }).locator('[data-family-kind="thread"][data-harness="claude"]')).toBeVisible();
   await shot(page, 'unified-fold');
 
   // The panel: the same rows, one count for both, and Stop only on the thread.
