@@ -20,7 +20,8 @@ export class ClientRegistry {
   private readonly changeListeners = new Set<(count: number) => void>();
 
   add(info: Omit<ConnectedClient, 'id' | 'lastActive'>): ConnectedClient {
-    const client: ConnectedClient = { ...info, id: randomUUID(), lastActive: Date.now() };
+    // Your app driving this computer is `machine:<id>`, so what it causes knows (client-context.ts fromMachine).
+    const client: ConnectedClient = { ...info, id: info.kind === 'machine' ? `machine:${randomUUID()}` : randomUUID(), lastActive: Date.now() };
     this.clients.set(client.id, client);
     this.changed();
     return client;
