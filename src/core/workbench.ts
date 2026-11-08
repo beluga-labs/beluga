@@ -702,7 +702,7 @@ export class Workbench {
       return this.deps.toast(`Couldn’t fetch ${target}: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
     const done = await contentIn(ws.path, 'HEAD', target);
-    this.manager.setPrDone(id, pr.number, { url: pr.url, into: base });
+    this.manager.setPrDone(id, pr.number, { url: pr.url, into: base, ...(pr.head ? { head: pr.head } : {}) });
     this.deps.store.dispatch({ type: 'pr', id, pr: undefined });
     // A line across the chat: what's above went out in this PR, what's below is the next one.
     this.deps.store.dispatch({ type: 'system', channel: `ws:${id}`, text: shippedText(pr.number, base), shipped: { number: pr.number, url: pr.url, into: base } });

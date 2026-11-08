@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Location, ViewerState } from '@beluga/core/store.js';
 import type { FsEntry } from '@beluga/protocol.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
@@ -8,6 +8,7 @@ import { Icon } from '../../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../../components/SpecMenu.js';
 import { IconButton, Segmented, cx } from '../../components/ui.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
+import { ViewBoundary, lazyView } from '../../lib/lazy-view.js';
 import { localPathOf, openWithDefaultApp } from '../../lib/files.js';
 import { focusFor, openFocus, showChange, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
@@ -29,8 +30,8 @@ import s from './panel.module.css';
 import k from './content-search.module.css';
 import { revealLabel } from '../../lib/os-words.js';
 
-/** The reader comes in its own chunk, the first time a file is opened. */
-const FileContent = lazy(() => import('../../views/reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+/** The reader comes in its own chunk, fetched early so opening a file never waits on it (#370). */
+const FileContent = lazyView('views/reader/FileReader', () => import('../../views/reader/FileReader.js').then((m) => m.FileContent), 'first');
 
 /** Folders you opened in each workspace's tree, kept while the window is open. */
 const opened = new Map<string, ReadonlySet<string>>();
@@ -105,9 +106,11 @@ function Preview({ viewer, wsId, local, changed }: { viewer: ViewerState; wsId: 
         <IconButton icon="x" label="Close" keys="Esc" onClick={() => void api.files.closeViewer()} />
       </div>
       <div ref={body} className={cx(s.previewBody, s.previewFile, 'selectable')} tabIndex={0} {...{ [SCROLL_ROOT]: '' }}>
-        <Suspense fallback={<div className={s.dimPad}>Opening…</div>}>
-          {drawing && component ? <ComponentPreview previewRef={component} wsId={wsId} /> : <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />}
-        </Suspense>
+        <ViewBoundary at={viewer.path}>
+          <Suspense fallback={<div className={s.dimPad}>Opening…</div>}>
+            {drawing && component ? <ComponentPreview previewRef={component} wsId={wsId} /> : <FileContent viewer={viewer} variant="panel" mode={mode} onMode={setMode} wrap editable onOpenInEditor={local ? () => void openWithDefaultApp(client, local) : undefined} />}
+          </Suspense>
+        </ViewBoundary>
       </div>
     </section>
   );
