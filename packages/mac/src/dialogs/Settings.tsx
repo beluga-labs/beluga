@@ -22,6 +22,7 @@ import { ThemeGroups } from './ThemePicker.js';
 import { EnvironmentSettings } from './EnvironmentSettings.js';
 import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
+import { UsageLimitSettings } from './UsageLimitSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
@@ -168,6 +169,17 @@ function General() {
             options={[
               { value: 'enter', label: returnName() },
               { value: 'cmd-enter', label: cmdReturn(' ') },
+            ]}
+          />
+        </Row>
+        <Row label="Send during a turn" detail="Queue waits for the turn to finish. Steer sends to the current turn. The secondary action uses the other choice. Agents that cannot steer always queue.">
+          <Select
+            label="Send during a turn"
+            value={prefs.sendDuringTurn}
+            onChange={(v) => setPrefs({ sendDuringTurn: v })}
+            options={[
+              { value: 'queue', label: 'Queue' },
+              { value: 'steer', label: 'Steer' },
             ]}
           />
         </Row>
@@ -390,6 +402,7 @@ function AgentPane() {
         </Row>
       </Group>
       <ContextSettings />
+      <UsageLimitSettings />
       <ParallelSettings />
       <ChatLimitSettings />
       <Group title="Scratch folder">

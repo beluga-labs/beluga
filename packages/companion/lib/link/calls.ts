@@ -74,8 +74,8 @@ export const calls = {
   cancelTask: (id: string): Call => make('gateway.cancel', [id], 'Stop asking'),
   forgetTask: (id: string): Call => make('gateway.forget', [id], 'Remove'),
   /**
-   * While Claude works, as the Mac's composer: Steer gives it your words now (at its next step; a
-   * long command is interrupted for it), Queue lets it finish first. The same `session.submit` the
+   * While Claude works, as the Mac's composer: Steer gives it your words at its next step (never
+   * stopping it), Queue lets it finish first. The same `session.submit` the
    * Mac sends (`urgent` for Steer).
    */
   steer: (topic: Topic, text: string): Call => make('session.submit', [text, { channel: channelOf(topic), urgent: true }], `Steer "${short(text)}"`),
@@ -104,7 +104,7 @@ export const calls = {
   addTask: (projectId: string, d: PhoneDraft & { more?: PhoneDraft[]; epic?: boolean }): Call =>
     make('companion.addTask', [{ projectId, ...d }], d.more?.length ? `Add ${d.more.length + 1} tasks` : `Add "${short(d.title)}"`),
   /** A live view's rows: the Mac runs its source (one your own Claude's view names) and sends the page. */
-  // 1.42: what a chat's address is now (its chip).
+  // 1.44: what a chat's address is now (its chip).
   resolveChat: (ref: string): Call => make('chats.resolve', [ref], 'Chat link'),
   viewFetch: (a: { topic: Topic; turn: string; block: number; query: object; source?: object; confirm?: boolean; fresh?: boolean; text?: boolean }): Call => make('companion.viewFetch', [a as never], 'View rows'),
   /** Merging a worktree (its conversation): look first, merge, Claude resolves the conflicts. */
@@ -115,6 +115,8 @@ export const calls = {
   branchStep: (topic: Topic, step: PhoneBranchStep, label: string): Call => make('companion.branchStep', [topic, step], label),
   /** Your steered message Claude hasn't read yet, now: its step stops and it reads it next. */
   steerNow: (request: string): Call => make('host.steerNow', [request], 'Send now'),
+  /** 1.43: your steered message Claude hasn't read yet, taken back → { cancelled, prompt: its words, for the box }. */
+  cancelSteer: (request: string): Call => make('host.cancelSteer', [request], 'Cancel'),
   /** 1.28 (BLG-387): a message you sent, edited: the conversation rewinds to it ('here') or goes on in a new fork → where it went on. */
   editPrompt: (ws: string, turn: string, text: string, mode: 'here' | 'fork'): Call => make('workspaces.editPrompt', [ws, turn, text, mode], mode === 'here' ? 'Rewind and send' : 'Fork and send'),
   /** 1.7: a worktree's files, read-only: a folder ('' is the top), names that match, a page of a file. */
