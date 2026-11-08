@@ -26,6 +26,7 @@ const NO_SCOPE = 'A file name does not say which chat the image is in, so a gran
 const VIEW_SOURCE = 'It runs a view\'s source, which can be a command: sentinel_try_source tries one under its own class.';
 const AGENT_TERM = 'A terminal app for a person to type in: an agent works through beluga_chat_send.';
 const STATS = 'The Usage tab counts the person\'s work in every project, past any grant\'s scope.';
+const WEB_SESSION = 'A browser session can answer approvals and read secret values, which no agent does (BLG-244).';
 const SAVE_PANEL = 'It writes a file where a person chose in the Save panel.';
 
 export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
@@ -531,13 +532,13 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'calls.signal': 'gated',
   'calls.notes': 'gated',
   'calls.forgetNotes': 'gated',
-  'web.link': 'gated',
+  'web.link': { refused: WEB_SESSION },
   'web.ways': 'gated',
   'web.sessions.list': 'gated',
   'web.sessions.revoke': 'gated',
   'web.download': 'gated',
-  'web.public': 'gated',
-  'web.tailscale': 'gated',
+  'web.public': { refused: WEB_SESSION },
+  'web.tailscale': { refused: WEB_SESSION },
   'web.stop': 'gated',
   'assistant.scratch': { refused: YOUR_MAC },
   'assistant.newChat': { refused: YOUR_MAC },

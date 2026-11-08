@@ -13,7 +13,7 @@ const WS_PREFIX = 'ws:';
 const RUNS_KEPT = 1000;
 const NOT_YOURS = 'The run in this chat is not one this agent asked for, so it cannot stop it.';
 
-/** The control port over a daemon's session. Each run goes as `ext:<grant id>`, never as you. */
+/** The control port over a daemon's session. Each run goes as `ext:<grant id>`: its own grant and name. */
 export function sessionControl(session: Session, opts: { readonly runCap?: (agentId: string) => number } = {}): ChatControl {
   /** Which agent started each run, for the questions it may answer. */
   const runsBy = new Map<string, string>();

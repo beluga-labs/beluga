@@ -34,9 +34,9 @@ describe('the external classification table', () => {
     expect([...answers].sort()).toEqual(['covered', 'gated', 'refused', 'ui_only']);
   });
 
-  it('refuses what no answer opens: approvals, grants, secret values', () => {
+  it('refuses what no answer opens: approvals, grants, secret values, a browser session', () => {
     for (const m of METHODS.filter((x) => x.startsWith('external.'))) expect(EXTERNAL_ACCESS[m], m).toHaveProperty('refused');
-    for (const m of ['host.answerApproval', 'gateway.confirm', 'gateway.decide', 'env.get', 'env.claudeDotenv', 'stripe.connect', 'sentinel.rotateSecret'] as const) expect(EXTERNAL_ACCESS[m], m).toHaveProperty('refused');
+    for (const m of ['host.answerApproval', 'gateway.confirm', 'gateway.decide', 'env.get', 'env.claudeDotenv', 'stripe.connect', 'sentinel.rotateSecret', 'web.link', 'web.public', 'web.tailscale'] as const) expect(EXTERNAL_ACCESS[m], m).toHaveProperty('refused');
   });
 
   it('an agent acts on the phone with a tool, and sets it up after one card', () => {

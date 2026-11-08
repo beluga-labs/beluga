@@ -3,7 +3,7 @@ import type { MethodRow, Scope } from './method-tool.js';
 /**
  * What was only a person's until the owner chose a card for each (BLG-244). Class gated: one card at
  * every level, no Always, in plain words, and the grant is read again after the answer (callTool).
- * Answering an approval, a grant and secret values have no row: the table refuses them.
+ * Answering an approval, a grant, secret values and a browser's join link have no row: the table refuses them.
  */
 
 const none: Scope = { on: 'none' };
@@ -142,13 +142,10 @@ export const GATED_ROWS: readonly MethodRow[] = [
   { name: 'calls_signal', method: 'calls.signal', params: ['conversation', 'peer', 'signal'], scope: none, wants: 'send a call\'s connection data to {peer}', description: 'Send a call\'s connection data to peer. A person is asked each time.' },
   { name: 'calls_notes', method: 'calls.notes', params: ['call', 'notes'], scope: none, wants: 'add words to the notes of call {call}', description: 'Add words to the notes of call. A person is asked each time.' },
   { name: 'calls_forget_notes', method: 'calls.forgetNotes', params: ['call'], scope: none, wants: 'delete your notes of call {call}', description: 'Delete your notes of call. A person is asked each time.' },
-  { name: 'web_link', method: 'web.link', params: ['options'], scope: none, wants: 'make a link that lets a browser in, and a browser can do all you can do on this computer, answering cards too: {options}', description: 'Make a join link for a browser, which can do all you can do. A person is asked each time.' },
   { name: 'web_ways', method: 'web.ways', params: [], scope: none, wants: 'read how browsers can reach this computer', description: 'Read how browsers can reach this computer. A person is asked each time.' },
   { name: 'web_sessions_list', method: 'web.sessions.list', params: [], scope: none, wants: 'read which browsers are signed in', description: 'Read which browsers are signed in. A person is asked each time.' },
   { name: 'web_sessions_revoke', method: 'web.sessions.revoke', params: ['session'], scope: none, wants: 'sign out browser {session}', description: 'Sign out browser session. A person is asked each time.' },
   { name: 'web_download', method: 'web.download', params: ['file'], scope: none, wants: 'get a download address for a file: {file}', description: 'Get a download address for a file. A person is asked each time.' },
-  { name: 'web_public', method: 'web.public', params: ['on'], scope: none, wants: 'put the web port on a public address, or take it off: {on}', description: 'Put the web port on a public address, or take it off. A person is asked each time.' },
-  { name: 'web_tailscale', method: 'web.tailscale', params: ['on'], scope: none, wants: 'put the web port on your tailnet, or take it off: {on}', description: 'Put the web port on your tailnet, or take it off. A person is asked each time.' },
   { name: 'web_stop', method: 'web.stop', params: [], scope: none, wants: 'close the web port', description: 'Close the web port. A person is asked each time.' },
   { name: 'files_read_image', method: 'files.readImageFile', params: ['location'], scope: none, wants: 'read a picture from a share: {location}', description: 'Read a picture from a share: location. A person is asked each time.' },
   { name: 'gateway_list', method: 'gateway.list', params: [], scope: none, wants: 'read the requests to and from your friends', description: 'Read the requests to and from your friends. A person is asked each time.' },

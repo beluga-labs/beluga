@@ -1,6 +1,6 @@
 # External agents
 
-Other agents can control Beluga through one MCP server: a Claude Code or Codex in your own terminal, a local model, or a hosted agent such as GrokBot. Each agent has its own grant. It never acts as you, you can see what it did, and you can stop it or remove it at any time.
+Other agents can control Beluga through one MCP server: a Claude Code or Codex in your own terminal, a local model, or a hosted agent such as GrokBot. An agent is you on another screen, like the phone or a browser: its chats run with your own logins. It has its own grant and its own name on what it does. You can see what it did, and you can stop it or revoke its grant at any time.
 
 The server is off until you turn it on. Read [the risks](security.md#external-agents) before you connect an agent.
 

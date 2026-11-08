@@ -91,6 +91,7 @@ On Codex an agent's run at Full trust has the row "Your own run". Below Full tru
 - Reading or changing a grant: pairing codes, tokens, levels, stop, revoke, resume, pause, and turning the server or a route on
 - Secret values: environment variables, API keys, a webhook's secret
 - Signing in, and pairing a phone with the phone in hand
+- A browser's join link, the public address and the tailnet address that make one: a browser session can answer approvals and read secret values
 
 What was once a person's alone, such as trust, a plan's approval, the phone's actions and settings, is now a tool with one card at every level and no Always. Terminal input has a card to open the shell, which says that it can type anything there.
 

@@ -60,7 +60,7 @@ export interface RequesterTrust {
   readonly reach: 'folder' | 'full';
 }
 
-/** An external agent as a requester: `ext:<grant id>`, a principal of its own. Never a person, never you. */
+/** An external agent as a requester: `ext:<grant id>`. It is you on another screen, with its own grant, name, Stop and Revoke. */
 const EXTERNAL_PREFIX = 'ext:';
 export const externalRequester = (grantId: string): string => `${EXTERNAL_PREFIX}${grantId}`;
 export const isExternalRequester = (requester: string): boolean => requester.startsWith(EXTERNAL_PREFIX);

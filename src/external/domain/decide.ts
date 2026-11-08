@@ -1,5 +1,5 @@
 /**
- * What an external agent (a principal of its own, never you) may do: one pure function from an
+ * What an external agent (you on another screen, with its own grant) may do: one pure function from an
  * operation and its grant to allow, ask, ask-once or deny. No I/O here, and no caller yet.
  */
 
