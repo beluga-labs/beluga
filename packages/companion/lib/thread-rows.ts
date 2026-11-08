@@ -1,5 +1,5 @@
-import type { ThreadChildren } from '../../../src/shared/threads';
-import type { ConvSummary, ThreadCountView } from './link/protocol';
+import { type ThreadChildren, type ThreadState, isThreadWorking, threadRank } from '../../../src/shared/threads';
+import type { ConvSummary, ThreadCountView, ThreadFamilyView } from './link/protocol';
 
 /** Child threads as the phone lists them and asks about them (1.44). Pure: no React. */
 
@@ -49,3 +49,20 @@ export function threadsQuestion(action: 'archive' | 'delete', family: ThreadCoun
     ? { label: `Also archive ${them}`, detail: `Restoring links them again.${working} ${keep}` }
     : { label: `Also delete ${them}`, detail: `Deleting a thread loses its folder, its branch and its conversation for good.${working} ${keep}` };
 }
+
+/** One row of a chat's Threads sheet: a child thread, or a native sub-agent (read-only: no Stop, no page). */
+export type FamilyRow = ({ readonly kind: 'thread' } & ThreadFamilyView['children'][number]) | ({ readonly kind: 'agent'; readonly working: boolean; readonly topic?: undefined } & NonNullable<ThreadFamilyView['agents']>[number]);
+
+/** Threads and native sub-agents in one list, as on the Mac: needs you, then working, then finished; threads first within each. */
+export function familyRows(family: ThreadFamilyView): FamilyRow[] {
+  const rows: FamilyRow[] = [...family.children.map((c): FamilyRow => ({ kind: 'thread', ...c })), ...[...(family.agents ?? [])].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)).map((a): FamilyRow => ({ kind: 'agent', ...a, working: isThreadWorking(a.state as ThreadState) }))];
+  return rows.map((row, i) => ({ row, i })).sort((a, b) => rank(a.row.state) - rank(b.row.state) || a.i - b.i).map(({ row }) => row);
+}
+
+/** How many of a family's rows work now, threads and native sub-agents alike. */
+export function familyRunning(family: ThreadFamilyView): number {
+  return familyRows(family).filter((r) => r.working).length;
+}
+
+/** A newer Mac may send a state this phone doesn't know: it sorts with the finished ones. */
+const rank = (state: string): number => threadRank(state as ThreadState);

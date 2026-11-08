@@ -3,6 +3,7 @@ import { CornerLeftUp, Network, Square } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { THREAD_WORDS } from '../../../src/shared/threads';
 import { calls } from '../lib/link/calls';
+import { familyRows, familyRunning } from '../lib/thread-rows';
 import type { ThreadFamilyView } from '../lib/link/protocol';
 import { store } from '../lib/store';
 import { color } from '../lib/theme';
@@ -14,7 +15,8 @@ import { Button, haptic, IconBadge, Press, T, type Tone, toneInk } from './ui';
 /**
  * A chat's family (1.44), the Mac's Threads panel: the chat that started it, the threads it started,
  * how each is doing and Stop on the ones at work. Stopping one stops those under it too. A thread's
- * work stays in its own conversation, a tap away. Native sub-agents are on the conversation's strip.
+ * work stays in its own conversation, a tap away. Its native sub-agents (SINCE.threadAgents) share the
+ * list, read-only: a quiet "sub-agent" word, no Stop and no page (their work is on the conversation's strip).
  */
 
 const STATE_TONE: Record<string, Tone> = { queued: 'plain', running: 'peach', needs_you: 'butter', done: 'mint', failed: 'rose', stopped: 'plain', interrupted: 'butter' };
@@ -24,9 +26,10 @@ const wordOf = (state: string): string => (THREAD_WORDS as Readonly<Record<strin
 /** The sheet's row in the conversation's ••• sheet. */
 export function threadsSummary(threadFamily: ThreadFamilyView | undefined): string {
   if (!threadFamily) return '';
-  const working = threadFamily.children.filter((c) => c.working).length;
+  const working = familyRunning(threadFamily);
   const threads = threadFamily.children.length;
-  return [threadFamily.parent ? `Started by ${threadFamily.parent.title}` : '', threads ? `${threads} ${threads === 1 ? 'thread' : 'threads'}` : '', working ? `${working} running` : ''].filter(Boolean).join(' · ');
+  const agents = threadFamily.agents?.length ?? 0;
+  return [threadFamily.parent ? `Started by ${threadFamily.parent.title}` : '', threads ? `${threads} ${threads === 1 ? 'thread' : 'threads'}` : '', agents ? `${agents} ${agents === 1 ? 'sub-agent' : 'sub-agents'}` : '', working ? `${working} running` : ''].filter(Boolean).join(' · ');
 }
 
 export function ThreadsSheet({ threadFamily, visible, onClose }: { readonly threadFamily: ThreadFamilyView | undefined; readonly visible: boolean; readonly onClose: () => void }) {
@@ -38,7 +41,7 @@ export function ThreadsSheet({ threadFamily, visible, onClose }: { readonly thre
     haptic.commit();
     void store.call(call, { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
   };
-  const running = threadFamily?.children.filter((c) => c.working).length ?? 0;
+  const running = threadFamily ? familyRunning(threadFamily) : 0;
   const parent = threadFamily?.parent;
   return (
     <Sheet
@@ -71,17 +74,25 @@ export function ThreadsSheet({ threadFamily, visible, onClose }: { readonly thre
             </View>
           </Press>
         ) : null}
-        {threadFamily?.children.map((c) => {
+        {(threadFamily ? familyRows(threadFamily) : []).map((c) => {
           const tone = STATE_TONE[c.state] ?? 'plain';
+          const topic = c.topic;
           return (
-            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Press scaleTo={0.99} onPress={() => open(c.topic)} accessibilityLabel={`Open ${c.title}, ${wordOf(c.state)}`} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 8 }}>
+            <View key={`${c.kind}:${c.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Press
+                disabled={!topic}
+                scaleTo={0.99}
+                onPress={() => (topic ? open(topic) : undefined)}
+                accessibilityLabel={topic ? `Open ${c.title}, ${wordOf(c.state)}` : `Sub-agent ${c.title}, ${wordOf(c.state)}`}
+                style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 8 }}
+              >
                 <AgentMarkIcon mark={agentMark(c.harness)} size={18} />
                 <View style={{ flex: 1 }}>
                   <T v="body" numberOfLines={1} style={{ fontWeight: '500' }}>
                     {c.title}
                   </T>
                   <T v="caption" numberOfLines={1}>
+                    {c.kind === 'agent' ? 'sub-agent · ' : ''}
                     {c.harness.label} ·{' '}
                     <T v="caption" c={toneInk(tone)}>
                       {wordOf(c.state)}
@@ -89,7 +100,7 @@ export function ThreadsSheet({ threadFamily, visible, onClose }: { readonly thre
                   </T>
                 </View>
               </Press>
-              {c.working ? (
+              {c.kind === 'thread' && c.working ? (
                 <Press onPress={() => stop(calls.stopThread(c.id))} hitSlop={6} accessibilityLabel={`Stop ${c.title}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingHorizontal: 12, marginRight: 8, borderRadius: 16, backgroundColor: color.sunken }}>
                   <Square color={color.text2} size={12} />
                   <T v="caption" c={color.text2} style={{ fontWeight: '700' }}>

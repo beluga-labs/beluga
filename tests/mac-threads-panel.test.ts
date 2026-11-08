@@ -5,7 +5,7 @@ import type { Workspace } from '../src/workspaces/types.js';
 import type { CcAgent, CcSession } from '../src/core/claude-code/model.js';
 import type { SubAgent } from '../packages/mac/src/claude-code/subagents-model.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
-import { type FoldRow, type ThreadFamilyRow, type ThreadFamilySource, capFold, foldNoun, foldRows, foldSummary, harnessOf, threadFamilyView, openPath, orderRows, panelRows, startedBy, threadNesting, threadSender, threadStarts, threadStateOf } from '../packages/mac/src/threads/threads-model.js';
+import { type FoldRow, type ThreadFamilyRow, type ThreadFamilySource, capFold, familyRowOf, foldNoun, foldRows, foldRunning, foldSummary, rowEnd, harnessOf, threadFamilyView, openPath, orderRows, panelRows, startedBy, threadNesting, threadSender, threadStarts, threadStateOf } from '../packages/mac/src/threads/threads-model.js';
 
 const thread = (parent: string, startedAt = 1, extra: Partial<ThreadRecord> = {}): ThreadRecord => ({ parent, parentTitle: 'parent', root: parent, depth: 1, task: 't', startedAt, owed: [], ...extra });
 const ws = (id: string, extra: Partial<Workspace> = {}): Workspace => ({ id, name: id, kind: 'chat', projectId: 'p', external: false, path: `/${id}`, projectRoot: '/p', createdAt: 1, ...extra }) as Workspace;
@@ -92,6 +92,29 @@ describe('child threads in the sidebar', () => {
     expect(foldSummary(rows)).toBe('1 thread · 1 sub-agent · 1 running');
   });
 
+  it('gives a native sub-agent and a thread the same row: harness mark, state and kind, in start order, with one running count', () => {
+    const top = ws('top', { agent: { runtime: 'codex', label: 'Codex' } as Workspace['agent'] });
+    const kid = ws('kid', { thread: thread('ws:top', 1), agent: { runtime: 'opencode', label: 'OpenCode' } as Workspace['agent'] });
+    const state = { ...source([top, kid]), self: {}, log: [{ type: 'agent', channel: 'ws:kid', status: 'started', steps: [], subagents: [], text: '', ts: 4 }] } as unknown as ThreadFamilySource;
+    const native: SubAgent = { agent: { id: 'native', startedAt: 2, status: 'running', model: 'gpt-5' } as CcAgent, session: { id: 's' } as CcSession };
+    const rows = foldRows([native], [{ ws: kid, state: 'running' }]);
+    const family = rows.map((r) => familyRowOf(state, top, r));
+    expect(family.map((r) => [r.kind, r.id, r.mark, r.runtime, r.state])).toEqual([
+      ['thread', 'kid', 'opencode', 'opencode', 'running'],
+      ['agent', 'native', 'codex', 'codex', 'running'],
+    ]);
+    expect(family[1]?.model).toBe('gpt-5');
+    expect(foldRunning(rows)).toBe(2);
+    expect(foldSummary(rows)).toBe('1 thread · 1 sub-agent · 2 running');
+  });
+
+  it('ends a row with its timer while it works, else its word', () => {
+    const base: ThreadFamilyRow = { kind: 'agent', id: 'a', title: 'a', state: 'running', mark: 'claudeCode', runtime: 'claude', agent: 'Claude', since: 0 };
+    expect(rowEnd(base, 65_000)).toBe('1m');
+    expect(rowEnd({ ...base, state: 'needs_you' }, 65_000)).toBe('Needs you');
+    expect(rowEnd({ ...base, state: 'done', endedAt: 5 }, 65_000)).toBe('Done');
+  });
+
   it('keeps the way down to an open grandchild', () => {
     const n = threadNesting(source([ws('top'), ws('kid', { thread: thread('ws:top') }), ws('grand', { thread: thread('ws:kid') })]));
     expect([...openPath(n, 'grand')].sort()).toEqual(['grand', 'kid']);
@@ -149,7 +172,7 @@ describe('the Threads panel', () => {
   });
 
   it('keeps the latest finished rows in view and folds older ones into Earlier', () => {
-    const rows = orderRows(['a', 'b', 'c', 'd', 'e'].map((id, i): ThreadFamilyRow => ({ kind: 'thread', id, title: id, state: id === 'e' ? 'running' : 'done', mark: 'codex', agent: 'Codex', since: i })));
+    const rows = orderRows(['a', 'b', 'c', 'd', 'e'].map((id, i): ThreadFamilyRow => ({ kind: 'thread', id, title: id, state: id === 'e' ? 'running' : 'done', mark: 'codex', runtime: 'codex', agent: 'Codex', since: i })));
     const { shown, earlier } = panelRows(rows, 2, false);
     expect(shown.map((r) => r.id)).toEqual(['e', 'c', 'd']);
     expect(earlier).toBe(2);

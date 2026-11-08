@@ -16,6 +16,9 @@ export const THREAD_WORDS: Readonly<Record<ThreadState, string>> = { queued: 'Qu
 /** A thread that is not settled: its row stays in view, whatever the cap. */
 export const isThreadWorking = (state: ThreadState): boolean => state === 'queued' || state === 'running' || state === 'needs_you';
 
+/** Needs you, then working, then finished: the order of a chat's list of threads. */
+export const threadRank = (state: ThreadState): number => (state === 'needs_you' ? 0 : isThreadWorking(state) ? 1 : 2);
+
 export interface ThreadOutcome {
   readonly state: ThreadEnd;
   readonly summary: string;

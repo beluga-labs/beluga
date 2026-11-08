@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { calls } from '../packages/companion/lib/link/calls.js';
-import { branchChildren, nestRows, threadsQuestion } from '../packages/companion/lib/thread-rows.js';
+import { branchChildren, familyRows, familyRunning, nestRows, threadsQuestion } from '../packages/companion/lib/thread-rows.js';
 import { branchStep } from '../src/companion/branch-steps.js';
 import { phoneMay } from '../src/companion/coverage.js';
 import { COMPANION_PROTO, ConvView, type ConvSummary, HomeView, SINCE, type Topic, WorkView } from '../src/companion/protocol.js';
@@ -32,6 +32,23 @@ describe('the protocol', () => {
   it('raises the minor and gates threads in SINCE', () => {
     expect(COMPANION_PROTO.minor).toBeGreaterThanOrEqual(SINCE.threads);
     expect(SINCE.threads).toBe(44);
+    expect(SINCE.threadAgents).toBe(44);
+  });
+
+  it('a family from an older Mac, with no sub-agents, still reads', () => {
+    expect(ConvView.shape.threadFamily.unwrap().safeParse({ children: [], chat: 'top', stoppable: [] }).success).toBe(true);
+  });
+});
+
+describe('the phone’s Threads sheet', () => {
+  const child = (id: string, state: 'running' | 'done' | 'needs_you') => ({ id, topic: `conv:ws:${id}` as Topic, title: id, state, working: state !== 'done', harness: { runtime: 'claude' as const, label: 'Claude' } });
+  const agent = (id: string, state: 'running' | 'done', startedAt: number) => ({ id, title: id, state, startedAt, harness: { runtime: 'claude' as const, label: 'Claude' } });
+
+  it('lists threads and native sub-agents in one list, most urgent first, with one running count', () => {
+    const tf = { children: [child('ask', 'needs_you'), child('work', 'running'), child('old', 'done')], agents: [agent('a2', 'done', 2), agent('a1', 'running', 1)], chat: 'top', stoppable: ['ask', 'work'] };
+    expect(familyRows(tf).map((r) => [r.kind, r.id])).toEqual([['thread', 'ask'], ['thread', 'work'], ['agent', 'a1'], ['thread', 'old'], ['agent', 'a2']]);
+    expect(familyRunning(tf)).toBe(3);
+    expect(familyRows({ ...tf, agents: undefined }).map((r) => r.id)).toEqual(['ask', 'work', 'old']);
   });
 });
 
@@ -84,6 +101,22 @@ describe('a chat’s Threads', () => {
   it('carries no code: a thread’s task and result stay off the phone', () => {
     const st = state([ws('top'), ws('kid', { thread: thread('ws:top', 1, { outcome: { state: 'done', summary: 'Ran `rm -rf`', at: 2, delivered: true } }) })]);
     expect(JSON.stringify(conv(st, 'top').threadFamily)).not.toMatch(/rm -rf|SECRET/);
+  });
+
+  it('lists its native sub-agents as read-only rows with the chat’s harness, and no background work', () => {
+    const subagents = [
+      { id: 'sa', title: 'Explore the `rm -rf` API', status: 'running', steps: ['SECRET'], startedAt: 4 },
+      { id: 'old', title: 'Read the docs', status: 'done', steps: [], startedAt: 1 },
+      { id: 'bg', title: 'npm test', status: 'running', steps: [], kind: 'background' },
+    ];
+    const st = state([...family(), ws('alone')], true, { log: [{ ...running('ws:top'), id: 'r1', subagents }, { ...running('ws:alone'), id: 'r2', subagents }] as never });
+    const { threadFamily } = conv(st, 'top');
+    expect(threadFamily?.agents?.map((a) => [a.id, a.state, a.harness.runtime])).toEqual([['sa', 'running', 'codex'], ['old', 'done', 'codex']]);
+    expect(threadFamily?.stoppable).not.toContain('sa');
+    expect(JSON.stringify(threadFamily?.agents)).not.toMatch(/SECRET/);
+    // A chat with only native sub-agents has a family too.
+    expect(conv(st, 'alone').threadFamily?.agents?.map((a) => a.id)).toEqual(['sa', 'old']);
+    expect(conv({ ...st, prefs: { ...st.prefs, agentThreads: false } }, 'alone').threadFamily).toBeUndefined();
   });
 
   it('is unset with threads off, and for a chat with no family', () => {

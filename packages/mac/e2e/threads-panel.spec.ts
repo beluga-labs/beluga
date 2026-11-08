@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { SocketClient } from '../../../src/ipc/socket-client.js';
 import { expect, test, type Page } from './fixtures.js';
 
@@ -212,4 +214,57 @@ test('a child whose parent was deleted stands on its own: Removed, with no way t
   const up = page.getByRole('complementary', { name: 'Inspector' }).locator('[data-thread-row="parent"]');
   await expect(up).toContainText('Removed');
   await expect(up.getByRole('button')).toHaveCount(0);
+});
+
+test('a native sub-agent and the threads share one row and one running count; the sub-agent has no Stop', async ({ page, demo }) => {
+  test.setTimeout(120_000);
+  const client = await SocketClient.connect({ url: demo.endpoint.url, token: demo.endpoint.token, kind: 'test', version: 'e2e' });
+  await client.api.session.setPrefs({ agentThreads: true });
+  await page.goto('/');
+  await startParent(page, 'e2e-family', 'scout=codex:keep working; notes=claude:finish now');
+  await unfold(page);
+  const group = sidebar(page).getByRole('group', { name: 'Threads of e2e-family' });
+  await expect(group.getByRole('button', { name: 'scout', exact: true })).toBeVisible({ timeout: 40_000 });
+
+  // A Claude Code session in the parent's folder starts a native sub-agent (as e2e/subagents.spec.ts does).
+  await expect.poll(() => client.store.getState().projects.flatMap((p) => p.workspaces).some((w) => w.name === 'e2e-family')).toBe(true);
+  const cwd = client.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.name === 'e2e-family')!.path;
+  client.close();
+  const sid = '7b1c2d3e-4f50-4a6b-9c7d-8e9f00a1b2c4';
+  const agent = 'b4e0d2f18c3e';
+  const folder = path.join(process.env.BELUGA_CLAUDE_HOME!, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+  mkdirSync(path.join(folder, sid, 'subagents'), { recursive: true });
+  const now = Date.now();
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const line = (o: unknown): string => `${JSON.stringify(o)}\n`;
+  writeFileSync(
+    path.join(folder, `${sid}.jsonl`),
+    line({ type: 'user', timestamp: iso(now - 4000), sessionId: sid, cwd, message: { role: 'user', content: 'Map the pairing screens' } }) +
+      line({ type: 'assistant', timestamp: iso(now - 3000), sessionId: sid, cwd, message: { role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_F', name: 'Agent', input: { description: 'Find the pairing screens', subagent_type: 'Explore', run_in_background: true } }] } }),
+  );
+  writeFileSync(path.join(folder, sid, 'subagents', `agent-${agent}.meta.json`), JSON.stringify({ agentType: 'Explore', description: 'Find the pairing screens', toolUseId: 'toolu_F', requestShape: 'background', model: 'sonnet' }));
+  writeFileSync(
+    path.join(folder, sid, 'subagents', `agent-${agent}.jsonl`),
+    line({ type: 'user', timestamp: iso(now - 2500), sessionId: sid, agentId: agent, isSidechain: true, cwd, message: { role: 'user', content: 'Find the pairing screens' } }) +
+      line({ type: 'assistant', timestamp: iso(now - 2000), sessionId: sid, agentId: agent, isSidechain: true, cwd, message: { role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'g1', name: 'Grep', input: { pattern: 'Pairing' } }] } }),
+  );
+
+  // The fold: one kind of row, each with its harness mark and state; the sub-agent says so, quietly.
+  const native = group.getByRole('button', { name: /^Sub-agent Find the pairing screens, Running/ });
+  await expect(native).toBeVisible({ timeout: 25_000 });
+  await expect(native.locator('[data-family-kind="agent"][data-harness]')).toBeVisible();
+  await expect(native).toContainText('sub-agent');
+  await expect(group.getByRole('button', { name: 'scout', exact: true }).locator('[data-family-kind="thread"][data-harness="codex"]')).toBeVisible();
+  await shot(page, 'unified-fold');
+
+  // The panel: the same rows, one count for both, and Stop only on the thread.
+  await sidebar(page).getByRole('button', { name: 'e2e-family', exact: true }).click();
+  await page.getByRole('tab', { name: 'Info', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await expect(inspector.getByRole('heading', { name: 'Threads · 2 running' })).toBeVisible({ timeout: 20_000 });
+  const nativeRow = inspector.locator('[data-thread-row="agent"]');
+  await expect(nativeRow).toContainText('sub-agent');
+  await expect(nativeRow.getByRole('button', { name: /^Stop/ })).toHaveCount(0);
+  await expect(inspector.locator('[data-thread-row="thread"]').filter({ hasText: 'scout' }).getByRole('button', { name: 'Stop scout' })).toHaveCount(1);
+  await shot(page, 'unified-panel');
 });

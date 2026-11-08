@@ -92,8 +92,7 @@ export function threadParent(state: LiveSource & Pick<AppState, 'assistant'>, ws
   return { title: parent.name, openId: parent.id, gone: false, ...(stateNow ? { state: stateNow } : {}) };
 }
 
-/** Needs you, then working, then finished: the order of a chat's list of threads. */
-export const threadRank = (state: ThreadState): number => (state === 'needs_you' ? 0 : isThreadWorking(state) ? 1 : 2);
+export { threadRank } from '../shared/threads.js';
 
 /**
  * The threads under the picked chats that a person's archive or delete would touch and that are not

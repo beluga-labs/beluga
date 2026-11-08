@@ -1,4 +1,3 @@
-import type { ThreadState } from '@beluga/shared/threads.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { useMemo } from 'react';
 import { since } from '../claude-code/cc-model.js';
@@ -12,13 +11,12 @@ import { openSubAgent, useAgentOrigins, useCcSessions } from '../layout/SubAgent
 import { useActions } from '../lib/actions.js';
 import { toast, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
+import { DOT, FamilyEnd, FamilyMark, FamilyTitle } from './FamilyRow.js';
 import { type ThreadFamilyParent, type ThreadFamilyRow, THREAD_WORDS, isThreadWorking, threadFamilyView, panelRows } from './threads-model.js';
 import s from './threads.module.css';
 
 /** How many finished rows stay in view before the rest fold into Earlier. */
 const FINISHED_SHOWN = 3;
-
-const DOT: Readonly<Record<ThreadState, Parameters<typeof Dot>[0]['tone']>> = { queued: 'muted', running: 'claude', needs_you: 'warn', done: 'ok', failed: 'error', stopped: 'muted', interrupted: 'warn' };
 
 /**
  * The open chat's family in the right panel: the chat that started it, the threads and sub-agents
@@ -86,8 +84,6 @@ function ChildRow({ row, now, onOpen, onStop }: { row: ThreadFamilyRow; now: num
   const working = isThreadWorking(row.state);
   const stoppable = working && row.kind === 'thread';
   const word = THREAD_WORDS[row.state];
-  // A run waiting on you says so; a run at work counts its time.
-  const end = row.state === 'needs_you' || row.state === 'queued' || !working ? word : since(now - row.since);
   const duration = since((row.endedAt ?? now) - row.since);
   return (
     <div role="listitem" className={cx(s.row, stoppable && s.stoppable)} data-thread-row={row.kind} data-state={row.state}>
@@ -96,25 +92,20 @@ function ChildRow({ row, now, onOpen, onStop }: { row: ThreadFamilyRow; now: num
         label={
           <span className={s.card}>
             <strong>{row.title}</strong>
-            <span>{[row.agent, row.model].filter(Boolean).join(' · ')}</span>
+            <span>{[row.kind === 'agent' ? 'Sub-agent' : '', row.agent, row.model].filter(Boolean).join(' · ')}</span>
             <span>
               {word} · {duration}
             </span>
           </span>
         }
       >
-        <button type="button" className={s.open} aria-label={`Open ${row.title}, ${word}`} onClick={onOpen}>
-          <span className={s.mark}>
-            <Icon name={row.mark} size={13} />
-            <span className={s.dot}>
-              <Dot tone={DOT[row.state]} />
-            </span>
-          </span>
-          <span className={s.title}>{row.title}</span>
+        <button type="button" className={s.open} aria-label={`Open ${row.title}${row.kind === 'agent' ? ', sub-agent' : ''}, ${word}`} onClick={onOpen}>
+          <FamilyMark row={row} />
+          <FamilyTitle row={row} />
         </button>
       </Tip>
       <span className={s.end}>
-        <span className={s.time}>{end}</span>
+        <FamilyEnd row={row} now={now} />
         {stoppable ? (
           <button type="button" className={s.stop} aria-label={`Stop ${row.title}`} onClick={onStop}>
             Stop

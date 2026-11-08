@@ -57,6 +57,18 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.titleLine {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+/* A native sub-agent's kind word: quieter than its title. */
+.kind {
+  flex: none;
+  color: var(--text-3);
+  font-size: 0.84em;
+}
 /* The timer and Stop share one cell, so nothing moves when they swap. */
 .end {
   display: inline-grid;

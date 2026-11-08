@@ -2,8 +2,9 @@ import type { AppState } from '../../../../src/core/store.js';
 import { type ThreadNode, stopOrder } from '../../../../src/core/threads/model.js';
 import { type AgentRef, defaultAgentOf } from '../../../../src/protocol.js';
 import { type AgentMark, agentMark } from '../../../../src/shared/agent-marks.js';
+import { span } from '../../../../src/shared/clock.js';
 import { agentName } from '../../../../src/shared/agent-label.js';
-import { type ThreadState, isThreadWorking } from '../../../../src/shared/threads.js';
+import { THREAD_WORDS, type ThreadState, isThreadWorking } from '../../../../src/shared/threads.js';
 import { type ThreadFamilyParent, type ThreadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Workspace } from '../../../../src/workspaces/types.js';
@@ -28,6 +29,8 @@ export interface ThreadFamilyRow {
   readonly title: string;
   readonly state: ThreadState;
   readonly mark: AgentMark;
+  /** Its harness's runtime: a native sub-agent has its parent's. */
+  readonly runtime: AgentRef['runtime'];
   readonly agent: string;
   readonly model?: string;
   /** When its current turn began. */
@@ -70,7 +73,7 @@ export function threadFamilyView(state: ThreadFamilySource, ws: Workspace, agent
   const channel = `${WS}${ws.id}`;
   const children = live.filter((w) => w.thread?.parent === channel);
   if (!ws.thread && !children.length && !agents.length) return undefined;
-  const rows = orderRows([...children.map((w) => threadRow(state, w)), ...agents.map((sub) => agentRow(state, ws, sub))]);
+  const rows = orderRows([...children.map((w) => threadFamilyRow(state, w)), ...agents.map((sub) => agentFamilyRow(state, ws, sub))]);
   const nodes = live.flatMap((w): ThreadNode[] => (w.thread ? [{ id: w.id, channel: `${WS}${w.id}`, thread: w.thread }] : []));
   const byId = new Map(live.map((w) => [w.id, w]));
   const parent = ws.thread ? threadParent(state, ws, byId) : undefined;
@@ -161,6 +164,16 @@ export function foldSummary(rows: readonly FoldRow[]): string {
   return [`${threads.length} thread${threads.length === 1 ? '' : 's'}`, agents.length ? `${agents.length} sub-agent${agents.length === 1 ? '' : 's'}` : '', running ? `${running} running` : ''].filter(Boolean).join(' · ');
 }
 
+/** A fold's row as the panel draws it: a thread, or a native sub-agent with its parent's harness. */
+export function familyRowOf(state: ThreadFamilySource, parent: Workspace, row: FoldRow): ThreadFamilyRow {
+  return row.kind === 'thread' ? threadFamilyRow(state, row.ws) : agentFamilyRow(state, parent, row.sub);
+}
+
+/** A row's last word: its timer while it works, else what it is now. */
+export function rowEnd(row: ThreadFamilyRow, now: number): string {
+  return row.state === 'running' ? span(now - row.since) : THREAD_WORDS[row.state];
+}
+
 export function foldRunning(rows: readonly FoldRow[]): number {
   return rows.filter((r) => (r.kind === 'agent' ? r.sub.agent.status === 'running' : isThreadWorking(r.state))).length;
 }
@@ -178,7 +191,8 @@ export function harnessOf(state: Pick<AppState, 'prefs' | 'self'>, ws: Pick<Work
   return ws.agent ?? defaultAgentOf(state.self);
 }
 
-function threadRow(state: ThreadFamilySource, w: Workspace): ThreadFamilyRow {
+/** A child thread's row. */
+export function threadFamilyRow(state: ThreadFamilySource, w: Workspace): ThreadFamilyRow {
   const harness = w.agent ?? defaultAgentOf(state.self);
   const thread = w.thread!;
   const stateNow = threadStateOf(state, w) ?? 'queued';
@@ -190,6 +204,7 @@ function threadRow(state: ThreadFamilySource, w: Workspace): ThreadFamilyRow {
     title: w.name,
     state: stateNow,
     mark: agentMark(harness),
+    runtime: harness.runtime,
     agent: agentName(harness),
     ...(model ? { model } : {}),
     since: isThreadWorking(stateNow) ? (activityOf(state.log, `${WS}${w.id}`).startedAt ?? thread.startedAt) : thread.startedAt,
@@ -197,7 +212,8 @@ function threadRow(state: ThreadFamilySource, w: Workspace): ThreadFamilyRow {
   };
 }
 
-function agentRow(state: ThreadFamilySource, ws: Workspace, sub: SubAgent): ThreadFamilyRow {
+/** A native sub-agent's row: its parent chat's harness, and its own model when known. */
+export function agentFamilyRow(state: Pick<ThreadFamilySource, 'self'>, ws: Pick<Workspace, 'agent'>, sub: SubAgent): ThreadFamilyRow {
   const harness = ws.agent ?? defaultAgentOf(state.self);
   const a = sub.agent;
   return {
@@ -206,6 +222,7 @@ function agentRow(state: ThreadFamilySource, ws: Workspace, sub: SubAgent): Thre
     title: agentTitle(a),
     state: a.status === 'running' ? 'running' : a.status === 'failed' ? 'failed' : a.status === 'finished' || a.status === 'idle' ? 'done' : 'stopped',
     mark: agentMark(harness),
+    runtime: harness.runtime,
     agent: agentName(harness),
     ...(a.model ? { model: a.model } : {}),
     since: a.startedAt,
