@@ -237,7 +237,7 @@ export interface RevenueQuery {
 
 async function chart(key: string, projectId: string, q: RevenueQuery, resolution: '0' | '2', opts: RevenueCatOptions): Promise<Chart> {
   const params = new URLSearchParams({ start_date: q.start, end_date: q.end, resolution, currency: q.currency.toUpperCase() });
-  if (resolution === '2') params.set('aggregate', JSON.stringify(['total']));
+  if (resolution === '2') params.set('aggregate', 'total');
   if (q.appIds) params.set('filters', JSON.stringify([{ name: 'app_id', values: q.appIds }]));
   if (q.proceeds) params.set('selectors', JSON.stringify({ revenue_type: 'proceeds' }));
   return parse(ChartSchema, await get(key, `/projects/${enc(projectId)}/charts/revenue?${params.toString()}`, opts));

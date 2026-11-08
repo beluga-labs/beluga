@@ -161,7 +161,8 @@ describe('revenue charts', () => {
     expect(await revenueTotal(KEY, 'p', { start: '2023-11-14', end: '2026-10-03', currency: 'eur' }, opts)).toEqual({ amount: 123456, transactions: 31 });
     const q = new URL(fake.requests[0]!).searchParams;
     expect(q.get('resolution')).toBe('2');
-    expect(JSON.parse(q.get('aggregate')!)).toEqual(['total']);
+    // RevenueCat wants a comma list (aggregate=total); the JSON array form is refused with a 400.
+    expect(q.get('aggregate')).toBe('total');
   });
 
   it('rounds to the currency’s own minor unit (39.95 is 3995, JPY has none)', async () => {
