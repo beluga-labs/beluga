@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type ClientRequest, createServer as createHttpServer, type IncomingMessage, type RequestListener, type Server as HttpServer } from 'node:http';
+import { type ClientRequest, createServer as createHttpServer, type IncomingMessage, type RequestListener, type Server as HttpServer, type ServerResponse } from 'node:http';
 import https from 'node:https';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { type AddressInfo, createConnection, type LookupFunction, type Socket } from 'node:net';
@@ -10,6 +10,7 @@ import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clientIdUrl, fetchClientMetadata, isPublicAddress } from '../src/external/adapters/client-metadata.js';
+import { sendSignInError, sendSignInPage, type SignInPage } from '../src/external/adapters/signin-page.js';
 import { PAIRING_CODE_MS } from '../src/external/domain/oauth.js';
 import { ExternalService, type ExternalServiceOptions } from '../src/external/service.js';
 
@@ -217,6 +218,52 @@ describe('the pairing code decides what the agent gets', () => {
     const html = await (await fetch(authorizeUrl(clientId))).text();
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('sk_' + 'live_abcdefghijklmnopqrstuvwx');
+  });
+});
+
+describe('the sign-in page, in each state', () => {
+  const rendered = (write: (res: ServerResponse) => void): { status: number; headers: Record<string, string>; html: string } => {
+    const out = { status: 0, headers: {} as Record<string, string>, html: '' };
+    write({ writeHead: (status: number, headers: Record<string, string>) => Object.assign(out, { status, headers }), end: (html: string) => void (out.html = html) } as unknown as ServerResponse);
+    return out;
+  };
+  const base: SignInPage = { agent: 'Claude Code', route: 'local', host: '127.0.0.1', pending: 'p1', redirectOrigin: 'http://127.0.0.1:43210' };
+  const states: Record<string, { page: ReturnType<typeof rendered>; target: string }> = {
+    'the code form': { page: rendered((res) => sendSignInPage(res, base)), target: 'http://127.0.0.1:43210' },
+    'a hosted service': { page: rendered((res) => sendSignInPage(res, { ...base, route: 'remote', host: 'agent.example', redirectOrigin: 'https://agent.example' })), target: 'https://agent.example' },
+    'the remote Full warning': { page: rendered((res) => sendSignInPage(res, { ...base, route: 'remote', host: 'agent.example', redirectOrigin: 'https://agent.example', confirmFullCode: 'ABCD-1234' })), target: 'https://agent.example' },
+    'a wrong or used code': { page: rendered((res) => sendSignInPage(res, { ...base, error: 'That code is wrong, used or expired. Make a new one in Beluga.' })), target: 'http://127.0.0.1:43210' },
+    'a lockout': { page: rendered((res) => sendSignInError(res, 429, { title: 'Too many wrong codes', message: 'Wait a few minutes.' })), target: '' },
+    'an expired sign-in': { page: rendered((res) => sendSignInError(res, 400, { title: 'This sign-in expired', message: 'Start it again.' })), target: '' },
+  };
+
+  it.each(Object.keys(states))('%s keeps the CSP byte for byte, apart from the nonce', (name) => {
+    const { page, target } = states[name]!;
+    const nonce = /<style nonce="([^"]+)">/.exec(page.html)![1]!;
+    expect(page.headers['content-security-policy']).toBe(`default-src 'none'; style-src 'nonce-${nonce}'; form-action 'self' ${target}; frame-ancestors 'none'; base-uri 'none'`);
+    expect(page.headers['x-frame-options']).toBe('DENY');
+    expect(page.headers['referrer-policy']).toBe('same-origin');
+  });
+
+  it.each(Object.keys(states))('%s loads nothing from another address and runs no script', (name) => {
+    const { html } = states[name]!.page;
+    expect(html.match(/https?:\/\/[^\s"'<)]+/g) ?? []).toEqual([]);
+    expect(html).not.toMatch(/<script|<img|<link|<iframe|url\(|@import|data:/i);
+    expect(html.match(/<style/g)).toHaveLength(1);
+    expect(html).toContain('<svg viewBox="0 0 1024 1024" aria-hidden="true"');
+  });
+
+  it('ties each label to its input, and asks for the Full trust box', () => {
+    expect(states['the code form']!.page.html).toContain('<label class="field-label" for="code">');
+    expect(states['the code form']!.page.html).toContain('id="code" name="code"');
+    expect(states['the remote Full warning']!.page.html).toMatch(/id="confirm" name="confirm_full" value="yes" required><label for="confirm">/);
+  });
+
+  it('is served with no-store, and its only address is the form target', async () => {
+    const clientId = await register();
+    const page = await fetch(authorizeUrl(clientId));
+    expect(page.headers.get('cache-control')).toBe('no-store');
+    expect((await page.text()).match(/https?:\/\/[^\s"'<)]+/g) ?? []).toEqual([]);
   });
 });
 

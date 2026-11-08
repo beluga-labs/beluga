@@ -34,7 +34,7 @@ beluga mcp status
 
 ## Approve a sign-in
 
-An agent that uses OAuth opens a sign-in page. The page asks for a pairing code that you make:
+An agent that uses OAuth opens a sign-in page. The page names the agent and says where its access goes: this computer, another computer, or a hosted service by its host. It asks for a pairing code that you make:
 
 ```sh
 beluga mcp pair --level trusted --project my-project

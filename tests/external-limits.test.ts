@@ -230,8 +230,8 @@ describe('wrong codes through a route', () => {
     const { port } = await started();
     expect(await pendingPage(port)).toContain('Anyone who runs that service gets the access');
     const loop = await pendingPage(port, TUNNEL_HOST, TUNNEL, 'http://127.0.0.1:9/cb');
-    expect(loop).toContain('another computer');
-    expect(loop).not.toContain('this computer</b>');
+    expect(loop).toContain('>Another computer<');
+    expect(loop).not.toContain('>This computer<');
   });
 });
 
@@ -755,8 +755,8 @@ describe('a remote grant at full, by an explicit choice', () => {
     const page = await raw(port, { host, method: 'GET', path: `/authorize?${q}` });
     const { code } = service.pairingCode({ level: 'full', projects: [], remote: true, allowRemoteFull: true });
     const first = await raw(port, { host, path: '/authorize', ...form({ pending: pagePending(page.body), code, action: 'approve' }) });
-    expect(first.body).toContain('another computer');
-    expect(first.body).not.toContain('this computer</b>');
+    expect(first.body).toContain('>Another computer<');
+    expect(first.body).not.toContain('>This computer<');
   });
 
   it('the first answer spends nothing, so a page left open can come back; a second grant needs a new code', async () => {

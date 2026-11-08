@@ -74,10 +74,10 @@ export function oauthRoutes(deps: OAuthDeps): (req: IncomingMessage, res: Server
       deps.log?.(`external sign-in: client refused: ${err instanceof Error ? err.message : 'error'}`);
       return undefined;
     });
-    if (!client) return sendSignInError(res, 400, 'Beluga could not check the client that sent you here.');
+    if (!client) return sendSignInError(res, 400, { title: "Beluga can't check this agent", message: 'Beluga could not check the client that sent you here. Start the sign-in again from your agent.' });
     const redirectUri = q.get('redirect_uri') ?? '';
     // Until the redirect is known good, nothing may go back to it.
-    if (!redirectMatches(redirectUri, client.redirectUris)) return sendSignInError(res, 400, 'The client asked to come back to an address it did not register.');
+    if (!redirectMatches(redirectUri, client.redirectUris)) return sendSignInError(res, 400, { title: 'This agent asked for the wrong address', message: 'The client asked to come back to an address it did not register. Start the sign-in again from your agent.' });
     const state = q.get('state') ?? undefined;
     const back = (error: string): void => redirect(res, redirectUri, { error, ...(state !== undefined ? { state } : {}), iss: ctx.origin });
     if (state !== undefined && state.length > STATE_MAX) return back('invalid_request');
@@ -100,7 +100,7 @@ export function oauthRoutes(deps: OAuthDeps): (req: IncomingMessage, res: Server
     const form = read === 'too_large' ? undefined : read;
     const id = form?.get('pending') ?? '';
     const held = pending.get(id);
-    if (!form || !held || held.issuer !== ctx.origin || held.expiresAt <= deps.now()) return sendSignInError(res, 400, 'This sign-in has expired. Start it again from your agent.');
+    if (!form || !held || held.issuer !== ctx.origin || held.expiresAt <= deps.now()) return sendSignInError(res, 400, { title: 'This sign-in expired', message: 'Start it again from your agent. A sign-in waits 10 minutes for its code.' });
     const backParams = { ...(held.state !== undefined ? { state: held.state } : {}), iss: held.issuer };
     if (form.get('action') === 'deny') {
       pending.delete(id);
@@ -112,7 +112,7 @@ export function oauthRoutes(deps: OAuthDeps): (req: IncomingMessage, res: Server
     const limiter = limiterOf(ctx);
     if (!limiter.allowed(ctx.visitor)) {
       deps.refused?.('wrong_pairing_codes');
-      return sendSignInError(res, 429, 'Too many wrong codes. Wait a few minutes, then start again.');
+      return sendSignInError(res, 429, { title: 'Too many wrong codes', message: 'Wait a few minutes, then start the sign-in again from your agent.' });
     }
     const code = form.get('code') ?? '';
     const spec = deps.codes.peek(code);
@@ -128,7 +128,7 @@ export function oauthRoutes(deps: OAuthDeps): (req: IncomingMessage, res: Server
     if (remoteFull && spec.allowRemoteFull && form.get('confirm_full') !== 'yes') return showPage(res, id, held, undefined, code);
     deps.codes.spend(code);
     pending.delete(id);
-    if (!canHold(route, spec.level, spec.allowRemoteFull)) return sendSignInError(res, 403, 'That code gives Full trust and was made for this computer, so a hosted service cannot use it. Make a code for a remote agent.');
+    if (!canHold(route, spec.level, spec.allowRemoteFull)) return sendSignInError(res, 403, { title: "This code can't go to a hosted service", message: 'That code gives Full trust and was made for this computer, so a hosted service cannot use it. Make a code for a remote agent.' });
     const created = deps.grants.create({ name: held.client.name, clientId: held.clientId, redirectHost: host, route, level: spec.level, projects: spec.projects, ...(spec.chats ? { chats: spec.chats } : {}), ...(remoteFull ? { allowRemoteFull: true } : {}), expiresAt: deps.now() + SIGN_IN_MS });
     deps.notify(created.grant);
     const record: AuthCodeRecord = { grantId: created.grant.id, clientId: held.clientId, redirectUri: held.redirectUri, challenge: held.challenge, resource: held.resource };
