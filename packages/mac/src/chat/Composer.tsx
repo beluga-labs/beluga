@@ -28,7 +28,6 @@ import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
 import { RunsOnLabel, RunsOnPicker } from './RunsOn.js';
 import { sendToComputer, useStartDeps } from '../machines/start-there.js';
-import { useMachines } from '../machines/use-machines.js';
 import { QueueTray } from './QueueTray.js';
 import { BtwCard, askBtw } from './BtwCard.js';
 import { expectClaude, launchFlight } from './flight.js';
@@ -270,7 +269,6 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const draftProject = state.view.kind === 'draft_worktree' ? state.view.projectId : undefined;
   // New work (a new chat or worktree): Runs on picks where it goes.
   const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId, folder: state.view.kind === 'draft' ? state.view.dir || undefined : undefined } : undefined;
-  const paired = useMachines(useBeluga().home).length > 0;
   const startDeps = useStartDeps();
   const choiceKey = draftProject ? scopedKey(machine, draftProject) : undefined;
   const [worktree, setWorktreeState] = useState<WorktreeChoice>(() => (choiceKey && worktreeChoices.get(choiceKey)) || { name: '' });
@@ -698,8 +696,6 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
           {/* Where new work runs (BLG-786); a chat that runs somewhere already says where. Only with a computer paired. */}
           {shared ? null : newWork ? <RunsOnPicker {...(newWork.project ? { project: newWork.project } : {})} {...(worktree.agent?.runtime && draftProject ? { runtime: worktree.agent.runtime } : {})} {...(newWork.folder ? { folder: newWork.folder } : {})} /> : <RunsOnLabel />}
-          {/* With a computer paired, the MCP chip is at the chat's top right (views/ChatView.tsx) to make room. */}
-          {!shared && !paired ? <McpChip /> : null}
           {burning && state.prefs.effort === 'max' ? (
             <Tip label={`Max effort: ${agentHere} thinks as hard as it can`}>
               <span className={m.tag}>
@@ -709,6 +705,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             </Tip>
           ) : null}
           <span className={s.flex} />
+          {/* Your MCP servers, on the box's right beside how full the context is (BLG-252). */}
+          {!shared ? <McpChip /> : null}
           {channel !== 'draft' ? <ContextMeter channel={channel} /> : null}
           {/* While you talk, only your voice's control shows: two square buttons side by side stopped Claude by mistake. */}
           {compose.busy && !talking ? (

@@ -15,10 +15,10 @@ const CLOSE_DELAY_MS = 180;
 /**
  * Your MCP servers in the box you type in (BLG-252): a plug and how many are connected, with a
  * soft amber dot when one needs you to sign in. Hover for the list, Sign In… right there.
- * Nothing shows when you have none. With a computer paired it sits at the chat's top right
- * (`at: 'top'`), making room for Runs on in the box (BLG-786).
+ * Nothing shows when you have none. It sits on the box's right, beside how full the context is;
+ * in a narrow box only the plug (and its dot) stays.
  */
-export function McpChip({ at = 'box' }: { at?: 'box' | 'top' }) {
+export function McpChip() {
   const { client, ui } = useBeluga();
   // Your agent's servers (Codex's own when it's Codex, BLG-518): the same list as Settings shows.
   const runtime = mcpRuntimeOf(useApp((st) => myRuntime(st.prefs)));
@@ -44,12 +44,14 @@ export function McpChip({ at = 'box' }: { at?: 'box' | 'top' }) {
       <Popover.Trigger asChild>
         <button type="button" className={s.chip} aria-label={`MCP servers: ${sum.line}`} data-mcp-chip={sum.needYou ? 'needs-you' : 'ok'} {...hover}>
           <Icon name="plug" size={12} />
-          {sum.connected}/{rows.length}
+          <span className={s.count}>
+            {sum.connected}/{rows.length}
+          </span>
           {sum.needYou ? <span className={s.needs} aria-hidden="true" /> : null}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className={s.popover} side={at === 'top' ? 'bottom' : 'top'} align={at === 'top' ? 'end' : 'start'} sideOffset={8} collisionPadding={12} aria-label="MCP servers" {...hover} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <Popover.Content className={s.popover} side="top" align="end" sideOffset={8} collisionPadding={12} aria-label="MCP servers" {...hover} onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className={s.head}>
             <span className={s.title}>MCP servers</span>
             <button type="button" className={s.quiet} disabled={checking} onClick={() => void checkMcp(client, runtime)} aria-label="Check again">

@@ -7,6 +7,12 @@
   color: var(--text-3);
   font-weight: 400;
 }
+/* A box short of room (a chat in the side panel): the computer's mark and name say it alone. */
+@container composer (max-width: 600px) {
+  .words {
+    display: none;
+  }
+}
 /* In a chat that already runs somewhere: a label, not a button. */
 .label {
   cursor: default;

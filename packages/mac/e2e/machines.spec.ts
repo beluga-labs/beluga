@@ -113,11 +113,15 @@ test('Runs on picks where new work goes, remembers it for the project, and label
   await openHome();
   await expect(page.getByRole('button', { name: 'Runs on build-box' })).toBeVisible();
 
-  // An existing chat: where it runs, as a label; MCP is at the chat's top right.
+  // An existing chat: where it runs, as a label; MCP is in the box, on its right beside the context.
   if (!(await sidebar.getByRole('button', { name: 'add-auth', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
   await sidebar.getByRole('button', { name: 'add-auth', exact: true }).click();
   await expect(page.getByLabel('Runs on This Mac')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Runs on This Mac' })).toHaveCount(0);
+  const field = await page.locator('textarea:not(.xterm-helper-textarea)').boundingBox();
+  const mcp = await page.getByRole('button', { name: /^MCP servers: / }).boundingBox();
+  expect(mcp!.y).toBeGreaterThan(field!.y);
+  expect(mcp!.x).toBeGreaterThan(field!.x + field!.width / 2);
   await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-label.png') });
 });
 
