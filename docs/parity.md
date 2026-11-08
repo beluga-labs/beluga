@@ -247,6 +247,15 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.settingsSync` | ✓ Settings › Your Computers › Your Settings: they follow you to every computer, and a conflict is said |
 | `machines.settingsSync.clear` | ✓ Settings › Your Computers › Your Settings › a conflict's Got It |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
+| `machines.ports` | – asked by your app over a computer's link every few seconds (BLG-802): each worktree's dev servers there |
+| `machines.forwards` | ✓ a worktree on a computer › the panel's Background tab › Ports: each server with Open at localhost:<port>, and which port when the same was taken |
+| `machines.share` | ✓ a worktree on a computer › the panel's Background tab › Share a Port from This Mac: a port and Share |
+| `machines.unshare` | ✓ a worktree on a computer › Background › a port shared from this Mac › Unshare |
+| `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
+| `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
+| `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |
+| `machines.env.always` | ✓ Settings › Your Computers › Env files sent without asking |
+| `machines.env.forget` | ✓ Settings › Your Computers › Env files sent without asking › Ask Again |
 | `companion.phone.use` | ✓ Settings › Phone › Let your agent use this phone: Off · Ask each time · Use · Full (BLG-150) |
 | `companion.phone.pairAdb` | ✓ Settings › Phone › Connect, once the phone shows a Wireless-debugging pairing code (runs `adb pair`) |
 | `companion.phone.wifi` | ✓ Settings › Phone › Over Wi‑Fi: Use over Wi‑Fi while the phone is on a cable (turns on its Wireless debugging, reached through the link), or Turn Off (BLG-187) |
@@ -322,6 +331,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.keepEnvHere` | ✓ a worktree's env bar ••• › Keep in This Worktree Only (project page, worktree) |
 | `workspaces.saveEnvInBeluga` | ✓ Save in Beluga on a worktree's env bar, and Archive/Delete's “Save them in Beluga” |
 | `workspaces.checkEnv` | ✓ when a project's page or a worktree opens |
+| `workspaces.ports` | – the ports a worktree's servers listen on, for forwarding a computer's to this Mac (the Ports tab is BLG-802) |
 | `workspaces.askClaudeToReview` | ✓ |
 | `workspaces.askClaudeToMerge` | ✓ |
 | `workspaces.compact` | ✓ |

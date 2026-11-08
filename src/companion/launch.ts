@@ -1,3 +1,5 @@
+import { EnvSend, attachEnvSend } from '../machines/env-send.js';
+import { Forwarder, attachForwarder, serveTunnels } from '../machines/forward.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
@@ -188,6 +190,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     name: macName,
     ...(opts.log ? { log: opts.log } : {}),
   });
+  // .env files for worktrees made on your computers (BLG-800): asked with names, sent over the link.
+  let envSend: EnvSend | undefined;
   // Your settings, the same on every device of yours (BLG-805); your own variables only with computers you said yes for.
   const settings = opts.demo
     ? undefined
@@ -230,8 +234,35 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     },
     // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
+    // An app of yours forwarding this computer's dev servers to itself, or sharing its own ports here (BLG-802/804).
+    tunnels: (socket) => void serveTunnels(socket, { name: macName, ...(opts.log ? { log: opts.log } : {}) }),
+    onWorktree: (machineId, workspaceId) => void envSend?.offer(machineId, workspaceId).catch((err: unknown) => opts.log?.(`env-send: couldn't offer env files: ${err instanceof Error ? err.message : String(err)}`)),
     ...(opts.log ? { log: opts.log } : {}),
   });
+  envSend = new EnvSend({
+    file: path.join(dir, 'env-send.json'),
+    projects: () => opts.store.getState().projects,
+    machineName: (id) => machines.book.get(id)?.name ?? 'Your computer',
+    call: (machineId, method, args) => machines.door.call(machineId, method, args),
+    publish: (asks) => opts.store.dispatch({ type: 'env_sends', asks }),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  attachEnvSend(opts.session, envSend);
+  // Your computers' dev servers at localhost on this Mac, while a screen of yours drives them (BLG-802).
+  const forwarder = new Forwarder({
+    live: () => machines.door.live(),
+    machineName: (id) => machines.book.get(id)?.name ?? 'Your computer',
+    call: (machineId, method, args) => machines.door.call(machineId, method, args),
+    openLink: (id) => {
+      const record = machines.book.get(id);
+      return record ? machines.openLink(record) : Promise.reject(new Error('That computer is gone from your devices'));
+    },
+    publish: (forwards) => opts.store.dispatch({ type: 'forwards', forwards }),
+    publishShares: (shares, onComputers) => opts.store.dispatch({ type: 'port_shares', shares, onComputers }),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  if (!opts.demo) forwarder.start();
+  attachForwarder(opts.session, forwarder);
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());
   host = new CompanionHost({
     identity: opts.identity,
@@ -273,6 +304,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   if (!opts.demo) host.watchCable();
   return async () => {
     outputs.stop();
+    forwarder.stop();
     detachCompanion(opts.session);
     detachMachines(opts.session);
     await machines.stop();

@@ -28,10 +28,18 @@ const FINAL = new Set([4003, 4004, 4010, 4404]);
 
 type Hello = Extract<ReturnType<typeof parseClientFrame>, { t: 'hello' }>;
 
+/** Calls that make a worktree on the computer → its id (BLG-800: the .env ask follows). */
+const MAKES_WORKTREE = new Set(['workspaces.startWorktree', 'workspaces.newWorktree', 'workspaces.continueInWorktree', 'workspaces.fork']);
+/** The app daemon's own calls on a link carry this id prefix; their answers never reach the screen. */
+const OWN_CALL = 'door:';
+const OWN_CALL_MS = 30_000;
+
 export interface DoorOptions {
   /** Waits between tries after the link drops (tests make them short). */
   readonly backoffMs?: readonly number[];
   readonly log?: (line: string) => void;
+  /** A screen made a worktree on computer `machineId` (BLG-800). */
+  readonly onWorktree?: (machineId: string, workspaceId: string) => void;
 }
 
 export class MachineDoor {
@@ -49,6 +57,21 @@ export class MachineDoor {
     const screen = new MachineScreen(this.machines, id, ws, hello, this.opts, () => this.screens.delete(screen));
     this.screens.add(screen);
     screen.connect();
+  }
+
+  /**
+   * A call of this app's own on computer `id`, over the link a screen of yours has open to it (the
+   * frames are end-to-end encrypted like the screen's). None open: it fails with why.
+   */
+  call(id: string, method: string, args: readonly unknown[]): Promise<unknown> {
+    const screen = [...this.screens].find((s) => s.machineId === id && s.live);
+    if (!screen) return Promise.reject(new Error(`${this.machines.book.get(id)?.name ?? 'That computer'} isn’t connected right now`));
+    return screen.call(method, args);
+  }
+
+  /** The computers a screen of this app drives right now (link up). */
+  live(): string[] {
+    return [...new Set([...this.screens].filter((s) => s.live).map((s) => s.machineId))];
   }
 
   /** Screens open on computers right now (tests, and how many links run). */
@@ -70,12 +93,15 @@ class MachineScreen {
   /** What to say again after a reconnect: the terminals it shows, where its attention is. */
   private readonly terms = new Set<string>();
   private attention?: string;
-  /** Calls sent and not yet answered (failed at once when the link drops). */
-  private readonly inflight = new Set<string>();
+  /** Calls sent and not yet answered (failed at once when the link drops), with their method. */
+  private readonly inflight = new Map<string, string>();
+  /** This app's own calls (call()), by id. */
+  private readonly own = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private ownSeq = 0;
 
   constructor(
     private readonly machines: Machines,
-    private readonly id: string,
+    readonly machineId: string,
     private readonly ws: WebSocket,
     private readonly hello: Hello,
     private readonly opts: DoorOptions,
@@ -89,12 +115,12 @@ class MachineScreen {
   }
 
   private get name(): string {
-    return this.machines.book.get(this.id)?.name ?? 'That computer';
+    return this.machines.book.get(this.machineId)?.name ?? 'That computer';
   }
 
   connect(): void {
     if (this.closed) return;
-    const record = this.machines.book.get(this.id);
+    const record = this.machines.book.get(this.machineId);
     if (!record || !this.machines.drives(record)) return this.end(4010, `${this.name} is no longer one of your computers`);
     this.machines.openLink(record).then(
       (socket) => {
@@ -131,7 +157,19 @@ class MachineScreen {
       if (this.attention) this.link?.send(this.attention);
       return;
     }
-    if (frame.t === 'result') this.inflight.delete(frame.id);
+    if (frame.t === 'result') {
+      const own = this.own.get(frame.id);
+      if (own) {
+        this.own.delete(frame.id);
+        clearTimeout(own.timer);
+        if (frame.ok) own.resolve(frame.value);
+        else own.reject(new Error(frame.error ?? 'It failed'));
+        return;
+      }
+      const method = this.inflight.get(frame.id);
+      this.inflight.delete(frame.id);
+      if (frame.ok && method && MAKES_WORKTREE.has(method) && typeof frame.value === 'string') this.opts.onWorktree?.(this.machineId, frame.value);
+    }
     if (frame.t === 'cap_call' && !(COMPUTER_CAPS.includes(frame.cap) && (frame.cap !== 'openExternal' || webUrl(frame.args[0])))) {
       const error = frame.cap === 'openExternal' ? 'Your app opens only web pages (http or https) for a computer' : `Your app doesn’t ${frame.cap} for a computer`;
       this.link?.send(encodeFrame({ t: 'cap_result', id: frame.id, ok: false, error }));
@@ -151,15 +189,49 @@ class MachineScreen {
       if (frame.t === 'call') this.toScreen(encodeFrame({ t: 'result', id: frame.id, ok: false, error: `${this.name} can’t be reached right now; Beluga keeps trying` }));
       return;
     }
-    if (frame.t === 'call') this.inflight.add(frame.id);
+    if (frame.t === 'call') {
+      // A screen's id can't pass for one of this app's own.
+      if (frame.id.startsWith(OWN_CALL)) return this.toScreen(encodeFrame({ t: 'result', id: frame.id, ok: false, error: 'That call id is taken' }));
+      this.inflight.set(frame.id, frame.method);
+    }
     link.send(text);
+  }
+
+  /** The link is up and the computer said welcome. */
+  get live(): boolean {
+    return Boolean(this.link?.isOpen && this.welcomed);
+  }
+
+  /** One call of this app's own over the link; its answer stays here. */
+  call(method: string, args: readonly unknown[]): Promise<unknown> {
+    const link = this.link;
+    if (!link?.isOpen || !this.welcomed) return Promise.reject(new Error(`${this.name} can’t be reached right now`));
+    const id = `${OWN_CALL}${++this.ownSeq}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.own.delete(id);
+        reject(new Error(`${this.name} didn’t answer in time`));
+      }, OWN_CALL_MS);
+      timer.unref();
+      this.own.set(id, { resolve, reject, timer });
+      link.send(encodeFrame({ t: 'call', id, method, args: [...args] }));
+    });
+  }
+
+  private failOwn(error: string): void {
+    for (const [id, own] of this.own) {
+      clearTimeout(own.timer);
+      own.reject(new Error(error));
+      this.own.delete(id);
+    }
   }
 
   private dropped(socket: MessageSocket, code: number): void {
     if (this.link !== socket) return;
     this.link = undefined;
-    for (const id of this.inflight) this.toScreen(encodeFrame({ t: 'result', id, ok: false, error: `The link to ${this.name} dropped before it answered; try again` }));
+    for (const id of this.inflight.keys()) this.toScreen(encodeFrame({ t: 'result', id, ok: false, error: `The link to ${this.name} dropped before it answered; try again` }));
     this.inflight.clear();
+    this.failOwn(`The link to ${this.name} dropped before it answered`);
     if (this.closed) return;
     if (FINAL.has(code)) return this.end(code, code === 4010 ? `${this.name} forgot this app, or this app forgot it` : code === 4004 ? `${this.name} speaks another version of Beluga` : `${this.name} turned this app away`);
     this.retry();
@@ -184,6 +256,7 @@ class MachineScreen {
     if (this.closed) return;
     this.closed = true;
     clearTimeout(this.timer);
+    this.failOwn(`${this.name} closed`);
     this.link?.close(1000);
     this.link = undefined;
     if (code !== undefined && this.ws.readyState === this.ws.OPEN) this.ws.close(code, reason?.slice(0, 120));

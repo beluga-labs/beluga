@@ -145,6 +145,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'workspaces.keepEnvHere': 'drive',
   'workspaces.saveEnvInBeluga': 'drive',
   'workspaces.checkEnv': 'drive',
+  'workspaces.ports': 'drive',
   'workspaces.askClaudeToReview': 'drive',
   'workspaces.askClaudeToMerge': 'drive',
   'workspaces.compact': 'drive',
@@ -558,6 +559,19 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',
+  // Your app asks what a worktree's project has and sends what you said to send (BLG-800); the asks
+  // and Always for This Project are the app's own, never a computer's.
+  // Your app forwards a computer's dev servers to itself (BLG-802); what it forwards is its own.
+  'machines.ports': 'drive',
+  'machines.forwards': 'refuse',
+  // Sharing this Mac's ports is the app's own: a computer never asks for one.
+  'machines.share': 'refuse',
+  'machines.unshare': 'refuse',
+  'machines.env.here': 'drive',
+  'machines.env.receive': 'drive',
+  'machines.env.decide': 'refuse',
+  'machines.env.always': 'refuse',
+  'machines.env.forget': 'refuse',
   'machines.secrets': 'refuse',
   'machines.settingsSync': 'drive',
   'machines.settingsSync.clear': 'drive',
