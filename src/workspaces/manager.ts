@@ -29,7 +29,8 @@ import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, gr
 /** A project (by id) or a group (by name), for arranging the sidebar. */
 export type ArrangeTarget = { readonly project: string } | { readonly group: string };
 import { type ProjectScripts, type ResolvedScripts, resolveScripts, saveProjectFile } from './scripts.js';
-import { PROJECT_DIR } from '../shared/scratch-dir.js';
+import { PROJECT_DIR, sentFolder } from '../shared/scratch-dir.js';
+import { dropSent } from './scratch.js';
 import { BRANCH_PREFIX_DEFAULT } from '../shared/settings-schema.js';
 import { envRecord, parseEnvText } from '../shared/env-vars.js';
 
@@ -1194,6 +1195,8 @@ export class WorkspaceManager {
     if (ws.kind === 'worktree' && existsSync(ws.projectRoot)) await dropSnapshots(ws.projectRoot, id).catch(() => undefined);
     if (ws.archived) await dropArchive(ws.projectRoot, this.store.archivesDir, id).catch(() => undefined);
     if (scratch) rmSync(ws.path, { recursive: true, force: true });
+    // A chat in a folder that stays (yours, or a worktree it was forked in): only what you sent it goes.
+    else if (ws.kind === 'chat' && existsSync(ws.path)) await dropSent(ws.path, sentFolder(`ws:${ws.id}`, false)).catch(() => undefined);
     if (ours) {
       // Claude Code's (your own Claude and local models alike), Codex's and OpenCode's, whichever agent ran there.
       for (const dir of new Set([sessionsDir, path.resolve(ws.path)])) await dropFolderSessions(dir).catch(() => 0);
