@@ -254,6 +254,7 @@ export const SETTINGS: readonly Entry[] = [
 
   // Voice
   ...rows('voice', 'Writing it down', [
+    ['Microphone', 'The microphone you speak into.', 'microphone mic input device airpods headset usb'],
     ['Model', 'The model that writes down what you say.', 'whisper parakeet speech model transcribe'],
     ['Language', 'The language you speak.', 'language english turkish auto'],
   ]),
