@@ -1154,6 +1154,8 @@ export class Workbench {
     const pr = found && ws.prDone !== undefined && sameRepo && found.number <= ws.prDone ? undefined : found;
     const before = this.deps.store.getState().prs[ws.id];
     if (!samePr(before, pr)) this.deps.store.dispatch({ type: 'pr', id: ws.id, pr });
+    // Merged at that commit: what's in it is on GitHub, so the Delete step stops counting it as unpushed (BLG-833).
+    if (pr?.state === 'MERGED' && pr.head && this.manager.setMergedHead(ws.id, pr.head)) void this.deps.controller.refreshWorkspace(ws.path).catch(() => undefined);
     void this.settleMergeWait(ws, pr);
     const state = this.deps.store.getState();
     const key = triageKey(state, `ws:${ws.id}`);

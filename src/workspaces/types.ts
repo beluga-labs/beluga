@@ -105,6 +105,8 @@ export interface WorkspaceRecord {
   readonly prShipped?: { readonly number: number; readonly url?: string; readonly into: string; readonly head?: string };
   /** The PR whose merge this chat already shows (its merged line): said once, across restarts too. */
   readonly mergeSaid?: number;
+  /** The commit its pull request merged at, as GitHub last said (BLG-833): only commits after it count as pushed nowhere. */
+  readonly mergedHead?: string;
   /**
    * Merge When Ready: Beluga merges PR `number` itself once its checks pass (and stops, saying why,
    * if they fail or it conflicts). Not GitHub's auto-merge: that merges at once when no check is required.

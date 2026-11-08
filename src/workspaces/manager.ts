@@ -83,6 +83,9 @@ const forkSessionOf = (source: Workspace, session: string | null | undefined): P
   ...(session === undefined ? (source.sessionId ? { forkFromSession: source.sessionId } : {}) : session ? { sessionId: session } : {}),
 });
 /** A record's agent and model from one AgentRef (its model kept as the workspace's model, as setAgent does). */
+/** Heads of a worktree's pull requests that merged (BLG-831, BLG-833): GitHub keeps them, so what's in them isn't pushed nowhere. */
+const shippedOf = (ws: Pick<WorkspaceRecord, 'mergedHead' | 'prShipped'>): string[] => [...new Set([ws.mergedHead, ws.prShipped?.head].filter((h): h is string => Boolean(h)))];
+
 const agentFields = (agent: AgentRef | undefined): Pick<WorkspaceRecord, 'agent' | 'model'> => {
   if (!agent) return {};
   const { model, ...ref } = agent;
@@ -484,7 +487,7 @@ export class WorkspaceManager {
     const find = (): Workspace | undefined => this.projects.flatMap((p) => p.workspaces).find((w) => !w.archived && w.kind !== 'chat' && real(w.path) === key);
     const read = find();
     if (!read) return false;
-    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base).catch(() => undefined);
+    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base, shippedOf(read)).catch(() => undefined);
     if (this.refreshing) return false; // a full refresh started meanwhile: it has the newer reading
     // As it is now (a full refresh may have replaced it meanwhile), not as it was before git ran.
     const ws = find();
@@ -555,7 +558,7 @@ export class WorkspaceManager {
         else if (rec.archived && rec.kind === 'worktree') workspaces.push({ ...rec, projectId: id, external: false });
       }
       const withStatus = await Promise.all(
-        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base).catch(() => undefined) })),
+        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base, shippedOf(w)).catch(() => undefined) })),
       );
       // The main checkout's status (just read) says what it's on and how much is uncommitted.
       const mainStatus = withStatus.find((w) => w.kind === 'main')?.status;
@@ -1109,7 +1112,7 @@ export class WorkspaceManager {
     // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
     if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
     const into = ws.base ?? (await this.baseOf(ws.projectRoot));
-    const shipped = ws.prShipped?.head ? [...mergedHeads, ws.prShipped.head] : mergedHeads;
+    const shipped = [...new Set([...mergedHeads, ...shippedOf(ws)])];
     let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
     // Checked against the remote before warning (BLG-746): merged on GitHub a minute ago reads as merged.
     if (lost.count) {
@@ -1265,6 +1268,13 @@ export class WorkspaceManager {
   setMergeSaid(id: string, number: number): void {
     this.require(id);
     this.patchRecord(id, { mergeSaid: number });
+  }
+
+  /** GitHub says its PR merged at `head` (BLG-833) → whether that's news (its status counts again then). */
+  setMergedHead(id: string, head: string): boolean {
+    if (this.require(id).mergedHead === head) return false;
+    this.patchRecord(id, { mergedHead: head });
+    return true;
   }
 
   /** Merge When Ready is waiting on this worktree's PR (undefined: not anymore). See Workbench.mergeWhenReady. */

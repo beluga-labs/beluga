@@ -138,13 +138,20 @@ describe('remoteRef', () => {
 /** A Workbench over fake worktrees, a fake gh and a hand-moved clock. */
 function bench(worktrees: Array<{ id: string; branch: string; project?: string; ahead?: number; path?: string }>, more: Partial<ConstructorParameters<typeof Workbench>[0]> = {}) {
   const store = new Store(initialState('t', 'ask'));
-  const workspaces: Array<{ id: string; name: string; kind: string; branch: string; path: string; projectId: string; status: { changed: number; ahead: number; behind: number }; mergeSaid?: number }> = worktrees.map((w) => ({ id: w.id, name: w.id, kind: 'worktree', branch: w.branch, path: w.path ?? `/code/${w.id}`, projectId: w.project ?? 'p1', status: { changed: 0, ahead: w.ahead ?? 1, behind: 0 } }));
+  const workspaces: Array<{ id: string; name: string; kind: string; branch: string; path: string; projectId: string; status: { changed: number; ahead: number; behind: number }; mergeSaid?: number; mergedHead?: string }> = worktrees.map((w) => ({ id: w.id, name: w.id, kind: 'worktree', branch: w.branch, path: w.path ?? `/code/${w.id}`, projectId: w.project ?? 'p1', status: { changed: 0, ahead: w.ahead ?? 1, behind: 0 } }));
   const projects = [...new Set(workspaces.map((w) => w.projectId))];
   const manager = {
     list: projects.map((id) => ({ id, workspaces: workspaces.filter((w) => w.projectId === id) })),
     find: (id: string) => workspaces.find((w) => w.id === id),
     setMergeSaid: (id: string, number: number) => Object.assign(workspaces.find((w) => w.id === id)!, { mergeSaid: number }),
+    setMergedHead: (id: string, head: string) => {
+      const ws = workspaces.find((w) => w.id === id)!;
+      if (ws.mergedHead === head) return false;
+      ws.mergedHead = head;
+      return true;
+    },
   };
+  const recounted: string[] = [];
   const loaded: string[] = [];
   const remote: Record<string, string | undefined> = {};
   const gh = new Map<string, PullRequest>();
@@ -162,7 +169,7 @@ function bench(worktrees: Array<{ id: string; branch: string; project?: string; 
   };
   const wb = new Workbench({
     store,
-    controller: { manager, ensureLoaded: (id: string) => void loaded.push(id), refresh: async () => undefined } as unknown as WorkspaceController,
+    controller: { manager, ensureLoaded: (id: string) => void loaded.push(id), refresh: async () => undefined, refreshWorkspace: async (dir: string) => void recounted.push(dir) } as unknown as WorkspaceController,
     notify: (e) => void notices.push(e),
     toast: () => undefined,
     intend: () => undefined,
@@ -177,7 +184,7 @@ function bench(worktrees: Array<{ id: string; branch: string; project?: string; 
   });
   store.dispatch({ type: 'gh', ok: true });
   const merged = (id: string) => store.getState().log.filter((l) => l.channel === `ws:${id}` && l.type === 'system' && l.merged);
-  return { wb, store, gh, calls, remote, notices, clock, loaded, merged, most: () => most, prs: () => store.getState().prs };
+  return { wb, store, gh, calls, remote, notices, clock, loaded, merged, recounted, workspaces, most: () => most, prs: () => store.getState().prs };
 }
 
 const pr = (number: number, more: Partial<PullRequest> = {}): PullRequest => ({ number, url: `u/${number}`, state: 'OPEN', title: `PR ${number}`, draft: false, checks: 'passing', ...more });
@@ -373,6 +380,19 @@ describe('the merged line in the chat', () => {
     await b.wb.refreshPrs('a');
     await b.wb.refreshPrs();
     expect(b.merged('a')).toHaveLength(1);
+  });
+
+  it('keeps the commit a PR merged at, and counts that worktree again once (BLG-833)', async () => {
+    const b = bench([{ id: 'a', branch: 'klaud/a', project: 'x' }]);
+    b.gh.set('klaud/a', pr(4, { head: 'abc123' }));
+    await b.wb.refreshPrs();
+    expect(b.workspaces[0]?.mergedHead).toBeUndefined();
+    b.gh.set('klaud/a', pr(4, { state: 'MERGED', head: 'abc123', mergedAt: b.clock.now }));
+    await b.wb.refreshPrs('a');
+    expect(b.workspaces[0]?.mergedHead).toBe('abc123');
+    expect(b.recounted).toEqual(['/code/a']);
+    await b.wb.refreshPrs('a');
+    expect(b.recounted).toEqual(['/code/a']);
   });
 
   it('shows a merge into its base without a PR', async () => {
