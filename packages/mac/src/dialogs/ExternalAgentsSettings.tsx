@@ -1,9 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useClock } from '../lib/window-active.js';
 import { REMOTE_FULL_WARNING } from '@beluga/shared/remote-full.js';
-import { experimentOn, withExperiment } from '@beluga/shared/experiments.js';
-import { LOCAL_RUNTIME } from '@beluga/shared/local-endpoints.js';
-import { Icon } from '../components/Icon.js';
 import { Button } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { copyText } from '../lib/copy.js';
@@ -72,52 +69,6 @@ const ROUTE_ROWS: ReadonlyArray<{ kind: RouteKind; label: string; off: string; o
   { kind: 'tailscale', label: 'On your tailnet', off: 'Agents on your Tailscale network connect over https. Nobody else reaches it.', on: 'Only your tailnet reaches this address (Tailscale Serve, never Funnel).' },
   { kind: 'public', label: 'Public address', off: 'Hosted agents connect through a Cloudflare tunnel. Each one still needs a pairing code.', on: 'This address changes when the tunnel restarts. Agents must then sign in again with a new code.' },
 ];
-
-/** Smarter tool search was suggested here once (Turn On or Not Now), remembered on this Mac. */
-const TOOL_SEARCH_SUGGESTED = 'beluga.toolSearch.suggested';
-
-/**
- * Once, for someone who uses a local model (BLG-863): small models search Beluga's tools with vaguer words, and the
- * Smarter tool search experiment finds tools by what they do. A suggestion, never switched on for them.
- */
-function ToolSearchSuggestion() {
-  const api = useApi();
-  const experiments = useApp((st) => st.prefs.experiments);
-  const localModel = useApp((st) => st.runtimes.some((r) => r.id === LOCAL_RUNTIME && r.available));
-  const [suggested, setSuggested] = useState(() => localStorage.getItem(TOOL_SEARCH_SUGGESTED) === '1');
-  if (suggested || !localModel || experimentOn(experiments, 'toolSearch')) return null;
-  const done = (): void => {
-    localStorage.setItem(TOOL_SEARCH_SUGGESTED, '1');
-    setSuggested(true);
-  };
-  return (
-    <div className={s.group} role="group" aria-label="Suggested for local models">
-      <div className={s.groupBox}>
-        <div className={s.row}>
-          <Icon name="flask" size={15} />
-          <div className={s.rowText}>
-            <div className={s.rowLabel}>Try Smarter tool search with your local model</div>
-            <div className={s.rowDetail}>Small models search Beluga’s tools with vaguer words. This experiment finds tools by what they do. It downloads about 140 MB once.</div>
-          </div>
-          <div className={s.control}>
-            <Button variant="quiet" onClick={done}>
-              Not Now
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                done();
-                void api.session.setPrefs({ experiments: withExperiment(experiments, 'toolSearch', true) });
-              }}
-            >
-              Turn On
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const seenWords = (at: number): string => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -214,7 +165,6 @@ export function ExternalAgentsSettings() {
           );
         })}
       </Group>
-      {status?.on ? <ToolSearchSuggestion /> : null}
       {status?.on ? (
         <Group title="Connect an agent">
           <Row label="For an agent outside this Mac" detail="It starts at Trusted. Full trust takes your explicit choice for this code.">

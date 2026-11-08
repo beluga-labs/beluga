@@ -15,22 +15,13 @@ const FIND_MAX = 20;
 const NAME_MAX = 100;
 const QUERY_MAX = 200;
 
-/**
- * Smarter tool search (Settings › Advanced, experimental): ranks by meaning when it is on and ready. Undefined (off,
- * still preparing, or failed) means beluga_find ranks with BM25, so a search never waits on it or breaks with it.
- */
-export type SmarterRanking = (query: string) => Promise<readonly string[] | undefined>;
-
 /** What a client lists: the tools given here, then find and call. `others` stay reachable through those two. */
-export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[], smarter?: SmarterRanking): ExternalToolDef[] {
+export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[]): ExternalToolDef[] {
   const reachable = new Map([...listed, ...others].map((def) => [def.name as string, def]));
   const hidden = new Map(others.map((def) => [def.name as string, def]));
   let bm25: ToolRanking | undefined;
-  const rank = async (query: string): Promise<readonly string[]> => {
-    const meant = smarter ? await smarter(query).catch(() => undefined) : undefined;
-    // Made at the first search, a few milliseconds: a Beluga that no agent uses never builds it.
-    return meant ?? (bm25 ??= bm25Ranking(others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) }))))(query);
-  };
+  // Made at the first search, a few milliseconds: a Beluga that no agent uses never builds it.
+  const rank = async (query: string): Promise<readonly string[]> => (bm25 ??= bm25Ranking(others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) }))))(query);
   return [
     ...listed,
     {
@@ -58,7 +49,7 @@ export function withDiscovery(listed: readonly ExternalToolDef[], others: readon
   ];
 }
 
-export function schemaOf(def: ExternalToolDef): unknown {
+function schemaOf(def: ExternalToolDef): unknown {
   const { $schema: _schema, ...schema } = z.toJSONSchema(z.object(def.inputSchema), { io: 'input', unrepresentable: 'any' });
   return schema;
 }
