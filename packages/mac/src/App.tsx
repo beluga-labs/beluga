@@ -13,6 +13,7 @@ import { Palette } from './dialogs/Palette.js';
 import { Settings } from './dialogs/Settings.js';
 import type { SettingsPane } from './lib/beluga.js';
 import { Pane } from './machines/MachinePane.js';
+import { useRemoteWork } from './machines/use-remote.js';
 import { Sidebar } from './layout/Sidebar.js';
 import { useActions } from './lib/actions.js';
 import { SHORTCUTS, TALK_ID, keyPlatform, shortcutFor } from './lib/shortcuts-model.js';
@@ -201,6 +202,8 @@ export function App() {
   useShortcuts();
   // Back and Forward between pages (⌘[ ⌘], the toolbar's arrows, the mouse's buttons).
   useNavHistory(client, actions);
+  // A screen to each of your computers, for every list of their work (BLG-785).
+  useRemoteWork(client, ui);
   // Speaking instead of typing: the talk shortcut, ↩ and esc while listening (Settings › Voice).
   useDictationSetup(client);
   useRememberProject();

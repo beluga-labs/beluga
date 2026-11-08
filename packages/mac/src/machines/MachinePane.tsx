@@ -9,7 +9,7 @@ import { MachineProvider, useApp, useBeluga } from '../lib/beluga.js';
 import s from '../layout/Shell.module.css';
 import { MachineMark } from './MachineMark.js';
 import { paneOf, paneViewFor, windowViewFor } from './pane-model.js';
-import { retryMachine, useMachinePane } from './pane-clients.js';
+import { background, retryMachine, useMachinePane } from './pane-clients.js';
 import { useMachineView } from './use-machines.js';
 import c from './machines.module.css';
 
@@ -86,6 +86,17 @@ function Synced({ machine, home, client, children }: { machine: string; home: So
     if (want) client.store.dispatch({ type: 'view', view: want });
     setShown(true);
   }, [machine, windowView, client]);
+  // Shown: here while this window is (in front or not); left: in the background again.
+  useLayoutEffect(() => {
+    const follow = (): void => client.store.dispatch({ type: 'away', away: home.store.getScreen().away });
+    follow();
+    const off = home.store.subscribe(follow);
+    return () => {
+      off();
+      // Only once the window has gone elsewhere (a redraw that keeps it here leaves it as it is).
+      if (paneOf(home.store.getState().view).machine !== machine) background(client);
+    };
+  }, [machine, home, client]);
   useLayoutEffect(
     () =>
       client.store.subscribe(() => {

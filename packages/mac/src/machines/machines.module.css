@@ -258,3 +258,72 @@
   margin: 0;
   padding-left: 18px;
 }
+
+/* Where a row runs (BLG-785): the computer's mark and short name, after its name. */
+.rowTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px 0 3px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.rowTag .mark {
+  width: auto;
+  height: auto;
+  margin-top: 0;
+}
+.rowTagOff {
+  opacity: 0.7;
+}
+/* An offline computer's work: still there, greyed. */
+.offlineRow {
+  opacity: 0.55;
+}
+
+/* A list's work on your computers (RemoteList.tsx). */
+.remoteList {
+  margin-top: 18px;
+}
+.remoteList ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.remoteHead {
+  padding: 0 4px 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.remoteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+.remoteRow:hover {
+  background: var(--bg-hover);
+}
+.remoteMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.remoteTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remoteSub {
+  font-size: 0.82rem;
+  color: var(--text-3);
+}

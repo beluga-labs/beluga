@@ -62,6 +62,12 @@ function forwardToasts(client: SocketClient, home: SocketClient): () => void {
   });
 }
 
+/** A screen nobody looks at: on a page with no conversation, and away. */
+export function background(client: SocketClient): void {
+  client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
+  client.store.dispatch({ type: 'away', away: true });
+}
+
 /** Open the screen on computer `id` unless one is open or opening. */
 export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore): void {
   let entry = entries.get(id);
@@ -84,6 +90,8 @@ export function ensureMachine(id: string, home: SocketClient, windowUi: UiStore)
         offHome();
         if (entries.get(id) === mine && mine.state.client === client) set(id, { client: undefined, ...(reason === 'closed' ? {} : { error: reason }) });
       });
+      // In the background until a pane shows it: looking at nothing there, so its chats stay unread and its notices come.
+      background(client);
       set(id, { client });
     })
     .catch((err: unknown) => set(id, { error: err instanceof Error ? err.message : String(err) }))
@@ -99,6 +107,9 @@ export function retryMachine(id: string, home: SocketClient, windowUi: UiStore):
   ensureMachine(id, home, windowUi);
   emit();
 }
+
+/** Hear screens open and close (the lists of every computer's work follow them). */
+export const onMachines = subscribe;
 
 /** The screen open on computer `id`, if it is. */
 export const machineClientOf = (id: string): SocketClient | undefined => entries.get(id)?.state.client;

@@ -120,3 +120,28 @@ test('Runs on picks where new work goes, remembers it for the project, and label
   await expect(page.getByRole('button', { name: 'Runs on This Mac' })).toHaveCount(0);
   await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-label.png') });
 });
+
+/**
+ * Every computer in one sidebar (BLG-785): the AWS server's webhook-retries lists under bob-api
+ * with the computer's mark and short name, the sidebar's search finds it there too, and it opens in
+ * the pane with that computer's client.
+ */
+test('a computer’s worktree lists under its project, tagged, and search finds it', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  const remote = sidebar.getByRole('button', { name: 'webhook-retries on AWS server' });
+  if (!(await remote.isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await expect(remote).toBeVisible();
+  await expect(remote).toContainText('AWS server');
+  // This Mac's own webhook-retries is still its own row.
+  await expect(sidebar.getByRole('button', { name: 'webhook-retries', exact: true })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-785-sidebar.png') });
+
+  await sidebar.getByRole('textbox', { name: 'Search chats and messages' }).fill('webhook');
+  const results = page.getByRole('listbox', { name: 'Search results' });
+  await expect(results.getByRole('option').filter({ hasText: 'bob-api · AWS server' })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-785-search.png') });
+  await results.getByRole('option').filter({ hasText: 'bob-api · AWS server' }).click();
+  await expect(page.getByTitle('Runs on AWS server')).toBeVisible();
+});

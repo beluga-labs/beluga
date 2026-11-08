@@ -31,6 +31,9 @@ import { type Tally, groupTally, groupWorking, projectPlans, projectTally, proje
 import { TallyMark } from './signal-marks.js';
 import { Row } from './sidebar-parts.js';
 import { WorkspaceRow } from './workspace-row.js';
+import { RemoteProjects, RemoteWorkRows } from '../machines/RemoteRows.js';
+import { useRemoteSources } from '../machines/use-remote.js';
+import { remoteWorkIn } from '../machines/remote-work.js';
 import { PlanRow } from './plan-row.js';
 import { LaterRows, laterOf, notLater, useLater } from './later-rows.js';
 import { useGitHubMenuItems } from '../views/project/GitHubRow.js';
@@ -204,7 +207,9 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
   // Nothing to unfold: no arrow (its place kept, so the icons stay in line).
   const sessions = useCcSessions();
   const origins = useAgentOrigins();
-  const foldable = useMemo(() => plans.length > 0 || hasRowsInside(p, sessions, origins), [plans.length, p, sessions, origins]);
+  const remote = useRemoteSources();
+  const elsewhere = useMemo(() => remoteWorkIn(p.name, remote).length > 0, [p.name, remote]);
+  const foldable = useMemo(() => plans.length > 0 || elsewhere || hasRowsInside(p, sessions, origins), [plans.length, elsewhere, p, sessions, origins]);
   return (
     <div data-chats-folded={fold.folded || undefined}>
       <SpecContext menu={{ kind: 'project', id: p.id }} extra={extra} hide={ownWay}>
@@ -296,6 +301,8 @@ const ProjectBlock = memo(function ProjectBlock({ p, depth, entries, arrange }: 
           ))}
           {/* Worktrees made outside Beluga: after Beluga's own, most recent first, each with where it is. */}
           <OutsideWorktrees p={p} indent={kids} />
+          {/* The same project's worktrees and chats on your computers, each with its computer (BLG-785). */}
+          <RemoteWorkRows name={p.name} indent={kids} />
           {/* Sub-agents the main folder's conversations started (Claude's helpers, none of your worktrees or chats): behind one row. */}
           {main ? <ProjectAgents p={p} ws={main} indent={kids} /> : null}
           <LaterRows list={later} indent={kids} foldKey={`later:${p.id}`} />
@@ -383,6 +390,8 @@ function useSpringLoad(group: string | undefined, folded: boolean): void {
 
 export function Projects() {
   const actions = useActions();
+  const names = useApp((st) => st.projects.map((p) => p.name).join('\n'));
+  const localNames = useMemo(() => new Set(names.split('\n')), [names]);
   const { ui } = useBeluga();
   const { entries } = useLayout();
   const arrange = useArrange();
@@ -458,6 +467,8 @@ export function Projects() {
           {entries.length || creating ? null : <Row className={side.hintRow} icon={<Icon name="plus" size={13} />} label="Add a project…" onClick={() => actions.run({ type: 'add_project' })} />}
         </div>
       </ActionsContext>
+      {/* Your computers' projects this Mac doesn't have (BLG-785). */}
+      <RemoteProjects local={localNames} />
       <HiddenProjects />
     </>
   );
