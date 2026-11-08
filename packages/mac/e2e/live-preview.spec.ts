@@ -99,6 +99,87 @@ test('The answer draws the component with props from its types; changing one red
   await block.getByRole('button', { name: 'Every tone' }).click();
   await expect(frame.locator('section.hero')).toHaveCount(3);
   await page.screenshot({ path: shot('24-preview-variants.png') });
+  // What you changed is kept: after a reload the preview draws with your title again.
+  await page.waitForTimeout(500);
+  await page.reload();
+  await expect(sidebar(page)).toBeVisible();
+  await openHero(page);
+  const again = page.locator('[data-preview="Hero.tsx"]').last().frameLocator('iframe[title="Preview of Hero.tsx"]');
+  await expect(again.getByRole('heading', { name: 'Ship it together' })).toBeVisible({ timeout: 20_000 });
+});
+
+/** Opens a submenu of a preview's ••• menu and picks a row in it. */
+async function pickFromMore(page: Page, block: ReturnType<Page['locator']>, path: readonly string[]): Promise<void> {
+  await block.getByRole('button', { name: 'More' }).click();
+  for (const [i, label] of path.entries()) {
+    const row = page.getByRole('menu').last().getByText(label, { exact: true });
+    if (i < path.length - 1) await row.hover();
+    else await row.click();
+  }
+}
+
+test('The ••• menu: a dark canvas, a pinned hover, a phone’s width, the accessibility check and a picture', async ({ page }) => {
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  await turnOn(page);
+  await openHero(page);
+  // The chat's newest Hero preview (one is asked for when there's none yet).
+  const blocks = page.locator('[data-preview="Hero.tsx"]');
+  if (!(await blocks.count())) {
+    await composer(page).fill('Show me the hero preview');
+    await composer(page).press('Enter');
+  }
+  const block = blocks.last();
+  await block.scrollIntoViewIfNeeded({ timeout: 20_000 });
+  const frame = block.frameLocator('iframe[title="Preview of Hero.tsx"]');
+  await expect(frame.getByRole('heading')).toBeVisible({ timeout: 20_000 });
+
+  // Hover pinned on: the button looks hovered with the pointer elsewhere.
+  await pickFromMore(page, block, ['Pin State', 'Hover']);
+  await expect(block).toContainText('Hover pinned');
+  await expect.poll(() => frame.getByRole('button', { name: 'Start free' }).evaluate((b) => getComputedStyle(b).backgroundColor)).toBe('rgb(106, 90, 205)');
+
+  // A dark canvas.
+  await pickFromMore(page, block, ['Canvas', 'Dark']);
+  await expect.poll(() => frame.locator('html').getAttribute('data-beluga-canvas')).toBe('dark');
+
+  // The accessibility check, in plain words.
+  await pickFromMore(page, block, ['Check Accessibility']);
+  await expect(block.getByText('Accessibility', { exact: true })).toBeVisible();
+  await page.screenshot({ path: shot('26-preview-tools.png') });
+
+  // A picture, saved in the worktree's scratch folder.
+  await pickFromMore(page, block, ['Save as Picture']);
+  await expect(page.getByText(/Saved a picture to \.beluga\/scratch\/previews\//)).toBeVisible({ timeout: 15_000 });
+
+  // A phone's width: drawn at 390 points, smaller to fit.
+  await pickFromMore(page, block, ['Width', 'Phone']);
+  await expect(block.locator('iframe')).toHaveCSS('width', '390px');
+});
+
+test('A file with two components: pick either, or see them all', async ({ page }) => {
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  await turnOn(page);
+  await openHero(page);
+  await composer(page).fill('Show me the badges preview');
+  await composer(page).press('Enter');
+  const block = page.locator('[data-preview="Badges.tsx"]').last();
+  const frame = block.frameLocator('iframe[title="Preview of Badges.tsx"]');
+  await expect(frame.getByText('Overview')).toBeVisible({ timeout: 20_000 });
+  await expect(block.getByRole('button', { name: /Badge · Badges\.tsx/ })).toBeVisible();
+
+  // The other one.
+  await block.getByRole('button', { name: /Badge · Badges\.tsx/ }).click();
+  await page.getByRole('menu').last().getByText('Stat', { exact: true }).click();
+  await expect(block.getByRole('button', { name: /Stat · Badges\.tsx/ })).toBeVisible();
+  await expect(frame.locator('strong')).toBeVisible({ timeout: 20_000 });
+
+  // All of them, each with its own samples.
+  await block.getByRole('button', { name: /Stat · Badges\.tsx/ }).click();
+  await page.getByRole('menu').last().getByText('All Components', { exact: true }).click();
+  await expect(frame.locator('.beluga-tag')).toHaveText(['Badge', 'Stat']);
+  await page.screenshot({ path: shot('27-preview-all-components.png') });
 });
 
 test('A component file in Files has a Preview beside its Source', async ({ page }) => {

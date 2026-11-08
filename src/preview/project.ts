@@ -27,31 +27,65 @@ export function insideFile(root: string, file: string): string | undefined {
   }
 }
 
-/** tsconfig.json without its comments and trailing commas, as an object (or nothing). */
+/**
+ * JSON with comments and trailing commas (tsconfig.json) as plain JSON: comments and the commas
+ * before a closing bracket go, never anything inside a string (an alias like "@/" with a star
+ * after it, or a glob, stays as written).
+ */
+export function stripJsonc(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === '/' && text[i + 1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      out += '\n';
+    } else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? text.length : end + 1;
+    } else if (c === ',') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j]!)) j++;
+      if (text[j] !== '}' && text[j] !== ']') out += c;
+    } else out += c;
+  }
+  return out;
+}
+
 function readJsonc(file: string): Record<string, unknown> | undefined {
   try {
-    const text = readFileSync(file, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|[^:"'])\/\/.*$/gm, '$1')
-      .replace(/,(\s*[}\]])/g, '$1');
-    const value: unknown = JSON.parse(text);
+    const value: unknown = JSON.parse(stripJsonc(readFileSync(file, 'utf8')));
     return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
 }
 
+type CompilerOptions = { baseUrl?: string; paths?: Record<string, string[]> };
+
+/** A tsconfig's paths and where they're from, following `extends` (relative ones, a few deep). */
+function pathsOf(file: string, depth = 0): { base: string; paths: Record<string, string[]> } | undefined {
+  const config = readJsonc(file);
+  if (!config) return undefined;
+  const options = config.compilerOptions as CompilerOptions | undefined;
+  if (options?.paths) return { base: path.resolve(path.dirname(file), options.baseUrl ?? '.'), paths: options.paths };
+  const parent = typeof config.extends === 'string' && config.extends.startsWith('.') && depth < 4 ? path.resolve(path.dirname(file), config.extends.endsWith('.json') ? config.extends : `${config.extends}.json`) : undefined;
+  return parent ? pathsOf(parent, depth + 1) : undefined;
+}
+
 /** The project's import aliases (tsconfig compilerOptions.paths), each as a prefix and where it points. */
 export function aliasesOf(root: string): Array<{ readonly prefix: string; readonly to: string }> {
   for (const name of ['tsconfig.json', 'jsconfig.json', 'tsconfig.app.json']) {
-    const config = readJsonc(path.join(root, name));
-    const options = config?.compilerOptions as { baseUrl?: string; paths?: Record<string, string[]> } | undefined;
-    if (!options?.paths) continue;
-    const base = path.resolve(root, options.baseUrl ?? '.');
-    return Object.entries(options.paths).flatMap(([key, targets]) => {
+    const found = pathsOf(path.join(root, name));
+    if (!found) continue;
+    return Object.entries(found.paths).flatMap(([key, targets]) => {
       const to = targets[0];
       if (!to) return [];
-      return [{ prefix: key.replace(/\*$/, ''), to: path.resolve(base, to.replace(/\*$/, '')) }];
+      return [{ prefix: key.replace(/\*$/, ''), to: path.resolve(found.base, to.replace(/\*$/, '')) }];
     });
   }
   // The common default when nothing says: @/ is src/.
@@ -67,24 +101,35 @@ export function resolveImport(root: string, from: string, spec: string, aliases 
     if (alias) base = path.join(alias.to, spec.slice(alias.prefix.length));
   }
   if (!base) return undefined;
-  for (const ext of EXTENSIONS) {
-    const found = insideFile(root, base + ext);
-    if (found) return found;
+  // `./types.js` in TypeScript means ./types.ts.
+  const bases = /\.(m|c)?js$/.test(base) ? [base.replace(/\.(m|c)?js$/, ''), base] : [base];
+  for (const b of bases) {
+    for (const ext of EXTENSIONS) {
+      const found = insideFile(root, b + ext);
+      if (found) return found;
+    }
   }
   return undefined;
 }
 
-/** Reads the files a component's types come from (props.ts SourceLoader), inside the worktree only. */
-export function sourceLoader(root: string, from: string, aliases = aliasesOf(root)): SourceLoader {
+/**
+ * Reads the files a component's types come from (props.ts SourceLoader), inside the worktree only.
+ * One loader per preview opened: each file is read once (and the same answer is given for it, so
+ * its parse is kept too), however many props and re-exports lead to it.
+ */
+export function sourceLoader(root: string, from: string, aliases = aliasesOf(root), files = new Map<string, ReturnType<SourceLoader>>()): SourceLoader {
   return (spec) => {
     const file = resolveImport(root, from, spec, aliases);
     if (!file) return undefined;
+    if (files.has(file)) return files.get(file);
+    let found: ReturnType<SourceLoader>;
     try {
-      if (statSync(file).size > MAX_TYPES_FILE) return undefined;
-      return { src: readFileSync(file, 'utf8'), load: sourceLoader(root, file, aliases) };
+      found = statSync(file).size > MAX_TYPES_FILE ? undefined : { src: readFileSync(file, 'utf8'), load: sourceLoader(root, file, aliases, files) };
     } catch {
-      return undefined;
+      found = undefined;
     }
+    files.set(file, found);
+    return found;
   };
 }
 

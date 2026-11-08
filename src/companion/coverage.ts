@@ -485,6 +485,7 @@ export const PHONE: Record<Method, Side> = {
   'view.fetch': 'mac',
   // A live preview builds and runs code on the Mac for its own window's frame; the phone shows a plain card.
   'preview.open': 'mac',
+  'preview.snapshot': 'mac',
   'files.searchContent': 'mac',
   'files.searchNames': 'mac',
   'files.save': 'mac',

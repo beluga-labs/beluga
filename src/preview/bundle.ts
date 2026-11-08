@@ -73,10 +73,11 @@ export function entryOf(file: string, o: EntryOptions): string {
     return [
       `import Comp from ${JSON.stringify(file)};`,
       ...css,
-      ...(v5 ? [`import { mount, unmount } from 'svelte';`] : []),
+      // Svelte 5: drawn inside a small host whose props are state, so new props change it in place.
+      ...(v5 ? [`import { mount, unmount } from 'svelte';`, `import Host from 'beluga-svelte-host/Host.svelte';`, `import { makeHost } from 'beluga-svelte-host/state.svelte.js';`] : []),
       `window.__belugaPreview.mount({ kind: 'custom', Mod: { default: Comp }, pick: null, render(el, C, props) {`,
       ...(v5
-        ? [`  let inst = mount(C, { target: el, props });`, `  return { update(p) { unmount(inst); el.textContent = ''; inst = mount(C, { target: el, props: p }); }, unmount() { unmount(inst); } };`]
+        ? [`  const host = makeHost(props);`, `  const inst = mount(Host, { target: el, props: { C, host } });`, `  return { update(p) { host.props = p; }, unmount() { unmount(inst); } };`]
         : [`  const inst = new C({ target: el, props });`, `  return { update(p) { inst.$set(p); }, unmount() { inst.$destroy(); } };`]),
       `} });`,
     ].join('\n');
@@ -156,10 +157,11 @@ export function fencePlugin(root: string): Plugin {
 export async function makeBundler(root: string, file: string, rel: string, entry: EntryOptions): Promise<Bundler> {
   const esbuild = await loadEsbuild();
   const loader = Object.fromEntries(ASSETS.map((ext) => [ext, 'dataurl' as const]));
-  let ctx: BuildContext<{ write: false; metafile: true }> | undefined;
+  // The context as it's made: a dispose during its making waits for it, so none is left behind.
+  let ctx: Promise<BuildContext<{ write: false; metafile: true }>> | undefined;
   let disposed = false;
   const context = async (): Promise<BuildContext<{ write: false; metafile: true }>> =>
-    (ctx ??= await esbuild.context({
+    (ctx ??= esbuild.context({
       stdin: { contents: entryOf(file, entry), resolveDir: path.dirname(file), sourcefile: 'beluga-preview.tsx', loader: 'tsx' },
       absWorkingDir: root,
       bundle: true,
@@ -184,7 +186,7 @@ export async function makeBundler(root: string, file: string, rel: string, entry
       legalComments: 'none',
       charset: 'utf8',
       // The fence first: nothing outside the worktree is read by the others either.
-      plugins: [fencePlugin(root), tailwindPlugin(root), nextPlugin(), ...(entry.framework === 'vue' ? [vuePlugin(root)] : []), ...(entry.framework === 'svelte' ? [sveltePlugin(root)] : [])],
+      plugins: [fencePlugin(root), tailwindPlugin(root), nextPlugin(), ...(entry.framework === 'vue' ? [vuePlugin(root)] : []), ...(entry.framework === 'svelte' ? [sveltePlugin(root, entry.svelte ?? 5)] : [])],
     }));
   return {
     async build(): Promise<BuildResult> {
@@ -207,7 +209,7 @@ export async function makeBundler(root: string, file: string, rel: string, entry
       disposed = true;
       const c = ctx;
       ctx = undefined;
-      await c?.dispose().catch(() => undefined);
+      await c?.then((made) => made.dispose()).catch(() => undefined);
     },
   };
 }

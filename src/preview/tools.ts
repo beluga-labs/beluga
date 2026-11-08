@@ -28,7 +28,8 @@ export const TOOLS_JS = String.raw`(function () {
     for (var i = 0; i < document.styleSheets.length; i++) {
       try { rulesOf(document.styleSheets[i].cssRules, [], found); } catch (e) { /* not ours to read */ }
     }
-    var re = new RegExp(':(' + states.join('|') + ')(?![\\w-])', 'g');
+    // Longest first, so :focus-visible is never read as :focus.
+    var re = new RegExp(':(' + states.slice().sort(function (a, b) { return b.length - a.length; }).join('|') + ')(?![\\w-])', 'g');
     var text = '';
     found.forEach(function (f) {
       var sel = f.rule.selectorText;
@@ -51,7 +52,10 @@ export const TOOLS_JS = String.raw`(function () {
     }
   }
   function pin(states, ctx) {
-    pinned = states.filter(function (s) { return STATES.indexOf(s) >= 0; });
+    // Focus pinned is every kind of it: :focus, :focus-visible (keyboard focus, as shadcn styles it) and :focus-within.
+    var wanted = [];
+    states.forEach(function (s) { (s === 'focus' ? ['focus', 'focus-visible', 'focus-within'] : [s]).forEach(function (x) { if (wanted.indexOf(x) < 0) wanted.push(x); }); });
+    pinned = wanted.filter(function (s) { return STATES.indexOf(s) >= 0; });
     pinStyles(pinned);
     pinClasses(ctx.stage);
   }

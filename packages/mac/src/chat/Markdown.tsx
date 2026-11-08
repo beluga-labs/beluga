@@ -36,6 +36,7 @@ import { CodeRefBlock } from '../components/code/CodeRefBlock.js';
 import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
 import { PREVIEW_FENCE } from '@beluga/shared/preview/ref.js';
+import { PreviewNotice, usePreviewHere } from '../components/preview/PreviewNotice.js';
 import { linkPaths, parsePathHref } from '@beluga/shared/render/path-refs.js';
 import { PathLink } from './PathLink.js';
 import s from './chat.module.css';
@@ -151,6 +152,8 @@ const PreviewBlock = lazy(() => import('../components/preview/PreviewBlock.js').
 
 function MessagePreview({ code, local }: { code: string; local: boolean }) {
   const live = useContext(LiveText);
+  // Off (or a friend's, or no worktree here): a small card, and nothing of the previews loads.
+  if (!usePreviewHere(local).draws) return <PreviewNotice code={code} local={local} />;
   return (
     <Suspense fallback={null}>
       <PreviewBlock code={code} live={live} local={local} />

@@ -67,6 +67,20 @@ export function variantField(fields: readonly Field[]): Field | undefined {
   });
 }
 
+/** How wide a component is drawn: the chat's width, or a device's (shown smaller to fit). */
+export type ComponentWidth = 'fit' | 'phone' | 'tablet' | 'desktop';
+export const COMPONENT_WIDTHS: ReadonlyArray<{ readonly value: ComponentWidth; readonly label: string }> = [
+  { value: 'fit', label: 'Fit' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'tablet', label: 'Tablet' },
+  { value: 'desktop', label: 'Desktop' },
+];
+
+/** Use These Props: what your agent is asked, with the props as you have them now. */
+export function propsForAgent(name: string, file: string | undefined, values: Readonly<Record<string, unknown>>): string {
+  return [`Use these props for ${name}${file ? ` (${file})` : ''}: make them its sample or default props, and use them in its preview from now on.`, '', '```json', JSON.stringify(values, null, 2).slice(0, 6000), '```'].join('\n');
+}
+
 /** How tall a component's frame is, from what it says it needs. */
 export const FRAME = { min: 96, initial: 180, max: 560, maxExpanded: 920 } as const;
 

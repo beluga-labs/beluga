@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { EXPERIMENTS, EXPERIMENT_INFO, experimentOn, withExperiment } from '../src/shared/experiments.js';
 import { loopbackUrl, parsePreviewRef, previewTitle } from '../src/shared/preview/ref.js';
 import { buildProblem, packageOf } from '../src/preview/problems.js';
-import { stripCode } from '../src/companion/strip.js';
+import path from 'node:path';
+import { plainLine, stripCode } from '../src/companion/strip.js';
+import { withPictures } from '../src/companion/views.js';
 import { runInstructions } from '../src/agent/run-instructions.js';
 import { buildPreviewAppend } from '../src/agent/preview-prompt.js';
 
@@ -82,10 +84,19 @@ describe('experiments', () => {
 });
 
 describe('the phone', () => {
-  it('says a preview is on the Mac, in words, never as code', () => {
-    const view = stripCode('Here it is:\n\n```beluga-preview\nsrc/components/PriceCard.tsx\nprops: {"plan": "pro"}\n```\n\nDone.');
+  const said = 'Here it is:\n\n```beluga-preview\nsrc/components/PriceCard.tsx\nprops: {"plan": "pro"}\n```\n\nDone.';
+  const refs = (found: string | undefined) => ({ output: (p: string) => (found && p === found ? { kind: 'image' as const, ref: 'out:1', name: 'x.png' } : undefined) }) as unknown as Parameters<typeof withPictures>[1];
+
+  it('never gets the block as code', () => {
+    const view = stripCode(said);
     expect(view.code).toEqual([]);
-    expect(view.text).toContain('_A live preview of PriceCard.tsx, on your Mac._');
     expect(view.text).not.toContain('props');
+    expect(plainLine(said)).toBe('Here it is: A live preview of PriceCard.tsx, on your Mac Done.');
+  });
+
+  it('shows the newest picture of it where the Mac drew one, and says it in words where not', () => {
+    const still = path.join('/w', '.beluga', 'scratch', 'previews', 'src_components_PriceCard.tsx.png');
+    expect(withPictures(stripCode(said), refs(still), '/w').text).toContain('![A live preview of PriceCard.tsx, on your Mac](out:1)');
+    expect(withPictures(stripCode(said), refs(undefined), '/w').text).toContain('_A live preview of PriceCard.tsx, on your Mac._');
   });
 });

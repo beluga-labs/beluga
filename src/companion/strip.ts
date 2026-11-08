@@ -1,6 +1,6 @@
 import { isGraphFence } from '../shared/graph-spec.js';
 import { TASKS_FENCE } from '../shared/task-refs.js';
-import { PREVIEW_FENCE, parsePreviewRef, previewTitle } from '../shared/preview/ref.js';
+import { PREVIEW_FENCE, STILL_SCHEME, parsePreviewRef, previewTitle, stillName } from '../shared/preview/ref.js';
 import { isViewFence } from '../shared/view-spec.js';
 import { tableSpec } from '../shared/render/md-table.js';
 import { findTextTables, looksLikeTable, readTextTable } from '../shared/render/text-table.js';
@@ -117,7 +117,8 @@ export function stripCode(markdown: string): ProseView {
     // A live preview (Settings › Experimental) runs only on the Mac: the phone says what it is, in words.
     if (lang === PREVIEW_FENCE) {
       const ref = parsePreviewRef(lines.slice(i + 1, i + 1 + n).join('\n'));
-      out.push(`_A live preview${ref ? ` of ${previewTitle(ref)}` : ''}, on your Mac._`);
+      // Its newest picture where the Mac drew one (views.ts withPictures), else these words.
+      out.push(ref ? `![A live preview of ${previewTitle(ref)}, on your Mac](${STILL_SCHEME}${stillName(ref.target)})` : '_A live preview, on your Mac._');
       i = j;
       continue;
     }
@@ -146,6 +147,7 @@ export function plainLine(markdown: string, max = 300): string {
   const { text } = stripCode(markdown);
   const line = text
     .replace(/\[\[code(?::\d+)?\]\]/g, '(code)')
+    .replace(/!\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
     .replace(/[*_#>`]+/g, '')
     .replace(/\s+/g, ' ')
     .trim();

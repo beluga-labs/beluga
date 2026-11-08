@@ -115,6 +115,18 @@ export function parsePreviewRef(code: string): PreviewRef | undefined {
   return { target: withExport, ...(props ? { props } : {}), ...(css ? { css } : {}), ...(wrap ? { wrap } : {}), ...(size ? { size } : {}), ...(note ? { note } : {}) };
 }
 
+/** Where a preview's newest picture is kept, under the worktree's scratch folder (the phone shows it). */
+export const STILLS_DIR = 'previews';
+
+/** A preview's picture's file name: one per file or page, the newest one kept. */
+export function stillName(target: PreviewTarget): string {
+  const what = target.kind === 'url' ? target.url.replace(/^https?:\/\//, '') : target.file;
+  return `${what.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 120) || 'preview'}.png`;
+}
+
+/** How the phone's words point at a preview's picture (companion/views.ts resolves it, or says it in words). */
+export const STILL_SCHEME = 'beluga-still:';
+
 /** What a preview is called on its header: the component, the file, or the page. */
 export function previewTitle(ref: PreviewRef): string {
   const t = ref.target;

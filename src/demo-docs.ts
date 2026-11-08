@@ -463,9 +463,29 @@ export const DEMO_HERO_CSS = `.hero { font-family: -apple-system, system-ui, san
 .hero h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.02em; }
 .hero p { margin: 0 0 18px; color: #5d5775; }
 .hero-row { display: flex; align-items: center; gap: 16px; }
-.hero button { border: 0; border-radius: 999px; padding: 9px 18px; background: #2e2a3d; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.hero button { border: 0; border-radius: 999px; padding: 9px 18px; background: #2e2a3d; color: #fff; font: inherit; font-weight: 600; cursor: pointer; transition: background .2s; }
+.hero button:hover { background: #6a5acd; }
 .faces { display: flex; }
 .faces img { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; margin-left: -8px; }
 .bars { display: flex; align-items: flex-end; gap: 6px; height: 56px; margin-top: 22px; }
 .bars span { flex: 1; border-radius: 6px 6px 2px 2px; background: rgba(46, 42, 61, 0.16); }
+`;
+
+/** Two small components in one file, for a preview's component picker and All Components. */
+export const DEMO_BADGES_TSX = `type Tone = 'lavender' | 'mint' | 'peach';
+
+const colors: Record<Tone, string> = { lavender: '#efe9ff', mint: '#dff5ea', peach: '#ffe9dc' };
+
+export function Badge({ label, tone = 'lavender' }: { label: string; tone?: Tone }) {
+  return <span style={{ background: colors[tone], borderRadius: 999, padding: '4px 10px', font: '600 12px system-ui' }}>{label}</span>;
+}
+
+export function Stat({ value, caption }: { value: number; caption: string }) {
+  return (
+    <div style={{ font: '13px system-ui', color: '#5d5775' }}>
+      <strong style={{ display: 'block', font: '700 26px system-ui', color: '#2e2a3d' }}>{value}</strong>
+      {caption}
+    </div>
+  );
+}
 `;

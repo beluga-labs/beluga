@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { connect } from 'node:net';
 import os from 'node:os';
@@ -104,6 +104,7 @@ describe.skipIf(!haveReact)('a component, built and served', () => {
     expect(bundle).toContain('__belugaPreview.mount');
     expect(await (await fetch(`${base(out.url)}bundle.css`)).text()).toContain('border-radius:12px');
     expect((await fetch(`${base(out.url)}runtime.js`)).headers.get('content-type')).toContain('javascript');
+    expect(await (await fetch(`${base(out.url)}tools.js`)).text()).toContain('__belugaTools');
     // Sample pictures are drawn by the server, from their short names.
     const picture = await fetch(`${base(out.url)}picture/1-LP.svg`);
     expect(picture.headers.get('content-type')).toBe('image/svg+xml');
@@ -209,6 +210,28 @@ describe('the preview API', () => {
   it('refuses while the experiment is off, and for a worktree that’s gone', async () => {
     expect(await PREVIEW_HANDLERS['preview.open'](session([], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' } })).toMatchObject({ ok: false, kind: 'off' });
     expect(await PREVIEW_HANDLERS['preview.open'](session(['previews']), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' } })).toMatchObject({ ok: false, kind: 'missing' });
+  });
+
+  it('saves a picture in the worktree’s scratch folder, and the newest one per preview for the phone', async () => {
+    const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('rest of a png')]);
+    const png = `data:image/png;base64,${bytes.toString('base64')}`;
+    expect(await PREVIEW_HANDLERS['preview.snapshot'](session([], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' }, name: 'Card', png })).toMatchObject({ ok: false, kind: 'off' });
+    const saved = await PREVIEW_HANDLERS['preview.snapshot'](session(['previews'], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' }, name: 'Card · Card.tsx', png });
+    expect(saved).toMatchObject({ ok: true, path: expect.stringMatching(/^\.beluga\/scratch\/previews\/Card-Card\.tsx \d{4}-\d\d-\d\d \d\d\.\d\d\.\d\d\.png$/) });
+    const still = await PREVIEW_HANDLERS['preview.snapshot'](session(['previews'], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' }, name: 'Card', png, still: true });
+    expect(still).toMatchObject({ ok: true, path: '.beluga/scratch/previews/src_Card.tsx.png' });
+    expect(readFileSync(path.join(root, '.beluga', 'scratch', 'previews', 'src_Card.tsx.png')).equals(bytes)).toBe(true);
+    // Not a PNG: refused.
+    const fake = `data:image/png;base64,${Buffer.from('<svg/>').toString('base64')}`;
+    expect(await PREVIEW_HANDLERS['preview.snapshot'](session(['previews'], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' }, name: 'Card', png: fake })).toMatchObject({ ok: false, title: 'That isn’t a picture' });
+    // A link where the picture goes is never written through.
+    const victim = path.join(root, '..', `${path.basename(root)}-victim.txt`);
+    writeFileSync(victim, 'mine');
+    symlinkSync(victim, path.join(root, '.beluga', 'scratch', 'previews', 'src_Linked.tsx.png'));
+    expect(await PREVIEW_HANDLERS['preview.snapshot'](session(['previews'], root), 'ws', { target: { kind: 'component', file: 'src/Linked.tsx' }, name: 'Linked', png, still: true })).toMatchObject({ ok: false });
+    expect(readFileSync(victim, 'utf8')).toBe('mine');
+    rmSync(victim);
+    expect(await PREVIEW_HANDLERS['preview.snapshot'](session(['previews'], root), 'ws', { target: { kind: 'component', file: 'src/Card.tsx' }, name: 'Card', png: 'data:text/html;base64,PGI+' })).toMatchObject({ ok: false });
   });
 
   it('never frames a page off this computer', async () => {

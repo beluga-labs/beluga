@@ -26,13 +26,14 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
     title: 'Live previews',
     summary: 'See the React components and web pages your agent builds, drawn live in the chat, and play with them there.',
     changes: [
-      'Your agent can show a component it made or changed as a live preview in its answer.',
-      'Props are filled in from the component’s own types, and you can change each one beside it.',
-      'Component files in Files get a Preview view. A page on your own dev server or an HTML file shows too.',
-      'The preview follows the file: save it and the drawing updates in place.',
+      'Your agent can show a component it made or changed as a live preview in its answer: React, Vue or Svelte, a web page, or your own dev server.',
+      'Props are filled in from the component’s own types, and you can change each one beside it. What you change is kept.',
+      'Tailwind, Next.js and your app’s providers work as in the app; your agent can add a small preview wrapper file for the providers.',
+      'Each preview can pin hover and focus, switch to a dark canvas or a phone’s width, check accessibility and save a picture.',
+      'Component files in Files get a Preview view. The preview follows the file: save it and the drawing updates in place.',
     ],
     keywords: 'preview component react render storybook page html props live',
-    cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away.',
+    cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away, and while this is off nothing of it runs at all.',
   },
 };
 

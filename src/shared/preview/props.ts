@@ -155,7 +155,7 @@ class TypeReader {
     if (!imported) return undefined;
     const other = this.load(imported.from);
     if (!other) return undefined;
-    return new TypeReader(other.src, other.load, this.files + 1).exported(imported.name, depth + 1);
+    return readerOf(other, this.files + 1).exported(imported.name, depth + 1);
   }
 
   /** A type this file exports: its own, one it re-exports, or one from a file it re-exports whole. */
@@ -167,7 +167,7 @@ class TypeReader {
       this.imports ??= importsOf(this.src);
       for (const from of this.imports.all) {
         const other = this.load(from);
-        const shape = other ? new TypeReader(other.src, other.load, this.files + 1).exported(name, depth + 1) : undefined;
+        const shape = other ? readerOf(other, this.files + 1).exported(name, depth + 1) : undefined;
         if (shape && shape.kind !== 'unknown') return shape;
       }
     }
@@ -454,6 +454,14 @@ class TypeReader {
     lx.eat(']');
     return { kind: 'tuple', of };
   }
+}
+
+/** One reader per file a loader read (the loader gives the same answer for the same file): each parsed once. */
+const readers = new WeakMap<object, TypeReader>();
+function readerOf(file: { readonly src: string; readonly load: SourceLoader }, files: number): TypeReader {
+  let reader = readers.get(file);
+  if (!reader) readers.set(file, (reader = new TypeReader(file.src, file.load, files)));
+  return reader;
 }
 
 /**

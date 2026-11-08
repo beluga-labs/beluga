@@ -574,3 +574,70 @@ textarea.field {
 .jsonBad:focus {
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 70%, transparent);
 }
+
+/* A dark canvas, for a component's dark look. */
+.stageDark,
+:global([data-theme='dark']) .stageDark {
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%) 0 0 / 16px 16px,
+    #1e1c26;
+}
+.stageDark .skeleton {
+  color: #a49fbb;
+}
+.titleChevron {
+  margin-left: 4px;
+  color: var(--text-3);
+  vertical-align: 1px;
+}
+button.title {
+  display: inline-flex;
+  align-items: center;
+}
+.pinChip {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+/* What the accessibility check found. */
+.audit {
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg-sunken) 35%, var(--bg));
+}
+.issues {
+  max-height: 220px;
+  margin: 0;
+  padding: 4px 6px 8px;
+  overflow: auto;
+  list-style: none;
+}
+.issue {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.issue:hover {
+  background: var(--bg-hover);
+}
+.issue strong {
+  font-weight: 550;
+}
+.issue span {
+  color: var(--text-3);
+}

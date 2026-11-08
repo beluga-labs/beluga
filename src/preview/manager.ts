@@ -13,6 +13,7 @@ import type { PreviewTarget } from '../shared/preview/ref.js';
 import { PICTURE, placeholderSvg, sampleProps } from '../shared/preview/samples.js';
 import type { ComponentInfo } from '../shared/preview/shape.js';
 import { type Bundle, type Bundler, makeBundler, stopEsbuild } from './bundle.js';
+import { stopCompilers } from './compilers.js';
 import { RELOAD_JS, RUNTIME_CSS, RUNTIME_JS } from './runtime.js';
 import { TOOLS_JS } from './tools.js';
 import { previewsStarted } from './off.js';
@@ -270,6 +271,8 @@ export class PreviewManager {
   private readonly byKey = new Map<string, Live>();
   /** Components being set up: a second open of the same one (a chat block and Files) waits for the first. */
   private readonly starting = new Map<string, Promise<LiveComponent>>();
+  /** Closed (the experiment turned off, the daemon stopping): nothing starts again. */
+  private closed = false;
   private timers?: { sweep: NodeJS.Timeout; alive: NodeJS.Timeout };
 
   constructor(
@@ -279,6 +282,7 @@ export class PreviewManager {
 
   /** A preview of `spec`, in the worktree at `root`: built (or the one built already) and where its frame loads it. */
   async open(root: string, spec: OpenSpec): Promise<PreviewResult> {
+    if (this.closed) return problem('off', 'Live previews are off', 'Turn them on in Settings › Experimental.');
     const t = spec.target;
     if (t.kind === 'url') {
       const trouble = await probePage(t.url, this.opts.fetcher);
@@ -291,6 +295,7 @@ export class PreviewManager {
       const key = `html\0${found.abs}`;
       const live = (this.byKey.get(key) as LivePage | undefined) ?? this.keep(new LivePage(key, root, found.abs));
       live.lastUsed = Date.now();
+      if (this.closed) return problem('off', 'Live previews are off', 'Turn them on in Settings › Experimental.');
       return { ok: true, id: live.id, url: `${await this.server.origin()}/p/${live.id}/`, kind: 'html', version: live.version };
     }
     const info = await stat(found.abs);
@@ -328,6 +333,8 @@ export class PreviewManager {
       live = await start;
     }
     await live.settled();
+    // Closed meanwhile: nothing is handed out (handing out an address would start the server again).
+    if (this.closed) return problem('off', 'Live previews are off', 'Turn them on in Settings › Experimental.');
     live.lastUsed = Date.now();
     live.props = sampleProps(comp.props, spec.props);
     if (!live.bundle && live.problem) return live.problem;
@@ -345,6 +352,11 @@ export class PreviewManager {
   }
 
   private keep<T extends Live>(live: T): T {
+    // Closed while it was being made: let go at once, never kept.
+    if (this.closed) {
+      void live.dispose();
+      return live;
+    }
     this.lives.set(live.id, live);
     this.byKey.set(live.key, live);
     this.server.add(live.id, live);
@@ -372,6 +384,7 @@ export class PreviewManager {
   private async rest(): Promise<void> {
     this.stopTimers();
     this.server.close();
+    stopCompilers();
     await stopEsbuild();
   }
 
@@ -398,6 +411,9 @@ export class PreviewManager {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    // Builds under way finish first (keep() lets them go), then everything is let go.
+    await Promise.allSettled([...this.starting.values()]);
     for (const live of [...this.lives.values()]) await this.drop(live);
     await this.rest();
   }

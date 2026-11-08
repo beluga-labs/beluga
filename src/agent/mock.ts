@@ -130,6 +130,12 @@ const SCRIPTS: readonly Script[] = [
     ].join('\n'),
   },
   {
+    // Two components in one file: the preview's picker and All Components.
+    match: /\bbadges?\b/i,
+    steps: ['Read src/components/Badges.tsx'],
+    answer: ['Badges.tsx has two small pieces, a Badge and a Stat:', '', '```beluga-preview', 'src/components/Badges.tsx', '```'].join('\n'),
+  },
+  {
     // A component drawn live in the answer (Settings › Experimental › Live previews).
     match: /\bpreview\b|show (me )?the hero/i,
     steps: ['Read src/components/Hero.tsx', 'Edit src/components/Hero.tsx'],

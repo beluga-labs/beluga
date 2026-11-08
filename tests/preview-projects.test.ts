@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PreviewManager } from '../src/preview/manager.js';
 import { PreviewServer } from '../src/preview/server.js';
-import { aliasesOf, findWrapper, isTailwindEntry, resolveImport, sourceLoader } from '../src/preview/project.js';
+import { aliasesOf, findWrapper, isTailwindEntry, resolveImport, sourceLoader, stripJsonc } from '../src/preview/project.js';
 import { componentsOf } from '../src/shared/preview/components.js';
 import { providerNeeded, renderProblem } from '../src/shared/preview/opened.js';
 import { parsePreviewRef } from '../src/shared/preview/ref.js';
@@ -43,6 +43,29 @@ describe('types from the project’s other files', () => {
     expect(resolveImport(root, path.join(root, 'src', 'Card.tsx'), '../../outside')).toBeUndefined();
     const card = componentsOf(path.join(root, 'src', 'Card.tsx'), "import type { User } from './lib/types';\nimport { type Tone } from '~/lib';\nexport default function Card({ user, tone }: { user: User; tone: Tone }) { return null }", sourceLoader(root, path.join(root, 'src', 'Card.tsx')));
     expect(props(card[0]!.props)).toEqual({ user: '{name,email}', tone: '"sky"|"rose"' });
+  });
+
+  it('reads a Next.js tsconfig (globs and aliases with stars, comments, trailing commas), extends, and .js imports', () => {
+    expect(JSON.parse(stripJsonc('{ // c\n "compilerOptions": { /* x */ "paths": { "@/*": ["./*"], }, },\n "include": ["**/*.ts", "**/*.tsx"], }'))).toEqual({ compilerOptions: { paths: { '@/*': ['./*'] } }, include: ['**/*.ts', '**/*.tsx'] });
+    const next = mkdtempSync(path.join(os.tmpdir(), 'beluga-next-'));
+    try {
+      mkdirSync(path.join(next, 'lib'));
+      writeFileSync(path.join(next, 'tsconfig.base.json'), '{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }');
+      writeFileSync(path.join(next, 'tsconfig.json'), '{ "extends": "./tsconfig.base.json", "include": ["**/*.ts"] }');
+      writeFileSync(path.join(next, 'lib', 'user.ts'), 'export interface User { name: string }');
+      expect(aliasesOf(next).map((a) => a.prefix)).toEqual(['@/']);
+      expect(resolveImport(next, path.join(next, 'page.tsx'), '@/lib/user')).toMatch(/lib\/user\.ts$/);
+      expect(resolveImport(next, path.join(next, 'page.tsx'), './lib/user.js')).toMatch(/lib\/user\.ts$/);
+    } finally {
+      rmSync(next, { recursive: true, force: true });
+    }
+  });
+
+  it('reads each file once however many types lead to it', () => {
+    const load = sourceLoader(root, path.join(root, 'src', 'Card.tsx'));
+    // The same answer, so the type reader's parse of it is kept too.
+    expect(load('./lib/types')).toBeDefined();
+    expect(load('./lib/types')).toBe(load('./lib/types'));
   });
 
   it('leaves them unknown without a way to read files (the window)', () => {
@@ -110,6 +133,13 @@ describe.skipIf(!haveReact)('built with the project', () => {
     if (!out.ok) throw new Error(out.title);
     expect(out.component?.wrapper).toBe('preview-wrapper.tsx');
     expect(await bundleOf(out.url)).toContain('ThemeProvider');
+  });
+
+  it('gives each file its own next/font fonts', async () => {
+    writeFileSync(path.join(root, 'src', 'fonts.ts'), "import { Geist } from 'next/font/google';\nexport const geist = Geist({ subsets: ['latin'] });\n");
+    writeFileSync(path.join(root, 'src', 'TwoFonts.tsx'), "import { Inter } from 'next/font/google';\nimport { geist } from './fonts';\nconst inter = Inter({});\nexport default function TwoFonts() { return <b className={inter.className + geist.className}>x</b> }\n");
+    const out = await manager.open(root, { target: { kind: 'component', file: 'src/TwoFonts.tsx' } });
+    if (!out.ok) throw new Error(`${out.title}\n${out.forClaude}`);
   });
 
   it('builds a Next.js component without Next, its modules standing in', async () => {

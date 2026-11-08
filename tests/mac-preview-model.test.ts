@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addEvent, askToFix, controlOf, frameHeight, mergeProps, pageScale, resizeGrid, variantField, FRAME } from '../packages/mac/src/components/preview/preview-model.js';
+import { addEvent, askToFix, controlOf, frameHeight, mergeProps, pageScale, propsForAgent, resizeGrid, variantField, FRAME } from '../packages/mac/src/components/preview/preview-model.js';
+import { MAX_KEPT, keptKey, readKept, withKept, writeKept } from '../packages/mac/src/components/preview/kept-props.js';
 import type { Field } from '../src/shared/preview/shape.js';
 import { fnMark, placeholderImage } from '../src/shared/preview/samples.js';
 
@@ -73,5 +74,43 @@ describe('a live preview’s frame', () => {
     expect(text).toContain('Card stopped while drawing');
     expect(text).toContain("reading 'map'");
     expect(text).toContain('"items": []');
+  });
+});
+
+describe('props you changed are kept', () => {
+  const memory = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), size: () => m.size };
+  };
+  const fields = [f('title', { kind: 'string' }), f('tone', choices('mint', 'peach')), f('gone', { kind: 'string' })];
+
+  it('keeps only what you changed, and lays it over a preview’s own props', () => {
+    const store = memory();
+    const key = keptKey('ws1', { target: { kind: 'component', file: 'src/Hero.tsx' } });
+    writeKept(key, { title: 'Mine', tone: 'mint' }, new Set(['title', 'icon']), store);
+    const kept = readKept(key, store);
+    expect(kept).toEqual({ values: { title: 'Mine' }, touched: ['title', 'icon'] });
+    // `icon` was cleared (the component's own default), `gone` isn't a prop any more.
+    const back = withKept(fields, { title: 'Sample', tone: 'peach', icon: 'x' } as Record<string, unknown>, kept);
+    expect(back.values).toEqual({ title: 'Mine', tone: 'peach', icon: 'x' });
+    expect([...back.touched]).toEqual(['title']);
+  });
+
+  it('forgets a preview you reset, and keeps at most the newest MAX_KEPT', () => {
+    const store = memory();
+    writeKept('a', { t: 1 }, new Set(['t']), store);
+    writeKept('a', {}, new Set(), store);
+    expect(readKept('a', store)).toBeUndefined();
+    for (let i = 0; i < MAX_KEPT + 5; i++) writeKept(`k${i}`, { t: i }, new Set(['t']), store);
+    expect(readKept('k0', store)).toBeUndefined();
+    expect(readKept(`k${MAX_KEPT + 4}`, store)?.values).toEqual({ t: MAX_KEPT + 4 });
+  });
+});
+
+describe('Use These Props', () => {
+  it('asks your agent to adopt them, with the props as they are now', () => {
+    const text = propsForAgent('Hero', 'src/components/Hero.tsx', { title: 'Ship it' });
+    expect(text).toContain('Use these props for Hero (src/components/Hero.tsx)');
+    expect(text).toContain('"title": "Ship it"');
   });
 });

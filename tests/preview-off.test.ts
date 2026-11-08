@@ -20,10 +20,25 @@ describe('off, nothing of previews loads', () => {
   });
 
   it('the window loads the block, its controls and the props reader only when a preview shows', () => {
-    const eager = /^import [^;]*from '[^']*(components\/preview\/|shared\/preview\/(props|samples|lexer|opened))/m;
+    // Only the small notice (PreviewNotice.tsx) is there from the start, never the previews themselves.
+    const eager = /^import [^;]*from '[^']*(components\/preview\/(?!PreviewNotice\.js)|shared\/preview\/(props|samples|lexer|opened|components|sfc))/m;
     for (const file of ['packages/mac/src/chat/Markdown.tsx', 'packages/mac/src/views/reader/component-preview.tsx', 'packages/mac/src/views/reader/FileFocus.tsx', 'packages/mac/src/layout/panel/FilesTab.tsx']) {
       expect(read(file), file).not.toMatch(eager);
     }
+  });
+
+  it('a frame loads its tools (pinned states, the check, pictures) only the first time one is used', async () => {
+    const { RUNTIME_JS } = await import('../src/preview/runtime.js');
+    expect(RUNTIME_JS).not.toContain('getComputedStyle');
+    expect(RUNTIME_JS).toMatch(/tools\.src = 'tools\.js'/);
+    expect(read('src/preview/manager.ts')).not.toMatch(/<script src="tools\.js">/);
+  });
+
+    it('the notice a chat shows while it’s off loads nothing of the previews', () => {
+    const notice = read('packages/mac/src/components/preview/PreviewNotice.tsx');
+    expect(notice).not.toMatch(/from '\.\/(PreviewBlock|use-preview|PropControls|PreviewParts|kept-props|preview-model)\.js'/);
+    expect(notice).not.toMatch(/shared\/preview\/(props|samples|opened|components)/);
+    expect(read('packages/mac/src/chat/Markdown.tsx')).toMatch(/if \(!usePreviewHere\(local\)\.draws\) return <PreviewNotice/);
   });
 
   it('your agent is told nothing while it’s off', () => {
