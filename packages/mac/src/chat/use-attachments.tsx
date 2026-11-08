@@ -2,7 +2,9 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../components/Icon.js';
 import { inApp, webServed } from '../lib/boot.js';
-import { toast, useApi, useBeluga, useScopedKey } from '../lib/beluga.js';
+import { toast, useApi, useBeluga, useMachine, useScopedKey } from '../lib/beluga.js';
+import { cx } from '../components/ui.js';
+import { type Sending, sendFiles, sentShare } from './attachments.js';
 import { type Box, MAX_DROPPED, dropHits, droppedFiles, sameBox } from './drop-model.js';
 import { imageLinksIn } from '@beluga/shared/attachment-links.js';
 import { type RefKey, boxRef, plainRefs, refKey, referencedImages, withoutRef } from './image-refs.js';
@@ -123,6 +125,10 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     setFilesState(next);
   };
   const [dropping, setDropping] = useState(false);
+  // A chat on one of your computers (BLG-793): files dropped from this Mac go there, this one on its way.
+  const machine = useMachine();
+  const { home } = useBeluga();
+  const [sending, setSending] = useState<Sending>();
 
   /** The number image `n` has in this box. */
   const shownOf = (n: number): number => numbersOf(memo).get(n) ?? n;
@@ -211,8 +217,34 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     box.current?.focus();
   };
 
+  /**
+   * Paths dropped from Finder on a chat that runs on one of your computers (BLG-793): the files
+   * are on this Mac, so each goes there first, then waits by its path there.
+   */
+  const sendThere = async (there: string, paths: readonly string[]): Promise<void> => {
+    let infos: readonly PathInfo[];
+    try {
+      infos = await home.call('local.statFiles', paths.slice(0, MAX_DROPPED));
+    } catch (err) {
+      return toast(client, `Couldn't add what you dropped: ${errorText(err)}`, 'error');
+    }
+    const { files: picked, skipped } = droppedFiles(infos);
+    if (skipped) toast(client, picked.length ? `Only files go with a message: ${skipped} left out` : 'Only files go with a message (not folders)', 'warn');
+    if (!picked.length) return;
+    const arrived = await sendFiles(
+      (machine, n, file, off) => home.call('machines.upload.send', machine, n, file, off),
+      there,
+      picked,
+      setSending,
+      (f, err) => toast(client, `Couldn't send ${f.name}: ${errorText(err)}`, 'error'),
+    );
+    if (arrived.length) await addPaths(arrived);
+    box.current?.focus();
+  };
+
   /** Paths dropped from Finder: the files among them go as a paste of their paths would. */
   const dropPaths = async (paths: readonly string[]): Promise<void> => {
+    if (machine) return sendThere(machine, paths);
     let infos: readonly PathInfo[];
     try {
       infos = await api.local.statFiles(paths.slice(0, MAX_DROPPED));
@@ -387,6 +419,15 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
               </button>
             </div>
           ))}
+        </div>
+      ) : null}
+      {sending ? (
+        <div className={s.fileChips} role="status" aria-label={`Sending ${sending.name}`}>
+          <span className={cx(s.fileChip, s.fileSending)} title={`Sending ${sending.name} to the computer this chat runs on`}>
+            <Icon name="up" size={11} />
+            <span className={s.fileName}>{sending.name}</span>
+            <span className={s.fileProgress}>{sentShare(sending)}</span>
+          </span>
         </div>
       ) : null}
       {files.length ? (

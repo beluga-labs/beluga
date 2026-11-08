@@ -574,6 +574,10 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.share': 'refuse',
   'machines.unshare': 'refuse',
   'machines.env.here': 'drive',
+  // Your app's files for a chat there (BLG-793): written into its uploads.
+  'machines.upload.put': 'drive',
+  // Refused: it reads this computer's files to send them to another computer of yours; your app on this computer does that itself.
+  'machines.upload.send': 'refuse',
   'machines.env.receive': 'drive',
   'machines.env.decide': 'refuse',
   'machines.env.always': 'refuse',

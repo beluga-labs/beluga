@@ -537,6 +537,8 @@ export const PHONE: Record<Method, Side> = {
   'machines.share': 'mac',
   'machines.unshare': 'mac',
   'machines.env.here': 'mac',
+  'machines.upload.put': 'mac',
+  'machines.upload.send': 'mac',
   'machines.env.receive': 'mac',
   'machines.env.decide': 'mac',
   'machines.env.always': 'mac',

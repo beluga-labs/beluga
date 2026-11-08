@@ -5,6 +5,7 @@ import { machinesOf, needMachines } from '../machines/registry.js';
 import { readyingOf } from '../machines/ready.js';
 import { runOnHere } from '../machines/run-on.js';
 import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
+import { receivePiece, sendPiece } from '../machines/uploads.js';
 import { portsByFolder } from '../workspaces/ports.js';
 import { type MachinePort, type MachinePorts, needForwarder } from '../machines/forward.js';
 
@@ -54,6 +55,8 @@ export const MACHINE_HANDLERS = {
   'machines.forwards': (s) => s.store.getState().forwards,
   'machines.share': (s, wsId, port) => needForwarder(s).share(wsId, port),
   'machines.unshare': (s, wsId, port) => needForwarder(s).unshare(wsId, port),
+  'machines.upload.put': (s, id, piece) => receivePiece(s, id, piece),
+  'machines.upload.send': (s, id, n, file, off) => sendPiece((method, args) => needMachines(s).door.call(id, method, args), n, file, off),
   'machines.env.here': (s, wsId) => envHere(s.store.getState(), wsId),
   'machines.env.receive': (s, wsIds, files) => receiveEnv(s.store.getState(), wsIds, files),
   'machines.env.decide': (s, askId, choice) => needEnvSend(s).decide(askId, choice),

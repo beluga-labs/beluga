@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MACHINE_ICONS } from '../shared/settings-schema.js';
 import { MAX_ENV_SEND_BYTES, MAX_ENV_SEND_FILES } from '../shared/env-send.js';
+import { MAX_UPLOAD_BYTES, UPLOAD_PIECE } from '../shared/uploads.js';
 
 /**
  * Your devices and computers in the API (BLG-774, src/machines): a computer opening a pairing for
@@ -58,6 +59,15 @@ export const MACHINE_API = {
       z.array(z.object({ path: z.string().min(1).max(400), data: z.string().max(Math.ceil((MAX_ENV_SEND_BYTES * 4) / 3) + 4) }).strict()).max(MAX_ENV_SEND_FILES),
     ]),
   },
+  // Files you add to a chat on a computer (BLG-793). On the computer: one piece of a file your app sends → { received }, or for the last { path, name, size, image } (in ~/.beluga/uploads there).
+  'machines.upload.put': {
+    args: z.tuple([
+      z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      z.object({ name: z.string().min(1).max(200), mime: z.string().max(100), size: z.number().int().min(0).max(MAX_UPLOAD_BYTES), off: z.number().int().min(0), b64: z.string().max(Math.ceil(UPLOAD_PIECE / 3) * 4 + 4), eof: z.boolean() }).strict(),
+    ]),
+  },
+  // In the app: send the piece of a file on this Mac at `off` to computer `id`, upload `n` → { sent, total, name, path?, image? } (path: where it is there, once all of it is).
+  'machines.upload.send': { args: z.tuple([deviceId, z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), z.string().min(1).max(4096), z.number().int().min(0)]) },
   // On a computer: every worktree's listening ports (BLG-802), for your app to forward → [{ workspaceId, port, name }].
   'machines.ports': { args: z.tuple([]) },
   // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].

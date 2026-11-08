@@ -255,6 +255,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.forwards` | ✓ a worktree on a computer › the panel's Background tab › Ports: each server with Open at localhost:<port>, and which port when the same was taken |
 | `machines.share` | ✓ a worktree on a computer › the panel's Background tab › Share a Port from This Mac: a port and Share |
 | `machines.unshare` | ✓ a worktree on a computer › Background › a port shared from this Mac › Unshare |
+| `machines.upload.put` | – asked by your app over a computer's link (BLG-793): one piece of a file you dropped on a chat there, written into its uploads |
+| `machines.upload.send` | ✓ a file dropped from Finder on a chat that runs on a computer: sent there a piece at a time, its progress in the box (BLG-793) |
 | `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
 | `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
 | `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |
