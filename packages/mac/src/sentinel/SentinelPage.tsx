@@ -9,6 +9,7 @@ import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Empty, IconButton, Tip, cx } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { RunsOnLabel } from '../chat/RunsOn.js';
+import { useSentinelMoveTo } from './move-to.js';
 import { useActions } from '../lib/actions.js';
 import { AskPanel, SentinelChat } from './SentinelChat.js';
 import { Attention } from '../chat/Attention.js';
@@ -124,10 +125,13 @@ function Header({ item, save }: { item: Sentinel; save: (patch: SentinelPatch) =
     const next = v.replace(/\s+/g, ' ').trim();
     if (next && next !== item.name) save({ name: next });
   });
+  // Move To ▸ another computer of yours (BLG-807): Pause and Move To while it runs.
+  const moveTo = useSentinelMoveTo(item);
   const more: ActionItem[] = [
     { label: 'Duplicate', icon: 'copy', onSelect: () => void a.duplicate(item) },
     { label: 'Copy as JSON', icon: 'copy', onSelect: () => a.copyJson(item) },
     ...(folder ? [{ label: 'Open the Runs Folder', icon: 'folder' as const, onSelect: () => a.openFolder(folder) }] : []),
+    ...(moveTo ? [moveTo] : []),
     { label: 'Delete…', danger: true, separate: true, onSelect: () => a.remove(item, () => a.openList()) },
   ];
   return (

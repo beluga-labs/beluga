@@ -619,6 +619,12 @@ export const PHONE: Record<Method, Side> = {
   // Testing a sentinel's sources is setting it up: the Mac's.
   'sentinel.test': 'mac',
   'sentinel.pause': 'phone',
+  'sentinel.moveCheck': 'mac',
+  'sentinel.movePack': 'mac',
+  'sentinel.moveChunk': 'mac',
+  'sentinel.moveReceive': 'mac',
+  'sentinel.moveLand': 'mac',
+  'sentinel.moveDrop': 'mac',
   'sentinel.runs': 'phone',
   'sentinel.runGet': 'phone',
   'sentinel.decide': 'phone',

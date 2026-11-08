@@ -1,17 +1,12 @@
 import type { Plan } from '@beluga/core/plans/model.js';
 import type { PlanView } from '@beluga/core/plans/progress.js';
-import type { SocketClient } from '@beluga/ipc/socket-client.js';
-import type { MachineView } from '@beluga/machines/machines.js';
-import { MoveAsk, type MovePlace, movePlan } from '@beluga/machines/move-plan.js';
-import { sameRepo } from '@beluga/shared/repo-key.js';
+import { MoveAsk, movePlan } from '@beluga/machines/move-plan.js';
 import type { ActionItem } from '../components/SpecMenu.js';
 import { toast, useBeluga } from '../lib/beluga.js';
 import { useActions } from '../lib/actions.js';
-import { thisComputer, upFirst } from '../lib/os-words.js';
 import { openSheet } from '../lib/sheets.js';
+import { type MoveTarget, useMoveTargets } from '../machines/move-targets.js';
 import { onMachine } from '../machines/pane-model.js';
-import { clientOf, projectReadyOn } from '../machines/start-there.js';
-import { useMachines } from '../machines/use-machines.js';
 import { stepSays } from './use-plans.js';
 
 /**
@@ -25,53 +20,27 @@ interface Step {
   readonly run: (what: string, doing: string, task: () => Promise<unknown>, done?: string) => Promise<boolean>;
 }
 
-interface Target {
-  readonly place: MovePlace;
-  /** The computer (none: This Mac). */
-  readonly machine?: MachineView;
-}
-
 /** Whether anything in the plan runs right now (its agents mid-turn): Move To becomes Pause and Move To. */
 export const somethingRuns = (view: PlanView): boolean => view.active.some((t) => t.state === 'running' || t.state === 'asking') || view.milestones.some((m) => m.agentNow);
 
-/** A project on This Mac: the one with the same origin, else the same name. */
-async function projectHere(home: SocketClient, project: { readonly name: string; readonly origin?: string }): Promise<string> {
-  const mine = home.store.getState().projects.filter((p) => p.root && !p.error);
-  if (project.origin) {
-    for (const p of mine) {
-      const origin = (await home.call('projects.origin', p.id).catch(() => null)) as string | null;
-      if (origin && sameRepo(origin, project.origin)) return p.id;
-    }
-  }
-  const named = mine.find((p) => p.name === project.name);
-  if (named) return named.id;
-  throw new Error(`${upFirst(thisComputer())} doesn’t have ${project.name}: add it, then move the plan again`);
-}
-
 export function useMoveTo(plan: Plan, view: PlanView, step: Step): ActionItem | undefined {
-  const { home, client, machine, ui } = useBeluga();
-  const machines = useMachines(home);
+  const { home } = useBeluga();
   const actions = useActions();
-  if (!machines.length || plan.movedTo || plan.status === 'done') return undefined;
-  const hereName = upFirst(thisComputer());
-  const fromPlace: MovePlace = machine ? { id: machine, name: machines.find((m) => m.id === machine)?.name ?? 'that computer' } : { name: hereName };
-  const targets: Target[] = [
-    ...(machine ? [{ place: { name: hereName } }] : []),
-    ...machines.filter((m) => m.id !== machine && m.status !== 'offline' && !m.readOnly).map((m) => ({ place: { id: m.id, name: m.name }, machine: m })),
-  ];
+  const where = useMoveTargets();
+  if (where.none || plan.movedTo || plan.status === 'done') return undefined;
   const runs = somethingRuns(view);
 
-  const go = (target: Target, opts: { readonly pause?: boolean; readonly commit?: boolean }): void =>
+  const go = (target: MoveTarget, opts: { readonly pause?: boolean; readonly commit?: boolean }): void =>
     void step.run(`move the plan to ${target.place.name}`, `Moving to ${target.place.name}…`, async () => {
-      const to = target.machine ? await clientOf(target.machine, { home, windowUi: ui.windowStore }) : home;
+      const to = await where.clientFor(target);
       try {
         const moved = await movePlan({
-          from: client,
+          from: where.fromClient,
           to,
           planId: plan.id,
-          fromPlace,
+          fromPlace: where.from,
           toPlace: target.place,
-          projectThere: (project) => (target.machine ? projectReadyOn(to, target.machine, project, () => stepSays(plan.id, `Getting ${project.name} ready on ${target.place.name}…`)) : projectHere(home, project)),
+          projectThere: (project) => where.projectOn(target, to, project, (words) => stepSays(plan.id, words)),
           ...opts,
           onStep: (_s, words) => stepSays(plan.id, words),
         });
@@ -93,8 +62,8 @@ export function useMoveTo(plan: Plan, view: PlanView, step: Step): ActionItem | 
     label: runs ? 'Pause and Move To' : 'Move To',
     hint: runs ? 'Its agents finish their turn first' : 'Its chat, tasks and progress go with it',
     separate: true,
-    disabled: !targets.length,
-    submenu: targets.map((t) => ({ label: t.place.name, onSelect: () => go(t, runs ? { pause: true } : {}) })),
+    disabled: !where.targets.length,
+    submenu: where.targets.map((t) => ({ label: t.place.name, onSelect: () => go(t, runs ? { pause: true } : {}) })),
     onSelect: () => undefined,
   };
 }

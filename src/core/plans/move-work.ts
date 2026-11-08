@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { carryProofFiles, prepareMoved } from '../board/moved.js';
+import { MoveTransfers } from '../move-transfer.js';
 import type { Actor, Issue } from '../board/model.js';
 import type { Board } from '../board/board.js';
 import type { LogItem, Store } from '../store.js';
@@ -33,13 +33,6 @@ export interface PlanMoverDeps {
 
 const WS = 'ws:';
 
-/** A package goes over the link in pieces this big (a frame holds 8 MB). */
-export const MOVE_CHUNK = 2 * 1024 * 1024;
-/** And at most this big in all. */
-export const MAX_MOVE = 160 * 1024 * 1024;
-/** A package not fetched (or not landed) within this long is let go. */
-const KEEP_MS = 15 * 60_000;
-
 /** What a landing package must look like (it's from your own computer, but it's checked like any input). */
 const Package = z
   .object({
@@ -54,60 +47,28 @@ const Package = z
   .passthrough();
 
 export class PlanMover {
-  /** Packages going out (by token), and coming in (their pieces so far). */
-  private readonly out = new Map<string, { readonly text: string; readonly at: number }>();
-  private readonly incoming = new Map<string, { readonly parts: string[]; readonly total: number; readonly at: number }>();
+  private readonly transfers: MoveTransfers;
 
-  constructor(private readonly deps: PlanMoverDeps) {}
+  constructor(private readonly deps: PlanMoverDeps) {
+    this.transfers = new MoveTransfers(deps.now);
+  }
 
   /** Packed to go, kept for your app to fetch in pieces → its token and how many pieces. */
   async packOut(id: string, opts: { readonly commit?: boolean; readonly to: string }): Promise<{ readonly token: string; readonly chunks: number }> {
-    this.forget();
-    const text = JSON.stringify(await this.pack(id, opts));
-    if (text.length > MAX_MOVE) throw new Error('This plan is too big to move over the link');
-    const token = randomUUID();
-    this.out.set(token, { text, at: this.now() });
-    return { token, chunks: Math.max(1, Math.ceil(text.length / MOVE_CHUNK)) };
+    return this.transfers.send(await this.pack(id, opts), 'This plan');
   }
 
   /** One piece of a package going out (the last one lets it go). */
-  chunk(token: string, n: number): string {
-    const p = this.out.get(token);
-    if (!p) throw new Error('That move isn’t ready here any more: move it again');
-    const last = Math.max(1, Math.ceil(p.text.length / MOVE_CHUNK)) - 1;
-    if (n === last) this.out.delete(token);
-    return p.text.slice(n * MOVE_CHUNK, (n + 1) * MOVE_CHUNK);
-  }
+  chunk = (token: string, n: number): string => this.transfers.chunk(token, n);
 
   /** One piece of a package coming in. */
-  receive(token: string, n: number, total: number, data: string): void {
-    this.forget();
-    const p = this.incoming.get(token) ?? { parts: [], total, at: this.now() };
-    if (p.total !== total || n >= total) throw new Error('That piece doesn’t belong to this move');
-    p.parts[n] = data;
-    this.incoming.set(token, p);
-  }
+  receive = (token: string, n: number, total: number, data: string): void => this.transfers.receive(token, n, total, data);
 
   /** Every piece is in: the package landed here (see land). */
   async landIn(token: string, projectId: string, from: PlanMove): Promise<Plan> {
-    const p = this.incoming.get(token);
-    this.incoming.delete(token);
-    if (!p || p.parts.filter((x) => x !== undefined).length !== p.total) throw new Error('Not all of the plan came over: move it again');
-    let raw: unknown;
-    try {
-      raw = JSON.parse(p.parts.join(''));
-    } catch {
-      throw new Error('The plan didn’t come over whole: move it again');
-    }
-    const pkg = Package.safeParse(raw);
+    const pkg = Package.safeParse(this.transfers.take(token));
     if (!pkg.success) throw new Error('What came over isn’t a plan this Beluga can read (update Beluga on both computers)');
     return this.land(pkg.data as unknown as PlanPackage, projectId, from);
-  }
-
-  private forget(): void {
-    const old = this.now() - KEEP_MS;
-    for (const [k, v] of this.out) if (v.at < old) this.out.delete(k);
-    for (const [k, v] of this.incoming) if (v.at < old) this.incoming.delete(k);
   }
 
   private now = (): number => (this.deps.now ?? Date.now)();

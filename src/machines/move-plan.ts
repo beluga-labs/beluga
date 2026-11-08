@@ -78,6 +78,15 @@ export function moveQuestion(check: MoveCheck, opts: { readonly pause?: boolean;
   return undefined;
 }
 
+/** A packed package from one computer to the other, a piece at a time (`api`: plans or sentinel). */
+export async function sendOver(from: MoveCaller, to: MoveCaller, api: 'plans' | 'sentinel', packed: { readonly token: string; readonly chunks: number }, say: (words: string) => void, toName: string): Promise<void> {
+  for (let n = 0; n < packed.chunks; n++) {
+    say(packed.chunks > 1 ? `Sending it to ${toName} (${n + 1} of ${packed.chunks})…` : `Sending it to ${toName}…`);
+    const data = (await from.call(`${api}.moveChunk`, packed.token, n)) as string;
+    await to.call(`${api}.moveReceive`, packed.token, n, packed.chunks, data);
+  }
+}
+
 export async function movePlan(input: MovePlanInput): Promise<Moved> {
   const { from, to, planId, fromPlace, toPlace } = input;
   const step = (s: MoveStep, words: string): void => input.onStep?.(s, words);
@@ -113,11 +122,7 @@ export async function movePlan(input: MovePlanInput): Promise<Moved> {
     const projectId = await input.projectThere(check.project);
     step('packing', 'Packing the plan, its tasks and its branches…');
     const packed = (await from.call('plans.movePack', planId, { ...(input.commit ? { commit: true } : {}), to: toPlace.name })) as { token: string; chunks: number };
-    for (let n = 0; n < packed.chunks; n++) {
-      step('sending', packed.chunks > 1 ? `Sending it to ${toPlace.name} (${n + 1} of ${packed.chunks})…` : `Sending it to ${toPlace.name}…`);
-      const data = (await from.call('plans.moveChunk', packed.token, n)) as string;
-      await to.call('plans.moveReceive', packed.token, n, packed.chunks, data);
-    }
+    await sendOver(from, to, 'plans', packed, (words) => step('sending', words), toPlace.name);
     step('landing', `Setting it up on ${toPlace.name}…`);
     landed = (await to.call('plans.moveLand', packed.token, projectId, { ...(fromPlace.id ? { id: fromPlace.id } : {}), name: fromPlace.name, at: now() })) as Plan;
   } catch (err) {

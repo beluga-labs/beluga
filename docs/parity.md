@@ -547,6 +547,12 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sentinel.test` | not in the window yet (the Sentinel page rework gives it a Test button); Run Now already runs a paused sentinel without turning it on · the agent's `sentinel_test` (its sources only, paused or not; what they find is kept), and `sentinel_create` / `sentinel_update` run a source they add or change once before saving, answering with its preview; `sentinel_try_source` runs one alone to read the schema (BLG-302, BLG-304) |
 | `sentinel.stop` | ✓ a running run's page › ⋯ › Stop |
 | `sentinel.pause` | ✓ Turn On and Pause on a sentinel's page and its row's ⋯ and right-click; Resume on the paused-after-failures banner; Turn On on the agent's banner; the phone's sentinel page (••• › Pause / Turn On) · the agent's `sentinel_pause` (pause only) |
+| `sentinel.moveCheck` | ✓ a sentinel's ⋯ › Move To ▸ (a computer): Move To, or Pause and Move To while it runs |
+| `sentinel.movePack` | ✓ a sentinel's ⋯ › Move To ▸, on the computer it runs on (its steps, runs, kept numbers and tiles) |
+| `sentinel.moveChunk` | ✓ a sentinel's ⋯ › Move To ▸ (your app fetches it in pieces) |
+| `sentinel.moveReceive` | ✓ a sentinel's ⋯ › Move To ▸, on the computer it goes to |
+| `sentinel.moveLand` | ✓ a sentinel's ⋯ › Move To ▸: it lands paused there, its sources checked, what it lacks there said |
+| `sentinel.moveDrop` | ✓ a sentinel's ⋯ › Move To ▸: gone from where it was once the copy is in (or the copy, when the move didn't finish) |
 | `sentinel.runs` | ✓ a sentinel's page › History (the dot strip, then the runs as rows); the phone's sentinel page draws the same runs from its `sentinel:<id>` topic |
 | `sentinel.runGet` | ✓ a run's page: the steps' outputs (Show output) and the report; the phone opens a run's report |
 | `sentinel.ask` | ✓ a sentinel's page › the box under its header, "Ask Your Agent to change this sentinel…" (⌘↩; the agent's last line while it works, its answer and Open Chat after) · New Sentinel › Describe It (an empty paused sentinel, then this) |
