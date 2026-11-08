@@ -5,7 +5,7 @@ import type { Workspace } from '../src/workspaces/types.js';
 import type { CcAgent, CcSession } from '../src/core/claude-code/model.js';
 import type { SubAgent } from '../packages/mac/src/claude-code/subagents-model.js';
 import { HANDLERS } from '../src/ipc/handlers.js';
-import { type FoldRow, type ThreadFamilyRow, type ThreadFamilySource, capFold, familyRowOf, foldNoun, foldRows, foldRunning, foldSummary, rowEnd, harnessOf, threadFamilyView, openPath, orderRows, panelRows, startedBy, threadNesting, threadSender, threadStarts, threadStateOf } from '../packages/mac/src/threads/threads-model.js';
+import { type FoldRow, type ThreadFamilyRow, type ThreadFamilySource, capFold, familyRowOf, foldNoun, foldRows, foldRunning, foldSummary, rowEnd, harnessOf, mixedHarnesses, threadFamilyView, openPath, orderRows, panelRows, startedBy, threadNesting, threadSender, threadStarts, threadStateOf } from '../packages/mac/src/threads/threads-model.js';
 
 const thread = (parent: string, startedAt = 1, extra: Partial<ThreadRecord> = {}): ThreadRecord => ({ parent, parentTitle: 'parent', root: parent, depth: 1, task: 't', startedAt, owed: [], ...extra });
 const ws = (id: string, extra: Partial<Workspace> = {}): Workspace => ({ id, name: id, kind: 'chat', projectId: 'p', external: false, path: `/${id}`, projectRoot: '/p', createdAt: 1, ...extra }) as Workspace;
@@ -56,11 +56,25 @@ describe('child threads in the sidebar', () => {
     const list = [ws('top'), ws('kid', { thread: thread('ws:top') })];
     const off = source(list, false);
     expect(threadNesting(off).nested.size).toBe(0);
-    expect(harnessOf({ prefs: off.prefs, self: {} } as never, list[0]!)).toBeUndefined();
+    expect(harnessOf({ prefs: off.prefs, self: {}, projects: [] } as never, list[0]!)).toBeUndefined();
+  });
+
+  it('BLG-345: shows marks only when the chats listed now use two or more harnesses', () => {
+    const codex = { runtime: 'codex', label: 'Codex' } as Workspace['agent'];
+    const withSelf = (st: ThreadFamilySource): ThreadFamilySource => ({ ...st, self: {} }) as ThreadFamilySource;
+    const one = withSelf(source([ws('top'), ws('kid', { thread: thread('ws:top') }), ws('old', { agent: codex, archived: true } as Partial<Workspace>), ws('m', { kind: 'main', agent: codex })]));
+    expect(mixedHarnesses(one)).toBe(false);
+    expect(harnessOf(one, ws('top'))).toBeUndefined();
+    const list = [ws('top'), ws('kid', { thread: thread('ws:top'), agent: codex })];
+    const two = withSelf(source(list));
+    expect(mixedHarnesses(two)).toBe(true);
+    expect(list.map((w) => harnessOf(two, w)?.runtime)).toEqual(['claude', 'codex']);
+    expect(mixedHarnesses(withSelf(source(list, false)))).toBe(false);
   });
 
   it('shows the mark of the chat’s own harness, else your default, and none on a main folder', () => {
-    const state = { prefs: { agentThreads: true }, self: { defaultAgent: { runtime: 'codex', label: 'Codex' } } } as never;
+    const mixed = [{ id: 'p', workspaces: [ws('a', { agent: { runtime: 'claude', label: 'Claude' } as Workspace['agent'] }), ws('b', { agent: { runtime: 'opencode', label: 'OpenCode' } as Workspace['agent'] })] }];
+    const state = { prefs: { agentThreads: true }, self: { defaultAgent: { runtime: 'codex', label: 'Codex' } }, projects: mixed } as never;
     const marks = ['claude', 'codex', 'opencode', 'local'].map((runtime) => agentMark(harnessOf(state, ws('x', { agent: { runtime, label: runtime } as Workspace['agent'] }))));
     expect(marks).toEqual(['claudeCode', 'codex', 'opencode', 'localModel']);
     expect(harnessOf(state, ws('x'))?.runtime).toBe('codex');

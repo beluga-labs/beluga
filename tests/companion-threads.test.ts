@@ -62,6 +62,14 @@ describe('Work', () => {
     expect(row(st, 'kid').harness?.runtime).toBeTruthy();
   });
 
+  it('BLG-345: shows no harness when the listed chats use one harness, and says so to the sheet', () => {
+    const one = state([ws('top'), ws('kid', { thread: thread('ws:top', 2) })]);
+    expect(row(one, 'top').harness).toBeUndefined();
+    expect(row(one, 'kid').harness).toBeUndefined();
+    expect(conv(one, 'top').threadFamily).toMatchObject({ marks: false });
+    expect(conv(state(family()), 'top').threadFamily).toMatchObject({ marks: true });
+  });
+
   it('keeps a child with a gone parent at the top level', () => {
     const st = state([ws('kid', { thread: thread('ws:top', 1, { parentGone: true }) })]);
     expect(row(st, 'kid').parent).toBeUndefined();

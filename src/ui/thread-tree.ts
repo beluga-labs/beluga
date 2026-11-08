@@ -1,5 +1,6 @@
 import { isPlanOwned } from '../core/plans/owner.js';
 import type { AppState } from '../core/store.js';
+import { defaultAgentOf } from '../protocol.js';
 import { type ThreadLive, type ThreadNode, deriveThreadState, subtree } from '../core/threads/model.js';
 import { type ThreadState, isThreadWorking } from '../shared/threads.js';
 import type { Workspace } from '../workspaces/types.js';
@@ -32,6 +33,8 @@ type LiveSource = Pick<AppState, 'log' | 'approvals' | 'questions'>;
 
 const NO_NESTING: ThreadNesting = { nested: new Set(), under: new Map() };
 /** The log is replaced on every streamed event, the projects are not: a row isn't drawn again for it. */
+/** mixedHarnesses, once per projects list and self. */
+const mixes = new WeakMap<object, { readonly self: unknown; readonly value: boolean }>();
 const nestings = new WeakMap<object, { readonly plans: unknown; readonly board: unknown; readonly value: ThreadNesting }>();
 
 /**
@@ -59,6 +62,20 @@ export function threadNesting(state: Pick<AppState, 'prefs' | 'projects' | 'plan
   for (const list of under.values()) list.sort((a, b) => a.thread!.startedAt - b.thread!.startedAt);
   const value = { nested, under };
   nestings.set(state.projects, { plans: state.plans, board: state.board, value });
+  return value;
+}
+
+/**
+ * Whether harness marks show at all: only when the chats and worktrees listed now (not archived, not
+ * a main folder) run two or more harnesses. One harness everywhere says nothing a mark would add.
+ */
+export function mixedHarnesses(state: Pick<AppState, 'prefs' | 'projects' | 'self'>): boolean {
+  if (!state.prefs.agentThreads) return false;
+  const known = mixes.get(state.projects);
+  if (known && known.self === state.self) return known.value;
+  const runtimes = new Set(state.projects.flatMap((p) => p.workspaces.flatMap((w) => (w.archived || w.kind === 'main' ? [] : [(w.agent ?? defaultAgentOf(state.self)).runtime]))));
+  const value = runtimes.size >= 2;
+  mixes.set(state.projects, { self: state.self, value });
   return value;
 }
 

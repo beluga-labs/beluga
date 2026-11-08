@@ -2,7 +2,7 @@ import { stopOrder } from '../core/threads/model.js';
 import type { DomainState } from '../core/store.js';
 import { defaultAgentOf } from '../protocol.js';
 import { isThreadWorking } from '../shared/threads.js';
-import { type ThreadNesting, threadFamily, threadNodes, threadParent, threadRank, threadStateOf } from '../ui/thread-tree.js';
+import { type ThreadNesting, mixedHarnesses, threadFamily, threadNodes, threadParent, threadRank, threadStateOf } from '../ui/thread-tree.js';
 import type { Workspace } from '../workspaces/types.js';
 import { agentRefView, clip, convTopic } from './needs-you.js';
 import { plainLine } from './strip.js';
@@ -21,7 +21,7 @@ export function threadRowOf(state: DomainState, channel: string, nesting: Thread
   const ws = own(state, channel);
   if (!ws || !state.prefs.agentThreads) return {};
   const parent = nesting.nested.has(ws.id) ? convTopic(ws.thread!.parent) : undefined;
-  return { harness: agentRefView(ws.agent ?? defaultAgentOf(state.self)), ...(parent ? { parent } : {}) };
+  return { ...(mixedHarnesses(state) ? { harness: agentRefView(ws.agent ?? defaultAgentOf(state.self)) } : {}), ...(parent ? { parent } : {}) };
 }
 
 /** A chat's family, for its Threads sheet. */
@@ -43,6 +43,7 @@ export function threadFamilyOf(state: DomainState, channel: string): Pick<ConvVi
     }),
     ...(agents.length ? { agents } : {}),
     chat: clip(ws.id, 200),
+    marks: mixedHarnesses(state),
     stoppable: stopOrder(threadNodes(live), channel)
       .filter((n) => isThreadWorking(stateOf(byId.get(n.id)!)))
       .slice(0, 200)

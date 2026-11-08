@@ -1,7 +1,8 @@
 import type { ThreadState } from '@beluga/shared/threads.js';
 import { Icon } from '../components/Icon.js';
 import { Dot } from '../components/ui.js';
-import { type ThreadFamilyRow, rowEnd } from './threads-model.js';
+import { useApp } from '../lib/beluga.js';
+import { type ThreadFamilyRow, mixedHarnesses, rowEnd } from './threads-model.js';
 import s from './threads.module.css';
 
 /**
@@ -12,11 +13,12 @@ import s from './threads.module.css';
 
 export const DOT: Readonly<Record<ThreadState, Parameters<typeof Dot>[0]['tone']>> = { queued: 'muted', running: 'claude', needs_you: 'warn', waiting_limit: 'muted', done: 'ok', failed: 'error', stopped: 'muted', interrupted: 'warn' };
 
-/** The harness that runs it, with how it's doing on its corner. */
+/** The harness that runs it (an agent's shape when every chat listed runs one harness), in one quiet tone, with how it's doing on its corner. */
 export function FamilyMark({ row }: { row: ThreadFamilyRow }) {
+  const mixed = useApp(mixedHarnesses);
   return (
-    <span className={s.mark} data-harness={row.runtime} data-family-kind={row.kind}>
-      <Icon name={row.mark} size={13} />
+    <span className={s.mark} data-harness={mixed ? row.runtime : undefined} data-family-kind={row.kind}>
+      {mixed ? <Icon name={row.mark} size={13} fill="currentColor" /> : <Icon name="bot" size={13} />}
       <span className={s.dot}>
         <Dot tone={DOT[row.state]} />
       </span>

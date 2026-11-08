@@ -41,6 +41,8 @@
   display: inline-flex;
   flex: none;
   width: 15px;
+  /* One quiet tone in each theme, as the Scratch panel's beluga: never the makers' own colors (BLG-345). */
+  color: var(--text-3);
   justify-content: center;
 }
 .dot {

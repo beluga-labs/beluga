@@ -467,6 +467,8 @@
   align-items: center;
   justify-content: center;
   width: 14px;
+  /* One quiet tone in each theme, as the Scratch panel's beluga: never the makers' own colors (BLG-345). */
+  color: var(--text-3);
   opacity: 0.8;
 }
 .agentCount {

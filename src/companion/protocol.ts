@@ -638,6 +638,8 @@ export const ThreadFamilyView = z.object({
   agents: z.array(z.object({ id, title: z.string().max(300), state: ThreadStateView, startedAt: ts.optional(), harness: AgentRefView })).max(40).optional(),
   /** This chat's workspace id: `threads.stopAll` takes it. */
   chat: id,
+  /** BLG-345: whether harness marks show (the chats listed run two or more harnesses). Left out by an older Mac: they show. */
+  marks: z.boolean().optional(),
   /** Every working thread under this chat, each after its own children. */
   stoppable: z.array(id).max(200),
 });

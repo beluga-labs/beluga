@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { CornerLeftUp, Network, Square } from 'lucide-react-native';
+import { Bot, CornerLeftUp, Network, Square } from 'lucide-react-native';
 import { ScrollView, View } from 'react-native';
 import { THREAD_WORDS } from '../../../src/shared/threads';
 import { calls } from '../lib/link/calls';
@@ -86,7 +86,7 @@ export function ThreadsSheet({ threadFamily, visible, onClose }: { readonly thre
                 accessibilityLabel={topic ? `Open ${c.title}, ${wordOf(c.state)}` : `Sub-agent ${c.title}, ${wordOf(c.state)}`}
                 style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 8 }}
               >
-                <AgentMarkIcon mark={agentMark(c.harness)} size={18} />
+                {threadFamily?.marks === false ? <Bot color={color.text3} size={18} /> : <AgentMarkIcon mark={agentMark(c.harness)} size={18} color={color.text3} muted />}
                 <View style={{ flex: 1 }}>
                   <T v="body" numberOfLines={1} style={{ fontWeight: '500' }}>
                     {c.title}

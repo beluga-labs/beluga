@@ -70,7 +70,7 @@ export default function Work() {
                 c.harness ? (
                   <View accessible accessibilityLabel={c.harness.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     {signal}
-                    <AgentMarkIcon mark={agentMark(c.harness)} size={15} color={color.text3} />
+                    <AgentMarkIcon mark={agentMark(c.harness)} size={15} color={color.text3} muted />
                   </View>
                 ) : (
                   signal

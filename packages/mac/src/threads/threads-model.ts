@@ -6,7 +6,7 @@ import { span } from '../../../../src/shared/clock.js';
 import { resetWords } from '../../../../src/shared/run-failure.js';
 import { agentName } from '../../../../src/shared/agent-label.js';
 import { THREAD_WORDS, type ThreadState, isThreadWorking } from '../../../../src/shared/threads.js';
-import { type ThreadFamilyParent, type ThreadNesting, threadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
+import { type ThreadFamilyParent, type ThreadNesting, mixedHarnesses, threadNesting, threadParent, threadRank, threadStateOf } from '../../../../src/ui/thread-tree.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import { laterUntil } from '../../../../src/core/triage/facts.js';
 import type { Workspace } from '../../../../src/workspaces/types.js';
@@ -18,7 +18,7 @@ import { type SubAgent, agentTitle, cappedAgents, subAgentsSummary } from '../cl
  */
 
 export { THREAD_WORDS, isThreadWorking } from '../../../../src/shared/threads.js';
-export { type ThreadFamilyParent, type ThreadNesting, parentIdOf, threadNesting, threadStateOf } from '../../../../src/ui/thread-tree.js';
+export { type ThreadFamilyParent, type ThreadNesting, mixedHarnesses, parentIdOf, threadNesting, threadStateOf } from '../../../../src/ui/thread-tree.js';
 
 const WS = 'ws:';
 const NO_THREADS: readonly Workspace[] = [];
@@ -199,8 +199,8 @@ export function foldNoun(rows: readonly FoldRow[]): string {
 }
 
 /** The harness a row's mark shows, with threads on: the chat's own agent, else yours. A main folder has no mark. */
-export function harnessOf(state: Pick<AppState, 'prefs' | 'self'>, ws: Pick<Workspace, 'agent' | 'kind'>): AgentRef | undefined {
-  if (!state.prefs.agentThreads || ws.kind === 'main') return undefined;
+export function harnessOf(state: Pick<AppState, 'prefs' | 'self' | 'projects'>, ws: Pick<Workspace, 'agent' | 'kind'>): AgentRef | undefined {
+  if (!state.prefs.agentThreads || ws.kind === 'main' || !mixedHarnesses(state)) return undefined;
   return ws.agent ?? defaultAgentOf(state.self);
 }
 

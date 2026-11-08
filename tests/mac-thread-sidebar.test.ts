@@ -13,7 +13,7 @@ const ws = (over: Partial<Workspace>): Workspace => ({ id: 'w', projectRoot: '/p
 const thread = (parent: string, startedAt = 1): ThreadRecord => ({ parent, parentTitle: 'lead', root: parent, depth: 1, task: 't', startedAt, owed: [] });
 const api: Project = {
   id: 'p1', name: 'api', root: '/p', base: 'origin/main',
-  workspaces: [ws({ id: 'lead', name: 'lead' }), ws({ id: 'kid', name: 'kid', thread: thread('ws:lead', 2) }), ws({ id: 'kid2', name: 'kid2', thread: thread('ws:lead', 3) })],
+  workspaces: [ws({ id: 'lead', name: 'lead' }), ws({ id: 'kid', name: 'kid', thread: thread('ws:lead', 2) }), ws({ id: 'kid2', name: 'kid2', thread: thread('ws:lead', 3), agent: { runtime: 'codex', label: 'Codex' } })],
 };
 const apply = (s: AppState, ...actions: Action[]): AppState => actions.reduce<AppState>((st, a) => reduceApp(st, a), s);
 const state = (threads: boolean): AppState =>
