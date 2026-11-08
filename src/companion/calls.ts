@@ -127,7 +127,7 @@ export const PhoneCalls = {
   'plans.setAutonomy': entry('plans.setAutonomy', done),
   'plans.discard': entry('plans.discard', done),
   'plans.fixReview': entry('plans.fixReview', done),
-  'plans.reviewAgain': entry('plans.reviewAgain', done),
+  'plans.verify': entry('plans.verify', done),
   'plans.pass': entry('plans.pass', done),
   'plans.recheck': entry('plans.recheck', done),
   'plans.sendBack': entry('plans.sendBack', done),

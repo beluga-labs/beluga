@@ -941,7 +941,7 @@ function decisionsAndReview(plan: Plan): Pick<PlanView, 'decisions' | 'review'> 
   const review = plan.review;
   return {
     ...(decided.length ? { decisions: decided.slice(-60).map((d) => ({ text: clip(plainLine(d.text, 1000), 1000), ...(d.supersededBy ? { replaced: true } : {}) })) } : {}),
-    ...(r !== 'off' && r !== 'waiting' && review ? { review: { state: r, ...(review.fixAsked ? { fixAsked: true } : {}), findings: review.findings.slice(0, 20).map((f) => ({ kind: f.kind, text: clip(plainLine(f.text, 1000), 1000) })) } } : {}),
+    ...(r !== 'off' && r !== 'none' && review ? { review: { state: r, ...(review.fixAsked ? { fixAsked: true } : {}), findings: review.findings.slice(0, 20).map((f) => ({ kind: f.kind, text: clip(plainLine(f.text, 1000), 1000) })) } } : {}),
   };
 }
 

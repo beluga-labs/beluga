@@ -66,19 +66,26 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
                 Apply Changes
               </Button>
             ) : review === 'reviewing' ? (
-              // A fresh agent reads the draft first (BLG-772): its findings show on the plan.
+              // A fresh agent verifies the draft, as you asked (BLG-772): its findings show on the plan.
               <Button size="small" variant="primary" disabled>
-                Reviewing…
+                Verifying…
               </Button>
             ) : review === 'findings' && !home.review?.fixAsked ? (
-              <Tip label="The reviewer found things to fix in the draft: see them on the plan">
+              <Tip label="Verifying found things to fix in the plan: see them there">
                 <Button size="small" variant="primary" icon="wand" onClick={() => open(home.id)}>
                   See What It Found
                 </Button>
               </Tip>
             ) : (
               // Approve, worked by ▸ (BLG-506): who works its milestones and tasks, set as it's approved.
-              <SplitButton label="Approve, worked by another agent" items={startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by')}>
+              <SplitButton
+                label="More ways to approve"
+                items={[
+                  // Verify, Then Approve (BLG-772): a fresh agent checks it holds together first.
+                  { label: 'Verify, Then Approve', icon: 'eye', hint: 'A fresh agent checks the plan holds together first', onSelect: () => void act(() => api.verify(home.id, { thenApprove: true }), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing') },
+                  ...startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
+                ]}
+              >
                 <Button size="small" variant="primary" onClick={() => approve()}>
                   Approve Plan
                 </Button>

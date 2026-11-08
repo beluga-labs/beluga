@@ -231,8 +231,8 @@ export function headline(view: PlanView): Headline {
   if (!plan.body && view.milestones.length) {
     // The draft's review before approval (BLG-772).
     const review = reviewState(plan);
-    if (review === 'reviewing') return { who: 'claude', text: 'A reviewer is reading the draft before you approve it' };
-    if (review === 'findings' && !plan.review?.fixAsked) return { who: 'you', text: `The reviewer found ${count(plan.review!.findings.length, 'thing')} to fix in the draft: Fix, or approve anyway` };
+    if (review === 'reviewing') return { who: 'claude', text: plan.review?.thenApprove ? 'A fresh agent is verifying the plan; it’s approved once nothing needs fixing' : 'A fresh agent is verifying the plan' };
+    if (review === 'findings' && !plan.review?.fixAsked) return { who: 'you', text: `Verifying found ${count(plan.review!.findings.length, 'thing')} to fix in the plan: Fix, or approve anyway` };
   }
   if (!plan.body) return view.milestones.length ? { who: 'you', text: `Approve the plan: ${count(view.milestones.length, 'milestone')} · ${count(view.total, 'task')} · a draft, not on the board yet` } : { who: 'claude', text: 'Your agent is writing the plan' };
   if (plan.draft) return { who: 'you', text: `Review your agent’s changes: ${changeWords(plan)}` };

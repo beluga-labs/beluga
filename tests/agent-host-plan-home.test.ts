@@ -87,6 +87,8 @@ describe('what the plan’s Claude is told it is', () => {
     expect(head).toContain('orchestrator of the whole plan');
     expect(head).toContain('plan_stop_task');
     expect(head).toContain('plan_pause');
+    // Whatever it adds to a running plan, it fits it into the whole (BLG-772).
+    expect(head).toContain('re-read what is there (plan_get) and make the plan whole again with it');
     const planning = planningBrief(plan, { enabled: true, issues: [], projects: {} } as never, '');
     expect(planning).not.toMatch(/read-only/);
     expect(planning).toContain('`decision`');

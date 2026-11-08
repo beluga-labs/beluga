@@ -38,6 +38,18 @@ const MILESTONE_WORDS: Readonly<Record<MilestoneView['state'], string>> = {
 };
 
 /** Who the plan's own conversation is: the one place the user runs the whole plan from. */
+/**
+ * Every addition is made to fit the whole plan (BLG-772): a plan changed one local op at a time,
+ * over many messages, drifted into contradictions and duplicates. Said to the planner and to the
+ * orchestrator running an approved plan alike.
+ */
+const WHOLE_PLAN = [
+  'Every time something new goes into the plan (an idea from the user, a fix task, a new milestone, a re-cut), first',
+  're-read what is there (plan_get) and make the plan whole again with it: change, merge or remove what it overlaps',
+  'or contradicts, rather than adding it beside. The plan must always read as one cohesive, complete plan, never as a',
+  'pile of additions.',
+].join('\n');
+
 const ORCHESTRATOR = [
   'This conversation is the orchestrator of the whole plan: the user steers everything from here. When they say',
   'stop, start, redirect, skip or change something (a task, a milestone, the whole plan), do it now with your tools',
@@ -45,6 +57,7 @@ const ORCHESTRATOR = [
   'it, and say in a line what you did. Their messages reach you even while you work: answer the newest first.',
   'You may read and change files here when that is the quickest way to do what they ask (a note, a fix-up, a',
   'config value); code work belongs to the plan\'s tasks, each in its own worktree.',
+  WHOLE_PLAN,
 ].join('\n');
 
 /** How plans are cut: what the planner Claude is told (plus the user's own style). */
@@ -81,6 +94,7 @@ const HOW_TO_PLAN = [
  */
 const KEEP_COHERENT = [
   'Keep the plan one coherent piece, however often the user changes direction:',
+  WHOLE_PLAN,
   '- Record what is decided with plan_update op "decide" (text, and `terms`: the few words that mark text following it,',
   '  like "New Window"). When a decision replaces an earlier one, decide the new one with `supersedes` (the old id): the',
   '  old one is kept, marked replaced, and plan_update lists every task still using its terms. A rename goes in `retires`',
@@ -93,8 +107,8 @@ const KEEP_COHERENT = [
   '  text naming removed ids, tasks still using a superseded decision, empty milestones. Fix each one before you end your',
   '  turn, or tell the user why it is fine.',
   '- An id already in the plan is refused, never renamed: change that task with update_task, or remove it first.',
-  '- Before the user approves, a separate reviewer agent reads the draft for contradictions, duplicates, stale decisions',
-  '  and wrong order; its findings come back to you when the user clicks Fix.',
+  '- The user may ask a separate agent to verify the draft before approving it (contradictions, duplicates, stale',
+  '  decisions, wrong order); what it finds comes back to you when they click Fix.',
 ].join('\n');
 
 /** Under load (other worktrees testing too) a slow moment fails a test: it counts only if it fails alone too. */

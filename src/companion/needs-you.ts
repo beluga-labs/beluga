@@ -243,7 +243,7 @@ function gateItems(plan: Plan, progress: PlanProgress, title: string, at: Pick<N
   const next = progress.next;
   // Claude is still writing the first plan: nothing to approve yet (the Mac's Approve Plan waits too).
   if (next.kind === 'approve' && !progress.body?.milestones.length) return [];
-  // A fresh agent is reading the draft (BLG-772): the Mac's Approve Plan waits for it too.
+  // A fresh agent is verifying the draft, as you asked (BLG-772): the Mac's Approve Plan waits for it too.
   const review = reviewState(plan);
   if (next.kind === 'approve' && review === 'reviewing') return [];
   if (next.kind === 'approve' && review === 'findings' && plan.review && !plan.review.fixAsked) {
@@ -275,6 +275,8 @@ function gateItems(plan: Plan, progress: PlanProgress, title: string, at: Pick<N
         askedAt: plan.updatedAt,
         actions: [
           { label: 'Approve', tone: 'main', method: 'plans.approve', args: [plan.id] },
+          // A first draft can be read by a fresh agent first, and approved once it reads well (BLG-772).
+          ...(next.kind === 'approve' ? [{ label: 'Verify, then approve', tone: 'plain' as const, method: 'plans.verify', args: [plan.id, { thenApprove: true }] }] : []),
           { label: 'Discard', tone: 'danger', method: 'plans.discard', args: [plan.id] },
         ],
       },

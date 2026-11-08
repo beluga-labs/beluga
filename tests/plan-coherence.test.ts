@@ -227,48 +227,58 @@ describe('the plan tools answer with warnings (BLG-772)', () => {
     expect(brief).toContain('When the user changes direction');
     expect(brief).toContain('call plan_get, re-read the WHOLE draft against the plan\'s decisions');
     expect(brief).toContain('fix every task and milestone');
+    expect(brief).toContain('make the plan whole again with it');
   });
 });
 
-describe('a fresh reviewer reads the draft before Approve Plan (BLG-772)', () => {
-  async function reviewed() {
+describe('verifying a draft with a fresh agent, when you ask (BLG-772)', () => {
+  async function verifying(thenApprove = false) {
     const t = setup();
     const plan = t.work.here('ws:home');
     t.run('ws:home', 'started', 'head-1');
     t.tools('ws:home').got.tools!.write(machines);
-    await tick(5);
-    // Not while the plan's agent is still at it.
-    expect(t.asked.some((a) => a.prompt.includes('Review the draft'))).toBe(false);
-    expect(reviewState(t.plans.need(plan.id))).toBe('waiting');
     t.run('ws:home', 'done', 'head-1');
     await tick(5);
-    return { t, plan };
+    // Never by itself: it takes a while, and the cheap checks run on every change.
+    expect(t.asked.some((a) => a.prompt.includes('Review the draft'))).toBe(false);
+    expect(reviewState(t.plans.need(plan.id))).toBe('none');
+    await t.work.verify(plan.id, thenApprove);
+    return { t, plan, chat: `ws:${t.plans.need(plan.id).review!.chat}` };
   }
 
-  it('starts once the agent’s turn ends, in a conversation of its own with only plan_get and plan_review', async () => {
-    const { t, plan } = await reviewed();
+  it('runs in a conversation of its own with only plan_get and plan_review, folded into the plan', async () => {
+    const { t, plan, chat } = await verifying();
     const now = t.plans.need(plan.id);
     expect(reviewState(now)).toBe('reviewing');
-    const chat = `ws:${now.review!.chat}`;
     expect(t.asked.find((a) => a.channel === chat)?.prompt).toContain('Review the draft of the plan “Machines”');
     const { got, defs } = t.tools(chat);
     expect(got.checker).toBe(true);
     expect(defs.map((d) => d.name)).toEqual(['plan_get', 'plan_review']);
     expect(got.brief).toContain('You are not the agent that wrote it');
     expect(() => got.tools!.update([{ op: 'remove_task', id: 'open-window' }])).toThrow(/only plan_get and plan_review/);
-    // Folded into the plan, like a checker.
     expect(isPlanOwned(t.store.getState(), now.review!.chat!)).toBe(true);
+    expect(headline(planView(now, t.store.getState().board)).text).toBe('A fresh agent is verifying the plan');
   });
 
-  it('its findings reach the plan’s page, the phone, and Fix sends them to the plan’s agent', async () => {
-    const { t, plan } = await reviewed();
-    const chat = `ws:${t.plans.need(plan.id).review!.chat}`;
+  it('Verify, Then Approve: a plan that reads well is approved', async () => {
+    const { t, plan, chat } = await verifying(true);
+    expect(headline(planView(t.plans.need(plan.id), t.store.getState().board)).text).toBe('A fresh agent is verifying the plan; it’s approved once nothing needs fixing');
+    expect(t.tools(chat).got.tools!.review!([])).toMatch(/^Recorded/);
+    const now = t.plans.need(plan.id);
+    expect(now.status).toBe('active');
+    expect(now.review).toBeUndefined();
+    expect(t.archived).toContain(chat.slice(3));
+  });
+
+  it('its findings reach the plan’s page and the phone, nothing is approved, and Fix sends them to the plan’s agent', async () => {
+    const { t, plan, chat } = await verifying(true);
     const said = t.tools(chat).got.tools!.review!([{ kind: 'contradiction', text: 'open-window contradicts “one app”: remove it.', ids: ['open-window'] }]);
     expect(said).toMatch(/^Recorded/);
     const now = t.plans.need(plan.id);
+    expect(now.status).toBe('draft');
     expect(reviewState(now)).toBe('findings');
     // The Mac's page.
-    expect(headline(planView(now, t.store.getState().board)).text).toBe('The reviewer found 1 thing to fix in the draft: Fix, or approve anyway');
+    expect(headline(planView(now, t.store.getState().board)).text).toBe('Verifying found 1 thing to fix in the plan: Fix, or approve anyway');
     // The phone: the plan's page, and what waits on you.
     expect(planPageView(t.store.getState(), plan.id)!.review).toEqual({ state: 'findings', findings: [{ kind: 'contradiction', text: 'open-window contradicts “one app”: remove it.' }] });
     const card = needsYou(t.store.getState()).find((x) => x.id.startsWith(`plan:${plan.id}:review`));
@@ -282,22 +292,33 @@ describe('a fresh reviewer reads the draft before Approve Plan (BLG-772)', () =>
     expect(t.plans.need(plan.id).review!.fixAsked).toBe(true);
   });
 
-  it('a draft changed since is reviewed again, in the same conversation; approving retires it', async () => {
-    const { t, plan } = await reviewed();
-    const chat = t.plans.need(plan.id).review!.chat!;
-    t.tools(`ws:${chat}`).got.tools!.review!([]);
+  it('the phone’s approve card offers Verify, then approve', async () => {
+    const t = setup();
+    const plan = t.work.here('ws:home');
+    t.tools('ws:home').got.tools!.write(machines);
+    const card = needsYou(t.store.getState()).find((x) => x.id.startsWith(`plan:${plan.id}:approve`));
+    expect(card?.actions.map((a) => [a.label, a.method])).toEqual([
+      ['Approve', 'plans.approve'],
+      ['Verify, then approve', 'plans.verify'],
+      ['Discard', 'plans.discard'],
+    ]);
+  });
+
+  it('a changed draft isn’t verified until asked again, in the same conversation; old findings don’t count', async () => {
+    const { t, plan, chat } = await verifying();
+    t.tools(chat).got.tools!.review!([]);
     expect(reviewState(t.plans.need(plan.id))).toBe('clean');
+    expect(t.plans.need(plan.id).status).toBe('draft');
     t.tools('ws:home').got.tools!.update([{ op: 'remove_task', id: 'open-window' }]);
-    expect(reviewState(t.plans.need(plan.id))).toBe('waiting');
-    await tick(5);
-    expect(t.plans.need(plan.id).review!.chat).toBe(chat);
+    expect(reviewState(t.plans.need(plan.id))).toBe('none');
+    await t.work.verify(plan.id);
+    expect(`ws:${t.plans.need(plan.id).review!.chat}`).toBe(chat);
     expect(t.asked.at(-1)!.prompt).toContain('changed since your last review');
-    // A reviewer answering for an older draft doesn't count.
     t.tools('ws:home').got.tools!.update([{ op: 'retitle', goal: 'Work on any computer you paired.' }]);
-    expect(t.tools(`ws:${chat}`).got.tools!.review!([{ kind: 'other', text: 'old' }])).toMatch(/changed while you read it/);
+    expect(t.tools(chat).got.tools!.review!([{ kind: 'other', text: 'old' }])).toMatch(/changed while you read it/);
     t.work.approve(plan.id);
     expect(t.plans.need(plan.id).review).toBeUndefined();
-    expect(t.archived).toContain(chat);
+    expect(t.archived).toContain(chat.slice(3));
   });
 });
 

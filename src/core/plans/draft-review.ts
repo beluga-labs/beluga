@@ -5,34 +5,32 @@ import { liveFrom } from './progress.js';
 import { reviewFixPrompt, reviewNudgePrompt, reviewPrompt } from './prompt.js';
 
 /**
- * A first draft's review before Approve Plan (BLG-772). The agent that wrote a plan over many
- * messages is the worst at seeing its own drift, so once its turn ends with the draft changed, a
- * fresh agent reads it, read-only (plan_get, and plan_review to record what it found), in a
- * conversation of its own folded into the plan, like a milestone's checker. It looks for
- * contradictions, duplicates, stale decisions and wrong order. Its findings show on the plan's
- * page: Fix sends them to the plan's agent (whose new draft is reviewed again), or Approve Anyway.
- * A draft is reviewed once per revision; one that changed since is reviewed again. Proposed
- * changes to an approved plan get the cheap checks only (coherence.ts).
+ * Verifying a first draft, when you ask (BLG-772): Approve Plan's ▾ › Verify, Then Approve (or
+ * ••• › Verify the Plan). The agent that wrote a plan over many messages is the worst at seeing its
+ * own drift, so a fresh agent reads it, read-only (plan_get, and plan_review to record what it
+ * found), in a conversation of its own folded into the plan, like a milestone's checker. It looks
+ * for contradictions, duplicates, stale decisions and wrong order. Reading well, the plan is
+ * approved (when you asked for that); otherwise its findings show on the plan's page: Fix sends
+ * them to the plan's agent, or Approve Anyway. Never automatic: it takes a while, and most drafts
+ * don't need it (the cheap checks in coherence.ts run on every change).
  */
 
 export interface DraftReviewDeps {
   readonly store: Store;
   readonly plans: Plans;
   readonly askClaude: (prompt: string, channel: string, echo: boolean) => string | void;
-  /** A conversation of its own to review a draft in (its workspace id). None: drafts aren't reviewed. */
+  /** A conversation of its own to review a draft in (its workspace id). None: drafts can't be verified. */
   readonly reviewChat?: (plan: Plan) => Promise<string | undefined>;
+  /** Approve the plan (Verify, Then Approve, once it reads well). */
+  readonly approve?: (planId: string) => void;
   /** A run of Claude's is under way in a conversation (the agent runner's run state). */
   readonly alive?: (channel: string) => boolean;
   /** Beluga no longer needs a request of its own (a review of an older draft). */
   readonly cancel?: (requestId: string) => void;
   readonly now?: () => number;
-  /** How long a changed draft sits still, its agent done, before it's reviewed (default QUIET_MS). */
-  readonly quietMs?: number;
   readonly delayMs?: number;
 }
 
-/** A draft that changed is reviewed once it has sat still this long (you editing it on the page, a few ops in a row). */
-export const QUIET_MS = 4000;
 /** A review asked before a restart, nothing running in its conversation this long after: it ended without findings. */
 const REVIEW_QUIET_MS = 60_000;
 const MAX_FINDINGS = 20;
@@ -40,13 +38,10 @@ const RUNNING = new Set(['queued', 'awaiting_approval', 'started', 'answered']);
 const WS = 'ws:';
 
 export class DraftReviewer {
-  /** The review's request, by plan (to follow it, and stop it when the draft moved on). */
+  /** The review's request, by plan (to follow it, and stop it when asked again). */
   private readonly runs = new Map<string, string>();
   /** Reviews asked once more for their findings (`plan:rev`). */
   private readonly nudged = new Set<string>();
-  private readonly starting = new Set<string>();
-  /** When each plan's draft revision was first seen settled (the agent done). */
-  private readonly seen = new Map<string, { readonly rev: number; readonly at: number }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
   private readonly off: () => void;
@@ -61,6 +56,11 @@ export class DraftReviewer {
     this.stopped = true;
     this.off();
     clearTimeout(this.timer);
+  }
+
+  /** Whether drafts can be verified here (a conversation can be made for it). */
+  get available(): boolean {
+    return Boolean(this.deps.reviewChat);
   }
 
   private now = (): number => this.deps.now?.() ?? Date.now();
@@ -78,69 +78,50 @@ export class DraftReviewer {
     return liveFrom(this.deps.store.getState()).busy(channel) || Boolean(this.deps.alive?.(channel));
   }
 
-  /** Every draft: reviewed once it settled, its review followed. */
+  /** The reviews under way, followed (one that ends without findings is asked once more). */
   look(): void {
-    if (!this.deps.reviewChat) return;
     for (const plan of this.deps.plans.list()) {
+      if (reviewState(plan) !== 'reviewing') continue;
       try {
-        this.lookAt(plan);
+        this.watch(plan);
       } catch (err) {
-        this.deps.plans.note(plan.id, 'problem', `couldn’t review the draft: ${err instanceof Error ? err.message : String(err)}`, { kind: 'beluga' });
+        this.deps.plans.note(plan.id, 'problem', `couldn’t follow the plan’s verification: ${err instanceof Error ? err.message : String(err)}`, { kind: 'beluga' });
       }
     }
   }
 
-  private lookAt(plan: Plan): void {
+  /** Verify the draft as it is now (`thenApprove`: approve it once it reads well). */
+  async verify(planId: string, thenApprove: boolean): Promise<Plan> {
+    const plan = this.deps.plans.need(planId);
     const state = reviewState(plan);
-    if (state === 'reviewing') return this.watch(plan);
-    if (state !== 'waiting') return;
-    // The plan's agent is still at it: its draft isn't done.
-    if (this.busy(plan.home)) {
-      this.seen.delete(plan.id);
-      return;
+    if (state === 'off') throw new Error('Only a draft that isn’t approved yet is verified');
+    if (!this.deps.reviewChat) throw new Error('Verifying a plan isn’t available here');
+    if (state === 'reviewing') return this.deps.plans.setReview(planId, { ...plan.review!, ...(thenApprove ? { thenApprove } : {}) });
+    const rev = plan.draftRev;
+    const had = plan.review;
+    const old = this.runs.get(planId);
+    if (old) {
+      this.deps.cancel?.(old);
+      this.runs.delete(planId);
     }
-    const quiet = this.deps.quietMs ?? QUIET_MS;
-    const seen = this.seen.get(plan.id);
-    if (!seen || seen.rev !== plan.draftRev) {
-      this.seen.set(plan.id, { rev: plan.draftRev, at: this.now() });
-      if (quiet > 0) return this.soon(quiet);
-    } else if (this.now() - seen.at < quiet) return this.soon(quiet - (this.now() - seen.at));
-    void this.start(plan.id);
-  }
-
-  /** Review the draft as it is now, in its reviewer's conversation (made once). */
-  async start(planId: string): Promise<void> {
-    if (this.starting.has(planId)) return;
-    this.starting.add(planId);
+    // Under way at once (the page says so), while its conversation is made.
+    this.deps.plans.setReview(planId, { rev, at: this.now(), state: 'reviewing', findings: [], ...(had?.chat ? { chat: had.chat } : {}), ...(thenApprove ? { thenApprove } : {}) });
     try {
-      const plan = this.deps.plans.need(planId);
-      const rev = plan.draftRev;
-      // A review of an older revision still running: its findings would no longer count.
-      const old = this.runs.get(planId);
-      if (old) {
-        this.deps.cancel?.(old);
-        this.runs.delete(planId);
-      }
-      const had = plan.review;
       const chat = await this.chatFor(plan);
       const now = this.deps.plans.need(planId);
-      if (now.draftRev !== rev || reviewState(now) !== 'waiting') return;
-      if (!chat) {
-        this.deps.plans.setReview(planId, { rev, at: this.now(), state: 'failed', findings: [] });
-        return;
-      }
-      this.deps.plans.setReview(planId, { rev, at: this.now(), state: 'reviewing', findings: [], chat });
+      if (now.review?.rev !== rev || now.review.state !== 'reviewing') return now;
+      if (!chat) throw new Error('its conversation couldn’t be made');
+      this.deps.plans.setReview(planId, { ...now.review, chat });
       const id = this.deps.askClaude(reviewPrompt(now, Boolean(had?.chat === chat && had.state !== 'reviewing')), `${WS}${chat}`, false);
       if (id) this.runs.set(planId, id);
     } catch (err) {
-      const plan = this.deps.plans.get(planId);
-      if (plan) {
-        this.deps.plans.setReview(planId, { rev: plan.draftRev, at: this.now(), state: 'failed', findings: [], ...(plan.review?.chat ? { chat: plan.review.chat } : {}) });
-        this.deps.plans.note(planId, 'problem', `couldn’t start the draft’s review: ${err instanceof Error ? err.message : String(err)}`, { kind: 'beluga' });
+      const now = this.deps.plans.get(planId);
+      if (now) {
+        this.deps.plans.setReview(planId, { rev, at: this.now(), state: 'failed', findings: [], ...(now.review?.chat ? { chat: now.review.chat } : {}) });
+        this.deps.plans.note(planId, 'problem', `couldn’t verify the plan: ${err instanceof Error ? err.message : String(err)}`, { kind: 'beluga' });
       }
-    } finally {
-      this.starting.delete(planId);
     }
+    return this.deps.plans.need(planId);
   }
 
   /** The conversation it had (still there), or a new one. */
@@ -154,6 +135,7 @@ export class DraftReviewer {
   /** A review whose turn ended without plan_review: asked once more, then Approve Plan is offered as it is. */
   private watch(plan: Plan): void {
     const review = plan.review!;
+    if (!review.chat) return;
     const channel = `${WS}${review.chat}`;
     const id = this.runs.get(plan.id);
     const state = this.deps.store.getState();
@@ -175,45 +157,48 @@ export class DraftReviewer {
       return;
     }
     this.runs.delete(plan.id);
-    this.deps.plans.setReview(plan.id, { ...review, state: 'failed', at: this.now() });
-    this.deps.plans.note(plan.id, 'note', 'the draft’s review ended without findings: Approve Plan is offered as it is', { kind: 'beluga' });
+    const { thenApprove: _t, ...rest } = review;
+    this.deps.plans.setReview(plan.id, { ...rest, state: 'failed', at: this.now() });
+    this.deps.plans.note(plan.id, 'note', 'verifying the plan ended without findings: approve it as it is, or verify it again', { kind: 'beluga' });
   }
 
-  /** The reviewer's plan_review → its answer, in words. */
+  /** The reviewer's plan_review → its answer, in words. Read well and asked to: the plan is approved. */
   record(planId: string, findings: readonly ReviewFinding[]): string {
     const plan = this.deps.plans.need(planId);
     const review = plan.review;
     if (!review) throw new Error('There’s no review of this draft under way');
-    if (review.rev !== plan.draftRev || reviewState(plan) === 'off') return 'The draft changed while you read it: it’s reviewed again in a moment. End your turn.';
+    if (review.rev !== plan.draftRev || reviewState(plan) === 'off') return 'The draft changed while you read it: your findings no longer apply. End your turn.';
     const clean = findings
       .map((f) => ({ kind: FINDING_KINDS.includes(f.kind) ? f.kind : ('other' as const), text: f.text.replace(/\s+/g, ' ').trim().slice(0, 1000), ...(f.ids?.length ? { ids: [...new Set(f.ids)].slice(0, 12) } : {}) }))
       .filter((f) => f.text)
       .slice(0, MAX_FINDINGS);
     this.runs.delete(planId);
-    this.deps.plans.setReview(planId, { ...review, state: 'done', at: this.now(), findings: clean });
+    const { thenApprove, ...rest } = review;
+    this.deps.plans.setReview(planId, { ...rest, state: 'done', at: this.now(), findings: clean });
     const n = clean.length;
-    this.deps.plans.note(planId, 'note', n ? `a reviewer read the draft and found ${n === 1 ? 'one thing' : `${n} things`} to fix` : 'a reviewer read the draft: nothing to fix', { kind: 'beluga' });
-    this.deps.store.dispatch({ type: 'system', channel: plan.home, text: n ? `A reviewer read the draft and found ${n === 1 ? 'one thing' : `${n} things`} to look at before you approve it: Fix, or Approve Anyway, on the plan.` : 'A reviewer read the draft: nothing to fix.', level: 'info' });
-    return 'Recorded: the user sees your findings before approving. End your turn.';
+    this.deps.plans.note(planId, 'note', n ? `verified the plan and found ${n === 1 ? 'one thing' : `${n} things`} to fix` : 'verified the plan: nothing to fix', { kind: 'beluga' });
+    const say = (text: string): void => this.deps.store.dispatch({ type: 'system', channel: plan.home, text, level: 'info' });
+    if (n) {
+      say(`Verified the plan: ${n === 1 ? 'one thing' : `${n} things`} to look at before it’s approved. Fix, or Approve Anyway, on the plan.`);
+      return 'Recorded: the user sees your findings before approving. End your turn.';
+    }
+    if (thenApprove && this.deps.approve) {
+      try {
+        this.deps.approve(planId);
+        say('Verified the plan: nothing to fix, so it’s approved and starting.');
+      } catch (err) {
+        say(`Verified the plan: nothing to fix, but it couldn’t be approved: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else say('Verified the plan: nothing to fix.');
+    return 'Recorded. End your turn.';
   }
 
-  /** Fix: the findings go to the plan's agent; its new draft is reviewed again. */
+  /** Fix: the findings go to the plan's agent. */
   fix(planId: string): Plan {
     const plan = this.deps.plans.need(planId);
     const review = plan.review;
     if (reviewState(plan) !== 'findings' || !review) throw new Error('There’s nothing from the review to fix');
     this.deps.askClaude(reviewFixPrompt(review.findings), plan.home, true);
     return this.deps.plans.setReview(planId, { ...review, fixAsked: true });
-  }
-
-  /** Review Again: the draft as it is now, read anew. */
-  again(planId: string): Plan {
-    const plan = this.deps.plans.need(planId);
-    if (reviewState(plan) === 'off') throw new Error('Only a draft that isn’t approved yet is reviewed');
-    if (reviewState(plan) === 'reviewing') return plan;
-    this.seen.set(planId, { rev: plan.draftRev, at: 0 });
-    const next = this.deps.plans.setReview(planId, { rev: -1, at: this.now(), state: 'done', findings: [], ...(plan.review?.chat ? { chat: plan.review.chat } : {}) });
-    void this.start(planId);
-    return next;
   }
 }

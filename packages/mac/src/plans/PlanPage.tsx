@@ -190,15 +190,16 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   // Start with ▸ (BLG-506): "Your agent" over a plan with its own agent is yours by name (none would mean the plan's again).
   const startTasks = (tasks: readonly { readonly task: { readonly id: string } }[], agent?: AgentRef): void => tasks.forEach((t) => void act(() => api.startTask(plan.id, t.task.id, agent)));
   const approvePlan = (): void => void act(() => api.approve(plan.id), 'Plan approved: its tasks are on the board');
-  // The first draft's review by a fresh agent (BLG-772): Approve Plan waits for it, or Fix what it found.
+  // Verifying a first draft with a fresh agent, when you ask (BLG-772): Approve Plan waits for it, or Fix what it found.
   const review = reviewState(plan);
   const fixReview = (): void => void act(() => api.fixReview(plan.id), 'Sent to your agent');
+  const verify = (thenApprove: boolean): void => void act(() => api.verify(plan.id, { thenApprove }), thenApprove ? 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing' : 'A fresh agent is verifying the plan');
   // `with`: the same action by another agent, as the ▾ of a split button.
   const primary = ((): { label: string; run?: () => void; icon?: IconName; busy?: boolean; with?: { readonly label: string; readonly items: ActionItem[] } } | undefined => {
     if (step.busy) return { label: step.busy, busy: true };
     switch (next.kind) {
       case 'approve':
-        if (body?.milestones.length && review === 'reviewing') return { label: 'Reviewing the Draft…', busy: true };
+        if (body?.milestones.length && review === 'reviewing') return { label: 'Verifying the Plan…', busy: true };
         if (body?.milestones.length && review === 'findings' && !plan.review?.fixAsked) return { label: 'Fix', icon: 'wand', run: fixReview, with: { label: 'Approve anyway', items: [{ label: 'Approve Anyway', onSelect: approvePlan }] } };
         // Approve, worked by ▸: who works its milestones and tasks, set as it's approved.
         return body?.milestones.length
@@ -207,8 +208,12 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
               icon: 'check',
               run: approvePlan,
               with: {
-                label: 'Approve, worked by another agent',
-                items: startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by'),
+                label: 'More ways to approve',
+                items: [
+                  // A fresh agent reads it first (contradictions, duplicates, stale decisions), and approves it once nothing needs fixing.
+                  { label: 'Verify, Then Approve', icon: 'eye', hint: 'A fresh agent checks the plan holds together first', onSelect: () => verify(true) },
+                  ...startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
+                ],
               },
             }
           : undefined;
@@ -284,8 +289,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
     { label: 'Run at Once', submenu: [1, 2, 3, 4, 6, MAX_PARALLEL].map((n) => ({ label: `${n} ${n === 1 ? 'milestone' : 'milestones'}`, checked: plan.maxParallel === n, onSelect: () => void act(() => api.setParallel(plan.id, n)) })), onSelect: () => undefined },
     ...(plan.status !== 'done' ? [{ label: 'Agent for Its Work', submenu: agentMenuItems(agents, plan.agent, workAgent), onSelect: () => undefined }] : []),
     { label: 'When to Run Tests', submenu: TESTS_AT.map((t) => ({ label: TESTS_AT_INFO[t].label, hint: TESTS_AT_INFO[t].hint, checked: plan.testsAt === t, onSelect: () => void act(() => api.setTestsAt(plan.id, t), t === 'end' ? 'From now on, milestone checks skip the test suites; they all run once, in the final step' : 'From now on, each milestone’s check runs the full suites once, on its combined work') })), onSelect: () => undefined },
-    ...(review === 'reviewing' ? [{ label: 'Approve Without Review', onSelect: approvePlan }] : []),
-    ...(review === 'findings' || review === 'clean' || review === 'failed' ? [{ label: 'Review the Draft Again', onSelect: () => void act(() => api.reviewAgain(plan.id)) }] : []),
+    ...(review === 'reviewing' ? [{ label: 'Approve Without Waiting', onSelect: approvePlan }] : []),
+    ...(review !== 'off' && review !== 'reviewing' ? [{ label: review === 'none' ? 'Verify the Plan' : 'Verify the Plan Again', onSelect: () => verify(false) }] : []),
     ...(next.kind === 'stalled' ? next.tasks.flatMap((t) => (t.worktree ? [{ label: `Open ${t.issue?.key ?? 'Its'} Chat`, onSelect: () => openWorktree(t.worktree!) }] : [])) : []),
     ...(next.kind === 'pass' ? [{ label: 'Not Yet…', onSelect: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: next.milestone.milestone.id }) }] : []),
     ...(next.kind === 'failed' || next.kind === 'checking'

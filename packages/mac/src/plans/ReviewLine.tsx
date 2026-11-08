@@ -16,9 +16,9 @@ export const FINDING_WORDS: Readonly<Record<ReviewFinding['kind'], { readonly la
 };
 
 /**
- * A first draft's review, before Approve Plan (BLG-772): while a fresh agent reads it, one line; once
- * it found things, the list, with Fix (sent to your agent, whose new draft is reviewed again) and
- * Approve Anyway. A clean review says nothing: Approve Plan is simply there.
+ * Verifying a first draft, when you asked (BLG-772): while a fresh agent reads it, one line; once
+ * it found things, the list, with Fix (sent to your agent) and Approve Anyway. A clean read says
+ * nothing here: the plan is approved (Verify, Then Approve), or Approve Plan is simply there.
  */
 export function ReviewLine({ plan, onApprove }: { plan: Plan; onApprove: () => void }) {
   const { api, act } = usePlanActions();
@@ -28,8 +28,8 @@ export function ReviewLine({ plan, onApprove }: { plan: Plan; onApprove: () => v
     return (
       <div className={p.changes} role="status">
         <Icon name="eye" size={13} />
-        <strong>A reviewer is reading the draft</strong>
-        <span>A fresh agent checks it for contradictions, duplicates and stale decisions before you approve it.</span>
+        <strong>Verifying the plan</strong>
+        <span>A fresh agent checks it for contradictions, duplicates and stale decisions{review?.thenApprove ? ', then approves it if nothing needs fixing' : ''}.</span>
       </div>
     );
   }
@@ -39,11 +39,11 @@ export function ReviewLine({ plan, onApprove }: { plan: Plan; onApprove: () => v
     <div className={cx(p.changes, p.review)} role="status">
       <div className={p.reviewHead}>
         <Icon name="eye" size={13} />
-        <strong>{review.fixAsked ? 'Your agent is fixing what the reviewer found' : `The reviewer found ${n === 1 ? 'one thing' : `${n} things`} to fix`}</strong>
+        <strong>{review.fixAsked ? 'Your agent is fixing what verifying found' : `Verifying found ${n === 1 ? 'one thing' : `${n} things`} to fix`}</strong>
         <span className={p.grow} />
         {review.fixAsked ? (
-          <Button size="small" variant="quiet" onClick={() => void act(() => api.reviewAgain(plan.id))}>
-            Review Again
+          <Button size="small" variant="quiet" onClick={() => void act(() => api.verify(plan.id, { thenApprove: true }))}>
+            Verify, Then Approve
           </Button>
         ) : (
           <>

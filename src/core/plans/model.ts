@@ -121,9 +121,9 @@ export interface ReviewFinding {
 export const FINDING_KINDS: readonly ReviewFinding['kind'][] = ['contradiction', 'duplicate', 'stale', 'order', 'other'];
 
 /**
- * A fresh agent's read of the draft before Approve Plan is offered (see draft-review.ts): for one
- * revision of it. `reviewing` while it reads; `done` with what it found (none: it reads well);
- * `failed` when it ended without a verdict (Approve Plan is offered as before).
+ * A fresh agent's read of the draft, when you ask for it (Verify, Then Approve: see draft-review.ts):
+ * for one revision of it. `reviewing` while it reads; `done` with what it found (none: it reads
+ * well); `failed` when it ended without a verdict (Approve Plan is offered as before).
  */
 export interface DraftReview {
   /** The draftRev it read. */
@@ -135,6 +135,8 @@ export interface DraftReview {
   readonly chat?: string;
   /** Fix was sent to the plan's agent for this revision. */
   readonly fixAsked?: boolean;
+  /** Approve the plan once it reads well (Verify, Then Approve). */
+  readonly thenApprove?: boolean;
 }
 
 /** Claude's check of a milestone's pass criteria. */
@@ -326,7 +328,7 @@ export interface Plan {
   readonly epics?: PlanEpics;
   /** Beluga moving its stalled milestones along (see the pilot's rescue), by milestone id: kept, so a restart doesn't start over. */
   readonly rescue?: Readonly<Record<string, PlanRescue>>;
-  /** The first draft's review by a fresh agent, before Approve Plan (see draft-review.ts). */
+  /** The first draft's review by a fresh agent, when you asked for one (see draft-review.ts). */
   readonly review?: DraftReview;
   readonly activity: readonly PlanEvent[];
   readonly createdAt: number;
@@ -446,15 +448,15 @@ export function reviewerOf(state: PlansState, channel: string): Plan | undefined
 
 /**
  * Where the review of a first draft stands, for the draft as it is now: `off` (no first draft to
- * review: approved, or nothing in it yet), `waiting` (not read yet: it starts once the plan's agent
- * is done), `reviewing`, `findings` (Fix, or Approve Anyway), `clean`, or `failed` (it didn't finish).
+ * review: approved, or nothing in it yet), `none` (not verified: only when you ask), `reviewing`,
+ * `findings` (Fix, or Approve Anyway), `clean`, or `failed` (it didn't finish).
  */
-export type ReviewState = 'off' | 'waiting' | 'reviewing' | 'findings' | 'clean' | 'failed';
+export type ReviewState = 'off' | 'none' | 'reviewing' | 'findings' | 'clean' | 'failed';
 
 export function reviewState(plan: Plan): ReviewState {
   if (plan.body || plan.status !== 'draft' || !plan.draft?.milestones.length) return 'off';
   const r = plan.review;
-  if (!r || r.rev !== plan.draftRev) return 'waiting';
+  if (!r || r.rev !== plan.draftRev) return 'none';
   if (r.state === 'reviewing') return 'reviewing';
   if (r.state === 'failed') return 'failed';
   return r.findings.length ? 'findings' : 'clean';

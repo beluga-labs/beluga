@@ -82,10 +82,12 @@ export class PlansWork {
             },
           }
         : {}),
+      // Verify, Then Approve: you asked for it, so it's approved as you.
+      approve: (id: string) => void this.approve(id),
       ...(deps.alive ? { alive: deps.alive } : {}),
       ...(deps.cancel ? { cancel: deps.cancel } : {}),
       ...(deps.now ? { now: deps.now } : {}),
-      ...(deps.delayMs !== undefined ? { delayMs: deps.delayMs, quietMs: deps.delayMs } : {}),
+      ...(deps.delayMs !== undefined ? { delayMs: deps.delayMs } : {}),
     });
     const git = deps.git === null ? undefined : (deps.git ?? (deps.controller?.manager ? planGitOf(deps.controller) : undefined));
     this.pilot = new PlanPilot({
@@ -231,9 +233,9 @@ export class PlansWork {
     return this.reviewer.fix(id);
   }
 
-  /** Review Again: the draft read anew by its reviewer. */
-  reviewAgain(id: string): Plan {
-    return this.reviewer.again(id);
+  /** Verify the draft with a fresh agent (`thenApprove`: approve it once it reads well). */
+  verify(id: string, thenApprove = false): Promise<Plan> {
+    return this.reviewer.verify(id, thenApprove);
   }
 
   /** A draft's reviewer is done with (the plan was approved, or thrown away): its conversation archived. */
@@ -540,7 +542,7 @@ export class PlansWork {
         const applied = this.approve(plan.id, this.claude());
         return `Applied at once (the plan runs on autopilot): ${sizeWords(applied.body)}.${warn(applied.body)}`;
       }
-      return (plan.body ? `Proposed (${sizeWords(plan.draft)}): the user reviews the changes and applies them.` : `Saved the draft (${sizeWords(plan.draft)}). A reviewer reads it once your turn ends, then the user clicks Approve; nothing is on the board until then.`) + warn(plan.draft);
+      return (plan.body ? `Proposed (${sizeWords(plan.draft)}): the user reviews the changes and applies them.` : `Saved the draft (${sizeWords(plan.draft)}). The user reviews it and clicks Approve; nothing is on the board until then.`) + warn(plan.draft);
     };
     return {
       get: () => describePlan(this.pilot.view(plans.need(planId))),
