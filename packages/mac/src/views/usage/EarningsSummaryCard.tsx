@@ -2,7 +2,7 @@ import { EarningsTipBody } from '../../components/EarningsPill.js';
 import { Icon } from '../../components/Icon.js';
 import { ProjectIcon } from '../../components/ProjectIcon.js';
 import { Button, IconButton, Tip, cx } from '../../components/ui.js';
-import { type ConnectedProject, formatGlance, formatMoney, missingNote, openStripe, ratesWhen, updatedAgo, useConvertedEarnings } from '../../lib/earnings.js';
+import { type ConnectedProject, formatGlance, formatMoney, missingNote, openEarnings, ratesWhen, updatedAgo, useConvertedEarnings } from '../../lib/earnings.js';
 import type { ConvertedRow } from '../../lib/money.js';
 import { Card } from './parts.js';
 import s from './usage.module.css';
@@ -17,11 +17,11 @@ function EarningsRow({ row, currency }: { row: ConvertedRow<ConnectedProject>; c
   return (
     <li>
       <Tip label={<EarningsTipBody earnings={earnings} />}>
-        <button type="button" className={cx(s.earnRow, earnings.refreshing && s.earnCounting)} onClick={() => openStripe(project.id)} aria-label={`${project.name}: ${counted ? formatMoney(row.money.amount, currency) : 'counting'}${counted && pct ? `, ${pct}% of the total` : ''}`}>
+        <button type="button" className={cx(s.earnRow, earnings.refreshing && s.earnCounting)} onClick={() => openEarnings(project.id)} aria-label={`${project.name}: ${counted ? formatMoney(row.money.amount, currency) : 'counting'}${counted && pct ? `, ${pct}% of the total` : ''}`}>
           <span className={s.earnName}>
             <ProjectIcon id={project.id} name={project.name} size={14} />
             <span className={s.earnLabel}>{project.name}</span>
-            {earnings.mode === 'test' ? <span className={s.earnTest}>test</span> : null}
+            {earnings.mode === 'test' && !earnings.revenuecat ? <span className={s.earnTest}>test</span> : null}
             {earnings.error ? <Icon name="alert" size={11} className={s.alertWarn} /> : null}
           </span>
           <span className={s.earnAmount}>{amount}</span>
@@ -35,8 +35,8 @@ function EarningsRow({ row, currency }: { row: ConvertedRow<ConnectedProject>; c
 }
 
 /**
- * The Usage view's third card: what every project with Stripe connected earned, all-time, as one
- * amount in the currency you show earnings in (Settings › General, or a project's Stripe sheet),
+ * The Usage view's third card: what every project with Stripe or RevenueCat connected earned, all-time, as one
+ * amount in the currency you show earnings in (Settings › General, or a project's Earnings sheet),
  * then each project with its part of it. Other currencies are converted at the ECB's daily rates;
  * a project's own currencies show on hover. With none connected, a quiet way to connect one.
  */
@@ -45,10 +45,10 @@ export function EarningsSummaryCard() {
   if (!summary.projects.length) {
     return (
       <Card label="Earnings" title="Earnings" className={s.earnCard}>
-        <p className={s.quiet}>Connect Stripe to a project and what it has earned, all-time, shows here and beside it in the sidebar.</p>
+        <p className={s.quiet}>Connect Stripe or RevenueCat to a project and what it has earned, all-time, shows here and beside it in the sidebar.</p>
         <div className={s.earnConnect}>
-          <Button size="small" icon="coin" onClick={() => openStripe()}>
-            Connect Stripe…
+          <Button size="small" icon="coin" onClick={() => openEarnings()}>
+            Connect Earnings…
           </Button>
         </div>
       </Card>
@@ -69,7 +69,7 @@ export function EarningsSummaryCard() {
       aside={
         <>
           {status ? <span className={s.updated}>{status}</span> : null}
-          <IconButton icon="plus" label="Connect Stripe to Another Project…" className={s.earnAdd} onClick={() => openStripe()} />
+          <IconButton icon="plus" label="Connect Earnings to Another Project…" className={s.earnAdd} onClick={() => openEarnings()} />
         </>
       }
     >

@@ -56,7 +56,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Show times next to messages', undefined, 'timestamps time clock'],
     ["The agent's steps once it answers", 'Fold them away, or keep them showing.', 'fold steps tools collapse expand show steps'],
   ]),
-  ...rows('general', 'Earnings', [['Show earnings in', 'Every total from Stripe, in the sidebar and the Usage view.', 'currency money stripe usd eur dollars']]),
+  ...rows('general', 'Earnings', [['Show earnings in', 'Every total from Stripe and RevenueCat, in the sidebar and the Usage view.', 'currency money stripe revenuecat usd eur dollars']]),
 
   // Appearance
   ...rows('appearance', undefined, [

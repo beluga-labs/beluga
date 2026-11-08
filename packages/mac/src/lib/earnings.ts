@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type CombinedEarnings, combineAll } from '@beluga/core/earnings-combined.js';
 import { type FxRates, type MoneyTotal, type ProjectEarnings, type RecentPayment, convertParts, currencyChoices, earningsCurrency, mainCurrency, sumTotals } from '@beluga/core/earnings-store.js';
+import type { ProjectRevenueCat } from '@beluga/core/revenuecat-store.js';
 import type { Project } from '@beluga/workspaces/types.js';
 import { type ConvertedSummary, convertSummary, currencyName } from './money.js';
 import { useApi, useApp } from './beluga.js';
 
 /**
- * Earnings from Stripe in this window: the currency they're shown in (yours, or the one most was
- * earned in), the projects that have Stripe connected (useEarnings, for the Overview and the
- * Usage view), the Connect Stripe sheet, and the one-time hint that tells you it exists. The
- * counting is the core's (core/stripe-earnings.ts); the keys never come here.
+ * Earnings from Stripe and RevenueCat in this window: the currency they're shown in (yours, or
+ * the one most was earned in), the projects that have either connected (useEarnings, for the
+ * Overview and the Usage view), the Earnings sheet, and the one-time hint that tells you it
+ * exists. Every screen reads the combined view (core/earnings-combined.ts), never the raw
+ * slices. The counting is the core's (core/stripe-earnings.ts, core/revenuecat-earnings.ts);
+ * the keys never come here.
  */
 
-export type { MoneyTotal, ProjectEarnings, RecentPayment };
+export type { CombinedEarnings, MoneyTotal, ProjectEarnings, RecentPayment };
 export { mainCurrency, sumTotals };
 export { formatGlance, formatMoney, missingNote, ratesWhen } from './money.js';
 
@@ -22,8 +26,28 @@ export interface Money {
   readonly chosen: string | undefined;
 }
 
+// The combined view, worked out once per change to either slice (not once per pill), and a
+// project's own entry keeps its identity until one of its sources changes.
+let allFor: { earnings: object; revenuecat: object; all: Record<string, CombinedEarnings> } | undefined;
+const rootFor = new Map<string, { stripe: ProjectEarnings | undefined; rc: ProjectRevenueCat | undefined; combined: CombinedEarnings | undefined }>();
+
+function combinedAll(st: { earnings: Readonly<Record<string, ProjectEarnings>>; revenuecat: Readonly<Record<string, ProjectRevenueCat>> }): Record<string, CombinedEarnings> {
+  if (allFor?.earnings === st.earnings && allFor.revenuecat === st.revenuecat) return allFor.all;
+  const all = combineAll(st.earnings, st.revenuecat);
+  for (const [root, c] of Object.entries(all)) {
+    const was = rootFor.get(root);
+    if (was && was.stripe === st.earnings[root] && was.rc === st.revenuecat[root]) all[root] = was.combined!;
+    else rootFor.set(root, { stripe: st.earnings[root], rc: st.revenuecat[root], combined: c });
+  }
+  allFor = { earnings: st.earnings, revenuecat: st.revenuecat, all };
+  return all;
+}
+
+/** Every project's combined earnings, by project folder. */
+export const useCombinedEarnings = (): Record<string, CombinedEarnings> => useApp(combinedAll);
+
 export function useMoney(): Money {
-  const earnings = useApp((st) => st.earnings);
+  const earnings = useCombinedEarnings();
   const fx = useApp((st) => st.fx);
   const chosen = useApp((st) => st.prefs.earningsCurrency);
   return useMemo(() => ({ currency: earningsCurrency(chosen, earnings, fx), fx, chosen }), [earnings, fx, chosen]);
@@ -44,7 +68,7 @@ export const AUTOMATIC = '';
  */
 export function useCurrencyChoice(): { value: string; options: Array<{ value: string; label: string; short?: string }>; onChange: (v: string) => void } {
   const api = useApi();
-  const earnings = useApp((st) => st.earnings);
+  const earnings = useCombinedEarnings();
   const { fx, chosen } = useMoney();
   const auto = mainCurrency(earnings, fx);
   const options = useMemo(
@@ -69,18 +93,31 @@ export function updatedAgo(ts: number | undefined, now: number = Date.now()): st
   return d === 1 ? 'yesterday' : `${d} days ago`;
 }
 
-/** One project's Stripe connection (undefined: not connected). */
-export function useProjectEarnings(root: string | undefined): ProjectEarnings | undefined {
-  return useApp((st) => (root ? st.earnings[root] : undefined));
+/** "Stripe", "RevenueCat" or "Stripe and RevenueCat": what a set of projects' earnings come from. */
+export function sourcesOf(items: ReadonlyArray<{ readonly stripe?: unknown; readonly revenuecat?: unknown }>): string {
+  const stripe = items.some((i) => i.stripe);
+  const rc = items.some((i) => i.revenuecat);
+  return stripe && rc ? 'Stripe and RevenueCat' : rc ? 'RevenueCat' : 'Stripe';
+}
+
+/** Count again now: both sources (one project, or every project). */
+export function refreshEarnings(api: { stripe: { refresh: (id?: string) => Promise<unknown> }; revenuecat: { refresh: (id?: string) => Promise<unknown> } }, projectId?: string): void {
+  void api.stripe.refresh(projectId);
+  void api.revenuecat.refresh(projectId);
+}
+
+/** One project's earnings from every source it has (undefined: none connected). */
+export function useProjectEarnings(root: string | undefined): CombinedEarnings | undefined {
+  return useApp((st) => (root ? combinedAll(st)[root] : undefined));
 }
 
 export interface ConnectedProject {
   readonly project: Project;
-  readonly earnings: ProjectEarnings;
+  readonly earnings: CombinedEarnings;
 }
 
 export interface EarningsSummary {
-  /** Projects with Stripe connected, the biggest earner first. */
+  /** Projects with earnings connected, the biggest earner first. */
   readonly projects: readonly ConnectedProject[];
   /** Every connected project together, per currency (biggest first). */
   readonly totals: readonly MoneyTotal[];
@@ -90,10 +127,10 @@ export interface EarningsSummary {
   readonly updatedAt?: number;
 }
 
-export function summarize(projects: readonly Project[], earnings: Readonly<Record<string, ProjectEarnings>>, fx?: FxRates): EarningsSummary {
+export function summarize(projects: readonly Project[], earnings: Readonly<Record<string, CombinedEarnings>>, fx?: FxRates): EarningsSummary {
   const connected = projects.flatMap((project) => (project.root && earnings[project.root] ? [{ project, earnings: earnings[project.root]! }] : []));
   // Compared in dollars, so lira and yen don't outweigh dollars by their size.
-  const main = (e: ProjectEarnings): number => (e.totals ? convertParts(e.totals, 'usd', fx).amount : -1);
+  const main = (e: CombinedEarnings): number => (e.totals ? convertParts(e.totals, 'usd', fx).amount : -1);
   const sorted = [...connected].sort((a, b) => main(b.earnings) - main(a.earnings));
   const times = connected.map((c) => c.earnings.updatedAt).filter((t): t is number => t !== undefined);
   return {
@@ -105,12 +142,12 @@ export function summarize(projects: readonly Project[], earnings: Readonly<Recor
 }
 
 /**
- * Every project with Stripe connected and what they earned together (for the Overview's card
+ * Every project with earnings connected and what they earned together (for the Overview's card
  * and the Usage view). Re-renders only when projects or earnings change.
  */
 export function useEarnings(): EarningsSummary {
   const projects = useApp((st) => st.projects);
-  const earnings = useApp((st) => st.earnings);
+  const earnings = useCombinedEarnings();
   const fx = useApp((st) => st.fx);
   return useMemo(() => summarize(projects, earnings, fx), [projects, earnings, fx]);
 }
@@ -126,13 +163,13 @@ export function useConvertedEarnings(): EarningsSummary & { converted: Converted
 // ---- new payments
 
 /** The newest payment that went through (a new one arriving changes it). */
-export const newestPaid = (e: ProjectEarnings | undefined): RecentPayment | undefined => e?.activity?.latest.find((p) => p.status === 'paid' || p.status === 'partly_refunded');
+export const newestPaid = (e: CombinedEarnings | undefined): RecentPayment | undefined => e?.activity?.latest.find((p) => p.status === 'paid' || p.status === 'partly_refunded');
 
 /**
  * Counts up each time a new payment arrives while this is shown: never on first show, when
  * Stripe is first connected, or when the currency or the rates change (only the payments do).
  */
-export function usePaymentArrivals(earnings: ProjectEarnings | undefined): number {
+export function usePaymentArrivals(earnings: CombinedEarnings | undefined): number {
   const newest = newestPaid(earnings);
   const last = useRef(newest);
   const [count, setCount] = useState(0);
@@ -156,30 +193,34 @@ export function useArrived(latest: readonly RecentPayment[] | undefined): Readon
 /** Stripe's own list of payments (test mode has its own). */
 export const stripePaymentsUrl = (mode: 'test' | 'live'): string => `https://dashboard.stripe.com/${mode === 'test' ? 'test/' : ''}payments`;
 
-// ---- the Connect Stripe sheet (one at a time; projectId unset: pick the project in the sheet)
+// ---- the Earnings sheet (one at a time; projectId unset: pick the project in the sheet)
 
-export interface StripeSheetState {
+export type EarningsSource = 'stripe' | 'revenuecat';
+
+export interface EarningsSheetState {
   readonly projectId?: string;
+  /** Which source's section to open (unset: the sheet's home, or the one that's connected). */
+  readonly source?: EarningsSource;
 }
 
-let sheet: StripeSheetState | undefined;
+let sheet: EarningsSheetState | undefined;
 const sheetListeners = new Set<() => void>();
 const emit = (): void => {
   for (const l of [...sheetListeners]) l();
 };
 
-export function openStripe(projectId?: string): void {
-  sheet = projectId ? { projectId } : {};
+export function openEarnings(projectId?: string, source?: EarningsSource): void {
+  sheet = { ...(projectId ? { projectId } : {}), ...(source ? { source } : {}) };
   emit();
 }
 
-export function closeStripe(): void {
+export function closeEarnings(): void {
   if (!sheet) return;
   sheet = undefined;
   emit();
 }
 
-export const useStripeSheet = (): StripeSheetState | undefined =>
+export const useEarningsSheet = (): EarningsSheetState | undefined =>
   useSyncExternalStore(
     (l) => {
       sheetListeners.add(l);
@@ -188,9 +229,9 @@ export const useStripeSheet = (): StripeSheetState | undefined =>
     () => sheet,
   );
 
-/** "Connect Stripe…" for a project's right-click and ⋯ menus ("Stripe Earnings…" once connected). */
-export function stripeMenuItem(project: Project, connected: boolean): { label: string; onSelect: () => void; separate: boolean } {
-  return { label: connected ? 'Stripe Earnings…' : 'Connect Stripe…', onSelect: () => openStripe(project.id), separate: true };
+/** "Connect Earnings…" for a project's right-click and ⋯ menus ("Earnings…" once something is connected). */
+export function earningsMenuItem(project: Project, connected: boolean): { label: string; onSelect: () => void; separate: boolean } {
+  return { label: connected ? 'Earnings…' : 'Connect Earnings…', onSelect: () => openEarnings(project.id), separate: true };
 }
 
 // ---- the one-time hint ("Track this project's earnings")

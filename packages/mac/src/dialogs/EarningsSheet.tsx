@@ -7,12 +7,12 @@ import { Field, FormSheet, Popup, TextInput, formStyles as f } from '../componen
 import { Icon } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { rangeFigures } from '@beluga/core/earnings-store.js';
-import { STRIPE_KEY_URL, closeStripe, formatMoney, missingNote, updatedAgo, useConverted, useProjectEarnings, useStripeSheet } from '../lib/earnings.js';
+import { STRIPE_KEY_URL, closeEarnings, formatMoney, missingNote, updatedAgo, useCombinedEarnings, useConverted, useEarningsSheet, useProjectEarnings } from '../lib/earnings.js';
 import { CurrencySelect } from './EarningsSettings.js';
 import { brandText } from '../lib/brand.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { openExternal } from '../lib/system.js';
-import s from './stripe.module.css';
+import s from './earnings.module.css';
 import { thisComputer } from '../lib/os-words.js';
 
 /**
@@ -20,22 +20,23 @@ import { thisComputer } from '../lib/os-words.js';
  * or test said right away), where to make a key that can only read charges, and once
  * connected the account, the totals, Refresh, Replace Key and Disconnect.
  */
-export function StripeSheet() {
-  const sheet = useStripeSheet();
+export function EarningsSheet() {
+  const sheet = useEarningsSheet();
   if (!sheet) return null;
-  return <StripeSheetBody key={sheet.projectId ?? 'pick'} initial={sheet.projectId} />;
+  return <EarningsSheetBody key={sheet.projectId ?? 'pick'} initial={sheet.projectId} />;
 }
 
-function StripeSheetBody({ initial }: { initial: string | undefined }) {
+function EarningsSheetBody({ initial }: { initial: string | undefined }) {
   const all = useApp((st) => st.projects);
-  const earnings = useApp((st) => st.earnings);
+  const combined = useCombinedEarnings();
   const projects = all.filter((p) => p.root);
-  const [projectId, setProjectId] = useState(() => initial ?? projects.find((p) => !earnings[p.root])?.id ?? projects[0]?.id);
+  const [projectId, setProjectId] = useState(() => initial ?? projects.find((p) => !combined[p.root])?.id ?? projects[0]?.id);
   const [replacing, setReplacing] = useState(false);
   const project = projects.find((p) => p.id === projectId);
-  const connected = useProjectEarnings(project?.root);
+  // This task keeps the Stripe half only: what RevenueCat adds comes in the sheet's next step.
+  const connected = useProjectEarnings(project?.root)?.stripe;
   if (!project) {
-    return <FormSheet title="Connect Stripe" icon="coin" intro="Add a project first: earnings show beside each project in the sidebar." submitLabel="Done" hideSubmit onSubmit={() => undefined} onCancel={closeStripe} />;
+    return <FormSheet title="Connect Stripe" icon="coin" intro="Add a project first: earnings show beside each project in the sidebar." submitLabel="Done" hideSubmit onSubmit={() => undefined} onCancel={closeEarnings} />;
   }
   if (connected && !replacing) return <Connected project={project} earnings={connected} onReplace={() => setReplacing(true)} />;
   return <ConnectForm project={project} projects={initial ? undefined : projects} onProject={setProjectId} replacing={Boolean(connected)} onBack={connected ? () => setReplacing(false) : undefined} />;
@@ -62,7 +63,7 @@ function ConnectForm({ project, projects, onProject, replacing, onBack }: { proj
       }
       submitLabel="Connect"
       canSubmit={Boolean(trimmed) && !problem}
-      onCancel={onBack ?? closeStripe}
+      onCancel={onBack ?? closeEarnings}
       cancelLabel={onBack ? 'Back' : 'Cancel'}
       width={560}
       onSubmit={async () => {
@@ -175,7 +176,7 @@ function Connected({ project, earnings, onReplace }: { project: Project; earning
           destructive: true,
           onClick: () => {
             void api.stripe.disconnect(project.id);
-            closeStripe();
+            closeEarnings();
           },
         }}
         onCancel={() => setConfirm(false)}
@@ -197,7 +198,7 @@ function Connected({ project, earnings, onReplace }: { project: Project; earning
       cancelLabel="Done"
       width={480}
       onSubmit={() => undefined}
-      onCancel={closeStripe}
+      onCancel={closeEarnings}
       footer={
         <>
           <button type="button" className={f.linkDanger} onClick={() => setConfirm(true)}>

@@ -58,7 +58,7 @@ export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
     eyebrow: 'Earnings',
     icon: 'gauge',
     title: 'Know what every project earns.',
-    body: 'Connect Stripe and each project shows its revenue right next to the work, kept up to date as sales come in.',
+    body: 'Connect Stripe or RevenueCat and each project shows its revenue right next to the work, kept up to date as sales come in.',
     points: [`A read-only key, kept on ${thisComputer()}`, 'Per project and per month', 'In the currency you think in'],
   },
   archive: {

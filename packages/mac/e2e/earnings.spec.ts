@@ -20,7 +20,7 @@ async function paste(field: Locator, text: string): Promise<void> {
 
 async function openConnectSheet(page: Page): Promise<Locator> {
   await page.keyboard.press('Meta+K');
-  await page.keyboard.type('Connect Stripe');
+  await page.keyboard.type('Connect Earnings');
   await page.keyboard.press('Enter');
   return page.getByRole('dialog', { name: /Connect Stripe to/ });
 }
@@ -48,7 +48,7 @@ test('the Usage view shows connected projects’ earnings, and a project opens i
   await rows.getByRole('button', { name: /^bob-api/ }).click();
   await expect(page.getByRole('dialog', { name: 'bob-api earnings' })).toContainText('Bob API, Inc.');
   await page.keyboard.press('Escape');
-  await card.getByRole('button', { name: 'Connect Stripe to Another Project…' }).click();
+  await card.getByRole('button', { name: 'Connect Earnings to Another Project…' }).click();
   await expect(page.getByRole('dialog', { name: /Connect Stripe to/ })).toBeVisible();
 });
 
@@ -103,9 +103,9 @@ test('connecting Stripe checks the key, then the project shows its earnings; dis
   await expect(pills).toHaveCount(1);
 });
 
-test('Connect Stripe… is in every project’s right-click menu, and the amount opens its earnings', async ({ page }) => {
+test('Connect Earnings… is in every project’s right-click menu, and the amount opens its earnings', async ({ page }) => {
   await sidebar(page).getByRole('button', { name: 'landing', exact: true }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Connect Stripe…' }).click();
+  await page.getByRole('menuitem', { name: 'Connect Earnings…' }).click();
   const sheet = page.getByRole('dialog', { name: 'Connect Stripe to landing' });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByRole('button', { name: /Create a restricted key in Stripe/ })).toBeVisible();
@@ -161,8 +161,8 @@ test('a project’s home shows how it’s doing lately: one folded row, then the
   await expect(section.locator('[data-earnings-summary]')).toHaveAttribute('aria-expanded', 'true');
   await expect(section.locator('[data-earnings-summary]')).toHaveAccessibleName(/in the last 7 days$/);
 
-  // Stripe Earnings… opens the sheet, which says the last 30 days too.
-  await section.getByRole('button', { name: 'Stripe Earnings…' }).click();
+  // Earnings… opens the sheet, which says the last 30 days too.
+  await section.getByRole('button', { name: 'Earnings…', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'bob-api earnings' });
   await expect(sheet.locator('[data-last-30]')).toHaveText(/^Last 30 days: (≈ )?\$[\d,]+\.\d\d from \d+ payments by \d+ customers$/);
   await page.keyboard.press('Escape');

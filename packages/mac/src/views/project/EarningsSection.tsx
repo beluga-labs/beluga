@@ -4,40 +4,40 @@ import type { Project } from '@beluga/workspaces/types.js';
 import { Icon } from '../../components/Icon.js';
 import { Button, Segmented, Tip, cx } from '../../components/ui.js';
 import { brandText } from '../../lib/brand.js';
-import { type ProjectEarnings, formatGlance, formatMoney, missingNote, newestPaid, openStripe, stripePaymentsUrl, updatedAgo, useArrived, useMoney, useProjectEarnings } from '../../lib/earnings.js';
+import { type CombinedEarnings, formatGlance, formatMoney, missingNote, newestPaid, openEarnings, sourcesOf, stripePaymentsUrl, updatedAgo, useArrived, useMoney, useProjectEarnings } from '../../lib/earnings.js';
 import { openExternal } from '../../lib/system.js';
 import { agoText } from './home-model.js';
 import h from '../project-home.module.css';
 import s from './earnings-section.module.css';
 
 /**
- * A project's home, with Stripe connected: how it's doing lately, as one quiet row at the bottom
+ * A project's home, with Stripe or RevenueCat connected: how it's doing lately, as one quiet row at the bottom
  * of the page, like its other sections. Folded, the row says what it earned in the last 7, 30 or
  * 90 days (your pick, kept for every project) against the span before, how many payments and
  * paying customers, and when the last payment came. Unfolded (kept too): the range, what came in
  * each day, and the latest payments, filtered to refunds or failed ones when there are any. Money
- * shows in the currency you show earnings in; the Stripe sheet has the rest. Nothing when Stripe
- * isn't connected.
+ * shows in the currency you show earnings in; the Earnings sheet has the rest. Nothing when neither
+ * is connected.
  */
 export function EarningsSection({ project }: { project: Project }) {
   const earnings = useProjectEarnings(project.root);
   const [range, setRange] = useKept<EarningsRange>(RANGE_KEY, (v) => EARNINGS_RANGES.find((r) => String(r) === v) ?? 30);
   const [open, setOpen] = useKept<boolean>(OPEN_KEY, (v) => v === 'true');
   if (!earnings) return null;
-  const status = earnings.refreshing ? 'reading Stripe…' : earnings.updatedAt ? `updated ${updatedAgo(earnings.updatedAt)}` : undefined;
+  const status = earnings.refreshing ? `reading ${sourcesOf([earnings])}…` : earnings.updatedAt ? `updated ${updatedAgo(earnings.updatedAt)}` : undefined;
   const activity = earnings.activity;
   return (
     <section className={h.section} aria-label="Earnings">
       <div className={h.sectionHead}>
         <h3 className={h.sectionTitle}>Earnings</h3>
         <span className={h.sectionHint}>
-          {earnings.account ?? 'Stripe'}
-          {earnings.mode === 'test' ? ' · test mode' : ''}
+          {earnings.account ?? sourcesOf([earnings])}
+          {earnings.mode === 'test' && !earnings.revenuecat ? ' · test mode' : ''}
           {status ? ` · ${status}` : ''}
         </span>
         <span className={h.flex} />
-        <Button size="small" variant="quiet" onClick={() => openStripe(project.id)}>
-          Stripe Earnings…
+        <Button size="small" variant="quiet" onClick={() => openEarnings(project.id)}>
+          Earnings…
         </Button>
       </div>
       <div className={h.rows}>
@@ -79,7 +79,7 @@ function useKept<T>(key: string, read: (stored: string | null) => T): [T, (v: T)
   ];
 }
 
-function NotYet({ project, earnings }: { project: Project; earnings: ProjectEarnings }) {
+function NotYet({ project, earnings }: { project: Project; earnings: CombinedEarnings }) {
   if (earnings.error && !earnings.refreshing) {
     return (
       <div className={cx(h.row, s.problem)} role="status">
@@ -87,13 +87,13 @@ function NotYet({ project, earnings }: { project: Project; earnings: ProjectEarn
           <Icon name="alert" size={13} />
         </span>
         <span className={h.rowMain}>{brandText(earnings.error.message)}</span>
-        <button type="button" className={s.link} onClick={() => openStripe(project.id)}>
-          Stripe Earnings…
+        <button type="button" className={s.link} onClick={() => openEarnings(project.id)}>
+          Earnings…
         </button>
       </div>
     );
   }
-  return <p className={h.none}>Reading the last months from Stripe…</p>;
+  return <p className={h.none}>Reading the last months from {sourcesOf([earnings])}…</p>;
 }
 
 /** The money of some totals in the currency earnings show in (≈ when some was converted). */
@@ -111,7 +111,7 @@ const shownOf = (totals: readonly MoneyTotal[], currency: string, fx: FxRates | 
 const plural = (n: number, one: string, many: string): string => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
 /** The folded row: the range's money and its change, payments, paying customers, the last payment. */
-function Summary({ activity, earnings, range, open, onToggle }: { activity: EarningsActivity; earnings: ProjectEarnings; range: EarningsRange; open: boolean; onToggle: () => void }) {
+function Summary({ activity, earnings, range, open, onToggle }: { activity: EarningsActivity; earnings: CombinedEarnings; range: EarningsRange; open: boolean; onToggle: () => void }) {
   const { currency, fx } = useMoney();
   const fig = rangeFigures(activity, range);
   const earned = shownOf(fig.totals, currency, fx);
@@ -165,7 +165,7 @@ function Change({ now, before }: { now: number; before: number | undefined }) {
 }
 
 /** Unfolded: the range, each day, the latest payments. */
-function Details({ activity, earnings, range, onRange }: { activity: EarningsActivity; earnings: ProjectEarnings; range: EarningsRange; onRange: (r: EarningsRange) => void }) {
+function Details({ activity, earnings, range, onRange }: { activity: EarningsActivity; earnings: CombinedEarnings; range: EarningsRange; onRange: (r: EarningsRange) => void }) {
   const { currency, fx } = useMoney();
   const fig = rangeFigures(activity, range);
   const note = missingNote(shownOf(fig.totals, currency, fx).missing);
@@ -195,7 +195,7 @@ function Details({ activity, earnings, range, onRange }: { activity: EarningsAct
           {activity.partial ? 'A busy account: Beluga read the newest 5,000 payments, so the oldest days may show only part.' : ''}
         </p>
       ) : null}
-      <Latest latest={activity.latest} mode={earnings.mode} />
+      <Latest latest={activity.latest} mode={earnings.mode ?? 'live'} />
     </div>
   );
 }
