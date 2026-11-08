@@ -92,7 +92,7 @@ export function RunsOnPicker({ project, runtime, folder, bare = false }: { proje
     <Dropdown.Root modal={false}>
       <Dropdown.Trigger asChild>
         <button type="button" className={cx(s.chip, r.chip, bare && r.bare, why && r.held)} aria-label={`Runs on ${name}${why ? `: ${why}` : ''}`} title={why ? `Nothing starts until it can: ${why}` : undefined} data-runs-on={value}>
-          {bare ? null : <span className={r.words}>Runs on</span>}
+          {bare ? null : <span className={r.words} data-runs-on-words>Runs on</span>}
           <Mark value={value} machines={machines} />
           <span className={s.chipLabel}>{name}</span>
           {why ? <span className={r.why}>· {why}</span> : null}
@@ -132,7 +132,7 @@ export function RunsOnLabel({ tip = 'New work can run elsewhere.' }: { tip?: str
   return (
     <Tip label={tip}>
       <span className={cx(s.chip, r.chip, r.label)} aria-label={`Runs on ${name}`} data-runs-on={machine ?? HERE}>
-        <span className={r.words}>Runs on</span>
+        <span className={r.words} data-runs-on-words>Runs on</span>
         <Mark value={machine ?? HERE} machines={machines} />
         <span className={s.chipLabel}>{name}</span>
       </span>
