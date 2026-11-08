@@ -85,6 +85,8 @@ type Install = Awaited<ReturnType<typeof install>>;
 /** The computer opens a pairing; the app joins it with `use` (the link or the code), both checking the pictures. */
 async function join(app: Install, computer: Install, use: 'link' | 'code' = 'link') {
   const info = await computer.machines.pairStart();
+  // A code works once it listens too (its Argon2id is slow on a busy or small computer).
+  if (use === 'code') await waitFor(() => computer.machines.pairStatus().open?.codeReady, 30_000);
   const offer = await app.machines.joinStart(use === 'link' ? info.link : info.code);
   const shown = computer.machines.pairStatus().open?.waiting;
   expect(shown?.fingerprint).toBe(offer.fingerprint);

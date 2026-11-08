@@ -27,6 +27,8 @@ export interface ComputerPairingInfo {
   readonly link: string;
   readonly code: string;
   readonly expiresAt: number;
+  /** The code listens too (its Argon2id takes a moment after the link): typing it works from now. */
+  readonly codeReady?: boolean;
   /** An app has found it and waits for you: its name and the four pictures it shows too. */
   readonly waiting?: { readonly name: string; readonly fingerprint: string };
 }
@@ -73,6 +75,7 @@ interface Open {
   readonly timer: NodeJS.Timeout;
   failures: number[];
   waiting?: Waiting;
+  codeReady?: boolean;
 }
 
 const send = (socket: MessageSocket, msg: MachinePair): void => socket.send(JSON.stringify(msg));
@@ -86,7 +89,7 @@ export class ComputerPairing {
   info(): ComputerPairingInfo | undefined {
     const o = this.open;
     if (!o) return undefined;
-    return { link: computerLink(o.secret, this.opts.relayUrl?.()), code: formatCode(o.code), expiresAt: o.expiresAt, ...(o.waiting ? { waiting: { name: o.waiting.hello.name, fingerprint: o.waiting.fingerprint } } : {}) };
+    return { link: computerLink(o.secret, this.opts.relayUrl?.()), code: formatCode(o.code), expiresAt: o.expiresAt, ...(o.codeReady ? { codeReady: true } : {}), ...(o.waiting ? { waiting: { name: o.waiting.hello.name, fingerprint: o.waiting.fingerprint } } : {}) };
   }
 
   /** How the last pairing ended (none while one is open). */
@@ -138,7 +141,11 @@ export class ComputerPairing {
     }
     if (this.open !== open) throw new Error('The pairing was closed while it opened');
     byCode.then(
-      () => this.open === open && this.opts.onChange(),
+      () => {
+        if (this.open !== open) return;
+        open.codeReady = true;
+        this.opts.onChange();
+      },
       (err: unknown) => this.open === open && this.opts.log?.(`machines: the pairing code couldn't listen (the link still works): ${err instanceof Error ? err.message : String(err)}`),
     );
     this.opts.onChange();
