@@ -38,6 +38,7 @@ describe('the table of what your app may do on a computer', () => {
         'machines.leftBehind',
         'machines.look',
         'session.quit',
+        'daemon.stop',
       ].sort(),
     );
   });

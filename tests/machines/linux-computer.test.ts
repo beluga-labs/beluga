@@ -158,6 +158,11 @@ describe('a real headless Beluga, paired and driven', () => {
 
     // Admin is refused there, in plain words.
     await expect(screen.call('web.link')).rejects.toThrow(/not from a screen driving it/);
+    // So is stopping it (BLG-834): nothing remote could start it again. It keeps running.
+    await expect(screen.call('daemon.stop')).rejects.toThrow(/not from a screen driving it/);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(box.proc.exitCode).toBeNull();
+    expect(((await screen.call('machines.devices')) as unknown[]).length).toBeGreaterThan(0);
 
     // The link drops (no close frame): the screen stays, comes back, and catches up.
     mac.machines.closeLinks(mac.machines.book.get(added.id)!.cert.device);

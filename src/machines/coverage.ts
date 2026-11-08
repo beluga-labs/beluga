@@ -234,7 +234,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   'attachments.read': 'drive',
   'attachments.open': 'drive',
   // ---- daemon
-  'daemon.stop': 'drive',
+  // Refused: stopping that computer's Beluga leaves nothing remote to start it again (BLG-834).
+  'daemon.stop': 'refuse',
   // ---- projects
   'projects.icon': 'drive',
   'projects.setIcon': 'drive',
