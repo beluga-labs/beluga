@@ -7,6 +7,7 @@ import { agentOfWorktree, agentTitle, isAgentWorktree } from '../claude-code/sub
 import { activityOf, findWorkspace, stateOf } from '@beluga/ui/workspace-models.js';
 import { describePr } from '@beluga/shared/format.js';
 import { Icon } from '../components/Icon.js';
+import { useContinueOn } from '../machines/continue-on.js';
 import { ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Dot, IconButton, Segmented, Tip, cx } from '../components/ui.js';
 import { ConvoSwitch, SWITCH_ICONS_W, SWITCH_W } from '../agent-term/ConvoSwitch.js';
@@ -172,6 +173,8 @@ export function Toolbar() {
   const { client } = beluga;
   const state = useApp(toolbarPick, sameToolbar);
   const view = state.view;
+  // Continue On ▸ another computer of yours (BLG-808).
+  const continueItem = useContinueOn(view.kind === 'workspace' ? state.ws : undefined);
 
   if (view.kind === 'workspace') {
     const ws = state.ws;
@@ -280,8 +283,8 @@ export function Toolbar() {
               {icons.slice(0, fit).map((a) => (
                 <IconButton key={a.id} icon={a.icon} label={a.disabled ? `${a.label}: ${a.hint}` : (a.tip ?? `${a.label} · ${a.hint}`)} keys={a.keys} aria-disabled={a.disabled} data-tool={a.action} data-tool-ws={ws.id} className={cx(a.disabled && s.off, a.tone === 'error' && s.toolError)} onClick={() => run(a)} />
               ))}
-              {overflow.length || teamItems.length ? (
-                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems]}>
+              {overflow.length || teamItems.length || continueItem ? (
+                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems, ...(continueItem ? [continueItem] : [])]}>
                   <IconButton icon="more" label="More for this workspace" data-tool="more" data-tool-ws={ws.id} />
                 </ActionsDropdown>
               ) : null}

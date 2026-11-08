@@ -322,6 +322,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.editPrompt` | Edit on your own message (hover, or right-click › Edit Message) › the message opens in place: Rewind Here or New Fork, then ↩ |
 | `workspaces.continueInWorktree` | Continue in New Worktree… (toolbar and the ask banner) › sheet: Task, Based on, Agent (BLG-506: one that can't resume the conversation starts fresh, handed it, and the sheet says so), Name (the chat becomes the worktree) |
 | `workspaces.archive` | ✓ |
+| `workspaces.moveCheck` | ✓ a worktree's ⋯ › Continue On ▸ (a computer): it asks first about changes not committed (Commit Them and Continue) and waits for its agent's turn to end |
+| `workspaces.movePack` | ✓ a worktree's ⋯ › Continue On ▸, on the computer it's on (its branch pushed, or bundled over the link) |
+| `workspaces.moveChunk` | ✓ a worktree's ⋯ › Continue On ▸ (your app fetches it in pieces) |
+| `workspaces.moveReceive` | ✓ a worktree's ⋯ › Continue On ▸, on the computer it goes to |
+| `workspaces.moveLand` | ✓ a worktree's ⋯ › Continue On ▸: a worktree there on its branch with its conversation (the .env ask follows, as for any new one) |
+| `workspaces.moveDone` | ✓ a worktree's ⋯ › Continue On ▸: the old one archived once the new one is there (Continued on … in its details) |
+| `workspaces.moveUndo` | ✓ a worktree's ⋯ › Continue On ▸: a new one whose move didn't finish is archived again |
 | `workspaces.restore` | ✓ |
 | `workspaces.archivePlan` | ✓ the Archive dialog says how much space it frees |
 | `workspaces.deletePlan` | ✓ the Delete dialog says how many commits were never pushed or merged, and leads with Archive (the phone's Delete step says it too) |

@@ -78,8 +78,8 @@ export function moveQuestion(check: MoveCheck, opts: { readonly pause?: boolean;
   return undefined;
 }
 
-/** A packed package from one computer to the other, a piece at a time (`api`: plans or sentinel). */
-export async function sendOver(from: MoveCaller, to: MoveCaller, api: 'plans' | 'sentinel', packed: { readonly token: string; readonly chunks: number }, say: (words: string) => void, toName: string): Promise<void> {
+/** A packed package from one computer to the other, a piece at a time (`api`: plans, sentinel or workspaces). */
+export async function sendOver(from: MoveCaller, to: MoveCaller, api: 'plans' | 'sentinel' | 'workspaces', packed: { readonly token: string; readonly chunks: number }, say: (words: string) => void, toName: string): Promise<void> {
   for (let n = 0; n < packed.chunks; n++) {
     say(packed.chunks > 1 ? `Sending it to ${toName} (${n + 1} of ${packed.chunks})…` : `Sending it to ${toName}…`);
     const data = (await from.call(`${api}.moveChunk`, packed.token, n)) as string;

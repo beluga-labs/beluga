@@ -128,6 +128,13 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.editPrompt': 'phone',
   'workspaces.continueInWorktree': 'mac',
   'workspaces.archive': 'mac',
+  'workspaces.moveCheck': 'mac',
+  'workspaces.movePack': 'mac',
+  'workspaces.moveChunk': 'mac',
+  'workspaces.moveReceive': 'mac',
+  'workspaces.moveLand': 'mac',
+  'workspaces.moveDone': 'mac',
+  'workspaces.moveUndo': 'mac',
   'workspaces.restore': 'mac',
   'workspaces.archivePlan': 'mac',
   // The phone's Delete step carries the same warning in its hint (core/branch-state.ts, from status.unpushed).
