@@ -53,6 +53,8 @@ export interface MachineView {
   readonly rttMs?: number;
   /** What it said it has free, as of `info.at` (kept while it's offline). */
   readonly info?: MachineInfo;
+  /** It's your Always On: you on the network while this Mac sleeps (the demo's Mac mini, for now). */
+  readonly alwaysOn?: boolean;
 }
 
 interface Live {
@@ -91,6 +93,8 @@ export interface MachinesOptions {
   readonly info?: () => Promise<MachineInfo>;
   /** How often the app asks its computers (30 s). */
   readonly pollMs?: number;
+  /** The demo's computers, listed after any real ones (demo.ts, BLG-779). */
+  readonly demo?: () => readonly MachineView[];
   readonly log?: (line: string) => void;
 }
 
@@ -304,7 +308,7 @@ export class Machines {
 
   /** The computers this app drives. */
   list(): MachineView[] {
-    return this.computers().map((r) => this.view(r));
+    return [...this.computers().map((r) => this.view(r)), ...(this.opts.demo?.() ?? [])];
   }
 
   private computers(): MachineRecord[] {

@@ -21,6 +21,7 @@ import { idleWhenWatched } from './push.js';
 import { attachCompanion, detachCompanion } from './registry.js';
 import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
+import { demoMachines } from '../machines/demo.js';
 import { collectInfo, realInfoDeps } from '../machines/info.js';
 import { Machines } from '../machines/machines.js';
 import { attachMachines, detachMachines } from '../machines/registry.js';
@@ -187,6 +188,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     onChange: () => host?.machinesChanged(),
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
+    // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
+    ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
     ...(opts.log ? { log: opts.log } : {}),
   });
   const outputs = new OutputCache(opts.session, opts.store, () => host?.refreshViews());

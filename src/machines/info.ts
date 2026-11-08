@@ -38,6 +38,8 @@ export const MachineInfo = z.object({
   gh: z.enum(['signed_in', 'signed_out', 'missing']),
   mcp: z.array(z.object({ name: z.string().max(100), from: z.enum(['user', 'project', 'plugin']) })).max(64),
   projects: z.array(z.object({ name: z.string().max(200), origin: z.string().max(500).optional() })).max(200),
+  /** The worktrees with a run going there now (BLG-779), by project and name; `channel` is its conversation there. */
+  work: z.array(z.object({ project: z.string().max(200), worktree: z.string().max(200), channel: z.string().max(300) })).max(50).optional(),
 });
 export type MachineInfo = z.infer<typeof MachineInfo>;
 
@@ -83,7 +85,16 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
     gh,
     mcp: mcp.slice(0, 64).map((s) => ({ name: s.name.slice(0, 100), from: s.from })),
     projects: projects.map((p, i) => ({ name: p.name.slice(0, 200), ...(origins[i] ? { origin: origins[i]!.slice(0, 500) } : {}) })),
+    work: runningWork(state),
   };
+}
+
+/** The worktrees whose conversation has a run going now. */
+export function runningWork(state: Pick<DomainState, 'projects' | 'log'>): NonNullable<MachineInfo['work']> {
+  const busy = new Set(state.log.flatMap((l) => (l.type === 'agent' && isRunning(l.status) ? [l.channel] : [])));
+  return state.projects
+    .flatMap((p) => p.workspaces.filter((w) => busy.has(`ws:${w.id}`)).map((w) => ({ project: p.name.slice(0, 200), worktree: w.name.slice(0, 200), channel: `ws:${w.id}` })))
+    .slice(0, 50);
 }
 
 /** `fn`'s answer kept for `ms` (per key). */
