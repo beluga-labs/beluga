@@ -84,7 +84,9 @@ test('an archived worktree is under Archived, and one click restores it as it wa
   expect(readFileSync(path.join(dir, '.env.local'), 'utf8')).toBe('TOKEN=1');
   expect(existsSync(path.join(dir, 'node_modules'))).toBe(false);
   await overview(page);
-  await expect(page.getByText('Nothing archived yet')).toBeVisible();
+  // It left Archived (the demo keeps an archived chat there, so the segment isn't empty).
+  await expect(segment(page, 'Archived')).toHaveAttribute('aria-selected', 'true');
+  await expect(row(page, 'add-auth')).toHaveCount(0);
   await segment(page, 'All').click();
   await expect(row(page, 'add-auth')).not.toHaveAccessibleName(/archived/);
 });

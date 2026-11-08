@@ -19,8 +19,13 @@ test('another project’s task is offered last, says so when picked, and goes in
 
   await box.fill('see @refund');
   await expect(list).toContainText('In other projects, not this one');
-  const option = list.getByRole('option').last();
-  await expect(option).toContainText('Refund endpoint');
+  // bob-api's tasks come last; others match "refund" too, so find this one by name, then hold it by its key
+  // (picking it once swaps its title for the question).
+  await expect(list.getByRole('option').last()).toContainText('bob-api');
+  const named = list.getByRole('option', { name: /Refund endpoint/ });
+  await expect(named).toContainText('bob-api');
+  const key = (await named.getAttribute('aria-label') ?? (await named.innerText())).match(/^[A-Z]+-\d+/)![0];
+  const option = list.getByRole('option', { name: new RegExp(`^${key} `) });
   if (process.env.BELUGA_SHOTS) await list.screenshot({ path: `${process.env.BELUGA_SHOTS}/01-other-project-section.png` });
 
   // The first pick only says it isn't this project's.

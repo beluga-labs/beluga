@@ -10,8 +10,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('the top of the sidebar is Your Mac, Overview, Work (tasks, issues and plans), Sentinel, the chat and Files', async ({ page }) => {
-  // The places themselves: a running plan's row sits under Work (KLD-18, BLG-197) and isn't one of them.
-  const top = sidebar(page).locator('section').first().getByRole('button').and(page.locator(':not([data-plan-row])'));
+  // The places themselves: a running plan's row sits under Work (KLD-18, BLG-197) and isn't one of them,
+  // nor are the sentinels under Sentinel (BLG-570) or the fold buttons inside those rows.
+  const notPlaces = ':not([data-plan-row]):not([data-sentinel-side]):not([data-sentinel-side] *):not([data-sentinel-row] *)';
+  const top = sidebar(page).locator('section').first().getByRole('button').and(page.locator(notPlaces));
   await expect(top.nth(0)).toHaveAccessibleName(/^Your Mac/);
   await expect(top.nth(1)).toHaveAccessibleName(/^Overview/);
   await expect(top.nth(2)).toHaveAccessibleName(/^Work/);
