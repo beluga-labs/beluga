@@ -57,6 +57,8 @@ export interface ControllerDeps {
   readonly askClaude: (prompt: string, channel: string, opts?: { readonly echo?: boolean | string; readonly shown?: string; readonly terminal?: boolean }) => void;
   /** Generate a title from recent chat content with a separate side call. */
   readonly titleChat?: (content: string) => Promise<string | undefined>;
+  /** Plan with Tasks in a conversation: an empty draft plan, written from what's said there next (throws where plans can't be made). */
+  readonly planHere?: (channel: string) => void;
   /** Draw your first message in a conversation that isn't there yet (a worktree being made) → its request id. */
   readonly showAsk?: (prompt: string, channel: string) => string;
   /** Stop your Claude in a conversation, resolving once nothing runs there (editing a message cuts it there). */
@@ -946,12 +948,14 @@ export class WorkspaceController {
    * With no message it just creates the worktree.
    */
   /**
-   * `plan`: its Claude plans first (plan mode is on in it before the message goes). `quiet`: made
+   * `plan`: its Claude plans first (plan mode is on in it before the message goes). `tasks`: Plan
+   * with Tasks, its conversation is a draft plan's home before the message goes (where no plan can be
+   * made, it plans first instead). `quiet`: made
    * from elsewhere (the phone, Your Mac), so the Mac's window stays where it is. → the worktree,
    * by the name the model gave it; with `nameLater`, as soon as it's made (its id stays when the
    * name comes, so a caller that only wants the id needn't wait for the model).
    */
-  async startWorktree(projectId: string, firstMessage: string, nameTask: (prompt: string) => Promise<string>, opts: { base?: string; name?: string; plan?: boolean; quiet?: boolean; nameLater?: boolean; agent?: AgentRef; terminal?: boolean } = {}): Promise<Workspace | undefined> {
+  async startWorktree(projectId: string, firstMessage: string, nameTask: (prompt: string) => Promise<string>, opts: { base?: string; name?: string; plan?: boolean; tasks?: boolean; quiet?: boolean; nameLater?: boolean; agent?: AgentRef; terminal?: boolean } = {}): Promise<Workspace | undefined> {
     const text = firstMessage.trim();
     const named = opts.name?.trim();
     const proper = named || !text ? undefined : nameTask(firstMessage).catch(() => undefined);
@@ -961,15 +965,29 @@ export class WorkspaceController {
     const shown = text && this.deps.showAsk ? this.deps.showAsk(firstMessage, channel) : undefined;
     const ws = await this.newWorktree(projectId, named || (text ? slugify(text) : 'worktree'), { id, ...(opts.base ? { base: opts.base } : {}), ...(opts.quiet ? { quiet: true } : {}), ...(opts.agent ? { agent: opts.agent } : {}) });
     if (!ws && shown) this.deps.store.dispatch({ type: 'clear', channel });
-    if (ws && opts.plan) this.deps.store.dispatch({ type: 'plan_mode', channel, on: true });
+    const tasks = Boolean(ws && opts.tasks && this.planHereOrSay(channel));
+    // A plan's own conversation has no plan mode; one whose plan couldn't be made plans first.
+    if (ws && !tasks && (opts.plan || opts.tasks)) this.deps.store.dispatch({ type: 'plan_mode', channel, on: true });
     // Seen as its terminal (BLG-553): the terminal opens on the message, not a turn in the chat (a plan's stays in the chat).
-    const terminal = opts.terminal && !opts.plan;
+    const terminal = opts.terminal && !opts.plan && !opts.tasks;
     if (ws && text) this.deps.askClaude(firstMessage, channel, shown || terminal ? { ...(shown ? { shown } : {}), ...(terminal ? { terminal } : {}) } : undefined);
     if (ws && proper) {
       if (opts.nameLater) void this.renameWhenNamed(ws.id, proper);
       else await this.renameWhenNamed(ws.id, proper);
     }
     return ws ? (this.deps.manager.find(ws.id) ?? ws) : undefined;
+  }
+
+  /** A draft plan in this conversation → whether there is one (else the toast says why). */
+  private planHereOrSay(channel: string): boolean {
+    try {
+      if (!this.deps.planHere) throw new Error('Plans need the Beluga app');
+      this.deps.planHere(channel);
+      return true;
+    } catch (err) {
+      this.deps.toast(`Couldn’t plan it with tasks (${err instanceof Error ? err.message : String(err)}): its agent plans first instead`, 'warn');
+      return false;
+    }
   }
 
   /** The model's name for a worktree made under a quick one, once it arrives (never fails the start). */

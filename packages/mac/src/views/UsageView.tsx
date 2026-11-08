@@ -7,6 +7,13 @@ import { Breakdown } from './usage/Breakdown.js';
 import { CleanupCard } from './usage/CleanupCard.js';
 import { EarningsSummaryCard } from './usage/EarningsSummaryCard.js';
 import { PlanCard } from './usage/PlanCard.js';
+import { type PlanLimit, SessionsCard } from './usage/SessionsCard.js';
+import { usagesOf } from '@beluga/agent/usage.js';
+import type { AppState } from '@beluga/core/store.js';
+import { StatsSection } from './usage/StatsSection.js';
+import { YourCard } from './usage/YourCard.js';
+import { Chapter } from './usage/parts.js';
+import { useStats } from './usage/use-stats.js';
 import { StorageCard } from './usage/StorageCard.js';
 import { type SortKey, cleanups, projectRows } from './usage/usage-model.js';
 import s from './usage/usage.module.css';
@@ -51,9 +58,15 @@ function useMeasure(): { measuring: boolean; measure: () => void } {
   return { measuring, measure };
 }
 
+/** The windows your plans report now: a 5-hour session, a week (an API key or a plan without limits: none). */
+function planLimits(state: AppState): PlanLimit[] {
+  const me = state.peers.find((p) => p.peerId === (state.self?.peerId ?? state.selfId)) ?? state.self;
+  return usagesOf(me).flatMap((u) => [...(u.fiveHour ? [{ runtime: u.agent.runtime, kind: 'session' as const }] : []), ...(u.week ? [{ runtime: u.agent.runtime, kind: 'week' as const }] : [])]);
+}
+
 /**
  * Usage: your Claude plan's limits (and friends'), what Claude used this week, what connected
- * projects earned (Stripe), and the disk your worktrees take, by project; then every project and worktree side by side, with what
+ * projects earned (Stripe), your stats (prompts, agent time, worktrees, PRs, by project or agent), and the disk your worktrees take, by project; then every project and worktree side by side, with what
  * can be put away to free space.
  */
 export function UsageView() {
@@ -61,6 +74,7 @@ export function UsageView() {
   const state = useApp((st) => st);
   const [sort, setSort] = useSort();
   const { measuring, measure } = useMeasure();
+  const got = useStats();
   const now = Date.now();
   const rows = projectRows(state, sort);
   // Sizes known: the first measurement came back (or there was one from before).
@@ -84,16 +98,23 @@ export function UsageView() {
   return (
     <div className={s.page}>
       <div className={s.inner}>
-        <div className={s.summaryFit}>
-          <div className={s.summary}>
-            <PlanCard state={state} now={now} />
-            <ActivityCard state={state} now={now} />
-            <EarningsSummaryCard />
+        {got.stats ? <YourCard state={state} stats={got.stats} now={got.at} /> : <div className={s.heroWait} aria-hidden />}
+        <Chapter title="Right now" sub="Your plans and how much is left, your agents this week, and what your projects earned.">
+          <div className={s.summaryFit}>
+            <div className={s.summary}>
+              <PlanCard state={state} now={now} />
+              <ActivityCard state={state} now={now} />
+              <SessionsCard windows={got.stats?.plan ?? []} limits={planLimits(state)} now={got.at} />
+              <EarningsSummaryCard />
+            </div>
           </div>
-        </div>
-        <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
-        {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
-        <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />
+        </Chapter>
+        <StatsSection state={state} got={got} />
+        <Chapter title="Your disk" sub="The room your worktrees take, what’s safe to put away, and every project side by side.">
+          <StorageCard rows={rows} measuring={measuring} measured={measured} onMeasure={measure} />
+          {measured ? <CleanupCard items={cleanups(state, rows, now)} state={state} onDone={measure} /> : null}
+          <Breakdown state={state} rows={rows} sort={sort} onSort={setSort} measured={measured} now={now} />
+        </Chapter>
       </div>
     </div>
   );

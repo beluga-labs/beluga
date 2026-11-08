@@ -129,6 +129,8 @@ export interface UiPrefs {
   readonly voiceSend: boolean;
   /** The shortcut works from any app: Beluga comes forward and listens. */
   readonly voiceAnyApp: boolean;
+  /** The microphone dictation listens to (a device id; '' : the one macOS uses). Calls pick their own. */
+  readonly voiceMic: string;
   /** Settings › Keyboard (BLG-289): the shortcuts you gave other keys (the rest keep theirs). */
   readonly shortcuts: ShortcutOverrides;
 }
@@ -211,6 +213,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   voiceShortcut: 'Alt+Space',
   voiceSend: false,
   voiceAnyApp: false,
+  voiceMic: '',
   shortcuts: {},
 };
 

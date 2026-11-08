@@ -305,6 +305,10 @@ export const PHONE: Record<Method, Side> = {
 
   // ---- supporting Beluga: the star and coffee asks are the Mac's (they open web pages there)
   'support.answer': 'mac',
+  // ---- your stats: the Usage tab's charts and what the composer saw (the phone keeps its plan meters)
+  'stats.get': 'mac',
+  'stats.note': 'mac',
+  'stats.saveImage': 'mac',
   'diagnostics.report': 'mac',
 
   // ---- browsers on the web port (BLG-650): let in and revoked from the Mac's Settings or `beluga web`
