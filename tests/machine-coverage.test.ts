@@ -36,6 +36,7 @@ describe('the table of what your app may do on a computer', () => {
         'machines.forget',
         'machines.update',
         'machines.leftBehind',
+        'machines.look',
         'session.quit',
       ].sort(),
     );

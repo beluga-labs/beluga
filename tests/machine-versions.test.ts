@@ -11,6 +11,7 @@ import type { MachineInfo } from '../src/machines/info.js';
 import { Machines } from '../src/machines/machines.js';
 import { ComputerUpdater, busyTerminals, leftBehind, parsePs, runningHere, skewOf, skewWords } from '../src/machines/versions.js';
 import { generateIdentity } from '../src/net/crypto.js';
+import type { MachineIcon } from '../src/shared/settings-schema.js';
 import { waitFor } from './helpers.js';
 
 /** Versions and updates across your computers (BLG-777). */
@@ -107,13 +108,15 @@ afterEach(async () => {
 });
 
 async function install(name: string, extra: { ipc?: number; updater?: ComputerUpdater } = {}) {
+  // Its name and icon as its own settings keep them (BLG-780).
+  const kept: { name: string; icon?: MachineIcon } = { name };
   const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-versions-'));
   const identity = generateIdentity();
   const store = new Store(initialState('room'));
   store.dispatch({ type: 'identity', selfId: identity.peerId, isHost: true });
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host!: CompanionHost;
-  const info = async (): Promise<MachineInfo> => ({ at: Date.now(), version: '0.6.0', ipc: extra.ipc ?? IPC_VERSION, cpus: 4, loadPerCore: 0.1, memory: { freeGB: 4, totalGB: 8 }, agentsRunning: 0, runtimes: [], gh: 'missing', mcp: [], projects: [] });
+  const info = async (): Promise<MachineInfo> => ({ at: Date.now(), name: kept.name, ...(kept.icon ? { icon: kept.icon } : {}), version: '0.6.0', ipc: extra.ipc ?? IPC_VERSION, cpus: 4, loadPerCore: 0.1, memory: { freeGB: 4, totalGB: 8 }, agentsRunning: 0, runtimes: [], gh: 'missing', mcp: [], projects: [] });
   const machines = new Machines({
     dir,
     identity,
@@ -122,8 +125,9 @@ async function install(name: string, extra: { ipc?: number; updater?: ComputerUp
     address: () => host.address(),
     relayUrl: () => host.relayUrl(),
     relay: { add: (r) => host.reach.server.add(r), remove: (k) => host.reach.server.remove(k) },
-    name: () => name,
+    name: () => kept.name,
     version: '0.6.0',
+    setLook: (look) => Object.assign(kept, look),
     platform: 'linux',
     removePhone: (id) => void host.removeDevice(id),
     onChange: () => host.machinesChanged(),
@@ -139,7 +143,7 @@ async function install(name: string, extra: { ipc?: number; updater?: ComputerUp
   });
   await host.start();
   machines.start();
-  return { machines };
+  return { machines, kept };
 }
 
 describe('across the link', () => {
@@ -167,3 +171,23 @@ describe('across the link', () => {
     expect(runs).toHaveLength(1);
   }, 120_000);
 });
+
+describe('renaming a computer and its icon (BLG-780)', () => {
+  it('are kept on the computer itself, and read back the same', async () => {
+    const app = await install('MacBook');
+    const mini = await install('mini');
+    const info = await mini.machines.pairStart();
+    await app.machines.joinStart(info.link);
+    const { id } = await app.machines.joinApprove();
+    const view = await app.machines.look(id, { name: 'Mac mini at home', icon: 'desktop' });
+    expect(view).toMatchObject({ name: 'Mac mini at home', icon: 'desktop' });
+    // Kept there: the computer's own name changed, so any device that asks hears it.
+    expect(mini.kept).toEqual({ name: 'Mac mini at home', icon: 'desktop' });
+    expect(mini.machines.hereName()).toBe('Mac mini at home');
+    // And here, offline or not, the book has it too.
+    expect(app.machines.book.get(id)).toMatchObject({ name: 'Mac mini at home', icon: 'desktop' });
+    await app.machines.poll();
+    expect(app.machines.list()[0]).toMatchObject({ name: 'Mac mini at home', icon: 'desktop' });
+  }, 120_000);
+});
+

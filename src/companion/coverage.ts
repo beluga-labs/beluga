@@ -520,6 +520,8 @@ export const PHONE: Record<Method, Side> = {
   'machines.ssh.pair': 'mac',
   'machines.update': 'mac',
   'machines.leftBehind': 'mac',
+  'machines.look': 'mac',
+  'machines.placement': 'mac',
   'machines.list': 'mac',
   'machines.devices': 'mac',
   'machines.forget': 'mac',

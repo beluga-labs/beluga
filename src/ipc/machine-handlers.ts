@@ -1,5 +1,10 @@
 import type { Session } from '../core/session.js';
+import os from 'node:os';
+import { placeNewWork } from '../machines/placement.js';
 import { needMachines } from '../machines/registry.js';
+
+/** This computer's 1-minute load per core, as a computer reports its own. */
+const hereLoad = (): number => Math.round(((os.loadavg()[0] ?? 0) / Math.max(1, os.cpus().length)) * 100) / 100;
 import type { Args, Method } from './api.js';
 
 /** What each `machines.*` method does (see machine-api.ts). Results carry no keys beyond a pairing's own link and code. */
@@ -18,6 +23,8 @@ export const MACHINE_HANDLERS = {
   'machines.ssh.pair': (s, host) => needMachines(s).sshPairStart(host),
   'machines.update': (s, id, mode) => needMachines(s).update(id, mode),
   'machines.leftBehind': (s, ipc) => needMachines(s).leftBehind(ipc),
+  'machines.look': (s, id, look) => needMachines(s).look(id, look),
+  'machines.placement': (s) => placeNewWork(s.store.getState().prefs.runOn, needMachines(s).list(), { name: needMachines(s).hereName(), loadPerCore: hereLoad() }),
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),

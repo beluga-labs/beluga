@@ -16,6 +16,7 @@ import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
 import { MachineDoor } from './door.js';
+import type { MachineIcon } from '../shared/settings-schema.js';
 import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
@@ -49,6 +50,8 @@ export const platformHere = (p: NodeJS.Platform = process.platform): MachinePlat
 export interface MachineView {
   readonly id: string;
   readonly name: string;
+  /** Its icon as kept on it (BLG-780); `auto` or none: its kind's own. */
+  readonly icon?: MachineIcon;
   readonly platform: DeviceCert['platform'];
   readonly version?: string;
   readonly pairedAt: number;
@@ -120,6 +123,8 @@ export interface MachinesOptions {
   readonly sshFingerprintMs?: number;
   /** On a computer: Update It, waiting for its runs or asking first (versions.ts, BLG-777). */
   readonly updater?: ComputerUpdater;
+  /** On a computer: keep a new name or icon your app gave it (its own settings, BLG-780). */
+  readonly setLook?: (look: { readonly name?: string; readonly icon?: MachineIcon }) => void;
   readonly log?: (line: string) => void;
 }
 
@@ -248,8 +253,11 @@ export class Machines {
       if (!socket.isOpen) return;
       // Update It from an app of yours (BLG-777): it says what it does (now, once idle, or what runs).
       const updated = frame.want?.includes('update') && frame.update && roleOf(cert) === 'app' ? await this.updateHere(frame.update.mode) : undefined;
+      // Renamed, or a new icon, from an app of yours: kept here, so every device shows it.
+      if (frame.look && roleOf(cert) === 'app' && (frame.look.name || frame.look.icon)) this.opts.setLook?.(frame.look);
+      const fresh = frame.look && wantsInfo ? await this.opts.info!().catch(() => undefined) : info;
       if (!socket.isOpen) return;
-      const answer: MachineSync = { ...this.set.syncFrame(), ...(info ? { info } : {}), ...(updated ? { updated } : {}) };
+      const answer: MachineSync = { ...this.set.syncFrame(), ...(fresh ? { info: fresh } : {}), ...(updated ? { updated } : {}) };
       socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
@@ -444,6 +452,11 @@ export class Machines {
     return { ...offer, ...(there ? { sshChecked: true } : {}) };
   }
 
+  /** What this install is called (its own name, as its computers know it). */
+  hereName(): string {
+    return this.opts.name();
+  }
+
   /** The computers this app drives. */
   list(): MachineView[] {
     return [...this.computers().map((r) => this.view(r)), ...(this.opts.demo?.() ?? [])];
@@ -465,6 +478,29 @@ export class Machines {
    * nothing does; `when-idle` updates once nothing runs; `now` stops what runs. It works across
    * protocol versions (the set's link, not the app protocol).
    */
+  /**
+   * Rename a computer or pick its icon (BLG-780): sent to it and kept there, so every device of
+   * yours shows the same; this app shows it at once.
+   */
+  async look(id: string, look: { name?: string; icon?: MachineIcon }): Promise<MachineView> {
+    const r = this.book.get(id);
+    if (!r || !this.drives(r)) throw new Error('That computer isn’t one of yours here');
+    const socket = await this.openLink(r);
+    const sent = Date.now();
+    const answer = await exchange(socket, JSON.stringify({ ...this.set.syncFrame(), want: ['info'], look } satisfies MachineSync));
+    if (!answer) throw new Error(`${r.name} didn't answer: try again when it's online`);
+    if (answer.info) this.live.set(id, { at: Date.now(), ok: true, rttMs: Date.now() - sent, info: answer.info });
+    this.keepLook(id, answer.info);
+    return this.view(this.book.get(id)!);
+  }
+
+  /** What a computer says it's called and looks like, kept here for when it's offline. */
+  private keepLook(id: string, info: MachineInfo | undefined): void {
+    const r = this.book.get(id);
+    if (!r || !info) return;
+    if ((info.name && info.name !== r.name) || (info.icon && info.icon !== r.icon)) this.book.update(id, { ...(info.name ? { name: info.name } : {}), ...(info.icon ? { icon: info.icon } : {}) });
+  }
+
   async update(id: string, mode: UpdateMode): Promise<UpdateAnswer> {
     const r = this.book.get(id);
     if (!r || !this.drives(r)) throw new Error('That computer isn’t one of yours here');
@@ -574,6 +610,7 @@ export class Machines {
     const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
     if (info) this.live.set(deviceId(r.cert), { at: Date.now(), ok: true, rttMs: Date.now() - sent, ...(answer.info ? { info: answer.info } : {}) });
+    this.keepLook(deviceId(r.cert), answer.info);
     this.book.update(deviceId(r.cert), { lastSeen: Date.now() });
     this.merged(this.set.merge(answer));
     return true;
@@ -588,7 +625,8 @@ export class Machines {
     const words = skewWords(r.name, live?.info?.version ?? r.version, skew);
     return {
       id: deviceId(r.cert),
-      name: r.name,
+      name: live?.info?.name ?? r.name,
+      ...((live?.info?.icon ?? r.icon) ? { icon: (live?.info?.icon ?? r.icon) as MachineIcon } : {}),
       platform: r.cert.platform,
       ...(r.version ? { version: r.version } : {}),
       pairedAt: r.pairedAt,

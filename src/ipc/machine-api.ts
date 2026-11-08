@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MACHINE_ICONS } from '../shared/settings-schema.js';
 
 /**
  * Your devices and computers in the API (BLG-774, src/machines): a computer opening a pairing for
@@ -30,6 +31,10 @@ export const MACHINE_API = {
   'machines.update': { args: z.tuple([deviceId, z.enum(['ask', 'when-idle', 'now'])]) },
   // Before the app updates to app protocol `ipc`: the computers that update would leave unable to connect.
   'machines.leftBehind': { args: z.tuple([z.number().int().min(0).max(1000)]) },
+  // Rename a computer or pick its icon: kept on the computer, so every device shows the same → the computer.
+  'machines.look': { args: z.tuple([deviceId, z.object({ name: z.string().trim().min(1).max(64).optional(), icon: z.enum(MACHINE_ICONS).optional() }).strict()]) },
+  // Where new work goes now, as Run New Work On says (here, a computer, or the least busy one) and why.
+  'machines.placement': { args: z.tuple([]) },
   // The computers this app drives.
   'machines.list': { args: z.tuple([]) },
   // Every device of your set this install knows: phones, apps and computers, with their roles.

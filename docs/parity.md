@@ -232,16 +232,18 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.pair.start` | – on the computer: `beluga pair --computer` prints its link, code and QR (one app, 10 minutes, BLG-774) |
 | `machines.pair.status` | – on the computer: `beluga pair --computer` follows it (the app waiting, its four pictures, joined) |
 | `machines.pair.cancel` | – on the computer: Ctrl+C in `beluga pair --computer` |
-| `machines.join.start` | – for now `beluga computers add <link or code>` in a terminal (Settings › Your Computers › Add a Computer is BLG-780) |
-| `machines.join.approve` | – `beluga computers add`'s Add? [y/N] after comparing the four pictures (Settings › Your Computers is BLG-780) |
-| `machines.join.cancel` | – `beluga computers add`'s no or Ctrl+C (Settings › Your Computers is BLG-780) |
-| `machines.ssh.hosts` | – for now `beluga connect` takes the host as typed (Settings › Your Computers › Add Over SSH lists them, BLG-780) |
-| `machines.ssh.pair` | – `beluga connect you@host --pair`: Beluga installed and started there when missing, the pictures checked over SSH and here (Add Over SSH is BLG-780) |
-| `machines.update` | – the update sheet's Update … First when an app update would leave a computer behind (Settings › Your Computers › Update It is BLG-780) |
+| `machines.join.start` | ✓ Settings › Your Computers › Add a Computer… › Link or Code › Add (also `beluga computers add <link or code>`) |
+| `machines.join.approve` | ✓ Settings › Your Computers › Add a Computer… › Join, after the four pictures (also `beluga computers add`'s Add? [y/N]) |
+| `machines.join.cancel` | ✓ Settings › Your Computers › Add a Computer… › Cancel (also `beluga computers add`'s no or Ctrl+C) |
+| `machines.ssh.hosts` | ✓ Settings › Your Computers › Add a Computer… › Over SSH: your hosts to pick from |
+| `machines.ssh.pair` | ✓ Settings › Your Computers › Add a Computer… › Over SSH › Add: Beluga installed and started there when missing, the pictures checked over SSH and here (also `beluga connect you@host --pair`) |
+| `machines.update` | ✓ Settings › Your Computers › a computer on an older version › Update It, and the update sheet's Update … First |
 | `machines.leftBehind` | ✓ the update sheet (Beluga … is ready) warns which computers that update would leave unable to connect |
-| `machines.list` | – `beluga computers`: each computer online or offline, its round trip, load per core, free memory and disk, agents running (and, for Settings › Your Computers in BLG-780, Claude and Codex signed in with usage, gh, MCP servers, projects with origins), asked every 30 s |
+| `machines.look` | ✓ Settings › Your Computers › a computer › its name (rename in place) and its icon |
+| `machines.placement` | ✓ Settings › Your Computers › Run New Work On: where new work goes now, and why |
+| `machines.list` | ✓ Settings › Your Computers: each computer's icon, name, kind and region, online or offline, its load and health with fixes (also `beluga computers`) |
 | `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
-| `machines.forget` | – `beluga computers forget <name>` on any of your devices (Settings › Your Computers › Forget is BLG-780) |
+| `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
 | `companion.phone.use` | ✓ Settings › Phone › Let your agent use this phone: Off · Ask each time · Use · Full (BLG-150) |
 | `companion.phone.pairAdb` | ✓ Settings › Phone › Connect, once the phone shows a Wireless-debugging pairing code (runs `adb pair`) |
 | `companion.phone.wifi` | ✓ Settings › Phone › Over Wi‑Fi: Use over Wi‑Fi while the phone is on a cable (turns on its Wireless debugging, reached through the link), or Turn Off (BLG-187) |

@@ -11,6 +11,7 @@ import { Usage } from '../protocol.js';
 import { git } from '../workspaces/git.js';
 import { type KindFound, MACHINE_KINDS, detectKind, realKindReaders } from './kind.js';
 import { UPDATE_MODES, UpdateAnswer } from './versions.js';
+import { MACHINE_ICONS, type MachineIcon } from '../shared/settings-schema.js';
 
 /**
  * What a computer has free (BLG-778), as it says it to your app: its load per core, free memory and
@@ -36,6 +37,9 @@ export const MachineInfo = z.object({
   /** Its Beluga and the app protocol it speaks (BLG-777). */
   version: z.string().max(40).optional(),
   ipc: z.number().int().min(0).optional(),
+  /** Its name and icon as kept on it (BLG-780): every device shows these. */
+  name: z.string().min(1).max(64).optional(),
+  icon: z.enum(MACHINE_ICONS).optional(),
   cpus: z.number().int().min(1).max(4096),
   /** The 1-minute load average over the cores (1 = every core busy). */
   loadPerCore: z.number().min(0).max(1000),
@@ -58,6 +62,8 @@ export const MachineSync = DeviceSetSync.extend({
   /** Update It (BLG-777): asked with how, answered with what the computer does. */
   update: z.object({ mode: z.enum(UPDATE_MODES) }).optional(),
   updated: UpdateAnswer.optional(),
+  /** Rename it or pick its icon from your app (BLG-780): kept on the computer itself. */
+  look: z.object({ name: z.string().trim().min(1).max(64).optional(), icon: z.enum(MACHINE_ICONS).optional() }).optional(),
 });
 export type MachineSync = z.infer<typeof MachineSync>;
 
@@ -74,6 +80,8 @@ export interface InfoDeps {
   readonly kind?: () => KindFound | undefined;
   /** This Beluga's version and app protocol. */
   readonly self?: { readonly version: string; readonly ipc: number };
+  /** Its name and icon as kept on it. */
+  readonly look?: () => { readonly name: string; readonly icon?: MachineIcon };
 }
 
 export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
@@ -94,6 +102,7 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
     at: deps.now(),
     ...(kind ? { kind: kind.kind, ...(kind.region ? { region: kind.region } : {}) } : {}),
     ...(deps.self ? { version: deps.self.version.slice(0, 40), ipc: deps.self.ipc } : {}),
+    ...lookOf(deps.look?.()),
     cpus,
     loadPerCore: Math.round(((deps.os.loadavg()[0] ?? 0) / cpus) * 100) / 100,
     memory: { freeGB: round1(deps.os.freemem() / GB), totalGB: round1(deps.os.totalmem() / GB) },
@@ -109,6 +118,8 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
     work: runningWork(state),
   };
 }
+
+const lookOf = (look: { name: string; icon?: MachineIcon } | undefined): Pick<MachineInfo, 'name' | 'icon'> => (look ? { ...(look.name.trim() ? { name: look.name.trim().slice(0, 64) } : {}), ...(look.icon ? { icon: look.icon } : {}) } : {});
 
 /** The worktrees whose conversation has a run going now. */
 export function runningWork(state: Pick<DomainState, 'projects' | 'log'>): NonNullable<MachineInfo['work']> {

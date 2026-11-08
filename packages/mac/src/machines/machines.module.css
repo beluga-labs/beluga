@@ -1,0 +1,144 @@
+/* Settings › Your Computers (BLG-780): soft and quiet, one main action. */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.headText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: 0.88rem;
+}
+
+.add {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 0.5px solid var(--hairline);
+}
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.addRow input {
+  flex: 1;
+  min-width: 0;
+}
+.offer {
+  display: grid;
+  gap: 8px;
+}
+.pictures {
+  font-size: 1.5rem;
+  letter-spacing: 0.25em;
+}
+
+.computer {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border-top: 0.5px solid var(--hairline);
+}
+.mark {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  color: var(--text-2);
+  display: grid;
+  place-items: center;
+}
+.brand {
+  width: 20px;
+  height: 20px;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+.main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.nameLine {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  border-radius: 4px;
+}
+.name:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+.nameInput {
+  font: inherit;
+  font-weight: 500;
+  min-width: 0;
+  width: 14em;
+}
+.kind {
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+.load {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+.health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+.ok,
+.notOk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ok svg {
+  color: var(--ok);
+}
+.notOk svg {
+  color: var(--warn);
+}
+.fix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+.fix code {
+  font-size: 0.8rem;
+}
+.side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.said {
+  grid-column: 2 / 4;
+  font-size: 0.85rem;
+  color: var(--text-2);
+}

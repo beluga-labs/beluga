@@ -81,11 +81,25 @@ export type NotifySettings = z.infer<typeof NotifySettings>;
 
 const peerKey = z.string().regex(/^[\w-]{8,64}$/);
 
+/**
+ * A computer's icon (BLG-780): its kind's own (`auto`: a brand mark or a fitting glyph) or one of a
+ * small generic set. Kept on the computer, so every device of yours shows the same.
+ */
+export const MACHINE_ICONS = ['auto', 'server', 'cloud', 'desktop', 'laptop', 'chip', 'box'] as const;
+export type MachineIcon = (typeof MACHINE_ICONS)[number];
+
+/** Where new work runs (BLG-780): this computer, the least busy of yours that's ready, or one by its id. */
+export const RUN_ON = /^(here|best|[0-9a-f]{16})$/;
+
 /** Choices that persist between runs in ~/.beluga/settings.json. */
 export const Settings = z.object({
   name: z.string().regex(/^[\w.-]{1,32}$/).optional(),
   /** What your phone calls this computer (`beluga setup`); unset: its own name (Sharing name, else host name). */
   computerName: z.string().trim().min(1).max(64).optional(),
+  /** Its icon, as your app shows it on every device (BLG-780). */
+  computerIcon: z.enum(MACHINE_ICONS).optional(),
+  /** Run New Work On (BLG-780): `here`, `best`, or a computer's id. */
+  runOn: z.string().regex(RUN_ON).default('here'),
   theme: z.enum(THEMES).default('calm'),
   /** Default trust for people you haven't chosen a level for. Unset until you answer the welcome screen once. */
   policy: z.enum(['ask', 'auto', 'deny']).optional(),

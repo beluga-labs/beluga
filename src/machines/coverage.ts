@@ -552,6 +552,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   // Refused: your devices are joined and forgotten from your own app.
   'machines.update': 'refuse',
   'machines.leftBehind': 'refuse',
+  'machines.look': 'refuse',
+  'machines.placement': 'drive',
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { claudeCodeOf } from '../core/claude-code/launch.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { belugaHome } from '../core/home.js';
-import { loadSettings } from '../core/settings.js';
+import { loadSettings, saveSettings } from '../core/settings.js';
 import type { Session } from '../core/session.js';
 import type { Store } from '../core/store.js';
 import { installedVersion } from '../core/version.js';
@@ -175,7 +175,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host: CompanionHost | undefined;
   // Your device set and computers (BLG-774): they share the phones' node, relay and address.
-  const infoDeps = realInfoDeps(() => opts.store.getState(), { version: installedVersion(), ipc: IPC_VERSION });
+  // Its name and icon as kept here (BLG-780): what every device of yours shows.
+  const infoDeps = { ...realInfoDeps(() => opts.store.getState(), { version: installedVersion(), ipc: IPC_VERSION }), look: () => ({ name: macName(), ...(loadSettings().computerIcon ? { icon: loadSettings().computerIcon! } : {}) }) };
   // Update It from your app (BLG-777): `beluga update` here once nothing runs, or what runs is said.
   const run = opts.demo ? undefined : updateRunner();
   const updater = new ComputerUpdater({
@@ -201,6 +202,11 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
     updater,
+    // Renamed or a new icon from your app: this computer's own settings, so every device agrees.
+    setLook: (look) => {
+      saveSettings({ ...(look.name ? { computerName: look.name } : {}), ...(look.icon ? { computerIcon: look.icon } : {}) });
+      if (look.name) named = undefined;
+    },
     // Add Over SSH (BLG-781): your own ssh, keys and agent.
     ssh: belugaEnv('SSH') ?? 'ssh',
     // An app of yours driving this computer: a screen of the daemon's, of kind machine (BLG-775).
