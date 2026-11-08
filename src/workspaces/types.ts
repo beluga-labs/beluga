@@ -103,6 +103,8 @@ export interface WorkspaceRecord {
    * `head`: the commit it merged at, so Delete warns only about commits made after it (BLG-831).
    */
   readonly prShipped?: { readonly number: number; readonly url?: string; readonly into: string; readonly head?: string };
+  /** The PR whose merge this chat already shows (its merged line): said once, across restarts too. */
+  readonly mergeSaid?: number;
   /**
    * Merge When Ready: Beluga merges PR `number` itself once its checks pass (and stops, saying why,
    * if they fail or it conflicts). Not GitHub's auto-merge: that merges at once when no check is required.

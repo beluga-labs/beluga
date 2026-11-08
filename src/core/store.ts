@@ -85,7 +85,7 @@ export type LogItem =
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
       readonly reacts?: readonly ReactionEvent[];
     }
-  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
+  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly merged?: MergedMark; readonly dialogue?: DialogueMark }
   | {
       readonly id: string;
       readonly type: 'agent';
@@ -140,6 +140,19 @@ export interface ShippedMark {
 
 /** A shipped divider's words, where it's drawn as plain text (the phone, a log). */
 export const shippedText = (number: number, into: string): string => `Above this line went to PR #${number}, merged into ${into}. New work starts here, for a new pull request.`;
+
+/**
+ * The worktree's work merged (Beluga's Merge, Merge When Ready, on GitHub, or into the main
+ * folder): `number` is its pull request (none: merged without one). Drawn as a divider.
+ */
+export interface MergedMark {
+  readonly into: string;
+  readonly number?: number;
+  readonly url?: string;
+}
+
+/** A merged divider's words, where it's drawn as plain text (the phone, a log). */
+export const mergedText = (m: MergedMark): string => `Above this line was merged into ${m.into}${m.number !== undefined ? ` in PR #${m.number}` : ''}.`;
 
 /** Where a dialogue shows in a conversation: its header card (a system line) and its turns (chat lines). */
 export interface DialogueMark {
@@ -604,7 +617,7 @@ export type Action =
   | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; dialogue?: DialogueMark }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
-  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
+  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
   | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
@@ -1055,7 +1068,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'system':
       return {
         ...state,
-        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
+        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.merged ? { merged: action.merged } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
       };
     case 'conflicts': {
       const { [action.id]: _old, ...rest } = state.conflicts;

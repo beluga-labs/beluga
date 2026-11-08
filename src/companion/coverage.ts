@@ -410,6 +410,8 @@ export const PHONE: Record<Method, Side> = {
   'plans.here': 'mac',
   'plans.approve': 'phone',
   'plans.discard': 'phone',
+  'plans.fixReview': 'phone',
+  'plans.verify': 'phone',
   'plans.edit': 'mac',
   'plans.setAutonomy': 'phone',
   'plans.setPaused': 'mac',

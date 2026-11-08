@@ -346,7 +346,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workbench.signInClaude` | ✓ Sign In on a failed Claude card that says Claude Code isn’t signed in or its sign-in expired: a menu of a Claude subscription, an Anthropic Console account (runs `claude auth login --claudeai` or `--console` in a shell, then Claude continues) or a 3rd-party platform (opens its setup page) |
 | `workbench.fixChecks` | ✓ the toolbar's branch state › Fix Checks… (the PR's checks failed and nothing still runs); while they run it says Checks running, calm, with Fix Checks… under its chevron |
 | `workbench.resolvePrConflicts` | ✓ Resolve Conflicts… (the toolbar's branch state "Conflicts with main", folded "Resolve Conflicts"; PR sheet, the PR strip above the chat) when GitHub says the PR conflicts (never while GitHub is still working it out) |
-| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words) |
+| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words). A merge itself (Merge, Merge When Ready, on GitHub or anywhere else, Merge into its base, into the main folder) draws its own line in the chat as it's seen, “Above was merged into main in PR #N”, also on the phone; one that merged while Beluga was closed shows on the next start if nothing was said there since |
 | `workbench.openPr` | ✓ |
 | `workbench.refreshPrs` | ✓ |
 | `workbench.mergePr` | ✓ the PR sheet › Merge on GitHub (squash, merge or rebase; Merge When Checks Pass; Merge Now, Skipping Checks), also in the PR strip above the chat |
@@ -582,6 +582,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.here` | ✓ the composer's mode menu › Plan with Tasks (the agent plans in the conversation you're in) |
 | `plans.approve` | ✓ Approve Plan / Apply Changes on a plan's page and its strip above the conversation; Approve Plan's ▾ › Approve, worked by ▸ (BLG-506: `plans.setWorkAgent`, then approve) |
 | `plans.discard` | ✓ Discard Draft / Discard Changes on a plan's page |
+| `plans.verify` | ✓ Approve Plan's ▾ › Verify, Then Approve on a plan's page and its strip above the conversation; ••• › Verify the Plan; Verify, Then Approve on the findings line once Fix was sent (BLG-772); the phone's approve card |
+| `plans.fixReview` | ✓ Fix on the findings line and the plan page's main button, when verifying found something (BLG-772); the phone's card too |
 | `plans.edit` | ✓ editing a plan's outline (rename, criteria, move, remove, what waits on what) |
 | `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu); the phone plan page's autonomy chip (1.5) |
 | `plans.setPaused` | ✓ Pause / Resume on a plan's page |
