@@ -127,6 +127,24 @@ describe('your settings on every computer', () => {
     expect(app.store.getState().prefs.tunnel).toBe('auto');
   }, 120_000);
 
+  it('the same setting changed on both at once: the Mac says the conflict, whichever side merged it (BLG-835)', async () => {
+    const app = await install('MacBook');
+    const box = await install('build-box');
+    await join(app, box);
+    app.store.dispatch({ type: 'prefs', prefs: { effort: 'high' } });
+    await waitFor(() => box.store.getState().prefs.effort === 'high', 20_000);
+    // Both before either sends (a change goes 100 ms after it's made): the Mac's is the newer.
+    box.store.dispatch({ type: 'prefs', prefs: { theme: 'contrast' } });
+    await new Promise((r) => setTimeout(r, 5));
+    app.store.dispatch({ type: 'prefs', prefs: { theme: 'light' } });
+    await waitFor(() => app.machines.settingsSync().conflicts.some((c) => c.key === 'theme'), 10_000);
+    await waitFor(() => box.store.getState().prefs.theme === 'light', 10_000);
+    expect(app.store.getState().prefs.theme).toBe('light');
+    const said = app.machines.settingsSync().conflicts.filter((c) => c.key === 'theme');
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatchObject({ kept: { name: 'MacBook', value: 'light' }, lost: { name: 'build-box', value: 'contrast' } });
+  }, 120_000);
+
   it('secrets go only after Keep My Secrets in Sync, and never into a log', async () => {
     const app = await install('MacBook');
     const box = await install('build-box');

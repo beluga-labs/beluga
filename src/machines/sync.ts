@@ -127,6 +127,10 @@ const name = z.string().max(64);
 const WireEntry = z.object({ at, by, name, value: z.unknown().optional() });
 const WireSecret = z.object({ at, by, name, value: z.string().max(MAX_ENV_VALUE).optional() });
 
+const Side = z.object({ name, at, value: z.string().max(200).optional() });
+const Conflict = z.object({ key: z.string().max(200), secret: z.boolean().optional(), at, kept: Side, lost: Side });
+type Conflict = z.infer<typeof Conflict>;
+
 /** What a device of yours says of your settings in a sync (machines.ts MachineSync.settings). */
 export const SettingsFrame = z.object({
   entries: z.record(z.string().max(40), WireEntry).refine((o) => Object.keys(o).length <= 64, 'Too many settings'),
@@ -136,11 +140,12 @@ export const SettingsFrame = z.object({
     .record(z.string().max(200).regex(ENV_KEY), WireSecret)
     .refine((o) => Object.keys(o).length <= MAX_ENV_VARS * 2, 'Too many secrets')
     .optional(),
+  /** From a computer: conflicts it recorded that your app hasn't taken yet (BLG-835; a secret's never with a value). */
+  conflicts: z.array(Conflict).max(MAX_CONFLICTS).optional(),
+  /** From your app: the newest of this computer's conflicts it has taken (that computer's clock), so it stops sending them. */
+  heard: at.optional(),
 });
 export type SettingsFrame = z.infer<typeof SettingsFrame>;
-
-const Side = z.object({ name, at, value: z.string().max(200).optional() });
-const Conflict = z.object({ key: z.string().max(200), secret: z.boolean().optional(), at, kept: Side, lost: Side });
 
 const Ledger = z.object({
   v: z.literal(1),
@@ -157,6 +162,10 @@ const Ledger = z.object({
   /** When each device was last heard from (this computer's clock). */
   seen: z.record(z.string(), z.number()).default({}),
   conflicts: z.array(Conflict).max(MAX_CONFLICTS).default([]),
+  /** On a computer: conflicts recorded here that your app hasn't said it took. */
+  untold: z.array(Conflict).max(MAX_CONFLICTS).default([]),
+  /** On the app: the newest conflict taken from each computer (its clock). */
+  heard: z.record(z.string(), z.number()).default({}),
 });
 type Ledger = z.infer<typeof Ledger>;
 type Entry = z.infer<typeof WireEntry>;
@@ -320,7 +329,9 @@ export class SettingsSync {
     this.noteSecrets();
     if (holder && !this.ledger.seeded) this.seed();
     const secrets = this.secretsOn(peer.id) ? this.secretsOut() : undefined;
-    return { entries: { ...this.ledger.entries }, ...(secrets ? { secrets, ...(holder ? { secretsOk: true } : {}) } : {}) };
+    // The app says which of a computer's conflicts it has; a computer tells the app the ones it hasn't.
+    const told = holder ? { heard: this.ledger.heard[peer.id] ?? 0 } : this.ledger.untold.length ? { conflicts: this.ledger.untold.map(withoutSecret) } : {};
+    return { entries: { ...this.ledger.entries }, ...(secrets ? { secrets, ...(holder ? { secretsOk: true } : {}) } : {}), ...told };
   }
 
   /** Take what `peer` said: newer settings are applied here; returns whether anything changed. */
@@ -337,9 +348,11 @@ export class SettingsSync {
       this.deps.log?.(`settings: ${peer.name} ${frame.secretsOk ? 'keeps your secrets in sync with this computer' : 'stopped syncing your secrets here'}`);
     }
     const since = this.ledger.seen[peer.id] ?? 0;
+    const before = this.ledger.conflicts;
     const took = this.mergeSettings(peer, frame.entries, since);
     const secrets = frame.secrets && this.secretsOn(peer.id) ? this.mergeSecrets(peer, frame.secrets, since) : 0;
     this.ledger = { ...this.ledger, seen: { ...this.ledger.seen, [peer.id]: this.now() } };
+    this.tellConflicts(peer, frame, before, holder);
     this.save();
     if (took.length) this.deps.log?.(`settings: took ${took.join(', ')} from ${peer.name}`);
     if (secrets) this.deps.log?.(`settings: took ${secrets} secret${secrets === 1 ? '' : 's'} from ${peer.name}`);
@@ -417,6 +430,26 @@ export class SettingsSync {
       }
     }
     return writes.length;
+  }
+
+  /**
+   * Conflicts reach your app whichever side saw them (BLG-835): a computer keeps the ones it
+   * recorded until the app says it has them; the app takes a computer's into its own list.
+   */
+  private tellConflicts(peer: SyncPeer, frame: SettingsFrame, before: Ledger['conflicts'], holder: boolean): void {
+    if (holder) {
+      const theirs = peer.role === 'computer' ? (frame.conflicts ?? []) : [];
+      if (!theirs.length) return;
+      let conflicts = this.ledger.conflicts;
+      for (const c of theirs) conflicts = this.withConflict(conflicts, withoutSecret(c));
+      const heard = Math.max(this.ledger.heard[peer.id] ?? 0, ...theirs.map((c) => c.at));
+      this.ledger = { ...this.ledger, conflicts, heard: { ...this.ledger.heard, [peer.id]: heard } };
+      return;
+    }
+    const fresh = this.ledger.conflicts.filter((c) => !before.includes(c));
+    let untold = frame.heard === undefined ? this.ledger.untold : this.ledger.untold.filter((c) => c.at > frame.heard!);
+    for (const c of fresh) untold = this.withConflict(untold, c);
+    if (untold !== this.ledger.untold) this.ledger = { ...this.ledger, untold };
   }
 
   private withConflict(list: Ledger['conflicts'], c: Ledger['conflicts'][number]): Ledger['conflicts'] {
@@ -520,6 +553,9 @@ function valid(key: SyncedSetting, value: unknown): unknown {
   const parsed = Settings.shape[key].safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
+
+/** A conflict as it may travel: a secret's never carries a value. */
+const withoutSecret = (c: Conflict): Conflict => (c.secret ? { ...c, kept: { name: c.kept.name, at: c.kept.at }, lost: { name: c.lost.name, at: c.lost.at } } : c);
 
 const sideOf = (e: Entry): z.infer<typeof Side> => {
   const value = shortValue(e.value);

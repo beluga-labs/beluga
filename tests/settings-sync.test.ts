@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_PREFS, type Prefs } from '../src/core/store.js';
-import { LOCAL_SETTINGS, SYNCED_SETTINGS, type SettingsFrame, SettingsSync, type SyncPeer } from '../src/machines/sync.js';
+import { LOCAL_SETTINGS, SYNCED_SETTINGS, SettingsFrame, SettingsSync, type SyncPeer } from '../src/machines/sync.js';
 import { Settings } from '../src/shared/settings-schema.js';
 
 /** Your settings on every computer (BLG-805): what syncs, newest wins, conflicts said, secrets only where you said yes. */
@@ -312,5 +312,82 @@ describe('secrets', () => {
     const [said] = mac.sync.view().conflicts;
     expect(said).toMatchObject({ key: 'TOKEN', secret: true, kept: { name: 'build-box' }, lost: { name: 'MacBook' } });
     expect(JSON.stringify(mac.sync.view())).not.toMatch(/mac-secret|box-secret/);
+  });
+});
+
+/** `exchange`, keeping what went over the wire both ways. */
+function exchangeWire(from: Device, to: Device): [string, string] {
+  const ask = JSON.stringify(from.sync.frame({ id: to.id }, from.role === 'app'));
+  to.sync.merge(peerOf(from), JSON.parse(ask), to.role === 'app');
+  const answer = JSON.stringify(to.sync.frame({ id: from.id }, to.role === 'app'));
+  from.sync.merge(peerOf(to), JSON.parse(answer), from.role === 'app');
+  return [ask, answer];
+}
+
+describe('conflicts a computer records reach the app (BLG-835)', () => {
+  it('the Mac dials, its value is newer: the computer saw the conflict, and the Mac says it', () => {
+    const mac = device('aaaa000000000001', 'MacBook', 'app');
+    const box = device('bbbb000000000002', 'build-box', 'computer');
+    exchange(mac, box);
+    box.set({ theme: 'contrast' });
+    mac.set({ theme: 'light' });
+    const [, answer] = exchangeWire(mac, box);
+    expect(box.prefs.theme).toBe('light');
+    expect(JSON.parse(answer).conflicts).toHaveLength(1);
+    const said = mac.sync.view().conflicts;
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatchObject({ key: 'theme', label: 'Theme', kept: { name: 'MacBook', value: 'light' }, lost: { name: 'build-box', value: 'contrast' } });
+  });
+
+  it('no duplicates: taken once, and a Got It on the Mac stays cleared', () => {
+    const mac = device('aaaa000000000001', 'MacBook', 'app');
+    const box = device('bbbb000000000002', 'build-box', 'computer');
+    exchange(mac, box);
+    box.set({ effort: 'low' });
+    mac.set({ effort: 'max' });
+    exchange(mac, box);
+    exchange(box, mac);
+    exchange(mac, box);
+    expect(mac.sync.view().conflicts).toHaveLength(1);
+    // The computer stops sending it once the app says it has it.
+    const [, answer] = exchangeWire(mac, box);
+    expect(JSON.parse(answer).conflicts).toBeUndefined();
+    mac.sync.clearConflicts();
+    exchange(box, mac);
+    exchange(mac, box);
+    expect(mac.sync.view().conflicts).toEqual([]);
+  });
+
+  it('a secret’s conflict reaches the Mac with no value in the frame, the ledger or the logs', () => {
+    const mac = device('aaaa000000000001', 'MacBook', 'app', {}, { TOKEN: 'base-value' });
+    const box = device('bbbb000000000002', 'build-box', 'computer');
+    mac.sync.setSecretsWith(box.id, true);
+    exchange(mac, box);
+    box.setVar('TOKEN', 'box-value');
+    mac.setVar('TOKEN', 'mac-value');
+    const [, answer] = exchangeWire(mac, box);
+    expect(box.env.TOKEN).toBe('mac-value');
+    const told = JSON.parse(answer).conflicts as unknown[];
+    expect(told).toHaveLength(1);
+    expect(JSON.stringify(told)).not.toMatch(/box-value|mac-value|base-value/);
+    expect(mac.sync.view().conflicts[0]).toMatchObject({ key: 'TOKEN', secret: true, kept: { name: 'MacBook' }, lost: { name: 'build-box' } });
+    for (const d of [mac, box]) expect(d.lines.join('\n') + readFileSync(d.file, 'utf8')).not.toMatch(/box-value|mac-value|base-value/);
+  });
+
+  it('older peers without the fields still sync, and ignore them', () => {
+    const mac = device('aaaa000000000001', 'MacBook', 'app');
+    const box = device('bbbb000000000002', 'build-box', 'computer');
+    exchange(mac, box);
+    box.set({ theme: 'contrast' });
+    mac.set({ theme: 'light' });
+    // An older app: its frame has no `heard`, and it reads only what it knows of the answer.
+    const { heard: _h, ...old } = mac.sync.frame({ id: box.id }, true);
+    box.sync.merge(peerOf(mac), old, false);
+    const { conflicts: _c, ...forOld } = box.sync.frame({ id: mac.id }, false);
+    mac.sync.merge(peerOf(box), forOld, true);
+    expect(box.prefs.theme).toBe('light');
+    expect(mac.prefs.theme).toBe('light');
+    // A newer field this Beluga doesn't know is dropped, not refused.
+    expect(SettingsFrame.safeParse({ entries: {}, conflicts: [], heard: 0, later: { anything: true } }).success).toBe(true);
   });
 });
