@@ -113,6 +113,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'files.readImageFile': 'drive',
   'files.version': 'drive',
   'files.read': 'drive',
+  'files.readRange': 'drive',
   'files.searchContent': 'drive',
   'files.searchNames': 'drive',
   'files.save': 'drive',

@@ -15,7 +15,8 @@ import { setPrefs, usePrefs } from '../../lib/prefs.js';
 import { chordLabel } from '../../lib/shortcuts-model.js';
 import { useWsBusy, whileBusy } from '../../lib/ws-busy.js';
 import { STATE, UnifiedDiff, useCommitItems, useFileItems } from '../../views/DiffView.js';
-import { type ChangeLook, ChangedFileView, canShowFile, fileLookLabel, onlyAsFile, useChangeLocation } from '../../views/ChangedFile.js';
+import { type ChangeLook, ChangedFileView, canShowFile, changeLocation, fileLookLabel, onlyAsFile, useChangeLocation } from '../../views/ChangedFile.js';
+import { aheadOnHover, readAhead } from '../../views/reader/streamed.js';
 import d from '../../views/diff.module.css';
 import { ResizeHandle } from './ResizeHandle.js';
 import { showGitTrouble } from '../../lib/git-trouble.js';
@@ -232,6 +233,7 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
 /** The right panel's Changes: the changed files and, picked one, its diff under them. */
 export function ChangesTab({ wsId }: { wsId: string }) {
   const api = useApi();
+  const { client } = useBeluga();
   const prefs = usePrefs();
   const fileItems = useFileItems();
   const { data, loading, error, reload } = useChanges(wsId);
@@ -272,11 +274,19 @@ export function ChangesTab({ wsId }: { wsId: string }) {
     if (picked && picked !== open) setOpen(picked);
   }, [selected]);
 
+  // Changed files shown as themselves: the one under the pointer, and the next one after a pick, are read ahead (BLG-791).
+  const asFiles = prefs.changeLook === 'file';
+  const ahead = (path: string | undefined): void => {
+    const where = asFiles && path ? changeLocation(client.store.getState(), path) : undefined;
+    if (where) readAhead(api, where);
+  };
   const show = (i: number): void => {
     const f = files[i];
     if (!f) return;
     setOpen(f.path);
     void api.workspaces.selectFile(i);
+    const k = order.indexOf(i);
+    if (k >= 0) ahead(files[order[k + 1] ?? -1]?.path);
   };
   // The arrows move the highlight; the list scrolls to keep it in sight.
   const listRef = useRef<HTMLDivElement>(null);
@@ -331,7 +341,13 @@ export function ChangesTab({ wsId }: { wsId: string }) {
     const items = (): ReturnType<typeof fileItems> => fileItems(f, i).map((it, k) => (k === 0 ? { ...it, onSelect: () => show(i) } : it));
     return (
       <ActionsContext key={f.path} items={items}>
-        <div role="option" aria-selected={on} className={cx(s.row, inFolder && s.rowInFolder, on && s.rowOn)} title={f.path} onClick={() => show(i)} onDoubleClick={() => (show(i), openFocus('diff', wsId))}>
+        <div
+          role="option"
+          aria-selected={on}
+          className={cx(s.row, inFolder && s.rowInFolder, on && s.rowOn)}
+          title={f.path}
+          {...aheadOnHover(api, () => (asFiles && canShowFile(f) ? changeLocation(client.store.getState(), f.path) : undefined))}
+          onClick={() => show(i)} onDoubleClick={() => (show(i), openFocus('diff', wsId))}>
           <span className={cx(d.letter, st.tone)}>{st.letter}</span>
           <span className={s.rowName}>
             {name}

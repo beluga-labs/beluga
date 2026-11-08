@@ -15,6 +15,7 @@ import { DeviceSet, type SetDeviceView } from './controllers.js';
 import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
+import { FileCache } from './files.js';
 import { MachineDoor } from './door.js';
 import { isTunnelsHello } from './forward.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
@@ -152,6 +153,8 @@ export class Machines {
   readonly pairing: ComputerPairing;
   /** Screens of this app on your computers (/machine/<id>, BLG-775). */
   readonly door: MachineDoor;
+  /** The computers' files your screens read, kept on this Mac (files.ts, BLG-791): cleared for a computer forgotten. */
+  readonly files: FileCache;
   /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
   private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
@@ -170,7 +173,8 @@ export class Machines {
     this.set = new DeviceSet({ file: path.join(opts.dir, 'device-set.json'), keys: this.keys, identity: opts.identity });
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
     this.platform = opts.platform ?? platformHere();
-    this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
+    this.files = new FileCache({ dir: path.join(opts.dir, 'cache', 'computer-files'), ...(opts.log ? { log: opts.log } : {}) });
+    this.door = new MachineDoor(this, { files: this.files, ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}), ...(opts.onWorktree ? { onWorktree: opts.onWorktree } : {}) });
     this.pairing = new ComputerPairing({
       node: opts.node,
       identity: opts.identity,
@@ -576,6 +580,8 @@ export class Machines {
     for (const c of cut) if (roleOf(c) === 'phone' && this.opts.devices.get(deviceId(c))) this.opts.removePhone(deviceId(c));
     // Every link to or from it closes now: a screen driving this computer, this app's screens on it.
     for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
+    // Its files kept here go with it.
+    for (const c of cut) void this.files.clear(deviceId(c));
     this.book.drop(new Set(cut.map((c) => c.device)));
   }
 

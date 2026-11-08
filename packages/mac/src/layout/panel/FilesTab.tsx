@@ -18,6 +18,7 @@ import { useRowItems } from '../../views/FilesView.js';
 import { type ReaderMode, hasRenderedLook, initialMode, isPdfFile } from '../../views/reader/reader-model.js';
 import { EditTools } from '../../views/reader/EditTools.js';
 import { pendingLine, revealLine } from '../../views/reader/reveal.js';
+import { aheadOnHover } from '../../views/reader/streamed.js';
 import { ContentResultsList, FlagToggles, type SearchFlags, useContentSearch, useNameSearch } from './ContentSearch.js';
 import { useEditSession } from '../../views/reader/edit-store.js';
 import { SCROLL_ROOT } from '../../components/markdown/md-dom.js';
@@ -331,6 +332,7 @@ export function FilesTab({ wsId, project = false }: { wsId: string; project?: bo
                     className={cx(s.row, s.treeRow, on && s.rowOn, shown?.path === row.path && s.rowShown)}
                     style={{ paddingLeft: 6 + row.depth * 14 }}
                     title={row.path}
+                    {...aheadOnHover(api, () => (row.dir ? undefined : at(row.path)))}
                     onClick={() => activate(row)}
                     onDoubleClick={() => {
                       const p = localOf(row.path);

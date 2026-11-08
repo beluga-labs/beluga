@@ -7,6 +7,7 @@ import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { AUTO_CONTINUE_OFF_MAX } from '../shared/auto-continue.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
+import { MAX_RANGE } from '../shared/text-range.js';
 import { type ArgsRuntime, MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH, agentArgsProblem } from '../shared/agent-args.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
@@ -259,6 +260,8 @@ export const API = {
   'files.version': args(Location),
   // A file's text without opening it in the viewer (the Mac Changes tab shows a changed file as itself): → { content, truncated }.
   'files.read': args(Location),
+  // One piece of a file's text (BLG-791): `length` bytes from `offset`, ended on a line → TextRange { content, offset, next?, total, mtime, binary?, stale? }. `cache`: a copy fetched moments ago will do (on a computer, this Mac's cache answers it).
+  'files.readRange': args(Location, z.object({ offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), length: z.number().int().min(1).max(MAX_RANGE), cache: opt(bool) }).strict()),
 
   // ---- projects and workspaces
   // `req`: a screen's id for this open, echoed in the navigate intent (it showed the workspace ahead, see ClientStore.openAhead).

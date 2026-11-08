@@ -239,6 +239,9 @@ export interface ViewerDomain extends Location {
   /** Decoded pixels when the file is an image. */
   readonly image?: Bitmap;
   readonly truncated: boolean;
+  /** A big file opened by its first piece (BLG-791): where the rest starts, and its size; the reader streams the rest as you scroll. */
+  readonly next?: number;
+  readonly total?: number;
   readonly loading: boolean;
   readonly error?: string;
   readonly by?: string;
@@ -647,7 +650,7 @@ export type Action =
   | { type: 'browser_entries'; at: Location; entries: readonly FsEntry[] }
   | { type: 'browser_error'; error: string }
   | { type: 'viewer_open'; at: Location; by?: string }
-  | { type: 'viewer_content'; at: Location; content: string; truncated: boolean }
+  | { type: 'viewer_content'; at: Location; content: string; truncated: boolean; next?: number; total?: number }
   | { type: 'viewer_image'; at: Location; image: Bitmap }
   | { type: 'viewer_error'; at: Location; error: string }
   | { type: 'viewer_close' }
@@ -1174,7 +1177,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, viewer: { ...state.viewer, image: action.image, content: '', truncated: false, loading: false, error: undefined } };
     case 'viewer_content':
       if (!state.viewer || !sameLoc(state.viewer, action.at)) return state;
-      return { ...state, viewer: { ...state.viewer, content: clean(action.content), truncated: action.truncated, loading: false, error: undefined } };
+      return { ...state, viewer: { ...state.viewer, content: clean(action.content), truncated: action.truncated, next: action.next, total: action.total, loading: false, error: undefined } };
     case 'viewer_error':
       if (!state.viewer || !sameLoc(state.viewer, action.at)) return state;
       return { ...state, viewer: { ...state.viewer, loading: false, error: action.error } };

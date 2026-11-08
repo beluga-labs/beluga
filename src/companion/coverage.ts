@@ -114,6 +114,7 @@ export const PHONE: Record<Method, Side> = {
   'files.readImageFile': 'mac',
   'files.version': 'mac',
   'files.read': 'mac',
+  'files.readRange': 'mac',
 
   // ---- projects and workspaces: a new chat in a project, and loading a conversation to read it
   'workspaces.open': 'mac',

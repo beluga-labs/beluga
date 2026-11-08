@@ -192,6 +192,7 @@ export const HANDLERS = {
   },
   'files.version': (s, at) => s.files.fileVersion(at),
   'files.read': (s, at) => s.files.readFile(at),
+  'files.readRange': (s, at, range) => s.files.readRange(at, range),
 
   'workspaces.open': (s, id, tab, o) => ctl(s)?.open(id, tab, o?.req),
   'workspaces.load': (s, id) => void ctl(s)?.ensureLoaded(id),
