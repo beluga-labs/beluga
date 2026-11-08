@@ -42,6 +42,8 @@ describe('a run started from your app on another computer', () => {
     await runAsClient('machine:abc', () => t.ask(ME, 'r1'));
     await waitFor(() => t.inputs.length === 1);
     expect(t.inputs[0]?.env?.BELUGA_REMOTE_CLIENT).toBe('1');
+    // Tools that open a browser themselves (vite --open, create-react-app) don't, there (BLG-838).
+    expect(t.inputs[0]?.env?.BROWSER).toBe('none');
     const said = runInstructions(t.inputs[0]!, 'Kayra');
     expect(said).toContain(buildRemoteClientAppend());
     expect(said).toContain('http://localhost:<port>');
@@ -64,5 +66,6 @@ describe('a run started from your app on another computer', () => {
     await runAsClient('machine:abc', () => t.ask('bob', 'r1'));
     await waitFor(() => t.inputs.length === 1);
     expect(t.inputs[0]?.env?.BELUGA_REMOTE_CLIENT).toBeUndefined();
+    expect(t.inputs[0]?.env?.BROWSER).toBeUndefined();
   });
 });
