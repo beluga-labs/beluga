@@ -29,6 +29,8 @@ export const computersLinkOf = (client: SocketClient): ComputersLink => ({
 /** A computer's state in a few words: online with what it has free, or when it was last seen. */
 export function computerLine(c: MachineView, now = Date.now()): string {
   const what = `${PLATFORM[c.platform]}${c.version ? ` · Beluga ${c.version}` : ''}`;
+  // Another protocol (BLG-777): listed, read-only, and which side to update.
+  if (c.note) return `${what}, ${c.note}`;
   if (c.status !== 'online') return `${what}, ${c.status === 'offline' ? 'offline' : 'not asked yet'}${c.lastSeen ? `, last seen ${ago(now - c.lastSeen)} ago` : ''}`;
   const i = c.info;
   const free = i ? [`load ${Math.round(i.loadPerCore * 100)}%`, `${i.memory.freeGB} GB memory free`, ...(i.disk ? [`${i.disk.freeGB} GB disk free`] : []), `${i.agentsRunning} agent${i.agentsRunning === 1 ? '' : 's'} running`] : [];

@@ -10,6 +10,7 @@ import { type DomainState, isRunning } from '../core/store.js';
 import { Usage } from '../protocol.js';
 import { git } from '../workspaces/git.js';
 import { type KindFound, MACHINE_KINDS, detectKind, realKindReaders } from './kind.js';
+import { UPDATE_MODES, UpdateAnswer } from './versions.js';
 
 /**
  * What a computer has free (BLG-778), as it says it to your app: its load per core, free memory and
@@ -32,6 +33,9 @@ export const MachineInfo = z.object({
   /** What kind of computer it is and, for a cloud server, its region (BLG-782, kind.ts). */
   kind: z.enum(MACHINE_KINDS).optional(),
   region: z.string().max(40).optional(),
+  /** Its Beluga and the app protocol it speaks (BLG-777). */
+  version: z.string().max(40).optional(),
+  ipc: z.number().int().min(0).optional(),
   cpus: z.number().int().min(1).max(4096),
   /** The 1-minute load average over the cores (1 = every core busy). */
   loadPerCore: z.number().min(0).max(1000),
@@ -48,7 +52,13 @@ export const MachineInfo = z.object({
 export type MachineInfo = z.infer<typeof MachineInfo>;
 
 /** The sync frame between your devices, with an app's ask for what a computer has free and its answer (additive). */
-export const MachineSync = DeviceSetSync.extend({ want: z.array(z.enum(['info'])).max(4).optional(), info: MachineInfo.optional() });
+export const MachineSync = DeviceSetSync.extend({
+  want: z.array(z.enum(['info', 'update'])).max(4).optional(),
+  info: MachineInfo.optional(),
+  /** Update It (BLG-777): asked with how, answered with what the computer does. */
+  update: z.object({ mode: z.enum(UPDATE_MODES) }).optional(),
+  updated: UpdateAnswer.optional(),
+});
 export type MachineSync = z.infer<typeof MachineSync>;
 
 export interface InfoDeps {
@@ -62,6 +72,8 @@ export interface InfoDeps {
   readonly now: () => number;
   /** What kind of computer this is, once known (worked out once at start). */
   readonly kind?: () => KindFound | undefined;
+  /** This Beluga's version and app protocol. */
+  readonly self?: { readonly version: string; readonly ipc: number };
 }
 
 export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
@@ -81,6 +93,7 @@ export async function collectInfo(deps: InfoDeps): Promise<MachineInfo> {
   return {
     at: deps.now(),
     ...(kind ? { kind: kind.kind, ...(kind.region ? { region: kind.region } : {}) } : {}),
+    ...(deps.self ? { version: deps.self.version.slice(0, 40), ipc: deps.self.ipc } : {}),
     cpus,
     loadPerCore: Math.round(((deps.os.loadavg()[0] ?? 0) / cpus) * 100) / 100,
     memory: { freeGB: round1(deps.os.freemem() / GB), totalGB: round1(deps.os.totalmem() / GB) },
@@ -129,7 +142,7 @@ export function ghStatus(): Promise<MachineInfo['gh']> {
 }
 
 /** The real readers, on this computer; `state` is the daemon's. */
-export function realInfoDeps(state: () => DomainState): InfoDeps {
+export function realInfoDeps(state: () => DomainState, self?: { version: string; ipc: number }): InfoDeps {
   const now = Date.now;
   const runtimes = kept(() => runtimeStatuses().then((all) => all.map((r) => ({ id: r.id, state: r.state }))), SLOW_TTL_MS, now);
   const gh = kept(ghStatus, SLOW_TTL_MS, now);
@@ -138,6 +151,7 @@ export function realInfoDeps(state: () => DomainState): InfoDeps {
   let kind: KindFound | undefined;
   void detectKind(realKindReaders).then((k) => (kind = k), () => undefined);
   return {
+    ...(self ? { self } : {}),
     kind: () => kind,
     os,
     state,

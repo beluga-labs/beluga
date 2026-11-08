@@ -549,6 +549,9 @@ export const MACHINE: Record<Method, MachineSide> = {
   'machines.join.cancel': 'refuse',
   'machines.ssh.hosts': 'refuse',
   'machines.ssh.pair': 'refuse',
+  // Refused: your devices are joined and forgotten from your own app.
+  'machines.update': 'refuse',
+  'machines.leftBehind': 'refuse',
   'machines.list': 'drive',
   'machines.devices': 'drive',
   'machines.forget': 'refuse',

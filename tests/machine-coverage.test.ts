@@ -34,6 +34,8 @@ describe('the table of what your app may do on a computer', () => {
         'machines.ssh.hosts',
         'machines.ssh.pair',
         'machines.forget',
+        'machines.update',
+        'machines.leftBehind',
         'session.quit',
       ].sort(),
     );

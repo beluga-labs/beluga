@@ -82,7 +82,7 @@ function computers(devices: SetDeviceView[], joins: { offer?: Error; approve?: E
     forgot: [] as string[],
     cancelled: 0,
     approved: 0,
-    list: async () => [{ id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, version: '0.9.0', pairedAt: Date.now() - 60_000, lastSeen: Date.now() - 60_000, status: 'offline' as const }],
+    list: async () => [{ id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, version: '0.9.0', pairedAt: Date.now() - 60_000, lastSeen: Date.now() - 60_000, status: 'offline' as const, skew: 'same' as const }],
     devices: async () => devices,
     forget: async (id: string) => {
       link.forgot.push(id);
@@ -95,7 +95,7 @@ function computers(devices: SetDeviceView[], joins: { offer?: Error; approve?: E
     joinApprove: async () => {
       if (joins.approve) throw joins.approve;
       link.approved += 1;
-      return { id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, pairedAt: Date.now(), status: 'unknown' as const };
+      return { id: 'aaaaaaaaaaaaaaaa', name: 'mini', platform: 'linux' as const, pairedAt: Date.now(), status: 'unknown' as const, skew: 'same' as const };
     },
     joinCancel: async () => void (link.cancelled += 1),
     sshPair: async (host: string) => ({ name: host, platform: 'linux' as const, version: '0.9.0', fingerprint: FP, sshChecked: true }),

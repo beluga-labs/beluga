@@ -16,6 +16,7 @@ import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
 import { MachineDoor } from './door.js';
+import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 import { type SshPairing, listSshHosts, openSshPairing } from './ssh-pair.js';
@@ -60,6 +61,11 @@ export interface MachineView {
   readonly info?: MachineInfo;
   /** It's your Always On: you on the network while this Mac sleeps (the demo's Mac mini, for now). */
   readonly alwaysOn?: boolean;
+  /** Its app protocol against this app's (BLG-777): another one is listed read-only, said in words, with which side to update. */
+  readonly skew: Skew;
+  readonly readOnly?: boolean;
+  readonly note?: string;
+  readonly update?: 'computer' | 'app';
   /** What kind of computer it is and its cloud region, as it said (BLG-782). */
   readonly kind?: MachineInfo['kind'];
   readonly region?: string;
@@ -112,6 +118,8 @@ export interface MachinesOptions {
   readonly home?: string;
   /** How long to wait for the pictures a computer prints over SSH. */
   readonly sshFingerprintMs?: number;
+  /** On a computer: Update It, waiting for its runs or asking first (versions.ts, BLG-777). */
+  readonly updater?: ComputerUpdater;
   readonly log?: (line: string) => void;
 }
 
@@ -238,7 +246,10 @@ export class Machines {
       const wantsInfo = frame.want?.includes('info') && roleOf(cert) === 'app' && this.opts.info;
       const info = wantsInfo ? await this.opts.info!().catch((err: unknown) => void this.opts.log?.(`machines: couldn't say what's free: ${String(err)}`)) : undefined;
       if (!socket.isOpen) return;
-      const answer: MachineSync = { ...this.set.syncFrame(), ...(info ? { info } : {}) };
+      // Update It from an app of yours (BLG-777): it says what it does (now, once idle, or what runs).
+      const updated = frame.want?.includes('update') && frame.update && roleOf(cert) === 'app' ? await this.updateHere(frame.update.mode) : undefined;
+      if (!socket.isOpen) return;
+      const answer: MachineSync = { ...this.set.syncFrame(), ...(info ? { info } : {}), ...(updated ? { updated } : {}) };
       socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
@@ -443,6 +454,31 @@ export class Machines {
   }
 
   /** Ask every computer what it has free (and swap sets on the way); one that doesn't answer is offline. */
+  /** Update It, here on the computer. */
+  private updateHere(mode: UpdateMode): Promise<UpdateAnswer> {
+    if (!this.opts.updater) return Promise.resolve({ state: 'unsupported', running: [], message: `${this.opts.name()} can't update itself from your app: run \`beluga update\` there.` });
+    return this.opts.updater.request(mode);
+  }
+
+  /**
+   * Update It on one of your computers (BLG-777): `ask` says what runs there and updates only if
+   * nothing does; `when-idle` updates once nothing runs; `now` stops what runs. It works across
+   * protocol versions (the set's link, not the app protocol).
+   */
+  async update(id: string, mode: UpdateMode): Promise<UpdateAnswer> {
+    const r = this.book.get(id);
+    if (!r || !this.drives(r)) throw new Error('That computer isn’t one of yours here');
+    const socket = await this.openLink(r);
+    const answer = await exchange(socket, JSON.stringify({ ...this.set.syncFrame(), want: ['update'], update: { mode } } satisfies MachineSync));
+    if (!answer?.updated) throw new Error(`${r.name} didn't answer the update (it may run a Beluga from before Update It: run \`beluga update\` there)`);
+    return answer.updated;
+  }
+
+  /** The computers an app update to protocol `ipc` would leave unable to connect, for the update sheet to offer to update first. */
+  leftBehind(ipc: number): Array<Pick<MachineView, 'id' | 'name' | 'version'>> {
+    return leftBehind(ipc, this.list().map((m) => ({ id: m.id, name: m.name, ...(m.version ? { version: m.version } : {}), ...(m.info?.ipc !== undefined ? { ipc: m.info.ipc } : {}) }))).map(({ id, name, version }) => ({ id, name, ...(version ? { version } : {}) }));
+  }
+
   async poll(): Promise<void> {
     if (this.stopped || !this.set.holdsIdentity) return;
     await Promise.all(
@@ -548,6 +584,8 @@ export class Machines {
     // Online while its last answer is recent; an ask that failed says offline at once.
     const fresh = live?.ok && Date.now() - live.at < (this.opts.pollMs ?? POLL_MS) * ONLINE_GRACE;
     const status = !live ? 'unknown' : fresh ? 'online' : 'offline';
+    const skew = skewOf(IPC_VERSION, live?.info?.ipc);
+    const words = skewWords(r.name, live?.info?.version ?? r.version, skew);
     return {
       id: deviceId(r.cert),
       name: r.name,
@@ -560,6 +598,8 @@ export class Machines {
       ...(live?.info ? { info: live.info } : {}),
       ...(live?.info?.kind ? { kind: live.info.kind } : {}),
       ...(live?.info?.region ? { region: live.info.region } : {}),
+      skew,
+      ...(words ? { readOnly: true, note: words.text, update: words.update } : {}),
     };
   }
 }

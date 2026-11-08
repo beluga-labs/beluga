@@ -23,6 +23,8 @@ import type { ConvOutput } from './views.js';
 import { needSentinel } from '../core/sentinel/registry.js';
 import { demoMachines } from '../machines/demo.js';
 import { collectInfo, realInfoDeps } from '../machines/info.js';
+import { ComputerUpdater, psHere, updateRunner } from '../machines/versions.js';
+import { IPC_VERSION } from '../ipc/protocol.js';
 import { Machines } from '../machines/machines.js';
 import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 
@@ -173,7 +175,17 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
   const devices = new DeviceBook(path.join(dir, 'devices.json'));
   let host: CompanionHost | undefined;
   // Your device set and computers (BLG-774): they share the phones' node, relay and address.
-  const infoDeps = realInfoDeps(() => opts.store.getState());
+  const infoDeps = realInfoDeps(() => opts.store.getState(), { version: installedVersion(), ipc: IPC_VERSION });
+  // Update It from your app (BLG-777): `beluga update` here once nothing runs, or what runs is said.
+  const run = opts.demo ? undefined : updateRunner();
+  const updater = new ComputerUpdater({
+    state: () => opts.store.getState(),
+    shells: () => (opts.terminals?.list() ?? []).filter((p) => p.running && p.pid !== undefined).map((p) => p.pid!),
+    ps: psHere,
+    ...(run ? { run } : {}),
+    name: macName,
+    ...(opts.log ? { log: opts.log } : {}),
+  });
   const machines = new Machines({
     dir,
     identity: opts.identity,
@@ -188,6 +200,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     onChange: () => host?.machinesChanged(),
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
+    updater,
     // Add Over SSH (BLG-781): your own ssh, keys and agent.
     ssh: belugaEnv('SSH') ?? 'ssh',
     // An app of yours driving this computer: a screen of the daemon's, of kind machine (BLG-775).

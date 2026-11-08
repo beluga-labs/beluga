@@ -26,6 +26,10 @@ export const MACHINE_API = {
   'machines.ssh.hosts': { args: z.tuple([]) },
   // Add Over SSH: install and start Beluga on user@host (or a Host) when needed, open a pairing there and dial it → the offer, as machines.join.start.
   'machines.ssh.pair': { args: z.tuple([z.string().trim().min(1).max(255).regex(/^[^\s-]\S*$/)]) },
+  // Update It on a computer (BLG-777): ask (says what runs there, updates only if nothing does), when-idle, or now → what it does.
+  'machines.update': { args: z.tuple([deviceId, z.enum(['ask', 'when-idle', 'now'])]) },
+  // Before the app updates to app protocol `ipc`: the computers that update would leave unable to connect.
+  'machines.leftBehind': { args: z.tuple([z.number().int().min(0).max(1000)]) },
   // The computers this app drives.
   'machines.list': { args: z.tuple([]) },
   // Every device of your set this install knows: phones, apps and computers, with their roles.
