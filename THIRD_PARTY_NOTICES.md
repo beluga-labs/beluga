@@ -29,7 +29,7 @@ IN THE SOFTWARE.
 
 ## Tool search
 
-`beluga_find` ranks tools with [`@ratel-ai/sdk`](https://github.com/ratel-ai/ratel) (BM25, in this process), and its native addon `@ratel-ai/sdk-<platform>`, released under the MIT License.
+Smarter tool search (Settings › Experimental, off by default) downloads [`@ratel-ai/sdk`](https://github.com/ratel-ai/ratel) and its native addon `@ratel-ai/sdk-<platform>` when you turn it on. They are not part of Beluga's install, and are released under the MIT License.
 
 ```
 MIT License

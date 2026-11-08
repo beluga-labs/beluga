@@ -7,7 +7,9 @@ import { stopAgentWork } from './adapters/stop.js';
 import { sessionControl } from './adapters/session-control.js';
 import { sessionFiles } from './adapters/session-files.js';
 import { sessionMethods } from './adapters/session-methods.js';
-import { withDiscovery } from './adapters/tools/discover.js';
+import { experimentOn } from '../shared/experiments.js';
+import { smarterSearch } from './adapters/smarter-search.js';
+import { schemaOf, withDiscovery } from './adapters/tools/discover.js';
 import { fileTools } from './adapters/tools/files.js';
 import { peopleTools } from './adapters/tools/people.js';
 import { ALL_METHOD_ROWS, methodTools } from './adapters/tools/method-rows.js';
@@ -38,9 +40,17 @@ export function launchExternal(deps: { readonly session: Session; readonly log?:
   const methods = sessionMethods(deps.session);
   const chatControl = controlTools(reads, chats);
   const others = [...stateTools(sessionState(deps.session), chats), ...workspaceTools(reads, sessionWorkspace(deps.session), chats), ...peerTools(sessionPeers(deps.session)), ...methodTools(ALL_METHOD_ROWS, reads, methods, chats.startedBy), ...fileTools(reads, sessionFiles(deps.session), methods), ...peopleTools(methods)];
+  // Smarter tool search (Settings › Experimental): gets ready when it's turned on, beluga_find ranks with it once ready.
+  const smarter = smarterSearch({
+    tools: () => others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) })),
+    on: () => experimentOn(deps.session.store.getState().prefs.experiments, 'toolSearch'),
+    toast: (text, level) => deps.session.toast(text, level),
+  });
+  smarter.follow();
+  const unfollow = deps.session.store.subscribe(smarter.follow);
   const service = new ExternalService({
     ...(deps.log ? { log: deps.log } : {}),
-    tools: withDiscovery([...readTools(reads, { alsoTools: [...chatControl.map((t) => t.name), ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl], others),
+    tools: withDiscovery([...readTools(reads, { alsoTools: [...chatControl.map((t) => t.name), ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl], others, smarter.rank),
     // A card with no chat waits in the agent's own place, not in the group chat.
     // The agent is the card's peer: its cap on waiting cards applies and a stop finds them. The answer is only for this call, and writes no trust.
     ask: (title, detail, once, card, signal) => deps.session.host.ask('tool', title, detail, card ? externalRequester(card.agentId) : undefined, card?.chatId ? `ws:${card.chatId}` : card ? externalRequester(card.agentId) : 'room', { once, call: true, ...(card ? { asker: card.agent } : {}), ...(signal ? { signal } : {}) }),
@@ -65,6 +75,7 @@ export function launchExternal(deps: { readonly session: Session; readonly log?:
   attachExternal(deps.session, service);
   const starting = service.start();
   return async () => {
+    unfollow();
     await starting;
     detachExternal(deps.session);
     await service.stop();

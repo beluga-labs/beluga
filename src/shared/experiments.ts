@@ -4,7 +4,7 @@
  * that explains each one). Browser-safe: data only.
  */
 
-export const EXPERIMENTS = ['previews'] as const;
+export const EXPERIMENTS = ['previews', 'toolSearch'] as const;
 export type Experiment = (typeof EXPERIMENTS)[number];
 
 export interface ExperimentInfo {
@@ -34,6 +34,18 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
     ],
     keywords: 'preview component react render storybook page html props live',
     cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away, and while this is off nothing of it runs at all.',
+  },
+  toolSearch: {
+    id: 'toolSearch',
+    title: 'Smarter tool search',
+    summary: 'Agents outside Beluga find its tools by what they do, not only by the words they share, so “delete that watcher” finds the tool that removes a sentinel.',
+    changes: [
+      'beluga_find, which other agents use to reach most of Beluga, ranks tools by meaning (Ratel’s semantic search) instead of by shared words.',
+      'It helps most with small and local models, which search with vaguer words. Big models already find the right tool most of the time without it.',
+      'Until it’s ready, or if it can’t get ready, beluga_find uses its built-in search as before.',
+    ],
+    keywords: 'tool search semantic ratel embeddings local model ollama external agents mcp find beluga_find',
+    cost: 'Turning it on downloads Ratel once (about 10 MB) and a small model (about 130 MB), then reads Beluga’s tools once, which takes about a minute of CPU. After that each search takes a few hundredths of a second. Nothing you search leaves this computer. Turning it off keeps the download, so turning it on again is instant.',
   },
 };
 
