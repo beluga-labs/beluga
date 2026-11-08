@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import type { SocketClient } from '@beluga/ipc/socket-client.js';
-import { LOST_LINK_MS, type LinkSample, PING_EVERY_MS } from '@beluga/machines/links.js';
+// Relative, not @beluga: the root's tests and typecheck read this file too.
+import type { SocketClient } from '../../../../src/ipc/socket-client.js';
+import { LOST_LINK_MS, type LinkSample, PING_EVERY_MS } from '../../../../src/machines/links.js';
 
 /**
  * Each computer's link as this window feels it (BLG-792): its screen pings the computer every two

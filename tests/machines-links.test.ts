@@ -94,7 +94,7 @@ class Screen extends EventEmitter {
     super();
   }
   send(text: string): void {
-    this.got.push({ ...(parseDaemonFrame(text) as never), at: performance.now() - this.started });
+    this.got.push({ ...(parseDaemonFrame(text) as object as { t: string }), at: performance.now() - this.started });
   }
   close(): void {
     this.readyState = 3;
@@ -108,7 +108,7 @@ function door(states: StateCache, link: () => Promise<unknown>): MachineDoor {
   const machines = { book: { get: () => ({ name: 'Mini' }) }, drives: () => true, openLink: link } as unknown as Machines;
   return new MachineDoor(machines, { states, backoffMs: [60_000] });
 }
-const hello = { t: 'hello', token: 't'.repeat(32), ipc: 1, kind: 'mac', version: '1', caps: [] } as const;
+const hello = { t: 'hello' as const, token: 't'.repeat(32), ipc: 1, kind: 'mac' as const, version: '1', caps: [] };
 
 describe('a computer’s screen with 80 ms added round trip', () => {
   it('draws from what was kept at once, then catches up with the computer’s own', async () => {
@@ -157,8 +157,8 @@ describe('compressed frames on a computer’s link', () => {
     const ba = new PassThrough();
     let wire = 0;
     ab.on('data', (c: Buffer) => (wire += c.length));
-    const left = fromStream(Duplex.from({ writable: ab, readable: ba }), { maxBytes: 4 * 1024 * 1024, open: true, ...a });
-    const right = fromStream(Duplex.from({ writable: ba, readable: ab }), { maxBytes: 4 * 1024 * 1024, open: true, ...b });
+    const left = fromStream(Duplex.from({ writable: ab, readable: ba } as never), { maxBytes: 4 * 1024 * 1024, open: true, ...a });
+    const right = fromStream(Duplex.from({ writable: ba, readable: ab } as never), { maxBytes: 4 * 1024 * 1024, open: true, ...b });
     return { left, right, wire: () => wire };
   }
   const big = JSON.stringify({ t: 'snapshot', log: Array.from({ length: 2000 }, (_, i) => ({ id: i, text: 'Claude edited src/app.ts and ran the tests' })) });
