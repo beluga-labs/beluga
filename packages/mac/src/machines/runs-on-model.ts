@@ -1,7 +1,10 @@
 // Relative, not @beluga: the root's tests and typecheck read this file too.
 import type { MachineView } from '../../../../src/machines/machines.js';
 import { placeNewWork } from '../../../../src/machines/placement.js';
-import { KIND_WORDS } from './model.js';
+import { statusLine, whyNot } from '../../../../src/machines/words.js';
+
+// The words themselves are the engine's (the phone's Runs on sheet says the same, BLG-810).
+export { runtimeWords, statusLine, whyNot } from '../../../../src/machines/words.js';
 
 /**
  * Runs on (BLG-786): where new work goes, picked beside the mode and model wherever work is made
@@ -25,41 +28,6 @@ export interface RunsOnRow {
   readonly disabled: boolean;
   /** The computer itself, for its mark (none: This Mac or Best Available). */
   readonly machine?: MachineView;
-}
-
-const RUNTIME_WORDS: Readonly<Record<string, string>> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', gemini: 'Gemini' };
-export const runtimeWords = (id: string): string => RUNTIME_WORDS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
-
-/** 14:02, as this Mac's clock says it. */
-const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-
-/** "16:00" today, "Tue 16:00" later. */
-function when(at: number, now: number): string {
-  const day = new Date(at).toDateString() === new Date(now).toDateString();
-  return day ? clock(at) : `${new Date(at).toLocaleDateString([], { weekday: 'short' })} ${clock(at)}`;
-}
-
-/** Why a computer can't take work for `runtime` now; undefined when it can. */
-export function whyNot(m: MachineView, runtime: string, now = Date.now()): string | undefined {
-  if (m.status === 'unknown') return 'Not reached yet';
-  if (m.status !== 'online') return m.lastSeen ? `Offline since ${when(m.lastSeen, now)}` : 'Offline';
-  if (m.readOnly) return 'On another version: update it in Settings';
-  const words = runtimeWords(runtime);
-  const r = m.info?.runtimes.find((x) => x.id === runtime);
-  if (!r || r.state === 'missing') return `${words} isn’t set up there`;
-  if (r.state === 'signed_out') return `${words} isn’t signed in there`;
-  const spent = [r.usage?.fiveHour, r.usage?.week].find((u) => u && u.pct >= 100 && (u.resetsAt === undefined || u.resetsAt > now));
-  if (spent) return spent.resetsAt ? `${words}’s limit resets at ${when(spent.resetsAt, now)}` : `${words}’s limit is reached there`;
-  return undefined;
-}
-
-/** "AWS · 12 GB free · 1 task running". */
-export function statusLine(m: MachineView): string {
-  const kind = m.kind ? KIND_WORDS[m.kind] : m.platform === 'macos' ? 'Mac' : m.platform === 'windows' ? 'Windows' : 'Linux';
-  const i = m.info;
-  if (!i) return kind;
-  const running = i.agentsRunning ? [`${i.agentsRunning} ${i.agentsRunning === 1 ? 'task' : 'tasks'} running`] : [];
-  return [kind, `${Math.round(i.memory.freeGB)} GB free`, ...running].join(' · ');
 }
 
 /** Best Available's line: what it does, and which computer it would pick now and why. */

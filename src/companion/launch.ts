@@ -327,6 +327,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     relay: opts.demo || ['p2p', 'none'].includes(opts.store.getState().prefs.tunnel) ? 'off' : 'cloudflared',
     ...(opts.log ? { log: opts.log } : {}),
     machines,
+    // Your Always On runs your friends network: it tells your phones what comes in, not this Mac too (BLG-850).
+    tellsFriends: () => !alwaysOn?.at(),
   });
   alwaysOn = new AlwaysOn({
     dir,
