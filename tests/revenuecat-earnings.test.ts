@@ -46,8 +46,9 @@ describe('connecting RevenueCat', () => {
     expect(result.apps.map((a) => [a.id, a.counted, a.reason])).toEqual([
       ['appTEST0001', true, 'store'],
       ['appTEST0002', true, 'store'],
-      ['appTEST0003', true, 'store'],
-      ['appTEST0004', true, 'store'],
+      // Billing through Stripe, with no Stripe connected anywhere: counted, and says so.
+      ['appTEST0003', true, 'no-stripe'],
+      ['appTEST0004', true, 'no-stripe'],
     ]);
     expect(store.getState().revenuecat[ROOT]).toMatchObject({ connected: true, refreshing: true, project: { id: 'projTEST0001' } });
     await service.settled();

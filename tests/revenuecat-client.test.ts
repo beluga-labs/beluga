@@ -66,7 +66,7 @@ describe('listing projects and apps', () => {
       ['appTEST0004', 'stripe', 'acct_TESTaccountA'],
     ]);
     expect(apps[2]!.defaultCurrency).toBe('eur');
-    expect(apps[0]!.name).toBe('Test iOS');
+    expect(apps[0]!.name).toBe('Orbit iOS');
   });
 
   it('follows next_page, which already starts with /v2, without doubling the prefix', async () => {

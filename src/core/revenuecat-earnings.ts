@@ -132,15 +132,79 @@ const supported = (currency: string | undefined): currency is string => !!curren
 /** UTC day of a time: "2026-10-03" (RevenueCat's days are UTC days). */
 const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** What the apps' automatic choice needs to know about Stripe, wherever in Beluga it is connected. */
+export interface StripeContext {
+  /** Every Stripe account id (acct_…) connected to any project. */
+  readonly accountIds: readonly string[];
+  /** Some Stripe connection could not say which account it is (a restricted key). */
+  readonly unknownAccount: boolean;
+}
+
+/** What an app is, as RevenueCat lists it. */
+export type AppFacts = Pick<RevenueCatApp, 'id' | 'name' | 'store' | 'stripeAccount'>;
+
+/** An app of a test kind, or with "sandbox" or "test" as a word of its name. */
+const looksLikeTest = (a: AppFacts): boolean => a.store === 'test_store' || /\b(sandbox|test)\b/i.test(a.name);
+
+/**
+ * Which apps count, so that no sale is counted twice: the apps that bill through a Stripe account
+ * Beluga already counts are left to Stripe, test apps stay out, and what you ticked yourself is
+ * never touched. Pure: the same apps and Stripe connections always give the same answer.
+ */
+export function defaultsFor(apps: readonly AppFacts[], stripe: StripeContext, existing: readonly RevenueCatApp[]): RevenueCatApp[] {
+  const yours = new Map(existing.filter((a) => a.reason === 'you').map((a) => [a.id, a]));
+  return apps.map((a) => {
+    const base = { id: a.id, name: a.name, store: a.store, ...(a.stripeAccount ? { stripeAccount: a.stripeAccount } : {}) };
+    const mine = yours.get(a.id);
+    if (mine) return { ...base, counted: mine.counted, reason: 'you' as const };
+    if (looksLikeTest(a)) return { ...base, counted: false, reason: 'sandbox' as const };
+    const backedByStripe = (a.store === 'stripe' || a.store === 'rc_billing') && !!a.stripeAccount;
+    if (!backedByStripe) return { ...base, counted: true, reason: 'store' as const };
+    if (stripe.accountIds.includes(a.stripeAccount!)) return { ...base, counted: false, reason: 'stripe' as const };
+    if (stripe.unknownAccount) return { ...base, counted: false, reason: 'maybe-stripe' as const };
+    return { ...base, counted: true, reason: stripe.accountIds.length ? ('store' as const) : ('no-stripe' as const) };
+  });
+}
+
+/** The apps counted, as one string to compare. */
+const countedKey = (apps: readonly RevenueCatApp[]): string =>
+  apps
+    .filter((a) => a.counted)
+    .map((a) => a.id)
+    .sort()
+    .join(',');
+
+/** The Stripe connections as the rule sees them. */
+function stripeContext(earnings: Readonly<Record<string, { readonly accountId?: string }>>): StripeContext {
+  const entries = Object.values(earnings);
+  return { accountIds: [...new Set(entries.flatMap((e) => (e.accountId ? [e.accountId] : [])))].sort(), unknownAccount: entries.some((e) => !e.accountId) };
+}
+
 export class RevenueCatEarnings {
   private data: RevenueCatFile;
   private readonly running = new Map<string, Promise<void>>();
   private timer?: NodeJS.Timeout;
   private first?: NodeJS.Timeout;
+  private readonly unsubscribe: () => void;
+  /** The Stripe accounts as last seen: only a change in these (not Stripe's polling) re-decides the apps. */
+  private stripeSeen: string;
 
   constructor(private readonly deps: RevenueCatEarningsDeps) {
     this.data = deps.file === null ? EMPTY : loadRevenueCatFile(deps.file);
     for (const root of Object.keys(this.data.projects)) this.publish(root);
+    this.stripeSeen = JSON.stringify(this.stripe());
+    // Stripe dispatches a new `earnings` on every poll, and this service's own dispatches arrive
+    // here too: only a change of accounts does any work.
+    this.unsubscribe = deps.store.subscribe(() => {
+      const seen = JSON.stringify(this.stripe());
+      if (seen === this.stripeSeen) return;
+      this.stripeSeen = seen;
+      this.reevaluate();
+    });
+  }
+
+  private stripe(): StripeContext {
+    return stripeContext(this.deps.store.getState().earnings);
   }
 
   private now(): number {
@@ -162,15 +226,19 @@ export class RevenueCatEarnings {
   }
 
   private put(root: string, entry: RevenueCatEntry | undefined): void {
-    const { [root]: _old, ...others } = this.data.projects;
+    const { [root]: old, ...others } = this.data.projects;
     this.data = { projects: entry ? { ...others, [root]: entry } : others };
     this.save();
+    // Another project on the same RevenueCat project warns, or stops warning.
+    const touched = new Set([old?.project.id, entry?.project.id]);
+    for (const [other, e] of Object.entries(others)) if (touched.has(e.project.id)) this.publish(other);
   }
 
   /** Tell screens what they may know: connected, the apps, the totals. Never the key. */
   private publish(root: string, refreshing = false): void {
     const e = this.data.projects[root];
     if (!e) return void this.deps.store.dispatch({ type: 'revenuecat', root });
+    const shared = Object.entries(this.data.projects).some(([other, x]) => other !== root && x.project.id === e.project.id);
     const revenuecat: ProjectRevenueCat = {
       connected: true,
       project: { id: e.project.id, name: e.project.name },
@@ -183,6 +251,7 @@ export class RevenueCatEarnings {
       ...(e.updatedAt ? { updatedAt: e.updatedAt } : {}),
       ...(refreshing ? { refreshing } : {}),
       ...(e.error ? { error: e.error } : {}),
+      ...(shared ? { warning: 'shared' as const } : {}),
     };
     this.deps.store.dispatch({ type: 'revenuecat', root, revenuecat });
   }
@@ -216,7 +285,9 @@ export class RevenueCatEarnings {
       const project = rcProjectId ? projects.find((p) => p.id === rcProjectId) : projects[0];
       if (!project) throw new Error('This key can’t see that RevenueCat project.');
       const listed = await listApps(key, project.id, this.options);
-      const apps = listed.map(toApp);
+      // Replacing the key for the same project keeps what you chose.
+      const before = this.data.projects[root];
+      const apps = defaultsFor(listed.map(factsOf), this.stripe(), before?.project.id === project.id ? before.apps : []);
       this.put(root, {
         key,
         project: { id: project.id, name: project.name, ...(project.createdAt ? { createdAt: project.createdAt } : {}) },
@@ -263,15 +334,20 @@ export class RevenueCatEarnings {
   private refreshRoot(root: string, mode: 'connect' | 'now' | 'quiet'): Promise<void> {
     const busy = this.running.get(root);
     if (busy) return busy;
-    const run = this.count(root, mode).finally(() => this.running.delete(root));
+    const run = this.countUntilSettled(root, mode).finally(() => this.running.delete(root));
     this.running.set(root, run);
     return run;
   }
 
+  /** Count, and count again while the apps chosen changed under it (a few times at most). */
+  private async countUntilSettled(root: string, mode: 'connect' | 'now' | 'quiet'): Promise<void> {
+    for (let again = 0; again < 3 && (await this.count(root, again ? 'connect' : mode)); again++);
+  }
+
   /** Read everything the screens show: subscription figures, recent days and the all-time total, each for revenue and proceeds. */
-  private async count(root: string, mode: 'connect' | 'now' | 'quiet'): Promise<void> {
+  private async count(root: string, mode: 'connect' | 'now' | 'quiet'): Promise<boolean> {
     const start = this.data.projects[root];
-    if (!start) return;
+    if (!start) return false;
     const now = this.now();
     // A quick look in the background doesn't show as counting.
     if (mode !== 'quiet') this.publish(root, true);
@@ -284,28 +360,37 @@ export class RevenueCatEarnings {
     };
     let error: EarningsError | undefined;
     let found: Partial<RevenueCatEntry> = {};
+    // The apps the charts were asked about, and the app list if it was read again.
+    let used = start.apps;
+    let listed: AppFacts[] | undefined;
     try {
       // The display currency picked after connecting is followed on the next look.
       const picked = this.deps.store.getState().prefs.earningsCurrency;
       const currency = supported(picked) ? picked : start.currency;
-      const appsDue = mode === 'now' || (mode === 'quiet' && (!start.appsAt || now - start.appsAt > STALE_MS));
-      const apps = appsDue ? mergeApps(start.apps, await listApps(start.key, start.project.id, this.options)) : start.apps;
       const { key } = start;
       const id = start.project.id;
+      const appsDue = mode === 'now' || (mode === 'quiet' && (!start.appsAt || now - start.appsAt > STALE_MS));
+      if (appsDue) {
+        listed = (await listApps(key, id, this.options)).map(factsOf);
+        used = defaultsFor(listed, this.stripe(), start.apps);
+      }
+      const counted = used.filter((a) => a.counted);
+      // RevenueCat can only filter to apps, not away from them: no filter while every app counts, so new apps flow in.
+      const appIds = counted.length < used.length ? counted.map((a) => a.id) : undefined;
       const subs = await step(() => overview(key, id, currency, this.options));
       const first = utcDay(now - ACTIVITY_DAYS * 86_400_000);
-      const recent = { start: first, end: utcDay(now), currency };
-      const daily = await step(() => revenueDaily(key, id, recent, this.options));
-      const dailyProceeds = await step(() => revenueDaily(key, id, { ...recent, proceeds: true }, this.options));
-      const since = { start: start.project.createdAt?.slice(0, 10) ?? FALLBACK_START, end: utcDay(now), currency };
-      const total = await step(() => revenueTotal(key, id, since, this.options));
-      const totalProceeds = await step(() => revenueTotal(key, id, { ...since, proceeds: true }, this.options));
+      const recent = { start: first, end: utcDay(now), currency, ...(appIds ? { appIds } : {}) };
+      const since = { start: start.project.createdAt?.slice(0, 10) ?? FALLBACK_START, end: utcDay(now), currency, ...(appIds ? { appIds } : {}) };
+      // No app counted: nothing to ask the charts.
+      const skip = counted.length === 0;
+      const daily = skip ? [] : await step(() => revenueDaily(key, id, recent, this.options));
+      const dailyProceeds = skip ? [] : await step(() => revenueDaily(key, id, { ...recent, proceeds: true }, this.options));
+      const total = skip ? { amount: 0 } : await step(() => revenueTotal(key, id, since, this.options));
+      const totalProceeds = skip ? { amount: 0 } : await step(() => revenueTotal(key, id, { ...since, proceeds: true }, this.options));
       const money = (amount: number): MoneyTotal[] => (amount ? [{ currency, amount }] : []);
       const proceedsOf = new Map(dailyProceeds.map((d) => [d.day, d.amount]));
       found = {
         currency,
-        apps,
-        ...(appsDue ? { appsAt: now } : {}),
         // Refunds are booked on the day they happen, so a day can be negative; the all-time total can't.
         totals: money(Math.max(0, total.amount)),
         proceeds: money(Math.max(0, totalProceeds.amount)),
@@ -322,10 +407,43 @@ export class RevenueCatEarnings {
     }
     // Disconnected, or connected with another key, while counting: this count is for nothing.
     const current = this.data.projects[root];
-    if (!current || current.key !== start.key) return this.publish(root);
+    if (!current || current.key !== start.key) {
+      this.publish(root);
+      return false;
+    }
+    // Your choice of apps (or Stripe's accounts) may have changed while counting: keep it, and count again for it.
+    const apps = listed ? defaultsFor(listed, this.stripe(), current.apps) : current.apps;
+    const stale = countedKey(apps) !== countedKey(used);
     const { error: _old, ...rest } = current;
-    this.put(root, error ? { ...rest, error } : { ...rest, ...found, updatedAt: this.now() });
-    this.publish(root);
+    const kept = { ...rest, apps, ...(listed ? { appsAt: now } : {}) };
+    this.put(root, stale ? kept : error ? { ...kept, error } : { ...kept, ...found, updatedAt: this.now() });
+    this.publish(root, stale);
+    return stale;
+  }
+
+  /** The Stripe accounts changed: decide the apps again (never the ones you chose), and count again only if that changes which are counted. */
+  private reevaluate(): void {
+    const stripe = this.stripe();
+    for (const [root, e] of Object.entries(this.data.projects)) {
+      const apps = defaultsFor(e.apps, stripe, e.apps);
+      if (JSON.stringify(apps) === JSON.stringify(e.apps)) continue;
+      this.put(root, { ...e, apps });
+      this.publish(root, this.running.has(root));
+      if (countedKey(apps) !== countedKey(e.apps)) void this.refreshRoot(root, 'connect');
+    }
+  }
+
+  /** Count exactly these apps (by id): what changes becomes your choice and stays, and the project is counted again in the background. */
+  setApps(projectId: string, countedIds: readonly string[]): void {
+    const root = this.rootOf(projectId);
+    const e = this.data.projects[root];
+    if (!e) throw new Error('RevenueCat isn’t connected to this project.');
+    const wanted = new Set(countedIds);
+    const apps = e.apps.map((a) => (a.counted === wanted.has(a.id) ? a : { ...a, counted: !a.counted, reason: 'you' as const }));
+    if (apps.every((a, i) => a === e.apps[i])) return;
+    this.put(root, { ...e, apps });
+    this.publish(root, true);
+    void this.refreshRoot(root, 'connect');
   }
 
   /** Refresh in the background: soon after starting, then look again every few minutes. */
@@ -340,6 +458,7 @@ export class RevenueCatEarnings {
   }
 
   stop(): void {
+    this.unsubscribe();
     clearTimeout(this.first);
     clearInterval(this.timer);
   }
@@ -350,18 +469,9 @@ export class RevenueCatEarnings {
   }
 }
 
-/** Every app counted for now; which ones to leave out is decided by the overlap rule. */
-function toApp(a: RevenueCatAppInfo): RevenueCatApp {
-  return { id: a.id, name: a.name, store: a.type, ...(a.stripeAccount ? { stripeAccount: a.stripeAccount } : {}), counted: true, reason: 'store' };
-}
-
-/** A fresh app list, keeping what's already known about the apps still there. */
-function mergeApps(known: readonly RevenueCatApp[], listed: readonly RevenueCatAppInfo[]): RevenueCatApp[] {
-  const before = new Map(known.map((a) => [a.id, a]));
-  return listed.map((a) => {
-    const old = before.get(a.id);
-    return old ? { ...toApp(a), counted: old.counted, reason: old.reason } : toApp(a);
-  });
+/** What an app is, from RevenueCat's list. */
+function factsOf(a: RevenueCatAppInfo): AppFacts {
+  return { id: a.id, name: a.name, store: a.type, ...(a.stripeAccount ? { stripeAccount: a.stripeAccount } : {}) };
 }
 
 const services = new WeakMap<object, RevenueCatEarnings>();

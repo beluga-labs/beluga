@@ -1,10 +1,10 @@
 {
   "object": "list",
   "items": [
-    { "object": "app", "id": "appTEST0001", "name": "Test iOS", "type": "app_store", "project_id": "projTEST0001", "app_store": { "bundle_id": "com.example.test" } },
-    { "object": "app", "id": "appTEST0002", "name": "Test Android", "type": "play_store", "project_id": "projTEST0001", "play_store": { "package_name": "com.example.test" } },
-    { "object": "app", "id": "appTEST0003", "name": "Test Web", "type": "rc_billing", "project_id": "projTEST0001", "rc_billing": { "stripe_account_id": "acct_TESTaccountA", "default_currency": "EUR" } },
-    { "object": "app", "id": "appTEST0004", "name": "Test Stripe", "type": "stripe", "project_id": "projTEST0001", "stripe": { "stripe_account_id": "acct_TESTaccountA" } }
+    { "object": "app", "id": "appTEST0001", "name": "Orbit iOS", "type": "app_store", "project_id": "projTEST0001", "app_store": { "bundle_id": "com.example.test" } },
+    { "object": "app", "id": "appTEST0002", "name": "Orbit Android", "type": "play_store", "project_id": "projTEST0001", "play_store": { "package_name": "com.example.test" } },
+    { "object": "app", "id": "appTEST0003", "name": "Orbit Web", "type": "rc_billing", "project_id": "projTEST0001", "rc_billing": { "stripe_account_id": "acct_TESTaccountA", "default_currency": "EUR" } },
+    { "object": "app", "id": "appTEST0004", "name": "Orbit Stripe", "type": "stripe", "project_id": "projTEST0001", "stripe": { "stripe_account_id": "acct_TESTaccountA" } }
   ],
   "next_page": null,
   "url": "/v2/projects/projTEST0001/apps"
