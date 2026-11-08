@@ -150,7 +150,7 @@ export default function Plan() {
                   </T>
                 </View>
               ) : null}
-              {/* A fresh agent reads the draft before you approve it (1.44, BLG-772); what it finds waits on you below. */}
+              {/* A fresh agent reads the draft before you approve it (1.45, BLG-772); what it finds waits on you below. */}
               {p.review?.state === 'reviewing' ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Eye color={color.text2} size={14} strokeWidth={1.9} />
@@ -187,7 +187,7 @@ export default function Plan() {
               </View>
             ) : null}
 
-            {/* What the plan has decided (1.44): a replaced decision stays, crossed out. */}
+            {/* What the plan has decided (1.45): a replaced decision stays, crossed out. */}
             {p.decisions?.length ? (
               <View style={{ marginTop: 22, paddingHorizontal: 20, gap: 8 }}>
                 <T v="eyebrow">Decisions</T>
