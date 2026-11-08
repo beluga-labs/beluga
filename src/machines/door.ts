@@ -69,6 +69,11 @@ export class MachineDoor {
     return screen.call(method, args);
   }
 
+  /** The computers a screen of this app drives right now (link up). */
+  live(): string[] {
+    return [...new Set([...this.screens].filter((s) => s.live).map((s) => s.machineId))];
+  }
+
   /** Screens open on computers right now (tests, and how many links run). */
   get size(): number {
     return this.screens.size;

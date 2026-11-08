@@ -52,6 +52,10 @@ export const MACHINE_API = {
       z.array(z.object({ path: z.string().min(1).max(400), data: z.string().max(Math.ceil((MAX_ENV_SEND_BYTES * 4) / 3) + 4) }).strict()).max(MAX_ENV_SEND_FILES),
     ]),
   },
+  // On a computer: every worktree's listening ports (BLG-802), for your app to forward → [{ workspaceId, port, name }].
+  'machines.ports': { args: z.tuple([]) },
+  // In the app: what's forwarded from your computers now → [{ machineId, workspaceId, port, local, name }].
+  'machines.forwards': { args: z.tuple([]) },
   // In the app: answer an ask (Send Once, Always for This Project, Don't Send) → { sent } (file names).
   'machines.env.decide': { args: z.tuple([z.string().uuid(), z.enum(['once', 'always', 'never'])]) },
   // The projects whose env files go to your computers without asking (Settings › Your Computers).

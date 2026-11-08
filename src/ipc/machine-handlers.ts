@@ -3,6 +3,20 @@ import os from 'node:os';
 import { placeNewWork } from '../machines/placement.js';
 import { needMachines } from '../machines/registry.js';
 import { envHere, needEnvSend, receiveEnv } from '../machines/env-send.js';
+import { portsByFolder } from '../workspaces/ports.js';
+import type { MachinePort } from '../machines/forward.js';
+
+/** On a computer: each worktree's listening ports, from one look at the OS. */
+async function machinePorts(state: { readonly projects: readonly { readonly workspaces: readonly { readonly id: string; readonly path: string }[] }[] }): Promise<MachinePort[]> {
+  const workspaces = state.projects.flatMap((p) => p.workspaces).filter((w) => w.path);
+  const byFolder = await portsByFolder([...new Set(workspaces.map((w) => w.path))]);
+  const seen = new Set<string>();
+  return workspaces.flatMap((w) => {
+    if (seen.has(w.path)) return [];
+    seen.add(w.path);
+    return (byFolder.get(w.path) ?? []).map((p) => ({ workspaceId: w.id, port: p.port, name: p.name }));
+  });
+}
 
 /** This computer's 1-minute load per core, as a computer reports its own. */
 const hereLoad = (): number => Math.round(((os.loadavg()[0] ?? 0) / Math.max(1, os.cpus().length)) * 100) / 100;
@@ -29,6 +43,8 @@ export const MACHINE_HANDLERS = {
   'machines.list': (s) => needMachines(s).list(),
   'machines.devices': (s) => needMachines(s).devicesInSet(),
   'machines.forget': (s, id) => needMachines(s).forget(id),
+  'machines.ports': (s) => machinePorts(s.store.getState()),
+  'machines.forwards': (s) => s.store.getState().forwards,
   'machines.env.here': (s, wsId) => envHere(s.store.getState(), wsId),
   'machines.env.receive': (s, wsIds, files) => receiveEnv(s.store.getState(), wsIds, files),
   'machines.env.decide': (s, askId, choice) => needEnvSend(s).decide(askId, choice),

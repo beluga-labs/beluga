@@ -244,6 +244,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `machines.list` | ✓ Settings › Your Computers: each computer's icon, name, kind and region, online or offline, its load and health with fixes (also `beluga computers`) |
 | `machines.devices` | – `beluga computers` on a computer: the devices that may drive it (Settings › Your Computers is BLG-780) |
 | `machines.forget` | ✓ Settings › Your Computers › a computer › ••• › Forget (also `beluga computers forget <name>` on any of your devices) |
+| `machines.ports` | – asked by your app over a computer's link every few seconds (BLG-802): each worktree's dev servers there |
+| `machines.forwards` | ✓ a worktree on a computer › the panel's Background tab › Ports: each server with Open at localhost:<port>, and which port when the same was taken |
 | `machines.env.here` | – asked by your app over a computer's link when a worktree is made there (BLG-800): the project and the env file names its folder has |
 | `machines.env.receive` | – your app sends the env files you said to send over the computer's link; written 0600 there |
 | `machines.env.decide` | ✓ a worktree made on a computer, in its conversation and on the project's page: the env file names, Send Once, Don't Send, ••• › Always for This Project |

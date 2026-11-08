@@ -16,6 +16,7 @@ import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
 import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
 import { MachineDoor } from './door.js';
+import { isTunnelsHello } from './forward.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
 import { type ComputerUpdater, type Skew, type UpdateAnswer, type UpdateMode, leftBehind, skewOf, skewWords } from './versions.js';
 import { type MachineInfo, MachineSync } from './info.js';
@@ -125,6 +126,8 @@ export interface MachinesOptions {
   readonly updater?: ComputerUpdater;
   /** On a computer: keep a new name or icon your app gave it (its own settings, BLG-780). */
   readonly setLook?: (look: { readonly name?: string; readonly icon?: MachineIcon }) => void;
+  /** On a computer: an app of yours opened a tunnels link (its dev servers, BLG-802; its shared ports, BLG-804). */
+  readonly tunnels?: (socket: MessageSocket) => void;
   /** In the app: a screen of yours made a worktree on a computer (the .env ask, BLG-800). */
   readonly onWorktree?: (machineId: string, workspaceId: string) => void;
   readonly log?: (line: string) => void;
@@ -241,6 +244,12 @@ export class Machines {
     socket.once('close', () => clearTimeout(timer));
     socket.once('message', async (text) => {
       const frame = parseSync(text);
+      if (!frame && isTunnelsHello(text)) {
+        clearTimeout(timer);
+        if (roleOf(cert) !== 'app' || !this.opts.tunnels) return socket.close(4001, 'No tunnels here');
+        this.track(cert.device, socket);
+        return this.opts.tunnels(socket);
+      }
       if (!frame) {
         clearTimeout(timer);
         return this.drive(socket, text, cert);
