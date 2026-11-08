@@ -136,7 +136,7 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
             <kit.Sub>
               <kit.SubTrigger className={s.item} disabled={it.disabled}>
                 <span className={s.line}>
-                  {icons ? <span className={s.icon}>{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : null)}</span> : null}
+                  {icons ? <span className={s.icon} aria-hidden="true">{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : null)}</span> : null}
                   <span className={s.label}>{it.label}</span>
                   <Icon name="chevronRight" size={10} className={s.subArrow} />
                 </span>
@@ -152,10 +152,10 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
           <Item className={`${s.item} ${it.danger ? s.danger : ''}`} disabled={it.disabled} onSelect={it.onSelect} data-checked={it.checked || undefined}>
             <span className={s.line}>
               {/* A row with its own icon keeps it (a choice of icons); the check then goes after the name. */}
-              {icons ? <span className={s.icon}>{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : it.checked ? <Icon name="check" size={12} /> : null)}</span> : null}
+              {icons ? <span className={s.icon} aria-hidden="true">{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : it.checked ? <Icon name="check" size={12} /> : null)}</span> : null}
               {it.swatch ? <span className={s.swatch} style={{ background: it.swatch }} aria-hidden="true" /> : null}
               <span className={s.label}>{it.label}</span>
-              {it.checked && it.icon ? <Icon name="check" size={12} className={s.trailingCheck} /> : null}
+              {it.checked && (it.icon || it.mark) ? <Icon name="check" size={12} className={s.trailingCheck} /> : null}
               {it.keys ? <kbd className={s.keys}>{it.keys}</kbd> : null}
             </span>
             {it.hint ? <span className={`${s.hint} ${icons ? s.hintIndent : ''}`}>{it.hint}</span> : null}

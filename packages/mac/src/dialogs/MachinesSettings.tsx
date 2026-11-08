@@ -1,4 +1,3 @@
-import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { type KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import type { AlwaysOnView } from '@beluga/machines/always-on.js';
 import type { ComputerOffer } from '@beluga/machines/enroll.js';
@@ -8,9 +7,9 @@ import type { SettingsSyncView } from '@beluga/machines/sync.js';
 import type { UpdateAnswer } from '@beluga/machines/versions.js';
 import type { MachineIcon } from '@beluga/shared/settings-schema.js';
 import type { EnvSendAlways } from '@beluga/shared/env-send.js';
-import { Icon } from '../components/Icon.js';
+import { Icon, type IconName } from '../components/Icon.js';
+import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { Button, Dot, IconButton, Segmented } from '../components/ui.js';
-import m from '../components/SpecMenu.module.css';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { copyText } from '../lib/copy.js';
 import { upFirst, thisComputer } from '../lib/os-words.js';
@@ -347,6 +346,25 @@ function Computer({ machine, moving, onChange }: { machine: MachineView; moving:
       setSaid(undefined);
       onChange();
     }, fail);
+  // Its ••• : each row with its icon; Icon ▸ shows each choice as it looks, the one in use ticked at the end.
+  const iconNow = machine.icon ?? 'auto';
+  const menu: ActionItem[] = [
+    { label: 'Rename…', icon: 'pencil', onSelect: () => setNaming(machine.name) },
+    {
+      label: 'Icon',
+      mark: <MachineMark machine={machine} size={13} />,
+      separate: true,
+      submenu: ICON_CHOICES.map((choice) =>
+        choice.value === 'auto'
+          ? { label: 'Its Own', hint: kindLine(machine), mark: <MachineMark machine={{ ...machine, icon: 'auto' }} size={13} />, checked: iconNow === 'auto', onSelect: () => look({ icon: 'auto' }) }
+          : { label: choice.label, icon: choice.value as IconName, checked: iconNow === choice.value, separate: ICON_CHOICES[1] === choice, onSelect: () => look({ icon: choice.value }) },
+      ),
+      onSelect: () => undefined,
+    },
+    ...(machine.alwaysOn ? [] : [{ label: 'Make Always On…', icon: 'power' as const, separate: true, disabled: moving, onSelect: () => setAskAlwaysOn(true) }]),
+    { label: machine.secrets ? 'Stop Syncing My Secrets' : 'Keep My Secrets in Sync…', icon: 'lock', ...(machine.alwaysOn ? { separate: true } : {}), onSelect: () => (machine.secrets ? secrets(false) : setAskSecrets(true)) },
+    { label: `Forget ${machine.name}`, icon: 'trash', danger: true, separate: true, onSelect: forget },
+  ];
   const health = healthOf(machine);
   const fixes = health.filter((h) => !h.ok && h.fix);
   const tone = machine.status === 'online' ? (machine.readOnly ? 'warn' : 'ok') : 'muted';
@@ -410,38 +428,9 @@ function Computer({ machine, moving, onChange }: { machine: MachineView; moving:
             Update It
           </Button>
         ) : null}
-        <Dropdown.Root modal={false}>
-          <Dropdown.Trigger asChild>
-            <IconButton icon="more" label={`More for ${machine.name}`} />
-          </Dropdown.Trigger>
-          <Dropdown.Portal>
-            <Dropdown.Content className={m.menu} align="end" sideOffset={4}>
-              <Dropdown.Item className={m.item} onSelect={() => setNaming(machine.name)}>
-                <span className={m.label}>Rename…</span>
-              </Dropdown.Item>
-              <Dropdown.Separator className={m.separator} />
-              {ICON_CHOICES.map((choice) => (
-                <Dropdown.Item key={choice.value} className={m.item} onSelect={() => look({ icon: choice.value })}>
-                  <span className={m.label}>Icon: {choice.label}</span>
-                  {(machine.icon ?? 'auto') === choice.value ? <Icon name="check" size={11} /> : null}
-                </Dropdown.Item>
-              ))}
-              <Dropdown.Separator className={m.separator} />
-              {machine.alwaysOn ? null : (
-                <Dropdown.Item className={m.item} disabled={moving} onSelect={() => setAskAlwaysOn(true)}>
-                  <span className={m.label}>Make Always On…</span>
-                </Dropdown.Item>
-              )}
-              <Dropdown.Item className={m.item} onSelect={() => (machine.secrets ? secrets(false) : setAskSecrets(true))}>
-                <span className={m.label}>{machine.secrets ? 'Stop Syncing My Secrets' : `Keep My Secrets in Sync With ${machine.name}…`}</span>
-              </Dropdown.Item>
-              <Dropdown.Separator className={m.separator} />
-              <Dropdown.Item className={m.item} onSelect={forget}>
-                <span className={m.label}>Forget {machine.name}</span>
-              </Dropdown.Item>
-            </Dropdown.Content>
-          </Dropdown.Portal>
-        </Dropdown.Root>
+        <ActionsDropdown items={menu}>
+          <IconButton icon="more" label={`More for ${machine.name}`} />
+        </ActionsDropdown>
       </div>
       {askAlwaysOn ? (
         <div className={c.said} data-testid="always-on-ask">
