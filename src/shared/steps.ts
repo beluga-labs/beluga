@@ -99,6 +99,8 @@ const SECRET_TOKENS: readonly RegExp[] = [
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b(?:sk|rk|pk|whsec)_(?:live|test)_[A-Za-z0-9]{10,}/g,
+  // RevenueCat V2 secret keys have no live/test infix, so the Stripe pattern misses them.
+  /\bsk_[A-Za-z0-9_-]{16,}/g,
   /\bnpm_[A-Za-z0-9]{30,}/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ];
