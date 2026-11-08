@@ -32,6 +32,7 @@ import { Machines } from '../machines/machines.js';
 import { SettingsSync } from '../machines/sync.js';
 import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 import { AlwaysOn, attachAlwaysOn, detachAlwaysOn } from '../machines/always-on.js';
+import { FriendsLink, attachFriendsLink, detachFriendsLink } from '../machines/friends.js';
 import { type SwappableIdentity, swappableIdentity } from '../core/identity.js';
 import { networkSummaryOf, networkSwitchOf } from '../core/network.js';
 import { pinCompanionSeed } from './host.js';
@@ -213,6 +214,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
       });
   // Make Always On (BLG-796): your identity and friends network move to one of your computers and back.
   let alwaysOn: AlwaysOn | undefined;
+  let friends: FriendsLink | undefined;
   const you = opts.you ?? swappableIdentity(opts.identity);
   const machines = new Machines({
     dir,
@@ -254,7 +256,10 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
         const summary = networkSummaryOf(opts.session);
         return summary?.enabled ? { ...summary, enabled: true as const, friends: [...summary.friends], groups: [...summary.groups], invitations: [...summary.invitations], pendingJoins: [...summary.pendingJoins] } : undefined;
       },
-      mirror: (net) => opts.store.dispatch({ type: 'net_summary', summary: net as unknown as NetworkSummary }),
+      // Between polls the friends link mirrors it live; this only fills in while that link is down.
+      mirror: (net) => {
+        if (!friends?.live) opts.store.dispatch({ type: 'net_summary', summary: net as unknown as NetworkSummary });
+      },
     },
     onWorktree: (machineId, workspaceId) => void envSend?.offer(machineId, workspaceId).catch((err: unknown) => opts.log?.(`env-send: couldn't offer env files: ${err instanceof Error ? err.message : String(err)}`)),
     ...(opts.log ? { log: opts.log } : {}),
@@ -328,11 +333,27 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     settings: { load: loadSettings, save: (patch) => void saveSettings(patch) },
     pinAddress: (identity) => pinCompanionSeed(seedFile, identity),
     phones: () => devices.all().map((r) => r.cert.device),
-    onChange: () => host?.machinesChanged(),
+    onChange: () => {
+      host?.machinesChanged();
+      friends?.check();
+    },
     ...(opts.demo ? { demo: { start: { ...DEMO_ALWAYS_ON }, name: (id) => machines.list().find((m) => m.id === id)?.name } } : {}),
     ...(opts.log ? { log: opts.log } : {}),
   });
   attachAlwaysOn(opts.session, alwaysOn);
+  // Friends through your Always On (BLG-797): its network shown and used from here, over your own link.
+  if (!opts.demo) {
+    friends = new FriendsLink({
+      machines,
+      at: () => alwaysOn?.at(),
+      store: opts.store,
+      intents: opts.session.intents,
+      version: installedVersion(),
+      file: path.join(dir, 'friends-mirror.json'),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+    attachFriendsLink(opts.session, friends);
+  }
   attachCompanion(opts.session, host);
   attachMachines(opts.session, machines);
   void host
@@ -340,6 +361,7 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     .then(() => {
       machines.start();
       alwaysOn?.start();
+      friends?.start();
     })
     .catch((err: unknown) => opts.log?.(`companion: could not start: ${String(err)}`));
   // A phone on this Mac's USB: set up by itself, or what to switch on said in Settings › Phone (BLG-190).
@@ -351,6 +373,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     detachMachines(opts.session);
     detachAlwaysOn(opts.session);
     alwaysOn?.stop();
+    detachFriendsLink(opts.session);
+    friends?.stop();
     await machines.stop();
     await host?.stop();
     host = undefined;

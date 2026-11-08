@@ -263,6 +263,14 @@ Make Always On…, and Make This Mac Always On under You on the Network (BLG-796
   reach it as before. New phones and computers are signed in where your identity is.
 - Make This Mac Always On brings it back the same way; moving it to another computer goes through this
   Mac (back here, not started, then on). Rooms keep the key they joined with until Beluga restarts.
+- Friends through it (`src/machines/friends.ts`, BLG-797): this Mac's daemon keeps a client link of its
+  own to the Always On and mirrors its network into this Mac's state (`net_mirror`, then each `net_*`
+  action), so People, chats, groups, calls and the phone work as before and notify as before. Every
+  `network.*` and `calls.*` call is forwarded there (the Friends switch too). What this Mac's screens show
+  is said there, so those conversations are read. Friends' requests run there under the same trust levels;
+  the ones waiting on you show here as `ao:<id>` and the first answer from any device counts. Call
+  signals come back to the window in the call: audio and video stay on this Mac. The last mirror is kept
+  in `friends-mirror.json`, so messages that came while this Mac was closed are news when it opens.
 
 ## Chats: channels, files and agents
 

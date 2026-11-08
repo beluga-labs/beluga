@@ -1283,6 +1283,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'net_call_notes':
     case 'net_missed_calls':
     case 'net_off':
+    case 'net_mirror':
       return { ...state, ...reduceNetwork(state, action) };
     case 'support':
       return { ...state, support: action.support };
