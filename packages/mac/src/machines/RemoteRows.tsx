@@ -1,24 +1,18 @@
-import { useMemo } from "react";
-import type { MachineView } from "@beluga/machines/machines.js";
-import { Icon } from "../components/Icon.js";
-import { cx } from "../components/ui.js";
-import { Row } from "../layout/sidebar-parts.js";
-import side from "../layout/Sidebar.module.css";
-import { makeActions, useActions } from "../lib/actions.js";
-import { ActionsContext, type ActionItem } from "../components/SpecMenu.js";
-import { machineClientOf, machineUiOf } from "./pane-clients.js";
-import { useApp } from "../lib/beluga.js";
-import { MachineMark } from "./MachineMark.js";
-import { onMachine, paneOf } from "./pane-model.js";
-import {
-  type Tagged,
-  remoteOnlyProjects,
-  remoteWorkIn,
-  shortName,
-  whereLine,
-} from "./remote-work.js";
-import { useRemoteSources } from "./use-remote.js";
-import c from "./machines.module.css";
+import { useMemo } from 'react';
+import type { MachineView } from '@beluga/machines/machines.js';
+import { Icon } from '../components/Icon.js';
+import { cx } from '../components/ui.js';
+import { Row } from '../layout/sidebar-parts.js';
+import side from '../layout/Sidebar.module.css';
+import { makeActions, useActions } from '../lib/actions.js';
+import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
+import { machineClientOf, machineUiOf } from './pane-clients.js';
+import { useApp } from '../lib/beluga.js';
+import { MachineMark } from './MachineMark.js';
+import { onMachine, paneOf } from './pane-model.js';
+import { type Tagged, remoteOnlyProjects, remoteWorkIn, shortName, whereLine } from './remote-work.js';
+import { useRemoteSources } from './use-remote.js';
+import c from './machines.module.css';
 
 /**
  * Your computers' work in the sidebar (BLG-785): their worktrees and chats under the project of
@@ -28,13 +22,7 @@ import c from "./machines.module.css";
  */
 
 /** The computer a row runs on: its mark and short name. */
-export function MachineChip({
-  machine,
-  offline,
-}: {
-  machine: MachineView;
-  offline?: boolean;
-}) {
+export function MachineChip({ machine, offline }: { machine: MachineView; offline?: boolean }) {
   return (
     <span className={cx(c.rowTag, offline && c.rowTagOff)}>
       <MachineMark machine={machine} size={10} />
@@ -47,7 +35,7 @@ export function MachineChip({
 function useOnPage(machine: string, id: string): boolean {
   return useApp((st) => {
     const { machine: m, view } = paneOf(st.view);
-    return m === machine && view.kind === "workspace" && view.id === id;
+    return m === machine && view.kind === 'workspace' && view.id === id;
   });
 }
 
@@ -55,53 +43,23 @@ function useOnPage(machine: string, id: string): boolean {
  * A computer's worktree's right-click menu (BLG-795): Open, and Archive… and Delete… as on this
  * Mac's rows, asked and done there with its own screen. Offline, or a chat: Open only.
  */
-function remoteItems(
-  t: Tagged<{ readonly id: string; readonly kind: string }>,
-  open: () => void,
-): ActionItem[] {
-  const items: ActionItem[] = [
-    { label: "Open", icon: "chevronRight", onSelect: open },
-  ];
+function remoteItems(t: Tagged<{ readonly id: string; readonly kind: string }>, open: () => void): ActionItem[] {
+  const items: ActionItem[] = [{ label: 'Open', icon: 'chevronRight', onSelect: open }];
   const client = machineClientOf(t.machine.id);
   const ui = machineUiOf(t.machine.id);
-  if (t.offline || t.item.kind !== "worktree" || !client || !ui) return items;
-  const run = (action: "archive" | "delete") => () =>
-    makeActions(client, ui).run({ type: "ws", id: t.item.id, action });
+  if (t.offline || t.item.kind !== 'worktree' || !client || !ui) return items;
+  const run = (action: 'archive' | 'delete') => () => makeActions(client, ui).run({ type: 'ws', id: t.item.id, action });
   return [
     ...items,
-    {
-      label: "Archive…",
-      icon: "archive",
-      hint: "Keeps your work; restore it any time",
-      separate: true,
-      onSelect: run("archive"),
-    },
-    { label: "Delete…", icon: "trash", danger: true, onSelect: run("delete") },
+    { label: 'Archive…', icon: 'archive', hint: 'Keeps your work; restore it any time', separate: true, onSelect: run('archive') },
+    { label: 'Delete…', icon: 'trash', danger: true, onSelect: run('delete') },
   ];
 }
 
-function RemoteWorkRow({
-  t,
-  indent,
-}: {
-  t: Tagged<{
-    readonly id: string;
-    readonly name: string;
-    readonly kind: string;
-  }>;
-  indent: number;
-}) {
+function RemoteWorkRow({ t, indent }: { t: Tagged<{ readonly id: string; readonly name: string; readonly kind: string }>; indent: number }) {
   const actions = useActions();
   const here = useOnPage(t.machine.id, t.item.id);
-  const open = (): void =>
-    actions.run({
-      type: "view",
-      view: onMachine(t.machine.id, {
-        kind: "workspace",
-        id: t.item.id,
-        tab: "chat",
-      }),
-    });
+  const open = (): void => actions.run({ type: 'view', view: onMachine(t.machine.id, { kind: 'workspace', id: t.item.id, tab: 'chat' }) });
   return (
     <ActionsContext items={() => remoteItems(t, open)}>
       <Row
@@ -110,9 +68,7 @@ function RemoteWorkRow({
         className={cx(t.offline && c.offlineRow)}
         aria-label={`${t.item.name} on ${t.machine.name}`}
         data-machine-row={t.machine.id}
-        icon={
-          <Icon name={t.item.kind === "chat" ? "chat" : "branch"} size={13} />
-        }
+        icon={<Icon name={t.item.kind === 'chat' ? 'chat' : 'branch'} size={13} />}
         label={t.item.name}
         detail={`${t.item.name} · ${whereLine(t)}`}
         trailing={<MachineChip machine={t.machine} offline={t.offline} />}
@@ -123,37 +79,17 @@ function RemoteWorkRow({
 }
 
 /** A project's worktrees and chats on your computers, under this Mac's project of the same name (`onlyHere`: folded, only the one you're on). */
-export function RemoteWorkRows({
-  name,
-  indent,
-  onlyHere = false,
-}: {
-  name: string;
-  indent: number;
-  onlyHere?: boolean;
-}) {
+export function RemoteWorkRows({ name, indent, onlyHere = false }: { name: string; indent: number; onlyHere?: boolean }) {
   const sources = useRemoteSources();
   const here = useApp((st) => {
     const { machine, view } = paneOf(st.view);
-    return machine && view.kind === "workspace"
-      ? `${machine}/${view.id}`
-      : undefined;
+    return machine && view.kind === 'workspace' ? `${machine}/${view.id}` : undefined;
   });
-  const rows = useMemo(
-    () =>
-      remoteWorkIn(name, sources).filter(
-        (t) => !onlyHere || `${t.machine.id}/${t.item.id}` === here,
-      ),
-    [name, sources, onlyHere, here],
-  );
+  const rows = useMemo(() => remoteWorkIn(name, sources).filter((t) => !onlyHere || `${t.machine.id}/${t.item.id}` === here), [name, sources, onlyHere, here]);
   return (
     <>
       {rows.map((t) => (
-        <RemoteWorkRow
-          key={`${t.machine.id}/${t.item.id}`}
-          t={t}
-          indent={indent}
-        />
+        <RemoteWorkRow key={`${t.machine.id}/${t.item.id}`} t={t} indent={indent} />
       ))}
     </>
   );
@@ -162,10 +98,7 @@ export function RemoteWorkRows({
 /** Your computers' projects this Mac doesn't have: each with its computer, and its worktrees and chats. */
 export function RemoteProjects({ local }: { local: ReadonlySet<string> }) {
   const sources = useRemoteSources();
-  const projects = useMemo(
-    () => remoteOnlyProjects(local, sources),
-    [local, sources],
-  );
+  const projects = useMemo(() => remoteOnlyProjects(local, sources), [local, sources]);
   if (!projects.length) return null;
   return (
     <div role="group" aria-label="On your computers">
@@ -180,7 +113,7 @@ export function RemoteProjects({ local }: { local: ReadonlySet<string> }) {
             trailing={<MachineChip machine={t.machine} offline={t.offline} />}
           />
           {t.item.workspaces
-            .filter((w) => w.kind !== "main")
+            .filter((w) => w.kind !== 'main')
             .map((w) => (
               <RemoteWorkRow key={w.id} t={{ ...t, item: w }} indent={2} />
             ))}
