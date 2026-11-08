@@ -8,6 +8,7 @@ import { Agents } from './scenes/Agents.js';
 import { Archive } from './scenes/Archive.js';
 import { Earnings } from './scenes/Earnings.js';
 import { Friends } from './scenes/Friends.js';
+import { Machines } from './scenes/Machines.js';
 import { Parallel } from './scenes/Parallel.js';
 import { Sentinel } from './scenes/Sentinel.js';
 import { SentinelUses } from './scenes/SentinelUses.js';
@@ -58,6 +59,7 @@ const SCENES: Partial<Record<Step, () => ReactNode>> = {
   parallel: () => <Parallel />,
   agents: () => <Agents />,
   tables: () => <Tables />,
+  machines: () => <Machines />,
   friends: () => <Friends />,
   sentinel: () => <Sentinel />,
   uses: () => <SentinelUses />,
