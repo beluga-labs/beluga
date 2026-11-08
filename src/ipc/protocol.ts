@@ -68,7 +68,8 @@ export type DaemonFrame =
   | { readonly t: 'phone_mirror'; readonly device: string; readonly on: boolean; readonly route?: string; readonly error?: string; readonly video?: 'asking' | 'on'; readonly note?: string }
   | { readonly t: 'clients'; readonly count: number }
   | { readonly t: 'pong' }
-  | { readonly t: 'bye'; readonly reason: string };
+  // `update` (BLG-775): which side to update when a computer and your app speak different versions.
+  | { readonly t: 'bye'; readonly reason: string; readonly update?: 'computer' | 'app' };
 
 /** A touch as the mirror draws it (src/companion/phone-control.ts PhoneTouch). */
 export interface PhoneTouchData {

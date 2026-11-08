@@ -14,6 +14,8 @@ import { MachineBook, type MachineRecord } from './book.js';
 import { DeviceSet, type SetDeviceView } from './controllers.js';
 import { loadDeviceKeys } from './device-key.js';
 import { type ComputerOffer, joinComputer, nodeOpenRelay } from './enroll.js';
+import { IPC_VERSION, encodeFrame, parseClientFrame } from '../ipc/protocol.js';
+import { MachineDoor } from './door.js';
 import { type MachineInfo, MachineSync } from './info.js';
 import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } from './join.js';
 
@@ -32,6 +34,8 @@ import { ComputerPairing, type ComputerPairingEnd, type ComputerPairingInfo } fr
 const SYNC_RETRY_MS = 60_000;
 const SYNC_TIMEOUT_MS = 15_000;
 const MAX_SYNC_BYTES = 1024 * 1024;
+/** A link carries the app protocol too: as much as a screen's socket does (daemon/server.ts MAX_FRAME_BYTES). */
+const MAX_LINK_BYTES = 8 * 1024 * 1024;
 /** How often the app asks each computer what it has free (BLG-778), and how long one unheard from still counts as online. */
 const POLL_MS = 30_000;
 const ONLINE_GRACE = 2.5;
@@ -98,6 +102,10 @@ export interface MachinesOptions {
   readonly pollMs?: number;
   /** The demo's computers, listed after any real ones (demo.ts, BLG-779). */
   readonly demo?: () => readonly MachineView[];
+  /** On a computer: an app of yours driving it, its hello read (the daemon server's adoptMachine, BLG-775). */
+  readonly adopt?: (socket: MessageSocket, hello: string) => void;
+  /** Waits between tries when a link to a computer drops. */
+  readonly backoffMs?: readonly number[];
   readonly log?: (line: string) => void;
 }
 
@@ -112,6 +120,10 @@ export class Machines {
   readonly set: DeviceSet;
   readonly book: MachineBook;
   readonly pairing: ComputerPairing;
+  /** Screens of this app on your computers (/machine/<id>, BLG-775). */
+  readonly door: MachineDoor;
+  /** Links open per device key, both ways (an app driving this computer, this app driving one): cut at once when it's forgotten. */
+  private readonly links = new Map<string, Set<MessageSocket>>();
   private joining?: Joining;
   private readonly offs: Array<() => void> = [];
   private readonly pending = new Set<string>();
@@ -126,6 +138,7 @@ export class Machines {
     this.set = new DeviceSet({ file: path.join(opts.dir, 'device-set.json'), keys: this.keys, identity: opts.identity });
     this.book = new MachineBook(path.join(opts.dir, 'machines.json'));
     this.platform = opts.platform ?? platformHere();
+    this.door = new MachineDoor(this, { ...(opts.backoffMs ? { backoffMs: opts.backoffMs } : {}), ...(opts.log ? { log: opts.log } : {}) });
     this.pairing = new ComputerPairing({
       node: opts.node,
       identity: opts.identity,
@@ -171,6 +184,8 @@ export class Machines {
     for (const off of this.offs.splice(0)) off();
     clearTimeout(this.retry);
     clearInterval(this.poller);
+    this.door.closeAll('Beluga is shutting down');
+    for (const set of this.links.values()) for (const s of set) s.close(1001, 'Beluga is shutting down');
     this.joining?.decide?.(false);
     await this.pairing.cancel('Beluga on this computer is shutting down');
   }
@@ -192,18 +207,21 @@ export class Machines {
   }
 
   /**
-   * A device of yours came in. For now (BLG-774) it only keeps the set in step: it says its
-   * `devset`, hears ours, and the link closes; the app protocol over it is BLG-775's.
+   * A device of yours came in: to keep the set in step (it says its `devset`, hears ours, and the
+   * link closes), or, an app of yours, to drive this computer (its first frame is a hello, BLG-775).
    */
   accept(stream: NoiseSocket, cert: DeviceCert): void {
-    const socket = fromStream(stream, { maxBytes: MAX_SYNC_BYTES, open: true });
+    const socket = fromStream(stream, { maxBytes: MAX_LINK_BYTES, open: true });
     socket.on('error', () => undefined);
     const timer = setTimeout(() => socket.terminate(), SYNC_TIMEOUT_MS);
     timer.unref();
     socket.once('close', () => clearTimeout(timer));
     socket.once('message', async (text) => {
       const frame = parseSync(text);
-      if (!frame) return socket.close(4001, 'Expected the device set');
+      if (!frame) {
+        clearTimeout(timer);
+        return this.drive(socket, text, cert);
+      }
       this.book.update(deviceId(cert), { lastSeen: Date.now() });
       this.merged(this.set.merge(frame));
       // It may have been forgotten by what it just said (or before): it hears so and goes.
@@ -216,6 +234,69 @@ export class Machines {
       socket.send(JSON.stringify(answer));
       socket.close(1000);
     });
+  }
+
+  /**
+   * An app of yours drives this computer (BLG-775): its hello goes to the daemon's door as a screen
+   * of kind `machine`. Another protocol is said in plain words, and which side to update.
+   */
+  private drive(socket: MessageSocket, text: string, cert: DeviceCert): void {
+    const hello = parseClientFrame(text);
+    if (hello?.t !== 'hello' || roleOf(cert) !== 'app') return socket.close(4001, 'Expected the device set or a hello');
+    if (hello.ipc !== IPC_VERSION) {
+      const name = this.opts.name();
+      const older = hello.ipc > IPC_VERSION;
+      const reason = older ? `${name} runs an older Beluga (${this.opts.version}) than your app: Update It runs \`beluga update\` there, then it connects.` : `${name} runs a newer Beluga (${this.opts.version}) than your app: update your app to drive it.`;
+      socket.send(encodeFrame({ t: 'bye', reason, update: older ? 'computer' : 'app' }));
+      return socket.close(4004, 'Another protocol');
+    }
+    if (!this.opts.adopt) return socket.close(1013, 'Beluga is starting');
+    this.track(cert.device, socket);
+    this.opts.adopt(socket, text);
+  }
+
+  /** Keep a link under its device key while it's open (a forget closes it at once). */
+  private track(device: string, socket: MessageSocket): void {
+    const set = this.links.get(device) ?? new Set<MessageSocket>();
+    set.add(socket);
+    this.links.set(device, set);
+    socket.once('close', () => {
+      set.delete(socket);
+      if (!set.size && this.links.get(device) === set) this.links.delete(device);
+    });
+  }
+
+  /** Close every open link to or from a device: with `code`, or dropped at once without (as a lost network). */
+  closeLinks(device: string, code?: number, reason?: string): void {
+    for (const s of [...(this.links.get(device) ?? [])]) {
+      if (code === undefined) s.terminate();
+      else s.close(code, reason);
+    }
+  }
+
+  /** A computer this app may drive: one of yours, signed in and not forgotten. */
+  drives(r: MachineRecord): boolean {
+    return roleOf(r.cert) === 'computer' && this.set.holds(r.cert) && this.set.holdsIdentity;
+  }
+
+  /** A fresh end-to-end link to a device of yours (direct, LAN or relay, whichever opens first). */
+  async openLink(r: MachineRecord): Promise<MessageSocket> {
+    const node = this.opts.refuseDirect ? undefined : await this.opts.node();
+    const dialed = await dialMac({
+      ...(node ? { node } : {}),
+      target: Buffer.from(r.address, 'hex'),
+      keyPair: this.keys.link,
+      relays: r.relays,
+      openRelay: this.opts.openRelay ?? nodeOpenRelay,
+      timeoutMs: SYNC_TIMEOUT_MS,
+      ...(this.opts.staggerMs !== undefined ? { staggerMs: this.opts.staggerMs } : {}),
+      ...(this.opts.refuseDirect ? { noP2p: true } : {}),
+    });
+    if (dialed.relay && !r.relays.includes(dialed.relay)) this.book.update(deviceId(r.cert), { relays: [dialed.relay, ...r.relays].slice(0, 4) });
+    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_LINK_BYTES, open: true });
+    socket.on('error', () => undefined);
+    this.track(r.cert.device, socket);
+    return socket;
   }
 
   // ---- the API (machine-handlers.ts)
@@ -350,6 +431,8 @@ export class Machines {
   private merged(cut: readonly DeviceCert[]): void {
     if (!cut.length) return;
     for (const c of cut) if (roleOf(c) === 'phone' && this.opts.devices.get(deviceId(c))) this.opts.removePhone(deviceId(c));
+    // Every link to or from it closes now: a screen driving this computer, this app's screens on it.
+    for (const c of cut) this.closeLinks(c.device, 4010, 'This device was forgotten');
     this.book.drop(new Set(cut.map((c) => c.device)));
   }
 
@@ -406,25 +489,13 @@ export class Machines {
 
   /** Dial one device of yours, swap device sets, merge its answer; `info`: ask a computer what it has free too. */
   async syncWith(r: MachineRecord, info = false): Promise<boolean> {
-    const node = this.opts.refuseDirect ? undefined : await this.opts.node();
-    const dialed = await dialMac({
-      ...(node ? { node } : {}),
-      target: Buffer.from(r.address, 'hex'),
-      keyPair: this.keys.link,
-      relays: r.relays,
-      openRelay: this.opts.openRelay ?? nodeOpenRelay,
-      timeoutMs: SYNC_TIMEOUT_MS,
-      ...(this.opts.staggerMs !== undefined ? { staggerMs: this.opts.staggerMs } : {}),
-      ...(this.opts.refuseDirect ? { noP2p: true } : {}),
-    });
-    const socket = fromStream(dialed.stream as unknown as Duplex, { maxBytes: MAX_SYNC_BYTES, open: true });
-    socket.on('error', () => undefined);
+    const socket = await this.openLink(r);
     const ask: MachineSync = { ...this.set.syncFrame(), ...(info ? { want: ['info' as const] } : {}) };
     const sent = Date.now();
     const answer = await exchange(socket, JSON.stringify(ask));
     if (!answer) return false;
     if (info) this.live.set(deviceId(r.cert), { at: Date.now(), ok: true, rttMs: Date.now() - sent, ...(answer.info ? { info: answer.info } : {}) });
-    this.book.update(deviceId(r.cert), { lastSeen: Date.now(), ...(dialed.relay && !r.relays.includes(dialed.relay) ? { relays: [dialed.relay, ...r.relays].slice(0, 4) } : {}) });
+    this.book.update(deviceId(r.cert), { lastSeen: Date.now() });
     this.merged(this.set.merge(answer));
     return true;
   }

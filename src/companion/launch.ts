@@ -24,7 +24,7 @@ import { needSentinel } from '../core/sentinel/registry.js';
 import { demoMachines } from '../machines/demo.js';
 import { collectInfo, realInfoDeps } from '../machines/info.js';
 import { Machines } from '../machines/machines.js';
-import { attachMachines, detachMachines } from '../machines/registry.js';
+import { attachMachines, detachMachines, screenDoorOf } from '../machines/registry.js';
 
 /**
  * Start the phone companion for the daemon (the Mac app's Beluga): the device book in
@@ -188,6 +188,12 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     onChange: () => host?.machinesChanged(),
     // What this computer has free, for an app of yours that asks (BLG-778).
     info: () => collectInfo(infoDeps),
+    // An app of yours driving this computer: a screen of the daemon's, of kind machine (BLG-775).
+    adopt: (socket, hello) => {
+      const door = screenDoorOf(opts.session);
+      if (door) door.adoptMachine(socket, hello);
+      else socket.close(1013, 'Beluga is starting');
+    },
     // The demo's Mac mini and AWS server (BLG-779), for the e2e tests and GIFs.
     ...(opts.demo ? { demo: () => demoMachines(opts.store.getState()) } : {}),
     ...(opts.log ? { log: opts.log } : {}),
