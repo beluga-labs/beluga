@@ -63,8 +63,8 @@ export function statusLine(m: MachineView): string {
 }
 
 /** Best Available's line: what it does, and which computer it would pick now and why. */
-export function bestLine(machines: readonly MachineView[], hereName: string): string {
-  const p = placeNewWork(BEST, machines, { name: hereName });
+export function bestLine(machines: readonly MachineView[], hereName: string, runtime = 'claude'): string {
+  const p = placeNewWork(BEST, machines, { name: hereName }, { runtime });
   return `Picks the computer with the most room. ${p.why}`;
 }
 
@@ -76,7 +76,7 @@ export function runsOnRows(machines: readonly MachineView[], runtime: string, he
       const why = whyNot(m, runtime, now);
       return { value: m.id, label: m.name, line: why ?? statusLine(m), disabled: Boolean(why), machine: m };
     }),
-    { value: BEST, label: 'Best Available', line: bestLine(machines, hereName), disabled: false },
+    { value: BEST, label: 'Best Available', line: bestLine(machines, hereName, runtime), disabled: false },
   ];
 }
 
