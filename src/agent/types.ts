@@ -227,6 +227,8 @@ export interface PlanTools {
   write(body: import('../core/plans/edit.js').BodyInput): string;
   update(ops: readonly import('../core/plans/edit.js').PlanOp[], reason?: string): string;
   gate(milestone: string, verdict: 'pass' | 'fail', notes: string): string;
+  /** The draft's reviewer records what it found (see core/plans/draft-review.ts). */
+  review?(findings: readonly import('../core/plans/model.js').ReviewFinding[]): string;
   start(task: string): Promise<string>;
   /** `queue` (default): read when its current turn ends. `steer`: now, interrupting a long command or a dead run. */
   message(task: string, text: string, mode?: 'queue' | 'steer'): string;

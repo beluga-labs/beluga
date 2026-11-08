@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AUTONOMIES, AUTONOMY_INFO, type Autonomy, MAX_PARALLEL, type Plan, TESTS_AT, TESTS_AT_INFO, shownBody } from '@beluga/core/plans/model.js';
+import { AUTONOMIES, AUTONOMY_INFO, type Autonomy, MAX_PARALLEL, type Plan, TESTS_AT, TESTS_AT_INFO, reviewState, shownBody } from '@beluga/core/plans/model.js';
 import { type PlanView, tidyOffer } from '@beluga/core/plans/progress.js';
 import { CONTINUE_PROMPT, decodeFailure, resetWords } from '@beluga/shared/run-failure.js';
 import { formatDuration } from '@beluga/shared/text.js';
@@ -25,8 +25,9 @@ import { openSheet } from '../lib/sheets.js';
 import { mod, openExternal } from '../lib/system.js';
 import { MilestoneBar, PlanPrChip, PlanProgress, Said, TonePill } from './marks.js';
 import { PlanChat } from './PlanChat.js';
-import { BRANCH, FEED, PlanDetails } from './PlanDetails.js';
+import { BRANCH, DECISIONS, FEED, PlanDetails } from './PlanDetails.js';
 import { PlanOutline } from './PlanOutline.js';
+import { ReviewLine } from './ReviewLine.js';
 import { CHAT_DEFAULT, DEFAULT_PLAN_LAYOUT, type Display, PLAN_LAYOUT_KEY, type PlanLayout, chatOpen, clampChatWidth, readPlanLayout, setChatOpen } from './plan-layout.js';
 import { barColumns, changeWords, headline, nextWords, shipAction, titleOf } from './plans-model.js';
 import { useCheckerChat, useConversationLoaded, usePlanActions, usePlanStep, usePlanView, usePlans } from './use-plans.js';
@@ -73,7 +74,7 @@ export function PlanPage({ id, task }: { id: string; task?: string }) {
   const { openList } = usePlanActions();
   // A task taken out of the plan isn't picked any more.
   useEffect(() => {
-    if (picked && view && picked !== FEED && picked !== BRANCH && !picked.startsWith('gate:') && !view.milestones.some((m) => m.tasks.some((t) => t.task.id === picked))) setPicked(undefined);
+    if (picked && view && picked !== FEED && picked !== BRANCH && picked !== DECISIONS && !picked.startsWith('gate:') && !view.milestones.some((m) => m.tasks.some((t) => t.task.id === picked))) setPicked(undefined);
   }, [view, picked]);
   if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={<Button onClick={() => openList()}>Back to Plans</Button>} />;
   return <Page view={view} prefs={prefs} setPrefs={setPrefs} picked={picked} setPicked={setPicked} />;
@@ -188,17 +189,23 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
 
   // Start with ▸ (BLG-506): "Your agent" over a plan with its own agent is yours by name (none would mean the plan's again).
   const startTasks = (tasks: readonly { readonly task: { readonly id: string } }[], agent?: AgentRef): void => tasks.forEach((t) => void act(() => api.startTask(plan.id, t.task.id, agent)));
+  const approvePlan = (): void => void act(() => api.approve(plan.id), 'Plan approved: its tasks are on the board');
+  // The first draft's review by a fresh agent (BLG-772): Approve Plan waits for it, or Fix what it found.
+  const review = reviewState(plan);
+  const fixReview = (): void => void act(() => api.fixReview(plan.id), 'Sent to your agent');
   // `with`: the same action by another agent, as the ▾ of a split button.
   const primary = ((): { label: string; run?: () => void; icon?: IconName; busy?: boolean; with?: { readonly label: string; readonly items: ActionItem[] } } | undefined => {
     if (step.busy) return { label: step.busy, busy: true };
     switch (next.kind) {
       case 'approve':
+        if (body?.milestones.length && review === 'reviewing') return { label: 'Reviewing the Draft…', busy: true };
+        if (body?.milestones.length && review === 'findings' && !plan.review?.fixAsked) return { label: 'Fix', icon: 'wand', run: fixReview, with: { label: 'Approve anyway', items: [{ label: 'Approve Anyway', onSelect: approvePlan }] } };
         // Approve, worked by ▸: who works its milestones and tasks, set as it's approved.
         return body?.milestones.length
           ? {
               label: 'Approve Plan',
               icon: 'check',
-              run: () => void act(() => api.approve(plan.id), 'Plan approved: its tasks are on the board'),
+              run: approvePlan,
               with: {
                 label: 'Approve, worked by another agent',
                 items: startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by'),
@@ -277,6 +284,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
     { label: 'Run at Once', submenu: [1, 2, 3, 4, 6, MAX_PARALLEL].map((n) => ({ label: `${n} ${n === 1 ? 'milestone' : 'milestones'}`, checked: plan.maxParallel === n, onSelect: () => void act(() => api.setParallel(plan.id, n)) })), onSelect: () => undefined },
     ...(plan.status !== 'done' ? [{ label: 'Agent for Its Work', submenu: agentMenuItems(agents, plan.agent, workAgent), onSelect: () => undefined }] : []),
     { label: 'When to Run Tests', submenu: TESTS_AT.map((t) => ({ label: TESTS_AT_INFO[t].label, hint: TESTS_AT_INFO[t].hint, checked: plan.testsAt === t, onSelect: () => void act(() => api.setTestsAt(plan.id, t), t === 'end' ? 'From now on, milestone checks skip the test suites; they all run once, in the final step' : 'From now on, each milestone’s check runs the full suites once, on its combined work') })), onSelect: () => undefined },
+    ...(review === 'reviewing' ? [{ label: 'Approve Without Review', onSelect: approvePlan }] : []),
+    ...(review === 'findings' || review === 'clean' || review === 'failed' ? [{ label: 'Review the Draft Again', onSelect: () => void act(() => api.reviewAgain(plan.id)) }] : []),
     ...(next.kind === 'stalled' ? next.tasks.flatMap((t) => (t.worktree ? [{ label: `Open ${t.issue?.key ?? 'Its'} Chat`, onSelect: () => openWorktree(t.worktree!) }] : [])) : []),
     ...(next.kind === 'pass' ? [{ label: 'Not Yet…', onSelect: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: next.milestone.milestone.id }) }] : []),
     ...(next.kind === 'failed' || next.kind === 'checking'
@@ -370,6 +379,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
       <LimitPause view={view} />
       <TidyOffer view={view} />
       <TeamReviews planId={plan.id} />
+      <ReviewLine plan={plan} onApprove={approvePlan} />
       {plan.body && plan.draft ? (
         <div className={p.changes} role="status">
           <Icon name="wand" size={13} />
@@ -403,6 +413,12 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
                 What Happened
               </Button>
             )}
+            {/* What the plan has decided (BLG-772): there once it decided something. */}
+            {body?.decisions?.length ? (
+              <Button size="small" variant="quiet" icon="bulb" onClick={() => setPicked(picked === DECISIONS ? undefined : DECISIONS)} aria-pressed={picked === DECISIONS}>
+                Decisions
+              </Button>
+            ) : null}
             {/* Where the work goes: each milestone into the plan's branch, the branch into main as one PR. */}
             {plan.body && !plan.draft ? (
               <Button size="small" variant="quiet" icon="branch" onClick={() => setPicked(picked === BRANCH ? undefined : BRANCH)} aria-pressed={picked === BRANCH} title={`Where the plan’s work goes, step by step${plan.branch ? ` (${plan.branch})` : ''}`} className={p.branchButton}>

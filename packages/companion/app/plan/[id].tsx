@@ -150,6 +150,15 @@ export default function Plan() {
                   </T>
                 </View>
               ) : null}
+              {/* A fresh agent reads the draft before you approve it (1.44, BLG-772); what it finds waits on you below. */}
+              {p.review?.state === 'reviewing' ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Eye color={color.text2} size={14} strokeWidth={1.9} />
+                  <T v="caption" c={color.text2}>
+                    A reviewer is reading the draft before you approve it
+                  </T>
+                </View>
+              ) : null}
               {p.topic ? <PlanChat topic={p.topic} drafting={drafting} /> : null}
             </View>
 
@@ -174,6 +183,21 @@ export default function Plan() {
                       <NeedButtons item={n} onAnswer={(t) => answer(n, t)} />
                     </Card>
                   </Animated.View>
+                ))}
+              </View>
+            ) : null}
+
+            {/* What the plan has decided (1.44): a replaced decision stays, crossed out. */}
+            {p.decisions?.length ? (
+              <View style={{ marginTop: 22, paddingHorizontal: 20, gap: 8 }}>
+                <T v="eyebrow">Decisions</T>
+                {p.decisions.map((d, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+                    <Check color={d.replaced ? color.text3 : color.ok} size={14} strokeWidth={2} style={{ marginTop: 3 }} />
+                    <T v="callout" c={d.replaced ? color.text3 : color.text} style={{ flex: 1, ...(d.replaced ? { textDecorationLine: 'line-through' as const } : {}) }}>
+                      {d.text}
+                    </T>
+                  </View>
                 ))}
               </View>
             ) : null}

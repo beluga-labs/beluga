@@ -1,6 +1,7 @@
 import { type Criterion, criteria, criterionLine } from '../board/criteria.js';
 import { type BoardState, STATUS_INFO, filterIssues } from '../board/model.js';
-import { AUTONOMY_INFO, type Plan, type PlanBody, TESTS_AT_INFO, diffBodies, milestoneDeps, shownBody } from './model.js';
+import { AUTONOMY_INFO, type Plan, type PlanBody, type ReviewFinding, TESTS_AT_INFO, diffBodies, milestoneDeps, shownBody } from './model.js';
+import { coherenceWarnings } from './coherence.js';
 import { type MilestoneView, type PlanView, type TaskView, agentTasks, overlaps } from './progress.js';
 
 /**
@@ -73,6 +74,29 @@ const HOW_TO_PLAN = [
   '  Don\'t make every task run the full suite.',
 ].join('\n');
 
+/**
+ * Keeping a plan one piece while the user changes it over many messages (BLG-772): a change applied
+ * as a few local ops, with nothing re-reading the whole draft, left contradictions, duplicates and
+ * old names behind.
+ */
+const KEEP_COHERENT = [
+  'Keep the plan one coherent piece, however often the user changes direction:',
+  '- Record what is decided with plan_update op "decide" (text, and `terms`: the few words that mark text following it,',
+  '  like "New Window"). When a decision replaces an earlier one, decide the new one with `supersedes` (the old id): the',
+  '  old one is kept, marked replaced, and plan_update lists every task still using its terms. A rename goes in `retires`',
+  '  (the old word: "machine"). The plan\'s decisions are the one place they live: not your memory, a file, or a task brief.',
+  '- When the user changes direction (a new approach, a rename, dropping or merging an idea), in that same turn: record',
+  '  the decision, call plan_get, re-read the WHOLE draft against the plan\'s decisions, and fix every task and milestone',
+  '  the change touches (titles, goals, context, acceptance, touches, order). Remove what it made stale; merge what it',
+  '  made duplicate. Never only add a task beside the old one.',
+  '- plan_write and plan_update answer with warnings after "Saved": near-duplicate tasks, side-by-side tasks sharing files,',
+  '  text naming removed ids, tasks still using a superseded decision, empty milestones. Fix each one before you end your',
+  '  turn, or tell the user why it is fine.',
+  '- An id already in the plan is refused, never renamed: change that task with update_task, or remove it first.',
+  '- Before the user approves, a separate reviewer agent reads the draft for contradictions, duplicates, stale decisions',
+  '  and wrong order; its findings come back to you when the user clicks Fix.',
+].join('\n');
+
 /** Under load (other worktrees testing too) a slow moment fails a test: it counts only if it fails alone too. */
 const UNDER_LOAD = 'A failure that looks like load (a timeout, "did not start", a flaky wait while the Mac is busy: see `uptime`) counts only if it fails again when re-run once, alone.';
 
@@ -132,12 +156,24 @@ export function planningBrief(plan: Plan, board: BoardState, style: string): str
     'approves, or tells you what to change.',
     '',
     HOW_TO_PLAN,
+    '',
+    KEEP_COHERENT,
+    'This conversation\'s own board task, if it has one, is kept in step with the plan\'s goal and decisions by Beluga: don\'t copy them there by hand.',
+    decisionLines(body).length ? `\nThe plan's decisions so far (keep every task in line with the ones in force):\n${decisionLines(body).join('\n')}` : '',
     style.trim() ? `\nThe user's planning style (follow it):\n<planning_style>\n${style.replace(/<\/?planning_style>/gi, '').trim()}\n</planning_style>` : '',
     existing.length ? `\nTasks already on this project's board (don't duplicate them; a plan task can say it builds on one in its context):\n${existing.join('\n')}` : '',
     '</beluga_plan_mode>',
   ]
     .filter((l) => l !== undefined)
     .join('\n');
+}
+
+/** A plan's decisions as lines: the ones in force, and the replaced ones marked. */
+export function decisionLines(body: PlanBody | undefined): string[] {
+  return (body?.decisions ?? []).map((d) => {
+    const marks = [d.terms?.length ? `terms: ${d.terms.join(', ')}` : '', d.retires?.length ? `retires: ${d.retires.join(', ')}` : '', d.supersedes ? `replaces ${d.supersedes}` : ''].filter(Boolean);
+    return d.supersededBy ? `- [${d.id}] (replaced by ${d.supersededBy}) ${d.text}` : `- [${d.id}] ${d.text}${marks.length ? ` (${marks.join(' · ')})` : ''}`;
+  });
 }
 
 /** Running an approved plan: the head Claude's instructions and where things stand. */
@@ -196,6 +232,8 @@ export function describePlan(view: PlanView): string {
     const d = diffBodies(plan.body, plan.draft);
     lines.push(`Changes waiting for the user's approval: ${d.added.length} new, ${d.changed.length} changed, ${d.removed.length} removed (shown below as proposed).`);
   } else if (!plan.body) lines.push('Draft: not approved yet.');
+  const decided = decisionLines(body);
+  if (decided.length) lines.push('', 'Decisions:', ...decided);
   const titleOf = new Map(body.milestones.map((m) => [m.id, m.title]));
   body.milestones.forEach((m, i) => {
     const mv = view.milestones.find((x) => x.milestone.id === m.id);
@@ -219,6 +257,9 @@ export function describePlan(view: PlanView): string {
       if (t.touches?.length) lines.push(`  touches: ${t.touches.join(', ')}`);
     }
   });
+  // The cheap checks, here too: the draft as a whole (what a change just did is said by plan_update).
+  const warnings = plan.draft ? coherenceWarnings(plan.draft) : [];
+  if (warnings.length) lines.push('', 'Warnings (fix them, or say why they are fine):', ...warnings.map((w) => `- ${w}`));
   return lines.filter((l) => l !== '').join('\n');
 }
 
@@ -547,6 +588,54 @@ export function milestoneNote(view: PlanView, m: MilestoneView, current?: TaskVi
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+// ------------------------------------------------------------------ the draft's reviewer (BLG-772)
+
+/** What a draft's reviewer conversation knows on every run. */
+export function reviewerBrief(plan: Plan): string {
+  return [
+    '',
+    '<beluga_plan_reviewer>',
+    `This conversation reviews the draft of the plan “${shownBody(plan)?.title ?? 'plan'}” in Beluga's Plans, before the user approves it.`,
+    'You are not the agent that wrote it: it is the worst at seeing its own drift, so read it fresh. plan_get shows the draft and',
+    'its decisions; plan_review records what you found. You have nothing else: read no code, change nothing.',
+    'Always end a turn with plan_review, never by asking the user anything.',
+    '</beluga_plan_reviewer>',
+  ].join('\n');
+}
+
+/** Read the draft and record what's wrong with it. `again`: a later round (the draft changed since). */
+export function reviewPrompt(plan: Plan, again: boolean): string {
+  return [
+    again ? `The draft of “${shownBody(plan)?.title ?? 'the plan'}” changed since your last review. Review it again, whole (what you found before may be fixed, or not).` : `Review the draft of the plan “${shownBody(plan)?.title ?? 'plan'}” before the user approves it.`,
+    '',
+    'Call plan_get, read the whole draft and its decisions, and look for:',
+    '- contradictions: tasks or milestones that disagree with each other, or with a decision in force;',
+    '- duplicates: two tasks (or milestones) doing the same work, even in different words or milestones;',
+    '- stale text: a task still written for a superseded decision, an old name, an idea the plan dropped;',
+    '- order: a task that needs another\'s work but neither waits on it, milestones running side by side that should not',
+    '  (or waiting when they need not), parallel tasks changing the same files;',
+    '- anything else that would make an agent build the wrong thing (a goal no task covers, a task no goal needs).',
+    'Report only real problems, each once, in a sentence or two that names the task or milestone ids and says what to change.',
+    'Nothing worth fixing: record no findings. Then call plan_review, and end your turn.',
+  ].join('\n');
+}
+
+/** A review whose turn ended without plan_review: asked once more. */
+export const reviewNudgePrompt = 'Your turn ended without recording the review, so Approve Plan waits on it. Call plan_review now: your findings, or none.';
+
+/** The user clicked Fix: the reviewer's findings go to the plan's agent. */
+export function reviewFixPrompt(findings: readonly ReviewFinding[]): string {
+  return [
+    `A reviewer read the draft before approval and found ${findings.length === 1 ? 'this' : `these ${findings.length} things`}:`,
+    '',
+    ...findings.map((f, i) => `${i + 1}. (${f.kind}) ${f.text}${f.ids?.length ? ` [${f.ids.join(', ')}]` : ''}`),
+    '',
+    'Fix each one in the draft now with plan_update (one you think is wrong: say why in a line). Re-read the whole draft',
+    'with plan_get against the plan\'s decisions, so a fix doesn\'t leave something else stale. Then answer in a few lines',
+    'what you changed.',
+  ].join('\n');
 }
 
 /** Words for a body's size ("3 milestones, 11 tasks"). */

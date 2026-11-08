@@ -50,6 +50,9 @@ export const PLANS_API = {
   'plans.approve': { args: z.tuple([id]) },
   // Throw the draft away (a plan never approved goes with it).
   'plans.discard': { args: z.tuple([id]) },
+  // A draft's review (BLG-772): Fix sends its findings to the plan's agent; Review Again reads the draft anew → the plan.
+  'plans.fixReview': { args: z.tuple([id]) },
+  'plans.reviewAgain': { args: z.tuple([id]) },
   'plans.edit': { args: z.tuple([id, z.array(PlanOpSchema).min(1).max(40)]) },
   // The plan's autonomy, or one milestone's.
   'plans.setAutonomy': { args: z.tuple([id, autonomy, ref.optional()]) },

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { planForHome, planTitle, planTaskOfIssue } from '@beluga/core/plans/model.js';
+import { planForHome, planTitle, planTaskOfIssue, reviewState } from '@beluga/core/plans/model.js';
 import { issueForWorkspace } from '@beluga/core/board/model.js';
 import { Icon } from '../components/Icon.js';
 import { Button, Tip } from '../components/ui.js';
@@ -29,6 +29,7 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
   // An empty draft has nothing to show yet (the box below says what this mode does).
   if (home && view && (home.body || view.milestones.length)) {
     const canApprove = (view.next.kind === 'approve' && view.milestones.length > 0) || view.next.kind === 'review_changes';
+    const review = reviewState(home);
     /** Approve (with `agent`: worked by that one from now on; null: your default), then on to the plan, where it runs. */
     const approve = (agent?: AgentRef | null): void =>
       void act(
@@ -64,6 +65,17 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
               <Button size="small" variant="primary" onClick={() => approve()}>
                 Apply Changes
               </Button>
+            ) : review === 'reviewing' ? (
+              // A fresh agent reads the draft first (BLG-772): its findings show on the plan.
+              <Button size="small" variant="primary" disabled>
+                Reviewing…
+              </Button>
+            ) : review === 'findings' && !home.review?.fixAsked ? (
+              <Tip label="The reviewer found things to fix in the draft: see them on the plan">
+                <Button size="small" variant="primary" icon="wand" onClick={() => open(home.id)}>
+                  See What It Found
+                </Button>
+              </Tip>
             ) : (
               // Approve, worked by ▸ (BLG-506): who works its milestones and tasks, set as it's approved.
               <SplitButton label="Approve, worked by another agent" items={startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by')}>

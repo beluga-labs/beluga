@@ -121,6 +121,8 @@ export const PhoneCalls = {
   // 1.5: how a plan runs (Step by Step, Check-ins, Autopilot), from its page.
   'plans.setAutonomy': entry('plans.setAutonomy', done),
   'plans.discard': entry('plans.discard', done),
+  'plans.fixReview': entry('plans.fixReview', done),
+  'plans.reviewAgain': entry('plans.reviewAgain', done),
   'plans.pass': entry('plans.pass', done),
   'plans.recheck': entry('plans.recheck', done),
   'plans.sendBack': entry('plans.sendBack', done),
