@@ -463,7 +463,8 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
       };
     }
     if (item.said) return { id: item.id, who: item.said.byAgent ? 'claude' : item.said.from === me ? 'you' : 'friend', name: clip(item.said.name, 100), prose: proseOf(item.said.text), ts: item.said.ts };
-    if (item.level === 'info') return undefined;
+    // Info lines stay on the Mac, but a merge (and Continue After Merge's line) is news here too.
+    if (item.level === 'info' && !item.merged && !item.shipped) return undefined;
     return { id: item.id, who: 'system', name: 'Beluga', prose: proseOf(item.text), ts: item.ts };
   }
   if (item.type === 'shell') {

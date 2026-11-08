@@ -1258,6 +1258,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { prDone: number, ...(shipped ? { prShipped: { number, ...shipped } } : {}) });
   }
 
+  /** Its chat shows PR `number` merged now (see Workbench.sayMerged). */
+  setMergeSaid(id: string, number: number): void {
+    this.require(id);
+    this.patchRecord(id, { mergeSaid: number });
+  }
+
   /** Merge When Ready is waiting on this worktree's PR (undefined: not anymore). See Workbench.mergeWhenReady. */
   setMergeWait(id: string, wait: MergeWait | undefined): void {
     this.require(id);

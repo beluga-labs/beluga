@@ -26,7 +26,9 @@ import { claudeCodeCommand } from '../agent/claude-code.js';
 import { CONTINUE_PROMPT } from '../shared/run-failure.js';
 import type { NoticeEvent } from './notify.js';
 import { type SearchSource, searchConversations } from './search.js';
-import { type LogItem, type Prefs, type Store, shippedText } from './store.js';
+import { type LogItem, type MergedMark, type Prefs, type Store, mergedText, shippedText } from './store.js';
+import { lastLogAt } from './triage/facts.js';
+import { triageKey } from './triage/model.js';
 import { addTemplate, loadTemplates, removeTemplate } from './templates.js';
 import type { ModelChoice, PrConversation, PrThread, PullRequest } from './work-store.js';
 import type { RuntimeStatus } from '../agent/runtime/types.js';
@@ -193,6 +195,18 @@ export function prNews(name: string, channel: string, before: PullRequest | unde
   if (before.review !== pr.review && pr.review === 'CHANGES_REQUESTED') out.push({ kind: 'pr', title: `Changes requested on PR #${pr.number}`, body: name, channel });
   if (before.review !== pr.review && pr.review === 'APPROVED') out.push({ kind: 'pr', title: `PR #${pr.number} was approved`, body: name, channel });
   return out;
+}
+
+/**
+ * Whether a worktree's chat should now get the line saying its PR merged. Once per PR (`said`: the
+ * one it already shows). Seen merging (open last time, `quiet` off): yes. Otherwise (merged while
+ * Beluga was closed, or between two looks) only when nothing was said in the chat since it merged
+ * (`lastAt`), so everything above the line really is what merged.
+ */
+export function mergedLineDue(pr: PullRequest | undefined, before: PullRequest | undefined, quiet: boolean, said: number | undefined, lastAt: number | undefined): boolean {
+  if (pr?.state !== 'MERGED' || said === pr.number) return false;
+  if (!quiet && before?.number === pr.number && before.state === 'OPEN') return true;
+  return pr.mergedAt !== undefined && lastAt !== undefined && lastAt <= pr.mergedAt;
 }
 
 /**
@@ -491,6 +505,7 @@ export class Workbench {
         const files = result.files.slice(0, 3).join(', ') + (result.files.length > 3 ? '…' : '');
         return warn(`${branch} conflicts with origin/${base} (${files}): nothing was pushed. Create a PR, or ask your agent to bring ${base} in first`);
       }
+      this.sayMerged(id, { into: base });
       void this.deps.controller.refresh();
       void this.refreshPrs(id);
       const message = `Merged ${branch} into ${base} on GitHub${result.how === 'fast_forward' ? '' : ' (a merge commit)'}`;
@@ -656,6 +671,16 @@ export class Workbench {
     const fork = prOnOriginal(this.manager.list.find((p) => p.id === ws.projectId)?.fork, pr);
     this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws), fork ? { url: fork.url, branch: fork.branch } : undefined), `ws:${id}`);
     this.deps.toast(`${this.agent()} is resolving PR #${pr.number}’s conflicts…`);
+  }
+
+  /**
+   * A line across a worktree's chat: what's above it merged (in a PR, on GitHub, or into the main
+   * folder), so you see it there even when it merged outside Beluga. Its saved conversation is
+   * loaded first, so the line lands after it and is saved with it.
+   */
+  private sayMerged(id: string, mark: MergedMark): void {
+    this.deps.controller.ensureLoaded(id);
+    this.deps.store.dispatch({ type: 'system', channel: `ws:${id}`, text: mergedText(mark), merged: mark });
   }
 
   /**
@@ -1130,6 +1155,13 @@ export class Workbench {
     const before = this.deps.store.getState().prs[ws.id];
     if (!samePr(before, pr)) this.deps.store.dispatch({ type: 'pr', id: ws.id, pr });
     void this.settleMergeWait(ws, pr);
+    const state = this.deps.store.getState();
+    const key = triageKey(state, `ws:${ws.id}`);
+    const lastAt = (key ? state.triage[key]?.lastAt : undefined) ?? lastLogAt(state.log, `ws:${ws.id}`);
+    if (pr && mergedLineDue(pr, before, quiet, this.manager.find(ws.id)?.mergeSaid, lastAt)) {
+      this.manager.setMergeSaid(ws.id, pr.number);
+      this.sayMerged(ws.id, { into: this.prBase(ws), number: pr.number, url: pr.url });
+    }
     if (!pr || quiet) return;
     const asked = this.prAsked.delete(ws.id);
     // Merged or closed is said once, even if gh's answers flicker.
