@@ -968,8 +968,10 @@ export class AgentHost {
     if (!(await this.authorizeRequest(from, admitted))) return deny('Request declined by the machine owner.');
     const counted = this.chatSends.admitFromPeer(from, origin, body.channel, this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0);
     if (!counted.allow) return deny(counted.text);
-    this.fromChats.set(body.requestId, { origin: admitted.origin!, text: body.prompt });
-    return admitted;
+    // The hop as counted: the chain may have moved on while you decided.
+    const run: BodyOf<'agent_request'> = { ...admitted, origin: { ...origin, hop: counted.hop } };
+    this.fromChats.set(body.requestId, { origin: run.origin!, text: body.prompt });
+    return run;
   }
 
   /**
