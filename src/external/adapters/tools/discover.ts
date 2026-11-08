@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { decide } from '../../domain/decide.js';
+import { bm25Ranking, type ToolRanking } from '../../domain/tool-search.js';
 import { TOOL_ACCESS } from '../../domain/tools.js';
 import type { ExternalToolDef } from '../mcp-tools.js';
 
@@ -14,11 +15,22 @@ const FIND_MAX = 20;
 const NAME_MAX = 100;
 const QUERY_MAX = 200;
 
+/**
+ * Smarter tool search (Settings › Advanced, experimental): ranks by meaning when it is on and ready. Undefined (off,
+ * still preparing, or failed) means beluga_find ranks with BM25, so a search never waits on it or breaks with it.
+ */
+export type SmarterRanking = (query: string) => Promise<readonly string[] | undefined>;
+
 /** What a client lists: the tools given here, then find and call. `others` stay reachable through those two. */
-export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[]): ExternalToolDef[] {
+export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[], smarter?: SmarterRanking): ExternalToolDef[] {
   const reachable = new Map([...listed, ...others].map((def) => [def.name as string, def]));
   const hidden = new Map(others.map((def) => [def.name as string, def]));
-  const rank = rankingOf(others);
+  let bm25: ToolRanking | undefined;
+  const rank = async (query: string): Promise<readonly string[]> => {
+    const meant = smarter ? await smarter(query).catch(() => undefined) : undefined;
+    // Made at the first search, a few milliseconds: a Beluga that no agent uses never builds it.
+    return meant ?? (bm25 ??= bm25Ranking(others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) }))))(query);
+  };
   return [
     ...listed,
     {
@@ -46,32 +58,7 @@ export function withDiscovery(listed: readonly ExternalToolDef[], others: readon
   ];
 }
 
-/**
- * BM25 over the tools' names, descriptions and schemas, in this process: no embeddings, no definition
- * source, no telemetry provider, so nothing leaves this Mac. One catalog for the process, made at the
- * first search: the server is stateless per request, and a Beluga that no agent uses never loads the addon.
- */
-function rankingOf(tools: readonly ExternalToolDef[]): (query: string) => Promise<readonly string[]> {
-  let ready: Promise<{ search(query: string, topK: number): ReadonlyArray<{ toolId: string }> }> | undefined;
-  const open = async () => {
-    const { ToolCatalog } = await import('@ratel-ai/sdk');
-    const catalog = new ToolCatalog();
-    await catalog.register(tools.map((def) => ({ id: def.name, name: def.name, description: def.description, inputSchema: schemaOf(def) as Record<string, unknown>, outputSchema: {}, execute: notHere })));
-    return catalog;
-  };
-  return async (query) => {
-    ready ??= open();
-    const catalog = await ready;
-    return catalog.search(query, tools.length).map((hit) => hit.toolId);
-  };
-}
-
-/** The catalog never runs a tool: a call goes through callTool's gate. */
-const notHere = (): never => {
-  throw new Error('A tool runs only through beluga_call.');
-};
-
-function schemaOf(def: ExternalToolDef): unknown {
+export function schemaOf(def: ExternalToolDef): unknown {
   const { $schema: _schema, ...schema } = z.toJSONSchema(z.object(def.inputSchema), { io: 'input', unrepresentable: 'any' });
   return schema;
 }
