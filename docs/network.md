@@ -244,8 +244,11 @@ so the person's peer id is the same in every room (`tests/multi-room.test.ts`).
 - A join request reaches the admin whose invitation was used, not every admin.
 - Groups you didn't ask for are only fetched from friends (an admin adding you directly) and
   from the admin whose invite you used; at most 500 groups and 100 people per group.
-- One device per identity: a second Beluga process with the same `~/.beluga` doesn't start the network,
-  and once a computer is your Always On, no other install of yours does (below).
+- Exactly one of you on the network: the install that holds your identity runs it, this Mac or the
+  computer you made your Always On (below), never both. Your other devices (apps, computers,
+  phones) show your network through their link to it. A second Beluga process with the same
+  `~/.beluga` doesn't start the network, and the lease stands this Mac in only while your Always
+  On is down. How your computers fit together: [docs/machines.md](machines.md).
 
 ## Your Always On
 
