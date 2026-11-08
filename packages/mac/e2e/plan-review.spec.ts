@@ -34,6 +34,17 @@ test('while a plan waits, the box sends changes to it, not a steer or a queue', 
   await expect(page.getByText('In Plan First, messages queue.')).toHaveCount(0);
   await page.locator('main').screenshot({ path: shot('plan-review-box.png') });
 
+  // Read in full: the card grows up in place, from the plan's first line; no sheet on top of the chat.
+  await page.getByRole('button', { name: 'Read in full' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const plan = page.getByRole('region', { name: 'The plan' });
+  await expect(page.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(() => plan.evaluate((el) => getComputedStyle(el).maxHeight)).not.toBe('224px');
+  expect(await plan.evaluate((el) => el.scrollTop)).toBe(0);
+  await page.locator('main').screenshot({ path: shot('plan-read-in-full.png') });
+  await page.getByRole('button', { name: 'Show less' }).click();
+  await expect(page.getByRole('button', { name: 'Read in full' })).toHaveAttribute('aria-expanded', 'false');
+
   // Sent: Claude takes it as the plan's changes and the card goes.
   await page.getByRole('button', { name: 'Send Changes' }).click();
   await expect(page.getByText(/revise the plan: Use signed cookies/)).toBeVisible({ timeout: 20_000 });
