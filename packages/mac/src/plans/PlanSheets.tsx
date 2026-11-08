@@ -6,6 +6,7 @@ import { YOUR_AGENT, useAgentEntries } from '../components/agent-options.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
+import { RunsOnRow } from '../chat/RunsOn.js';
 import { useTasksPrefs } from '../tasks/use-tasks.js';
 import { modeChange } from './plans-model.js';
 import { usePlanActions, usePlanView, usePlans } from './use-plans.js';
@@ -70,6 +71,8 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
             <Popup label="Project" value={project} options={projects.map((p) => ({ value: p.id, label: p.name }))} onChange={setProject} />
           </div>
         )}
+        {/* Where it runs (BLG-786): the plan and its worktrees. Only with a computer paired. */}
+        <RunsOnRow project={project} className={p.newPlanRow} labelClassName={p.newPlanLabel} />
         <div className={p.newPlanLabel} id="plan-runs">
           How it runs
         </div>
@@ -186,6 +189,8 @@ export function PlanModeSheet({ planId, close }: { planId: string; close: () => 
       }}
     >
       <div className={p.newPlan}>
+        {/* Where it runs (BLG-786): the plan and its worktrees. Only with a computer paired. */}
+        <RunsOnRow project={project} className={p.newPlanRow} labelClassName={p.newPlanLabel} />
         <div className={p.newPlanLabel} id="plan-runs">
           How it runs
         </div>

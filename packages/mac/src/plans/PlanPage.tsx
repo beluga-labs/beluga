@@ -15,6 +15,7 @@ import { taskChatsItem } from '../layout/plan-task-chats.js';
 import { Button, Empty, IconButton, Segmented, Working, cx } from '../components/ui.js';
 import { copyText } from '../lib/copy.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
+import { RunsOnLabel } from '../chat/RunsOn.js';
 import { YOUR_AGENT, agentMenuItems, useAgentEntries, useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { agentName, useMyAgent } from '../lib/agent-words.js';
@@ -321,6 +322,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
           )}
         </div>
         <div className={p.headActions}>
+          {/* Where it runs (BLG-786): the computer it was made on. Only with a computer paired. */}
+          <RunsOnLabel tip="It runs on the computer it was made on until you move it." />
           {/* The plan's pull request, always one click from GitHub, with what stands in its way. */}
           {pr ? <PlanPrChip pr={pr} /> : null}
           {/* How it runs: nothing to run while Claude writes it. A real decision: its sheet says what changes. */}

@@ -26,6 +26,8 @@ import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../l
 import { ModelPicker } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
+import { RunsOnLabel, RunsOnPicker } from './RunsOn.js';
+import { useMachines } from '../machines/use-machines.js';
 import { QueueTray } from './QueueTray.js';
 import { BtwCard, askBtw } from './BtwCard.js';
 import { expectClaude, launchFlight } from './flight.js';
@@ -265,6 +267,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const readOnly = state.view.kind === 'shared' && state.view.tab === 'chat' && runOn !== 'here' && (sharedWs?.role === 'view' || Boolean(state.waiting));
   // A new worktree: the branch it starts from and its name (empty: named from the task).
   const draftProject = state.view.kind === 'draft_worktree' ? state.view.projectId : undefined;
+  // New work (a new chat or worktree): Runs on picks where it goes.
+  const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId } : undefined;
+  const paired = useMachines(useBeluga().home).length > 0;
   const choiceKey = draftProject ? scopedKey(machine, draftProject) : undefined;
   const [worktree, setWorktreeState] = useState<WorktreeChoice>(() => (choiceKey && worktreeChoices.get(choiceKey)) || { name: '' });
   useEffect(() => setWorktreeState((choiceKey && worktreeChoices.get(choiceKey)) || { name: '' }), [choiceKey]);
@@ -671,7 +676,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           ) : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
-          {!shared ? <McpChip /> : null}
+          {/* Where new work runs (BLG-786); a chat that runs somewhere already says where. Only with a computer paired. */}
+          {shared ? null : newWork ? <RunsOnPicker {...(newWork.project ? { project: newWork.project } : {})} {...(worktree.agent?.runtime && draftProject ? { runtime: worktree.agent.runtime } : {})} /> : <RunsOnLabel />}
+          {/* With a computer paired, the MCP chip is at the chat's top right (views/ChatView.tsx) to make room. */}
+          {!shared && !paired ? <McpChip /> : null}
           {burning && state.prefs.effort === 'max' ? (
             <Tip label={`Max effort: ${agentHere} thinks as hard as it can`}>
               <span className={m.tag}>

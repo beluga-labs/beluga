@@ -80,3 +80,43 @@ test('a computer’s worktree opens in the pane, tagged, and keeps its own state
   await expect(tag).toBeVisible();
   await expect(composer).toHaveValue('words for the AWS server');
 });
+
+/**
+ * Runs on (BLG-786): with the demo's computers paired, the project home's box says where new work
+ * runs, its menu lists This Mac, each computer with its line and Best Available, the pick is kept
+ * for the project, and an existing chat says where it runs as a label.
+ */
+test('Runs on picks where new work goes, remembers it for the project, and labels a chat', async ({ page }) => {
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  const openHome = async (): Promise<void> => {
+    await sidebar.getByText('bob-api', { exact: true }).first().click();
+    await expect(page.getByRole('heading', { level: 1, name: 'bob-api' })).toBeVisible();
+  };
+  await page.goto('/');
+  await expect(sidebar).toBeVisible();
+  await openHome();
+  const chip = page.getByRole('button', { name: 'Runs on This Mac' });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  const menu = page.getByRole('menu', { name: 'Runs on' });
+  await expect(menu.getByRole('menuitem', { name: /^This Mac: The computer in front of you/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Mac mini at home: Mac mini · \d+ GB free/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^AWS server: AWS · \d+ GB free · 1 task running/ })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /^Best Available: Picks the computer with the most room\./ })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-menu.png') });
+  await menu.getByRole('menuitem', { name: /^AWS server/ }).click();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+
+  // Kept for the project.
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await openHome();
+  await expect(page.getByRole('button', { name: 'Runs on AWS server' })).toBeVisible();
+
+  // An existing chat: where it runs, as a label; MCP is at the chat's top right.
+  if (!(await sidebar.getByRole('button', { name: 'add-auth', exact: true }).isVisible())) await sidebar.getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await sidebar.getByRole('button', { name: 'add-auth', exact: true }).click();
+  await expect(page.getByLabel('Runs on This Mac')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Runs on This Mac' })).toHaveCount(0);
+  await page.screenshot({ path: path.join(SHOTS, 'blg-786-runs-on-label.png') });
+});

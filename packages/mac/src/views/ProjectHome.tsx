@@ -19,6 +19,7 @@ import { Button, Dot, Empty, Segmented, Tip, cx } from "../components/ui.js";
 import { useActions } from "../lib/actions.js";
 import { toast, useApi, useApp, useBeluga } from "../lib/beluga.js";
 import { useMyAgentName } from "../lib/agent-words.js";
+import { RunsOnPicker } from "../chat/RunsOn.js";
 import { useStartWith } from "../components/agent-options.js";
 import { SplitButton } from "../components/SplitButton.js";
 import type { AgentRef } from "@beluga/protocol.js";
@@ -548,6 +549,8 @@ function HomeComposer({ project }: { project: Project }) {
               anything.
             </span>
           )}
+          {/* Where it runs (BLG-786): a worktree, a question or a plan alike. Only with a computer paired. */}
+          <RunsOnPicker project={project.id} />
           <span className={s.flex} />
           {plan ? (
             <label className={d.field}>

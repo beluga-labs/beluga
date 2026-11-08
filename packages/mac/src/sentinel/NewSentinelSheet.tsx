@@ -3,6 +3,7 @@ import type { Recipe, SentinelDraft } from '@beluga/core/sentinel/model.js';
 import { Field, FormSheet, Popup, TextArea, TextInput } from '../components/FormSheet.js';
 import { Segmented } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
+import { RunsOnRow } from '../chat/RunsOn.js';
 import { projectOfView } from '../tasks/use-tasks.js';
 import { Icon } from '../components/Icon.js';
 import { MAC_SCOPE, describedName, iconOf, recipeWhen } from './sentinel-model.js';
@@ -100,6 +101,8 @@ export function NewSentinelSheet({ projectId, way: first = 'describe', close }: 
             options={[{ value: MAC_SCOPE, label: ASSISTANT_TITLE, description: `Not tied to a project: things about ${THIS_COMPUTER} itself` }, ...projects.map((p) => ({ value: p.id, label: p.name }))]}
           />
         </div>
+        {/* Which computer it runs on (BLG-786). Only with a computer paired. */}
+        <RunsOnRow project={project === MAC_SCOPE ? undefined : project} className={s.row2} labelClassName={s.label} />
         {way === 'describe' ? (
           <Field label="What should it do?" htmlFor="sentinel-words" hint={`Your agent sets it up in ${projectName ?? ASSISTANT_TITLE}, looking at the project first when that helps. It starts paused: look it over, then Turn On.`}>
             <TextArea
