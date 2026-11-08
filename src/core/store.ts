@@ -3,7 +3,7 @@ import { agentName } from '../shared/agent-label.js';
 import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assistantChannel } from '../shared/assistant.js';
 import type { ConnectionStatus } from '../net/peer-client.js';
 import type { Effort, NotifySettings, Settings, ThemeName, TrustLevel } from './settings.js';
-import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema, SETTLE_IDLE_DAYS_DEFAULT } from '../shared/settings-schema.js';
 import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
@@ -26,6 +26,7 @@ import { AUTO_COMPACT_DEFAULT } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, type SlotWait } from '../shared/run-slots.js';
 import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
+import { type ChatTriage, triageKey } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
 import type { ReactionEvent } from '../shared/reactions.js';
 import { type ChatReactAction, reactOnLog } from './chat-reactions.js';
@@ -84,7 +85,7 @@ export type LogItem =
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
       readonly reacts?: readonly ReactionEvent[];
     }
-  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
+  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly merged?: MergedMark; readonly dialogue?: DialogueMark }
   | {
       readonly id: string;
       readonly type: 'agent';
@@ -139,6 +140,19 @@ export interface ShippedMark {
 
 /** A shipped divider's words, where it's drawn as plain text (the phone, a log). */
 export const shippedText = (number: number, into: string): string => `Above this line went to PR #${number}, merged into ${into}. New work starts here, for a new pull request.`;
+
+/**
+ * The worktree's work merged (Beluga's Merge, Merge When Ready, on GitHub, or into the main
+ * folder): `number` is its pull request (none: merged without one). Drawn as a divider.
+ */
+export interface MergedMark {
+  readonly into: string;
+  readonly number?: number;
+  readonly url?: string;
+}
+
+/** A merged divider's words, where it's drawn as plain text (the phone, a log). */
+export const mergedText = (m: MergedMark): string => `Above this line was merged into ${m.into}${m.number !== undefined ? ` in PR #${m.number}` : ''}.`;
 
 /** Where a dialogue shows in a conversation: its header card (a system line) and its turns (chat lines). */
 export interface DialogueMark {
@@ -301,6 +315,12 @@ export interface Prefs {
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
   readonly chatLimit: number;
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
+  readonly chatCategories: boolean;
+  /** A merged PR settles its chat. */
+  readonly settleOnMerge: boolean;
+  /** Days without activity before a chat settles; 0: never. */
+  readonly settleIdleDays: number;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
   /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
@@ -543,6 +563,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly powerSaving: boolean;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
+  /** Each chat's category record, by channel (core/triage), for you only: it never leaves this computer. */
+  readonly triage: Readonly<Record<string, ChatTriage>>;
 }
 
 /** What one screen shows: where it is, its tabs and dialogs, and its own cursors and scroll positions. */
@@ -597,7 +619,7 @@ export type Action =
   | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; dialogue?: DialogueMark }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
-  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
+  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
   | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
@@ -651,6 +673,8 @@ export type Action =
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
+  /** One chat's category record changed (none: removed). `read`: the conversations whose unread count clears too (you settled it). */
+  | { type: 'triage_set'; channel: string; record?: ChatTriage; read?: readonly string[] }
   | CollabAction
   | WorkAction
   | NetworkAction
@@ -692,6 +716,9 @@ export const DEFAULT_PREFS: Prefs = {
   autoContinueSkip: 0,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
+  chatCategories: false,
+  settleOnMerge: true,
+  settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
   scratchFolder: true,
   experiments: [],
   subagents: 'full',
@@ -761,6 +788,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialTeam,
     companion: { devices: [] },
     assistant: NO_ASSISTANT_CHATS,
+    triage: {},
   };
 }
 
@@ -979,7 +1007,15 @@ function attend(state: DomainState, attention: Attention): DomainState {
   const unread = Object.fromEntries(Object.entries(state.unread).filter(([c]) => !fresh.includes(c)));
   // Opening (or leaving) Shared files counts every folder there as seen.
   const seenShares = attention.files !== state.attention.files ? shareKeys(state) : state.seenShares;
-  return { ...state, attention, unread, seenShares };
+  return { ...state, attention, unread, seenShares, triage: withoutBack(state, fresh) };
+}
+
+/** Opening a chat that woke from a snooze ends its Back state. `triage` is absent in a snapshot from an older daemon. */
+function withoutBack(state: DomainState, opened: readonly string[]): DomainState['triage'] {
+  const keys = new Set(opened.map((c) => triageKey(state, c)));
+  const back = Object.entries(state.triage ?? {}).filter(([key, record]) => record.backAt !== undefined && keys.has(key));
+  if (!back.length) return state.triage;
+  return { ...state.triage, ...Object.fromEntries(back.map(([key, { backAt: _gone, ...record }]) => [key, record])) };
 }
 
 /** The reducer itself: pure for stamped actions (no clock, no counters). */
@@ -1035,7 +1071,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'system':
       return {
         ...state,
-        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
+        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.merged ? { merged: action.merged } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
       };
     case 'conflicts': {
       const { [action.id]: _old, ...rest } = state.conflicts;
@@ -1239,6 +1275,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, assistant: action.assistant };
     case 'needs_dismissed':
       return { ...state, dismissedNeeds: action.ids };
+    case 'triage_set':
+      return reduceTriage(state, action);
     case 'btw': {
       const { [action.channel]: _gone, ...rest } = state.btw ?? {};
       return { ...state, btw: action.btw ? { ...rest, [action.channel]: action.btw } : rest };
@@ -1318,6 +1356,14 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     default:
       return state;
   }
+}
+
+function reduceTriage(state: DomainState, action: Extract<Action, { type: 'triage_set' }>): DomainState {
+  const { [action.channel]: was, ...rest } = state.triage;
+  if (!action.record && !was) return state;
+  const read = action.read ?? [];
+  const unread = read.length ? Object.fromEntries(Object.entries(state.unread).filter(([c]) => !read.includes(c))) : state.unread;
+  return { ...state, triage: action.record ? { ...state.triage, [action.channel]: action.record } : rest, unread };
 }
 
 /**

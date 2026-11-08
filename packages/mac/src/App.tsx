@@ -11,7 +11,6 @@ import { Icon } from './components/Icon.js';
 import { MenuSheet } from './dialogs/MenuSheet.js';
 import { Palette } from './dialogs/Palette.js';
 import { Settings } from './dialogs/Settings.js';
-import { PlanSheet } from './dialogs/PlanSheet.js';
 import type { SettingsPane } from './lib/beluga.js';
 import { RightPanel } from './layout/RightPanel.js';
 import { Main } from './layout/Main.js';
@@ -234,7 +233,6 @@ export function App() {
       <NativeSheets />
       <Palette />
       <Settings />
-      <PlanSheet />
       <NetworkSheets />
       <RequestSheet />
       <StripeSheet />

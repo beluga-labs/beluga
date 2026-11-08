@@ -218,7 +218,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `files.readImage` | ✓ |
 | `files.readImageFile` | ✓ images in the Markdown reader (`![](diagram.png)` next to the file); PDFs drawn page by page in Files, Changes and the reader; videos (MP4, M4V, MOV, WebM, up to 64 MB) played inline in the reader with play, pause and seek |
 | `files.version` | ✓ (no surface of its own) a picture in a chat answer or the Markdown reader is read again when its file was rewritten since it was kept, so a screenshot re-taken to the same name shows the new one |
-| `workspaces.scratch` | ✓ the panel's Scratch tab: the workspace's `.beluga/scratch/` and `.context/` folders, newest first, live, with how many files there are and how much they hold; the preview shows the newest until you pick one, and a file scrolled to its end (or Follow the End) follows what's written to it; drawn in outline (moving while the agent works) until something lands; the sort menu puts what can be looked at first (pictures, videos, PDFs, web pages; BLG-111), web pages are drawn in a sandboxed frame (no scripts), and full size ← → steps through the viewable files in that order, stopping at the ends |
+| `workspaces.scratch` | ✓ the panel's Scratch tab: the workspace's `.beluga/scratch/` and `.context/` folders, newest first, live, with how many files there are and how much they hold; the preview shows the newest until you pick one, and a file scrolled to its end (or Follow the End) follows what's written to it; drawn in outline (moving while the agent works) until something lands; the sort menu puts what can be looked at first (pictures, videos, PDFs, web pages; BLG-111), web pages are drawn in a sandboxed frame (no scripts), and full size ← → steps through the viewable files in that order, stopping at the ends; the images and files you sent the agent are copied into `.beluga/scratch/sent/` as it gets the message, and listed apart under From Your Agent · Sent by You (BLG-771; never on the new-file dot or the phone's outputs; an archive throws them away, deleting a chat its own `sent/<chat>/`) |
 | `files.read` | ✓ a changed file as itself in Changes (Markdown formatted), without moving the Files tab's open file |
 | `files.searchContent` | ✓ the Files tab's search box on Contents: lines by file (ripgrep, else Node), Match Case / Whole Word / Regular Expression; a line opens the file there |
 | `files.searchNames` | ✓ the Files tab's search box on Names: every file in the folder whose path matches (ripgrep's list, else git's), Match Case / Whole Word / Regular Expression; shown as a tree, a file opens |
@@ -286,7 +286,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.newWorktree` | ✓ |
 | `workspaces.newChat` | ✓ |
 | `workspaces.startChat` | ✓ New chat composer: starts on the first message with the selected Act/Plan mode |
-| `workspaces.startWorktree` | ✓ (→ the new worktree's id; `plan`: its agent plans first; `quiet`: the window stays put; `agent`: who works it, from the home composer's Create Worktree ▾ › Start with ▸ (BLG-506). The phone's Ask › a project › Worktree, with Plan first, since 1.5, and its agent chip (1.35); Your Mac's `start_worktree`) |
+| `workspaces.startWorktree` | ✓ (→ the new worktree's id; `plan`: its agent plans first; `tasks`: Plan with Tasks, its conversation is a draft plan's home (the home composer's new worktree mode menu); `quiet`: the window stays put; `agent`: who works it, from the home composer's Create Worktree ▾ › Start with ▸ (BLG-506). The phone's Ask › a project › Worktree, with Plan first, since 1.5, and its agent chip (1.35); Your Mac's `start_worktree`) |
 | `workspaces.branches` | New worktree › Based on popup |
 | `workspaces.fork` | ✓ |
 | `workspaces.editPrompt` | Edit on your own message (hover, or right-click › Edit Message) › the message opens in place: Rewind Here or New Fork, then ↩ |
@@ -312,7 +312,6 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.renameGroup` | ✓ (group row › Rename) |
 | `workspaces.rename` | ✓ (chat or worktree row context menu › Rename…; inline edit, Enter or clicking away saves, Escape cancels; a worktree’s own branch takes the name unless it’s pushed, and a name with a / is that exact branch) |
 | `workspaces.regenerateTitle` | ✓ (chat row context menu › Regenerate title; uses recent chat content, keeps the agent session, and protects the result as a manual name; errors leave the old title) |
-| `workspaces.remindLater` | ✓ (chat or worktree row context menu › Remind Me Later ▸ In 1 Hour / In 3 Hours / Tomorrow Morning / Next Week, or Show Again Now; it moves into a folded Later row at the bottom of its project (or of Chats), with a quiet clock and when it reminds you in its tooltip; then it's back in place, with one reminder notification) |
 | `workspaces.ungroup` | ✓ (group row › Ungroup / Delete Group) |
 | `workspaces.arrange` | drag projects and groups in the sidebar, Move Up / Move Down (⌃⌘↑/↓), Move to Group ▸ |
 | `workspaces.newGroup` | Projects + › New Group, right-click › New Group, Move to Group ▸ New Group… |
@@ -347,7 +346,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workbench.signInClaude` | ✓ Sign In on a failed Claude card that says Claude Code isn’t signed in or its sign-in expired: a menu of a Claude subscription, an Anthropic Console account (runs `claude auth login --claudeai` or `--console` in a shell, then Claude continues) or a 3rd-party platform (opens its setup page) |
 | `workbench.fixChecks` | ✓ the toolbar's branch state › Fix Checks… (the PR's checks failed and nothing still runs); while they run it says Checks running, calm, with Fix Checks… under its chevron |
 | `workbench.resolvePrConflicts` | ✓ Resolve Conflicts… (the toolbar's branch state "Conflicts with main", folded "Resolve Conflicts"; PR sheet, the PR strip above the chat) when GitHub says the PR conflicts (never while GitHub is still working it out) |
-| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words) |
+| `workbench.continueAfterMerge` | ✓ Continue After Merge… (⋯, PR sheet, the PR strip) once the PR merged; the chat then shows a divider where that PR ends (the phone shows its words). A merge itself (Merge, Merge When Ready, on GitHub or anywhere else, Merge into its base, into the main folder) draws its own line in the chat as it's seen, “Above was merged into main in PR #N”, also on the phone; one that merged while Beluga was closed shows on the next start if nothing was said there since |
 | `workbench.openPr` | ✓ |
 | `workbench.refreshPrs` | ✓ |
 | `workbench.mergePr` | ✓ the PR sheet › Merge on GitHub (squash, merge or rebase; Merge When Checks Pass; Merge Now, Skipping Checks), also in the PR strip above the chat |
@@ -563,6 +562,11 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `ci.log` | ✓ a failed job on a run's page › Show the Log (its end, where it failed) |
 | `ci.rerun` | ✓ a run's page › Re-run Failed Jobs, and ⋯ › Re-run All Jobs; a run's right-click menu |
 | `ci.cancel` | ✓ a running run's page › Cancel Run (asks first); a running run's right-click menu |
+| `triage.settle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row and right-click menu › Settle; the phone's Work tab, a chat's long-press sheet › Settle |
+| `triage.unsettle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's row, its right-click menu and the line above the message box › Un-settle; the phone's Work tab, a chat's long-press sheet › Un-settle |
+| `triage.snooze` | ✓ Remind Me Later (BLG-748, BLG-770), with `chatCategories` on or off: a chat or worktree row's right-click menu › Remind Me Later ▸ In 1 Hour / In 3 Hours / Tomorrow Morning / Next Week / Custom…; with the categories on, also the row's clock and plans' and friends' rows, and it moves to the Later list; off, it moves into a folded Later row at the bottom of its project (or of Chats) with a quiet clock; the line above the message box says when it reminds you; then one reminder notification; the phone's Work tab (categories on), a chat's long-press sheet › Remind Me Later (the same, without Custom…) |
+| `triage.wake` | ✓ Show Again Now, with `chatCategories` on or off: the row's right-click menu and the line above the message box; with the categories on, also the row's eye; the phone's Work tab (categories on), a chat's long-press sheet › Show Again Now |
+| `triage.setAutoSettle` | ✓ the daemon's API, off until `chatCategories` is on: the sidebar's right-click menu › Auto-settle |
 | `team.answer` | ✓ the offer strip on a project's home and at the top of its Tasks (Team Up; ••• › Not Now, or Take Back while you wait for them); project ••• › Invite to Team ▸ (friends with the repository who aren't on the team, BLG-510); the phone's card (Team Up / Not Now) |
 | `team.ackAssignment` | ✓ Got It on the strip a task a teammate gave you shows on its page; the phone's card (Got It) |
 | `team.sharePlan` | ✓ a plan's ••• › Share Plan with Team / Stop Sharing with Team (only in a project worked on as a team) |
@@ -578,6 +582,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.here` | ✓ the composer's mode menu › Plan with Tasks (the agent plans in the conversation you're in) |
 | `plans.approve` | ✓ Approve Plan / Apply Changes on a plan's page and its strip above the conversation; Approve Plan's ▾ › Approve, worked by ▸ (BLG-506: `plans.setWorkAgent`, then approve) |
 | `plans.discard` | ✓ Discard Draft / Discard Changes on a plan's page |
+| `plans.verify` | ✓ Approve Plan's ▾ › Verify, Then Approve on a plan's page and its strip above the conversation; ••• › Verify the Plan; Verify, Then Approve on the findings line once Fix was sent (BLG-772); the phone's approve card |
+| `plans.fixReview` | ✓ Fix on the findings line and the plan page's main button, when verifying found something (BLG-772); the phone's card too |
 | `plans.edit` | ✓ editing a plan's outline (rename, criteria, move, remove, what waits on what) |
 | `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu); the phone plan page's autonomy chip (1.5) |
 | `plans.setPaused` | ✓ Pause / Resume on a plan's page |

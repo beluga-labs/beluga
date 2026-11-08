@@ -100,15 +100,16 @@ export interface WorkspaceRecord {
   readonly prDone?: number;
   /** That PR (Continue After Merge): Claude is told its earlier work shipped in it, and that what's new goes in a new one. */
   readonly prShipped?: { readonly number: number; readonly url?: string; readonly into: string };
+  /** The PR whose merge this chat already shows (its merged line): said once, across restarts too. */
+  readonly mergeSaid?: number;
   /**
    * Merge When Ready: Beluga merges PR `number` itself once its checks pass (and stops, saying why,
    * if they fail or it conflicts). Not GitHub's auto-merge: that merges at once when no check is required.
    */
   readonly mergeWhenReady?: MergeWait;
   /**
-   * Remind Me Later (BLG-748): when to remind you (epoch ms). Until then its news, failing checks and
-   * conflicts stay quiet in the sidebar, the Unread section, the Dock and on the desktop (your
-   * agent's own asks still show); then Beluga reminds you once, and this clears.
+   * Remind Me Later from before BLG-770 (epoch ms): read once at start, carried into triage.json
+   * (core/triage/service.ts, which keeps Remind Me Later now, per person), then cleared.
    */
   readonly remindAt?: number;
   /**

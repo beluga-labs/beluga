@@ -281,6 +281,20 @@ async function mockPlan(input: AgentRunInput, pace: number): Promise<string> {
 
 /** The demo's planner: a first plan from what you asked, a revision for what you say next, and milestone checks. */
 async function mockPlanning(input: AgentRunInput, plan: NonNullable<AgentRunInput['planTools']>, pace: number): Promise<string> {
+  // Verifying a draft (BLG-772): it reads the plan and finds one thing to fix (an empty plan: nothing).
+  if (plan.review && /Review the draft|changed since your last review/.test(input.prompt)) {
+    input.onEvent('tool', 'plan_get');
+    const shown = plan.get();
+    await sleep(900 * pace, input.signal);
+    const ids = [...shown.matchAll(/- \[([\w-]+)\]/g)].map((m) => m[1]!);
+    input.onEvent('tool', 'plan_review');
+    if (ids.length < 2 || /Rate limits/i.test(shown) === false) {
+      plan.review([]);
+      return 'The plan holds together: nothing to fix.';
+    }
+    plan.review([{ kind: 'order', text: `“Rate limits on the export endpoint” changes the export route that [${ids[0]}] builds, in a milestone that runs beside it: make it wait on [${ids[0]}], or move it into the same milestone.`, ids: [ids[0]!] }]);
+    return 'One thing to fix before it’s approved.';
+  }
   const check = /milestone “([^”]+)” is finished/i.exec(input.prompt) ?? /Every task of milestone “([^”]+)”/i.exec(input.prompt);
   if (check) {
     for (const step of ['task_get', 'Bash git diff main...HEAD --stat', 'Bash npm test']) {

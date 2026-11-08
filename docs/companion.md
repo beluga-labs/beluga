@@ -569,7 +569,11 @@ Advanced at the bottom. Learn it once and it works everywhere.
   Always. Then **Running now**: each live conversation as a card with its project's icon, its step
   ticking over, its sub-agents as dots and a small count of new outputs. Then tasks **for your
   review**.
-- **Work**: Conversations · Plans · Tasks. A conversation reads as cards: your message, the agent's
+- **Work**: Conversations · Plans · Tasks. While Settings on the Mac has chat categories on, Conversations
+  shows the Inbox by project, then Working, Later and Settled, folded. Long-press a chat for Settle, Remind Me
+  Later, Show Again Now or Un-settle. The phone never changes the setting, and a question in a chat put off
+  till later stays in Needs you.
+  A conversation reads as cards: your message, the agent's
   answer (code folded into chips; views and graphs drawn), and while it works a live panel: thinking
   or writing with a soft shimmer, the step it's on with its tool, time and progress, the steps
   before it sliding in. Sub-agents are rows in the turn that started them, with their own live step

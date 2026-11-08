@@ -526,6 +526,17 @@ describe('the views of a known Mac', () => {
     expect(ConvView.parse(viewOf(store.getState(), ctx, 'conv:mac:assistant')).turns.find((t) => t.id === 'ca1')?.edit).toBeUndefined();
   });
 
+  it('a merge shows in the conversation, though other info lines stay on the Mac', () => {
+    const store = new Store(state);
+    store.dispatch({ type: 'system', id: 'mg', channel: 'ws:w1', text: 'Above this line was merged into main in PR #4.', ts: T0 + 35, merged: { into: 'main', number: 4, url: 'u/4' } });
+    store.dispatch({ type: 'system', id: 'sh', channel: 'ws:w1', text: 'Above this line went to PR #4, merged into main. New work starts here, for a new pull request.', ts: T0 + 36, shipped: { number: 4, into: 'main' } });
+    store.dispatch({ type: 'system', id: 'nf', channel: 'ws:w1', text: 'Checked out PR #9', ts: T0 + 37 });
+    const turns = ConvView.parse(viewOf(store.getState(), ctx, 'conv:ws:w1')).turns;
+    expect(turns.find((t) => t.id === 'mg')).toMatchObject({ who: 'system', name: 'Beluga' });
+    expect(turns.find((t) => t.id === 'sh')).toMatchObject({ who: 'system' });
+    expect(turns.find((t) => t.id === 'nf')).toBeUndefined();
+  });
+
   it('a dialogue between agents shows its header with Stop, and its turns named for their agent (BLG-466)', () => {
     const store = new Store(state);
     const d = createDialogue({ id: 'dlg1', topic: 'Retries or a queue?', participants: [{ agent: { runtime: 'claude', label: 'Claude' } }, { agent: { runtime: 'codex', label: 'Codex' } }], turnCap: 6, channel: 'ws:w1' }, T0);
@@ -558,7 +569,7 @@ describe('the views of a known Mac', () => {
   it('plans, chats and people', () => {
     expect(PlansView.parse(viewOf(state, ctx, 'plans')).plans).toEqual([{ id: 'pl_auth', title: 'Add auth', state: 'draft', topic: 'plan:pl_auth', done: 0, total: 1 }]);
     const page = PlanView.parse(viewOf(state, ctx, 'plan:pl_auth'));
-    expect(page.needsYou.find((n) => n.kind === 'decision')?.actions.map((a) => a.method)).toEqual(['plans.approve', 'plans.discard']);
+    expect(page.needsYou.find((n) => n.kind === 'decision')?.actions.map((a) => a.method)).toEqual(['plans.approve', 'plans.verify', 'plans.discard']);
     // While Claude still writes it (no milestones yet), there's nothing to approve or discard.
     const writing = { ...state, plans: { ...state.plans, plans: [{ ...plan, draft: { title: 'Add auth', goal: '', milestones: [] } } as unknown as Plan] } };
     expect(PlanView.parse(viewOf(writing, ctx, 'plan:pl_auth')).needsYou.filter((n) => n.kind === 'decision')).toEqual([]);
