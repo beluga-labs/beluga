@@ -29,6 +29,8 @@ import { TaskCards, TaskKeyChip } from '../tasks/TaskRef.js';
 import { prepareMath, splitInlineMath } from '@beluga/shared/render/math.js';
 import { MathTex } from '../components/markdown/MathTex.js';
 import { Diagram } from '../components/markdown/Diagram.js';
+import { hastText } from '../components/markdown/hast-text.js';
+import { GITHUB_REHYPE, TO_HTML } from '../components/markdown/md-pipeline.js';
 import { RichBlock, useRichFence } from '../components/blocks/RichBlock.js';
 import { loadHighlighter } from '../lib/highlight.js';
 import { CODE_FENCE } from '@beluga/shared/code-ref.js';
@@ -190,6 +192,7 @@ function imagesOnly(node: HastNode | undefined): number {
 const keepUrl = (u: string): string => u;
 
 const REMARK = [remarkGfm, remarkMath];
+const NO_REHYPE: [] = [];
 
 /**
  * Math (after prepareMath) set aside while paths, mentions and task keys are linked, so `$a/b.c$`
@@ -237,8 +240,11 @@ function boardKeys(issues: readonly { readonly key: string }[]): string {
  * key your board has ("BLG-72") is a small task chip (your own and your own Claude's words only:
  * someone else's key may be on their board). `typed`: a person's own words, so the lines they broke
  * and the blank lines they left show as typed (typed-lines.ts), not folded as Markdown would.
+ * `html`: text written on GitHub (an issue, a PR comment), so the HTML in it is drawn as GitHub
+ * draws it, cut down to what GitHub allows (it also drops the links paths, mentions and task keys
+ * would add, so it's for GitHub's words only).
  */
-export const Markdown = memo(function Markdown({ text, paths = false, localImages = false, mentions, live = false, tasks = false, typed = false }: { text: string; paths?: boolean; localImages?: boolean; mentions?: MentionWorld; live?: boolean; tasks?: boolean; typed?: boolean }) {
+export const Markdown = memo(function Markdown({ text, paths = false, localImages = false, mentions, live = false, tasks = false, typed = false, html = false }: { text: string; paths?: boolean; localImages?: boolean; mentions?: MentionWorld; live?: boolean; tasks?: boolean; typed?: boolean; html?: boolean }) {
   const actions = useActions();
   // The board's keys as one string, so a task changing doesn't draw every message again.
   const keys = useApp((st) => (tasks ? boardKeys(st.board.issues) : ''));
@@ -296,9 +302,10 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
         </a>
       );
     },
-    code: ({ className, children }) => {
+    code: ({ node, className, children }) => {
       const lang = /language-([\w-]+)/.exec(className ?? '')?.[1];
-      const code = String(children).replace(/\n$/, '');
+      // Its text from the tree: HTML's code can wrap its words in spans.
+      const code = (node ? hastText(node) : String(children)).replace(/\n$/, '');
       // Math (remark-math): `$…$` in a line, a `$$` block on its own.
       if (className?.includes('math-inline')) return <MathTex tex={code} display={false} />;
       if (className?.includes('math-display')) return <MathTex tex={code} display />;
@@ -337,7 +344,7 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
     <LiveText.Provider value={live}>
       <MessageImages.Provider value={images}>
       <div className={`${s.markdown} ${typed ? s.typed : ''} selectable`}>
-        <ReactMarkdown remarkPlugins={REMARK} components={components} urlTransform={keepUrl}>
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={html ? GITHUB_REHYPE : NO_REHYPE} remarkRehypeOptions={html ? TO_HTML : undefined} components={components} urlTransform={keepUrl}>
           {source}
         </ReactMarkdown>
       </div>
