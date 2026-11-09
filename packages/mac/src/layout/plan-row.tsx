@@ -3,6 +3,7 @@ import { planOfPlace } from '@beluga/core/plans/owner.js';
 import { Icon } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { Badge } from '../components/ui.js';
+import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { chatLinkItems } from '../lib/chat-links.js';
 import { sameDeep } from '../lib/stable.js';
@@ -13,6 +14,7 @@ import { planRowSignal } from './attention-model.js';
 import { usePrefs } from '../lib/prefs.js';
 import { taskChatsItem } from './plan-task-chats.js';
 import { DotMark, nameClass, signalClass } from './signal-marks.js';
+import { triageItems } from './row-triage-actions.js';
 import { Row } from './sidebar-parts.js';
 import m from './signal.module.css';
 
@@ -41,11 +43,13 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
   const why = planNeeds ? (next.detail ? `${next.title}: ${next.detail}` : next.title) : inside.level === 'needs' ? inside.tip : status.label;
   const tip = [`${title}: ${why}`, view.total ? `${view.done} of ${view.total} tasks done` : '', unread ? `${unread} new message${unread === 1 ? '' : 's'}` : inside.inside && !needs ? 'New in its tasks' : ''].filter(Boolean).join(' · ');
   const signal = { level: needs ? 'needs' : unread ? 'unread' : working ? 'working' : 'idle', unread, working, tip } as const;
+  const actions = useActions();
   const { client } = useBeluga();
   // Built when the menu opens, as a workspace row's: a pick with a new onSelect each time never settles (#185).
   const items = (): ActionItem[] => [
     { label: 'Open Plan', icon: 'chevronRight', onSelect: () => open(plan.id) },
     ...chatLinkItems(client.store.getState(), client, plan.home),
+    ...triageItems(client.store.getState(), `plan:${plan.id}`, actions.run, client),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     { label: 'All Plans', separate: true, onSelect: () => openList(plan.projectId) },
   ];

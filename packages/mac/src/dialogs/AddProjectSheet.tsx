@@ -1,4 +1,5 @@
 import { baseName, sepOf } from '@beluga/shared/os-path.js';
+import { cloneableOrigin, repoName } from '@beluga/shared/repo-key.js';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DotMatrix } from '../components/DotMatrix.js';
@@ -26,7 +27,7 @@ const ago = (ts: number): string => {
   return `${Math.floor(d / (86_400 * 30))}mo ago`;
 };
 
-type Mode = 'add' | 'new';
+type Mode = 'add' | 'new' | 'clone';
 
 /** A folder you added here: on its way (adding takes a moment), in, or why it couldn't be. */
 type Row = { readonly kind: 'adding'; readonly init?: boolean } | { readonly kind: 'added' } | { readonly kind: 'failed'; readonly error: string; readonly canInit?: boolean };
@@ -36,7 +37,8 @@ const NEWEST = 24;
 
 /**
  * Add projects the Mac way: drop folders on it, choose them in the Open panel, or pick from the
- * git projects already on this Mac (most recently worked on first). Or start a new one.
+ * git projects already on this Mac (most recently worked on first). Or start a new one, or clone
+ * one from its git address.
  */
 export function AddProjectSheet() {
   const { ui } = useBeluga();
@@ -60,7 +62,7 @@ export function AddProjectSheet() {
 
   useEffect(() => {
     if (!open) return;
-    setMode(asked === 'new' ? 'new' : 'add');
+    setMode(asked === 'new' || asked === 'clone' ? asked : 'add');
     setRows(new Map());
     setRevealed(new Set());
     setFilter('');
@@ -138,7 +140,7 @@ export function AddProjectSheet() {
         <Dialog.Overlay className={s.overlay} />
         <Dialog.Content className={s.sheet} aria-describedby={undefined} onOpenAutoFocus={(e) => (e.preventDefault(), mode === 'add' && filterBox.current?.focus())}>
           <div className={s.head}>
-            <Dialog.Title className={s.title}>{mode === 'new' ? 'New project' : 'Add projects'}</Dialog.Title>
+            <Dialog.Title className={s.title}>{mode === 'new' ? 'New project' : mode === 'clone' ? 'Clone a project' : 'Add projects'}</Dialog.Title>
             <Dialog.Close className={s.close} aria-label="Close">
               <Icon name="x" size={11} />
             </Dialog.Close>
@@ -152,11 +154,14 @@ export function AddProjectSheet() {
               options={[
                 { value: 'add', label: 'Add existing', icon: 'folder' },
                 { value: 'new', label: 'Start new', icon: 'plus' },
+                { value: 'clone', label: 'Clone', icon: 'download' },
               ]}
             />
           </div>
           {mode === 'new' ? (
             <NewProject onDone={close} />
+          ) : mode === 'clone' ? (
+            <CloneProject onDone={close} />
           ) : (
             <>
               <div
@@ -263,30 +268,64 @@ export function AddProjectSheet() {
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-/** Start new: a name and where it goes; Beluga makes the folder, git and a first commit, then opens a worktree draft in it. */
-function NewProject({ onDone }: { onDone: () => void }) {
+/** Where a new or cloned project goes: your code folder, until you pick another. */
+function useParent(): [string | undefined, (dir: string) => void] {
   const api = useApi();
-  const actions = useActions();
-  const home = useApp((st) => st.home);
-  const [name, setName] = useState('');
   const [parent, setParent] = useState<string | undefined>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-  const nameBox = useRef<HTMLInputElement>(null);
-  const short = (p: string): string => (home && p.startsWith(home) ? `~${p.slice(home.length)}` : p);
-
   useEffect(() => {
-    nameBox.current?.focus();
     void api.projects.newHome().then(
       (dir) => setParent((p) => p ?? dir),
       () => undefined,
     );
   }, []);
+  return [parent, setParent];
+}
 
+const useShort = (): ((p: string) => string) => {
+  const home = useApp((st) => st.home);
+  return (p) => (home && p.startsWith(home) ? `~${p.slice(home.length)}` : p);
+};
+
+/** The In row: the folder, and Change… (or a path to type where folders can't be picked). */
+function Where({ parent, onChange, label }: { parent: string | undefined; onChange: (dir: string) => void; label: string }) {
+  const short = useShort();
   const change = async (): Promise<void> => {
-    const picked = await pickFolders('Where the new project goes');
-    if (picked?.[0]) setParent(picked[0]);
+    const picked = await pickFolders(label);
+    if (picked?.[0]) onChange(picked[0]);
   };
+  return (
+    <div className={s.field}>
+      <span>In</span>
+      <div className={s.whereRow}>
+        {canPickFolders() ? (
+          <>
+            <span className={s.whereText}>
+              <Icon name="folder" size={13} /> {parent ? short(parent) : 'Your code folder'}
+            </span>
+            <Button size="small" onClick={() => void change()}>
+              Change…
+            </Button>
+          </>
+        ) : (
+          <input className={s.path} value={parent ? short(parent) : ''} onChange={(e) => onChange(e.target.value)} aria-label={label} spellCheck={false} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Start new: a name and where it goes; Beluga makes the folder, git and a first commit, then opens a worktree draft in it. */
+function NewProject({ onDone }: { onDone: () => void }) {
+  const api = useApi();
+  const actions = useActions();
+  const short = useShort();
+  const [name, setName] = useState('');
+  const [parent, setParent] = useParent();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const nameBox = useRef<HTMLInputElement>(null);
+
+  useEffect(() => nameBox.current?.focus(), []);
 
   const create = async (): Promise<void> => {
     if (!name.trim() || busy) return;
@@ -316,23 +355,7 @@ function NewProject({ onDone }: { onDone: () => void }) {
         <span>Name</span>
         <input ref={nameBox} className={s.nameInput} value={name} onChange={(e) => (setName(e.target.value), setError(undefined))} placeholder="my-app" aria-label="Project name" spellCheck={false} autoComplete="off" />
       </label>
-      <div className={s.field}>
-        <span>In</span>
-        <div className={s.whereRow}>
-          {canPickFolders() ? (
-            <>
-              <span className={s.whereText}>
-                <Icon name="folder" size={13} /> {parent ? short(parent) : 'Your code folder'}
-              </span>
-              <Button size="small" onClick={() => void change()}>
-                Change…
-              </Button>
-            </>
-          ) : (
-            <input className={s.path} value={parent ? short(parent) : ''} onChange={(e) => setParent(e.target.value)} aria-label="Where the new project goes" spellCheck={false} />
-          )}
-        </div>
-      </div>
+      <Where parent={parent} onChange={setParent} label="Where the new project goes" />
       <p className={error ? s.newError : s.newNote} role={error ? 'alert' : undefined}>
         {error ?? (where ? `Makes ${where} with git and a first commit, ready for worktrees.` : 'Makes the folder with git and a first commit, ready for worktrees.')}
       </p>
@@ -343,6 +366,74 @@ function NewProject({ onDone }: { onDone: () => void }) {
         </Button>
         <Button variant="primary" type="submit" disabled={!name.trim() || busy}>
           {busy ? 'Creating…' : 'Create Project'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Clone: a git address (https or ssh) and where it goes; Beluga clones and adds it, then opens a worktree draft in it. */
+function CloneProject({ onDone }: { onDone: () => void }) {
+  const api = useApi();
+  const actions = useActions();
+  const short = useShort();
+  const [url, setUrl] = useState('');
+  const [parent, setParent] = useParent();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const urlBox = useRef<HTMLInputElement>(null);
+
+  useEffect(() => urlBox.current?.focus(), []);
+
+  const address = url.trim();
+  const name = cloneableOrigin(address) ? repoName(address) : undefined;
+  const clone = async (): Promise<void> => {
+    if (!address || busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const got = await api.projects.clone(address, parent);
+      onDone();
+      actions.run({ type: 'new_worktree', projectId: got.id });
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(false);
+    }
+  };
+
+  const where = parent && name ? `${short(parent).replace(/[\\/]+$/, '')}${sepOf(parent)}${name}` : undefined;
+  return (
+    <form
+      className={s.newForm}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void clone();
+      }}
+    >
+      <label className={s.field}>
+        <span>Address</span>
+        <input
+          ref={urlBox}
+          className={s.nameInput}
+          value={url}
+          onChange={(e) => (setUrl(e.target.value), setError(undefined))}
+          placeholder="https://github.com/owner/repo"
+          aria-label="Git address"
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </label>
+      <Where parent={parent} onChange={setParent} label="Where the cloned project goes" />
+      <p className={error ? s.newError : s.newNote} role={error ? 'alert' : undefined}>
+        {error ?? (busy ? 'Cloning… a big repository can take a few minutes.' : where ? `Clones it into ${where} and adds it, ready for worktrees.` : 'An https or ssh address, from GitHub or anywhere git can reach.')}
+      </p>
+      <div className={s.pathRow}>
+        <span className={s.flex} />
+        <Button variant="quiet" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button variant="primary" type="submit" disabled={!address || busy}>
+          {busy ? 'Cloning…' : 'Clone Project'}
         </Button>
       </div>
     </form>

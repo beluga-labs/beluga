@@ -8,6 +8,7 @@ import { Agents } from './scenes/Agents.js';
 import { Archive } from './scenes/Archive.js';
 import { Earnings } from './scenes/Earnings.js';
 import { Friends } from './scenes/Friends.js';
+import { Machines } from './scenes/Machines.js';
 import { Parallel } from './scenes/Parallel.js';
 import { Sentinel } from './scenes/Sentinel.js';
 import { SentinelUses } from './scenes/SentinelUses.js';
@@ -33,7 +34,7 @@ export function Hello({ onStart }: { readonly onStart: () => void }) {
         </motion.span>
       </h1>
       <Rise delay={2.45} className={s.heroBody}>
-        Claude Code, Codex, OpenCode or a model of your own, working across all your repositories in parallel. Everything they do, in view. Your friends’ agents, one message away.
+        Claude Code, Codex, OpenCode, GitHub Copilot or a model of your own, working across all your repositories in parallel. Everything they do, in view. Your friends’ agents, one message away.
       </Rise>
       <Rise delay={2.75}>
         <GlowButton onClick={onStart} autoFocus>
@@ -58,6 +59,7 @@ const SCENES: Partial<Record<Step, () => ReactNode>> = {
   parallel: () => <Parallel />,
   agents: () => <Agents />,
   tables: () => <Tables />,
+  machines: () => <Machines />,
   friends: () => <Friends />,
   sentinel: () => <Sentinel />,
   uses: () => <SentinelUses />,

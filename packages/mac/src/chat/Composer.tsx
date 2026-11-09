@@ -6,6 +6,7 @@ import { localDirKey } from '@beluga/core/local-key.js';
 import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
+import { worktreeMode } from '@beluga/ui/submit.js';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
 import { chatChipOf, chatLinksToMentions, chatMentionEndingAt, chatMentionsIn, isAddressableChannel, parseChatRef, withChatWords } from '@beluga/shared/chat-ref.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
@@ -17,22 +18,27 @@ import { defaultAgentOf } from '@beluga/protocol.js';
 import { Icon } from '../components/Icon.js';
 import { Kbd, Tip, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { recipientLabel, recipientPrefix, toast, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
+import { recipientLabel, recipientPrefix, toast, useApi, useApp, useBeluga, useUi, useMachine, useScopedKey } from '../lib/beluga.js';
 import { agentName, useAgentNameIn, useMyAgentName } from '../lib/agent-words.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import { getPrefs, usePrefs } from '../lib/prefs.js';
 import { sendsToTerminal } from '../lib/convo-mode.js';
 import { chordLabel } from '../lib/shortcuts-model.js';
 import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
-import { ModelPicker } from './ModelPicker.js';
+import { ModelPicker, myRuntime } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
+import { RunsOnLabel, RunsOnPicker } from './RunsOn.js';
+import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { QueueTray } from './QueueTray.js';
 import { BtwCard, askBtw } from './BtwCard.js';
 import { expectClaude, launchFlight } from './flight.js';
 import { type WorktreeChoice, WorktreeDraft } from './WorktreeDraft.js';
 import { sendSteerNow, stopClaude } from '../lib/commands.js';
 import { useAttachments } from './use-attachments.js';
+import { CommentCards } from './CommentCards.js';
+import { useWaitingComments } from '../views/DiffComment.js';
+import { takeComments, withComments } from '../views/diff-comments.js';
 import { MentionHighlighter } from './MentionHighlighter.js';
 import { useSuggestions } from './Suggestions.js';
 import { useChatMentions, useMentionWorld, worktreeOf } from './Mention.js';
@@ -54,8 +60,10 @@ import d from './draft.module.css';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { projectOfView } from '../tasks/use-tasks.js';
-import { sendAction, sendsUrgent, steerBlockNote } from './send-action.js';
+import { answerSend, answeringIn, sendAction, sendsUrgent, steerBlockNote } from './send-action.js';
 import { useSteerBlock } from './use-steer.js';
+
+import { scopedKey } from '../machines/pane-model.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -78,7 +86,7 @@ let boxOf: string | undefined;
 function placeholderOf(state: AppState, ui: { pending?: { kind: string; projectId: string; peerId?: string } }): string {
   const agent = agentName(defaultAgentOf(state.self));
   const q = state.questions[0];
-  if (q && q.channel === channelOf(state.view)) return q.question.kind === 'plan' ? 'Approve the plan above, or say what to change' : 'Type your own answer, or pick an option above';
+  if (q && q.channel === channelOf(state.view)) return q.question.kind === 'plan' ? 'Say what to change in the plan, or approve it above' : 'Type your own answer, or pick an option above';
   const p = ui.pending;
   if (p?.kind === 'peer_run') return `A command to run on ${peerName(state, p.peerId ?? '')}'s computer`;
   if (p?.kind === 'remote') return 'Describe the task for their agent';
@@ -115,8 +123,9 @@ const runOnChoice = new Map<string, RunOn>();
 
 /** In a friend's worktree you have a copy of: "Runs on Ata's Mac" or "on This Mac", one click to switch. */
 function RunOnChip({ wsId, ownerName, value, onChange }: { wsId: string; ownerName: string; value: RunOn; onChange: (v: RunOn) => void }) {
+  const key = useScopedKey(wsId);
   const pick = (v: RunOn): void => {
-    runOnChoice.set(wsId, v);
+    runOnChoice.set(key, v);
     onChange(v);
   };
   return (
@@ -172,6 +181,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       waiting: full.view.kind === 'shared' ? waitingNote(full, full.view.id) : undefined,
       project: projectOfView(full),
       placeholder: placeholderOf(full, pending ? { pending } : {}),
+      answering: answeringIn(full.questions, channelOf(full.view)),
     }),
     sameComposer,
   );
@@ -182,6 +192,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const channel = channelOf(state.view);
   const agentHere = useAgentNameIn(channel);
   const draftKey = draftKeyOf(state.view);
+  // The window's memories of this box (its words, Plan with Tasks, a new worktree's branch) are per computer (BLG-784).
+  const machine = useMachine();
+  const boxKey = scopedKey(machine, draftKey);
   const shared = state.view.kind === 'shared';
   const compose = state.compose;
   const queue = useMemo(() => queueIn(state, channel, state.selfId), [state.log, channel, state.selfId]);
@@ -190,11 +203,16 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // Images pasted, dropped or named by their path wait as thumbnails above the text, with an
   // "[image N]" where they go; other pasted files as chips (see use-attachments). They wait with
   // the words, so a new chat or worktree page keeps its own too.
+  // Comments on the changes waiting above the box (CommentCards): enough to send on their own.
+  const commentsWaiting = useWaitingComments(draftKey).length > 0;
+  const ready = !!buffer.trim() || commentsWaiting;
   // A chat's link pasted here becomes a chip. In a friend's worktree, one of yours can take a copy along (see send).
   const chipLinks = (text: string): string | undefined => (!client.store.getState().prefs.chatLinks ? undefined : chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label));
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }), chipLinks });
+  // A plan or a question waiting above the box: what you type answers it (the turn is waiting on you, not working).
+  const answering = state.answering;
   // During a turn, the preference selects the main action. The secondary action uses the other choice.
-  const queueing = compose.busy && (compose.typing || !buffer.trim());
+  const queueing = compose.busy && !answering && (compose.typing || !buffer.trim());
   // Plan First and agents that can't steer queue with either key (a plan message would stop the turn).
   const steerBlock = useSteerBlock(channel);
   const canSteer = !steerBlock;
@@ -209,12 +227,16 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const homePlan = planForHome(state.plans, channel);
   // Picked but nothing sent yet: only the box knows. The plan is made with the first message, so
   // until then the conversation stays an ordinary one everywhere else (sidebar, Overview, its page).
+  // A new worktree's page is picked for by its project (new chats and worktrees all share "draft"):
+  // its worktree starts as the plan's home.
+  const newWorktree = state.view.kind === 'draft_worktree';
+  const tasksKey = newWorktree ? boxKey : scopedKey(machine, channel);
   const [, redraw] = useState(0);
-  const armed = !homePlan && tasksPicked.has(channel);
+  const armed = !homePlan && tasksPicked.has(tasksKey);
   const arm = (on: boolean): void => {
-    if (on === tasksPicked.has(channel)) return;
-    if (on) tasksPicked.add(channel);
-    else tasksPicked.delete(channel);
+    if (on === tasksPicked.has(tasksKey)) return;
+    if (on) tasksPicked.add(tasksKey);
+    else tasksPicked.delete(tasksKey);
     redraw((n) => n + 1);
   };
   // While it's being planned (once approved, the conversation is the plan's head and the box is as usual).
@@ -224,7 +246,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const untouched = drafting && !homePlan?.draft?.milestones.length && !state.log.some((l) => l.type === 'agent' && l.channel === channel);
   // A plan's own conversation (its head Claude plans and runs it here): no modes to pick, the plan is what it's for.
   const planHome = isPlanHome(state.plans, channel) && !untouched;
-  const canPlanTasks = state.plans.enabled && channel.startsWith('ws:') && state.projects.some((p) => p.root && p.workspaces.some((w) => `ws:${w.id}` === channel));
+  const canPlanTasks = state.plans.enabled && (newWorktree || (channel.startsWith('ws:') && state.projects.some((p) => p.root && p.workspaces.some((w) => `ws:${w.id}` === channel))));
   const mode: ComposeMode = tasksMode ? 'tasks' : plan ? 'plan' : 'act';
   const setMode = (next: ComposeMode): void => {
     const leave = (): void => {
@@ -250,16 +272,20 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const copyOf = sharedWs ? state.sharedProjects.find((p) => p.owner === sharedWs.owner && p.id === sharedWs.projectId)?.copy : undefined;
   const canRunHere = Boolean(sharedWs && copyOf?.state === 'ready');
   const [runOnState, setRunOn] = useState<RunOn>('owner');
-  const runOn: RunOn = canRunHere && sharedWs ? (runOnChoice.get(sharedWs.id) ?? runOnState) : 'owner';
+  const runOn: RunOn = canRunHere && sharedWs ? (runOnChoice.get(scopedKey(machine, sharedWs.id)) ?? runOnState) : 'owner';
   // Following along, or the owner's Mac can't hear you right now (offline, or an old Beluga): the box is locked,
   // unless what you say goes to your own Claude in your copy.
   const readOnly = state.view.kind === 'shared' && state.view.tab === 'chat' && runOn !== 'here' && (sharedWs?.role === 'view' || Boolean(state.waiting));
   // A new worktree: the branch it starts from and its name (empty: named from the task).
   const draftProject = state.view.kind === 'draft_worktree' ? state.view.projectId : undefined;
-  const [worktree, setWorktreeState] = useState<WorktreeChoice>(() => (draftProject && worktreeChoices.get(draftProject)) || { name: '' });
-  useEffect(() => setWorktreeState((draftProject && worktreeChoices.get(draftProject)) || { name: '' }), [draftProject]);
+  // New work (a new chat or worktree): Runs on picks where it goes.
+  const newWork = state.view.kind === 'draft_worktree' || state.view.kind === 'draft' ? { project: state.view.projectId === 'chats' ? undefined : state.view.projectId, folder: state.view.kind === 'draft' ? state.view.dir || undefined : undefined } : undefined;
+  const startDeps = useStartDeps();
+  const choiceKey = draftProject ? scopedKey(machine, draftProject) : undefined;
+  const [worktree, setWorktreeState] = useState<WorktreeChoice>(() => (choiceKey && worktreeChoices.get(choiceKey)) || { name: '' });
+  useEffect(() => setWorktreeState((choiceKey && worktreeChoices.get(choiceKey)) || { name: '' }), [choiceKey]);
   const setWorktree = (choice: WorktreeChoice): void => {
-    if (draftProject) worktreeChoices.set(draftProject, choice);
+    if (choiceKey) worktreeChoices.set(choiceKey, choice);
     setWorktreeState(choice);
   };
   // A side question (/btw): "/btw " turns the box into one; it's answered in the card above, never in the chat.
@@ -334,13 +360,13 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   }, [buffer]);
   // Each chat keeps its own unsent words: going to another puts its words in the box, never these.
   useLayoutEffect(() => {
-    if (boxOf !== undefined && boxOf !== draftKey) {
-      const text = drafts.get(draftKey) ?? '';
+    if (boxOf !== undefined && boxOf !== boxKey) {
+      const text = drafts.get(boxKey) ?? '';
       ui.patch({ buffer: text, cursor: text.length, historyIndex: -1 });
       sug.reset();
     }
-    boxOf = draftKey;
-  }, [draftKey]);
+    boxOf = boxKey;
+  }, [boxKey]);
   // A chat's row dropped here: its chip at the cursor. It waits in the words: it never sends.
   useDraftChips(draftKey, (words) => {
     const text = ui.get().buffer;
@@ -351,9 +377,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   });
   useEffect(() => {
     const text = ui.get().buffer;
-    if (text) drafts.set(draftKey, text);
-    else drafts.delete(draftKey);
-  }, [draftKey, buffer]);
+    if (text) drafts.set(boxKey, text);
+    else drafts.delete(boxKey);
+  }, [boxKey, buffer]);
   useEffect(() => {
     const focus = (): void => ref.current?.focus();
     document.addEventListener('beluga:focus-composer', focus);
@@ -375,14 +401,25 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   /** The first message of a new worktree starts it (on the chosen branch, with the chosen name). */
   const createWorktree = (projectId: string, text: string): void => {
     const name = worktree.name.trim();
-    // Its words left the box when it was sent; its branch and name go with them.
-    worktreeChoices.delete(projectId);
-    setWorktreeState({ name: '' });
     // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
     const terminal = Boolean(text.trim()) && sendsToTerminal(client.store.getState(), getPrefs(), 'draft', worktree.agent?.runtime);
-    // Started in the mode the picker shows (Plan First or not).
-    const plan = client.store.getState().planMode.draft === true;
-    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...(terminal ? { terminal } : {}), ...(plan ? { plan } : {}) }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+    // Started in the mode the picker shows (Act, Plan First or Plan with Tasks).
+    const mode = worktreeMode({ terminal, plan: client.store.getState().planMode.draft === true, tasks: armed });
+    const opts = { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode };
+    // Runs on one of your computers (BLG-788): made there, in the same project, and opened at once.
+    // Held (the computer Runs on names can't take it now): nothing starts, the words stay in the box.
+    const sent = sendToComputer(startDeps, projectId, worktree.agent?.runtime ?? myRuntime(client.store.getState().prefs), { kind: 'worktree', text, opts });
+    if (sent === 'held') return keepWords(text);
+    // Its words left the box when it was sent; its branch and name go with them.
+    worktreeChoices.delete(scopedKey(machine, projectId));
+    setWorktreeState({ name: '' });
+    arm(false);
+    if (sent === 'sent') return;
+    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+  };
+  /** Held for a computer that can't take it now: the words go back in the box, nothing was sent. */
+  const keepWords = (text: string): void => {
+    if (!ui.get().buffer) ui.patch({ buffer: text, cursor: text.length });
   };
   const deliver = (text: string, urgent: boolean): void => {
     if (readOnly) return;
@@ -394,6 +431,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     // /invite adds a friend, or adds friends to what's on screen (BLG-203): done here, where the view is known.
     if (handleInvite(client, ui, text)) return;
     if (draftProject && !text.startsWith('/')) return createWorktree(draftProject, text);
+    // A new chat (in a project, outside one, or in a folder), Runs on one of your computers (BLG-788,
+    // BLG-841): started there; held, never here instead, when the computer named can't take it.
+    const v = client.store.getState().view;
+    if (v.kind === 'draft' && !text.startsWith('/')) {
+      const sent = sendToComputer(startDeps, v.projectId, myRuntime(client.store.getState().prefs), { kind: 'chat', text }, v.dir || undefined);
+      if (sent === 'held') return keepWords(text);
+      if (sent === 'sent') return;
+    }
     if (to && !text.startsWith('/')) {
       ui.patch({ to: undefined });
       return actions.submit(`${recipientPrefix(to)}${text}`, urgent);
@@ -463,7 +508,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       return;
     }
     // Images stay where you referenced them in the words; any you took the reference out of go after them.
-    const { text, images, shown, putBack } = att.take(typed);
+    const { text: words, images, shown, putBack: putFilesBack } = att.take(typed);
+    // Comments on the changes waiting above the box go after the words (views/diff-comments.ts).
+    const notes = typed.startsWith('/') ? undefined : takeComments(draftKey);
+    const text = withComments(words, notes?.comments ?? []);
+    const putBack = (): void => {
+      putFilesBack();
+      notes?.putBack();
+    };
     if (!text && !(draftProject && worktree.name.trim())) {
       if (draftProject) toast(client, 'Describe the task, or give the worktree a name', 'info');
       return;
@@ -471,7 +523,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     if (!text && draftProject) return createWorktree(draftProject, '');
     // The words fly from the box into the chat (or into the queue while Claude works): see flight.ts.
     if (typed && !typed.startsWith('/') && !draftProject && !pending) {
-      launchFlight({ channel, target: compose.busy && compose.typing && !urgent ? 'queue' : 'chat', text: typed, from: ref.current });
+      launchFlight({ channel, target: queueing && compose.typing && !urgent ? 'queue' : 'chat', text: typed, from: ref.current });
       // Steering joins the turn Claude is on (no new card to wait for).
       if (compose.typing && !compose.busy) expectClaude(channel, state.log.filter((l) => l.type === 'agent' && l.channel === channel).length);
     }
@@ -602,9 +654,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
         ref={boxRef}
         style={effects ? (fireVars(prefs.maxFire) as React.CSSProperties) : undefined}
         data-fire={burning ? prefs.maxFire.show : undefined}
-        className={cx(s.box, burning ? (prefs.maxFire.border ? m.max : m.maxPlain) : effects && m.fxOnly, pending && s.asking, readOnly && s.readOnly, att.dropping && s.dropping, (plan || tasksMode || aside) && s.planning)}
-        data-plan={plan || tasksMode || aside || undefined}
-        data-mode={aside ? 'btw' : mode}
+        className={cx(s.box, burning ? (prefs.maxFire.border ? m.max : m.maxPlain) : effects && m.fxOnly, pending && s.asking, readOnly && s.readOnly, att.dropping && s.dropping, (plan || tasksMode || aside || answering === 'plan') && s.planning)}
+        data-plan={plan || tasksMode || aside || answering === 'plan' || undefined}
+        data-mode={aside ? 'btw' : answering === 'plan' ? 'plan' : mode}
         data-chat-box={shared ? (readOnly ? undefined : draftKey) : (isAddressableChannel(channel) || state.view.kind === 'draft' || state.view.kind === 'draft_worktree') ? draftKey : undefined}
         {...att.dropProps}
       >
@@ -620,6 +672,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             <span className={s.planKeys}>
               <Kbd>esc</Kbd> to leave
             </span>
+          </div>
+        ) : answering === 'plan' ? (
+          <div className={s.planBanner} role="status">
+            <span className={s.planTag}>
+              <Icon name="wand" size={11} />
+              Plan Review
+            </span>
+            <span className={s.planHint}>What you write goes back to {agentHere} as changes to the plan</span>
           </div>
         ) : mode !== 'act' ? (
           <div className={s.planBanner} role="status">
@@ -658,6 +718,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           </div>
         ) : null}
         {att.waiting}
+        <CommentCards box={draftKey} />
         <MentionedTasks text={buffer} world={mentionWorld} />
         <MentionedChats text={buffer} world={mentionWorld} />
         <DictationStrip box={ref} />
@@ -708,7 +769,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           ) : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
-          {!shared ? <McpChip /> : null}
+          {/* Where new work runs (BLG-786); a chat that runs somewhere already says where. Only with a computer paired. */}
+          {shared ? null : newWork ? <RunsOnPicker {...(newWork.project ? { project: newWork.project } : {})} {...(worktree.agent?.runtime && draftProject ? { runtime: worktree.agent.runtime } : {})} {...(newWork.folder ? { folder: newWork.folder } : {})} /> : <RunsOnLabel />}
           {burning && state.prefs.effort === 'max' ? (
             <Tip label={`Max effort: ${agentHere} thinks as hard as it can`}>
               <span className={m.tag}>
@@ -718,6 +780,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             </Tip>
           ) : null}
           <span className={s.flex} />
+          {/* Your MCP servers, on the box's right beside how full the context is (BLG-252). */}
+          {!shared ? <McpChip /> : null}
           {channel !== 'draft' ? <ContextMeter channel={channel} /> : null}
           {/* While you talk, only your voice's control shows: two square buttons side by side stopped Claude by mistake. */}
           {compose.busy && !talking ? (
@@ -742,23 +806,30 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 <Icon name="send" size={14} />
               </button>
             </Tip>
+          ) : answering ? (
+            <Tip label={answerSend(answering, agentHere).tip} keys={sendKeys}>
+              <button type="button" className={cx(s.split, s.answer, ready && s.splitReady)} onClick={() => send(false)} disabled={!ready}>
+                <Icon name="send" size={12} />
+                <span className={s.chipLabel}>{answerSend(answering, agentHere).label}</span>
+              </button>
+            </Tip>
           ) : queueing ? (
             <div className={cx(s.split, buffer.trim() && s.splitReady)} role="group" aria-label={`${agentHere} is working`}>
               <Tip label={actionTip(mainAction)} keys={sendKeys}>
-                <button type="button" className={s.splitMain} aria-label={upFirst(mainAction)} onClick={() => send(false)} disabled={!buffer.trim()}>
+                <button type="button" className={s.splitMain} aria-label={upFirst(mainAction)} onClick={() => send(false)} disabled={!ready}>
                   <Icon name={mainAction === 'steer' ? 'send' : 'clock'} size={12} />
                   <span className={s.chipLabel}>{upFirst(mainAction)}</span>
                 </button>
               </Tip>
               {canSteer ? <Tip label={actionTip(otherAction)} keys={shortcutKeys('composer-steer')}>
-                <button type="button" className={s.splitAlt} onClick={() => send(true)} disabled={!buffer.trim()}>
+                <button type="button" className={s.splitAlt} onClick={() => send(true)} disabled={!ready}>
                   {upFirst(otherAction)}
                 </button>
               </Tip> : null}
             </div>
           ) : (
             <Tip label={prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`} keys={prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter')}>
-              <button type="button" className={cx(s.send, buffer.trim() && s.sendReady)} onClick={() => send(false)} aria-label="Send" disabled={!buffer.trim()}>
+              <button type="button" className={cx(s.send, ready && s.sendReady)} onClick={() => send(false)} aria-label="Send" disabled={!ready}>
                 <Icon name="send" size={14} />
               </button>
             </Tip>

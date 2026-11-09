@@ -5,6 +5,7 @@ import { PARALLEL_RUNS_DEFAULT, PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from './r
 import { CHAT_LIMIT_DEFAULT, CHAT_LIMIT_MAX } from './chat-limit.js';
 import { AUTO_CONTINUE_OFF_MAX } from './auto-continue.js';
 import { MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH } from './agent-args.js';
+import { THREAD_LIMITS_DEFAULT, THREAD_LIMITS_MAX } from './threads.js';
 import { coercePerKind, coerceSound, DEFAULT_SOUND, DEFAULT_VOLUME, PerKindSounds, SoundChoice } from './notify-sound.js';
 
 // Settings as data (no file access), so the reducer and the clients can use them anywhere.
@@ -26,6 +27,10 @@ export type Effort = (typeof EFFORTS)[number];
 export const BRANCH_PREFIX_DEFAULT = 'beluga/';
 /** A prefix git accepts in front of a slug: letters, digits, `. _ - /`, no `..`, `//`, or part starting with `.` `-` `/`. */
 export const BRANCH_PREFIX_RE = /^(?![./-])(?!.*\.\.)(?!.*\/\/)(?!.*\/[.-])[\w./-]{0,40}$/;
+
+/** How many days without activity settle a chat (core/triage); 0: never. */
+export const SETTLE_IDLE_DAYS_DEFAULT = 3;
+export const SETTLE_IDLE_DAYS_MAX = 365;
 
 /** Keep the Mac awake for your phone: never, only on power, or always (the display may still sleep). */
 export const KEEP_AWAKE = ['off', 'power', 'always'] as const;
@@ -77,11 +82,34 @@ export type NotifySettings = z.infer<typeof NotifySettings>;
 
 const peerKey = z.string().regex(/^[\w-]{8,64}$/);
 
+/**
+ * A computer's icon (BLG-780): its kind's own (`auto`: a brand mark or a fitting glyph) or one of a
+ * small generic set. Kept on the computer, so every device of yours shows the same.
+ */
+export const MACHINE_ICONS = ['auto', 'server', 'cloud', 'desktop', 'laptop', 'chip', 'box'] as const;
+export type MachineIcon = (typeof MACHINE_ICONS)[number];
+
+/** Where new work runs (BLG-780): this computer, the least busy of yours that's ready, or one by its id. */
+export const RUN_ON = /^(here|best|[0-9a-f]{16})$/;
+
+const threadLimit = (max: number) => z.number().int().min(1).max(max);
+/** How far your agents' threads go (shared/threads.ts). */
+export const ThreadLimitsSchema = z.object({
+  depth: threadLimit(THREAD_LIMITS_MAX.depth),
+  treeRunning: threadLimit(THREAD_LIMITS_MAX.treeRunning),
+  treeLive: threadLimit(THREAD_LIMITS_MAX.treeLive),
+  macRunning: threadLimit(THREAD_LIMITS_MAX.macRunning),
+});
+
 /** Choices that persist between runs in ~/.beluga/settings.json. */
 export const Settings = z.object({
   name: z.string().regex(/^[\w.-]{1,32}$/).optional(),
   /** What your phone calls this computer (`beluga setup`); unset: its own name (Sharing name, else host name). */
   computerName: z.string().trim().min(1).max(64).optional(),
+  /** Its icon, as your app shows it on every device (BLG-780). */
+  computerIcon: z.enum(MACHINE_ICONS).optional(),
+  /** Run New Work On (BLG-780): `here`, `best`, or a computer's id. */
+  runOn: z.string().regex(RUN_ON).default('here'),
   theme: z.enum(THEMES).default('calm'),
   /** Default trust for people you haven't chosen a level for. Unset until you answer the welcome screen once. */
   policy: z.enum(['ask', 'auto', 'deny']).optional(),
@@ -123,6 +151,18 @@ export const Settings = z.object({
   parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX).catch(PARALLEL_RUNS_DEFAULT),
   /** How many chats Your Mac and Sentinel each keep open (shared/chat-limit.ts); 0: no limit. */
   chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX).catch(CHAT_LIMIT_DEFAULT),
+  /** Your agents may start child threads (core/threads). Off until you turn it on. */
+  agentThreads: z.boolean().default(false),
+  /** How far those threads go (shared/threads.ts). */
+  threadLimits: ThreadLimitsSchema.catch(THREAD_LIMITS_DEFAULT),
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
+  chatCategories: z.boolean().catch(false),
+  /** A merged PR settles its chat. */
+  settleOnMerge: z.boolean().catch(true),
+  /** Days without activity before a chat settles; 0: never. */
+  settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  pushToPr: z.boolean().catch(true),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
   /** Chat refs, chips and links. Owner: the plan "Communication between chats"; goes once it has shipped. */
@@ -137,6 +177,8 @@ export const Settings = z.object({
   chatClaude: z.enum(['everyone', 'trusted', 'off']).default('everyone'),
   /** Who sees how much of your plans (Claude Code, Codex…) you have left, on your profile: people you trust, every friend, or no one (BLG-597). */
   shareUsage: z.enum(['trusted', 'everyone', 'off']).default('trusted'),
+  /** Tell friends when you've seen their direct messages (BLG-798: Seen, sent only from a screen of yours, never by your Always On itself). */
+  readReceipts: z.boolean().default(true),
   /** Your main channel: a group with all your friends (made the first time you open it). */
   mainChannel: z.string().regex(/^[0-9a-f]{32}$/).optional(),
   /** People you chose a trust level for (by their key-derived id). */
@@ -150,6 +192,8 @@ export const Settings = z.object({
   /** Your own flags for `claude` and `codex` on your own runs (shared/agent-args.ts), e.g. --dangerously-skip-permissions. */
   claudeArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
   codexArgs: z.array(z.string().max(MAX_AGENT_ARG_LENGTH)).max(MAX_AGENT_ARGS).default([]),
+  /** Experimental features you turned on (shared/experiments.ts); ids a newer Beluga knows are kept. */
+  experiments: z.array(z.string().max(40)).max(20).catch([]).default([]),
   /** Show every earnings total in this currency (lowercase ISO code; unset: the one most was earned in). */
   earningsCurrency: z.string().regex(/^[a-z]{3}$/).optional(),
   /** Be on the Beluga network (friends, groups, presence) while the Mac app's daemon runs. Off by default for now. */

@@ -87,6 +87,53 @@ describe('adding up earnings in several currencies', () => {
   });
 });
 
+describe('rates for RevenueCat-only earnings', () => {
+  const rcEntry = (refreshing?: boolean) => ({
+    connected: true as const,
+    project: { id: 'projTEST0001', name: 'App' },
+    currency: 'eur',
+    apps: [],
+    totals: [{ currency: 'eur', amount: 1 }],
+    ...(refreshing ? { refreshing } : {}),
+  });
+  const fetchCounter = () => {
+    const calls = { n: 0 };
+    const fetchRates = (async () => {
+      calls.n++;
+      return new Response(JSON.stringify({ base: 'USD', rates: { EUR: 0.9 } }));
+    }) as typeof fetch;
+    return { calls, fetchRates };
+  };
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  it('fetches when only RevenueCat is connected', async () => {
+    const store = new Store(initialState('test', 'ask'));
+    const { calls, fetchRates } = fetchCounter();
+    const service = new FxService({ store, file: null, fetch: fetchRates, now: () => 1000 });
+    await service.refreshIfStale();
+    expect(calls.n).toBe(0);
+    store.dispatch({ type: 'revenuecat', root: '/p', revenuecat: rcEntry() });
+    await service.refreshIfStale();
+    expect(calls.n).toBe(1);
+  });
+
+  it('fetches stale rates when RevenueCat connects, and when a RevenueCat count starts', async () => {
+    const store = new Store(initialState('test', 'ask'));
+    const { calls, fetchRates } = fetchCounter();
+    let now = 1000;
+    const service = new FxService({ store, file: null, fetch: fetchRates, now: () => now });
+    service.start();
+    store.dispatch({ type: 'revenuecat', root: '/p', revenuecat: rcEntry() });
+    await settle();
+    expect(calls.n).toBe(1);
+    now += 21 * 3600_000;
+    store.dispatch({ type: 'revenuecat', root: '/p', revenuecat: rcEntry(true) });
+    await settle();
+    expect(calls.n).toBe(2);
+    service.stop();
+  });
+});
+
 describe('showing earnings in one currency', () => {
   const rates = { rates: { eur: 0.9, try: 34, inr: 84, jpy: 150 }, at: Date.UTC(2026, 9, 19, 9) };
 

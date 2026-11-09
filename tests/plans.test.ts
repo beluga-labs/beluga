@@ -163,10 +163,12 @@ const BODY: BodyInput = {
 
 describe('writing a plan', () => {
   it('reads input kindly: ids from titles, checklists as lines', () => {
-    const body = normalizeBody({ title: 'P', goal: '', milestones: [{ title: 'First step', criteria: '- [ ] works', tasks: [{ title: 'Do The Thing', acceptance: '- [ ] a\n- [x] b' }, { title: 'Do the thing' }] }] });
+    const body = normalizeBody({ title: 'P', goal: '', milestones: [{ title: 'First step', criteria: '- [ ] works', tasks: [{ title: 'Do The Thing', acceptance: '- [ ] a\n- [x] b' }, { title: 'Do the other thing' }] }] });
     expect(body.milestones[0]!.id).toBe('first-step');
     expect(body.milestones[0]!.criteria).toEqual(['works']);
-    expect(body.milestones[0]!.tasks.map((t) => t.id)).toEqual(['do-the-thing', 'do-the-thing-2']);
+    expect(body.milestones[0]!.tasks.map((t) => t.id)).toEqual(['do-the-thing', 'do-the-other-thing']);
+    // Two tasks whose titles make one id are refused, never renamed "-2" (BLG-772).
+    expect(() => normalizeBody({ title: 'P', goal: '', milestones: [{ title: 'M', tasks: [{ title: 'Do The Thing' }, { title: 'Do the thing' }] }] })).toThrow(/already a task "do-the-thing": “Do The Thing”/);
     expect(body.milestones[0]!.tasks[0]!.acceptance).toEqual(['a', 'b']);
   });
 
@@ -615,7 +617,8 @@ describe('making a plan', () => {
     const t = setup();
     t.work.here('ws:main');
     const defs = createPlanToolDefs(t.work.forRun('ws:main', 'p-me')!.tools!);
-    expect(defs.map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES);
+    // plan_review is the draft's reviewer's alone (BLG-772).
+    expect(defs.map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES.filter((n) => !n.endsWith('plan_review')));
     for (const name of PLAN_TOOL_NAMES) expect(decideTool(name, {}, { cwd: '/tmp', roots: [], autoEdit: false, askOnly: true })).toBe('allow');
   });
 });

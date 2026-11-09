@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useRef, useState } from 'react';
 import type { BrowserRow, ViewerState } from '@beluga/core/store.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { formatBytes } from '@beluga/shared/format.js';
@@ -14,11 +14,14 @@ import { type ReaderMode, hasRenderedLook, initialMode } from './reader/reader-m
 import { SearchField, SearchResults } from './SharedSearch.js';
 import s from './files.module.css';
 import { revealLabel } from '../lib/os-words.js';
+import { useRevealFileLabel, useRevealLabel } from '../lib/remote-open.js';
+import { ReaderContent } from './reader/reader-lazy.js';
 
 export { LANG, ext } from './reader/reader-model.js';
 
 /** The reader comes in its own chunk, the first time a file is opened. */
-const FileContent = lazy(() => import('./reader/FileReader.js').then((m) => ({ default: m.FileContent })));
+/** The reader in its own chunk (views/reader/reader-lazy.tsx): fetched early, drawn at once once it's here (BLG-853), giving up on a stalled fetch instead of waiting (#370). */
+const FileContent = ReaderContent;
 
 /** A decoded image (RGBA pixels) drawn at its size, scaled down to fit. */
 export function Bitmap({ image }: { image: NonNullable<ViewerState['image']> }) {
@@ -80,6 +83,9 @@ export function Viewer({ viewer }: { viewer: ViewerState }) {
 /** Right-click on a file or folder: open it, find it in Finder, copy its path, mention it, save it. */
 export function useRowItems(): (row: BrowserRow, onOpen: () => void) => ActionItem[] {
   const { client, ui } = useBeluga();
+  // On a computer's page: a file is downloaded, a folder's path copied (BLG-852).
+  const revealFile = useRevealFileLabel();
+  const revealFolder = useRevealLabel();
   const actions = useActions();
   return (row, onOpen) => {
     if (row.target === 'up') return [{ label: 'Back', icon: 'back', onSelect: onOpen }];
@@ -103,7 +109,7 @@ export function useRowItems(): (row: BrowserRow, onOpen: () => void) => ActionIt
     };
     return [
       { label: row.dir ? 'Open Folder' : 'Open', icon: row.dir ? 'folder' : 'file', onSelect: onOpen },
-      ...(local ? [{ label: revealLabel(), icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
+      ...(local ? [{ label: row.dir ? revealFolder : revealFile, icon: 'folder' as const, onSelect: () => void revealInFinder(client, local) }] : []),
       { label: 'Copy Path', icon: 'copy', separate: true, onSelect: () => void copyText(local ?? mentionOf(state, at)).then(() => say('Copied the path')) },
       { label: 'Mention in Chat', icon: 'chat', onSelect: mention },
       ...(row.dir ? [] : [{ label: 'Save a Copy…', icon: 'download' as const, separate: true, onSelect: () => void saveFile(client, at) }]),

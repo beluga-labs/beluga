@@ -1,3 +1,5 @@
+import { git, tryGit } from '../workspaces/git.js';
+import { type WorktreeMover, worktreeMover } from '../core/worktree-move.js';
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
@@ -11,12 +13,14 @@ import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
+import { cloneProject, createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
+import { sameRepo } from '../shared/repo-key.js';
 import { projectId } from '../workspaces/manager.js';
 import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
 import { NETWORK_HANDLERS } from './network-handlers.js';
 import { STRIPE_HANDLERS } from './stripe-handlers.js';
+import { REVENUECAT_HANDLERS } from './revenuecat-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
 import { STATS_HANDLERS } from './stats-handlers.js';
 import { maybeStatsOf } from '../core/stats/counter.js';
@@ -30,20 +34,25 @@ import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
 import { plansOf } from '../core/plans/registry.js';
+import { stopChat, stopThreadsUnder } from '../core/threads/launch.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
 import { TEAM_HANDLERS } from './team-handlers.js';
+import { TRIAGE_HANDLERS } from './triage-handlers.js';
 import { GIT_HANDLERS } from './git-handlers.js';
 import { VIEWS_HANDLERS } from './views-handlers.js';
+import { PREVIEW_HANDLERS } from './preview-handlers.js';
 import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
+import { MACHINE_HANDLERS } from './machine-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
 import { CHATS_HANDLERS } from './chats-handlers.js';
 import { VOICE_HANDLERS } from './voice-handlers.js';
 import { CALLS_HANDLERS } from './calls-handlers.js';
 import { TERMINAL_IMPORT_HANDLERS } from './terminal-import-handlers.js';
 import { AGENT_TERM_HANDLERS } from './agent-term-handlers.js';
+import { worktreePorts } from '../workspaces/ports.js';
 import { waitingNeeds } from '../companion/needs-you.js';
 import { saveDismissedNeeds, withDismissed } from '../core/dismissed-needs.js';
 
@@ -57,6 +66,12 @@ export type Handlers = { readonly [M in Method]: Handler<M> };
 
 // Without projects (some tests, the guest-only mode) these do nothing, as before.
 const ctl = (s: Session): WorkspaceController | undefined => s.workspaces;
+/** Continue On's part here (BLG-808): it needs the workspaces. */
+const moverIn = (s: Session): WorktreeMover => {
+  const c = ctl(s);
+  if (!c) throw new Error('Worktrees need the Beluga app (its daemon)');
+  return worktreeMover(s.store, c);
+};
 const rootOf = (s: Session, projectId: string): string | undefined => s.store.getState().projects.find((p) => p.id === projectId)?.root || undefined;
 const expandHome = (p: string): string => p.replace(/^~(?=$|\/)/, os.homedir());
 const bench = (s: Session): Workbench | undefined => s.workbench;
@@ -110,7 +125,12 @@ export const HANDLERS = {
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
   'host.cancelSteer': (s, requestId) => s.host.cancelSteer(requestId),
-  'host.stopRun': (s, channel) => s.host.stopRun(channel),
+  'host.stopRun': (s, channel) => stopChat(s, channel),
+  'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
+    if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
+    return HANDLERS['host.stopRun'](s, `ws:${id}`);
+  },
+  'threads.stopAll': (s, id) => stopThreadsUnder(s, id),
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 
@@ -189,6 +209,7 @@ export const HANDLERS = {
   },
   'files.version': (s, at) => s.files.fileVersion(at),
   'files.read': (s, at) => s.files.readFile(at),
+  'files.readRange': (s, at, range) => s.files.readRange(at, range),
 
   'workspaces.open': (s, id, tab, o) => ctl(s)?.open(id, tab, o?.req),
   'workspaces.load': (s, id) => void ctl(s)?.ensureLoaded(id),
@@ -196,19 +217,26 @@ export const HANDLERS = {
   'workspaces.newWorktree': async (s, projectId, name, opts) => (await ctl(s)?.newWorktree(projectId, name, { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.agent ? { agent: opts.agent } : {}) }))?.id,
   'workspaces.newChat': async (s, projectId, title, dir) => (await ctl(s)?.newChat(projectId, title, dir))?.id,
   'workspaces.startChat': (s, projectId, text, dir, opts) => (maybeStatsOf(s)?.prompt(`new-chat:${projectId}`, text), ctl(s)?.startChat(projectId, text, dir ?? undefined, { ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.plan ? { plan: true } : {}) })),
-  'workspaces.startWorktree': async (s, projectId, text, opts) => (maybeStatsOf(s)?.prompt(`new-worktree:${projectId}`, text, opts?.agent?.runtime), await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
+  'workspaces.startWorktree': async (s, projectId, text, opts) => (maybeStatsOf(s)?.prompt(`new-worktree:${projectId}`, text, opts?.agent?.runtime), await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.tasks ? { tasks: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
   'workspaces.branches': (s, projectId) => ctl(s)?.branches(projectId),
   'workspaces.fork': async (s, id, name) => (await ctl(s)?.fork(id, name))?.id,
   'workspaces.editPrompt': (s, id, line, text, mode) => ctl(s)?.editPrompt(id, line, text, mode),
   'workspaces.continueInWorktree': async (s, id, opts) =>
     // Claude starts there once whatever runs in the conversation now has finished (its session is complete then).
     (await ctl(s)?.continueInWorktree(id, (prompt) => s.nameTask(prompt), { ...(opts?.task ? { task: opts.task } : {}), ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), after: s.host.idle(`ws:${id}`) }))?.id,
-  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, { ...(opts?.quiet ? { quiet: true } : {}) }),
+  'workspaces.moveCheck': (s, id) => moverIn(s).check(id),
+  'workspaces.movePack': (s, id, opts) => moverIn(s).packOut(id, opts),
+  'workspaces.moveChunk': (s, token, n) => moverIn(s).chunk(token, n),
+  'workspaces.moveReceive': (s, token, n, total, data) => moverIn(s).receive(token, n, total, data),
+  'workspaces.moveLand': (s, token, projectId, from) => moverIn(s).landIn(token, projectId, from),
+  'workspaces.moveDone': (s, id, to) => moverIn(s).done(id, to),
+  'workspaces.moveUndo': (s, id) => moverIn(s).undo(id),
+  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, opts),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
   'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
-  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, { ...(opts?.quiet ? { quiet: true } : {}) }),
+  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, opts),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
   'workspaces.merge': (s, id) => ctl(s)?.merge(id),
   'workspaces.prepareRemoval': (s, id) => ctl(s)?.prepareRemoval(id),
@@ -216,6 +244,10 @@ export const HANDLERS = {
   'workspaces.keepEnvHere': (s, id) => ctl(s)?.keepEnvHere(id),
   'workspaces.saveEnvInBeluga': (s, id) => ctl(s)?.saveEnvInBeluga(id),
   'workspaces.checkEnv': (s, projectId) => ctl(s)?.checkEnv(projectId, false),
+  'workspaces.ports': (s, id) => {
+    const ws = s.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
+    return ws ? worktreePorts(ws.path) : [];
+  },
   'workspaces.askClaudeToReview': (s, id) => ctl(s)?.askClaudeToReview(id),
   'workspaces.askClaudeToMerge': (s, id) => ctl(s)?.askClaudeToMerge(id),
   'workspaces.compact': (s, id, instructions) => ctl(s)?.compact(id, instructions),
@@ -224,7 +256,6 @@ export const HANDLERS = {
   'workspaces.renameGroup': (s, from, to) => ctl(s)?.renameGroup(from, to),
   'workspaces.rename': (s, id, name) => ctl(s)?.rename(id, name),
   'workspaces.regenerateTitle': (s, id) => ctl(s)?.regenerateTitle(id),
-  'workspaces.remindLater': (s, id, at) => ctl(s)?.remindLater(id, at ?? null),
   'workspaces.ungroup': (s, name) => ctl(s)?.ungroup(name),
   'workspaces.arrange': (s, item, place) => ctl(s)?.arrange(item, place ?? {}) ?? false,
   'workspaces.newGroup': (s, name, opts) => ctl(s)?.newGroup(name, opts ?? {}),
@@ -244,6 +275,7 @@ export const HANDLERS = {
   'workspaces.addProject': (s, dir) => ctl(s)?.addProject(dir),
   'workspaces.addFolder': (s, dir) => ctl(s)?.addFolder(dir),
   'workspaces.selectFile': (s, index) => ctl(s)?.selectFile(index),
+  'workspaces.diffAhead': (s, index) => ctl(s)?.diffAhead(index),
   'workspaces.review': (s, id) => ctl(s)?.loadReview(id),
   'workspaces.scratch': (s, id) => ctl(s)?.scratch(id),
 
@@ -377,12 +409,28 @@ export const HANDLERS = {
   // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
   'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
+  'projects.origin': async (s, projectId) => {
+    const root = rootOf(s, projectId);
+    if (!root) return null;
+    return (await git(root, ['remote', 'get-url', 'origin'], 5_000).catch(() => '')).trim() || null;
+  },
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
   // Every repo found (the sheet shows the newest, and its Filter searches them all).
   'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean), undefined, SUGGEST_ALL),
   'projects.create': async (s, name, parent) => {
     const dir = await createProject(name, parent ? expandHome(parent) : undefined);
     const added = await ctl(s)?.addProject(dir);
+    return { id: added?.project?.id ?? projectId(dir), path: dir };
+  },
+  // A repository you have here already is the project it is, not a second clone.
+  'projects.clone': async (s, url, parent) => {
+    const projects = s.store.getState().projects.filter((p) => p.root);
+    const origins = await Promise.all(projects.map((p) => tryGit(p.root, ['remote', 'get-url', 'origin'])));
+    const here = projects.find((_, i) => origins[i] && sameRepo(origins[i]!.trim(), url.trim()));
+    if (here) return { id: here.id, path: here.root, existed: true };
+    const dir = await cloneProject(url, parent ? expandHome(parent) : undefined);
+    const added = await ctl(s)?.addProject(dir);
+    if (added?.error) throw new Error(added.error);
     return { id: added?.project?.id ?? projectId(dir), path: dir };
   },
   'projects.newHome': () => defaultProjectsHome(),
@@ -396,6 +444,7 @@ export const HANDLERS = {
   'local.statFiles': (_s, paths) => paths.map(pathInfo),
   ...NETWORK_HANDLERS,
   ...STRIPE_HANDLERS,
+  ...REVENUECAT_HANDLERS,
   ...SUPPORT_HANDLERS,
   ...STATS_HANDLERS,
   ...WEB_HANDLERS,
@@ -411,10 +460,13 @@ export const HANDLERS = {
   ...ISSUES_HANDLERS,
   ...CI_HANDLERS,
   ...TEAM_HANDLERS,
+  ...TRIAGE_HANDLERS,
   ...GIT_HANDLERS,
   ...VIEWS_HANDLERS,
+  ...PREVIEW_HANDLERS,
   ...FILES_EDIT_HANDLERS,
   ...COMPANION_HANDLERS,
+  ...MACHINE_HANDLERS,
   ...ASSISTANT_HANDLERS,
   ...CHATS_HANDLERS,
   ...VOICE_HANDLERS,

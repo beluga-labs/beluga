@@ -15,7 +15,7 @@ import { type ContextMessage, ContextReport, breakdownReader, isCompactCommand }
 import { compactEnv } from '../../../shared/context-usage.js';
 import { progressCount } from '../../../shared/progress-count.js';
 import { resultText } from '../../../shared/steps.js';
-import { BackgroundAgents, type PromptContent, PromptQueue, TurnRouter } from './live-run.js';
+import { BackgroundAgents, type PromptContent, PromptQueue, TurnRouter, startedPrompt } from './live-run.js';
 import { sideCalls } from '../../side-calls.js';
 import { claudeComplete } from './complete.js';
 import { askBtw } from './btw.js';
@@ -31,7 +31,7 @@ import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
 import { SCRATCH_DIR } from '../../../shared/scratch-dir.js';
 import { type AgentRef, CLAUDE_AGENT, type ClaudeAnswer, ClaudeQuestion, type Usage } from '../../../protocol.js';
-import { claudeCodeReady } from '../../claude-code.js';
+import { claudeCodeReady, claudeExecutable } from '../../claude-code.js';
 import { claudeHome } from '../../../core/claude-code/launch.js';
 import { belugaHome } from '../../../core/home.js';
 import { expandCommand, mayBeCommand, skillOptions } from './skill-plugins.js';
@@ -272,7 +272,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
         ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
-        ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}),
+        ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),
         canUseTool: async (toolName, toolInput) => {
@@ -487,6 +487,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           if (route) stepTo = route.onStep;
           // A message steered in, read now (not only once the turn ends).
           if (route && msg.type === 'assistant' && msg.user_message_uuids?.length) turns.read(msg.user_message_uuids);
+          // Claude Code took it off its queue into the running turn (between turns, read ignores it: it's a turn of its own).
+          const started = startedPrompt(msg);
+          if (started) turns.read([started]);
           recorder.observe(msg as RecorderMessage);
           if (msg.type === 'user' && msg.parent_tool_use_id === null) {
             for (const e of subagents.user(msg.message.content as never)) input.onEvent('sub', JSON.stringify(e));
@@ -592,7 +595,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const idle = (async function* () {
         await new Promise(() => undefined);
       })() as AsyncIterable<never>;
-      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) } });
+      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) } });
       try {
         const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), USAGE_TIMEOUT_MS).unref());
         const models = await Promise.race([q.supportedModels(), timeout]);
@@ -615,7 +618,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       })() as AsyncIterable<never>;
       const q = query({
         prompt: idle,
-        options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) },
+        options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) },
       });
       const getUsage = (q as unknown as Record<string, unknown>).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
       try {

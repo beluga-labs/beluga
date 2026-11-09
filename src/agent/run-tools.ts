@@ -7,6 +7,7 @@ import { createPhoneTools } from './phone-tools.js';
 import { createPlanTools } from './plan-tools.js';
 import { createSentinelTools } from './sentinel-tools.js';
 import { createTaskTools } from './task-tools.js';
+import { createThreadTools } from './thread-tools.js';
 import type { ToolSuite } from './tool-kit.js';
 import { createRoomTools } from './tools.js';
 import type { AgentRunInput, RoomBridge } from './types.js';
@@ -39,6 +40,8 @@ export function runToolSuites(input: AgentRunInput, bridge: RoomBridge, shelf: V
     ...(input.callNotesTools ? { beluga_calls: createCallNotesTools(input.callNotesTools) } : {}),
     // Your own runs can find and read other chats (core/chat-links), with prefs.chatLinks on.
     ...(input.chatTools ? { beluga_chats: createChatTools(input.chatTools) } : {}),
+    // Your own runs, when you turned agent threads on (core/threads).
+    ...(input.threadTools ? { beluga_threads: createThreadTools(input.threadTools) } : {}),
     beluga_view: createViewTools(shelf, cwd),
   };
 }
