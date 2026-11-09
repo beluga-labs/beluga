@@ -27,7 +27,7 @@ const refOf = (channel: string, owner = ME): string => `${owner}/${channel}`;
 
 const ws = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: `chat ${id}`, projectId: 'p1', projectRoot: '/p', path: `/p/${id}`, kind: 'worktree', createdAt: 1000, ...extra });
 
-function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => string[]; runtimeOf?: (channel: string) => 'claude' | 'codex' } = {}) {
+function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => string[]; canSee?: (peer: string, channel: string) => boolean; runtimeOf?: (channel: string) => 'claude' | 'codex' } = {}) {
   const base = initialState('room', 'auto');
   const store = new Store({
     ...base,
@@ -70,8 +70,12 @@ function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => s
       });
     },
   };
-  const send = (body: { kind: string } & Record<string, unknown>): boolean => {
+  const sent: Array<{ to?: string; body: BodyOf<'agent_event'> }> = [];
+  const send = (body: { kind: string } & Record<string, unknown>, to?: { to?: string }): boolean => {
     if (body.kind !== 'agent_event') return true;
+    sent.push({ ...(to?.to ? { to: to.to } : {}), body: body as unknown as BodyOf<'agent_event'> });
+    // What goes to other people is theirs: only your own copy is drawn here.
+    if (to?.to && to.to !== ME) return true;
     const e = body as unknown as BodyOf<'agent_event'>;
     // On the real path an event comes back through the room's connection, a moment later.
     if (opts.lateEvents) return void setTimeout(() => show(e), 20), true;
@@ -90,7 +94,7 @@ function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => s
     send: send as never,
     agent: () => agent,
     shares: {} as never,
-    sharing: { recipients: opts.recipients ?? (() => []), sharedFor: () => undefined, canPost: () => true } as never,
+    sharing: { recipients: opts.recipients ?? (() => []), sharedFor: () => undefined, canPost: () => true, canSee: opts.canSee ?? (() => true) } as never,
     people: {} as never,
     questions: { track: () => undefined, ask: async () => ({ kind: 'skip' }), cancelAll: () => undefined, cancelChannel: () => undefined } as never,
     toast: () => undefined,
@@ -121,7 +125,7 @@ function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => s
       if (h.runningIn(channel)) await end(channel);
     }
   };
-  return { h, store, say, working, card, runsIn, finish, steered, live, places, driving, end, tools, requesters, plans };
+  return { h, store, say, working, card, runsIn, finish, steered, live, places, driving, end, tools, requesters, plans, sent };
 }
 
 const parsed = (text: string): { message_id: string; state: string; delivery: string; note?: string; answer?: string } => JSON.parse(text);
@@ -264,6 +268,34 @@ describe('the chat tools of your own run', () => {
     const t = setup({ recipients: (channel) => (channel === TARGET ? [FRIEND] : []) });
     await t.working(SOURCE);
     expect(t.tools.has(SOURCE)).toBe(true);
+  });
+});
+
+describe('a private chat’s title in a chat you share (BLG-305)', () => {
+  const sharedTarget = (canSeeSource: boolean) => setup({ recipients: (channel) => (channel === TARGET ? [FRIEND] : []), canSee: (peer, channel) => channel !== SOURCE || canSeeSource || peer === ME });
+  const fromChatTo = (t: ReturnType<typeof setup>, to: string) => t.sent.find((x) => x.to === to && x.body.fromChat)?.body.fromChat;
+
+  it('the people you share the target with, who cannot read the source, see “a private chat” on the card and in the prompt', async () => {
+    const t = sharedTarget(false);
+    const from = await t.working(SOURCE);
+    await from.send(refOf(TARGET), 'please look', {});
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(fromChatTo(t, FRIEND)?.origin.title).toBe('a private chat');
+    expect(fromChatTo(t, ME)?.origin.title).toBe('chat src');
+    expect(t.runsIn(TARGET)[0]).toContain('a private chat');
+    expect(t.runsIn(TARGET)[0]).not.toContain('chat src');
+    expect(t.requesters.get(TARGET)).not.toContain('chat src');
+    await t.end(SOURCE, TARGET);
+  });
+
+  it('when they can read the source too, they see its title', async () => {
+    const t = sharedTarget(true);
+    const from = await t.working(SOURCE);
+    await from.send(refOf(TARGET), 'please look', {});
+    await waitFor(() => t.runsIn(TARGET).length === 1);
+    expect(fromChatTo(t, FRIEND)?.origin.title).toBe('chat src');
+    expect(t.runsIn(TARGET)[0]).toContain('chat src');
+    await t.end(SOURCE, TARGET);
   });
 });
 

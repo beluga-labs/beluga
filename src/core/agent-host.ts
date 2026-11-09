@@ -33,6 +33,7 @@ import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
 import { permissionRank } from './chat-links/permission.js';
+import { type SourceReaders, originSeenBy, originSeenByAll } from './chat-links/private-title.js';
 import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
 import { oneLine } from './gateway/model.js';
 import { peerSendAccess } from './chat-links/access.js';
@@ -917,7 +918,11 @@ export class AgentHost {
     const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}), ...(fromChat ? { fromChat } : {}) };
     // Workspace conversations are private: events go to you and the people you invited, never to the room.
     const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.deps.sharing.recipients(channel)].map((to) => ({ to }));
-    for (const opts of targets) if (!this.send(body, opts) && final) this.outbox = [...this.outbox, { body, opts }].slice(-50);
+    for (const opts of targets) {
+      // A private chat's title only to those who can read that chat (BLG-305).
+      const theirs = fromChat && 'to' in opts ? { ...body, fromChat: { ...fromChat, origin: originSeenBy(fromChat.origin, opts.to, this.sourceReaders) } } : body;
+      if (!this.send(theirs, opts) && final) this.outbox = [...this.outbox, { body: theirs, opts }].slice(-50);
+    }
   }
 
   async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
@@ -1799,7 +1804,17 @@ export class AgentHost {
 
   /** The name on the prompt's "Request from" line. */
   private askerOf(body: BodyOf<'agent_request'>, from: string): string {
-    return body.origin ? chatMessageAsker(body.origin) : peerName(this.store.getState(), from);
+    return body.origin ? chatMessageAsker(this.originShown(body.origin, body.channel)) : peerName(this.store.getState(), from);
+  }
+
+  /** Who reads which of your chats, for a private chat's title (chat-links/private-title.ts). */
+  private get sourceReaders(): SourceReaders {
+    return { selfId: this.selfId, canSee: (peer, channel) => this.deps.sharing.canSee(peer, channel) };
+  }
+
+  /** The origin as the run reads it: in a chat you share, everyone there sees what the run says. */
+  private originShown(origin: ChatOrigin, channel: string): ChatOrigin {
+    return originSeenByAll(origin, this.deps.sharing.recipients(channel), this.sourceReaders);
   }
 
   /** May this person's run find and read other chats? */
@@ -1815,7 +1830,7 @@ export class AgentHost {
   private promptOf(body: BodyOf<'agent_request'>, from: string, sent?: SentPlace): string {
     const board = this.store.getState().board;
     // A message from another chat: Beluga's words first, its own in a fence (see message-prompt.ts).
-    const said = body.origin ? chatMessagePrompt(body.origin, body.prompt) : body.prompt;
+    const said = body.origin ? chatMessagePrompt(this.originShown(body.origin, body.channel), body.prompt) : body.prompt;
     const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
     // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
     const mentioned = this.readsChats(from, body.channel) ? explainChatMentions(tasks) : tasks;
