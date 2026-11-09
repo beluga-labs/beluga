@@ -54,13 +54,10 @@ async function setup() {
   store.dispatch({ type: 'identity', selfId: identity.peerId, isHost: true });
   store.dispatch({ type: 'projects', projects: [{ id: 'p1', name: 'landing', root: dir, base: 'main', workspaces: [{ id: 'w1', projectRoot: dir, projectId: 'p1', name: 'auth', path: wt, kind: 'worktree', branch: 'beluga/auth', createdAt: 1, external: false }] }] as never });
   const terminals = new TerminalManager();
-  // Every shell this opens, closed ones too (closing forgets one before it has exited).
-  const spawned: Array<ReturnType<TerminalManager['open']>> = [];
   const macCalls: string[] = [];
   // The daemon's terminals API, as handlers.ts runs it through the workbench (a shell per worktree, at the Mac's size).
   const open = (key: string, cwd: string) => {
     const pty = terminals.open(key, { cwd, cols: 100, rows: 30, ...SHELL });
-    spawned.push(pty);
     store.dispatch({ type: 'terminal', id: key, title: pty.title });
     return pty.id;
   };
@@ -104,9 +101,10 @@ async function setup() {
   attachCompanion(session, host);
   cleanup.push(async () => {
     await host.stop();
-    // The shells end first, and are waited for, ones already closed too (closing forgets them at
-    // once): Windows holds a shell's folder until it has really exited, and a moment after (BLG-728).
-    const shells = [...new Set([...spawned, ...terminals.list()])].filter((p) => !p.exited);
+    // The shells end first, and are waited for (closing forgets them at once): Windows holds a
+    // shell's folder until it has really exited, and a moment after (BLG-728). One closed already
+    // is never killed again: a second kill of a disposed pty can crash the worker there.
+    const shells = terminals.list().filter((p) => !p.exited);
     const ended = shells.map((p) => new Promise<void>((resolve) => p.onExit(() => resolve())));
     for (const p of shells) p.kill();
     await Promise.race([Promise.all(ended), new Promise((resolve) => setTimeout(resolve, 10_000))]);
@@ -114,7 +112,7 @@ async function setup() {
     try {
       rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     } catch (err) {
-      // A temp folder Windows still holds is left for it to clear, never a failed test.
+      // A temp folder Windows still holds (a closed shell still exiting) is left for it to clear, never a failed test.
       if (process.platform !== 'win32') throw err;
     }
   });
