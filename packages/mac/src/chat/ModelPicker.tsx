@@ -1,6 +1,6 @@
 import * as Popover from '@radix-ui/react-popover';
 import { EFFORTS, type Effort } from '@beluga/shared/settings-schema.js';
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import type { AppState } from '@beluga/core/store.js';
 import { type AgentRef, CLAUDE_AGENT } from '@beluga/protocol.js';
 import { type HandoffMode, limitHit, needsHandoff } from '@beluga/shared/agent-handoff.js';
@@ -124,8 +124,8 @@ interface Move {
  * The agent for this conversation, and how hard it thinks, in one compact popover (BLG-446): the
  * agents down a rail on the left (each with its mark, a dot on the one at work here, greyed when it
  * isn't set up), the shown agent's models on the right, one line each with what they're good at,
- * scrolling inside a popover that never outgrows the window; effort, Auto then five bars, one row
- * below. `draft`: a new worktree's pick (it has no conversation yet), kept by the New Worktree box.
+ * scrolling inside a popover that never outgrows the window; effort below, Auto then Low to Max
+ * on one track, what the level means above it. `draft`: a new worktree's pick (it has no conversation yet), kept by the New Worktree box.
  */
 export function ModelPicker({ channel, draft, onDraft }: { channel: string; draft?: AgentRef; onDraft?: (agent: AgentRef | undefined) => void }) {
   const api = useApi();
@@ -238,20 +238,23 @@ export function ModelPicker({ channel, draft, onDraft }: { channel: string; draf
                 </div>
               </div>
               <div className={s.thinking}>
-                <span className={s.thinkingLabel} title="For every conversation">
-                  Thinking
-                </span>
-                <div className={s.meter} role="radiogroup" aria-label="Thinking effort">
-                  <button type="button" role="radio" aria-checked={!effort} className={cx(s.auto, !effort && s.autoOn)} title="Your agent decides how much to think, case by case" onClick={() => void api.session.setPrefs({ effort: null })}>
+                <div className={s.thinkingHead}>
+                  <span className={s.thinkingLabel}>Thinking</span>
+                  <span className={s.thinkingDetail}>{effort ? EFFORT_INFO[effort].detail : 'Your agent decides how much to think, case by case'}</span>
+                </div>
+                {/* Auto, then Low to Max: a thumb that slides to the level picked, a warm fill behind it as deep as the level. */}
+                <div className={s.track} role="radiogroup" aria-label="Thinking effort" style={{ '--at': level + 1, '--heat': level < 0 ? 0 : (level + 1) / EFFORTS.length } as CSSProperties}>
+                  <span className={s.fill} aria-hidden />
+                  <span className={s.thumb} aria-hidden />
+                  <button type="button" role="radio" aria-checked={!effort} className={cx(s.level, !effort && s.levelOn)} title="Your agent decides how much to think, case by case" onClick={() => void api.session.setPrefs({ effort: null })}>
                     Auto
                   </button>
-                  {EFFORTS.map((e, i) => (
-                    <button key={e} type="button" role="radio" aria-checked={effort === e} aria-label={EFFORT_INFO[e].label} disabled={!allowed.has(e)} title={`${EFFORT_INFO[e].label}: ${EFFORT_INFO[e].detail}`} className={s.step} onClick={() => void api.session.setPrefs({ effort: e })}>
-                      <span className={cx(s.bar, i <= level && s.barOn)} style={{ height: 5 + i * 3 }} />
+                  {EFFORTS.map((e) => (
+                    <button key={e} type="button" role="radio" aria-checked={effort === e} disabled={!allowed.has(e)} title={allowed.has(e) ? EFFORT_INFO[e].detail : 'This model doesn’t take this level'} className={cx(s.level, effort === e && s.levelOn)} onClick={() => void api.session.setPrefs({ effort: e })}>
+                      {EFFORT_INFO[e].label}
                     </button>
                   ))}
                 </div>
-                {effort ? <span className={s.effortWord}>{EFFORT_INFO[effort].label}</span> : null}
               </div>
             </>
           )}

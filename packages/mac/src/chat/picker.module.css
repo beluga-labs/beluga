@@ -199,76 +199,109 @@
   font-size: 0.84rem;
   line-height: 1.4;
 }
-/* Effort, for every conversation: Auto, then five bars from Low to Max, the level's name after them. */
+/* Effort, for every conversation: what the level means, then Auto and Low to Max on one track. */
 .thinking {
   display: flex;
   flex: none;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 6px;
-  padding: 8px 8px 2px;
+  padding: 8px 4px 2px;
   border-top: 0.5px solid var(--hairline);
 }
-.thinkingLabel {
-  color: var(--text-2);
-  font-size: 0.86rem;
-  font-weight: 600;
-}
-.meter {
+.thinkingHead {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 4px;
 }
-.auto {
-  height: 20px;
-  margin-right: 6px;
-  padding: 0 8px;
-  border-radius: 6px;
+.thinkingLabel {
+  flex: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.thinkingDetail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: 0.82rem;
+}
+/*
+ * Six equal stops. `--at` is the stop picked (0 Auto … 5 Max), `--heat` how deep the level is
+ * (0 … 1): the fill behind the stops reaches the thumb and warms toward Claude's colour with it.
+ */
+.track {
+  --stops: 6;
+  --stop: calc((100% - 4px) / var(--stops));
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  height: 28px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--bg-press);
+  isolation: isolate;
+}
+.fill {
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(var(--stop) * (var(--at) + 1));
+  border-radius: 7px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--claude) calc(var(--heat) * 34%), transparent));
+  opacity: min(1, calc(var(--heat) * 4));
+  transition: width var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
+}
+.thumb {
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: var(--stop);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--claude) calc(var(--heat) * 22%), var(--bg-raised));
+  box-shadow: 0 0 0 0.5px var(--hairline-strong), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transform: translateX(calc(100% * var(--at)));
+  transition: transform var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+}
+.level {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 7px;
   color: var(--text-2);
   font-size: 0.8rem;
   font-weight: 500;
-  box-shadow: inset 0 0 0 0.5px var(--hairline-strong);
+  transition: color var(--dur-fast);
 }
-.autoOn {
-  background: var(--accent);
-  color: white;
-  box-shadow: none;
+.level:hover:not(:disabled) {
+  color: var(--text);
 }
-.step {
-  display: flex;
-  align-items: flex-end;
-  width: 22px;
-  height: 20px;
-  padding: 0 2px;
+.levelOn {
+  color: var(--text);
+  font-weight: 600;
 }
-.step:disabled {
-  opacity: 0.3;
-}
-.bar {
-  display: block;
-  width: 100%;
-  border-radius: 2px;
-  background: var(--bg-press);
-  transform-origin: bottom;
-  transition: background var(--dur-fast), transform var(--dur-fast);
-}
-.step:hover:not(:disabled) .bar {
-  background: color-mix(in srgb, var(--claude) 35%, var(--bg-press));
-}
-.step:active:not(:disabled) .bar {
-  transform: scaleY(0.94);
-}
-.barOn {
-  background: var(--claude);
-}
-.step:hover:not(:disabled) .barOn {
-  background: color-mix(in srgb, var(--claude) 85%, white);
-}
-.effortWord {
-  margin-left: auto;
+.level:disabled {
   color: var(--text-3);
-  font-size: 0.82rem;
-  white-space: nowrap;
+  opacity: 0.45;
+  cursor: default;
+}
+.level:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .thumb {
+    transition: none;
+  }
 }
 /* A model that can't be picked now (a local endpoint not answering): greyed, its why in its line. */
 .modelOff {
