@@ -130,6 +130,12 @@ const SCRIPTS: readonly Script[] = [
     ].join('\n'),
   },
   {
+    // A component that can't be built yet: the preview says why, in a short note.
+    match: /\bprice ?tag\b/i,
+    steps: ['Read src/components/PriceTag.tsx'],
+    answer: ['PriceTag.tsx shows a price from cents:', '', '```beluga-preview', 'src/components/PriceTag.tsx', '```'].join('\n'),
+  },
+  {
     // Two components in one file: the preview's picker and All Components.
     match: /\bbadges?\b/i,
     steps: ['Read src/components/Badges.tsx'],
