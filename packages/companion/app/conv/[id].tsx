@@ -7,7 +7,7 @@ import { ThreadsSheet, threadsSummary } from '../../components/ThreadsSheet';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
 import { InlineThing } from '../../components/render/Inline';
-import { parseChatRef } from '../../lib/render';
+import { chatMentionsAsTitles, parseChatRef } from '../../lib/render';
 import { openOnMac } from '../../lib/mac';
 import { useRef, useState } from 'react';
 import { Platform, ScrollView, useWindowDimensions, View } from 'react-native';
@@ -241,7 +241,7 @@ function Conversation() {
                 {t.dialogue ? (
                   <DialogueTurn d={t.dialogue} />
                 ) : t.who === 'you' ? (
-                  <YourTurn t={t} chips={chipsOf(t)} onLongPress={t.steer?.waiting === 'next_step' ? () => setUnread(t) : t.edit && canEdit ? () => setEditing(t) : reactPress(t)} />
+                  <YourTurn t={t} chatLinks={c?.chatLinks === true} chips={chipsOf(t)} onLongPress={t.steer?.waiting === 'next_step' ? () => setUnread(t) : t.edit && canEdit ? () => setEditing(t) : reactPress(t)} />
                 ) : t.who === 'friend' && reactPress(t) ? (
                   <Press onLongPress={reactPress(t)} haptics={false} scaleTo={0.99}>
                     <ClaudeTurn t={t} all={all} onAgent={setAgent} topic={topic} runtime={c?.agent?.runtime} chips={chipsOf(t)} />
@@ -418,10 +418,11 @@ function Conversation() {
 }
 
 /** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now, or Cancel from 1.43); else long-press edits it (1.28). */
-function YourTurn({ t, onLongPress, chips }: { t: TurnView; onLongPress?: (() => void) | undefined; chips?: React.ReactNode }) {
+function YourTurn({ t, chatLinks, onLongPress, chips }: { t: TurnView; chatLinks: boolean; onLongPress?: (() => void) | undefined; chips?: React.ReactNode }) {
   const waiting = t.steer?.waiting;
-  // A chat you named is its chip, as on the Mac (BLG-306); an older Mac's words stay words.
-  const chats = useSupports('chatLinks');
+  // A chat you named is its chip, as on the Mac (BLG-306); an older Mac's words stay words. With the Mac's chat links off: its title, no chip.
+  const chats = useSupports('chatLinks') && chatLinks;
+  const prose = chats ? t.prose : { ...t.prose, text: chatMentionsAsTitles(t.prose.text) };
   return (
     <Press onLongPress={onLongPress} disabled={!onLongPress} scaleTo={0.99} style={{ alignItems: 'flex-end', paddingLeft: 48 }}>
       {t.via ? (
@@ -430,7 +431,7 @@ function YourTurn({ t, onLongPress, chips }: { t: TurnView; onLongPress?: (() =>
         </T>
       ) : null}
       <View style={{ backgroundColor: color.card, borderRadius: 20, borderBottomRightRadius: 6, paddingVertical: 10, paddingHorizontal: 14, opacity: waiting ? 0.6 : 1 }}>
-        <Prose prose={t.prose} size={15} tasks chats={chats} />
+        <Prose prose={prose} size={15} tasks chats={chats} />
       </View>
       {chips ? <View style={{ marginTop: 4 }}>{chips}</View> : null}
       {waiting ? (

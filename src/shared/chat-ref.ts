@@ -125,6 +125,17 @@ export function chatMentionsAsCode(text: string): string {
   return out + text.slice(last);
 }
 
+/** The words with each chat mention as its title only ("@Title"): where chat links are off, so no chip. */
+export function chatMentionsAsTitles(text: string): string {
+  let out = '';
+  let last = 0;
+  for (const c of chatMentionsIn(text)) {
+    out += `${text.slice(last, c.start)}@${c.title}`;
+    last = c.end;
+  }
+  return out + text.slice(last);
+}
+
 /** The chat mention that ends right at `caret`, to take out whole. */
 export function chatMentionEndingAt(text: string, caret: number): { readonly start: number; readonly end: number } | undefined {
   const hit = chatMentionsIn(text.slice(0, caret)).find((c) => c.end === caret);

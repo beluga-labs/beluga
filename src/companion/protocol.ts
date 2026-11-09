@@ -137,7 +137,8 @@ export const COMPANION_PROTO = { major: 1, minor: 53 } as const;
  * 1.50 (BLG-121, BLG-122): a message an external agent sent says so (`TurnView.via`). An older phone shows the message
  * without it. External agents from the phone: `external.agents`, `stopAgent`, `stopAll`, `revoke`, `activity` (SINCE.externalAgents).
  * 1.51 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
- * An older Mac has no such call: the phone shows the token as code.
+ * An older Mac has no such call: the phone shows the token as code. `ConvView.chatLinks`: the Mac has
+ * chat links on; with them off the phone shows a chat mention as its title, with no chip.
  * 1.52 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
  * 1.53 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
  */
@@ -672,6 +673,8 @@ export const ConvView = z.object({
   turns: z.array(TurnView).max(200),
   /** Older turns exist (companion.older). */
   more: z.boolean(),
+  /** 1.51: the Mac has chat links on: each "@Title (chat: …)" of yours is a chip. Without it, the phone shows "@Title". */
+  chatLinks: z.literal(true).optional(),
   needsYou: z.array(NeedsYou).max(20),
   /** You may write here (it's yours, or shared with you to work in). */
   canSend: z.boolean(),

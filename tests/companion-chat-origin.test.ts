@@ -3,6 +3,7 @@ import { phoneMay } from '../src/companion/coverage.js';
 import { waitingNeeds } from '../src/companion/needs-you.js';
 import { convTurns, convView } from '../src/companion/views.js';
 import { queueIn } from '../src/ui/compose.js';
+import { chatMentionsAsTitles } from '../src/shared/chat-ref.js';
 import { COMPANION_PROTO, ConvView, NeedsYou, SINCE, TurnView, viewSchema } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { ChatOrigin } from '../src/protocol.js';
@@ -127,3 +128,22 @@ function storeWithQueue() {
   store.dispatch({ type: 'agent_event', owner: ME, requestId: 'mine', requester: ME, event: 'queued', text: 'My words', ts: 3, channel: 'ws:tgt' });
   return store;
 }
+
+describe('chat chips on the phone follow the Mac’s chat links setting', () => {
+  const ctx = { macName: 'Mac', refs: { output: () => undefined } } as never;
+  const conv = (chatLinks: boolean): ConvView => {
+    const base = initialState('room', 'auto');
+    const store = new Store({ ...base, selfId: ME, prefs: { ...base.prefs, chatLinks } });
+    return viewSchema('conv:ws:tgt' as never).parse(convView(store.getState(), ctx, 'conv:ws:tgt' as never)) as ConvView;
+  };
+
+  it('the conversation says when the Mac has chat links on, and only then', () => {
+    expect(conv(true).chatLinks).toBe(true);
+    expect(conv(false).chatLinks).toBeUndefined();
+  });
+
+  it('with chat links off, a chat mention is its title in plain words', () => {
+    expect(chatMentionsAsTitles(`Look at @Fix the login (chat: ${ME}/ws:src) first`)).toBe('Look at @Fix the login first');
+    expect(chatMentionsAsTitles('A ref that is no chat @x (chat: nope) stays')).toBe('A ref that is no chat @x (chat: nope) stays');
+  });
+});
