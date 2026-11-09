@@ -39,6 +39,10 @@ test('Copy Link on a worktree, pasted in another chat, shows as its chip', async
   await expect(inBox).toContainText('webhook-retries');
   const box = (await composer(page).boundingBox())!;
   await page.screenshot({ path: '../../.beluga/scratch/03-worktree-chip-in-box.png', clip: { x: box.x - 16, y: box.y - 44, width: Math.min(box.width + 32, 640), height: box.height + 60 } });
+  await composer(page).fill(`compare this with ${ref} and tell me what differs`);
+  await expect(inBox).toContainText('webhook-retries');
+  await page.screenshot({ path: '../../.beluga/scratch/04-worktree-chip-words-after.png', clip: { x: box.x - 16, y: box.y - 44, width: Math.min(box.width + 32, 640), height: box.height + 60 } });
+  await composer(page).fill(`compare this with ${ref}`);
 
   // …and in the message once it is.
   await composer(page).press('Enter');

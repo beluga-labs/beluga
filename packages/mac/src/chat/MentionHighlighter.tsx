@@ -111,7 +111,7 @@ export function MentionHighlighter({
         "ref" in p && isChip(p) ? (
           <mark key={i} className={m.imageChip} data-mention={p.raw} data-kind={p.ref.kind}>
             <span className={m.chipRoom}>{p.raw}</span>
-            <ImageChip className={m.chipFace} label={p.ref.label} icon={p.ref.kind === "worktree" ? "branch" : "image"} />
+            <ImageChip className={p.ref.kind === "worktree" ? `${m.chipFace} ${m.chipHug}` : m.chipFace} label={p.ref.label} icon={p.ref.kind === "worktree" ? "branch" : "image"} />
           </mark>
         ) : "ref" in p ? (
           <mark
