@@ -14,6 +14,7 @@ const STILLS = {
   'scenes/tables-dark': 0.55,
   'scenes/friends-dark': 0.95,
   'scenes/sentinel-dark': 0.3,
+  'scenes/machines-dark': 0.45,
   'scenes/earnings-dark': 0.75,
   'scenes/archive-dark': 0.95,
   'mac/worktree-per-task': 0.95,

@@ -1,15 +1,17 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
 import { EmojiSchema } from '../shared/reactions.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, SETTLE_IDLE_DAYS_MAX, THEMES, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { AUTO_CONTINUE_OFF_MAX } from '../shared/auto-continue.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
+import { MAX_RANGE } from '../shared/text-range.js';
 import { type ArgsRuntime, MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH, agentArgsProblem } from '../shared/agent-args.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
+import { REVENUECAT_API } from './revenuecat-api.js';
 import { TRIAGE_API } from './triage-api.js';
 import { SUPPORT_API } from './support-api.js';
 import { STATS_API } from './stats-api.js';
@@ -32,6 +34,7 @@ import { VIEWS_API } from './views-api.js';
 import { PREVIEW_API } from './preview-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
+import { MACHINE_API } from './machine-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
 import { VOICE_API } from './voice-api.js';
 import { CALLS_API } from './calls-api.js';
@@ -85,6 +88,7 @@ export const PrefsPatch = z
     mouse: bool,
     tunnel: z.enum(['auto', 'p2p', 'cloudflared', 'ngrok', 'none']),
     keepAwake: z.enum(KEEP_AWAKE),
+    runOn: z.string().regex(RUN_ON),
     lowPower: z.enum(LOW_POWER),
     selfApproval: z.enum(['never', 'ask']),
     notify: NotifySettings,
@@ -104,15 +108,19 @@ export const PrefsPatch = z
     autoContinueSkip: z.number().int().min(0),
     parallelRuns: z.number().int().min(PARALLEL_RUNS_MIN).max(PARALLEL_RUNS_MAX),
     chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX),
+    agentThreads: bool,
+    threadLimits: ThreadLimitsSchema,
     chatCategories: bool,
     settleOnMerge: bool,
     settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
+    pushToPr: bool,
     scratchFolder: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),
     friendWorktrees: z.enum(['ask', 'off']),
     chatClaude: z.enum(['everyone', 'trusted', 'off']),
     shareUsage: z.enum(['trusted', 'everyone', 'off']),
+    readReceipts: bool,
     // null: back to the login shell (JSON can't carry undefined, so "unset" travels as null).
     shell: z.string().max(200).nullable().optional(),
     shellLogin: bool,
@@ -185,6 +193,10 @@ export const API = {
   'host.cancelSteer': args(id),
   // Stop your Claude in one conversation: → { stopped, returned: your queued prompts, in order }.
   'host.stopRun': args(channel),
+  // A person's Stop on one child thread, from the parent's panel.
+  'threads.stop': args(id),
+  // A person's Stop All Running on a chat's threads: its own turn goes on → { stopped: how many }.
+  'threads.stopAll': args(id),
   'host.cancelQueued': args(id),
   'host.reorderQueued': args(id, z.number().int().min(0).max(100)),
 
@@ -264,6 +276,8 @@ export const API = {
   'files.version': args(Location),
   // A file's text without opening it in the viewer (the Mac Changes tab shows a changed file as itself): → { content, truncated }.
   'files.read': args(Location),
+  // One piece of a file's text (BLG-791): `length` bytes from `offset`, ended on a line → TextRange { content, offset, next?, total, mtime, binary?, stale? }. `cache`: a copy fetched moments ago will do (on a computer, this Mac's cache answers it).
+  'files.readRange': args(Location, z.object({ offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), length: z.number().int().min(1).max(MAX_RANGE), cache: opt(bool) }).strict()),
 
   // ---- projects and workspaces
   // `req`: a screen's id for this open, echoed in the navigate intent (it showed the workspace ahead, see ClientStore.openAhead).
@@ -291,8 +305,20 @@ export const API = {
   // Carry a conversation (an ask chat in a main folder, or any chat) into a new worktree and go on there → the new workspace's id.
   // `agent` (BLG-506): who goes on there; unset: the conversation's own. One that can't resume the conversation starts fresh, handed it.
   'workspaces.continueInWorktree': args(id, opt(z.object({ task: opt(str), base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), agent: opt(AgentRef) }).strict())),
+  // Continue On another computer (BLG-808), as your app runs it (src/machines/move.ts). Here: its branch,
+  // changes not committed (asked about), whether its agent is at work, its project → WorktreeCheck.
+  'workspaces.moveCheck': args(id),
+  // Packed to go: its branch pushed (or bundled), its conversation; changes not committed only with commit → { token, chunks }.
+  'workspaces.movePack': args(id, z.object({ commit: opt(bool), to: z.string().min(1).max(80) }).strict()),
+  'workspaces.moveChunk': args(z.string().uuid(), z.number().int().min(0).max(200)),
+  // There: one piece coming in, then landed as a worktree on its branch in that project → its id (the .env ask follows).
+  'workspaces.moveReceive': args(z.string().uuid(), z.number().int().min(0).max(200), z.number().int().min(1).max(201), z.string().max(2 * 1024 * 1024)),
+  'workspaces.moveLand': args(z.string().uuid(), id, z.string().min(1).max(80)),
+  // Here: the new one runs there, this one is archived (saying where it went). There: a landed one whose move didn't finish, archived again.
+  'workspaces.moveDone': args(id, z.string().min(1).max(80)),
+  'workspaces.moveUndo': args(id),
   // `quiet`: no success toast; a batch says it once for all its chats (the sidebar's chat selection).
-  'workspaces.archive': args(id, opt(bool), opt(z.object({ quiet: opt(bool) }).strict())),
+  'workspaces.archive': args(id, opt(bool), opt(z.object({ children: opt(z.enum(['with', 'keep'])), quiet: opt(bool) }).strict())),
   'workspaces.restore': args(id),
   // What archiving (or freeing space) would throw away and keep → ArchivePreview (none: not a worktree that's there).
   'workspaces.archivePlan': args(id),
@@ -301,7 +327,7 @@ export const API = {
   // Throw away a worktree's dependencies, builds and caches → bytes freed.
   'workspaces.freeSpace': args(id),
   // `quiet`: as for archive.
-  'workspaces.remove': args(id, opt(z.object({ quiet: opt(bool) }).strict())),
+  'workspaces.remove': args(id, opt(z.object({ children: opt(z.enum(['with', 'keep'])), quiet: opt(bool) }).strict())),
   'workspaces.commit': args(id, opt(z.string().max(2000))),
   'workspaces.merge': args(id),
   'workspaces.prepareRemoval': args(id),
@@ -312,6 +338,8 @@ export const API = {
   'workspaces.saveEnvInBeluga': args(id),
   // Look at a project's worktrees' env files now (untouched copies follow the main folder; changed ones are asked about).
   'workspaces.checkEnv': args(id),
+  // The ports a worktree's processes listen on now (BLG-801): [{ port, pid, name (vite, next…), host }].
+  'workspaces.ports': args(id),
   'workspaces.askClaudeToReview': args(id),
   'workspaces.askClaudeToMerge': args(id),
   'workspaces.compact': args(id, opt(z.string().max(2000))),
@@ -343,6 +371,8 @@ export const API = {
   'workspaces.addProject': args(path),
   'workspaces.addFolder': args(path),
   'workspaces.selectFile': args(z.number().int().min(0)),
+  // Work out changed file N's diff ahead of a click (the file under the pointer): the pick then shows it at once (BLG-853).
+  'workspaces.diffAhead': args(z.number().int().min(0)),
   // Load (or reload) what changed in a workspace without going to it (the Mac app's Changes panel).
   'workspaces.review': args(id),
   // A workspace's scratch folder (.beluga/scratch/): where it is and its files, newest first. → { root, dir, files: [{ path, size, mtime }] }
@@ -454,12 +484,17 @@ export const API = {
   'projects.icon': args(id),
   'projects.setIcon': args(id, opt(path)),
   'projects.add': args(path),
+  // A project's git origin (none: it has none), for matching it on, or cloning it to, one of your computers (BLG-788).
+  'projects.origin': args(id),
   'projects.addFolder': args(path),
   // Make a folder that isn't a git project one (git, a .gitignore, a first commit), then add it.
   'projects.initGit': args(path),
   'projects.suggest': args(),
   // Start a new project: a folder (name, in this folder or your code folder), git and a first commit → { id, path }.
   'projects.create': args(z.string().max(100), opt(path)),
+  // A project from its git address (https or ssh), cloned into this folder or your code folder, then added → { id, path, existed? }
+  // (existed: a project of that repository was here already, so nothing was cloned).
+  'projects.clone': args(z.string().min(1).max(500), opt(path)),
   // Where a new project goes unless you pick somewhere.
   'projects.newHome': args(),
   // The icon of a folder that isn't a project yet (one of the suggestions).
@@ -478,6 +513,8 @@ export const API = {
 
   // ---- earnings from Stripe, per project (stripe-api.ts)
   ...STRIPE_API,
+  // ---- earnings from RevenueCat, per project, added to Stripe's (revenuecat-api.ts)
+  ...REVENUECAT_API,
   // ---- supporting Beluga: the star and coffee asks merges bring (support-api.ts)
   ...SUPPORT_API,
   // ---- your stats in the Usage tab: counted by the daemon, pastes and dictation from the Mac (stats-api.ts)
@@ -512,6 +549,8 @@ export const API = {
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)
   ...COMPANION_API,
+  // ---- your devices and computers: pairing one, your device set, forgetting a device (machine-api.ts)
+  ...MACHINE_API,
   // ---- Your Mac's chats, as tabs on the Mac (assistant-api.ts)
   ...ASSISTANT_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)

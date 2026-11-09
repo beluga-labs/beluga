@@ -1,6 +1,7 @@
 import type { AppState } from '@beluga/core/store.js';
 import type { Workspace } from '@beluga/workspaces/types.js';
 import { stateOf } from '@beluga/ui/workspace-models.js';
+import { notOnPr, notOnPrLabel } from '@beluga/core/branch-state.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { cx } from '../components/ui.js';
@@ -18,6 +19,10 @@ import { triageItems } from './row-triage-actions.js';
 import { outsideLocation } from './outside-model.js';
 import { useChatSelection } from './chat-selection-view.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
+import { HarnessMark } from '../threads/HarnessMark.js';
+import { FamilyEnd, FamilyMark } from '../threads/FamilyRow.js';
+import { threadFamilyRow } from '../threads/threads-model.js';
+import { useNow } from '../chat/Items.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -70,11 +75,13 @@ const ARCHIVING: Record<NonNullable<AppState['archiving'][string]>, string> = {
   removing: 'Archiving: removing the folder',
 };
 
-/** A row's sub-agents, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
+/** A row's sub-agents and child threads, folded under it or not (SubAgents.tsx): the arrow in its gutter turns them. */
 export interface WorkspaceFold {
   readonly open: boolean;
   readonly count: number;
   readonly running: number;
+  /** What it holds, for the arrow's name: "sub-agents", "threads". */
+  readonly noun: string;
   /** "2 sub-agents · 1 running". */
   readonly summary: string;
   readonly toggle: () => void;
@@ -85,7 +92,7 @@ export interface WorkspaceFold {
  * when it needs you (the row faintly tinted), a count and a bold name when Claude finished or
  * someone wrote while you were elsewhere, Claude's pulse while it works; otherwise its git state.
  */
-export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { ws: Workspace; indent: number; fold?: WorkspaceFold }) {
+export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFamily }: { ws: Workspace; indent: number; fold?: WorkspaceFold; inFamily?: boolean }) {
   const actions = useActions();
   const { client } = useBeluga();
   const [renaming, setRenaming] = useState(false);
@@ -93,7 +100,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
   const selection = useChatSelection();
   const inSelection = ws.kind === 'chat' && Boolean(selection?.ids.includes(ws.id));
   // Only what the row shows: another conversation streaming doesn't draw it again (KLD-48).
-  const { selected, st, signal, where, archiving } = useApp(
+  const { selected, st, signal, where, archiving, gap } = useApp(
     (state) => ({
       selected: state.view.kind === 'workspace' && state.view.id === ws.id,
       st: stateOf(state, ws, 0),
@@ -102,9 +109,14 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
       where: outsideLocation(state, ws),
       // Being archived: how far along (it leaves the sidebar when done).
       archiving: state.archiving[ws.id],
+      // Commits its open PR doesn't have yet (BLG-840): a chip, since merging now would leave them out.
+      gap: ws.kind === 'worktree' && !ws.archived ? notOnPr(state.prs[ws.id], ws) : undefined,
     }),
     sameDeep,
   );
+  // A child thread in its parent's fold: the row a native sub-agent has too (threads/FamilyRow.tsx).
+  const family = useApp((state) => (inFamily && ws.thread ? threadFamilyRow(state, ws) : undefined), sameDeep);
+  const now = useNow(family?.state === 'running');
   const regenerateTitle = async (): Promise<void> => {
     if (regenerating) return;
     setRegenerating(true);
@@ -118,6 +130,8 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
     }
   };
   const icon: IconName = ws.kind === 'chat' ? 'chat' : ws.kind === 'main' ? 'folder' : 'branch';
+  const mark = <HarnessMark ws={ws} />;
+  const kindIcon = family ? <FamilyMark row={family} /> : <Icon name={icon} size={14} />;
   // Being made: its page opens here (the core has nothing to open yet), with nothing to do on it until it's there.
   if (ws.pending) {
     return (
@@ -131,7 +145,12 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         label={ws.name}
         detail={`${ws.name}: making the worktree from ${ws.base ?? 'the latest origin'}…`}
         onClick={() => client.store.dispatch({ type: 'view', view: { kind: 'workspace', id: ws.id, tab: 'chat' } })}
-        trailing={<span className={s.making} role="progressbar" aria-label="Making the worktree" />}
+        trailing={
+          <>
+            <span className={s.making} role="progressbar" aria-label="Making the worktree" />
+            {mark}
+          </>
+        }
       />
     );
   }
@@ -158,16 +177,16 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
               <button
                 type="button"
                 className={s.agentFold}
-                aria-label={fold.open ? `Fold the sub-agents of ${ws.name}` : `Show the sub-agents of ${ws.name}`}
+                aria-label={fold.open ? `Fold the ${fold.noun} of ${ws.name}` : `Show the ${fold.noun} of ${ws.name}`}
                 title={fold.open ? `Fold away ${fold.summary}` : `Show ${fold.summary}`}
                 onClick={(e) => (e.stopPropagation(), fold.toggle())}
               >
                 <Icon name="chevronRight" size={9} className={cx(s.agentDisclosure, fold.open && s.agentDisclosureOpen)} />
               </button>
-              <Icon name={icon} size={14} />
+              {kindIcon}
             </span>
           ) : (
-            <Icon name={icon} size={14} />
+            kindIcon
           )
         }
         onKeyDown={(e) => {
@@ -205,7 +224,10 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
         }}
         trailing={
           archiving ? (
-            <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+            <>
+              <span className={s.archiving} data-archiving={archiving}>Archiving…</span>
+              {mark}
+            </>
           ) : (
             <>
               {ws.startedByAgent ? (
@@ -220,7 +242,20 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold }: { w
                   {fold.count}
                 </span>
               ) : null}
-              <SignalMark signal={signal} fallback={quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+              {gap ? (
+                <span className={s.notOnPr} title={notOnPrLabel(gap)} aria-label={notOnPrLabel(gap)} data-not-on-pr={gap.count}>
+                  <Icon name="up" size={10} />
+                  {gap.count}
+                </span>
+              ) : null}
+              {family ? (
+                <FamilyEnd row={family} now={now} />
+              ) : (
+                <>
+                  <SignalMark signal={signal} fallback={gap ? null : quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
+                  {mark}
+                </>
+              )}
             </>
           )
         }

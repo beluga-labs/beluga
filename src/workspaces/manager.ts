@@ -19,6 +19,7 @@ import { moveToTrash } from './trash.js';
 import { dropFolderSessions, dropSession, pathVariants, sessionFoldersUnder } from '../agent/runtime/claude/claude-sessions.js';
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
 import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/opencode/sessions.js';
+import { dropCopilotFolder, dropCopilotSession } from '../agent/runtime/copilot/sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
 import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, RenameResult, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
@@ -33,6 +34,7 @@ import { PROJECT_DIR, sentFolder } from '../shared/scratch-dir.js';
 import { dropSent } from './scratch.js';
 import { BRANCH_PREFIX_DEFAULT } from '../shared/settings-schema.js';
 import { envRecord, parseEnvText } from '../shared/env-vars.js';
+import type { ThreadRecord } from '../shared/threads.js';
 
 export const slug = (s: string): string =>
   s
@@ -83,6 +85,9 @@ const forkSessionOf = (source: Workspace, session: string | null | undefined): P
   ...(session === undefined ? (source.sessionId ? { forkFromSession: source.sessionId } : {}) : session ? { sessionId: session } : {}),
 });
 /** A record's agent and model from one AgentRef (its model kept as the workspace's model, as setAgent does). */
+/** Heads of a worktree's pull requests that merged (BLG-831, BLG-833): GitHub keeps them, so what's in them isn't pushed nowhere. */
+const shippedOf = (ws: Pick<WorkspaceRecord, 'mergedHead' | 'prShipped'>): string[] => [...new Set([ws.mergedHead, ws.prShipped?.head].filter((h): h is string => Boolean(h)))];
+
 const agentFields = (agent: AgentRef | undefined): Pick<WorkspaceRecord, 'agent' | 'model'> => {
   if (!agent) return {};
   const { model, ...ref } = agent;
@@ -484,7 +489,7 @@ export class WorkspaceManager {
     const find = (): Workspace | undefined => this.projects.flatMap((p) => p.workspaces).find((w) => !w.archived && w.kind !== 'chat' && real(w.path) === key);
     const read = find();
     if (!read) return false;
-    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base).catch(() => undefined);
+    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base, shippedOf(read)).catch(() => undefined);
     if (this.refreshing) return false; // a full refresh started meanwhile: it has the newer reading
     // As it is now (a full refresh may have replaced it meanwhile), not as it was before git ran.
     const ws = find();
@@ -520,7 +525,7 @@ export class WorkspaceManager {
     const workspaces = this.records
       .filter((r) => r.projectRoot === '')
       // A chat started in a project's main folder is questions only, like any run there.
-      .map((r): Workspace => ({ ...r, projectId: CHATS_PROJECT, external: false, ...(roots.has(real(r.path)) ? { askOnly: true } : {}) }))
+      .map((r): Workspace => ({ ...r, projectId: CHATS_PROJECT, external: false, ...(roots.has(real(r.path)) || r.thread?.readOnly ? { askOnly: true } : {}) }))
       .sort(order);
     return { id: CHATS_PROJECT, name: 'Chats', root: '', base: '', workspaces };
   }
@@ -551,11 +556,11 @@ export class WorkspaceManager {
       }
       for (const rec of records) {
         // Chats in the main folder (every project chat, so far) are questions only: work happens in worktrees.
-        if (rec.kind === 'chat') workspaces.push({ ...rec, projectId: id, external: false, ...(real(rec.path) === real(root) ? { askOnly: true } : {}) });
+        if (rec.kind === 'chat') workspaces.push({ ...rec, projectId: id, external: false, ...(real(rec.path) === real(root) || rec.thread?.readOnly ? { askOnly: true } : {}) });
         else if (rec.archived && rec.kind === 'worktree') workspaces.push({ ...rec, projectId: id, external: false });
       }
       const withStatus = await Promise.all(
-        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base).catch(() => undefined) })),
+        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base, shippedOf(w)).catch(() => undefined) })),
       );
       // The main checkout's status (just read) says what it's on and how much is uncommitted.
       const mainStatus = withStatus.find((w) => w.kind === 'main')?.status;
@@ -827,7 +832,7 @@ export class WorkspaceManager {
 
   /** `opts.id`: the id it gets (from newWorktreeId), else a fresh one. */
   /** `opts.agent`: the agent it runs (unset: your default). */
-  async createWorktree(projectIdOrRoot: string, name: string, base?: string, opts: { readonly id?: string; readonly agent?: AgentRef } = {}): Promise<Workspace> {
+  async createWorktree(projectIdOrRoot: string, name: string, base?: string, opts: { readonly id?: string; readonly agent?: AgentRef; readonly thread?: ThreadRecord } = {}): Promise<Workspace> {
     const project = this.projects.find((p) => p.id === projectIdOrRoot || p.root === projectIdOrRoot);
     if (!project) throw new WorkspaceError('Project not found');
     if (base !== undefined && !(await g.isCommit(project.root, base))) throw new WorkspaceError(`There's no branch called ${base}`);
@@ -838,7 +843,7 @@ export class WorkspaceManager {
     await g.addWorktree(project.root, dir, branch, from);
     await g.excludeProjectDir(dir);
     await copyEnvFiles(project.root, dir);
-    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: project.root, name: s, path: dir, kind: 'worktree', branch, base: from, createdAt: Date.now(), envSnapshot: await envSnapshot(dir), ...agentFields(opts.agent) };
+    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: project.root, name: s, path: dir, kind: 'worktree', branch, base: from, createdAt: Date.now(), envSnapshot: await envSnapshot(dir), ...agentFields(opts.agent), ...(opts.thread ? { thread: opts.thread } : {}) };
     this.saveRecord(record);
     const status = await g.status(dir, from).catch(() => undefined);
     return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
@@ -959,23 +964,24 @@ export class WorkspaceManager {
     return path.join(this.store.workspacesDir, '..', 'chats');
   }
 
-  async createChat(projectIdOrRoot: string, title: string, inDir?: string): Promise<Workspace> {
-    if (projectIdOrRoot === CHATS_PROJECT) return this.createStandaloneChat(title, inDir);
+  /** `opts`: a thread's chat (core/threads): its record, and the folder it reads (a project chat's own: the main folder). */
+  async createChat(projectIdOrRoot: string, title: string, inDir?: string, opts: { readonly dir?: string; readonly thread?: ThreadRecord } = {}): Promise<Workspace> {
+    if (projectIdOrRoot === CHATS_PROJECT) return this.createStandaloneChat(title, opts.dir ?? inDir, opts.thread);
     const project = this.projects.find((p) => p.id === projectIdOrRoot || (p.root !== '' && p.root === projectIdOrRoot));
     if (!project) throw new WorkspaceError('Project not found');
-    const record: WorkspaceRecord = { id: `chat-${randomUUID().slice(0, 8)}`, projectRoot: project.root, name: title.trim().slice(0, 40) || 'chat', path: project.root, kind: 'chat', createdAt: Date.now() };
+    const record: WorkspaceRecord = { id: `chat-${randomUUID().slice(0, 8)}`, projectRoot: project.root, name: title.trim().slice(0, 40) || 'chat', path: opts.dir ?? project.root, kind: 'chat', createdAt: Date.now(), ...(opts.thread ? { thread: opts.thread } : {}) };
     this.saveRecord(record);
     // Questions only, like every chat in a project's main folder (see loadProject).
     return this.adopt(project, { ...record, projectId: project.id, external: false, askOnly: true });
   }
 
   /** A Claude chat with no project: its own scratch folder for anything Claude makes. */
-  async createStandaloneChat(title: string, inDir?: string): Promise<Workspace> {
+  async createStandaloneChat(title: string, inDir?: string, thread?: ThreadRecord): Promise<Workspace> {
     const id = `chat-${randomUUID().slice(0, 8)}`;
     // Runs in the folder you give it (e.g. where you started Beluga), or its own scratch folder.
     const dir = inDir || path.join(this.chatsDir, id);
     mkdirSync(dir, { recursive: true });
-    const record: WorkspaceRecord = { id, projectRoot: '', name: title.trim().slice(0, 40) || 'chat', path: real(dir), kind: 'chat', createdAt: Date.now() };
+    const record: WorkspaceRecord = { id, projectRoot: '', name: title.trim().slice(0, 40) || 'chat', path: real(dir), kind: 'chat', createdAt: Date.now(), ...(thread ? { thread } : {}) };
     this.saveRecord(record);
     const chats = this.projects.find((p) => p.id === CHATS_PROJECT);
     if (!chats) {
@@ -983,7 +989,7 @@ export class WorkspaceManager {
       return this.require(record.id);
     }
     // Started in a project's main folder: questions only (see chatsProject).
-    const askOnly = this.projects.some((p) => p.root && real(p.root) === record.path);
+    const askOnly = thread?.readOnly || this.projects.some((p) => p.root && real(p.root) === record.path);
     return this.adopt(chats, { ...record, projectId: CHATS_PROJECT, external: false, ...(askOnly ? { askOnly: true } : {}) });
   }
 
@@ -1109,7 +1115,7 @@ export class WorkspaceManager {
     // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
     if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
     const into = ws.base ?? (await this.baseOf(ws.projectRoot));
-    const shipped = ws.prShipped?.head ? [...mergedHeads, ws.prShipped.head] : mergedHeads;
+    const shipped = [...new Set([...mergedHeads, ...shippedOf(ws)])];
     let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
     // Checked against the remote before warning (BLG-746): merged on GitHub a minute ago reads as merged.
     if (lost.count) {
@@ -1201,16 +1207,18 @@ export class WorkspaceManager {
     // A chat in a folder that stays (yours, or a worktree it was forked in): only what you sent it goes.
     else if (ws.kind === 'chat' && existsSync(ws.path)) await dropSent(ws.path, sentFolder(`ws:${ws.id}`, false)).catch(() => undefined);
     if (ours) {
-      // Claude Code's (your own Claude and local models alike), Codex's and OpenCode's, whichever agent ran there.
+      // Claude Code's (your own Claude and local models alike), Codex's, OpenCode's and Copilot's, whichever agent ran there.
       for (const dir of new Set([sessionsDir, path.resolve(ws.path)])) await dropFolderSessions(dir).catch(() => 0);
       await dropCodexSessions({ dir: sessionsDir }).catch(() => 0);
       if (ws.sessionRuntime === 'opencode') {
         if (ws.sessionId) await dropOpenCodeSession(ws.sessionId).catch(() => false);
         await dropOpenCodeFolder(sessionsDir, ws.kind === 'worktree' ? ws.projectRoot : sessionsDir).catch(() => 0);
       }
+      if (ws.sessionRuntime === 'copilot') await dropCopilotFolder(sessionsDir).catch(() => 0);
     } else if (ws.kind === 'chat' && this.ownSession(ws)) {
       if (ws.sessionRuntime === 'codex') await dropCodexSessions({ threadId: ws.sessionId! }).catch(() => 0);
       else if (ws.sessionRuntime === 'opencode') await dropOpenCodeSession(ws.sessionId!).catch(() => false);
+      else if (ws.sessionRuntime === 'copilot') await dropCopilotSession(ws.sessionId!).catch(() => false);
       else await dropSession(sessionsDir, ws.sessionId!).catch(() => undefined);
     }
     this.records = this.records.filter((r) => r.id !== id);
@@ -1267,6 +1275,13 @@ export class WorkspaceManager {
     this.patchRecord(id, { mergeSaid: number });
   }
 
+  /** GitHub says its PR merged at `head` (BLG-833) → whether that's news (its status counts again then). */
+  setMergedHead(id: string, head: string): boolean {
+    if (this.require(id).mergedHead === head) return false;
+    this.patchRecord(id, { mergedHead: head });
+    return true;
+  }
+
   /** Merge When Ready is waiting on this worktree's PR (undefined: not anymore). See Workbench.mergeWhenReady. */
   setMergeWait(id: string, wait: MergeWait | undefined): void {
     this.require(id);
@@ -1305,6 +1320,12 @@ export class WorkspaceManager {
   setCarry(id: string, from: string | undefined): void {
     this.require(id);
     this.patchRecord(id, { carryFrom: from });
+  }
+
+  /** A chat's thread record (core/threads), saved at once: a result must survive a restart. */
+  setThread(id: string, thread: ThreadRecord): void {
+    this.require(id);
+    this.patchRecord(id, { thread });
   }
 
   /** Pick the thinking effort for one workspace's conversation (undefined: Settings'). */
@@ -1350,6 +1371,11 @@ export class WorkspaceManager {
 
   markHandedOff(id: string, to: string): void {
     this.patchRecord(id, { handedTo: to });
+  }
+
+  /** Continued on another computer of yours (BLG-808): said on it, in the Archive. */
+  markContinuedOn(id: string, to: string): void {
+    this.patchRecord(id, { continuedOn: to });
   }
 
   // ---------------------------------------------------------------- scripts

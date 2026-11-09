@@ -15,6 +15,8 @@ import { needsYou } from '../src/companion/needs-you.js';
 import { planPageView } from '../src/companion/views.js';
 import { headline } from '../packages/mac/src/plans/plans-model.js';
 import { planView } from '../src/core/plans/progress.js';
+import { verifyProgress } from '../src/core/plans/verify-progress.js';
+import { reviewPrompt } from '../src/core/plans/prompt.js';
 
 /** BLG-772: a plan stays one coherent piece while it's changed over many messages. */
 
@@ -337,5 +339,44 @@ describe('the plan home’s own board task follows the plan (BLG-772)', () => {
     brief = t.board.need(issue.id).brief;
     expect(brief.decisions).toContain('- Call them computers');
     expect(brief.decisions).not.toContain('One app');
+  });
+});
+
+describe('verifying shows where it is, never a still line (BLG-772)', () => {
+  const run = (text: string, steps: string[] = ['plan_get'], between?: 'thinking'): Parameters<typeof verifyProgress>[0] => ({ text, steps, ts: 1000, status: 'started', ...(between ? { between } : {}) });
+
+  it('starting, then reading, then thinking', () => {
+    expect(verifyProgress(undefined).now).toBe('Starting');
+    expect(verifyProgress(run('', [])).now).toBe('Reading the plan');
+    expect(verifyProgress(run('')).now).toBe('Reading the whole plan');
+    expect(verifyProgress(run('', ['plan_get'], 'thinking')).now).toBe('Thinking it over');
+    expect(verifyProgress(run('')).checks.every((c) => c.state === 'todo')).toBe(true);
+  });
+
+  it('each check lights up as its line comes, the ones before it done', () => {
+    const p = verifyProgress(run('Contradictions: reading every task.\n\n**Duplicates**: comparing 8 tasks.'));
+    expect(p.checks.map((c) => c.state)).toEqual(['done', 'now', 'todo', 'todo']);
+    expect(p.now).toBe('Duplicates: comparing 8 tasks.');
+    expect(p.said).toBe(true);
+    expect(p.startedAt).toBe(1000);
+  });
+
+  it('a check named before a step still counts once its words became a remark', () => {
+    const p = verifyProgress({ text: '', steps: ['plan_get'], ts: 1000, status: 'started', remarks: [{ text: 'Contradictions: reading every task.' }, { text: 'Duplicates: comparing 8 tasks.' }] });
+    expect(p.checks.map((c) => c.state)).toEqual(['done', 'now', 'todo', 'todo']);
+    expect(p.now).toBe('Duplicates: comparing 8 tasks.');
+  });
+
+  it('recording what it found: every check is behind it', () => {
+    const p = verifyProgress(run('Order: checking what builds on what.', ['plan_get', 'plan_review']));
+    expect(p.checks.every((c) => c.state === 'done')).toBe(true);
+    expect(p.now).toBe('Writing down what it found');
+  });
+
+  it('the verifier is told to name each check as it starts it', () => {
+    const t = setup();
+    const plan = t.work.here('ws:home');
+    t.tools('ws:home').got.tools!.write(machines);
+    expect(reviewPrompt(t.plans.need(plan.id), false)).toContain('"Contradictions: …", "Duplicates: …", "Stale: …", "Order: …"');
   });
 });

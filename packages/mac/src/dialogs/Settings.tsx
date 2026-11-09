@@ -25,6 +25,7 @@ import { ReportProblemRow } from './ReportProblemRow.js';
 import { ContextSettings } from './ContextSettings.js';
 import { UsageLimitSettings } from './UsageLimitSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
+import { AgentThreadsSettings, ThreadLimitsSettings } from './AgentThreadsSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
 import { McpSettings } from './McpSettings.js';
 import { ExternalAgentsSettings } from './ExternalAgentsSettings.js';
@@ -47,6 +48,7 @@ import { MenuBarSettings } from './MenuBarSettings.js';
 import { NetworkSettings } from '../network/NetworkSettings.js';
 import { befriend, openFriendCard } from '../network/use-net.js';
 import { PhoneSettings } from '../phone/Phone.js';
+import { MachinesSettings } from './MachinesSettings.js';
 import { AccessSettings } from '../gateway/AccessSettings.js';
 import { UpdateAboutRow, UpdateSettingsGroup } from './UpdateSettings.js';
 import { GITHUB_URL, openSupport } from '../lib/support.js';
@@ -432,6 +434,7 @@ function AgentPane() {
       <UsageLimitSettings />
       <ParallelSettings />
       <ChatLimitSettings />
+      {p.agentThreads ? <ThreadLimitsSettings /> : null}
       <Group title="Scratch folder">
         <Row label="Give your agent a scratch folder" detail="Screenshots, JSON, logs and notes your agent makes while it works go to the workspace’s .beluga/scratch/ folder (kept out of git; never touches other tools’ .context/).">
           <Switch label="Scratch folder" on={p.scratchFolder} onChange={(v) => void api.session.setPrefs({ scratchFolder: v })} />
@@ -514,6 +517,9 @@ function Workspaces() {
           <Switch label="Auto setup" on={p.autoSetup} onChange={(v) => void api.session.setPrefs({ autoSetup: v })} />
         </Row>
         <BranchPrefixRow />
+        <Row label="Keep open pull requests current" detail="When your agent commits in a worktree whose pull request is open, it pushes there as its turn ends. Off: it commits here, and you push from the toolbar.">
+          <Switch label="Keep open pull requests current" on={p.pushToPr} onChange={(v) => void api.session.setPrefs({ pushToPr: v })} />
+        </Row>
         <Row label="Friends may start work here" detail="They ask to start a worktree or hand work to you; you approve each one.">
           <Switch label="Friend worktrees" on={p.friendWorktrees === 'ask'} onChange={(v) => void api.session.setFriendWorktrees(v ? 'ask' : 'off')} />
         </Row>
@@ -665,12 +671,22 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   people: People,
   phone: PhoneSettings,
   external: ExternalAgentsSettings,
+  computers: MachinesSettings,
   voice: VoiceSettings,
   keyboard: KeyboardSettings,
-  advanced: WebAccessSettings,
+  advanced: Advanced,
   experimental: ExperimentalSettings,
   about: About,
 };
+
+function Advanced() {
+  return (
+    <>
+      <WebAccessSettings />
+      <AgentThreadsSettings />
+    </>
+  );
+}
 
 /** The app's own panes a browser has no use for (it has no menu bar icon). */
 const APP_ONLY: ReadonlySet<SettingsPane> = new Set(['menubar']);

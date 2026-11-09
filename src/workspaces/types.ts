@@ -1,5 +1,6 @@
 import type { AgentRef } from '../protocol.js';
 import type { Effort } from '../shared/settings-schema.js';
+import type { ThreadRecord } from '../shared/threads.js';
 import type { Status } from './git.js';
 import type { ForkOf } from './github.js';
 import type { DefaultBranch, FetchProblem } from './sync.js';
@@ -96,6 +97,12 @@ export interface WorkspaceRecord {
   readonly handedFrom?: string;
   /** An external agent started it: its grant's id and name, for the label and for what it may do here. */
   readonly startedByAgent?: { readonly id: string; readonly name: string };
+  /** Continued on another computer of yours (its name, BLG-808): archived here once it ran there. */
+  readonly continuedOn?: string;
+  /** Continued here from another computer of yours (its name). */
+  readonly continuedFrom?: string;
+  /** Another agent started this chat through the thread tools (core/threads). Its harness stays in `agent`. */
+  readonly thread?: ThreadRecord;
   /** A conversation started for one job: 'sync_main' is Claude bringing the main folder up to date. */
   readonly purpose?: 'sync_main';
   /** You carried on after this PR merged (Continue After Merge): it and older ones are done, so the branch can have a new one. */
@@ -107,6 +114,8 @@ export interface WorkspaceRecord {
   readonly prShipped?: { readonly number: number; readonly url?: string; readonly into: string; readonly head?: string };
   /** The PR whose merge this chat already shows (its merged line): said once, across restarts too. */
   readonly mergeSaid?: number;
+  /** The commit its pull request merged at, as GitHub last said (BLG-833): only commits after it count as pushed nowhere. */
+  readonly mergedHead?: string;
   /**
    * Merge When Ready: Beluga merges PR `number` itself once its checks pass (and stops, saying why,
    * if they fail or it conflicts). Not GitHub's auto-merge: that merges at once when no check is required.
@@ -130,6 +139,8 @@ export interface MergeWait {
   /** When you asked (a PR with no checks yet gets a moment for them to show up). */
   readonly since: number;
   readonly deleteBranch?: boolean;
+  /** The commit it pushed before waiting (BLG-840): until GitHub's PR has it, what GitHub says is about an older one. */
+  readonly head?: string;
 }
 
 /** What deleting a worktree would throw away that archiving keeps (BLG-617): commits only its branch has. */

@@ -1,6 +1,7 @@
 import { switchAgent } from './agent-switch.js';
 import { runtimeChoices } from '../shared/agent-runtimes.js';
 import type { SessionOptions, Session } from './session.js';
+import { threadsOf } from './threads/launch.js';
 import type { ModelChoice } from './work-store.js';
 import { WorkspaceController } from './workspace-controller.js';
 import { Notifier } from './notify.js';
@@ -124,6 +125,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         confirm: (title, detail) => session.ask('request', title, detail),
         open: opts.open,
         listModels: async () => (await session.backend?.listModels?.()) as readonly ModelChoice[] | undefined,
+        ...(opts.updateAgent ? { updateAgent: opts.updateAgent } : {}),
         switchAgent: (channel, agent, mode) =>
           switchAgent(
             {
@@ -228,6 +230,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       sentinelChat: (channel, from) => sentinelOf(session)?.chatPlace(channel, from),
       confirmTool: (toolName, input) => sentinelOf(session)?.confirmWords(toolName, input),
       plans: (channel, from) => plansOf(session)?.forRun(channel, from),
+      threads: (channel) => threadsOf(session)?.forRun(channel),
       // "Your Mac"'s chats, and your own asks in friends' chats (BLG-207): both work in its folder.
       assistant: (channel, from) => assistantOf(session)?.forRun(channel, from) ?? assistantOf(session)?.forChat(channel, from),
       phone: (scratchDir) => companionOf(session)?.control.toolsFor(scratchDir),

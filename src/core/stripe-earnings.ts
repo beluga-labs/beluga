@@ -16,7 +16,7 @@ import { STRIPE_KEY, stripeKeyProblem } from '../shared/stripe-keys.js';
 import { belugaHome } from './home.js';
 import type { Store } from './store.js';
 import { activitySince, summarizeActivity } from './stripe-activity.js';
-import { type StripeOptions, type Tally, StripeError, accountName, catchUp, checkKey, fullCount, recentCharges } from './stripe-client.js';
+import { type StripeOptions, type Tally, StripeError, accountInfo, catchUp, checkKey, fullCount, recentCharges } from './stripe-client.js';
 
 /** Read the last months again when they're older than this, even if nothing new came in. */
 export const STALE_MS = 20 * 3600_000;
@@ -61,6 +61,8 @@ const ActivitySchema = z.object({
 const EntrySchema = z.object({
   key: z.string().regex(STRIPE_KEY),
   account: z.string().optional(),
+  // Optional, and a bad one is dropped rather than failing the whole file (it is parsed all-or-nothing).
+  accountId: z.string().regex(/^acct_[A-Za-z0-9]+$/).optional().catch(undefined),
   tally: TallySchema.optional(),
   // A file from before activity was read, or one this can't read: read it again.
   activity: ActivitySchema.optional().catch(undefined),
@@ -70,6 +72,7 @@ const EntrySchema = z.object({
 interface Entry {
   readonly key: string;
   readonly account?: string;
+  readonly accountId?: string;
   readonly tally?: Tally;
   readonly activity?: EarningsActivity;
   readonly updatedAt?: number;
@@ -135,6 +138,8 @@ export class StripeEarnings {
   private readonly running = new Map<string, Promise<void>>();
   private timer?: NodeJS.Timeout;
   private first?: NodeJS.Timeout;
+  /** Projects whose missing account id was already looked for since starting. */
+  private readonly askedAccount = new Set<string>();
 
   constructor(private readonly deps: StripeEarningsDeps) {
     this.data = deps.file === null ? EMPTY : loadStripeFile(deps.file);
@@ -180,6 +185,7 @@ export class StripeEarnings {
       mode: e.key.includes('_live_') ? 'live' : 'test',
       ...(e.key.startsWith('sk_') ? { secretKey: true } : {}),
       ...(e.account ? { account: e.account } : {}),
+      ...(e.accountId ? { accountId: e.accountId } : {}),
       ...(totals ? { totals } : {}),
       ...(e.activity ? { activity: e.activity } : {}),
       ...(e.updatedAt ? { updatedAt: e.updatedAt } : {}),
@@ -200,8 +206,9 @@ export class StripeEarnings {
     } catch (err) {
       throw new Error(err instanceof StripeError ? (CONNECT_ERRORS[err.code] ?? err.message) : 'Couldn’t check the key with Stripe');
     }
-    const account = await accountName(key, this.stripe);
-    this.put(root, { key, ...(account ? { account } : {}) });
+    const { id: accountId, name: account } = await accountInfo(key, this.stripe);
+    this.askedAccount.add(root);
+    this.put(root, { key, ...(account ? { account } : {}), ...(accountId ? { accountId } : {}) });
     this.publish(root, true);
     // A count for an earlier key may still be running: this one starts after it.
     void (this.running.get(root) ?? Promise.resolve()).then(() => this.refreshRoot(root));
@@ -259,6 +266,13 @@ export class StripeEarnings {
     // A quick look in the background doesn't show as counting (a full count does).
     if (!quiet || full) this.publish(root, true);
     let tally: Tally | undefined;
+    let accountId = start.accountId;
+    // A key stored before account ids existed: look once after starting (not up to a week for the
+    // next full count), then only on full counts, never on every quiet look.
+    if (!accountId && (full || !this.askedAccount.has(root))) {
+      this.askedAccount.add(root);
+      accountId = (await accountInfo(start.key, this.stripe)).id;
+    }
     let activity = start.activity;
     let error: EarningsError | undefined;
     const failed = (err: unknown): EarningsError => {
@@ -285,7 +299,7 @@ export class StripeEarnings {
     const now = this.data.projects[root];
     if (!now || now.key !== start.key) return this.publish(root);
     const { error: _old, ...rest } = now;
-    this.put(root, tally ? { ...rest, tally, ...(activity ? { activity } : {}), updatedAt: this.now(), ...(error ? { error } : {}) } : { ...rest, ...(error ? { error } : {}) });
+    this.put(root, tally ? { ...rest, ...(accountId ? { accountId } : {}), tally, ...(activity ? { activity } : {}), updatedAt: this.now(), ...(error ? { error } : {}) } : { ...rest, ...(accountId ? { accountId } : {}), ...(error ? { error } : {}) });
     this.publish(root);
   }
 

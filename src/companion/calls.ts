@@ -47,6 +47,8 @@ export const PhoneCalls = {
   // Give a conversation its terminal drives back to the chat (BLG-534).
   'agentTerm.takeOver': entry('agentTerm.takeOver', done),
   'host.stopRun': entry('host.stopRun', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stop': entry('threads.stop', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stopAll': entry('threads.stopAll', z.object({ stopped: z.number() }).passthrough().optional()),
   'host.cancelQueued': entry('host.cancelQueued', done),
   // 1.38: external agents: who holds a grant, what they did, and stopping them.
   'external.agents': entry('external.agents', z.array(z.object({ id: z.string(), name: z.string(), level: z.string(), route: z.string(), lastSeen: z.number() }).passthrough())),

@@ -631,6 +631,8 @@ export function reviewPrompt(plan: Plan, again: boolean): string {
     '- order: a task that needs another\'s work but neither waits on it, milestones running side by side that should not',
     '  (or waiting when they need not), parallel tasks changing the same files;',
     '- anything else that would make an agent build the wrong thing (a goal no task covers, a task no goal needs).',
+    'Go through them in that order, and as you start each one write one short line that begins with its name and says what you',
+    'are looking at ("Contradictions: …", "Duplicates: …", "Stale: …", "Order: …"). The user watches these lines while you work.',
     'Report only real problems, each once, in a sentence or two that names the task or milestone ids and says what to change.',
     'Nothing worth fixing: record no findings. Then call plan_review, and end your turn.',
   ].join('\n');

@@ -278,3 +278,43 @@
     display: none;
   }
 }
+
+/* Each source's part of the range (only with both connected). */
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.splitItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.splitName {
+  color: var(--text-2);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.splitAmount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* RevenueCat's own figures: subscriptions right now. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin: 0;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.statValue {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

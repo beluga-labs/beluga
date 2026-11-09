@@ -42,6 +42,8 @@ import { PersonButton } from '../network/PersonProfile.js';
 import { KnockCard } from '../team/Team.js';
 import { useChatReactions } from './ChatReactions.js';
 import r from '../network/reactions.module.css';
+import { threadSender } from '../threads/threads-model.js';
+import l from '../threads/threads.module.css';
 import s from './chat.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { revealTerminal } from '../lib/panel.js';
@@ -180,6 +182,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
   const [editing, setEditing] = useState(false);
   // Emoji reactions (BLG-702): the button a hover shows, and the chips under the message.
   const reactions = useChatReactions(item, own);
+  // A task or a message from the agent that started this thread: its words, not yours and not this chat's agent's.
+  const sender = useApp((st) => threadSender(st, item));
   // Your own words: a tinted bubble on the right, no name or picture (it's plainly you).
   if (own)
     return (
@@ -254,15 +258,21 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
     <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)) })}>
       <div ref={row} className={cx(s.message, r.reactable, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} data-chat={item.id}>
         {reactions.button}
-        <div className={s.gutter}>{continued ? null : <Avatar name={item.name} id={item.from} claude={item.byAgent} agent={item.agent} size={26} />}</div>
+        <div className={s.gutter}>{continued ? null : sender ? <Icon name="up" size={15} /> : <Avatar name={item.name} id={item.from} claude={item.byAgent} agent={item.agent} size={26} />}</div>
         <div className={s.body}>
           {continued ? null : (
             <div className={s.meta}>
-              <span className={cx(s.author, item.byAgent && s.claudeName)} style={item.byAgent && claudeColor(item.from) ? { color: claudeColor(item.from) } : undefined}>
-                {item.name}
-              </span>
-              {item.byAgent ? <AgentBadge agent={item.agent} /> : null}
-              {item.via ? <span className={s.time} data-sent-by={item.via.id}>Sent by {item.via.name}</span> : null}
+              {sender ? (
+                <span className={l.sentBy} data-sent-by="">{`Sent by ${sender}’s agent`}</span>
+              ) : (
+                <>
+                  <span className={cx(s.author, item.byAgent && s.claudeName)} style={item.byAgent && claudeColor(item.from) ? { color: claudeColor(item.from) } : undefined}>
+                    {item.name}
+                  </span>
+                  {item.byAgent ? <AgentBadge agent={item.agent} /> : null}
+                  {item.via ? <span className={s.time} data-sent-by={item.via.id}>Sent by {item.via.name}</span> : null}
+                </>
+              )}
               {prefs.timestamps ? <span className={s.time}>{time(item.ts)}</span> : null}
             </div>
           )}
@@ -556,10 +566,10 @@ function TurnCard({
                 </Button>
               </ActionsDropdown>
             </div>
-          ) : limited && failure?.kind === 'signed_out' && failure.runtime === 'opencode' ? (
-            // OpenCode's model provider said no (a key expired, none set up): add one in Terminal (`opencode auth login`), then Continue.
+          ) : limited && failure?.kind === 'signed_out' && (failure.runtime === 'opencode' || failure.runtime === 'copilot') ? (
+            // OpenCode's model provider said no (a key expired, none set up), or Copilot's GitHub sign-in did: sign in in Terminal (`opencode auth login`, `copilot login`), then Continue.
             <div className={s.limitActions}>
-              <Button size="small" icon="person" onClick={() => void client.api.workbench.agentSignIn('opencode').catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'))} title="Add or renew a model provider in Terminal (opencode auth login), then Continue">
+              <Button size="small" icon="person" onClick={() => void client.api.workbench.agentSignIn(failure.runtime!).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'))} title={failure.runtime === 'copilot' ? 'Sign in to GitHub in Terminal (copilot login), then Continue' : 'Add or renew a model provider in Terminal (opencode auth login), then Continue'}>
                 Sign In
               </Button>
               <Button size="small" icon="play" onClick={resume} title={`Send “continue”: ${agentName(item.agent)} picks up where it stopped`}>

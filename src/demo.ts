@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createMockBackend } from './agent/mock.js';
 import { seedMockContext } from './agent/mock-context.js';
 import { ATTACHMENT_SCHEME, ATTACHMENT_SHARE, formatBytes } from './core/attachments.js';
-import { DEMO_BADGES_TSX, DEMO_DOCS, DEMO_HERO_CSS, DEMO_HERO_TSX, DEMO_LANDING_SVG, DEMO_PAYMENTS_TS, DEMO_PLANS_JSON, DEMO_SERVER_WITH_AUTH } from './demo-docs.js';
+import { DEMO_BADGES_TSX, DEMO_DOCS, DEMO_PRICE_TAG_TSX, DEMO_HERO_CSS, DEMO_HERO_TSX, DEMO_LANDING_SVG, DEMO_PAYMENTS_TS, DEMO_PLANS_JSON, DEMO_SERVER_WITH_AUTH } from './demo-docs.js';
 import { seedBobPulls, seedLandingHistory } from './demo-history.js';
 import { demoScreenshot } from './demo-image.js';
 import { demoPdf } from './demo-pdf.js';
@@ -20,6 +20,7 @@ import { PeerClient } from './net/peer-client.js';
 import { chatMessageId } from './protocol.js';
 import { WorkspaceManager } from './workspaces/manager.js';
 import { WorkspaceStore } from './workspaces/store.js';
+import { dropGitLocalEnv } from './core/git-env.js';
 
 const SUNSET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
   <defs>
@@ -249,6 +250,8 @@ function demoRepo(base: string, name: string, files: Record<string, string>): st
 
 /** Two sample projects with worktrees in different states, plus saved conversations. */
 export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
+  // Its git must never reach a repository git pointed this process at (git-env.ts): `git init --bare` there made it bare.
+  dropGitLocalEnv();
   const base = mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-projects-'));
   demoRepo(base, 'bob-api', BOB_FILES);
   seedBobPulls(path.join(base, 'remotes', 'bob-api.git'), base);
@@ -307,6 +310,7 @@ export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
       'src/components/Hero.tsx': DEMO_HERO_TSX,
       'src/components/hero.css': DEMO_HERO_CSS,
       'src/components/Badges.tsx': DEMO_BADGES_TSX,
+      'src/components/PriceTag.tsx': DEMO_PRICE_TAG_TSX,
     });
     const react = path.resolve(import.meta.dirname, '../packages/mac/node_modules');
     if (existsSync(path.join(react, 'react-dom'))) {

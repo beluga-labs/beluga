@@ -145,7 +145,8 @@ export function nextWords(next: NextStep): { readonly title: string; readonly de
 /** A project's plans: running first, then drafts, then finished; newest first in each. */
 export function plansOf(state: PlansState, projectId: string | undefined): Plan[] {
   const rank = (p: Plan): number => (p.status === 'active' ? 0 : p.status === 'draft' ? 1 : 2);
-  return state.plans.filter((p) => p.projectId === projectId).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
+  // One that moved to another computer runs there: its record here stays off the lists (its page still opens).
+  return state.plans.filter((p) => p.projectId === projectId && !p.movedTo).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
 }
 
 export const titleOf = planTitle;

@@ -3,6 +3,7 @@ import type { ScriptFix, SetupFix, WorkedOutScripts } from './setup-fixer.js';
 import type { DraftContext, TaskDraft } from './task-drafter.js';
 import type { AgentRef, ClaudeAnswer, ClaudeQuestion, FsEntry, PeerInfo, Usage } from '../protocol.js';
 import type { UsageUpdate } from './usage.js';
+import type { Effort } from '../shared/settings-schema.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { ArgsRuntime } from '../shared/agent-args.js';
 
@@ -139,6 +140,8 @@ export interface AgentRunInput {
   readonly dashboardTools?: DashboardTools;
   /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
   readonly callNotesTools?: CallNotesTools;
+  /** Your own runs, when you turned agent threads on: tools to start and follow child threads (core/threads), bound to this run's chat. */
+  readonly threadTools?: ThreadTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
   readonly dialogue?: import('./dialogue-tools.js').DialogueTurnTools;
 }
@@ -245,6 +248,25 @@ export interface PlanTools {
   stop?(task: string): string;
   /** Pause the plan (nothing new starts) or resume it. */
   pause?(paused: boolean): string;
+}
+
+/** Child threads as an agent's tools (agent/thread-tools.ts, server `beluga_threads`). Bound to the calling chat: no argument names it. */
+export interface ThreadTools {
+  start(input: ThreadStartInput): Promise<string>;
+  status(input: { readonly id?: string; readonly waitSec?: number }): Promise<string>;
+  message(input: { readonly id: string; readonly text: string; readonly mode?: 'queue' | 'steer' }): string;
+  stop(input: { readonly id: string; readonly reason?: string }): string;
+}
+
+export interface ThreadStartInput {
+  readonly task: string;
+  readonly title?: string;
+  readonly agent?: { readonly runtime: string; readonly model?: string; readonly effort?: Effort };
+  readonly project?: string;
+  readonly where?: 'worktree' | 'read';
+  readonly base?: string;
+  readonly plan?: boolean;
+  readonly key?: string;
 }
 
 /**
@@ -452,7 +474,8 @@ export interface AgentPlace {
   /** The thinking effort picked for this conversation (unset: Settings'). */
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** A project's main folder: questions only, nothing may change (see policy.ts). */
-  readonly askOnly?: { readonly project: string };
+  /** `stays`: a read-only thread (core/threads) stays read-only: it cannot move itself into a worktree. */
+  readonly askOnly?: { readonly project: string; readonly stays?: boolean };
   /** With askOnly, for one run: Claude brings the default branch up to date (git syncing only; see sync-main.ts). */
   readonly syncMain?: { readonly branch: string; readonly upstream: string };
   /** With askOnly: a hidden worktree Claude may edit to fix a conflict there (see policy.ts). */
@@ -464,6 +487,20 @@ export interface AgentPlace {
   readonly alsoEdit?: readonly string[];
   /** Continue After Merge: this worktree's earlier work went out in this pull request, merged into `into`. */
   readonly shipped?: { readonly number: number; readonly url?: string; readonly into: string };
+  /** Its pull request is open (BLG-840): the run pushes its commits there (see prompt.ts buildCommitAppend). */
+  readonly openPr?: OpenPr;
+}
+
+/** A worktree's open pull request, for its run's commit rules (BLG-840). */
+export interface OpenPr {
+  readonly number: number;
+  readonly url?: string;
+  /** The branch it's from: what to push. */
+  readonly branch: string;
+  /** Push to it at the end of a turn that committed (Settings › Workspaces, on by default). */
+  readonly push: boolean;
+  /** Someone's fork's pull request, checked out here (BLG-756): nothing here can push to it. */
+  readonly fork?: boolean;
 }
 
 export interface SubAgentEvent {
@@ -523,7 +560,7 @@ export interface AgentBackend {
   /** What a project's run command should be after `failed` failed in `dir` (a model looks). */
   fixRun?(dir: string, failed: string, output: string): Promise<ScriptFix | undefined>;
   /** A project's setup and/or run command, worked out from its files in `dir` (a model looks). */
-  workOutScripts?(dir: string, want: { setup: boolean; run: boolean }): Promise<WorkedOutScripts | undefined>;
+  workOutScripts?(dir: string, want: { setup: boolean; run: boolean; system?: string }): Promise<WorkedOutScripts | undefined>;
   /** A task written from a description: title, goal, criteria, labels from the board's own (Sonnet). */
   draftTask?(text: string, ctx: DraftContext): Promise<TaskDraft | undefined>;
   /** What a project is about, from a quick read-only look at its folder (About This Project, BLG-298). */

@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Bot, Check, ChevronRight, CircleAlert, Hourglass, ImageIcon, Images, MessageSquare } from 'lucide-react-native';
+import { ArrowUp, Bot, Check, ChevronRight, CircleAlert, Hourglass, ImageIcon, Images, MessageSquare } from 'lucide-react-native';
 import { ProjectMark } from './ProjectMark';
 import { Fragment, type ReactNode, useState } from 'react';
 import { Image } from 'expo-image';
@@ -20,7 +20,8 @@ import { Card, IconBadge, Press, T, type Tone, toneInk } from './ui';
 
 /** Pieces of a conversation: Claude's prose (code folded), the live step, sub-agents. */
 
-export const convHref = (topic: string): string => `/conv/${encodeURIComponent(topic.replace(/^conv:/, ''))}`;
+/** A conversation's screen; `on`: one of your computers', opened over its own link (BLG-810). */
+export const convHref = (topic: string, on?: string): string => `/conv/${encodeURIComponent(topic.replace(/^conv:/, ''))}${on ? `?on=${encodeURIComponent(on)}` : ''}`;
 export const chatHref = (topic: string): string => `/chat/${encodeURIComponent(topic.replace(/^chat:/, ''))}`;
 
 /** Base text style the inline pieces build on. */
@@ -310,6 +311,8 @@ export function ConvCard({ c }: { readonly c: ConvSummary }) {
               </T>
             </View>
           ) : null}
+          {/* Commits in its worktree its open PR doesn't have yet (BLG-840): merging now would leave them out. */}
+          {c.notOnPr ? <NotOnPrChip gap={c.notOnPr} /> : null}
           {c.agents ? <AgentDots count={c.agents} /> : null}
           <ChevronRight color={color.text3} size={18} />
         </View>
@@ -318,6 +321,21 @@ export function ConvCard({ c }: { readonly c: ConvSummary }) {
     </Press>
   );
 }
+
+/** "↑3": commits in a worktree its open PR doesn't have (BLG-840), the Mac row's chip; its label says it in words. */
+export function NotOnPrChip({ gap }: { readonly gap: NonNullable<ConvSummary['notOnPr']> }) {
+  return (
+    <View accessibilityLabel={notOnPrWords(gap)} style={{ flexDirection: 'row', alignItems: 'center', gap: 2, height: 24, paddingHorizontal: 8, borderRadius: 12, backgroundColor: tint.sky }}>
+      <ArrowUp color={color.info} size={12} strokeWidth={2.2} />
+      <T v="caption" c={color.info} style={{ fontWeight: '700' }}>
+        {gap.count}
+      </T>
+    </View>
+  );
+}
+
+/** "3 commits not on PR #398". */
+export const notOnPrWords = (gap: NonNullable<ConvSummary['notOnPr']>): string => `${gap.count} commit${gap.count === 1 ? '' : 's'} not on PR #${gap.pr}`;
 
 /** A row of sub-agent chips under a turn. */
 export function AgentChips({ agents, onOpen }: { readonly agents: readonly SubAgentView[]; readonly onOpen: (a: SubAgentView) => void }) {

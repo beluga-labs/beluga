@@ -35,6 +35,7 @@ import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
 import { agentForAsk } from './gateway/serve.js';
+import { fromMachine } from './client-context.js';
 import { buildPreviewAppend } from '../agent/preview-prompt.js';
 import { experimentOn } from '../shared/experiments.js';
 
@@ -91,6 +92,8 @@ export interface AgentHostDeps {
   readonly sentinel?: (channel: string, from: string) => { readonly tools: import('../agent/types.js').SentinelTools; readonly dashboard?: import('../agent/types.js').DashboardTools; readonly brief: string; readonly inRun: boolean } | undefined;
   /** A plan's home conversation (your own runs): its plan tools and what Claude is told about the plan (core/plans). */
   readonly plans?: (channel: string, from: string) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined;
+  /** Child threads (core/threads): their tools, bound to this chat. Your own runs only, with the flag on (see runAgent). */
+  readonly threads?: (channel: string) => import('../agent/types.js').ThreadTools | undefined;
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
   readonly assistant?: (channel: string, from: string) => { readonly place: AgentPlace; readonly tools: MacTools; readonly brief: string } | undefined;
   /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
@@ -295,6 +298,8 @@ export class AgentHost {
   /** Approvals waiting per person, so one person can't crowd out everyone else's. */
   private readonly approvalsBy = new Map<string, number>();
   private readonly seenRequests: string[] = [];
+  /** Requests your app made from another computer, driving this one (BLG-803): their runs are told so. */
+  private readonly remoteRequests = new Set<string>();
   /** Requests already given to Claude under their own id (a retry gets a fresh one: ids are unique in its transcript). */
   private readonly promptIds = new Set<string>();
   /** Tool approvals waiting → the conversation whose run asked for them. */
@@ -554,9 +559,9 @@ export class AgentHost {
   }
 
   /** Run your Claude for someone else in one of your workspaces (they were invited to work there). */
-  runFor(from: string, channel: string, prompt: string, plan = false): void {
+  runFor(from: string, channel: string, prompt: string, plan = false, requestId: string = randomUUID()): void {
     const via = from === this.selfId ? actingVia() : undefined;
-    const body: BodyOf<'agent_request'> = { kind: 'agent_request', requestId: randomUUID(), prompt: prompt.slice(0, MAX_TEXT), viaAgent: false, channel, urgent: false, plan, ...(via ? { via } : {}) };
+    const body: BodyOf<'agent_request'> = { kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent: false, channel, urgent: false, plan, ...(via ? { via } : {}) };
     this.deps.questions.track(body.requestId, this.selfId, channel);
     void this.onAgentRequest(from, body);
   }
@@ -642,14 +647,17 @@ export class AgentHost {
    * messages still waiting there come out of the queue: their prompts are returned in queue order
    * so the screen can put them back in the message box (Claude goes quiet, nothing typed is lost).
    * Other people's requests there keep their places and run next; other conversations carry on.
+   * `threads`: how many child threads this Stop also stopped (see stopChat), so the toast says so.
+   * `quiet`: no toast (an agent stopped its thread; nobody pressed anything).
    */
-  stopRun(channel: string): { stopped: boolean; returned: string[] } {
+  stopRun(channel: string, opts: { readonly quiet?: boolean; readonly threads?: number } = {}): { stopped: boolean; returned: string[] } {
     const lane = this.lanes.get(channel);
     const mine = lane?.waiting.filter((w) => w.from === this.selfId) ?? [];
+    const threads = opts.threads ? `${opts.threads} thread${opts.threads === 1 ? '' : 's'}` : '';
     if (!lane || (!lane.current && !mine.length)) {
-      const busy = [...this.lanes.values()].some((l) => l.current || l.waiting.length);
-      this.toast(busy ? "Your agent isn't working here" : 'Your agent is not running anything');
-      return { stopped: false, returned: [] };
+      if (threads) this.toast(`Stopped ${threads}`, 'success');
+      else if (!opts.quiet) this.toast([...this.lanes.values()].some((l) => l.current || l.waiting.length) ? "Your agent isn't working here" : 'Your agent is not running anything');
+      return { stopped: Boolean(threads), returned: [] };
     }
     for (const [id, at] of [...this.toolApprovals]) if (at === channel) this.answerApproval('no', id);
     this.deps.questions.cancelChannel(channel);
@@ -661,7 +669,7 @@ export class AgentHost {
     }
     const n = mine.filter((w) => !w.compact).length;
     const back = n ? ` · ${n} queued message${n === 1 ? '' : 's'} back in the box` : '';
-    this.toast(`Stopped your agent here${back}`, 'success');
+    if (!opts.quiet) this.toast(`Stopped your agent here${threads ? ` and ${threads}` : ''}${back}`, 'success');
     return { stopped: true, returned: mine.filter((w) => !w.compact).map((w) => w.body.prompt) };
   }
 
@@ -975,6 +983,8 @@ export class AgentHost {
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
+    // Asked from your app on another computer: noted now, while the request is its (a queued run starts later).
+    if (from === this.selfId && fromMachine()) this.remoteRequests.add(body.requestId);
     this.seenRequests.push(key);
     if (this.seenRequests.length > SEEN_REQUESTS) this.seenRequests.shift();
     this.pickNamed(from, body);
@@ -1379,7 +1389,7 @@ export class AgentHost {
     let ended = false;
     const finished = new Promise<void>((resolve) => (markFinished = resolve));
     // In a main folder, a change request carries the conversation into a new worktree.
-    const move = place?.askOnly && !place.syncMain && body.channel !== 'room' ? (task: string) => this.moveToWorktree(from, requesterName, body.channel, task, finished, external ? body.via : undefined) : undefined;
+    const move = place?.askOnly && !place.syncMain && !place.askOnly.stays && body.channel !== 'room' ? (task: string) => this.moveToWorktree(from, requesterName, body.channel, task, finished, external ? body.via : undefined) : undefined;
     if (body.channel !== 'room' && !place) {
       const why = isAssistant(body.channel)
         ? `${ASSISTANT_TITLE}’s assistant needs the Beluga app.`
@@ -1397,7 +1407,10 @@ export class AgentHost {
     }
     // A worktree's run: what it starts carries BELUGA_WORKTREE (and the old KLAUD_WORKTREE), so test runs it leaves behind can be stopped.
     const worktree = place && place.autoEdit && !place.askOnly ? place.cwd : undefined;
-    const tag: Record<string, string> = worktree ? belugaEnvBoth('WORKTREE', worktree) : {};
+    // Asked from your app on another computer (BLG-803): the run hears so (run-instructions.ts), and what it starts.
+    // BROWSER=none (BLG-838): tools that open a browser themselves (create-react-app, vite --open) don't, here where nobody is.
+    const remote = this.remoteRequests.has(body.requestId);
+    const tag: Record<string, string> = { ...(worktree ? belugaEnvBoth('WORKTREE', worktree) : {}), ...(remote ? { BELUGA_REMOTE_CLIENT: '1', BROWSER: 'none' } : {}) };
     /** What this run kept running on purpose (see keepsRunning), noted in the conversation when it ends. */
     const kept = new Set<string>();
     this.currentChannel = body.channel;
@@ -1428,6 +1441,8 @@ export class AgentHost {
       // A friend's run gets its repo's board too, as their trust allows (BLG-701; see boardAccess).
       const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
       const board = noBoard || (from !== this.selfId && !friendBoard) ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst && from === this.selfId, ...(friendBoard ? { friend: { id: from, name: requesterName } } : {}) });
+      // Child threads: your own runs in your own chats, with the flag on. A dialogue's turn comes through runDialogueTurn and never gets them.
+      const threads = from === this.selfId && this.store.getState().prefs.agentThreads && !root && !place?.syncMain && !sentinelChat && !sentinel?.inRun ? this.deps.threads?.(body.channel) : undefined;
       // A run stopped but not ending (wedged, or never started: no Claude Code yet) has its Claude
       // Code killed after a moment (at once when it's gone already), then is left behind so what
       // comes next in the conversation starts (BLG-402): never while its Claude Code could still
@@ -1469,6 +1484,7 @@ export class AgentHost {
         ...(board?.needsDefinition && board.planApproved ? { planTask: { needsDefinition: board.needsDefinition, approved: board.planApproved } } : {}),
         ...(plans?.tools ? { planTools: plans.tools } : {}),
         ...(plans?.brief ? { planBrief: plans.brief } : {}),
+        ...(threads ? { threadTools: threads } : {}),
         ...(mac ? { macTools: mac.tools, macBrief: mac.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
@@ -1532,7 +1548,7 @@ export class AgentHost {
         ...(yours ? this.launchArgs() : {}),
         // Your variables can hold secrets: only runs you asked for get them, never a friend's.
         // Your own runs also get adb on PATH (and ANDROID_SERIAL) when a phone is set up, so Bash can drive it (BLG-174).
-        ...(yours && (this.deps.envFor || phone?.env) ? { env: { ...this.deps.envFor?.(body.channel, place?.cwd), ...(phone?.env ?? {}), ...tag } } : worktree ? { env: tag } : {}),
+        ...(yours && (this.deps.envFor || phone?.env) ? { env: { ...this.deps.envFor?.(body.channel, place?.cwd), ...(phone?.env ?? {}), ...tag } } : worktree || remote ? { env: tag } : {}),
         ...this.compactor.threshold(),
       })]);
       if (controller.signal.aborted) throw new Error('aborted');
@@ -1549,6 +1565,7 @@ export class AgentHost {
       this.emitAgent(body.requestId, from, 'error', reason, body.channel);
     } finally {
       ended = true;
+      this.remoteRequests.delete(body.requestId);
       if (lane.current === controller) {
         lane.current = undefined;
         lane.runAgent = undefined;

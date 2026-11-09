@@ -1005,6 +1005,11 @@ export const NOT_EXPOSED: Readonly<Record<string, 'chat_only' | 'checker_only'>>
   sentinel_stop: 'chat_only',
   sentinel_measure: 'chat_only',
   read_earlier: 'chat_only',
+  // A child thread hangs off the chat that starts it: an external agent launches chats with beluga_chat_launch.
+  thread_start: 'chat_only',
+  thread_message: 'chat_only',
+  thread_status: 'chat_only',
+  thread_stop: 'chat_only',
   // A milestone's checker records its verdict. An outside agent never passes its own work.
   plan_gate: 'checker_only',
   // A draft's reviewer records what it found (BLG-772): a fresh agent, not the one that wrote it.

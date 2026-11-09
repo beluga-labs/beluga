@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AgentDots, convHref, statusIcon } from '../../components/Conv';
+import { AgentMarkIcon, agentMark } from '../../components/AgentMark';
+import { AgentDots, NotOnPrChip, convHref, notOnPrWords, statusIcon } from '../../components/Conv';
+import { ComputersWork } from '../../components/Computers';
 import { PlansList } from '../../components/Plans';
 import { type Option, Options } from '../../components/Options';
 import { Header, Screen, useScrolled } from '../../components/Screen';
@@ -14,6 +16,7 @@ import { ago, useFolded, useSupports, useView } from '../../lib/hooks';
 import { type Call, calls } from '../../lib/link/calls';
 import type { ConvSummary, PlansView, TasksView, WorkView } from '../../lib/link/protocol';
 import { store } from '../../lib/store';
+import { nestRows } from '../../lib/thread-rows';
 import { categorySections, settledWords, triageOptions, whenWords } from '../../lib/triage';
 import { remindPresets } from '../../../../src/shared/remind';
 import { ProjectMark } from '../../components/ProjectMark';
@@ -21,6 +24,8 @@ import { TasksList } from '../../components/Tasks';
 import { color, TAB_BAR_H } from '../../lib/theme';
 
 type Rows = WorkView['projects'][number];
+
+const CHILD_INDENT = 18;
 
 /** The folded lists under the Inbox, in order. */
 const FOLDED_SECTIONS = [
@@ -50,20 +55,32 @@ export default function Work() {
 
   const rows = (list: readonly ConvSummary[], flat = false) => (
     <Card style={{ marginHorizontal: 16, marginTop: 6 }}>
-      {list.map((c, i) => {
+      {nestRows(list).map(({ conv: c, depth }, i) => {
         const st = statusIcon(c.needsYou ? 'waiting' : c.status);
+        const signal = c.notOnPr ? <NotOnPrChip gap={c.notOnPr} /> : c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null;
         return (
-          <Row
-            key={c.topic}
-            first={i === 0}
-            Icon={st.Icon}
-            tone={st.tone}
-            label={c.title}
-            sub={[...triageWords(c), flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
-            right={c.agents ? <AgentDots count={c.agents} /> : c.unread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.info }} /> : null}
-            onPress={() => router.push(convHref(c.topic))}
-            onLongPress={sections && triageOptions(c).length ? () => setSheet(c) : undefined}
-          />
+          // A child sits under its parent, one step in (1.47).
+          <View key={c.topic} style={{ paddingLeft: depth * CHILD_INDENT }}>
+            <Row
+              first={i === 0}
+              Icon={st.Icon}
+              tone={st.tone}
+              label={c.title}
+              sub={[...triageWords(c), c.notOnPr ? notOnPrWords(c.notOnPr) : undefined, flat ? c.project : undefined, c.needsYou ? 'Needs you' : c.status === 'working' ? c.last : undefined, c.fresh ? `${c.fresh} new ${c.fresh === 1 ? 'output' : 'outputs'}` : undefined, ago(c.lastAt)].filter(Boolean).join(' · ') || c.last}
+              right={
+                c.harness ? (
+                  <View accessible accessibilityLabel={c.harness.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {signal}
+                    <AgentMarkIcon mark={agentMark(c.harness)} size={15} color={color.text3} muted />
+                  </View>
+                ) : (
+                  signal
+                )
+              }
+              onPress={() => router.push(convHref(c.topic))}
+              onLongPress={sections && triageOptions(c).length ? () => setSheet(c) : undefined}
+            />
+          </View>
         );
       })}
     </Card>
@@ -131,6 +148,7 @@ export default function Work() {
             ) : (
               (work?.data.projects ?? []).map(project)
             )}
+            <ComputersWork />
           </Animated.View>
         )}
       </ScrollView>

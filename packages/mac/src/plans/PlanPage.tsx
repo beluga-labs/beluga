@@ -12,9 +12,10 @@ import { PLAN_CHAT_TOGGLE } from '../lib/panel.js';
 import { OPEN_DECISION } from './plan-ask-model.js';
 import { ResizeHandle } from '../layout/panel/ResizeHandle.js';
 import { taskChatsItem } from '../layout/plan-task-chats.js';
-import { Button, Empty, IconButton, Segmented, Working, cx } from '../components/ui.js';
+import { Button, Empty, IconButton, Segmented, Tip, Working, cx } from '../components/ui.js';
 import { copyText } from '../lib/copy.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
+import { RunsOnLabel } from '../chat/RunsOn.js';
 import { YOUR_AGENT, agentMenuItems, useAgentEntries, useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { agentName, useMyAgent } from '../lib/agent-words.js';
@@ -35,6 +36,9 @@ import p from './plans.module.css';
 import { TeamReviews, usePlanTeamItems } from '../team/SharedPlans.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { revealLabel } from '../lib/os-words.js';
+import { useActions } from '../lib/actions.js';
+import { onMachine } from '../machines/pane-model.js';
+import { useMoveTo } from './move-to.js';
 
 const PlanCanvas = lazy(() => import('./PlanCanvas.js'));
 
@@ -78,6 +82,25 @@ export function PlanPage({ id, task }: { id: string; task?: string }) {
   }, [view, picked]);
   if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={<Button onClick={() => openList()}>Back to Plans</Button>} />;
   return <Page view={view} prefs={prefs} setPrefs={setPrefs} picked={picked} setPicked={setPicked} />;
+}
+
+/** It moved to another computer (BLG-806): this is its record here; it runs there. */
+function MovedAway({ plan }: { plan: Plan }) {
+  const actions = useActions();
+  const to = plan.movedTo;
+  if (!to) return null;
+  const page = { kind: 'plan' as const, id: to.planId ?? plan.id };
+  return (
+    <div className={p.changes} role="status">
+      <Icon name="send" size={13} />
+      <strong>Moved to {to.name}</strong>
+      <span>It runs there now, with its chat and tasks; this is its record.</span>
+      <span className={p.grow} />
+      <Button size="small" onClick={() => actions.run({ type: 'view', view: to.id ? onMachine(to.id, page) : page })}>
+        Open There
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -285,6 +308,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   })();
 
   const teamItems = usePlanTeamItems(plan.id, plan.projectId);
+  // Move To ▸ another computer of yours (BLG-806): Pause and Move To while something runs in it.
+  const moveTo = useMoveTo(plan, view, step);
   // Agent for Its Work ▸ (BLG-498): who works what starts from now on; milestones at work keep theirs (the toast says so).
   const workAgent = (v: string): void =>
     void act(() => api.setWorkAgent(plan.id, v === YOUR_AGENT ? null : agentForChoice(v, runtimes))).then((said) => {
@@ -317,6 +342,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
     ...(conflictHere ? [{ label: revealLabel('Conflict'), onSelect: () => void act(() => api.showConflict(plan.id)) }] : []),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     ...teamItems,
+    ...(moveTo ? [moveTo] : []),
     { label: 'Copy as Markdown', separate: true, onSelect: () => void copyText(markdownOf(view)) },
     { label: 'Planning Style…', onSelect: () => openSheet({ kind: 'plan_style' }) },
     ...(plan.draft ? [{ label: plan.body ? 'Discard Changes' : 'Discard Draft', danger: true, separate: true, onSelect: () => openSheet({ kind: 'confirm', title: plan.body ? 'Discard the proposed changes?' : 'Discard this draft?', message: plan.body ? 'The plan stays as you approved it.' : 'Nothing was put on the board, so nothing else changes.', confirm: 'Discard', destructive: true, run: () => void act(() => api.discard(plan.id)) }) }] : []),
@@ -341,6 +367,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
           )}
         </div>
         <div className={p.headActions}>
+          {/* Where it runs (BLG-786): the computer it was made on. Only with a computer paired. */}
+          <RunsOnLabel tip="It runs on the computer it was made on until you move it." />
           {/* The plan's pull request, always one click from GitHub, with what stands in its way. */}
           {pr ? <PlanPrChip pr={pr} /> : null}
           {/* How it runs: nothing to run while Claude writes it. A real decision: its sheet says what changes. */}
@@ -350,8 +378,12 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
               {view.milestones.some((m) => m.milestone.autonomy && m.milestone.autonomy !== plan.autonomy) ? ' (mixed)' : ''}
             </Button>
           )}
-          {/* The chat beside the plan, in and out: always here, whichever way it is. */}
-          <IconButton icon="claude" label={chat ? 'Hide the Chat' : 'Show the Chat'} keys={shortcutKeys('toggle-inspector')} active={chat} onClick={() => showChat(!chat)} />
+          {/* The orchestrator's chat beside the plan, in and out: always here, whichever way it is. */}
+          <Tip label={chat ? 'Hide the orchestrator’s chat' : 'Open the orchestrator’s chat'} keys={shortcutKeys('toggle-inspector')}>
+            <Button size="small" variant="quiet" icon="claude" aria-pressed={chat} onClick={() => showChat(!chat)}>
+              {chat ? 'Hide Orchestrator' : 'Open Orchestrator'}
+            </Button>
+          </Tip>
           <ActionsDropdown items={more}>
             <IconButton icon="more" label="Plan Options" />
           </ActionsDropdown>
@@ -385,6 +417,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
           ) : null}
         </div>
       ) : null}
+      <MovedAway plan={plan} />
       <ConflictLine view={view} onShow={setPicked} />
       <MergeFailed view={view} onPass={(id, title) => void step.run(`pass “${title}”`, 'Passing…', () => api.pass(plan.id, id))} />
       <LimitPause view={view} />

@@ -12,6 +12,8 @@ import { RowTriageTools, triageItems } from './row-triage-actions.js';
 import { workspaceItems } from './workspace-row.js';
 import { ChatsMenu } from './ChatsMenu.js';
 import { SignalMark } from './signal-marks.js';
+import { WorkspaceThreads } from './SubAgents.js';
+import { HarnessMark } from '../threads/HarnessMark.js';
 import { Row, Section } from './sidebar-parts.js';
 import s from './Sidebar.module.css';
 import m from './signal.module.css';
@@ -85,12 +87,22 @@ function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list:
             ) : null}
           </span>
           <SignalMark signal={e.signal} />
+          {e.kind === 'workspace' ? <HarnessMark ws={e.ws} /> : null}
         </>
       }
     />
   );
   // A DM, a group, a sentinel's chat: nothing to do from here.
-  return e.key ? <ActionsContext items={() => menuOf(e, actions.run, client)}>{row}</ActionsContext> : row;
+  const menu = e.key ? <ActionsContext items={() => menuOf(e, actions.run, client)}>{row}</ActionsContext> : row;
+  // With threads on, the child threads it started sit under it, as in the project list (none put off till later).
+  return e.kind === 'workspace' ? (
+    <>
+      {menu}
+      <WorkspaceThreads ws={e.ws} indent={1} />
+    </>
+  ) : (
+    menu
+  );
 }
 
 /** A category row's right-click menu: the workspace row's own, or Open with the category's items. */

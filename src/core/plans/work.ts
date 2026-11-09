@@ -13,8 +13,10 @@ import { DraftReviewer } from './draft-review.js';
 import { dropEpics, syncEpics } from './epics.js';
 import type { BodyInput, PlanOp, TaskInput } from './edit.js';
 import { type Autonomy, type Plan, type TestsAt, activeDecisions, allTasks, checkerOf, planForHome, planTaskOfIssue, planTitle, reviewerOf } from './model.js';
+import { PlanMover } from './move-work.js';
 import { issueForWorkspace } from '../board/model.js';
 import { type PilotDeps, PlanPilot } from './pilot.js';
+import { liveFrom } from './progress.js';
 import { type PlanGit, planGitOf } from './plan-git.js';
 import { type Plans, UNTITLED } from './plans.js';
 import { checkFailedPrompt, checkerBrief, describePlan, headBrief, milestoneNote, planningBrief, reviewerBrief, sizeWords, workerNote } from './prompt.js';
@@ -63,6 +65,8 @@ const WS = 'ws:';
 export class PlansWork {
   readonly plans: Plans;
   readonly pilot: PlanPilot;
+  /** Moving a plan to another computer of yours (BLG-806): this daemon's part. */
+  readonly mover: PlanMover;
   /** A fresh agent's read of each first draft, before Approve Plan (see draft-review.ts). */
   readonly reviewer: DraftReviewer;
 
@@ -124,6 +128,20 @@ export class PlansWork {
       ...(deps.forYou ? { forYou: deps.forYou } : {}),
       ...(deps.rescueMs !== undefined ? { rescueMs: deps.rescueMs } : {}),
       structure: (plan) => this.structure(plan.id),
+    });
+    this.mover = new PlanMover({
+      store: deps.store,
+      plans: deps.plans,
+      board: deps.board.board,
+      ...(deps.controller ? { controller: deps.controller } : {}),
+      view: (plan) => this.pilot.view(plan),
+      busy: (channel) => liveFrom(deps.store.getState()).busy(channel),
+      settle: (id) => {
+        this.structure(id);
+        this.pilot.schedule();
+      },
+      me: () => this.me(),
+      ...(deps.now ? { now: deps.now } : {}),
     });
     // A task of a plan: its worktree's Claude knows the plan and what runs beside it.
     deps.board.setBriefExtra((issue) => this.workerBrief(issue));
@@ -436,7 +454,7 @@ export class PlansWork {
     if (reviewing) return reviewing.status === 'draft' && reviewing.draft ? { tools: this.reviewerTools(reviewing.id), brief: reviewerBrief(reviewing), checker: true } : undefined;
     const checking = checkerOf(this.plans.state(), channel);
     if (checking) {
-      if (checking.plan.status !== 'active' || !checking.plan.body) return undefined;
+      if (checking.plan.status !== 'active' || !checking.plan.body || checking.plan.movedTo) return undefined;
       const view = this.pilot.view(checking.plan);
       const m = view.milestones.find((x) => x.milestone.id === checking.milestone);
       return m ? { tools: this.checkerTools(checking.plan.id, m.milestone.id), brief: checkerBrief(view, m), checker: true } : undefined;
@@ -461,7 +479,7 @@ export class PlansWork {
     if (!channel.startsWith(WS)) return undefined;
     const wsId = channel.slice(WS.length);
     for (const plan of this.plans.list()) {
-      if (plan.status !== 'active' || !plan.body) continue;
+      if (plan.status !== 'active' || !plan.body || plan.movedTo) continue;
       const id = Object.keys(plan.runs).find((k) => plan.runs[k]?.agent?.worktree === wsId);
       if (!id) continue;
       const view = this.pilot.view(plan);

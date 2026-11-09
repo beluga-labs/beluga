@@ -1,6 +1,6 @@
 import { type AgentRef, CLAUDE_AGENT } from '../protocol.js';
 import { agentLabel } from '../shared/agent-label.js';
-import type { AgentRunInput } from './types.js';
+import type { AgentRunInput, OpenPr } from './types.js';
 import { underPart } from '../shared/path-inside.js';
 
 /** `agent`: the agent this prompt is for ("You are kay's Codex"); default Claude, the runner's. */
@@ -95,11 +95,11 @@ export function buildScratchAppend(dir: string): string {
 /**
  * A worktree's run: what it leaves running is stopped when the turn ends, unless kept on purpose (see
  * workspaces/test-procs.ts). Claude Code's Bash call is rewritten to detach a kept one (keptBashInput);
- * Codex's and OpenCode's commands can't be, so they're told to detach it themselves (nohup, output to a file, `&`).
+ * Codex's, OpenCode's and Copilot's commands can't be, so they're told to detach it themselves (nohup, output to a file, `&`).
  */
 export function buildKeepAppend(agent: AgentRef = CLAUDE_AGENT): string {
   const how =
-    agent.runtime === 'codex' || agent.runtime === 'opencode'
+    agent.runtime === 'codex' || agent.runtime === 'opencode' || agent.runtime === 'copilot'
       ? [
           'BELUGA_KEEP=1 in front, detached with its output in a file, e.g.',
           '`BELUGA_KEEP=1 nohup npm run dev > .beluga/dev.log 2>&1 &` (so your command returns at once),',
@@ -121,14 +121,48 @@ export function buildKeepAppend(agent: AgentRef = CLAUDE_AGENT): string {
 /**
  * A worktree's run (not a plan's task: its brief says when to commit): Claude commits what it
  * changed before the turn ends, so the branch is always ready for Create PR (see workspaces/pr.ts).
+ * With an open PR (BLG-840) it pushes there too, unless the owner turned that off, so Merge never
+ * merges an older version; and its last answer always says where the work is.
  */
-export function buildCommitAppend(): string {
-  return [
+export function buildCommitAppend(pr?: OpenPr): string {
+  const lines = [
     '',
     'You are on a branch of your own (a git worktree). When your turn changed files, commit them before you',
     'end it: one commit with a short message in the style of `git log` here (no attribution lines unless the',
-    'repo uses them). Leave out scratch files, build output and anything secret. Never push, merge, rebase or',
-    'open a pull request unless asked: the owner does that from Beluga. If the request says not to run git, don\'t.',
+    'repo uses them). Leave out scratch files, build output and anything secret. If the request says not to run git, don\'t.',
+  ];
+  if (!pr) {
+    return [
+      ...lines,
+      'Never push, merge, rebase or open a pull request unless asked: the owner does that from Beluga.',
+      'This branch has no pull request yet. When you committed, your last answer says so in plain words: the',
+      'work is committed here, on this branch, and not on a pull request yet.',
+    ].join('\n');
+  }
+  const where = `PR #${pr.number}${pr.url ? ` (${pr.url})` : ''}`;
+  if (pr.fork) {
+    return [
+      ...lines,
+      `This branch follows ${where}, from someone else's fork: you can't push to it. Never push, merge or rebase.`,
+      `When you committed, your last answer says the work is committed here and not on PR #${pr.number}.`,
+    ].join('\n');
+  }
+  if (!pr.push) {
+    return [
+      ...lines,
+      `This branch's pull request is open: ${where}. The owner pushes to it themselves (their setting), so`,
+      'never push, merge, rebase or open another pull request unless asked. When you committed, your last answer',
+      `says the work is committed here and not on PR #${pr.number} yet (the owner pushes it from Beluga's toolbar).`,
+    ].join('\n');
+  }
+  return [
+    ...lines,
+    `This branch's pull request is open: ${where}. Keeping it current is part of the work: at the end of a turn`,
+    `where you committed, push the branch to it with \`git push origin ${pr.branch}\` (never --force; when the push is`,
+    "rejected because GitHub has commits you don't, stop and say so instead of forcing or rebasing). A turn that",
+    'committed nothing pushes nothing. Never merge, rebase or open another pull request unless asked: the owner does that from Beluga.',
+    `Your last answer ends by saying where the work is, in plain words: on PR #${pr.number} once pushed, or committed`,
+    `here and not on PR #${pr.number} yet if the push failed (and why). Merged only if you merged it because you were asked.`,
   ].join('\n');
 }
 

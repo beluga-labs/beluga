@@ -278,6 +278,21 @@ back, a long-press says who), and long-press on a message opens its sheet with y
 (`ChatView.quick`, the six you use most) on top (`network.messages.react`). The room's and workspaces'
 chats do the same on a person's turn (`TurnView.reactions`, `reactable`, `ConvView.quick`,
 `session.react`). An older Mac sends neither, and long-press stays as it was.
+1.44 (BLG-172) brings child threads to the phone (`SINCE.threads`). With Agent threads on, each row of
+Work shows its chat's harness mark and a child sits under its parent (`ConvSummary.harness`, `parent`;
+a kept child, or one whose parent is gone, is a row of its own). A chat's ••• › Threads opens its parent
+and children with their live state, and Stop on each one at work (`ConvView.threadFamily`, `threads.stop`, `threads.stopAll`):
+the Mac's own stop, so those under it stop too. The sheet carries titles and states only, never a
+thread's task or result. Its native sub-agents share the list as read-only rows (`ThreadFamilyView.agents`,
+`SINCE.threadAgents`): the chat's harness mark, a quiet "sub-agent" word, no Stop and no page of their own
+(their steps stay on the conversation's strip); one "N running" counts both kinds. An older Mac leaves them
+out: the sheet lists threads only. A need in a child names
+it (`NeedsYou.thread`). Archive and Delete ask once about a chat's threads, with the Mac's defaults:
+archive takes them, delete keeps them (`BranchView.threads`, and the third argument of
+`companion.branchStep`, `with` or `keep`). The phone sends that argument only to a Mac with
+`SINCE.threads`, because an older Mac refuses an argument it doesn't know. An older Mac sends none of the
+fields: flat rows, no Threads sheet, no question, and its children stay. An older phone sends no answer to a
+newer Mac: children stay there too.
 - `chats` and `chat:<conversation>`: friends' DMs and channels.
 - `people`: friends, presence, their usage and what they let your agent do.
 
@@ -435,6 +450,31 @@ which one worked (`src/companion/dial.ts`):
   OS's TLS) through its IPC and passes ciphertext both ways in base64.
 - **Only while needed.** The relay server and its tunnel run only while a phone is paired or a
   pairing is open, and not at all with Remote access set to direct only (`p2p`) or `none`, or in the demo.
+- **Your computers, by themselves (BLG-809).** Your Mac tells its phones where each of your
+  computers is (the `computers` frame, 1.46: companion address and relays), after the welcome and
+  whenever one joins, moves or is renamed. The phone keeps that list and links to each computer
+  itself, with the same certificate and keys, dialed the same three ways: no second pairing, no Mac
+  in the middle, so it works while the Mac sleeps. Each computer lets in the phones of your device
+  set through its phone door, with the phone table's limits (`src/companion/coverage.ts`), and names
+  them in its relay record; a phone forgotten anywhere is cut off there (`src/machines/phones.ts`,
+  `packages/companion/lib/link/computers.ts`). Those links open and close with the Mac's.
+- **Their work on the phone (BLG-810).** Work lists each computer under Your Computers, with its
+  icon, name and one line (what it has free, or offline since when the phone last reached it,
+  greyed); its conversations open over its own link (`?on=<id>`, `lib/scope.ts`), read-only from
+  the phone's cache while it's away. Needs You merges every computer's, each saying which, and an
+  answer goes back to that computer. New Task has one row, Runs on This Mac ›, whose sheet lists
+  your computers with the same line as the Mac's menu (`src/machines/words.ts`); picking one lists
+  its projects and starts the work there. Pictures, files, terminals and merges in a computer's
+  conversation stay on that computer for now.
+- **Friends with your Mac closed (BLG-850).** Your Always On runs your friends network, so while
+  the Mac's link is down the phone's People, Chats and chat screens read from the Always On's link,
+  and `network.*` calls (send, read, approve) go there; with the Mac back they go to the Mac again.
+  A friend's new message is a `mentions` nudge on its chat (`newMessages`, `src/companion/push.ts`),
+  told only by the install that runs the network: a Mac that only shows your Always On's network
+  doesn't also tell a phone that links there, so one message is one notification. With Stay
+  connected on, the Always On's link stays open while the app is away, so those nudges notify with
+  the Mac closed. A push token sent on that link is kept there (`phone-push.json`) for Beluga Push.
+  An older phone, linked only to the Mac, hears them from the Mac as before.
 
 ## When it can't connect
 

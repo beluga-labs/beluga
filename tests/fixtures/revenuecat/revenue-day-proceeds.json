@@ -1,0 +1,107 @@
+{
+  "object": "chart_data",
+  "category": "revenue",
+  "display_name": "Revenue",
+  "resolution": "day",
+  "yaxis_currency": "EUR",
+  "user_selectors": {
+    "revenue_type": "proceeds"
+  },
+  "segments": null,
+  "start_date": 1790812800,
+  "end_date": 1790985600,
+  "measures": [
+    {
+      "display_name": "Proceeds",
+      "unit": "€",
+      "description": "Money",
+      "decimal_precision": 2,
+      "chartable": true,
+      "tabulable": true
+    },
+    {
+      "display_name": "Transactions",
+      "unit": "#",
+      "description": "Count",
+      "decimal_precision": 0,
+      "chartable": true,
+      "tabulable": true
+    },
+    {
+      "display_name": "Ad Impressions",
+      "unit": "#",
+      "description": "Ads",
+      "decimal_precision": 0,
+      "chartable": true,
+      "tabulable": true
+    }
+  ],
+  "values": [
+    {
+      "cohort": 1790812800,
+      "measure": 0,
+      "value": 27.97,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790812800,
+      "measure": 1,
+      "value": 2,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790812800,
+      "measure": 2,
+      "value": 5,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790899200,
+      "measure": 0,
+      "value": 0,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790899200,
+      "measure": 1,
+      "value": 0,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790899200,
+      "measure": 2,
+      "value": 0,
+      "incomplete": false
+    },
+    {
+      "cohort": 1790985600,
+      "measure": 0,
+      "value": 8.75,
+      "incomplete": true
+    },
+    {
+      "cohort": 1790985600,
+      "measure": 1,
+      "value": 1,
+      "incomplete": true
+    },
+    {
+      "cohort": 1790985600,
+      "measure": 2,
+      "value": 3,
+      "incomplete": true
+    }
+  ],
+  "summary": {
+    "average": {
+      "Proceeds": 12.24,
+      "Transactions": 1,
+      "Ad Impressions": 0
+    },
+    "total": {
+      "Proceeds": 36.72,
+      "Transactions": 3,
+      "Ad Impressions": 0
+    }
+  }
+}

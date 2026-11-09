@@ -1,6 +1,8 @@
 import { usePrefs } from '../lib/prefs.js';
+import { HarnessMark } from '../threads/HarnessMark.js';
 import { unreadEntries } from './attention-model.js';
 import { EntryRow, useEntryList } from './EntryRow.js';
+import { SignalMark } from './signal-marks.js';
 import { Section } from './sidebar-parts.js';
 import m from './signal.module.css';
 
@@ -21,7 +23,18 @@ export function UnreadSection() {
     <div role="region" aria-label="Unread" className={m.section}>
       <Section id="unread" title="Unread">
         {rows.map((e, at) => (
-          <EntryRow key={e.channel} e={e} list={list} at={at} />
+          <EntryRow
+            key={e.channel}
+            e={e}
+            list={list}
+            at={at}
+            trailing={
+              <>
+                <SignalMark signal={e.signal} />
+                {e.kind === 'workspace' ? <HarnessMark ws={e.ws} /> : null}
+              </>
+            }
+          />
         ))}
       </Section>
     </div>

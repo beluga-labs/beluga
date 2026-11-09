@@ -253,9 +253,9 @@ export async function catchUpForDelete(repo: string, branch: string, base: strin
 /** Status reads run a few at a time (each is one or two git processes): a refresh of many worktrees never forks dozens at once. */
 export const statusSlots = limiter(4);
 
-/** Uncommitted file count plus commits ahead/behind `base`. */
-export function status(dir: string, base?: string): Promise<Status> {
-  return statusSlots(() => readStatus(dir, base));
+/** Uncommitted file count plus commits ahead/behind `base`. `shipped`: its merged pull requests' heads (see unpushedCommits). */
+export function status(dir: string, base?: string, shipped: readonly string[] = []): Promise<Status> {
+  return statusSlots(() => readStatus(dir, base, shipped));
 }
 
 /**
@@ -335,10 +335,10 @@ export async function refsMark(dir: string): Promise<string | undefined> {
 
 /**
  * Commits ahead of and behind `base`, whether they landed there, and how many are pushed nowhere:
- * git asked only when its refs moved (or every few minutes).
+ * git asked only when its refs moved (or every few minutes), or a pull request of it merged since.
  */
-async function countAgainst(dir: string, base: string): Promise<{ ahead: number; behind: number; landed: boolean; unpushed: number }> {
-  const key = `${dir}\0${base}`;
+async function countAgainst(dir: string, base: string, shipped: readonly string[]): Promise<{ ahead: number; behind: number; landed: boolean; unpushed: number }> {
+  const key = `${dir}\0${base}\0${shipped.join(' ')}`;
   // Marked before git counts, so a ref that moves while it counts shows as a change next time.
   const mark = await refsMark(dir).catch(() => undefined);
   const known = refsCounts.get(key);
@@ -347,21 +347,22 @@ async function countAgainst(dir: string, base: string): Promise<{ ahead: number;
   const behind = Number(counts?.[0] ?? 0) || 0;
   const ahead = Number(counts?.[1] ?? 0) || 0;
   const landed = ahead > 0 && (await hasLanded(dir, base));
-  const unpushed = ahead > 0 && !landed ? await countUnpushed(dir, 'HEAD', base) : 0;
+  // What a merged pull request had is on GitHub for good (BLG-833): the Delete step's hint agrees with Delete's own check.
+  const unpushed = ahead > 0 && !landed ? await countUnpushed(dir, 'HEAD', base, await shippedHeads(dir, shipped)) : 0;
   if (refsCounts.size > 2000) refsCounts.clear();
   if (mark) refsCounts.set(key, { mark, at: Date.now(), ahead, behind, landed, unpushed });
   else refsCounts.delete(key);
   return { ahead, behind, landed, unpushed };
 }
 
-async function readStatus(dir: string, base?: string): Promise<Status> {
+async function readStatus(dir: string, base?: string, shipped: readonly string[] = []): Promise<Status> {
   // Never take the index lock just to look: a commit (yours or Claude's) may be running.
   // Always asked: files you edit, and new ones, change nothing git's refs or index would show.
   const out = await git(dir, ['--no-optional-locks', 'status', '--porcelain=v1', '-b']);
   const [head = '', ...files] = out.split('\n').filter(Boolean);
   const branch = /^## (?:No commits yet on )?([^.\s]+)/.exec(head)?.[1];
   if (base) {
-    const { ahead, behind, landed, unpushed } = await countAgainst(dir, base);
+    const { ahead, behind, landed, unpushed } = await countAgainst(dir, base, shipped);
     return { branch, changed: files.length, ahead, behind, ...(landed ? { landed: true as const } : {}), ...(unpushed ? { unpushed } : {}) };
   }
   // "## main...origin/main [ahead 1, behind 2]": how the checkout compares to what it tracks.
@@ -430,11 +431,14 @@ async function withLockRetry(cwd: string, args: readonly string[], tries = 6): P
   }
 }
 
-export async function commitAll(dir: string, message: string): Promise<boolean> {
+export async function commitAll(dir: string, message: string, opts: { readonly orAsBeluga?: boolean } = {}): Promise<boolean> {
   await withLockRetry(dir, ['add', '-A']);
   const staged = (await tryGit(dir, ['diff', '--cached', '--name-only']))?.trim();
   if (!staged) return false;
-  await withLockRetry(dir, ['commit', '-m', message]);
+  // A commit Beluga makes for you (moving work to another computer) on a computer with no git
+  // identity yet, like a fresh server: authored as Beluga rather than failing. Yours otherwise.
+  const asBeluga = opts.orAsBeluga && !(await tryGit(dir, ['config', 'user.email']))?.trim() ? ['-c', 'user.name=Beluga', '-c', 'user.email=beluga@localhost'] : [];
+  await withLockRetry(dir, [...asBeluga, 'commit', '-m', message]);
   return true;
 }
 

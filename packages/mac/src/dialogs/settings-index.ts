@@ -19,14 +19,18 @@ export const PANES: ReadonlyArray<PaneInfo<SettingsPane> & { icon: IconName; key
   { id: 'people', label: 'People & access', icon: 'people', keywords: 'friends trust network permissions' },
   { id: 'phone', label: 'Phone', icon: 'phone', keywords: 'android iphone mobile companion' },
   { id: 'external', label: 'External agents', icon: 'bot', keywords: 'mcp grokbot claude code codex pairing code token oauth remote' },
+  { id: 'computers', label: 'Your Computers', icon: 'server', keywords: 'machines servers mac mini aws cloud ssh remote linux pair' },
   { id: 'voice', label: 'Voice', icon: 'mic', keywords: 'dictation speech microphone talk transcribe' },
   { id: 'keyboard', label: 'Keyboard', icon: 'command', keywords: 'shortcuts keys hotkeys bindings' },
-  { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser' },
+  { id: 'advanced', label: 'Advanced', icon: 'wrench', keywords: 'web access browser agent threads' },
   { id: 'experimental', label: 'Experimental', icon: 'flask', keywords: 'labs beta early preview features try' },
   { id: 'about', label: 'About', icon: 'globe', keywords: 'version logs support' },
 ];
 
 type Entry = SettingEntry<SettingsPane>;
+
+/** Shown with agent threads on (see SettingsSearch). */
+export const THREAD_LIMITS_GROUP = 'Thread limits';
 
 /** The rows of one group of a pane: `[label, detail?, keywords?]`. */
 const rows = (pane: SettingsPane, group: string | undefined, list: ReadonlyArray<readonly [string, string?, string?]>): Entry[] =>
@@ -59,7 +63,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Show times next to messages', undefined, 'timestamps time clock'],
     ["The agent's steps once it answers", 'Fold them away, or keep them showing.', 'fold steps tools collapse expand show steps'],
   ]),
-  ...rows('general', 'Earnings', [['Show earnings in', 'Every total from Stripe, in the sidebar and the Usage view.', 'currency money stripe usd eur dollars']]),
+  ...rows('general', 'Earnings', [['Show earnings in', 'Every total from Stripe and RevenueCat, in the sidebar and the Usage view.', 'currency money stripe revenuecat usd eur dollars']]),
 
   // Appearance
   ...rows('appearance', undefined, [
@@ -110,6 +114,12 @@ export const SETTINGS: readonly Entry[] = [
   ]),
   ...rows('claude', 'Working at once', [['Conversations your agent works in at once', 'Past it, a message waits its turn.', 'parallel concurrency limit queue simultaneous runs']]),
   ...rows('claude', 'Open chats', [['Chats kept at once', 'How many chats Your Mac and Sentinel keep as tabs.', 'chat limit tabs sentinel']]),
+  ...rows('claude', THREAD_LIMITS_GROUP, [
+    ['Levels of threads', 'How deep a chat’s threads go.', 'thread depth child sub-agent limit'],
+    ['Working at once in one chat’s tree', 'Threads working under one chat.', 'thread running tree limit'],
+    ['Kept in one chat’s tree', 'Threads under one chat that are not archived.', 'thread archived tree limit'],
+    ['Working at once on this computer', 'Threads working in all your chats.', 'thread running mac computer limit'],
+  ]),
   ...rows('claude', 'Scratch folder', [
     ['Give your agent a scratch folder', 'Screenshots, logs and notes go to .beluga/scratch/.', 'scratch screenshots logs notes'],
     ['Show the Scratch tab', 'Watch that folder live in the right panel.', 'scratch tab panel'],
@@ -151,6 +161,7 @@ export const SETTINGS: readonly Entry[] = [
   ...rows('workspaces', undefined, [
     ['Run setup in new worktrees', 'The project’s setup command runs in each new worktree.', 'npm install setup command auto setup'],
     ['Branch prefix', 'What new worktrees’ branches start with.', 'git branch name prefix'],
+    ['Keep open pull requests current', 'Your agent pushes its commits to an open pull request when its turn ends.', 'push pr pull request git agent commits'],
     ['Friends may start work here', 'They ask to start a worktree or hand work to you.', 'friend worktrees'],
   ]),
   group('workspaces', 'Hidden projects', 'Projects you hid from the sidebar.', 'hide show unhide project sidebar'),
@@ -230,6 +241,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Add a friend', undefined, 'friend invite code link qr'],
     ['Who can ask your agent in chats', undefined, 'chats ask agent permission'],
     ['Who sees your usage', undefined, 'usage limits privacy share'],
+    ['Say when you’ve seen a message', 'Friends see Seen under their message.', 'seen read receipts delivered privacy'],
   ]),
   group('people', 'What your friends’ agents can do here', 'What each trust level allows.', 'trust capabilities permissions access folders ask me for'),
   group('people', 'Rules for people’s requests', 'Answers you gave once and for all.', 'rules allow always decline'),
@@ -264,6 +276,12 @@ export const SETTINGS: readonly Entry[] = [
   ...rows('external', 'Activity', [['Show', 'All, allowed, asked or refused.', 'filter']]),
 
   // Phone
+  group('computers', 'Where new work runs', 'This computer, one of yours, or the least busy.', 'run new work machine best available'),
+  ...rows('computers', 'Where new work runs', [['Run New Work On', 'Worktrees, runs, plans and sentinels you start.', 'here best available machine computer']]),
+  group('computers', 'You on the network', 'This Mac, or the computer that’s your Always On.', 'always on identity network friends move stand in standing in mac mini server'),
+  group('computers', 'Env files sent without asking', 'Projects whose .env files go to your computers.', 'env dotenv secrets ask again always'),
+  ...rows('computers', 'Your settings', [['Your settings on every computer', 'They follow you by themselves; a conflict is said here.', 'sync settings conflicts same everywhere secrets keep in sync']]),
+  group('computers', 'Your computers', 'Add one over SSH or with a code; rename, icon, Update It, Forget.', 'add ssh link code fingerprint rename icon forget update health'),
   group('phone', 'On the cable', 'A phone plugged into this computer.', 'usb cable adb plugged'),
   group('phone', 'Your phones', 'Paired phones, and Remove.', 'devices paired remove'),
   ...rows('phone', undefined, [
@@ -299,6 +317,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Address', 'Where the browser opens Beluga.', 'url address link'],
     ['Let a browser in', 'A link that works once, for 10 minutes.', 'link browser login'],
   ]),
+  ...rows('advanced', 'Agent threads', [['Let your agents start threads', 'Child chats, each with its own agent.', 'threads child sub-agent family orchestrate']]),
 
   // Experimental: one group per experiment, its switch the row (made from shared/experiments.ts).
   ...EXPERIMENTS.flatMap((id) => rows('experimental', EXPERIMENT_INFO[id].title, [[EXPERIMENT_INFO[id].title, EXPERIMENT_INFO[id].summary, `${id} experimental early ${EXPERIMENT_INFO[id].keywords}`]])),

@@ -47,8 +47,21 @@ test('Verify, Then Approve: picked with its agent, it reads the draft and shows 
   await sonnet.dispatchEvent('click');
 
   // While it reads: the button and a line say so.
-  await expect(page.getByRole('status').filter({ hasText: 'Verifying the plan' }).first()).toBeVisible({ timeout: 10_000 });
+  const verifying = page.getByRole('status', { name: 'Verifying the plan' });
+  await expect(verifying).toBeVisible({ timeout: 10_000 });
+  // Never a still line: its checks light up one by one, its latest words show, and Watch It Work opens its conversation.
+  await expect(verifying.locator('[data-state="now"]')).toHaveText(/Contradictions|Duplicates|Stale decisions|Order/, { timeout: 10_000 });
+  await expect(verifying).toContainText(/(Contradictions|Duplicates|Stale|Order): /);
+  await expect(verifying.getByRole('button', { name: 'Watch It Work' })).toBeVisible();
   await page.screenshot({ path: shot('verify-03-verifying.png') });
+  await verifying.screenshot({ path: shot('verify-03b-panel.png') });
+  // Frames of the panel while it works (for a GIF of the motion; BELUGA_VERIFY_FRAMES=1 only).
+  if (process.env.BELUGA_VERIFY_FRAMES) {
+    for (let i = 0; i < 80 && (await verifying.isVisible()); i++) {
+      await verifying.screenshot({ path: shot(`verify-frames/f${String(i).padStart(3, '0')}.png`), animations: 'allow' }).catch(() => undefined);
+      await page.waitForTimeout(60);
+    }
+  }
 
   // What it found, with Fix and Approve Anyway; nothing is approved.
   await expect(page.getByText(/Verifying found one thing to fix/)).toBeVisible({ timeout: 30_000 });

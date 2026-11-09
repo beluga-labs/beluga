@@ -3,6 +3,8 @@ import { ATTACHMENT_SCHEME } from '@beluga/core/attachment-share.js';
 import type { LinkedImage } from '@beluga/shared/attachment-links.js';
 import type { Location } from '@beluga/core/store.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
+import { copyPng } from '../lib/copy.js';
+import { sourceTag } from '../machines/pane-model.js';
 
 /**
  * Images linked in chat messages, fetched through the core (yours from disk, a friend's through
@@ -102,12 +104,16 @@ type Loadable = Pick<ChatImage, 'href' | 'owner' | 'file' | 'local'>;
 /** Where a file on this Mac is, as Beluga reads it (asked once per path). */
 const located = new Map<string, Promise<Location>>();
 
+/** A path on the computer `api` is of (BLG-784): the same path on two computers is two files. */
+const pathKey = (api: Api, local: string): string => `${sourceTag(api)}\0${local}`;
+
 function locate(api: Api, local: string): Promise<Location> {
-  const hit = located.get(local);
+  const k = pathKey(api, local);
+  const hit = located.get(k);
   if (hit) return hit;
   const at = api.session.localLocation(local, false);
-  located.set(local, at);
-  at.catch(() => located.get(local) === at && located.delete(local));
+  located.set(k, at);
+  at.catch(() => located.get(k) === at && located.delete(k));
   return at;
 }
 
@@ -121,11 +127,11 @@ async function keyOf(api: Api, image: Loadable): Promise<{ key: string; at?: Loc
   const at = await locate(api, image.local);
   try {
     const { size, mtime } = await api.files.version(at);
-    return { key: `${image.href}\0${mtime}:${size}`, at };
+    return { key: `${pathKey(api, image.href)}\0${mtime}:${size}`, at };
   } catch {
     // Where it is is asked again next time (its folder may have been shared since).
-    located.delete(image.local);
-    return { key: image.href, at };
+    located.delete(pathKey(api, image.local));
+    return { key: pathKey(api, image.href), at };
   }
 }
 
@@ -255,7 +261,7 @@ export function useLightbox(): Lightbox | undefined {
   );
 }
 
-/** Put the image on the clipboard (as PNG, which every app pastes). */
+/** Put the image on the clipboard as PNG, which every app pastes. */
 export async function copyImage(url: string): Promise<void> {
   const blob = await (await fetch(url)).blob();
   const png =
@@ -273,5 +279,5 @@ export async function copyImage(url: string): Promise<void> {
           img.onerror = () => reject(new Error("Couldn't read the image"));
           img.src = url;
         });
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+  await copyPng(png);
 }

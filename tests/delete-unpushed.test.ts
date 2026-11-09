@@ -144,7 +144,40 @@ describe('deleting a worktree with commits pushed nowhere (BLG-617)', () => {
     expect(await unpushedCommits(repo, 'beluga/shipped', 'origin/main', ['0123456789abcdef0123456789abcdef01234567', '--all'])).toMatchObject({ count: 2 });
   });
 
-  it('with a git older than merge-tree --write-tree, it warns as before', async () => {
+  it("the Delete step's hint agrees with Delete once GitHub says its PR merged, even where main later rewrote its lines (BLG-833)", async () => {
+    const ws = await mgr.createWorktree(project().id, 'hint');
+    commitIn(ws.path, 'a.txt', 'one');
+    const head = sh(ws.path, 'rev-parse', 'HEAD').trim();
+    squashIntoMain('beluga/hint');
+    commitIn(repo, 'a.txt', 'one, rewritten');
+    sh(repo, 'push', 'origin', 'main');
+    const state = { projects: mgr.list, gh: undefined, prs: { [ws.id]: { number: 7, state: 'MERGED' as const } }, conflicts: {} } as unknown as Parameters<typeof branchState>[0];
+    const hint = () => branchState(state, mgr.find(ws.id)!)?.steps.find((s) => s.id === 'delete')?.hint;
+    await mgr.refresh();
+    expect(mgr.find(ws.id)?.status).toMatchObject({ unpushed: 1 });
+
+    // Polling heard it merged at this commit.
+    expect(mgr.setMergedHead(ws.id, head)).toBe(true);
+    expect(mgr.setMergedHead(ws.id, head)).toBe(false);
+    await mgr.refreshWorkspace(ws.path);
+    expect(mgr.find(ws.id)?.status?.unpushed).toBeUndefined();
+    expect(hint()).toBe('Remove the folder and its branch for good');
+    expect(await mgr.deletePlan(ws.id)).toBeUndefined();
+    // Kept across a restart: it's on the record.
+    const restarted = new WorkspaceManager(new WorkspaceStore(path.join(base, 'home')));
+    await restarted.refresh();
+    expect(restarted.find(ws.id)).toMatchObject({ mergedHead: head });
+    expect(restarted.find(ws.id)?.status?.unpushed).toBeUndefined();
+
+    commitIn(ws.path, 'b.txt', 'after the merge');
+    await mgr.refreshWorkspace(ws.path);
+    expect(mgr.find(ws.id)?.status).toMatchObject({ unpushed: 1 });
+    expect(hint()).toMatch(/^1 commit on beluga\/hint was never pushed/);
+    expect(await mgr.deletePlan(ws.id)).toMatchObject({ unpushed: 1, subjects: ['after the merge'] });
+  });
+
+  // The old git is a shell script put first on PATH: Windows finds git.exe instead.
+  it.skipIf(process.platform === 'win32')('with a git older than merge-tree --write-tree, it warns as before', async () => {
     commitIn(repo, 'notes.md', ['top', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'bottom'].join('\n'));
     sh(repo, 'push', 'origin', 'main');
     const ws = await mgr.createWorktree(project().id, 'old-git');

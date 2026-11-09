@@ -118,6 +118,8 @@ export interface SessionOptions {
   readonly desktopNotify?: (n: import('./notify.js').DesktopNote) => void;
   /** Open a URL or file with the system (injected in tests). */
   readonly open?: (target: string) => void;
+  /** Keep Claude Code current in the background (the Mac app's daemon; never in tests or the demo). */
+  readonly updateAgent?: () => Promise<boolean>;
   /** Injected in tests: pull request lookups and the GitHub CLI check. */
   readonly findPr?: import('./workbench.js').WorkbenchDeps['findPr'];
   readonly hasGh?: () => Promise<boolean>;
@@ -321,6 +323,13 @@ export class Session {
     const backend = guardedBackend(rt.create({ ...this.opts.runtime.options, bridge: this.bridge }), rt.capabilities);
     this.otherBackends.set(runtime, backend);
     return backend;
+  }
+
+  /** Whether a runtime takes a message into a running turn (undefined: your default agent's). A local model is Claude Code pointed elsewhere. */
+  canSteer(runtime: string | undefined): boolean {
+    if (!runtime) return this.runtime?.capabilities.canSteer ?? false;
+    const id = runtime === LOCAL_RUNTIME ? CLAUDE_AGENT.runtime : runtime;
+    return (this.opts.runtime?.runtimes(id) ?? this.opts.alsoRuntimes?.find((r) => r.id === id))?.capabilities.canSteer ?? false;
   }
 
   /** Whether this Mac can run that agent now: its runtime is here (a local model: its endpoint is set up). */
@@ -923,7 +932,7 @@ export class Session {
   }
 
   /** A project's setup and/or run command from its files (undefined without an agent to ask, or on trouble). */
-  async workOutScripts(dir: string, want: { setup: boolean; run: boolean }): Promise<WorkedOutScripts | undefined> {
+  async workOutScripts(dir: string, want: { setup: boolean; run: boolean; system?: string }): Promise<WorkedOutScripts | undefined> {
     return routeSideCall(this.sideRoute(), (on) => on.workOutScripts?.(dir, want), undefined);
   }
 

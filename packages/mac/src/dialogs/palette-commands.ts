@@ -7,7 +7,7 @@ import type { UiStore } from '../lib/beluga.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { openSettings } from '../lib/native-routes.js';
 import { openSheet } from '../lib/sheets.js';
-import { openStripe } from '../lib/earnings.js';
+import { openEarnings } from '../lib/earnings.js';
 import { openSupport } from '../lib/support.js';
 import { SHOW_WELCOME } from '../onboarding/onboarding-model.js';
 import { previewRequestPopup } from '../gateway/request-native.js';
@@ -106,7 +106,7 @@ export function paletteCommands(ctx: Ctx): PaletteCommand[] {
     ...(state.myShares.length ? [cmd('unshare', 'unshare', 'Stop Sharing a Folder…', 'share', () => ui.openMenu({ kind: 'share_folder', launchDir: client.launchDir, mine: state.myShares }))] : []),
     cmd('name', 'name', 'Change Your Name…', 'person', () => openSettings(ui, 'general', 'settings-name'), state.self?.name ? `Now: ${state.self.name}` : undefined),
     cmd('people', 'people', 'People & Access…', 'people', () => openSettings(ui, 'people'), 'Who can use your agent, and how'),
-    stripeCommand(state),
+    earningsCommand(state),
     { id: 'cmd:support', label: 'Support Beluga…', icon: 'cup', hint: 'Buy the maker a coffee, or star Beluga on GitHub', keywords: ['support', 'coffee', 'donate', 'tip', 'sponsor', 'star', 'github'], run: () => openSupport('coffee') },
     cmd('env', 'env', 'Environment Variables…', 'lock', () => openSettings(ui, 'environment'), 'For your shells, scripts and agents'),
     cmd('shell', 'shell', 'Terminal Settings…', 'terminal', () => openSettings(ui, 'terminal'), 'Which shell, and how it starts'),
@@ -130,17 +130,17 @@ export function paletteCommands(ctx: Ctx): PaletteCommand[] {
   ];
 }
 
-/** Connect Stripe (or see the earnings) for the project on screen, or pick one in the sheet. */
-function stripeCommand(state: AppState): PaletteCommand {
+/** Connect earnings (or see them) for the project on screen, or pick one in the sheet. */
+function earningsCommand(state: AppState): PaletteCommand {
   const ws = state.view.kind === 'workspace' ? findWorkspace(state.projects, state.view.id) : undefined;
   const project = state.projects.find((p) => p.root && p.id === ws?.projectId);
-  const connected = project ? Boolean(state.earnings[project.root]) : false;
+  const connected = project ? Boolean(state.earnings[project.root] || state.revenuecat[project.root]) : false;
   return {
-    id: 'cmd:stripe',
-    label: project ? (connected ? `${project.name} Earnings…` : `Connect Stripe to ${project.name}…`) : 'Connect Stripe…',
+    id: 'cmd:earnings',
+    label: project ? (connected ? `${project.name} Earnings…` : `Connect Earnings to ${project.name}…`) : 'Connect Earnings…',
     hint: 'All-time earnings beside a project in the sidebar',
     icon: 'coin',
-    keywords: ['stripe', 'earnings', 'revenue', 'money', 'sales'],
-    run: () => openStripe(project?.id),
+    keywords: ['stripe', 'revenuecat', 'earnings', 'revenue', 'money', 'sales'],
+    run: () => openEarnings(project?.id),
   };
 }

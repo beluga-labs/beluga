@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { THREAD_LIMIT_ROWS } from '../src/shared/threads.js';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PANES, SETTINGS } from '../packages/mac/src/dialogs/settings-index.js';
@@ -141,7 +142,7 @@ const s = (...names: string[]) => names.map((n) => fn(SETTINGS_TSX, n)).join('\n
 const PANE_SOURCES: Record<string, string> = {
   general: [s('General', 'PictureRow'), fn(read('dialogs/UpdateSettings.tsx'), 'UpdateSettingsGroup'), read('dialogs/EarningsSettings.tsx')].join('\n'),
   appearance: [s('Appearance'), read('dialogs/ThemePicker.tsx')].join('\n'),
-  claude: [s('AgentPane', 'AgentsGroup'), ...['LaunchFlagsSettings', 'McpSettings', 'LocalModelsSettings', 'ContextSettings', 'UsageLimitSettings', 'ParallelSettings', 'ChatLimitSettings'].map((f) => read(`dialogs/${f}.tsx`))].join('\n'),
+  claude: [s('AgentPane', 'AgentsGroup'), ...['LaunchFlagsSettings', 'McpSettings', 'LocalModelsSettings', 'ContextSettings', 'UsageLimitSettings', 'ParallelSettings', 'ChatLimitSettings'].map((f) => read(`dialogs/${f}.tsx`)), fn(read('dialogs/AgentThreadsSettings.tsx'), 'ThreadLimitsSettings'), ...THREAD_LIMIT_ROWS.map(({ label }) => `'${label}'`)].join('\n'),
   notifications: ['dialogs/NotificationSettings.tsx', 'dialogs/sound/SoundSettings.tsx', 'dialogs/sound/TestNotification.tsx'].map(read).join('\n'),
   // Its toolbar buttons' rows are made from HIDEABLE_BUTTONS, and so are their entries.
   workspaces: [s('Workspaces', 'HiddenProjectsGroup', 'BranchPrefixRow'), ...HIDEABLE_BUTTONS.map(([, label]) => `'${label}'`)].join('\n'),
@@ -152,9 +153,10 @@ const PANE_SOURCES: Record<string, string> = {
   people: [s('People'), read('network/NetworkSettings.tsx'), read('gateway/AccessSettings.tsx')].join('\n'),
   phone: read('phone/Phone.tsx'),
   external: read('dialogs/ExternalAgentsSettings.tsx'),
+  computers: read('dialogs/MachinesSettings.tsx'),
   voice: read('dialogs/VoiceSettings.tsx'),
   keyboard: read('dialogs/KeyboardSettings.tsx'),
-  advanced: read('dialogs/WebAccessSettings.tsx'),
+  advanced: [read('dialogs/WebAccessSettings.tsx'), fn(read('dialogs/AgentThreadsSettings.tsx'), 'AgentThreadsSettings')].join('\n'),
   // Its rows are made from shared/experiments.ts, and so are their entries.
   experimental: [read('dialogs/ExperimentalSettings.tsx'), ...EXPERIMENTS.map((id) => `'${EXPERIMENT_INFO[id].title}'`)].join('\n'),
   about: [s('About'), fn(read('dialogs/UpdateSettings.tsx'), 'UpdateAboutRow'), read('dialogs/ReportProblemRow.tsx')].join('\n'),

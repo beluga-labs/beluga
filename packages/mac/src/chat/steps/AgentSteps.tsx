@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { type ReactNode, memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { LogItem, SubAgent } from '@beluga/core/store.js';
+import type { LogItem, Remark, SubAgent } from '@beluga/core/store.js';
 import type { TaskView } from '@beluga/core/gateway/model.js';
 import { isFinal } from '@beluga/core/gateway/model.js';
 import type { StepRecord, StepSummary } from '@beluga/shared/steps.js';
@@ -12,9 +12,10 @@ import { Avatar, Button, Dot, cx } from '../../components/ui.js';
 import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { usePrefs } from '../../lib/prefs.js';
 import { useDisclosure } from './step-memory.js';
-import { type Entry, foldOf, movedTogether, ownStepsOf, subRowView, timelineOf } from './timeline.js';
+import { type Entry, foldOf, movedTogether, ownStepsOf, subRowView, timelineOf, workIn } from './timeline.js';
 import { usePresence } from '../../layout/panel/ResizeHandle.js';
 import { Shimmer, StepRow, usePersonId } from './StepRow.js';
+import { Markdown } from '../Markdown.js';
 import { useAgentSteps } from './use-steps.js';
 import { type TurnPart, inHead } from '../live-tail.js';
 import { useActions } from '../../lib/actions.js';
@@ -39,6 +40,7 @@ const FOLD_MS = 380;
 const NO_TASKS: readonly TaskView[] = [];
 const NO_STEPS: readonly StepSummary[] = [];
 const NO_SUBS: readonly SubAgent[] = [];
+const NO_REMARKS: readonly Remark[] = [];
 
 /** The clock for a step's row: only a running step's time moves, so only its row is drawn again as the clock ticks. */
 const clockFor = (step: StepSummary, live: boolean, now: number): number => (live && step.status === 'running' ? now : 0);
@@ -123,7 +125,12 @@ export const AgentSteps = memo(function AgentSteps({ item, running, part, subs: 
   // A taken-over turn's running work is drawn in its live part, at the very bottom (BLG-54); the rest stays where it started.
   const kept = useMemo(() => (which ? subagents.filter((x) => (x.status === 'running') === (which === 'running')) : subagents), [subagents, which]);
   const placedSubs = detail === 'hidden' || part?.side === 'head' ? NO_SUBS : kept;
-  const timeline = useMemo(() => timelineOf(finished, placedSubs, (id) => rich?.find((x) => x.id === id)?.startedAt), [finished, placedSubs, rich]);
+  // What it said on the way, among the steps it came between (a split turn's: the side it was said on).
+  const remarks = useMemo(() => {
+    const all = item.remarks ?? NO_REMARKS;
+    return part?.side === 'live' ? NO_REMARKS : part ? all.filter((x) => (x.ts < part.cut) === (part.side === 'head')) : all;
+  }, [item.remarks, part?.side, part?.cut]);
+  const timeline = useMemo(() => timelineOf(finished, placedSubs, (id) => rich?.find((x) => x.id === id)?.startedAt, remarks), [finished, placedSubs, rich, remarks]);
   const ownBefore = useRef<ReadonlyMap<string, readonly StepSummary[]>>(undefined);
   const own = useMemo(() => (ownBefore.current = ownStepsOf(ownBefore.current, rich, subagents)), [rich, subagents]);
   const keep = running ? RECENT_LIVE : DONE_STEPS;
@@ -160,11 +167,13 @@ export const AgentSteps = memo(function AgentSteps({ item, running, part, subs: 
   };
   const entry = (e: Entry) => {
     if (e.kind === 'step') return row(e.step, false);
+    if (e.kind === 'remark') return <RemarkRow text={e.remark.text} mine={mine} />;
     const mineToo = (richOnes && own.get(e.sub.id)) || NO_STEPS;
     return <SubAgentRow sub={e.sub} own={mineToo} detail={detail} toggle={toggle} load={load} live={running} {...subRowView(e.sub, mineToo, open.isOpen, running, now)} />;
   };
   const olderSteps = older.flatMap((e) => (e.kind === 'step' ? [e.step] : []));
-  const span = olderSteps.length === older.length ? spanOf(olderSteps) : undefined;
+  const olderWork = workIn(older);
+  const span = olderSteps.length === olderWork ? spanOf(olderSteps) : undefined;
 
   return (
     <>
@@ -184,7 +193,7 @@ export const AgentSteps = memo(function AgentSteps({ item, running, part, subs: 
                     Hide earlier steps
                   </button>
                 ) : (
-                  <button type="button" className={s.fold} onClick={() => setEarlier(true)} aria-expanded="false" aria-label={`Show ${older.length} earlier steps`} data-folded-count={older.length}>
+                  <button type="button" className={s.fold} onClick={() => setEarlier(true)} aria-expanded="false" aria-label={`Show ${olderWork} earlier steps`} data-folded-count={olderWork}>
                     <span className={s.chev}>
                       <Icon name="chevronRight" size={9} />
                     </span>
@@ -192,11 +201,11 @@ export const AgentSteps = memo(function AgentSteps({ item, running, part, subs: 
                       <Icon name="check" size={11} />
                     </span>
                     <span className={s.count}>
-                      <span key={older.length} className={s.countNow}>
-                        {older.length}
+                      <span key={olderWork} className={s.countNow}>
+                        {olderWork}
                       </span>
                     </span>
-                    steps{span ? ` · ${span}` : ''}
+                    {olderWork === 1 ? 'step' : 'steps'}{span ? ` · ${span}` : ''}
                   </button>
                 )}
               </div>
@@ -221,6 +230,18 @@ export const AgentSteps = memo(function AgentSteps({ item, running, part, subs: 
         ) : null}
       </div>
     </>
+  );
+});
+
+/**
+ * Something Claude said between its steps ("Found it, now the tests"): quiet, like the steps
+ * around it, so only its answer (the words after its last step) reads as the answer.
+ */
+const RemarkRow = memo(function RemarkRow({ text, mine }: { text: string; mine: boolean }) {
+  return (
+    <div className={s.remark} data-remark="">
+      <Markdown text={text} paths={mine} localImages={mine} />
+    </div>
   );
 });
 
