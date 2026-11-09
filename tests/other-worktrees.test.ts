@@ -296,7 +296,7 @@ describe('worktrees from other tools, end to end in a real repo', () => {
     writeFileSync(path.join(base, 'dirty2', 'wip.txt'), 'x');
     await expect(removeWorktreeKeepingBranch(repo, path.join(base, 'dirty2'), false)).rejects.toThrow();
     expect(existsSync(path.join(base, 'dirty2', 'wip.txt'))).toBe(true);
-  });
+  }, 120_000); // Also waits for macOS's lowest-priority background disk work to finish.
 
   it('finishes deleting what an earlier background delete left, and only that', async () => {
     const parent = path.join(base, 'wts'); // not looked in yet this run (refresh already swept base)
@@ -308,7 +308,7 @@ describe('worktrees from other tools, end to end in a real repo', () => {
     expect(existsSync(path.join(parent, '.old.removing-123'))).toBe(false);
     expect(existsSync(path.join(parent, '.keep-me'))).toBe(true);
     expect(existsSync(path.join(parent, 'work'))).toBe(true);
-  });
+  }, 120_000);
 
   it("deleting one you've talked in from Beluga never deletes its branch or forces it", async () => {
     const busy = ext('busy');

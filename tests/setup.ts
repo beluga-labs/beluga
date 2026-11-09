@@ -14,6 +14,12 @@ fs.rmSync = ((p, o) => rm(p, o?.recursive ? { maxRetries: 10, retryDelay: 100, .
 syncBuiltinESMExports();
 
 // Never read or write the developer's real ~/.beluga (or an old ~/.klaud) during tests.
+// Workspace discovery and other tools also use the OS home directly. Without this, a fresh
+// WorkspaceStore scans the developer's real Projects/Repos folders, and git uses their signing
+// agent: a populated home makes unrelated tests time out (and exposes real data to fixtures).
+const home = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-test-os-home-')));
+process.env.HOME = home;
+if (process.platform === 'win32') process.env.USERPROFILE = home;
 process.env.BELUGA_HOME = mkdtempSync(path.join(os.tmpdir(), 'beluga-test-home-'));
 // Nor the old name, for a test that clears BELUGA_HOME (an inherited KLAUD_HOME is real data).
 delete process.env.KLAUD_HOME;

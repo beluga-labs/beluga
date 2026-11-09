@@ -43,7 +43,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await deletesSettled();
   rmSync(base, { recursive: true, force: true });
-});
+}, 120_000); // Lowest-priority background disk work can be starved while the whole suite runs.
 
 const project = () => mgr.list.find((p) => p.root)!;
 
