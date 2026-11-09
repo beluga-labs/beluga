@@ -154,6 +154,33 @@ test('a plan’s row takes a drop in its own chat, on its page, and can be dragg
   await boxIn(page, a).fill('');
 });
 
+test('an Unread row is a source and a target (BLG-307)', async ({ page }) => {
+  test.setTimeout(90_000);
+  const { self, a, b } = await setUp(page);
+  const unreadRow = (w: Worktree) => sidebar(page).getByRole('region', { name: 'Unread' }).locator(`[data-chat-row="ws:${w.id}"]`);
+  const treeRow = (w: Worktree) => sidebar(page).locator(`[data-slot^="project:"] [data-chat-row="ws:${w.id}"]`).first();
+  // Make a unread: its agent answers while you are elsewhere.
+  await treeRow(a).click();
+  await boxIn(page, a).fill('hello');
+  await boxIn(page, a).press('Enter');
+  await sidebar(page).getByText('Your Mac', { exact: true }).click();
+  await expect(unreadRow(a)).toBeVisible({ timeout: 40_000 });
+  await pause(page);
+  // As a source: dropped on another chat's row.
+  await lift(page, unreadRow(a), treeRow(b));
+  await expect(treeRow(b)).toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(boxIn(page, b)).toHaveValue(`${chip(self, a)} `);
+  await boxIn(page, b).fill('');
+  await pause(page);
+  // As a target: another chat's row dropped on it.
+  await lift(page, treeRow(b), unreadRow(a));
+  await expect(unreadRow(a)).toHaveClass(/over/);
+  await page.mouse.up();
+  await expect(boxIn(page, a)).toHaveValue(`${chip(self, b)} `);
+  await boxIn(page, a).fill('');
+});
+
 test('Esc cancels; the row still opens its chat afterwards', async ({ page }) => {
   const { a, b } = await setUp(page);
   await rowOf(page, a).click();
