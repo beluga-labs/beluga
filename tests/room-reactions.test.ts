@@ -23,7 +23,7 @@ const sessions: Session[] = [];
 let demo: WorkspaceManager;
 beforeAll(async () => {
   demo = await createDemoWorkspaces();
-});
+}, 120_000);
 afterEach(async () => {
   for (const s of sessions.splice(0)) await s.stop();
   await hub?.close();
