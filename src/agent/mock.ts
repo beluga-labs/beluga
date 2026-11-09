@@ -766,12 +766,13 @@ function mockPlanTitle(goal: string): string | undefined {
   return cleanPlanTitle(top.sort(([, a], [, b]) => a.at - b.at).map(([w]) => w).join(' '));
 }
 
-/** The demo's MCP servers (Settings › Claude): one of each kind, two waiting for a sign-in. */
+/** The demo's MCP servers (Settings › Claude): one of each kind, three waiting for a sign-in. */
 const DEMO_MCP: readonly McpServerRow[] = [
   { name: 'figma', label: 'figma', from: 'user', status: 'needs-auth', canSignIn: true },
   { name: 'plugin:context7:context7', label: 'context7', from: 'plugin', where: 'context7', status: 'connected', canSignIn: false },
   { name: 'linear', label: 'linear', from: 'project', where: 'bob-api', status: 'needs-auth', canSignIn: true },
   { name: 'plugin:ratel:ratel', label: 'ratel', from: 'plugin', where: 'ratel', status: 'failed', error: 'npx exited (code 1)', canSignIn: false },
+  { name: 'claude.ai Notion', label: 'Notion', from: 'claude.ai', status: 'needs-auth', canSignIn: false },
   { name: 'claude.ai Gmail', label: 'Gmail', from: 'claude.ai', status: 'connected', canSignIn: false },
 ];
 
@@ -798,6 +799,7 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
   const context = new MockContext();
   let mcp = DEMO_MCP;
   const signing = new Map<string, Promise<boolean>>();
+  const told = new Set<string>();
   return {
     // The terminal view (BLG-534) on the demo's stand-in for Claude Code's terminal app.
     terminal: async (input, sink) => mockTerminal(input, sink),
@@ -860,6 +862,10 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       return demoAnswerFromPrompt(req.system, req.prompt);
     },
     async run(original: AgentRunInput): Promise<string> {
+      // The servers still waiting for a sign-in, told once per conversation, as the real Claude does from its init.
+      const waiting = mcp.filter((m) => m.status === 'needs-auth' && !told.has(`${original.channel ?? ''}\0${m.name}`));
+      for (const m of waiting) told.add(`${original.channel ?? ''}\0${m.name}`);
+      if (waiting.length) original.onMcpNeedsAuth?.(waiting.map((m) => ({ name: m.name, label: m.label, status: 'needs-auth' as const })));
       const stepper = original.onStep ? new MockStepper(original.prompt, original.onStep) : undefined;
       // The context window fills as Claude works (the meter moves live).
       const input = withGrowingContext(withSteps(original, stepper), context);

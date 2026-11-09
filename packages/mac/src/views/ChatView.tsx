@@ -18,6 +18,7 @@ import { PrStrip } from '../chat/PrStrip.js';
 import { PlanStrip } from '../plans/PlanStrip.js';
 import { useWorktreeFlag } from './worktree-info-state.js';
 import { AskBanner } from '../chat/AskBanner.js';
+import { McpNotice } from '../chat/McpNotice.js';
 import { TriageLine } from '../chat/TriageLine.js';
 import { ConnectionStatus } from './room/ConnectionStatus.js';
 import { AssistantTabs } from '../chat/AssistantTabs.js';
@@ -152,6 +153,7 @@ export function ChatView() {
       <ChatLog key={channel} channel={channel === 'draft' ? '__draft__' : channel} empty={empty} />
       {ws?.askOnly && !ws.archived && !planHome ? <AskBanner wsId={ws.id} /> : null}
       <Attention />
+      {channel === 'draft' ? null : <McpNotice channel={channel} />}
       {channel === 'draft' ? null : <TriageLine channel={channel} />}
       {driving && view.kind === 'workspace' ? <DrivingBanner wsId={view.id} /> : <Composer />}
     </div>

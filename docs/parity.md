@@ -689,6 +689,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `claudeCode.mcpServers` | ✓ Settings › Agent › MCP servers: your agent's servers (yours, your projects', your plugins', claude.ai's), where each comes from and whether it's connected; with Claude and Codex both set up, one tab each |
 | `claudeCode.mcpSignIn` | ✓ Settings › Agent › MCP servers › Sign In…: opens the server's sign-in page in your browser |
 | `claudeCode.mcpSignedIn` | ✓ Settings › Agent › MCP servers: the row waits for the browser, then says whether you're signed in |
+| `claudeCode.mcpSignIn` (from a chat) | ✓ a chat whose run found MCP servers waiting for a sign-in: a note above the message box lists each with Sign In (a claude.ai connector gets its claude.ai link); a server leaves it once connected. Mac only: the sign-in's callback goes to this Mac |
 | `claudeCode.mcpSetEnabled` | ✓ Settings › Agent › MCP servers: a Codex server's switch turns it on or off in its config.toml |
 | `agent.steps` | ✓ an agent card's steps as disclosure rows (an icon per tool, ✓/✗, how long it took), thinking as “Thought for 12s”, sub-agents' steps |
 | `agent.step` | ✓ opening a step on an agent card: Bash's command and output (colours kept), the file read, an edit's diff, a search's matches, a page fetched, an MCP tool's input and output as JSON, the thinking |
