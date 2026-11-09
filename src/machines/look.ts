@@ -1,6 +1,6 @@
 import type { ComputerBrand, ComputerGlyph } from '../shared/computer-marks.js';
 import type { MachineIcon } from '../shared/settings-schema.js';
-import type { LinuxDistro, MachineKind } from './kind.js';
+import type { LinuxDistro, MachineKind } from '../shared/machine-kinds.js';
 
 /**
  * Which mark a computer of yours shows, the same on the Mac and the phone: the icon kept on it,

@@ -1,4 +1,4 @@
-import type { LinuxDistro, MachineKind } from './kind.js';
+import type { LinuxDistro, MachineKind } from '../shared/machine-kinds.js';
 
 /**
  * How a computer of yours is said, the same on the Mac and the phone (BLG-786, BLG-810): its kind

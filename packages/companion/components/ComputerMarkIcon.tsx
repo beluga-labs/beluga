@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Platform } from 'react-native';
 import Svg, { Path, SvgXml } from 'react-native-svg';
-import { LINUX_DISTROS, type LinuxDistro, MACHINE_KINDS, type MachineKind } from '../../../src/machines/kind';
+import { LINUX_DISTROS, type LinuxDistro, MACHINE_KINDS, type MachineKind } from '../../../src/shared/machine-kinds';
 import { machineLook } from '../../../src/machines/look';
 import { COMPUTER_BRANDS, COMPUTER_GLYPHS, type ComputerBrandMark } from '../../../src/shared/computer-marks';
 import type { MachineIcon } from '../../../src/shared/settings-schema';

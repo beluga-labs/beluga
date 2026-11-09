@@ -14,53 +14,10 @@ import { access, readFile } from 'node:fs/promises';
  * without it the kind stands, without a region.
  */
 
-export const MACHINE_KINDS = [
-  // Clouds (the first five also say their region).
-  'aws',
-  'gcp',
-  'azure',
-  'digitalocean',
-  'hetzner',
-  'oracle',
-  'linode',
-  'vultr',
-  'scaleway',
-  'ovh',
-  'alibaba',
-  'upcloud',
-  'exoscale',
-  // Where an app is hosted, told by the variables it sets.
-  'codespaces',
-  'fly',
-  'railway',
-  'render',
-  'kubernetes',
-  // Macs by model.
-  'mac-mini',
-  'macbook',
-  'mac-studio',
-  'imac',
-  'mac',
-  // Boards, containers, virtual machines.
-  'raspberry-pi',
-  'docker',
-  'podman',
-  'wsl',
-  'vmware',
-  'qemu',
-  'virtualbox',
-  'parallels',
-  'hyperv',
-  'apple-vm',
-  'linux',
-  'windows',
-] as const;
-export type MachineKind = (typeof MACHINE_KINDS)[number];
-export type CloudKind = Extract<MachineKind, 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner'>;
+import type { LinuxDistro, MachineKind } from '../shared/machine-kinds.js';
 
-/** The Linux distributions known by their own mark; any other Linux is plain Linux (Tux). */
-export const LINUX_DISTROS = ['ubuntu', 'debian', 'fedora', 'arch', 'alpine', 'centos', 'rhel', 'rocky', 'alma', 'opensuse', 'nixos', 'mint', 'manjaro', 'pop', 'gentoo', 'kali'] as const;
-export type LinuxDistro = (typeof LINUX_DISTROS)[number];
+export { LINUX_DISTROS, MACHINE_KINDS, type LinuxDistro, type MachineKind } from '../shared/machine-kinds.js';
+export type CloudKind = Extract<MachineKind, 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner'>;
 
 export interface KindFound {
   readonly kind: MachineKind;
