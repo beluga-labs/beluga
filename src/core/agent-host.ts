@@ -1795,8 +1795,8 @@ export class AgentHost {
 
   /** May this person's run find and read other chats? */
   private readsChats(from: string, channel: string): boolean {
-    // Not in a place other people see (the room, friends' chats): their words could ask it to quote your chats there.
-    return from === this.selfId && isAddressableChannel(channel) && this.store.getState().prefs.chatLinks;
+    // Not in a place other people see (the room, friends' chats, a worktree you share): their words could ask it to quote your chats there.
+    return from === this.selfId && isAddressableChannel(channel) && this.store.getState().prefs.chatLinks && this.deps.sharing.recipients(channel).length === 0;
   }
 
   /**

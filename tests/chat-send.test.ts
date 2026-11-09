@@ -27,7 +27,7 @@ const refOf = (channel: string, owner = ME): string => `${owner}/${channel}`;
 
 const ws = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: `chat ${id}`, projectId: 'p1', projectRoot: '/p', path: `/p/${id}`, kind: 'worktree', createdAt: 1000, ...extra });
 
-function setup(opts: { lateEvents?: boolean } = {}) {
+function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => string[] } = {}) {
   const base = initialState('room', 'auto');
   const store = new Store({
     ...base,
@@ -90,7 +90,7 @@ function setup(opts: { lateEvents?: boolean } = {}) {
     send: send as never,
     agent: () => agent,
     shares: {} as never,
-    sharing: { recipients: () => [], sharedFor: () => undefined, canPost: () => true } as never,
+    sharing: { recipients: opts.recipients ?? (() => []), sharedFor: () => undefined, canPost: () => true } as never,
     people: {} as never,
     questions: { track: () => undefined, ask: async () => ({ kind: 'skip' }), cancelAll: () => undefined, cancelChannel: () => undefined } as never,
     toast: () => undefined,
@@ -247,6 +247,22 @@ describe('send_to_chat: the state of the target', () => {
     await going;
     expect(t.store.getState().log.some((l) => l.type === 'system' && l.channel === SOURCE && /lost/.test(l.text))).toBe(true);
     await t.end(SOURCE);
+  });
+});
+
+describe('the chat tools of your own run', () => {
+  it('a run in a worktree chat that you share with others has no chat tools', async () => {
+    const t = setup({ recipients: (channel) => (channel === SOURCE ? [FRIEND] : []) });
+    await t.say(SOURCE, 'r-shared');
+    await waitFor(() => t.finish.has(SOURCE));
+    expect(t.tools.has(SOURCE)).toBe(false);
+    expect(t.runsIn(SOURCE)).toHaveLength(1);
+  });
+
+  it('a run in a worktree chat that nobody else sees has the chat tools', async () => {
+    const t = setup({ recipients: (channel) => (channel === TARGET ? [FRIEND] : []) });
+    await t.working(SOURCE);
+    expect(t.tools.has(SOURCE)).toBe(true);
   });
 });
 
