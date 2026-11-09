@@ -20,6 +20,7 @@ import { withSentFiles } from './sent-files.js';
 import { sentFolder } from '../shared/scratch-dir.js';
 import { isImportedItem } from '../agent/transcript.js';
 import { PHONE_LOOK_TOOLS } from '../agent/phone-tools.js';
+import type { McpNeedsAuth } from '../shared/mcp.js';
 import type { StepPage, StepRecord } from '../shared/steps.js';
 import { READS_AFTER_STEP, STEERED_IN, STOPPING_FOR, TAKEN_BACK } from '../shared/claude-notices.js';
 import { span } from '../shared/clock.js';
@@ -1352,6 +1353,8 @@ export class AgentHost {
           this.compactor.observe(body.channel, kind, text);
           this.emitAgent(body.requestId, from, kind, text, body.channel);
         },
+        // Servers waiting for a sign-in: only your own Claude's, told to your screens (the sign-in is on this Mac).
+        ...(from === this.selfId ? { onMcpNeedsAuth: (servers: readonly McpNeedsAuth[]) => this.emitAgent(body.requestId, from, 'mcp-auth', JSON.stringify(servers), body.channel) } : {}),
         onStep: (record) => {
           if (worktree && record.tool === 'Bash' && mayLeaveProcesses(record.input?.command, record.input?.run_in_background)) {
             this.testRuns.add(worktree);
