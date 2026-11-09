@@ -56,8 +56,9 @@ test('Settings › Agent lists Codex’s MCP servers, turns one off and signs in
   await expect(signIn).toHaveCount(1);
   const tab = page.context().waitForEvent('page');
   await signIn.click();
-  expect((await tab).url()).toContain('example.com/oauth/figma/authorize');
+  // The toast first: it's up for a few seconds, and the tab only counts as opened once its page starts loading (the network's pace).
   await expect(page.getByText('Signed in to figma')).toBeVisible({ timeout: 15_000 });
+  expect((await tab).url()).toContain('example.com/oauth/figma/authorize');
   await expect(settings.getByText('Yours, in every project · Connected · 2 tools')).toBeVisible({ timeout: 15_000 });
   await expect(signIn).toHaveCount(0);
   await toMcp(page);
