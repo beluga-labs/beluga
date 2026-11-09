@@ -1,3 +1,4 @@
+import { actingVia, asActingAgent } from './acting-agent.js';
 import { closePreviews } from '../preview/off.js';
 import { experimentOn } from '../shared/experiments.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -18,7 +19,7 @@ import { localRuntime } from '../agent/runtime/local.js';
 import { LOCAL_RUNTIME } from '../shared/local-endpoints.js';
 import type { LocalEndpoints } from './local-endpoints.js';
 import type { IncomingMessage, PeerClient } from '../net/peer-client.js';
-import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type PeerInfo, type Profile } from '../protocol.js';
+import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type MessageVia, type PeerInfo, type Profile } from '../protocol.js';
 import { type UsageUpdate, withUsage } from '../agent/usage.js';
 import { dialoguesOf } from './dialogues/registry.js';
 import { agentName } from '../shared/agent-label.js';
@@ -593,22 +594,23 @@ export class Session {
    * show on it); `steer`: it steers the turn your Claude is on (shown as not read yet from the start);
    * `queued`: it waits behind that turn (in the queue from the start, never a sent bubble for a moment).
    */
-  sendChat(text: string, byAgent: boolean, channel = 'room', request?: string, steer = false, queued = false): void {
+  sendChat(text: string, byAgent: boolean, channel = 'room', request?: string, steer = false, queued = false, by: MessageVia | undefined = actingVia()): void {
     const agent = byAgent ? { agent: this.agentRef } : {};
+    const via = by ? { via: by } : {};
     // Its own id, the same in every copy, so reactions can name it (BLG-702).
     const mid = randomUUID();
     if (channel !== 'room') {
       // Workspace conversations stay on this computer, plus the people you invited into them.
       const id = chatMessageId(this.selfId, mid, '');
-      this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent, channel, ...agent, ...(request ? { request } : {}), ...(steer ? { steer: true as const } : {}), ...(queued ? { queued: true as const } : {}) });
-      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, mid, ...agent }, { to });
+      this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent, channel, ...agent, ...via, ...(request ? { request } : {}), ...(steer ? { steer: true as const } : {}), ...(queued ? { queued: true as const } : {}) });
+      for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, channel, mid, ...agent, ...via }, { to });
       return;
     }
     if (this.store.getState().self?.guest && !this.store.getState().peers.find((p) => p.peerId === this.selfId && !p.guest)) {
       this.toast("You came in with a link to a project, so there's no group chat here. Open it in Projects", 'warn');
       return;
     }
-    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, mid, ...agent }, { keep: true })) {
+    if (!this.send({ kind: 'chat', text: text.slice(0, MAX_TEXT), byAgent, mid, ...agent, ...via }, { keep: true })) {
       this.toast('Not connected, so the message was not sent', 'error');
     }
   }
@@ -624,7 +626,7 @@ export class Session {
 
   /** Ask an agent (ours or a peer's) to do something. Returns the request id. */
   /** `chain`: the chain your own agent sent it on in (see AgentRequestBody.chain). */
-  requestAgent(target: string, prompt: string, viaAgent: boolean, channel = 'room', urgent = false, project?: string, requestId: string = randomUUID(), agent?: AgentRef, chain?: ChatChain): string {
+  requestAgent(target: string, prompt: string, viaAgent: boolean, channel = 'room', urgent = false, project?: string, requestId: string = randomUUID(), agent?: AgentRef, via: MessageVia | undefined = actingVia(), chain?: ChatChain): string {
     const plan = this.store.getState().planMode[channel] === true;
     this.questions.track(requestId, target, channel);
     // "@bob:codex" (BLG-520): the agent rides the ask, in the room only; their Mac runs it or says which one did (see namedAsks).
@@ -633,7 +635,7 @@ export class Session {
       this.namedAsks.set(requestId, { peer: target, agent: named.agent });
       if (this.namedAsks.size > 200) this.namedAsks.delete(this.namedAsks.keys().next().value!);
     }
-    this.send({ kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent, channel, urgent, plan, ...(project ? { project: project.slice(0, 80) } : {}), ...named, ...(chain ? { chain } : {}) }, { to: target });
+    this.send({ kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent, channel, urgent, plan, ...(project ? { project: project.slice(0, 80) } : {}), ...(via ? { via } : {}), ...named, ...(chain ? { chain } : {}) }, { to: target });
     return requestId;
   }
 
@@ -658,7 +660,17 @@ export class Session {
     // Your own Claude at work here: a steer says it isn't read yet from the moment it's drawn, and anything else waits in the queue from then.
     const running = !shared && this.host.runningIn(channel);
     if (echo && !shown) this.sendChat(typeof echo === 'string' ? echo : prompt, false, channel, requestId, urgent && running, !urgent && running);
-    return this.requestAgent(shared ? shared.owner : this.selfId, prompt, false, channel, urgent, undefined, requestId, undefined, shared ? undefined : chain);
+    return this.requestAgent(shared ? shared.owner : this.selfId, prompt, false, channel, urgent, undefined, requestId, undefined, actingVia(), shared ? undefined : chain);
+  }
+
+  /**
+   * A turn a plan starts by itself. In a worktree an external agent started it stays at that agent's
+   * level, and ends with its grant: a plan's brief must not lift it to yours.
+   */
+  askForPlan(prompt: string, channel: string, echo: boolean, chain?: ChatChain): string | undefined {
+    const ws = channel.startsWith('ws:') ? this.workspaces?.manager.find(channel.slice(3)) : undefined;
+    const agent = ws?.kind === 'worktree' ? ws.startedByAgent : undefined;
+    return agent ? asActingAgent(agent, () => this.askOwnClaude(prompt, channel, false, echo, undefined, chain)) : this.askOwnClaude(prompt, channel, false, echo, undefined, chain);
   }
 
   /**
@@ -741,13 +753,13 @@ export class Session {
    * one of their projects to work in. Its progress also shows in `mirror` (the conversation
    * your Claude asked from), not only in the group chat.
    */
-  askPeerAgent(peerId: string, name: string, prompt: string, opts: { project?: string; mirror?: string } = {}): Promise<string> {
+  askPeerAgent(peerId: string, name: string, prompt: string, opts: { project?: string; mirror?: string; via?: MessageVia } = {}): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       // In a workspace shared with you, their Claude works right there (you were invited to).
       const shared = opts.project ? this.store.getState().shared.find((w) => w.owner === peerId && w.role === 'contribute' && (w.name === opts.project || w.project === opts.project)) : undefined;
       const requestId = shared
-        ? this.requestAgent(peerId, prompt, true, `ws:${shared.id}`)
-        : this.requestAgent(peerId, prompt, true, 'room', false, opts.project);
+        ? this.requestAgent(peerId, prompt, true, `ws:${shared.id}`, false, undefined, undefined, undefined, opts.via)
+        : this.requestAgent(peerId, prompt, true, 'room', false, opts.project, undefined, undefined, opts.via);
       const timer = setTimeout(() => {
         this.agentWaiters.delete(requestId);
         reject(new Error(`${name}'s agent did not finish in time`));
@@ -758,7 +770,7 @@ export class Session {
   }
 
   /** Run a command on a friend's computer (through their Beluga) and show it with its output here. */
-  async runOnPeer(name: string, command: string, opts: { cwd?: string; project?: string; timeoutSec?: number; why?: string; viaAgent?: boolean; channel?: string } = {}): Promise<string> {
+  async runOnPeer(name: string, command: string, opts: { cwd?: string; project?: string; timeoutSec?: number; why?: string; viaAgent?: boolean; channel?: string; via?: MessageVia } = {}): Promise<string> {
     const peer = this.findPeer(name);
     if (!peer || peer.peerId === this.selfId) throw new Error(`No friend named "${name}" is here. Call list_peers first.`);
     const res = await this.peerRun.run(peer.peerId, command, { ...opts, viaAgent: opts.viaAgent ?? false, channel: opts.channel ?? 'room' });
@@ -1289,7 +1301,7 @@ export class Session {
         const chatId = chatMessageId(from, body.mid, id);
         // The same message again (sent once more after a lost acknowledgement): it's here already.
         if (body.mid && this.store.getState().log.some((l) => l.id === chatId && l.channel === body.channel)) return;
-        this.store.dispatch({ type: 'chat', id: chatId, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}) });
+        this.store.dispatch({ type: 'chat', id: chatId, from, text: body.text, ts, byAgent: body.byAgent, channel: body.channel, ...(body.agent ? { agent: body.agent } : {}), ...(body.via ? { via: body.via } : {}) });
         return;
       }
       case 'chat_react':
@@ -1523,7 +1535,7 @@ export class Session {
     this.sayWhoAnswers(from, body);
     // Your Claude asked from a workspace: follow the friend's Claude there (only from the one you asked).
     const channel = waiter?.mirror && waiter.peer === from && body.requester === this.selfId ? waiter.mirror : body.channel;
-    if (!this.workspaces?.deletedChannel(channel)) this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}), ...(body.fromChat && this.store.getState().prefs.chatLinks ? { fromChat: body.fromChat } : {}) });
+    if (!this.workspaces?.deletedChannel(channel)) this.store.dispatch({ type: 'agent_event', owner: from, requestId: body.requestId, requester: body.requester, event: body.event, text: body.text, ts, channel, ...(body.slotWait ? { slotWait: body.slotWait } : {}), ...(body.agent ? { agent: body.agent } : {}), ...(body.via ? { via: body.via } : {}), ...(body.fromChat && this.store.getState().prefs.chatLinks ? { fromChat: body.fromChat } : {}) });
     if (!waiter || waiter.peer !== from || !['done', 'error', 'denied'].includes(body.event)) return;
     clearTimeout(waiter.timer);
     this.agentWaiters.delete(body.requestId);

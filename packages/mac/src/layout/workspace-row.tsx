@@ -233,6 +233,11 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
             </>
           ) : (
             <>
+              {ws.startedByAgent ? (
+                <span className={s.agentCount} title={`Started by ${ws.startedByAgent.name}, an external agent`} data-driven-by={ws.startedByAgent.id}>
+                  <Icon name="plug" size={11} />
+                </span>
+              ) : null}
               {/* Folded away: how many, quietly (and that one is at work, when the row says nothing else). */}
               {fold && !fold.open ? (
                 <span className={s.agentCount} title={fold.summary}>

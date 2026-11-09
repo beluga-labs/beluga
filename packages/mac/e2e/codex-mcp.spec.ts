@@ -19,7 +19,7 @@ test('Settings › Agent lists Codex’s MCP servers, turns one off and signs in
   await expect(sidebar(page)).toBeVisible();
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog');
-  await settings.getByRole('button', { name: 'Agent' }).click();
+  await settings.getByRole('button', { name: 'Agent', exact: true }).click();
 
   // Both agents set up: a tab each, yours (Claude, the demo's default) first.
   const tabs = settings.getByRole('tablist', { name: 'Whose MCP servers' });

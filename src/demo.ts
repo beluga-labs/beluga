@@ -12,6 +12,7 @@ import { demoPdf } from './demo-pdf.js';
 import { type ShellRunner, runShell } from './core/peer-run.js';
 import { DEMO_AGENTS } from './core/demo-agents.js';
 import { Session } from './core/session.js';
+import { belugaEnv } from './core/beluga-env.js';
 import { ShareService } from './core/shares.js';
 import { Store, initialState } from './core/store.js';
 import { type RoomKeys } from './net/crypto.js';
@@ -289,6 +290,17 @@ export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
     const checkoutHooks = await mgr.createWorktree(api.id, 'checkout-events');
     writeTree(checkoutHooks.path, { 'src/webhooks.ts': '// handle each event once\nexport const MAX_RETRIES = 5;\n' });
     await mgr.createChat(api.id, 'How do deploys work?');
+    // BELUGA_DEMO_SCENE=external (BLG-121): a chat an external agent started, with its label on the message.
+    if (belugaEnv('DEMO_SCENE') === 'external') {
+      const driven = await mgr.createWorktree(api.id, 'fix-rate-limit');
+      const via = { id: 'demo0grokbot', name: 'GrokBot', creationSource: 'mcp' as const };
+      mgr.setStartedBy(driven.id, { id: via.id, name: via.name });
+      const line = (id: string, from: string, name: string, text: string, ts: number) => ({ id, type: 'chat', channel: `ws:${driven.id}`, from, name, text, ts, byAgent: false, via });
+      store.saveHistory(driven.id, [
+        line('demo-via-1', 'bob-demo-peer', 'kay', 'On a friend\'s Beluga, a message of an external agent says so too.', Date.now() - 120_000),
+        line('demo-via-2', 'self', 'you', 'Find why the rate limit test fails on CI and fix it.', Date.now() - 60_000),
+      ]);
+    }
     // Worktrees Claude Code sub-agents leave behind (listed after the project's own worktrees).
     for (const id of ['a3f9c1e07b2d', 'a8b24d6e91c0']) gitIn(api.root, 'worktree', 'add', '-q', '-b', `agent-${id}`, path.join(api.root, '.claude', 'worktrees', `agent-${id}`));
   }

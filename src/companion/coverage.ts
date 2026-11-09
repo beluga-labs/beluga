@@ -707,6 +707,19 @@ export const PHONE: Record<Method, Side> = {
   'sentinel.chatOpen': 'mac',
   'sentinel.chatClear': 'mac',
   'sentinel.chatDelete': 'mac',
+  // External agents: only the Mac app and `beluga mcp` manage who connects.
+  'external.status': 'mac',
+  'external.setEnabled': 'mac',
+  'external.setRoute': 'mac',
+  'external.pairingCode': 'mac',
+  'external.localToken': 'mac',
+  'external.agents': 'phone',
+  'external.revoke': 'phone',
+  'external.resume': 'mac',
+  'external.stopAgent': 'phone',
+  'external.stopAll': 'phone',
+  'external.setPaused': 'mac',
+  'external.activity': 'phone',
 };
 
 /** A method the phone may call (unknown names are not). */

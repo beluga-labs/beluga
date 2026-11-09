@@ -21,7 +21,7 @@ test('a message past the limit waits for a free Claude, and says so', async ({ p
   await expect(sidebar(page)).toBeVisible();
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog');
-  await settings.getByRole('button', { name: 'Agent' }).click();
+  await settings.getByRole('button', { name: 'Agent', exact: true }).click();
   const slider = settings.getByRole('slider', { name: 'Conversations at once' });
   await expect(slider).toHaveValue('10');
   await slider.scrollIntoViewIfNeeded();

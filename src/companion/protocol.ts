@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 52 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 53 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -134,12 +134,14 @@ export const COMPANION_PROTO = { major: 1, minor: 52 } as const;
  * older phone drops the frame: nothing changes for either. Each says its Runs on line as the Mac's
  * menu does (`line`, `why`), and the phone shows every computer's work, Needs You and New Task's
  * Runs on from its own links (BLG-810).
- * 1.50 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
+ * 1.50 (BLG-121, BLG-122): a message an external agent sent says so (`TurnView.via`). An older phone shows the message
+ * without it. External agents from the phone: `external.agents`, `stopAgent`, `stopAll`, `revoke`, `activity` (SINCE.externalAgents).
+ * 1.51 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
  * An older Mac has no such call: the phone shows the token as code.
- * 1.51 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
- * 1.52 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
+ * 1.52 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
+ * 1.53 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, chatLinks: 50, chatOrigin: 51, queuedOrigin: 52 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -424,6 +426,8 @@ export const TurnView = z.object({
   name: z.string().max(100),
   /** BLG-498: with `claude`, which agent it is (its mark); an older Mac leaves it out (the phone goes by the name). */
   agent: AgentRefView.optional(),
+  /** 1.38: an external agent sent this message through its owner's Beluga: its name. */
+  via: z.string().max(80).optional(),
   prose: ProseView,
   ts,
   status: z.enum(['queued', 'working', 'done', 'failed', 'stopped']).optional(),
@@ -1094,6 +1098,8 @@ export const ChatMessageView = z.object({
   text,
   ts,
   /** BLG-425: when its author last changed its text (a Mac before it never says). */
+  /** The external agent that wrote it for its author (a Mac before it never says). */
+  sentBy: z.string().max(80).optional(),
   edited: ts.optional(),
   /** 1.30 (BLG-429): your own direct message whose words reach the phone whole: it can be edited here. */
   editable: z.boolean().optional(),

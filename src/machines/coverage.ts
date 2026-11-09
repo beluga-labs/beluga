@@ -671,6 +671,19 @@ export const MACHINE: Record<Method, MachineSide> = {
   // ---- chats (chat links: a chat's chip, a chat's copy)
   'chats.resolve': 'drive',
   'chats.snapshot': 'drive',
+  // ---- external agents: letting one in stays with the computer itself.
+  'external.activity': 'drive',
+  'external.agents': 'drive',
+  'external.localToken': 'refuse',
+  'external.pairingCode': 'refuse',
+  'external.resume': 'drive',
+  'external.revoke': 'drive',
+  'external.setEnabled': 'refuse',
+  'external.setPaused': 'drive',
+  'external.setRoute': 'refuse',
+  'external.status': 'drive',
+  'external.stopAgent': 'drive',
+  'external.stopAll': 'drive',
 };
 
 /** A method a screen driving a computer may not call (unknown names are left to the API, which refuses them). */

@@ -37,6 +37,7 @@ import { launchSupport } from '../core/merge-counter.js';
 import { launchStats } from '../core/stats/counter.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
+import { launchExternal } from '../external/launch.js';
 import { swappableIdentity } from '../core/identity.js';
 import { identitiesAtStart } from '../machines/identity-load.js';
 import { closePreviews } from '../preview/off.js';
@@ -394,6 +395,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   let stopAssistant = (): void => undefined;
   let stopThreads = (): void => undefined;
   let stopCompanion = async (): Promise<void> => undefined;
+  let stopExternal = async (): Promise<void> => undefined;
   const start = (): void => {
     session.start();
     // The Beluga network (friends, groups, presence): only the daemon runs it, and only when it's turned on.
@@ -444,6 +446,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (opts.network) stopClaudeCode = launchClaudeCode({ session, store, demo: Boolean(demo), notify: (e) => session.notifier.notify(e) });
     // Your phone (docs/companion.md): pairing it, and its link. Its DHT node runs only while a phone is paired or a pairing is open.
     if (opts.network) stopCompanion = launchCompanion({ session, store, identity: you.identity, you, terminals, demo: Boolean(demo), log: (line) => console.warn(line) });
+    // External agents (GrokBot, a Claude Code in your terminal): their own port, off until you turn it on.
+    if (opts.network) stopExternal = launchExternal({ session, log: (line) => console.warn(line) });
     if (config.mode === 'host' && config.inviteNow) void publish(config, room, session, () => closing);
     if (!demo) return;
     // A pretend friend and a fake invite so every part of the UI has something to show.
@@ -477,6 +481,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     if (closing) return;
     closing = true;
     closeAllTunnels();
+    await stopExternal();
     await leaveNetwork(session);
     stopGateway();
     stopCalls();

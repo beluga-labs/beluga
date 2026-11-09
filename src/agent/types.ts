@@ -68,6 +68,13 @@ export interface AgentRunInput {
   readonly vetTool?: (toolName: string, input: Record<string, unknown>) => string | undefined;
   /** Ask the owner whether a non-preapproved tool may run. */
   readonly canUseTool: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
+  /** An external agent asked for this run, and it is your own run: never a friend's limits or a friend's sandbox. */
+  readonly asOwner?: boolean;
+  /**
+   * A run an external agent asked for: these tools ask you even where Beluga's policy would allow
+   * them (its level decides which). Set only for such a run, which `askBeforeCommands` then also covers.
+   */
+  readonly asksFirst?: (toolName: string) => boolean;
   /**
    * Your own run, with "My agent asks before commands" on (Settings' selfApproval 'ask'): a runtime
    * that runs commands without asking Beluga first (Codex) asks for each one instead.
