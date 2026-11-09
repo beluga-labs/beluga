@@ -54,6 +54,12 @@ export interface SuggestContext {
   readonly without?: readonly string[];
   /** The room's agent tags ("@codex", "@bob:codex"; shared/agent-tags.ts roomAgentTags), in the room only (BLG-520). */
   readonly agentTags?: readonly AgentTag[];
+  /**
+   * Who "@claude" asks here, when it isn't simply your agent: in a friend's worktree, theirs (on their
+   * Mac, where its files are), or yours in your copy. `owner`: the friend whose agent it is, so their
+   * "@claude:<owner>" (the same agent) isn't offered as well.
+   */
+  readonly claudeHere?: { readonly hint: string; readonly owner?: string };
 }
 
 /** How a friend is written in a message: "@mia" ("@Mia Chen" → "@MiaChen", "@Zoë" stays). */
@@ -225,18 +231,21 @@ function mentionSuggestions(buffer: string, ctx: SuggestContext): Suggestion[] {
       .filter((o) => o.label.toLowerCase() !== token)
       .map((o) => ({ label: o.label, hint: o.hint, value: `${before}${o.label}${o.folder ? '' : ' '}`, enter: 'complete' as const, kind: o.folder ? ('folder' as const) : ('file' as const) }));
   }
+  // In a friend's worktree "@claude" is already their agent: "@claude:<them>" would be it twice.
+  const owner = ctx.claudeHere?.owner?.toLowerCase();
+  const notOwner = (name: string): boolean => owner === undefined || name.toLowerCase() !== owner;
   // `name`: the friend's handle, so "@mi" offers mia and mia's Claude alike.
   const options: Array<{ label: string; hint: string; kind: SuggestionKind; name?: string; mark?: AgentMark }> = [
-    { label: '@claude', hint: 'ask your agent', kind: 'claude' },
+    { label: '@claude', hint: ctx.claudeHere?.hint ?? 'ask your agent', kind: 'claude' },
     // Each agent by name, with its mark (BLG-520): yours ("@codex"), then each person's ("@bob:codex").
     ...(ctx.agentTags ?? []).map((t) => ({ label: t.tag, hint: t.hint, kind: 'claude' as const, mark: t.mark, ...(t.person ? { name: t.person } : {}) })),
     ...ctx.peers
-      .filter((p) => p.agent && p.peerId !== ctx.selfId)
+      .filter((p) => p.agent && p.peerId !== ctx.selfId && notOwner(p.name))
       .map((p) => ({ label: `@claude:${p.name}`, hint: `ask ${agentLabel(defaultAgentOf(p), p.name, false)} (on their machine)`, kind: 'claude' as const })),
     ...(ctx.peers.length > 1 ? [{ label: '@claudes', hint: 'ask every agent in the room', kind: 'claude' as const }] : []),
     // Each friend twice: their Claude ("@claude:ata", asked on their Mac) and the person ("@ata", told you mentioned them).
     ...(ctx.friends ?? [])
-      .filter((f) => friendMention(f.name).length > 1 && !ctx.peers.some((p) => p.agent && p.peerId !== ctx.selfId && p.name.toLowerCase() === f.name.toLowerCase()))
+      .filter((f) => friendMention(f.name).length > 1 && notOwner(f.name) && !ctx.peers.some((p) => p.agent && p.peerId !== ctx.selfId && p.name.toLowerCase() === f.name.toLowerCase()))
       .map((f) => ({ label: `@claude:${friendMention(f.name).slice(1)}`, hint: `ask ${f.name}'s agent, on their computer${f.online ? '' : ' (offline: it goes when they’re back)'}`, kind: 'claude' as const, name: friendMention(f.name) })),
     ...(ctx.friends ?? [])
       .filter((f) => friendMention(f.name).length > 1)

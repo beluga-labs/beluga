@@ -67,6 +67,20 @@ describe('suggest', () => {
     expect(values('email@x')).toEqual([]);
     expect(values('plain text')).toEqual([]);
   });
+
+  it("in a friend's worktree, @claude says whose agent answers (theirs, not yours)", () => {
+    const friends = [{ name: 'Kayra', online: true }, { name: 'Mia', online: true }];
+    const theirs = suggest('@cla', { ...ctx, friends, claudeHere: { hint: "ask Kayra's agent, in their worktree", owner: 'Kayra' } });
+    expect(theirs[0]).toMatchObject({ label: '@claude', hint: "ask Kayra's agent, in their worktree" });
+    // "@claude:Kayra" is that same agent: not offered twice.
+    expect(theirs.map((s) => s.label)).not.toContain('@claude:Kayra');
+    expect(theirs.map((s) => s.label)).toContain('@claude:Mia');
+    // Run on: this computer: your own agent, in your copy.
+    const yours = suggest('@cla', { ...ctx, friends, claudeHere: { hint: 'ask your agent, in your copy' } });
+    expect(yours[0]).toMatchObject({ label: '@claude', hint: 'ask your agent, in your copy' });
+    // Elsewhere, as ever.
+    expect(suggest('@cla', { ...ctx, friends })[0]).toMatchObject({ label: '@claude', hint: 'ask your agent' });
+  });
 });
 
 describe('peopleSuggestions (New Task, BLG-342)', () => {
