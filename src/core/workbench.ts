@@ -65,8 +65,10 @@ export interface WorkbenchDeps {
   readonly confirm?: (title: string, detail: string) => Promise<'yes' | 'no' | 'always'>;
   /** Open a URL or a file with the system's default app. */
   readonly open?: (target: string) => void;
-  /** Models your Claude Code offers (asked once). */
+  /** Models your Claude Code offers (asked at start, and again once Claude Code moved to a newer one). */
   readonly listModels?: () => Promise<readonly ModelChoice[] | undefined>;
+  /** Keep Claude Code current in the background (agent/claude-code-updates.ts): true once it moved to a newer one. */
+  readonly updateAgent?: () => Promise<boolean>;
   /** Another runtime on a live conversation hands it off (core/agent-switch.ts, BLG-447); unset: a plain switch. */
   readonly switchAgent?: (channel: string, agent: AgentRef | undefined, mode?: HandoffMode) => Promise<unknown>;
   /** The agent picker's runtimes: which run on this Mac, and why the others don't (BLG-446). */
@@ -141,6 +143,9 @@ export function withRuntimeStatus(runtimes: readonly RuntimeChoice[], found: Rea
 /** An agent that isn't ready yet (Codex not signed in) is asked about again this often. */
 const RUNTIME_RECHECK_MS = 60_000;
 const DISK_EVERY_MS = 5 * 60_000;
+/** Claude Code updates: first looked for a minute after start (not in the way of the first run), then every six hours. */
+const AGENT_FIRST_CHECK_MS = 60_000;
+const AGENT_CHECK_EVERY_MS = 6 * 60 * 60_000;
 /** How often to see which PRs are due a look (cheap: no gh unless one is). */
 const PR_TICK_MS = 5_000;
 /** PRs with checks running, or a branch just pushed. */
@@ -279,6 +284,8 @@ export class Workbench {
     return agentName(defaultAgentOf(this.deps.store.getState().self));
   }
   private diskTimer?: NodeJS.Timeout;
+  private agentTimer?: NodeJS.Timeout;
+  private agentEvery?: NodeJS.Timeout;
   /** The round of measuring under way: a second ask joins it rather than walking every folder again. */
   private measuring?: Promise<void>;
   private prTimer?: NodeJS.Timeout;
@@ -345,8 +352,16 @@ export class Workbench {
     });
     const runtimes = this.deps.listRuntimes?.();
     if (runtimes) this.deps.store.dispatch({ type: 'runtimes', runtimes });
-    void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
+    this.refreshModels();
     void this.checkRuntimes();
+    // Claude Code kept current, quietly: a newer one's models (a new Opus) show in the picker once it's in.
+    if (this.deps.updateAgent) {
+      const update = (): void => void this.deps.updateAgent!().then((moved) => moved && this.refreshModels(), () => undefined);
+      this.agentTimer = setTimeout(update, AGENT_FIRST_CHECK_MS);
+      this.agentTimer.unref();
+      this.agentEvery = setInterval(paced(AGENT_CHECK_EVERY_MS, () => this.deps.store.getState().powerSaving, update), AGENT_CHECK_EVERY_MS);
+      this.agentEvery.unref();
+    }
     setTimeout(() => void this.measureDisk(), 3000).unref();
     this.diskTimer = setInterval(paced(DISK_EVERY_MS, () => this.deps.store.getState().powerSaving, () => void this.measureDisk()), DISK_EVERY_MS);
     this.diskTimer.unref();
@@ -354,7 +369,14 @@ export class Workbench {
     this.prTimer.unref();
   }
 
+  /** Ask Claude Code for its models again (at start, and after it moved to a newer one). */
+  refreshModels(): void {
+    void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
+  }
+
   stop(): void {
+    clearTimeout(this.agentTimer);
+    clearInterval(this.agentEvery);
     clearInterval(this.diskTimer);
     clearInterval(this.prTimer);
     clearTimeout(this.runtimeTimer);

@@ -52,7 +52,9 @@ import { WorkspaceManager } from '../workspaces/manager.js';
 import { belugaHome } from '../workspaces/store.js';
 import { belugaEnv } from '../core/beluga-env.js';
 import { loadDismissedNeeds } from '../core/dismissed-needs.js';
-import { claudeCodePath, claudeCodeReady } from '../agent/claude-code.js';
+import { claudeCodeReady } from '../agent/claude-code.js';
+import { updateClaudeCode } from '../agent/claude-code-updates.js';
+import { claudeCodeWorks } from '../agent/runtime/claude/probe.js';
 
 /**
  * Everything Beluga is apart from its screens: your identity, the room (hosted or joined),
@@ -353,13 +355,16 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
               autoEdit: primary?.writable ?? false,
               additionalDirectories: config.shares.slice(1).map((s) => s.root),
               ...(config.model ? { model: config.model } : {}),
-              executablePath: belugaEnv('CLAUDE_PATH') ?? claudeCodePath(),
+              // Your own Claude Code when you named one; else unset: each call asks for the current one (claudeExecutable), so a newer one Beluga moved to is used from the next run.
+              ...(belugaEnv('CLAUDE_PATH') ? { executablePath: belugaEnv('CLAUDE_PATH') } : {}),
             },
           },
         }
       : {}),
     launchDir: process.cwd(),
     terminals,
+    // Claude Code kept current in the background (a newer one in the build's line, checked first), unless you run your own.
+    ...(!demo && config.agent && !belugaEnv('CLAUDE_PATH') && belugaEnv('CLAUDE_CODE_UPDATES') !== 'off' ? { updateAgent: async () => (await updateClaudeCode({ works: (bin) => claudeCodeWorks(bin) })) === 'updated' } : {}),
     savedPeople: saved.people,
     loadPeople: () => loadSettings().people,
     replayFile: path.join(belugaHome(), 'seen.json'),

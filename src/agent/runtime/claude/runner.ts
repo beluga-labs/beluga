@@ -31,7 +31,7 @@ import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
 import { SCRATCH_DIR } from '../../../shared/scratch-dir.js';
 import { type AgentRef, CLAUDE_AGENT, type ClaudeAnswer, ClaudeQuestion, type Usage } from '../../../protocol.js';
-import { claudeCodeReady } from '../../claude-code.js';
+import { claudeCodeReady, claudeExecutable } from '../../claude-code.js';
 import { claudeHome } from '../../../core/claude-code/launch.js';
 import { belugaHome } from '../../../core/home.js';
 import { expandCommand, mayBeCommand, skillOptions } from './skill-plugins.js';
@@ -272,7 +272,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
         ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
-        ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}),
+        ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),
         canUseTool: async (toolName, toolInput) => {
@@ -595,7 +595,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const idle = (async function* () {
         await new Promise(() => undefined);
       })() as AsyncIterable<never>;
-      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) } });
+      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) } });
       try {
         const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), USAGE_TIMEOUT_MS).unref());
         const models = await Promise.race([q.supportedModels(), timeout]);
@@ -618,7 +618,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       })() as AsyncIterable<never>;
       const q = query({
         prompt: idle,
-        options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) },
+        options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) },
       });
       const getUsage = (q as unknown as Record<string, unknown>).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
       try {

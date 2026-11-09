@@ -125,6 +125,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         confirm: (title, detail) => session.ask('request', title, detail),
         open: opts.open,
         listModels: async () => (await session.backend?.listModels?.()) as readonly ModelChoice[] | undefined,
+        ...(opts.updateAgent ? { updateAgent: opts.updateAgent } : {}),
         switchAgent: (channel, agent, mode) =>
           switchAgent(
             {

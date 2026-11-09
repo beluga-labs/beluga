@@ -117,6 +117,8 @@ export interface SessionOptions {
   readonly desktopNotify?: (n: import('./notify.js').DesktopNote) => void;
   /** Open a URL or file with the system (injected in tests). */
   readonly open?: (target: string) => void;
+  /** Keep Claude Code current in the background (the Mac app's daemon; never in tests or the demo). */
+  readonly updateAgent?: () => Promise<boolean>;
   /** Injected in tests: pull request lookups and the GitHub CLI check. */
   readonly findPr?: import('./workbench.js').WorkbenchDeps['findPr'];
   readonly hasGh?: () => Promise<boolean>;

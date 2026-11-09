@@ -84,6 +84,17 @@ Installing restarts Beluga's engine, the daemon that the Mac app bundles. The ne
 
 That is why *Update When Idle* waits for the agent, the terminals and the room.
 
+## Claude Code between Beluga updates
+
+New Claude models (a new Opus) come with a newer Claude Code, and Beluga keeps it current by itself, with nothing to click and no restart (`src/agent/claude-code-updates.ts`):
+
+- A minute after it starts, then every six hours, Beluga asks npm for the newest Claude Code package in the line the build pinned (`0.3.x` for a build pinned to `0.3.301`). Another line waits for a Beluga update, since the build's Agent SDK may not speak to it.
+- A newer one is downloaded next to the pinned one and checked against npm's sha512 integrity, the same check as the pinned download.
+- It's then started once with the build's own SDK, asking for its models, with no message sent. Only one that answers is used. One that doesn't is noted in `~/.beluga/claude-code/skipped.json` and never tried again.
+- From then on each new run, the Terminal view and sign-in use it (`~/.beluga/claude-code/current.json` names it), and the model picker asks it for its models again. A run already going finishes on the one it started with. The pinned Claude Code always stays on disk as the fallback.
+
+Setting `BELUGA_CLAUDE_CODE_UPDATES=off`, or running your own Claude Code with `BELUGA_CLAUDE_PATH`, turns this off.
+
 ## Your other computers
 
 Your app and each computer you added speak the same app protocol. A computer on another version
