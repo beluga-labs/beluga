@@ -257,6 +257,7 @@ export const PHONE: Record<Method, Side> = {
   'projects.initGit': 'mac',
   'projects.suggest': 'mac',
   'projects.create': 'mac',
+  'projects.clone': 'mac',
   'projects.newHome': 'mac',
   'projects.iconAt': 'mac',
   'local.listDirs': 'mac',

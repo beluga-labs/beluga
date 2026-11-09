@@ -255,6 +255,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'projects.initGit': 'drive',
   'projects.suggest': 'drive',
   'projects.create': 'drive',
+  'projects.clone': 'drive',
   'projects.newHome': 'drive',
   'projects.iconAt': 'drive',
   // ---- local

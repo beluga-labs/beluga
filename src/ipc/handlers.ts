@@ -1,4 +1,4 @@
-import { git } from '../workspaces/git.js';
+import { git, tryGit } from '../workspaces/git.js';
 import { type WorktreeMover, worktreeMover } from '../core/worktree-move.js';
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
@@ -13,7 +13,8 @@ import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
+import { cloneProject, createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
+import { sameRepo } from '../shared/repo-key.js';
 import { projectId } from '../workspaces/manager.js';
 import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
@@ -418,6 +419,17 @@ export const HANDLERS = {
   'projects.create': async (s, name, parent) => {
     const dir = await createProject(name, parent ? expandHome(parent) : undefined);
     const added = await ctl(s)?.addProject(dir);
+    return { id: added?.project?.id ?? projectId(dir), path: dir };
+  },
+  // A repository you have here already is the project it is, not a second clone.
+  'projects.clone': async (s, url, parent) => {
+    const projects = s.store.getState().projects.filter((p) => p.root);
+    const origins = await Promise.all(projects.map((p) => tryGit(p.root, ['remote', 'get-url', 'origin'])));
+    const here = projects.find((_, i) => origins[i] && sameRepo(origins[i]!.trim(), url.trim()));
+    if (here) return { id: here.id, path: here.root, existed: true };
+    const dir = await cloneProject(url, parent ? expandHome(parent) : undefined);
+    const added = await ctl(s)?.addProject(dir);
+    if (added?.error) throw new Error(added.error);
     return { id: added?.project?.id ?? projectId(dir), path: dir };
   },
   'projects.newHome': () => defaultProjectsHome(),
