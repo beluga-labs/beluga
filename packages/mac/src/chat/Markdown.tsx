@@ -25,6 +25,7 @@ import { MarkdownTable, ViewBlock } from '../components/views/ViewBlock.js';
 import { InlineCode } from '../components/views/Inline.js';
 import { viewFenceType } from '@beluga/shared/view-spec.js';
 import { TASKS_FENCE, TASK_LINK_SCHEME, linkTaskKeys } from '@beluga/shared/task-refs.js';
+import { codeWorktreeRefs } from '@beluga/shared/worktree-refs.js';
 import { TaskCards, TaskKeyChip } from '../tasks/TaskRef.js';
 import { prepareMath, splitInlineMath } from '@beluga/shared/render/math.js';
 import { MathTex } from '../components/markdown/MathTex.js';
@@ -229,30 +230,42 @@ function boardKeys(issues: readonly { readonly key: string }[]): string {
   return keys;
 }
 
+/** Every worktree's id, as one string (made once per projects list), as boardKeys. */
+type ProjectList = readonly { readonly workspaces: readonly { readonly id: string; readonly kind: string }[] }[];
+const idsOf = new WeakMap<ProjectList, string>();
+function worktreeIds(projects: ProjectList): string {
+  let ids = idsOf.get(projects);
+  if (ids === undefined) idsOf.set(projects, (ids = projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree').map((w) => w.id)).join(' ')));
+  return ids;
+}
+
 /**
  * `localImages`: pictures named by a path on this Mac are shown (your own messages and your own
  * Claude's only; anyone else's stay a chip). `mentions`: draw "@mia", "@bob-api", "@src/auth.ts"…
  * as pills when they name someone or something here. `live`: the text is still being written (a
  * graph block that isn't finished yet says it's being drawn instead of failing). `tasks`: a bare
- * key your board has ("BLG-72") is a small task chip (your own and your own Claude's words only:
- * someone else's key may be on their board). `typed`: a person's own words, so the lines they broke
+ * key your board has ("BLG-72") is a small task chip, and so is a pasted "worktree:wt-…" you have
+ * (your own and your own Claude's words only: someone else's key may be on their board). `typed`: a person's own words, so the lines they broke
  * and the blank lines they left show as typed (typed-lines.ts), not folded as Markdown would.
  */
 export const Markdown = memo(function Markdown({ text, paths = false, localImages = false, mentions, live = false, tasks = false, typed = false }: { text: string; paths?: boolean; localImages?: boolean; mentions?: MentionWorld; live?: boolean; tasks?: boolean; typed?: boolean }) {
   const actions = useActions();
   // The board's keys as one string, so a task changing doesn't draw every message again.
   const keys = useApp((st) => (tasks ? boardKeys(st.board.issues) : ''));
+  const worktrees = useApp((st) => (tasks ? worktreeIds(st.projects) : ''));
   // Paths relative to a worktree link only where there's one on screen to open them in.
   const inWorktree = useApp((st) => paths && st.view.kind === 'workspace');
   const source = useMemo(() => {
     // Math first (prices stay words), then set aside so the links below leave it alone.
     const math = guardMath(prepareMath(typed ? keepBlankLines(text) : text));
-    // Mentions, then paths, then task keys: each leaves the links before it alone.
-    const withMentions = mentions ? linkMentions(math.text, mentions) : math.text;
+    // A pasted worktree link in ticks first (its chip), then mentions, paths and task keys: each leaves the code and links before it alone.
+    const known = new Set(worktrees.split(' '));
+    const withRefs = worktrees ? codeWorktreeRefs(math.text, (id) => known.has(id)) : math.text;
+    const withMentions = mentions ? linkMentions(withRefs, mentions) : withRefs;
     const withPaths = paths ? linkPaths(withMentions, { relative: inWorktree }) : withMentions;
-    const known = new Set(keys.split(' '));
-    return math.restore(keys ? linkTaskKeys(withPaths, (k) => known.has(k)) : withPaths);
-  }, [text, keys, mentions, paths, inWorktree, typed]);
+    const board = new Set(keys.split(' '));
+    return math.restore(keys ? linkTaskKeys(withPaths, (k) => board.has(k)) : withPaths);
+  }, [text, keys, worktrees, mentions, paths, inWorktree, typed]);
   // Every local image in the message, so the lightbox steps from one to the next.
   const images = useMemo(() => (localImages ? messageImages(text) : []), [text, localImages]);
   // The same renderers from one render to the next: a new one would remount what it drew (a graph

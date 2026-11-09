@@ -33,6 +33,7 @@ import { ContextNote } from '../chat/ContextMeter.js';
 import { PeopleHere } from './PeopleHere.js';
 import { ForkToMacButton } from '../dialogs/native/ForkToMacSheet.js';
 import { PrivateMark, shareWithTeamItems } from '../team/Team.js';
+import { copyLinkItems } from './worktree-link.js';
 import s from './Toolbar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { sentinelSubtitle } from '../sentinel/sentinel-model.js';
@@ -213,6 +214,8 @@ export function Toolbar() {
     const menu = overflow.flatMap((section, k) => section.map((a, i) => ({ a, separate: k > 0 && i === 0 })));
     // A team project's conversation is yours alone until you share it (core/team, BLG-226).
     const teamItems = shareWithTeamItems(state, client, ws.id, project?.id);
+    // Copy Link, to mention it in another chat (BLG-878).
+    const linkItems = copyLinkItems(ws, client);
     const run = (a: ToolAction): void => {
       if (a.disabled) return toast(client, a.hint, 'info');
       if (isPrStep(a.action)) return askBeforeWork(ws.id, a.action);
@@ -283,8 +286,8 @@ export function Toolbar() {
               {icons.slice(0, fit).map((a) => (
                 <IconButton key={a.id} icon={a.icon} label={a.disabled ? `${a.label}: ${a.hint}` : (a.tip ?? `${a.label} · ${a.hint}`)} keys={a.keys} aria-disabled={a.disabled} data-tool={a.action} data-tool-ws={ws.id} className={cx(a.disabled && s.off, a.tone === 'error' && s.toolError)} onClick={() => run(a)} />
               ))}
-              {overflow.length || teamItems.length || continueItem ? (
-                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems, ...(continueItem ? [continueItem] : [])]}>
+              {overflow.length || teamItems.length || continueItem || linkItems.length ? (
+                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems, ...(continueItem ? [continueItem] : []), ...linkItems]}>
                   <IconButton icon="more" label="More for this workspace" data-tool="more" data-tool-ws={ws.id} />
                 </ActionsDropdown>
               ) : null}

@@ -16,6 +16,7 @@ import { askBeforeWork } from '../lib/work-confirm.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import { triageItems } from './row-triage-actions.js';
+import { copyLinkItems } from './worktree-link.js';
 import { outsideLocation } from './outside-model.js';
 import { useChatSelection } from './chat-selection-view.js';
 import { isAgentWorktree } from '../claude-code/subagents-model.js';
@@ -40,6 +41,8 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
     ...triageItems(state, `ws:${ws.id}`, run, client),
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
     ...(ws.kind === 'chat' && regenerate ? [{ label: regenerate.pending ? 'Regenerating title…' : 'Regenerate title', icon: 'refresh' as const, disabled: regenerate.pending, onSelect: regenerate.run }] : []),
+    // Its link, to mention it in another chat (BLG-878).
+    ...copyLinkItems(ws, client).map((item) => ({ ...item, separate: false })),
     ...sections.flatMap((section) =>
       section.map((a, i) => ({
         label: a.label,
