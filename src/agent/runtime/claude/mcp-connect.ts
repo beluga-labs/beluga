@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { type McpServerStatus, type Options, query } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerRow, McpSignIn } from '../../../shared/mcp.js';
+import type { McpNeedsAuth, McpServerRow, McpSignIn } from '../../../shared/mcp.js';
 import { type OwnerMcpEntry, ownerMcpEntries } from './owner-mcp.js';
 import { claudeExecutable } from '../../claude-code.js';
 
@@ -39,6 +39,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  */
 export class McpConnect {
   private readonly signIns = new Map<string, { readonly session: McpSession; readonly done: Promise<boolean> }>();
+  private readonly listeners = new Set<(name: string) => void>();
 
   constructor(
     private readonly open: OpenMcpSession,
@@ -69,9 +70,14 @@ export class McpConnect {
       const res = await session.mcpAuthenticate(name);
       if (!res?.authUrl) {
         session.close();
-        return res?.requiresUserAction === false ? { connected: true } : { error: 'Claude Code didn’t give a page to sign in on.' };
+        if (res?.requiresUserAction !== false) return { error: 'Claude Code didn’t give a page to sign in on.' };
+        this.announce(name);
+        return { connected: true };
       }
-      const done = this.waitConnected(session, name).finally(() => {
+      const done = this.waitConnected(session, name).then((connected) => {
+        if (connected) this.announce(name);
+        return connected;
+      }).finally(() => {
         session.close();
         if (this.signIns.get(name)?.session === session) this.signIns.delete(name);
       });
@@ -88,10 +94,26 @@ export class McpConnect {
     return this.signIns.get(name)?.done ?? Promise.resolve(undefined);
   }
 
+  /** Told the name of each server a sign-in connected (the name only: never a token or a page). Returns how to stop listening. */
+  onSignedIn(listener: (name: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+
   /** Stop every sign-in still waiting (the daemon is going away). */
   close(): void {
     for (const { session } of this.signIns.values()) session.close();
     this.signIns.clear();
+  }
+
+  private announce(name: string): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(name);
+      } catch {
+        // A listener failing never undoes a sign-in.
+      }
+    }
   }
 
   private entries(cwds: readonly string[]): OwnerMcpEntry[] {
@@ -118,6 +140,17 @@ export class McpConnect {
     }
     return false;
   }
+}
+
+/** The name to show for a server Claude Code names (`plugin:figma:figma` → `figma`, `claude.ai Gmail` → `Gmail`). */
+export function mcpLabel(name: string): string {
+  if (name.startsWith('plugin:')) return name.split(':').slice(2).join(':') || name;
+  return name.replace(/^claude\.ai /, '');
+}
+
+/** The servers a run's init message says need a sign-in: name, label and status, nothing else of what Claude Code reports. */
+export function needsAuthServers(servers: ReadonlyArray<{ readonly name: string; readonly status: string }> | undefined): McpNeedsAuth[] {
+  return (servers ?? []).filter((s) => s.status === 'needs-auth').map((s) => ({ name: s.name, label: mcpLabel(s.name), status: 'needs-auth' as const }));
 }
 
 function toRow(st: McpServerStatus, entry: OwnerMcpEntry | undefined): McpServerRow {
