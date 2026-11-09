@@ -1,9 +1,9 @@
 import type { DiffLine } from '../../../../src/shared/diff-lines.js';
 
 /**
- * Comments on a diff's lines, written for the chat: each one goes into the message box as where it
- * is ("On `src/a.ts:12-14`:"), the lines it's on (a ```diff block) and what you said. The box is
- * the only place they're kept, so the diff marks the lines whose comment is still waiting there.
+ * Comments on a diff's lines, for the chat. Each waits above its conversation's message box as a
+ * card (where it is, what you said) until the message is sent; then it goes as text after your
+ * words: where it is ("On `src/a.ts:12-14`:"), the lines (a ```diff block) and the comment.
  */
 
 /** Lines of code quoted with a comment, at most (the rest is counted). */
@@ -16,8 +16,14 @@ export interface CommentRange {
   readonly to: number;
 }
 
-export interface CommentAt extends CommentRange {
+export interface DiffComment extends CommentRange {
+  readonly id: string;
   readonly path: string;
+  /** The lines it's on, each with its sign ("+", "-" or " "), at most QUOTE_LINES. */
+  readonly code: readonly string[];
+  /** Lines picked past those. */
+  readonly more: number;
+  readonly text: string;
 }
 
 const isCode = (l: DiffLine): boolean => l.kind === 'ctx' || l.kind === 'add' || l.kind === 'del';
@@ -36,11 +42,25 @@ export function codeRange(lines: readonly DiffLine[], a: number, b: number): Com
   return { side: news.length ? 'new' : 'old', from: Math.min(...nums), to: Math.max(...nums) };
 }
 
+let made = 0;
+
+/** A comment on rows `a`…`b` of a file's diff (undefined when they hold no code or it says nothing). */
+export function makeComment(path: string, lines: readonly DiffLine[], a: number, b: number, text: string): DiffComment | undefined {
+  const range = codeRange(lines, a, b);
+  const said = text.trim();
+  if (!range || !said) return undefined;
+  const code = pickedCode(lines, a, b);
+  const sign = (l: DiffLine): string => (l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' ');
+  const shown = code.slice(0, QUOTE_LINES).map((l) => `${sign(l)}${l.text}`);
+  return { id: `c${++made}`, path, ...range, code: shown, more: code.length - shown.length, text: said };
+}
+
 const span = (from: number, to: number): string => (to !== from ? `${from}-${to}` : `${from}`);
 
-function heading(path: string, r: CommentRange): string {
-  if (r.side === 'new') return `On \`${path}:${span(r.from, r.to)}\`:`;
-  return `On \`${path}\`, removed line${r.to !== r.from ? 's' : ''} ${span(r.from, r.to)}:`;
+/** "README.md:2-4", or "README.md, removed line 7": where a comment is, in words. */
+export function commentWhere(c: Pick<DiffComment, 'path' | 'side' | 'from' | 'to'>): string {
+  if (c.side === 'new') return `${c.path}:${span(c.from, c.to)}`;
+  return `${c.path}, removed line${c.to !== c.from ? 's' : ''} ${span(c.from, c.to)}`;
 }
 
 /** A fence longer than any run of backticks in the code, so the code can't close it. */
@@ -49,45 +69,23 @@ function fenceFor(body: string): string {
   return '`'.repeat(Math.max(3, longest + 1));
 }
 
-/** A comment on rows `a`…`b` of a file's diff, as it goes into the message box. */
-export function commentBlock(path: string, lines: readonly DiffLine[], a: number, b: number, text: string): string {
-  const code = pickedCode(lines, a, b);
-  const range = codeRange(lines, a, b);
-  const sign = (l: DiffLine): string => (l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' ');
-  const shown = code.slice(0, QUOTE_LINES).map((l) => `${sign(l)}${l.text}`);
-  const more = code.length - shown.length;
-  const body = [...shown, ...(more > 0 ? [`… ${more} more lines`] : [])].join('\n');
+/** A comment as it goes to the agent. */
+export function commentText(c: DiffComment): string {
+  const head = c.side === 'new' ? `On \`${commentWhere(c)}\`:` : `On \`${c.path}\`, removed line${c.to !== c.from ? 's' : ''} ${span(c.from, c.to)}:`;
+  const body = [...c.code, ...(c.more > 0 ? [`… ${c.more} more lines`] : [])].join('\n');
   const fence = fenceFor(body);
-  const head = range ? heading(path, range) : `On \`${path}\`:`;
-  return [head, `${fence}diff`, body, fence, text.trim()].join('\n');
+  return [head, `${fence}diff`, body, fence, c.text].join('\n');
 }
 
-/** The message box with a comment added at the end, after a blank line. */
-export function appendComment(buffer: string, block: string): string {
-  const before = buffer.trimEnd();
-  return before ? `${before}\n\n${block}` : block;
+/** The message as sent: your words, then each comment after a blank line. */
+export function withComments(words: string, comments: readonly DiffComment[]): string {
+  return [words.trim(), ...comments.map(commentText)].filter(Boolean).join('\n\n');
 }
 
-const NEW_HEAD = /^On `(.+):(\d+)(?:-(\d+))?`:$/;
-const OLD_HEAD = /^On `(.+)`, removed lines? (\d+)(?:-(\d+))?:$/;
-
-/** The comments in the message box, by their headings. */
-export function commentsIn(buffer: string): CommentAt[] {
-  const out: CommentAt[] = [];
-  for (const line of buffer.split('\n')) {
-    const fresh = NEW_HEAD.exec(line);
-    const m = fresh ?? OLD_HEAD.exec(line);
-    if (!m) continue;
-    const from = Number(m[2]);
-    out.push({ path: m[1]!, side: fresh ? 'new' : 'old', from, to: m[3] ? Number(m[3]) : from });
-  }
-  return out;
-}
-
-/** The rows of `path`'s diff that a comment in the box is on (a change's removed lines with its new ones). */
-export function commentedRows(buffer: string, path: string, lines: readonly DiffLine[]): ReadonlySet<number> {
+/** The rows of `path`'s diff the comments are on (a change's removed lines with its new ones). */
+export function commentedRows(comments: ReadonlyArray<Pick<DiffComment, 'path' | 'side' | 'from' | 'to'>>, path: string, lines: readonly DiffLine[]): ReadonlySet<number> {
   const rows = new Set<number>();
-  for (const c of commentsIn(buffer)) {
+  for (const c of comments) {
     if (c.path !== path) continue;
     const hit = lines.flatMap((l, i) => {
       const n = c.side === 'new' ? l.new : l.kind === 'del' ? l.old : undefined;
@@ -100,4 +98,34 @@ export function commentedRows(buffer: string, path: string, lines: readonly Diff
     });
   }
   return rows;
+}
+
+// The comments waiting, per conversation's box (as its images and files wait: chat/use-attachments.tsx).
+
+const waiting = new Map<string, readonly DiffComment[]>();
+const listeners = new Set<() => void>();
+const NONE: readonly DiffComment[] = [];
+
+const put = (box: string, list: readonly DiffComment[]): void => {
+  if (list.length) waiting.set(box, list);
+  else waiting.delete(box);
+  for (const l of [...listeners]) l();
+};
+
+export const waitingComments = (box: string): readonly DiffComment[] => waiting.get(box) ?? NONE;
+
+export function subscribeComments(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+
+export const addComment = (box: string, c: DiffComment): void => put(box, [...waitingComments(box), c]);
+
+export const removeComment = (box: string, id: string): void => put(box, waitingComments(box).filter((c) => c.id !== id));
+
+/** The box's comments, out of it as its message goes; `putBack` if the message couldn't go. */
+export function takeComments(box: string): { readonly comments: readonly DiffComment[]; readonly putBack: () => void } {
+  const comments = waitingComments(box);
+  if (comments.length) put(box, NONE);
+  return { comments, putBack: () => comments.length && put(box, [...comments, ...waitingComments(box)]) };
 }

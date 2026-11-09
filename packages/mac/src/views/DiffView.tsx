@@ -15,7 +15,7 @@ import { revealInFinder } from '../lib/files.js';
 import { quoteInBox } from '../chat/message-menu.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { ChangedFileView, canShowFile, fileLookLabel, onlyAsFile, useChangeLocation } from './ChangedFile.js';
-import { CommentButton, type DiffComments, useDiffComments, useWaitingComments } from './DiffComment.js';
+import { CommentButton, type DiffComments, useDiffComments, useWaitingHere } from './DiffComment.js';
 import s from './diff.module.css';
 import { revealLabel } from '../lib/os-words.js';
 import { useRevealFileLabel } from '../lib/remote-open.js';
@@ -237,7 +237,7 @@ export function DiffView() {
   const located = useChangeLocation(review?.data?.files[review.selected]?.path);
   const lines = useMemo(() => (review?.diff ? parseDiff(review.diff) : []), [review?.diff]);
   const comments = useDiffComments(review?.data?.files[review.selected]?.path, lines);
-  const waiting = useWaitingComments();
+  const waiting = useWaitingHere();
   const files = review?.data?.files ?? [];
   const totals = files.reduce((t, f) => ({ add: t.add + f.added, del: t.del + f.removed }), { add: 0, del: 0 });
   const mine = view.kind === 'workspace';
@@ -337,7 +337,7 @@ export function DiffView() {
         {waiting && mode !== 'file' ? (
           <div className={s.waiting}>
             <Icon name="chat" size={12} />
-            {waiting} comment{waiting === 1 ? '' : 's'} waiting in your message
+            {waiting} comment{waiting === 1 ? '' : 's'} waiting to send
             <span className={s.flex} />
             <Button size="small" variant="quiet" onClick={toChat}>
               Go to Chat
