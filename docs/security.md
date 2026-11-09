@@ -124,6 +124,17 @@ OpenCode asks before each step it takes, the way Claude Code does, once Beluga h
 - Friends' tasks and guests don't run on OpenCode. Your OpenCode plugins, and in newer OpenCode the rules you saved with "Always allow" in its own app, can answer a step before Beluga is asked, and OpenCode has no sandbox to fall back on. A friend's task goes to Claude (or Codex) instead, and their card says why. Guests are turned away, with the reason on the Invite People sheet.
 - Quick side calls on OpenCode (answering in a chat, naming a worktree) and side questions (/btw) run without your plugins. Every tool still asks, and Beluga allows only the ones the call was given: none for a side question.
 
+## Copilot runs
+
+Copilot CLI asks before some of its steps, not all of them: before an edit, a command that changes something, a file outside the run's folder, and an MCP tool. Those come to Beluga and are checked by the same rules as Claude's, one step at a time. It reads files in the folder and runs commands that only look (`ls`, `git status`, `cat`) without asking anyone.
+
+- Its reads of `.env` files, keys and credential folders are turned down on its command line for every run (`--deny-tool`, the list is `SECRET_READS` in `src/agent/runtime/copilot/connection.ts`), so they never reach it through its file tools. A command that only looks isn't asked about, so a command naming one of those files isn't caught: this is why friends' tasks and guests don't run on Copilot.
+- A project's main folder stays read only, and a plan while it's being made edits nothing (Copilot's own Plan mode, and Beluga turns its edits down too).
+- Beluga's own tools (the room, the board) reach Copilot over HTTP on 127.0.0.1, each run with its own token, and check each call where they run.
+- Beluga always answers "allow once" or "deny", never "always", so nothing it allows is kept in Copilot.
+- Friends' tasks and guests don't run on Copilot. A friend's task goes to Claude (or Codex) instead, and their card says why. Guests are turned away, with the reason on the Invite People sheet.
+- Quick side calls on Copilot (answering in a chat, naming a worktree) run without your instruction files. Beluga allows only the tools the call was given.
+
 ## Machines: your computers
 
 Your Beluga app can drive your other computers (a Mac mini, a cloud server, a Linux box): see
