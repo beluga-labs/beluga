@@ -93,6 +93,15 @@ describe('the chain of a run', () => {
     expect(second.chainId).not.toBe(first.chainId);
   });
 
+  it('your own message that carries a chain (a plan’s message to a task) keeps that chain', async () => {
+    const b = backend();
+    const t = host(b.agent);
+    await t.ask('r1', 'one', { chain: { chainId: 'c-plan', hop: 4 } });
+    await waitFor(() => b.chains.length === 1);
+    await t.h.idle(CHAT);
+    expect(b.chains[0]!()).toEqual({ chainId: 'c-plan', hop: 4 });
+  });
+
   it('a message with an origin sets the chain of its run', async () => {
     const b = backend();
     const t = host(b.agent);

@@ -208,6 +208,11 @@ export const AgentRequestBody = z.object({
   agent: AgentRef.optional().catch(undefined),
   /** A message from another chat (see ChatOrigin). An older Mac drops it; a malformed one is dropped alone. */
   origin: ChatOrigin.optional().catch(undefined),
+  /**
+   * BLG-303: the chain of your own message that one of your agents sent on (a plan's message to a
+   * task), so it doesn't start a new one. Only your own requests keep it. An older Mac drops it.
+   */
+  chain: z.object({ chainId: shortStr, hop: z.number().int().min(0).max(1000) }).optional().catch(undefined),
 });
 
 export const AgentEventKind = z.enum([

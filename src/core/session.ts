@@ -8,7 +8,7 @@ import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { assistantOf } from './assistant/registry.js';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentBackend, RoomBridge } from '../agent/types.js';
+import type { AgentBackend, ChatChain, RoomBridge } from '../agent/types.js';
 import type { AgentRuntime, RuntimeCapabilities, RuntimeId, RuntimeOptions } from '../agent/runtime/types.js';
 import { guardedBackend } from '../agent/runtime/guard.js';
 import { type SideRoute, routeSideCall, routedBackend } from '../agent/runtime/router.js';
@@ -623,7 +623,8 @@ export class Session {
   }
 
   /** Ask an agent (ours or a peer's) to do something. Returns the request id. */
-  requestAgent(target: string, prompt: string, viaAgent: boolean, channel = 'room', urgent = false, project?: string, requestId: string = randomUUID(), agent?: AgentRef): string {
+  /** `chain`: the chain your own agent sent it on in (see AgentRequestBody.chain). */
+  requestAgent(target: string, prompt: string, viaAgent: boolean, channel = 'room', urgent = false, project?: string, requestId: string = randomUUID(), agent?: AgentRef, chain?: ChatChain): string {
     const plan = this.store.getState().planMode[channel] === true;
     this.questions.track(requestId, target, channel);
     // "@bob:codex" (BLG-520): the agent rides the ask, in the room only; their Mac runs it or says which one did (see namedAsks).
@@ -632,7 +633,7 @@ export class Session {
       this.namedAsks.set(requestId, { peer: target, agent: named.agent });
       if (this.namedAsks.size > 200) this.namedAsks.delete(this.namedAsks.keys().next().value!);
     }
-    this.send({ kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent, channel, urgent, plan, ...(project ? { project: project.slice(0, 80) } : {}), ...named }, { to: target });
+    this.send({ kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent, channel, urgent, plan, ...(project ? { project: project.slice(0, 80) } : {}), ...named, ...(chain ? { chain } : {}) }, { to: target });
     return requestId;
   }
 
@@ -643,7 +644,7 @@ export class Session {
    * Returns the request's id (undefined when you can't ask there). `shown`: the message is in the
    * chat already, under this request id (see showAsk), so it isn't drawn again.
    */
-  askOwnClaude(prompt: string, channel: string, urgent = false, echo: boolean | string = true, shown?: string): string | undefined {
+  askOwnClaude(prompt: string, channel: string, urgent = false, echo: boolean | string = true, shown?: string, chain?: ChatChain): string | undefined {
     const shared = this.sharing.sharedFor(channel);
     if (shared && shared.role !== 'contribute') {
       this.toast(`You can follow ${shared.name}, but not ask its agent. Ask the owner to let you contribute`, 'warn');
@@ -657,7 +658,7 @@ export class Session {
     // Your own Claude at work here: a steer says it isn't read yet from the moment it's drawn, and anything else waits in the queue from then.
     const running = !shared && this.host.runningIn(channel);
     if (echo && !shown) this.sendChat(typeof echo === 'string' ? echo : prompt, false, channel, requestId, urgent && running, !urgent && running);
-    return this.requestAgent(shared ? shared.owner : this.selfId, prompt, false, channel, urgent, undefined, requestId);
+    return this.requestAgent(shared ? shared.owner : this.selfId, prompt, false, channel, urgent, undefined, requestId, undefined, shared ? undefined : chain);
   }
 
   /**

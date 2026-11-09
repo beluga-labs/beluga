@@ -29,7 +29,7 @@ function setup(opts: { combine?: PlansWorkDeps['combine']; git?: PlanGit; titleP
   const store = new Store(initialState('room'));
   store.dispatch({ type: 'projects', projects: [project('api', 'bob-api', [ws('main', 'api', 'bob-api', 'chat', { askOnly: true } as Partial<Workspace>)])] });
   const listeners: Array<(e: WorktreeEvent) => void> = [];
-  const asked: Array<{ prompt: string; channel: string; echo: boolean }> = [];
+  const asked: Array<{ prompt: string; channel: string; echo: boolean; chain?: { chainId: string; hop: number } }> = [];
   const made: Array<{ name: string; base?: string; quiet?: boolean }> = [];
   const archived: string[] = [];
   let n = 0;
@@ -66,7 +66,7 @@ function setup(opts: { combine?: PlansWorkDeps['combine']; git?: PlanGit; titleP
   const boardWork = new BoardWork({ store, board, controller, selfId: () => 'p-me', selfName: () => 'Kay', askClaude: (prompt, channel) => void asked.push({ prompt, channel, echo: true }) });
   const plans = new Plans({ store, dir: null });
   const intents: unknown[] = [];
-  const work = new PlansWork({ store, plans, board: boardWork, controller, askClaude: (prompt, channel, echo) => `ask-${asked.push({ prompt, channel, echo })}`, intend: (i) => void intents.push(i), delayMs: 0, ...(opts.combine ? { combine: opts.combine } : {}), ...(opts.git ? { git: opts.git } : {}), ...(opts.titlePlan ? { titlePlan: opts.titlePlan } : {}), ...(opts.workers ? { workers: opts.workers } : {}), ...(opts.forYou ? { forYou: opts.forYou } : {}), ...(opts.cancel ? { cancel: opts.cancel } : {}), ...(opts.rescueMs !== undefined ? { rescueMs: opts.rescueMs } : {}), ...(opts.now ? { now: opts.now } : {}) });
+  const work = new PlansWork({ store, plans, board: boardWork, controller, askClaude: (prompt, channel, echo, chain) => `ask-${asked.push({ prompt, channel, echo, ...(chain ? { chain } : {}) })}`, intend: (i) => void intents.push(i), delayMs: 0, ...(opts.combine ? { combine: opts.combine } : {}), ...(opts.git ? { git: opts.git } : {}), ...(opts.titlePlan ? { titlePlan: opts.titlePlan } : {}), ...(opts.workers ? { workers: opts.workers } : {}), ...(opts.forYou ? { forYou: opts.forYou } : {}), ...(opts.cancel ? { cancel: opts.cancel } : {}), ...(opts.rescueMs !== undefined ? { rescueMs: opts.rescueMs } : {}), ...(opts.now ? { now: opts.now } : {}) });
   const claude = boardWork.myClaude();
   const me = boardWork.me();
   /** Claude in a worktree finishes its run, or works. */
@@ -718,6 +718,16 @@ describe('review fixes', () => {
     const sent = t.asked.at(-1)!;
     expect(sent.echo).toBe(false);
     expect(sent.prompt).toContain('not the user');
+  });
+
+  it('a message to a task’s Claude carries the chain of the plan’s run, one hop on', async () => {
+    const t = setup();
+    const plan = t.plans.create({ projectId: 'api', home: 'ws:main' }, t.claude);
+    t.work.forRun('ws:main', 'p-me')!.tools!.write(BODY);
+    t.work.approve(plan.id);
+    await tick(5);
+    t.work.forRun('ws:main', 'p-me', () => ({ chainId: 'c-7', hop: 3 }))!.tools!.message('auth', 'Use signed cookies');
+    expect(t.asked.at(-1)!.chain).toEqual({ chainId: 'c-7', hop: 4 });
   });
 });
 

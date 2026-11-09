@@ -92,7 +92,7 @@ export interface AgentHostDeps {
   /** Sentinels (your own runs): their tools, and a sentinel run's brief in its Claude step's conversation (core/sentinel). */
   readonly sentinel?: (channel: string, from: string) => { readonly tools: import('../agent/types.js').SentinelTools; readonly dashboard?: import('../agent/types.js').DashboardTools; readonly brief: string; readonly inRun: boolean } | undefined;
   /** A plan's home conversation (your own runs): its plan tools and what Claude is told about the plan (core/plans). */
-  readonly plans?: (channel: string, from: string) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined;
+  readonly plans?: (channel: string, from: string, chain?: () => import('../agent/types.js').ChatChain) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined;
   /** Child threads (core/threads): their tools, bound to this chat. Your own runs only, with the flag on (see runAgent). */
   readonly threads?: (channel: string) => import('../agent/types.js').ThreadTools | undefined;
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
@@ -277,9 +277,13 @@ function withoutAskOnly<T extends { readonly askOnly?: unknown }>(place: T): T {
 }
 
 
-/** A message from another chat sets the chain from its origin. A message from a person starts a new one. */
+/**
+ * A message from another chat sets the chain from its origin, and one your agent sent on (a plan's
+ * message to a task) keeps its chain. A message from a person starts a new one.
+ */
 function chainOf(body: BodyOf<'agent_request'>): RunChain {
-  return body.origin ? { chainId: body.origin.chainId, hop: body.origin.hop } : { chainId: randomUUID(), hop: 0 };
+  if (body.origin) return { chainId: body.origin.chainId, hop: body.origin.hop };
+  return body.chain ? { chainId: body.chain.chainId, hop: body.chain.hop } : { chainId: randomUUID(), hop: 0 };
 }
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -918,9 +922,12 @@ export class AgentHost {
   async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
     // A chain comes from this computer's own sends, or from a peer's chat into one shared with them (admitPeerChat checks it).
     // With chat links off, a peer's origin is dropped: the request is a plain one, as before chat links.
-    const { origin, ...rest } = request;
-    const keep = origin && this.store.getState().prefs.chatLinks && (from === this.selfId || request.channel !== 'room');
-    const body: BodyOf<'agent_request'> = keep ? request : rest;
+    const { origin, chain, ...rest } = request;
+    const links = this.store.getState().prefs.chatLinks;
+    const keep = origin && links && (from === this.selfId || request.channel !== 'room');
+    // A chain without an origin is only yours: your agent sent it on (see chainOf).
+    const keepChain = chain && links && from === this.selfId;
+    const body: BodyOf<'agent_request'> = { ...rest, ...(keep ? { origin } : {}), ...(keepChain ? { chain } : {}) };
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -1445,7 +1452,7 @@ export class AgentHost {
       // Live previews (Settings › Experimental): your own runs in a project's folder learn to show what they build.
       const previewBrief = from === this.selfId && place && experimentOn(this.store.getState().prefs.experiments, 'previews') ? buildPreviewAppend() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
-      const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from);
+      const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from, () => ({ ...chain }));
       // Syncing main never gets them, so it never counts as missing them.
       lane.runPlanTools = Boolean(plans?.tools || place?.syncMain);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
