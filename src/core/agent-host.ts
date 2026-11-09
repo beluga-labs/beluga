@@ -32,6 +32,7 @@ import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { explainChatMentions } from '../agent/prompt.js';
+import { permissionRank } from './chat-links/permission.js';
 import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
 import { oneLine } from './gateway/model.js';
 import { peerSendAccess } from './chat-links/access.js';
@@ -1041,11 +1042,12 @@ export class AgentHost {
     return { delivery: lane.waiting.some((w) => w.body.requestId === body.requestId) ? 'queued' : 'started' };
   }
 
-  /** How far a chat's run can act on its own: a message may not ask a chat to go further than its sender can. */
+  /** How far a chat's run can act on its own, your launch flags included (core/chat-links/permission.ts). */
   private permissionRank(channel: string): number {
-    if (this.store.getState().planMode[channel] === true) return 0;
+    const state = this.store.getState();
     const place = this.deps.assistant?.(channel, this.selfId)?.place ?? this.deps.sentinelChat?.(channel, this.selfId) ?? this.deps.workspaces?.place(channel);
-    return !place || place.askOnly ? 0 : place.autoEdit ? 2 : 1;
+    const runtime = (this.deps.agentRef?.(channel) ?? CLAUDE_AGENT).runtime;
+    return permissionRank({ planMode: state.planMode[channel] === true, place, runtime, flags: { claude: state.prefs.claudeArgs, codex: state.prefs.codexArgs } });
   }
 
   /**

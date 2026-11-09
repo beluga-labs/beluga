@@ -27,7 +27,7 @@ const refOf = (channel: string, owner = ME): string => `${owner}/${channel}`;
 
 const ws = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: `chat ${id}`, projectId: 'p1', projectRoot: '/p', path: `/p/${id}`, kind: 'worktree', createdAt: 1000, ...extra });
 
-function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => string[] } = {}) {
+function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => string[]; runtimeOf?: (channel: string) => 'claude' | 'codex' } = {}) {
   const base = initialState('room', 'auto');
   const store = new Store({
     ...base,
@@ -99,6 +99,7 @@ function setup(opts: { lateEvents?: boolean; recipients?: (channel: string) => s
     refreshUsage: async () => undefined,
     workspaces: { place, ensureLoaded: () => undefined, inChannel: () => undefined, agentIn: () => undefined, refreshWorkspace: async () => undefined, manager: { list: [] } } as never,
     terminalDriving: (channel) => driving.has(channel),
+    ...(opts.runtimeOf ? { agentRef: (channel?: string) => (opts.runtimeOf!(channel ?? '') === 'codex' ? { runtime: 'codex', label: 'Codex' } : { runtime: 'claude', label: 'Claude' }) } : {}),
   });
   const say = (channel: string, requestId: string, prompt = 'go', extra: Partial<BodyOf<'agent_request'>> = {}): Promise<void> =>
     h.onAgentRequest(ME, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel, urgent: false, plan: false, ...extra });
@@ -267,6 +268,23 @@ describe('the chat tools of your own run', () => {
 });
 
 describe('mode_wider', () => {
+  it('your launch flags count: a chat whose agent never asks is out of reach of one that asks (BLG-304)', async () => {
+    const t = setup({ runtimeOf: (channel) => (channel === SOURCE ? 'codex' : 'claude') });
+    t.store.dispatch({ type: 'prefs', prefs: { claudeArgs: ['--dangerously-skip-permissions'] } } as never);
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^mode_wider:/);
+    expect(t.runsIn(TARGET)).toEqual([]);
+  });
+
+  it('a Codex approval mode that never asks counts too, and the chat that never asks reaches the other one', async () => {
+    const t = setup({ runtimeOf: (channel) => (channel === TARGET ? 'codex' : 'claude') });
+    t.store.dispatch({ type: 'prefs', prefs: { codexArgs: ['-a', 'never'] } } as never);
+    const from = await t.working(SOURCE);
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^mode_wider:/);
+    const back = await t.working(TARGET);
+    expect(parsed(await back.send(refOf(SOURCE), 'hi', {})).delivery).not.toBe('refused');
+  });
+
   it('a chat in plan mode stays in plan mode for a message from another chat', async () => {
     const t = setup();
     t.store.dispatch({ type: 'plan_mode', channel: TARGET, on: true });
