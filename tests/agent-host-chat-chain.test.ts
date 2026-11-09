@@ -141,6 +141,18 @@ describe('the chain of a run', () => {
     await t.h.idle(CHAT);
   });
 
+  it('a steered message your agent sent on (a plan’s message to a task) raises the hop and keeps the chain of the run', async () => {
+    const b = backend();
+    const t = host(b.agent);
+    await t.ask('r1', 'slow', { origin: origin('c1', 1) });
+    await waitFor(() => Boolean(b.live.finish));
+    await t.ask('r2', 'from the plan', { urgent: true, chain: { chainId: 'c-plan', hop: 5 } });
+    expect(b.steered).toHaveLength(1);
+    expect(b.chains[0]!()).toMatchObject({ chainId: 'c1', hop: 5 });
+    b.live.finish!();
+    await t.h.idle(CHAT);
+  });
+
   it('a steer that interrupts a long step sets the hop too', async () => {
     const b = backend();
     const t = host(b.agent);

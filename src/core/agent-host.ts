@@ -1248,9 +1248,12 @@ export class AgentHost {
     return true;
   }
 
-  /** A message steered into a run: the run keeps its chain, at the higher of the two hops. */
+  /**
+   * A message steered into a run: the run keeps its chain, at the higher of the two hops. The
+   * message's hop is its origin's, or its own chain's when your agent sent it on (a plan's message).
+   */
   private raiseHop(lane: Lane, body: BodyOf<'agent_request'>): void {
-    if (lane.chain) lane.chain.hop = Math.max(lane.chain.hop, body.origin?.hop ?? 0);
+    if (lane.chain) lane.chain.hop = Math.max(lane.chain.hop, (body.origin ?? body.chain)?.hop ?? 0);
   }
 
   /**
