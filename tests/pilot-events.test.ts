@@ -103,7 +103,8 @@ describe('event-loop delay', () => {
     await wait(350);
     stop();
     const p50 = Number(/p50 ([\d.]+) ms/.exec(lines[0] ?? '')?.[1]);
-    expect(p50).toBeLessThan(15);
+    // Far below the 300 ms interval. Windows' timers tick every ~15.6 ms, so a late tick there reads ~16-32.
+    expect(p50).toBeLessThan(process.platform === 'win32' ? 50 : 15);
   });
 
   it('counts a period as slow when its p95 or one stall is long', () => {
