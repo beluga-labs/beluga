@@ -39,6 +39,11 @@ export interface AgentRunInput {
    * this computer only: kept beside the chat, never sent anywhere (see core/step-book.ts).
    */
   readonly onStep?: (record: StepRecord) => void;
+  /**
+   * MCP servers this run found unavailable until you sign in (name and label only), told once per
+   * conversation and server. The screens offer the sign-in; the run does not wait for it.
+   */
+  readonly onMcpNeedsAuth?: (servers: readonly import('../shared/mcp.js').McpNeedsAuth[]) => void;
   /** Model for this run (an alias like "sonnet" or a full id); unset: the default. */
   readonly model?: string;
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type Query } from '@anthropic-ai/claude-agent-sdk';
 import { MAX_ATTACHMENT_BYTES, linkedImages, mediaTypeOf } from '../../../core/attachments.js';
 import { buildPrompt, summarizeTool } from '../../prompt.js';
 import { runInstructions } from '../../run-instructions.js';
@@ -25,7 +25,7 @@ import { ViewShelf } from '../../view-tools.js';
 import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
 import { ownerMcpServers } from './owner-mcp.js';
-import { McpConnect, claudeMcpSession } from './mcp-connect.js';
+import { McpConnect, claudeMcpSession, needsAuthServers } from './mcp-connect.js';
 import type { AgentBackend, AgentRunInput, FollowUp, LiveStatus, RoomBridge, RunProcess, Steer } from '../../types.js';
 import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
@@ -74,6 +74,8 @@ export interface ClaudeBackendOptions {
   readonly claudePath?: string;
   /** Who the agent is told it is, when not the place's agent (a local model: its own name). */
   readonly agentOf?: (input: AgentRunInput) => AgentRef | undefined;
+  /** Your MCP servers' sign-in (a fake one in tests); by default Claude Code's own. */
+  readonly mcp?: McpConnect;
 }
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -147,13 +149,35 @@ function showThinking(q: unknown): void {
 }
 
 /**
+ * A sign-in just connected `name`: ask this running Claude Code to load it now, so its tools are there
+ * in this turn. If it can't (an older Claude Code, a query already ending), the next turn loads it.
+ */
+function reconnect(q: Query, name: string): void {
+  const again = (q as { reconnectMcpServer?: (name: string) => Promise<void> }).reconnectMcpServer;
+  if (typeof again !== 'function') return;
+  try {
+    void again.call(q, name).catch(() => undefined);
+  } catch {
+    // Not supported here: the next turn loads the server.
+  }
+}
+
+/**
  * Runs turns through the Claude Agent SDK, which drives the local Claude Code
  * install and therefore uses the owner's own login/subscription. One session
  * is kept per room so the agent remembers the conversation.
  */
 export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
   let sessionId: string | undefined;
-  const mcp = new McpConnect(claudeMcpSession(opts.claudePath));
+  const mcp = opts.mcp ?? new McpConnect(claudeMcpSession(opts.claudePath));
+  // Servers already reported as needing a sign-in, once per conversation and server.
+  const reported = new Set<string>();
+  // Every Claude Code query running now: a sign-in that connects reaches each of them.
+  const live = new Set<Query>();
+  mcp.onSignedIn((name) => {
+    for (const key of reported) if (key.endsWith(`\0${name}`)) reported.delete(key);
+    for (const q of live) reconnect(q, name);
+  });
 
   return {
     async run(input: AgentRunInput): Promise<string> {
@@ -460,6 +484,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
 
       const ends = () => ({ stderr, ...(rejectedUntil !== undefined ? { rejectedUntil } : {}), ...(apiError ? { apiError } : {}) });
       const q = query({ prompt: prompts, options });
+      live.add(q);
       showThinking(q);
       let failed = true;
       try {
@@ -467,7 +492,13 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           lastEventAt = Date.now();
           background.observe(msg as Parameters<BackgroundAgents['observe']>[0]);
           watchQuiet();
-          if (msg.type === 'system' && msg.subtype === 'init') remember(msg.session_id);
+          if (msg.type === 'system' && msg.subtype === 'init') {
+            remember(msg.session_id);
+            // Servers that need a sign-in: said once per conversation, so the screens offer it (the run goes on without them).
+            const fresh = needsAuthServers(msg.mcp_servers).filter((s) => !reported.has(`${input.channel ?? ''}\0${s.name}`));
+            for (const s of fresh) reported.add(`${input.channel ?? ''}\0${s.name}`);
+            if (fresh.length) input.onMcpNeedsAuth?.(fresh);
+          }
           // Claude Code retrying the API (busy, a limit, no network): said on the working line, not a silent "Starting" (BLG-403).
           if (msg.type === 'system' && msg.subtype === 'api_retry') input.onEvent('progress', retryWords(msg.error_status, msg.attempt, msg.max_retries, Boolean(msg.no_response)));
           if (msg.type === 'rate_limit_event') {
@@ -573,6 +604,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // Claude Code itself failed ("process exited with code 1"): say how, in words.
         else throw new RunFailedError(classifyRun({ error: err instanceof Error ? err.message : String(err), ...(failedResult ? { result: failedResult } : {}), ...ends() }));
       } finally {
+        live.delete(q);
         recorder.finish(failed || abortController.signal.aborted);
         finish();
       }

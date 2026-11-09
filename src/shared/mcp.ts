@@ -22,6 +22,16 @@ export interface McpServerRow {
   readonly canTurnOff?: boolean;
 }
 
+/**
+ * A server a run found unavailable until you sign in to it (its status in Claude Code's init).
+ * Only these three fields: never a token, a sign-in page or anything of the server's config.
+ */
+export interface McpNeedsAuth {
+  readonly name: string;
+  readonly label: string;
+  readonly status: 'needs-auth';
+}
+
 /** Turning a server on or off: done, or why not. */
 export type McpTurned = { readonly ok: true } | { readonly error: string };
 
