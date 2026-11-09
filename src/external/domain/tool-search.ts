@@ -1,7 +1,6 @@
 /**
  * BM25 over each tool's name, description and input schema: how beluga_find ranks by default. Plain code in this
- * process, built in a few milliseconds for every tool; on Beluga's tools it finds as well as @ratel-ai/sdk's BM25
- * did (BLG-861's benchmark).
+ * process, built in a few milliseconds for every tool, with no dependency.
  */
 
 /** What a tool is found by. */
