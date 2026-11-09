@@ -420,10 +420,12 @@ function Conversation() {
 /** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now, or Cancel from 1.43); else long-press edits it (1.28). */
 function YourTurn({ t, onLongPress, chips }: { t: TurnView; onLongPress?: (() => void) | undefined; chips?: React.ReactNode }) {
   const waiting = t.steer?.waiting;
+  // A chat you named is its chip, as on the Mac (BLG-306); an older Mac's words stay words.
+  const chats = useSupports('chatLinks');
   return (
     <Press onLongPress={onLongPress} disabled={!onLongPress} scaleTo={0.99} style={{ alignItems: 'flex-end', paddingLeft: 48 }}>
       <View style={{ backgroundColor: color.card, borderRadius: 20, borderBottomRightRadius: 6, paddingVertical: 10, paddingHorizontal: 14, opacity: waiting ? 0.6 : 1 }}>
-        <Prose prose={t.prose} size={15} tasks />
+        <Prose prose={t.prose} size={15} tasks chats={chats} />
       </View>
       {chips ? <View style={{ marginTop: 4 }}>{chips}</View> : null}
       {waiting ? (

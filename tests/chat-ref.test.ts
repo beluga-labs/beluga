@@ -3,7 +3,7 @@ import { redirectSystemPath } from '../packages/companion/app/+native-intent.js'
 import { runInstructions } from '../src/agent/run-instructions.js';
 import type { AgentRunInput } from '../src/agent/types.js';
 import { buildChatLinkAppend } from '../src/agent/view-prompt.js';
-import { chatChipOf, chatLink, chatLinkAnswer, chatLinkOf, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
+import { chatChipOf, chatLink, chatLinkAnswer, chatLinkOf, chatMentionsAsCode, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
 import { readInline } from '../src/shared/render/inline-model.js';
 
 const OWNER = 'pK3-x_Q9aZ01bC2dE3fG4hI5jK6lM7nO';
@@ -76,6 +76,19 @@ describe('a chat as an inline element', () => {
 
   it.each(['chat:nonsense', `chat:${OWNER}/room`, `chat:${OWNER}/dm:${OWNER}`, `chat:${OWNER}/group:x`, `chat:${OWNER}/draft`, 'chat:'])('stays code: %s', (text) => {
     expect(readInline(text)).toBeUndefined();
+  });
+});
+
+describe('a chat mention as an inline element (the phone’s bubbles, BLG-306)', () => {
+  it('each mention becomes its inline code, which reads as the chat', () => {
+    const out = chatMentionsAsCode(`see @Login fix (chat: ${OWNER}/ws:wt-abc123) and @Notes (chat: ${OWNER}/mac:assistant) now`);
+    expect(out).toBe(`see \`chat:${OWNER}/ws:wt-abc123\` and \`chat:${OWNER}/mac:assistant\` now`);
+    expect(readInline(`chat:${OWNER}/ws:wt-abc123`)).toEqual({ kind: 'chat', ref: { owner: OWNER, channel: 'ws:wt-abc123' } });
+  });
+
+  it('words with no mention, and a ref that is no chat’s, stay as they are', () => {
+    expect(chatMentionsAsCode('plain words @someone')).toBe('plain words @someone');
+    expect(chatMentionsAsCode(`@Room (chat: ${OWNER}/room)`)).toBe(`@Room (chat: ${OWNER}/room)`);
   });
 });
 

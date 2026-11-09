@@ -114,6 +114,17 @@ export function chatMentionsIn(text: string): ChatMention[] {
   });
 }
 
+/** The words with each chat mention as its inline code (`chat:<ref>`), which the screens draw as the chat's chip. */
+export function chatMentionsAsCode(text: string): string {
+  let out = '';
+  let last = 0;
+  for (const c of chatMentionsIn(text)) {
+    out += `${text.slice(last, c.start)}\`chat:${c.ref}\``;
+    last = c.end;
+  }
+  return out + text.slice(last);
+}
+
 /** The chat mention that ends right at `caret`, to take out whole. */
 export function chatMentionEndingAt(text: string, caret: number): { readonly start: number; readonly end: number } | undefined {
   const hit = chatMentionsIn(text.slice(0, caret)).find((c) => c.end === caret);
