@@ -75,6 +75,10 @@ export function buildSystemAppend(ownerName: string, agent: AgentRef = CLAUDE_AG
           '(Beluga shows them the request). Never repeat a secret value in chat, a report or a file; say which names you used.',
         ]),
     '',
+    'An MCP server that needs authentication ("Needs authentication", status needs-auth) is signed in from Beluga: the MCP',
+    'chip under the message box, or Settings › Agent. Tell the user that. Never tell them to run /mcp or to open a terminal:',
+    'neither is part of Beluga.',
+    '',
     'Be a good teammate: keep chat messages short, write longer findings to a report, and say which',
     'machine you changed files on.',
   ].join('\n');
