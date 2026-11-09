@@ -1442,7 +1442,8 @@ export class AgentHost {
       const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
       const board = noBoard || (from !== this.selfId && !friendBoard) ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst && from === this.selfId, ...(friendBoard ? { friend: { id: from, name: requesterName } } : {}) });
       // Child threads: your own runs in your own chats, with the flag on. A dialogue's turn comes through runDialogueTurn and never gets them.
-      const threads = from === this.selfId && this.store.getState().prefs.agentThreads && !root && !place?.syncMain && !sentinelChat && !sentinel?.inRun ? this.deps.threads?.(body.channel) : undefined;
+      // Not an external agent's run: a thread would run as you, without its grant, label or Stop.
+      const threads = from === this.selfId && !external && this.store.getState().prefs.agentThreads && !root && !place?.syncMain && !sentinelChat && !sentinel?.inRun ? this.deps.threads?.(body.channel) : undefined;
       // A run stopped but not ending (wedged, or never started: no Claude Code yet) has its Claude
       // Code killed after a moment (at once when it's gone already), then is left behind so what
       // comes next in the conversation starts (BLG-402): never while its Claude Code could still
