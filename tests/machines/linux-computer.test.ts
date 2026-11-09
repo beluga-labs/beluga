@@ -21,7 +21,7 @@ import { waitFor } from '../helpers.js';
  * `beluga` command (`beluga daemon --keep-alive`), on a local DHT, paired with the real
  * `beluga pair --computer --json`, and driven from an app over /machine/<id>: the welcome snapshot,
  * a call, a terminal, an admin call refused, a dropped link that comes back and catches up, and a
- * forget that cuts it off. scripts/linux-test.sh runs it on Linux in Docker; it runs on a Mac too.
+ * forget that cuts it off. scripts/linux-test.sh runs it on Linux in Docker; it runs on a Mac and on Windows too.
  */
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -153,7 +153,8 @@ describe('a real headless Beluga, paired and driven', () => {
     const term = screen.attachTerminal('shell:1');
     let out = '';
     term.onData((d) => (out += d));
-    term.write('echo from-the-$((40+2))-box\n');
+    // Typed as a person does, with Enter (\r); on Windows the shell there is PowerShell.
+    term.write(process.platform === 'win32' ? 'echo "from-the-$(40+2)-box"\r' : 'echo from-the-$((40+2))-box\r');
     await waitFor(() => out.includes('from-the-42-box'), 20_000);
 
     // Admin is refused there, in plain words.

@@ -271,7 +271,7 @@ describe('secrets', () => {
       const text = d.lines.join('\n') + readFileSync(d.file, 'utf8');
       expect(text).not.toContain('sk-live-123');
       expect(text).not.toContain('ghp_abc');
-      expect(statSync(d.file).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(d.file).mode & 0o777).toBe(0o600);
     }
   });
 

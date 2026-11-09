@@ -44,25 +44,25 @@ export async function sendBranches(root: string, branches: readonly string[]): P
   }
 }
 
-/** Take them in here → the branches that weren't here before (taken out again if the move doesn't finish). */
+/**
+ * Take them in here → the branches that weren't here before (taken out again if the move doesn't
+ * finish). Each branch on its own: one here that went another way (or is checked out) stays as it
+ * is, and the rest still come.
+ */
 export async function takeBranches(root: string, sent: PlanBranches): Promise<string[]> {
   const before = new Set(await localBranches(root, sent.branches));
-  const refs = sent.branches.map((b) => `refs/heads/${b}:refs/heads/${b}`);
-  if (sent.via === 'origin') {
-    await git(root, ['fetch', 'origin', ...refs], PUSH_MS).catch((err: unknown) => {
-      throw new Error(`Couldn’t fetch the plan’s branches from origin: ${firstLine(err)}`);
-    });
-  } else {
-    const dir = mkdtempSync(path.join(tmpdir(), 'beluga-move-'));
-    try {
-      const file = path.join(dir, 'plan.bundle');
-      writeFileSync(file, Buffer.from(sent.bundle, 'base64'), { mode: 0o600 });
-      await git(root, ['fetch', file, ...refs], PUSH_MS).catch((err: unknown) => {
-        throw new Error(`Couldn’t take in the plan’s branches: ${firstLine(err)}`);
+  const dir = sent.via === 'bundle' ? mkdtempSync(path.join(tmpdir(), 'beluga-move-')) : undefined;
+  try {
+    const from = dir ? path.join(dir, 'plan.bundle') : 'origin';
+    if (dir && sent.via === 'bundle') writeFileSync(from, Buffer.from(sent.bundle, 'base64'), { mode: 0o600 });
+    for (const b of sent.branches) {
+      await git(root, ['fetch', from, `refs/heads/${b}:refs/heads/${b}`], PUSH_MS).catch((err: unknown) => {
+        if (before.has(b)) return;
+        throw new Error(dir ? `Couldn’t take in the plan’s branch ${b}: ${said(err)}` : `Couldn’t fetch the plan’s branch ${b} from origin: ${said(err)}`);
       });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
   }
   return sent.branches.filter((b) => !before.has(b));
 }
@@ -73,3 +73,9 @@ export async function dropBranches(root: string, branches: readonly string[]): P
 }
 
 const firstLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n')[0]!;
+
+/** What git said that matters: its error or fatal line, else its first (fetch's first line is only "From …"). */
+const said = (err: unknown): string => {
+  const lines = (err instanceof Error ? err.message : String(err)).split('\n');
+  return (lines.find((l) => /^\s*(error|fatal|!)/.test(l)) ?? lines[0]!).trim();
+};

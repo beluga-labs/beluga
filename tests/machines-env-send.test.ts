@@ -79,8 +79,8 @@ describe('on the computer', () => {
     expect(written).toEqual(['.env', '.env.local', 'apps/web/.env.local']);
     for (const dir of [project, worktree]) {
       expect(readFileSync(path.join(dir, '.env'), 'utf8')).toBe(`KEY=${SECRET}\n`);
-      expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
-      expect(statSync(path.join(dir, 'apps/web/.env.local')).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(path.join(dir, 'apps/web/.env.local')).mode & 0o777).toBe(0o600);
     }
     // The worktree's own file stays as it was.
     expect(readFileSync(path.join(worktree, '.env.local'), 'utf8')).toBe('MINE=1\n');
@@ -96,7 +96,7 @@ describe('on the computer', () => {
     expect(await envHere(state, 'ws-1')).toEqual({ project: { name: 'shop' }, files: ['.env.test'] });
     expect(await envHere(state, 'nope')).toBeUndefined();
     expect(await receiveEnv(state, ['ws-1'], [file('.env', 'A=1\n')])).toEqual({ written: ['.env'] });
-    expect(statSync(path.join(wt, '.env')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path.join(wt, '.env')).mode & 0o777).toBe(0o600);
     await expect(receiveEnv(state, ['gone'], [file('.env', 'A=1\n')])).rejects.toThrow(/gone/);
   });
 });

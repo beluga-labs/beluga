@@ -277,7 +277,7 @@ describe('.env files for a worktree made on a computer (BLG-800)', () => {
     expect(await send.decide(asks.at(-1)![0]!.id, 'once')).toEqual({ sent: ['.env'] });
     for (const dir of [there, path.join(there, 'wt')]) {
       expect(readFileSync(path.join(dir, '.env'), 'utf8')).toBe('STRIPE_KEY=sk_live_secret\n');
-      expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(path.join(dir, '.env')).mode & 0o777).toBe(0o600);
     }
     // The app's own calls never reach the screen; a computer not connected says so.
     await expect(app.machines.door.call('0123456789abcdef', 'machines.env.here', ['ws-new'])).rejects.toThrow(/isn’t connected/);
@@ -304,7 +304,10 @@ describe('a computer’s dev server on this Mac (BLG-802)', () => {
     const wt = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-fwd-wt-')));
     cleanup.push(() => rmSync(wt, { recursive: true, force: true }));
     mini.store.dispatch({ type: 'projects', projects: [{ id: 'p', name: 'shop', root: wt, base: 'main', workspaces: [{ id: 'ws-1', path: wt }] }] as never });
-    const server = spawn(process.execPath, ['-e', DEV_SERVER], { cwd: wt, stdio: ['ignore', 'pipe', 'inherit'] });
+    // Run from a file in the worktree by its full path, as npm runs a dev server (how Windows knows whose it is).
+    const script = path.join(wt, 'dev-server.cjs');
+    writeFileSync(script, DEV_SERVER);
+    const server = spawn(process.execPath, [script], { cwd: wt, stdio: ['ignore', 'pipe', 'inherit'] });
     cleanup.push(() => void server.kill('SIGKILL'));
     const port = await new Promise<number>((resolve) => server.stdout!.once('data', (d: Buffer) => resolve(Number(String(d).trim()))));
 

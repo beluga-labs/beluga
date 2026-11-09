@@ -224,7 +224,7 @@ describe('the pieces', () => {
     const one = loadDeviceKeys(file);
     const two = loadDeviceKeys(file);
     expect(hex(two.device.publicKey)).toBe(hex(one.device.publicKey));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it('a computer’s link is told apart from a phone’s', () => {

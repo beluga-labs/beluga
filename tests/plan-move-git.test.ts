@@ -29,10 +29,14 @@ describe('a plan’s branches between two clones (BLG-806)', () => {
     expect(sent).toMatchObject({ via: 'bundle', branches: ['plan/parser', 'beluga/lexer'] });
 
     const b = repo();
-    git(b, 'branch', 'plan/parser', 'main');
+    // Its plan/parser went another way there: it stays as it is, and the rest still come.
+    git(b, 'checkout', '-q', '-b', 'plan/parser');
+    git(b, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'theirs');
+    git(b, 'checkout', '-q', 'main');
     const made = await takeBranches(b, sent!);
     expect(made).toEqual(['beluga/lexer']);
     expect(git(b, 'log', '-1', '--format=%s', 'beluga/lexer')).toBe('lexer');
+    expect(git(b, 'log', '-1', '--format=%s', 'plan/parser')).toBe('theirs');
     await dropBranches(b, made);
     expect(await localBranches(b, ['plan/parser', 'beluga/lexer'])).toEqual(['plan/parser']);
   });

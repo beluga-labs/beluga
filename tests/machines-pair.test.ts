@@ -109,7 +109,7 @@ describe('joining a computer', () => {
 
     // The app keeps it in machines.json (0600); the computer is now in your set, and lets your app in.
     expect(app.machines.list().map((m) => m.name)).toEqual(['mini']);
-    expect(statSync(path.join(app.dir, 'machines.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path.join(app.dir, 'machines.json')).mode & 0o777).toBe(0o600);
     expect(mini.machines.set.owner().peerId).toBe(app.identity.peerId);
     const appCert = app.machines.set.self()!;
     expect(mini.machines.admit(appCert.link)?.role).toBe('app');

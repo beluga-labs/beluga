@@ -23,6 +23,10 @@ const tmp = (): string => {
   return d;
 };
 const tick = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Waits until `ok` holds (a slow CI runner takes longer than a fixed tick), up to two seconds. */
+async function until(ok: () => boolean): Promise<void> {
+  for (let i = 0; i < 400 && !ok(); i++) await tick();
+}
 
 class End extends EventEmitter implements MessageSocket {
   peer!: End;
@@ -121,16 +125,16 @@ describe('your network through your Always On', () => {
     const daemon = new AlwaysOnDaemon();
     const m = mac(daemon);
     m.link.start();
-    await tick();
+    await until(() => m.link.live);
     expect(m.link.live).toBe(true);
     expect(m.store.getState().network.enabled).toBe(true);
     expect(m.store.getState().network.messages['dm:mia']?.map((x) => x.text)).toEqual(['hi']);
     daemon.push({ t: 'action', seq: 2, action: { type: 'net_message', message: msg('m2', 'are you there?') } });
-    await tick();
+    await until(() => m.store.getState().network.messages['dm:mia']?.length === 2);
     expect(m.store.getState().network.messages['dm:mia']?.map((x) => x.text)).toEqual(['hi', 'are you there?']);
     // Its network stopping isn't this Mac's: what's shown stays.
     daemon.push({ t: 'action', seq: 3, action: { type: 'net_off' } });
-    await tick();
+    await tick(20);
     expect(m.store.getState().network.enabled).toBe(true);
     m.link.stop();
   });
@@ -140,7 +144,7 @@ describe('your network through your Always On', () => {
     const first = new AlwaysOnDaemon();
     const before = mac(first, { file });
     before.link.start();
-    await tick();
+    await until(() => before.link.live);
     before.link.stop();
 
     // Closed: mia wrote twice meanwhile.
@@ -151,7 +155,7 @@ describe('your network through your Always On', () => {
     // What it showed last comes first (no news yet), then the Always On's now.
     const mirrors = after.actions.filter((a) => a.type === 'net_mirror') as Array<Extract<Action, { type: 'net_mirror' }>>;
     expect(mirrors[0]?.network.messages['dm:mia']?.map((x) => x.id)).toEqual(['m1']);
-    await tick();
+    await until(() => after.link.live);
     expect(after.store.getState().network.messages['dm:mia']?.map((x) => x.id)).toEqual(['m1', 'm2', 'm3']);
     after.link.stop();
   });
@@ -160,7 +164,7 @@ describe('your network through your Always On', () => {
     const daemon = new AlwaysOnDaemon();
     const m = mac(daemon);
     m.link.start();
-    await tick();
+    await until(() => m.link.live);
     // Only friends' requests: your own Claude's tool approvals there stay there.
     expect(m.store.getState().approvals.map((a) => a.id)).toEqual(['ao:a1']);
     const answered = await routeToAlwaysOn(m.session, 'host.answerApproval', ['yes', 'ao:a1'], 'screen-1');
@@ -168,11 +172,11 @@ describe('your network through your Always On', () => {
     expect(daemon.calls).toEqual([{ method: 'host.answerApproval', args: ['yes', 'a1'] }]);
     // Answered on the phone or there first: it goes from here too.
     daemon.push({ t: 'action', seq: 2, action: { type: 'approval_remove', id: 'a1' } });
-    await tick();
+    await until(() => m.store.getState().approvals.length === 0);
     expect(m.store.getState().approvals).toEqual([]);
     // A new one while you look.
     daemon.push({ t: 'action', seq: 3, action: { type: 'approval_add', approval: approval('a2') } });
-    await tick();
+    await until(() => m.store.getState().approvals.length === 1);
     expect(m.store.getState().approvals.map((a) => a.id)).toEqual(['ao:a2']);
     // This Mac's own approvals stay here.
     expect(routeToAlwaysOn(m.session, 'host.answerApproval', ['yes', 'local-1'], 'screen-1')).toBeUndefined();
@@ -183,16 +187,17 @@ describe('your network through your Always On', () => {
     const daemon = new AlwaysOnDaemon();
     const m = mac(daemon);
     m.link.start();
-    await tick();
+    await until(() => m.link.live);
     expect(await routeToAlwaysOn(m.session, 'network.dm.send', ['mia', 'on my way'], 'screen-1')).toEqual({ ok: true, value: 'ok' });
     expect(routeToAlwaysOn(m.session, 'workspaces.list', [], 'screen-1')).toBeUndefined();
     m.store.setAttention(['dm:mia']);
-    await tick();
+    await until(() => JSON.stringify(daemon.attention.at(-1) ?? null).includes('dm:mia'));
     expect(daemon.attention.at(-1)).toMatchObject({ shown: ['dm:mia'] });
     await routeToAlwaysOn(m.session, 'calls.join', ['dm:mia'], 'screen-2');
     daemon.push({ t: 'intent', intent: { type: 'call_signal', conversation: 'dm:mia', call: 'c', from: 'mia', data: 'sdp' } });
     daemon.push({ t: 'intent', intent: { type: 'navigate', view: { kind: 'home' } } });
-    await tick();
+    await until(() => m.intents.length > 0);
+    await tick(20);
     expect(m.intents).toEqual([{ intent: { type: 'call_signal', conversation: 'dm:mia', call: 'c', from: 'mia', data: 'sdp' }, to: 'screen-2' }]);
     m.link.stop();
   });
@@ -201,12 +206,12 @@ describe('your network through your Always On', () => {
     const daemon = new AlwaysOnDaemon();
     const m = mac(daemon);
     m.link.start();
-    await tick();
+    await until(() => m.link.live);
     daemon.ends[0]!.close();
-    await tick(1);
+    await until(() => !m.link.live);
     expect(await routeToAlwaysOn(m.session, 'network.dm.send', ['mia', 'x'], 's')).toMatchObject({ ok: false, error: expect.stringMatching(/can’t be reached right now/) });
     // It comes back by itself.
-    await tick(20);
+    await until(() => m.link.live);
     expect(m.link.live).toBe(true);
     m.moveBack();
     expect(m.link.routing).toBe(false);

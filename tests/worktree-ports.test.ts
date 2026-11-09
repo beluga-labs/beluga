@@ -3,9 +3,9 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type Listener, type ProcFacts, belongsTo, nameOf, parseLsof, parseProcNetTcp, portsOf, worktreePorts } from '../src/workspaces/ports.js';
+import { type Listener, type ProcFacts, belongsTo, nameOf, parseLsof, parseProcNetTcp, parseWindowsScan, portsOf, worktreePorts } from '../src/workspaces/ports.js';
 
-/** A worktree's ports (BLG-801): its processes' listening sockets, on macOS and Linux, named by what they are. */
+/** A worktree's ports (BLG-801): its processes' listening sockets, on macOS, Linux and Windows, named by what they are. */
 
 const stops: Array<() => void> = [];
 afterEach(() => {
@@ -121,5 +121,42 @@ describe('reading what the OS says', () => {
       { port: 3000, pid: 2, name: 'next', host: '0.0.0.0' },
       { port: 5173, pid: 1, name: 'vite', host: '::1' },
     ]);
+  });
+
+  it('on Windows: PowerShell’s listeners, each process by its command line or a parent’s', () => {
+    const scan = parseWindowsScan(
+      '\uFEFF' +
+        JSON.stringify({
+          listeners: [
+            { LocalAddress: '::1', LocalPort: 5173, OwningProcess: 30 },
+            { LocalAddress: '127.0.0.1', LocalPort: 5173, OwningProcess: 30 },
+            { LocalAddress: '0.0.0.0', LocalPort: 3000, OwningProcess: 40 },
+            { LocalAddress: '0.0.0.0', LocalPort: 135, OwningProcess: 4 },
+            { LocalAddress: '0.0.0.0', LocalPort: 0, OwningProcess: 0 },
+          ],
+          procs: [
+            { ProcessId: 10, ParentProcessId: 1, Name: 'pwsh.exe', CommandLine: 'pwsh.exe' },
+            { ProcessId: 20, ParentProcessId: 10, Name: 'cmd.exe', CommandLine: 'C:\\WINDOWS\\system32\\cmd.exe /d /s /c "D:\\W\\Shop\\node_modules\\.bin\\vite.cmd"' },
+            { ProcessId: 30, ParentProcessId: 20, Name: 'node.exe', CommandLine: '"C:\\Program Files\\nodejs\\node.exe" "D:\\W\\Shop\\node_modules\\.bin\\..\\vite\\bin\\vite.js"' },
+            { ProcessId: 40, ParentProcessId: 40, Name: 'node.exe', CommandLine: 'node D:\\w\\shopping\\server.js' },
+            { ProcessId: 4, ParentProcessId: 0, Name: 'System', CommandLine: null },
+          ],
+        }),
+    );
+    expect(scan.listeners.map((l) => [l.pid, l.port, l.host])).toEqual([
+      [30, 5173, '::1'],
+      [30, 5173, '127.0.0.1'],
+      [40, 3000, '0.0.0.0'],
+      [4, 135, '0.0.0.0'],
+    ]);
+    // Its parents' command lines too (a terminal there runs npm, npm runs the shim, the shim runs node), nearest first.
+    expect(scan.facts.get(30)?.lineage).toHaveLength(3);
+    // Any case and either slash: Windows' paths are one folder however they're written.
+    expect(portsOf(scan.listeners, scan.facts, 'd:/w/shop')).toEqual([{ port: 5173, pid: 30, name: 'vite', host: '::1' }]);
+    expect(portsOf(scan.listeners, scan.facts, 'D:\\w\\shopping')).toEqual([{ port: 3000, pid: 40, name: 'node', host: '0.0.0.0' }]);
+    // A list of one comes as the one itself; anything else is no ports, not an error.
+    expect(parseWindowsScan(JSON.stringify({ listeners: { LocalAddress: '::', LocalPort: 8080, OwningProcess: 7 }, procs: { ProcessId: 7, Name: 'python.exe', CommandLine: 'python -m http.server' } })).listeners).toEqual([{ pid: 7, port: 8080, host: '::', comm: 'python.exe' }]);
+    expect(parseWindowsScan('')).toEqual({ listeners: [], facts: new Map() });
+    expect(belongsTo({ env: '', cmdline: '', lineage: ['node C:\\w\\shop-2\\x.js'] }, 'C:\\w\\shop')).toBe(false);
   });
 });

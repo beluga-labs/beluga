@@ -8,8 +8,10 @@ import path from 'node:path';
  *
  * A worktree's processes: those that carry its tag (Beluga gives its runs BELUGA_WORKTREE, and what
  * they start inherits it, see test-procs.ts), and those working in its folder (a dev server you
- * started in its terminal). Listening TCP sockets come from lsof on macOS and /proc/net/tcp on
- * Linux; only your own processes are seen.
+ * started in its terminal). Listening TCP sockets come from lsof on macOS, /proc/net/tcp on
+ * Linux and PowerShell on Windows; only your own processes are seen. Windows can't tell another
+ * process's folder or environment, so there a process is the worktree's when its command line, or
+ * one of its parents', names a path inside it (npm's shims always run a dev server by its full path).
  */
 
 export interface WorktreePort {
@@ -35,6 +37,8 @@ export interface ProcFacts {
   readonly env: string;
   readonly cwd?: string;
   readonly cmdline: string;
+  /** Windows: the command lines of it and its parents, nearest first. */
+  readonly lineage?: readonly string[];
 }
 
 /** Every listener now, with its process's facts (one look at the OS). */
@@ -126,20 +130,42 @@ const KNOWN: ReadonlyArray<readonly [RegExp, string]> = [
 
 /** A listener's name: a known dev server by its command line, else its program. */
 export function nameOf(cmdline: string, comm: string): string {
-  for (const [re, name] of KNOWN) if (re.test(cmdline)) return name || path.basename(comm);
-  return path.basename(comm || cmdline.split(/\s/)[0] || '') || 'server';
+  // Windows writes its paths with backslashes, and quotes them.
+  const line = cmdline.replace(/\\/g, '/').replace(/"/g, '');
+  for (const [re, name] of KNOWN) if (re.test(line)) return name || path.basename(comm).replace(/\.exe$/i, '');
+  return path.basename(comm || cmdline.split(/\s/)[0] || '').replace(/\.exe$/i, '') || 'server';
+}
+
+/** A path, or `dir` itself, is inside `dir` (either slash, as Windows takes both). */
+function within(p: string, dir: string): boolean {
+  return p === dir || (p.startsWith(dir) && (p[dir.length] === '/' || p[dir.length] === '\\'));
+}
+
+/** A command line names a path inside `dir` (Windows: any case, either slash, quoted or not). */
+function names(line: string, dir: string): boolean {
+  const flat = (t: string): string => t.toLowerCase().replace(/\\/g, '/');
+  const text = flat(line);
+  const d = flat(dir);
+  for (let at = text.indexOf(d); at >= 0; at = text.indexOf(d, at + 1)) {
+    const before = text[at - 1];
+    const after = text[at + d.length];
+    if ((before === undefined || before === ' ' || before === '"' || before === "'") && (after === undefined || after === '/' || after === ' ' || after === '"' || after === "'")) return true;
+  }
+  return false;
 }
 
 /** The process carries the worktree's tag, or works in its folder. */
 export function belongsTo(facts: ProcFacts, dir: string): boolean {
   const tagged = ['BELUGA_WORKTREE', 'KLAUD_WORKTREE'].some((key) => facts.env.includes(`${key}=${dir}\0`) || facts.env.endsWith(`${key}=${dir}`) || facts.env.includes(` ${key}=${dir} `));
-  const working = Boolean(facts.cwd && (facts.cwd === dir || facts.cwd.startsWith(dir + path.sep)));
-  return tagged || working;
+  const working = Boolean(facts.cwd && within(facts.cwd, dir));
+  const started = Boolean(facts.lineage?.some((line) => names(line, dir)));
+  return tagged || working || started;
 }
 
 /** Listeners and their processes' facts → the worktree's ports, one row a port, lowest first. */
 export function portsOf(listeners: readonly Listener[], facts: ReadonlyMap<number, ProcFacts>, dir: string): WorktreePort[] {
-  const root = path.resolve(dir);
+  // An absolute folder as given (a POSIX or a Windows one, wherever it is read), without a trailing slash.
+  const root = path.posix.isAbsolute(dir) || path.win32.isAbsolute(dir) ? dir.replace(/(.)[\\/]+$/, '$1') : path.resolve(dir);
   const byPort = new Map<number, WorktreePort>();
   for (const l of listeners) {
     const f = facts.get(l.pid);
@@ -210,10 +236,64 @@ async function linuxScan(proc = '/proc'): Promise<PortScan> {
   return { listeners, facts };
 }
 
-/** Every listener now, and whose (none on Windows yet). */
+/** Windows: the listeners and every process, with its parent and command line, as JSON. */
+export const WINDOWS_SCAN = [
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  '$l = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,OwningProcess)',
+  '$p = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine)',
+  'ConvertTo-Json -Compress -Depth 3 @{ listeners = $l; procs = $p }',
+].join('; ');
+
+interface WindowsProc {
+  readonly ProcessId?: number;
+  readonly ParentProcessId?: number;
+  readonly Name?: string;
+  readonly CommandLine?: string | null;
+}
+
+/** WINDOWS_SCAN's JSON → the listeners and their processes' facts (each with its parents' command lines). */
+export function parseWindowsScan(json: string): PortScan {
+  let data: { listeners?: unknown; procs?: unknown };
+  try {
+    data = JSON.parse(json.replace(/^\uFEFF/, '')) as typeof data;
+  } catch {
+    return NONE;
+  }
+  // ConvertTo-Json writes a list of one as the one itself.
+  const list = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : v && typeof v === 'object' ? [v as T] : []);
+  const procs = new Map(list<WindowsProc>(data.procs).flatMap((p) => (typeof p.ProcessId === 'number' ? [[p.ProcessId, p] as const] : [])));
+  const listeners: Listener[] = [];
+  for (const l of list<{ LocalAddress?: string; LocalPort?: number; OwningProcess?: number }>(data.listeners)) {
+    const pid = l.OwningProcess;
+    const port = l.LocalPort;
+    if (typeof pid !== 'number' || !pid || typeof port !== 'number' || !port) continue;
+    const host = l.LocalAddress || '0.0.0.0';
+    if (!listeners.some((x) => x.pid === pid && x.port === port && x.host === host)) listeners.push({ pid, port, host, comm: procs.get(pid)?.Name ?? '' });
+  }
+  const facts = new Map<number, ProcFacts>();
+  for (const pid of new Set(listeners.map((l) => l.pid))) {
+    const own = procs.get(pid);
+    const lineage: string[] = [];
+    const seen = new Set<number>();
+    // Its parents, nearest first, while they're there (a pid Windows reused is cut off by the cycle check).
+    for (let p = own; p && typeof p.ProcessId === 'number' && !seen.has(p.ProcessId) && lineage.length < 8; p = p.ParentProcessId ? procs.get(p.ParentProcessId) : undefined) {
+      seen.add(p.ProcessId);
+      if (p.CommandLine) lineage.push(p.CommandLine);
+    }
+    facts.set(pid, { env: '', cmdline: own?.CommandLine ?? own?.Name ?? '', lineage });
+  }
+  return { listeners, facts };
+}
+
+async function windowsScan(): Promise<PortScan> {
+  return parseWindowsScan(await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', WINDOWS_SCAN]));
+}
+
+/** Every listener now, and whose. */
 export function scanPorts(platform: NodeJS.Platform = process.platform): Promise<PortScan> {
   if (platform === 'darwin') return macScan();
   if (platform === 'linux') return linuxScan();
+  if (platform === 'win32') return windowsScan();
   return Promise.resolve(NONE);
 }
 

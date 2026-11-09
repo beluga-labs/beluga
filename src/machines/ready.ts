@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Session } from '../core/session.js';
 import { cloneableOrigin, githubSlug, repoName, sameRepo } from '../shared/repo-key.js';
+import { posixSh } from '../terminal/pty.js';
 import { git } from '../workspaces/git.js';
 import { ghStatus } from './info.js';
 import {
@@ -176,7 +177,8 @@ export class Readying {
     const run = this.runs.get(id)!;
     this.step(id, 'tools', { state: 'active' });
     const root = run.path!;
-    const files = Object.fromEntries(NEED_FILES.map((f) => [f, this.deps.readFile(path.join(root, f))]));
+    // The computer's own paths, written with / as its projects folder is (Windows takes both).
+    const files = Object.fromEntries(NEED_FILES.map((f) => [f, this.deps.readFile(`${root}/${f}`)]));
     const needs = needsOf(files);
     const have = await this.versions(needs.map((n) => n.tool));
     const missing = missingOf(needs, have);
@@ -256,11 +258,16 @@ export function userEnv(env: NodeJS.ProcessEnv, home: string): NodeJS.ProcessEnv
   return { ...out, HOME: home, GIT_TERMINAL_PROMPT: '0' };
 }
 
-/** One command in a login shell for the user at `home` (nvm loaded, ~/.local/bin on the PATH). */
+/**
+ * One command in a login shell for the user at `home` (nvm loaded, ~/.local/bin on the PATH): bash,
+ * and on Windows Git for Windows' bash (never WSL's, which a bare `bash` there can be).
+ */
 function shAt(home: string): ReadyDeps['sh'] {
+  const bash = process.platform === 'win32' ? posixSh() : 'bash';
   return (command, opts = {}) =>
     new Promise((resolve) => {
-      execFile('bash', ['-lc', `${PATHS} ${command}`], { cwd: opts.cwd ?? home, timeout: opts.timeoutMs ?? 60_000, maxBuffer: 4 * 1024 * 1024, env: userEnv(process.env, home) }, (err, stdout, stderr) => {
+      if (!bash) return resolve({ code: 127, out: 'Getting ready needs Git for Windows (its bash): install it from git-scm.com, or set CLAUDE_CODE_GIT_BASH_PATH' });
+      execFile(bash, ['-lc', `${PATHS} ${command}`], { cwd: opts.cwd ?? home, timeout: opts.timeoutMs ?? 60_000, maxBuffer: 4 * 1024 * 1024, env: userEnv(process.env, home) }, (err, stdout, stderr) => {
         const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0;
         resolve({ code, out: `${stdout}${stderr}`.slice(-20_000) });
       });
