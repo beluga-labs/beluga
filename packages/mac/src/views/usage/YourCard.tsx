@@ -22,9 +22,11 @@ type LanyardProps = import('../../components/reactbits/lanyard-props.js').Lanyar
 /** Your pass on its lanyard (one at a time: the recap's last slide takes it while it's open). */
 const pass = (faces: Faces, color: string, size: number, more: Partial<LanyardProps> = {}) => <Lanyard frontImage={faces.front} backImage={faces.back} strapImage={faces.strap} cardColor="#fbfbfd" strapColor={color} finish="glossy" metal="silver" size={size} strapLength={0.42} breeze={0} {...more} />;
 
-/** How tall the card hangs (px) and how far down its top is from the box's, whatever the size of the layer it's drawn in. */
+/** How tall the card hangs (px), and how far below the box's bottom it reaches (so it hangs out of its box). */
 const CARD_PX = 430;
-const CARD_TOP_PX = 112;
+const OVERHANG_PX = 56;
+/** When narrow, how far down the card's top is from the box's. */
+const NARROW_TOP_PX = 96;
 /** The layer reaches this far below your card's box, so the card can swing out over the page. */
 export const BLEED_BELOW = 280;
 
@@ -38,26 +40,23 @@ function clipperOf(el: HTMLElement): HTMLElement | null {
 }
 
 /**
- * Your pass hangs in a layer bigger than its place (out to the page's top and left edges, over the
- * words, down into the next chapter) so its strap comes from above the box and it swings out of the
- * box without being cut off; the layer takes the pointer only over the card. Lanyard sizes the card
- * to the layer and hangs it a share of the way across, so it's given the size and the place that
- * keep the card where it belongs.
+ * Your pass hangs in a layer bigger than its place (out to the page's left edge, over the words,
+ * down into the next chapter): its strap starts at the box's top, the card hangs a little past the
+ * box's bottom, and it swings out of the box without being cut off; the layer takes the pointer only
+ * over the card. Lanyard sizes the card to the layer and hangs it a share of the way across, so it's
+ * given the size and the place that keep the card where it belongs.
  */
 function useLayer(): { ref: React.RefObject<HTMLElement | null>; size: number; strapLength: number; anchor: number; style: React.CSSProperties } {
   const ref = useRef<HTMLElement | null>(null);
-  // `left`, `top`: from the box's side and top to the edges of the page around it (top: as scrolled to the top).
-  const [box, setBox] = useState({ width: 1000, height: 580, left: 40, top: 0 });
+  // `left`: from the box's left side to the left edge of the page around it.
+  const [box, setBox] = useState({ width: 1000, height: 580, left: 40 });
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const clipper = clipperOf(el);
     const measure = (): void => {
-      const at = el.getBoundingClientRect();
-      const page = clipper?.getBoundingClientRect();
-      const left = clipper && page ? at.left - page.left - clipper.clientLeft : 40;
-      const top = clipper && page ? at.top - page.top - clipper.clientTop + clipper.scrollTop : 0;
-      setBox({ width: el.clientWidth, height: el.clientHeight, left: Math.max(0, Math.round(left)), top: Math.max(0, Math.round(top)) });
+      const left = clipper ? el.getBoundingClientRect().left - clipper.getBoundingClientRect().left - clipper.clientLeft : 40;
+      setBox({ width: el.clientWidth, height: el.clientHeight, left: Math.max(0, Math.round(left)) });
     };
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -65,15 +64,16 @@ function useLayer(): { ref: React.RefObject<HTMLElement | null>; size: number; s
     return () => ro.disconnect();
   }, []);
   const narrow = box.width < 736;
-  // The layer: above the box, the box (when narrow, the pass's own place: 400 px), and the bleed below.
-  const tall = box.top + (narrow ? 400 : box.height) + BLEED_BELOW;
+  // The layer: the box (when narrow, the pass's own place: 400 px) and the bleed below.
+  const tall = (narrow ? 400 : box.height) + BLEED_BELOW;
   const size = Math.min(0.9, CARD_PX / tall);
   // Lanyard puts the card's top at 0.12–0.42 of the layer's height (strapLength 0–1).
-  const strapLength = Math.min(1, Math.max(0, ((box.top + CARD_TOP_PX) / tall - 0.12) / 0.3));
+  const cardTop = narrow ? NARROW_TOP_PX : Math.max(NARROW_TOP_PX, box.height + OVERHANG_PX - CARD_PX);
+  const strapLength = Math.min(1, Math.max(0, (cardTop / tall - 0.12) / 0.3));
   // Where the strap hangs, from the box's left side: the middle when narrow, else over the left column.
   const hangX = narrow ? box.width / 2 : 0.27 * (box.width + 80) - 40;
   const anchor = (box.left + hangX) / (box.left + box.width + BLEED_RIGHT);
-  return { ref, size, strapLength, anchor, style: { top: -box.top, left: -box.left, right: -BLEED_RIGHT, height: tall } };
+  return { ref, size, strapLength, anchor, style: { top: 0, left: -box.left, right: -BLEED_RIGHT, height: tall } };
 }
 
 interface Faces {

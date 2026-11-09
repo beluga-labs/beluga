@@ -20,10 +20,10 @@
   cursor: grab;
 }
 /*
- * The pass hangs here: from the page's top edge, out to its left edge, over the words, a little
- * past the box's right side and well below it (YourCard measures and sets these), so the strap
- * comes from above the box and the card swings out of it without being cut off. Only the card
- * takes the pointer (Lanyard's passThrough); the rest of the layer lets everything under it be clicked.
+ * The pass hangs here: out to the page's left edge, over the words, a little past the box's right
+ * side and well below it (YourCard measures and sets these), so the card hangs past the box's
+ * bottom and swings out of it without being cut off. Only the card takes the pointer (Lanyard's
+ * passThrough); the rest of the layer lets everything under it be clicked.
  */
 .layer {
   position: absolute;
