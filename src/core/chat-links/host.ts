@@ -62,6 +62,9 @@ export interface HostChatLinksDeps {
   readonly authorize: (from: string, body: BodyOf<'agent_request'>) => Promise<boolean>;
 }
 
+/** A run's chat tools after its chat became shared, or chat links went off (see readsChats). */
+const NOT_ANY_MORE = 'chat_shared: this chat is shared with other people now, or chat links are off, so its agent cannot read or message other chats. Tell your user.';
+
 /** A peer's chat title on your approval card: theirs to write, so one short line. */
 const CARD_TITLE_CHARS = 60;
 
@@ -120,7 +123,18 @@ export class HostChatLinks {
   toolsFor(run: { readonly from: string; readonly channel: string; readonly chain: () => RunChain; readonly signal: AbortSignal }): ChatTools | undefined {
     if (!this.readsChats(run.from, run.channel)) return undefined;
     const chain = (): RunChain => ({ ...run.chain() });
-    return chatToolsOf({ state: () => this.deps.store.getState(), requester: run.from, chain, load: this.deps.load, messages: this.sends.forRun({ channel: run.channel, requester: run.from, chain, signal: run.signal }) });
+    const tools = chatToolsOf({ state: () => this.deps.store.getState(), requester: run.from, chain, load: this.deps.load, messages: this.sends.forRun({ channel: run.channel, requester: run.from, chain, signal: run.signal }) });
+    // The rule at the run's start holds at each call: a chat shared since then reads and sends nothing.
+    const still = (): void => {
+      if (!this.readsChats(run.from, run.channel)) throw new Error(NOT_ANY_MORE);
+    };
+    return {
+      chain: tools.chain,
+      send: async (ref, text, opts) => (still(), tools.send(ref, text, opts)),
+      wait: async (id, timeoutSec) => (still(), tools.wait(id, timeoutSec)),
+      list: (opts) => (still(), tools.list(opts)),
+      read: (ref, opts) => (still(), tools.read(ref, opts)),
+    };
   }
 
   /** The words a run reads for a message from another chat: Beluga's words first, its own in a fence (see message-prompt.ts). */

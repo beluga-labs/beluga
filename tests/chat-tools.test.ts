@@ -317,7 +317,7 @@ describe('who gets the suite', () => {
     expect(suites({ ...input, taskTools: {} as never })).not.toContain('beluga_chats');
   });
 
-  function setup(chatLinks: boolean) {
+  function setup(chatLinks: boolean, recipients: () => readonly string[] = () => []) {
     const runs: AgentRunInput[] = [];
     const agent: AgentBackend = {
       async run(i: AgentRunInput) {
@@ -335,7 +335,7 @@ describe('who gets the suite', () => {
       send: () => true,
       agent: () => agent,
       shares: {} as never,
-      sharing: { recipients: () => [], sharedFor: () => undefined, canPost: () => true } as never,
+      sharing: { recipients, sharedFor: () => undefined, canPost: () => true } as never,
       people: {} as never,
       questions: { track: () => undefined, ask: async () => ({ kind: 'skip' }), cancelAll: () => undefined, cancelChannel: () => undefined } as never,
       toast: () => undefined,
@@ -363,6 +363,17 @@ describe('who gets the suite', () => {
     const got = await setup(true)(from);
     expect(got.chatTools).toBeUndefined();
     expect(got.prompt).not.toContain('read_chat');
+  });
+
+  it('a run whose chat you share after it started has its chat tools refused', async () => {
+    const shared: string[] = [];
+    const got = await setup(true, () => shared)('me');
+    expect(() => got.chatTools!.list({})).not.toThrow();
+    shared.push('friend');
+    expect(() => got.chatTools!.read(`${ME}/ws:wt-1`, {})).toThrow(/^chat_shared: this chat is shared with other people now/);
+    expect(() => got.chatTools!.list({})).toThrow(/^chat_shared:/);
+    await expect(got.chatTools!.send(`${ME}/ws:wt-1`, 'hi', {})).rejects.toThrow(/^chat_shared:/);
+    await expect(got.chatTools!.wait('m1')).rejects.toThrow(/^chat_shared:/);
   });
 
   it('with the flag off, your own run has neither', async () => {
