@@ -1,10 +1,9 @@
-import { type ChatRef, isAddressableChannel, parseChatRef } from '../shared/chat-ref.js';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentBackend, AgentPlace, AgentRunInput, BoardTools, FollowUp, LiveStatus, MacTools, RunProcess, Steer, TerminalLaunch, TerminalSink } from '../agent/types.js';
 import { ALWAYS_ASK_YOU, writesCode } from '../agent/policy.js';
-import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, type ChatOrigin, MAX_TEXT } from '../protocol.js';
+import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, MAX_TEXT } from '../protocol.js';
 import type { People } from './people.js';
 import type { QuestionBroker } from './questions.js';
 import type { ShareService } from './shares.js';
@@ -31,15 +30,8 @@ import { belugaEnvBoth } from './beluga-env.js';
 import { planForHome } from './plans/model.js';
 import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
-import { explainChatMentions } from '../agent/prompt.js';
-import { permissionRank } from './chat-links/permission.js';
-import { type SourceReaders, originSeenBy, originSeenByAll } from './chat-links/private-title.js';
-import { chatMessageAsker, chatMessagePrompt, withoutSkillMentions } from './chat-links/message-prompt.js';
-import { oneLine } from './gateway/model.js';
-import { peerSendAccess } from './chat-links/access.js';
-import { resolveChat } from './chat-links/resolve.js';
-import { ChatSendService, type Delivered, refusalText } from './chat-links/service.js';
-import { chatToolsOf } from './chat-links/transcript.js';
+import { HostChatLinks, type RunChain } from './chat-links/host.js';
+import type { ChatSendService, Delivered } from './chat-links/service.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
@@ -160,8 +152,6 @@ export type ApprovalAnswer = 'yes' | 'no' | 'always' | 'project';
 const READS_FILE = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
 const MAX_APPROVALS_PER_PERSON = 3;
 const SEEN_REQUESTS = 1000;
-/** A peer's chat title on your approval card: theirs to write, so one short line. */
-const CARD_TITLE_CHARS = 60;
 const CONTEXT_LINES = 20;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Requests one person may have waiting for your Claude at once. */
@@ -174,15 +164,6 @@ interface Waiting {
   urgent?: boolean;
   askTo?: string;
   compact?: boolean;
-}
-
-/**
- * The chain of one run. It is an object of its own so that the run's tools read their own run's
- * chain, and a run left behind never reads the chain of the run after it.
- */
-interface RunChain {
-  chainId: string;
-  hop: number;
 }
 
 /** The queue for one conversation (the room, or a workspace). */
@@ -279,15 +260,6 @@ function withoutAskOnly<T extends { readonly askOnly?: unknown }>(place: T): T {
 }
 
 
-/**
- * A message from another chat sets the chain from its origin, and one your agent sent on (a plan's
- * message to a task) keeps its chain. A message from a person starts a new one.
- */
-function chainOf(body: BodyOf<'agent_request'>): RunChain {
-  if (body.origin) return { chainId: body.origin.chainId, hop: body.origin.hop };
-  return body.chain ? { chainId: body.chain.chainId, hop: body.chain.hop } : { chainId: randomUUID(), hop: 0 };
-}
-
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
@@ -331,8 +303,6 @@ export class AgentHost {
   private readonly chatWaiters = new Map<string, { resolve: (text: string) => void; reject: (err: Error) => void }>();
   /** Waiting for a conversation's current run to end (see idle). */
   private readonly idleWaiters = new Map<string, Array<() => void>>();
-  /** Messages from other chats whose card doesn't know yet where they came from (see emitAgent). */
-  private readonly fromChats = new Map<string, { readonly origin: ChatOrigin; readonly text: string }>();
   /** Final agent events that could not be sent while disconnected. */
   private outbox: Array<{ body: BodyInput; opts: { to?: string; keep?: boolean } }> = [];
 
@@ -342,8 +312,8 @@ export class AgentHost {
   private readonly compactor: Compactor;
   /** Side questions (/btw), answered beside conversations (see btw.ts). */
   readonly btw: BtwDesk;
-  /** Messages agents send between chats (see chat-links/service.ts). */
-  readonly chatSends: ChatSendService;
+  /** Chat links (core/chat-links/host.ts): the one seam to messages, chains and tools between chats. */
+  private readonly links: HostChatLinks;
 
   constructor(private readonly deps: AgentHostDeps) {
     this.steps = deps.steps ?? new StepBook();
@@ -355,19 +325,21 @@ export class AgentHost {
       requesterName: () => peerName(this.store.getState(), this.selfId),
       modelFor: (place) => this.modelFor(place?.model, place?.agent, place?.effort),
     });
-    this.chatSends = new ChatSendService({
+    this.links = new HostChatLinks({
       store: deps.store,
       selfId: () => this.selfId,
+      sharing: deps.sharing,
+      ...(deps.agentRef ? { agentRef: deps.agentRef } : {}),
+      ...(deps.terminalDriving ? { terminalDriving: deps.terminalDriving } : {}),
+      placeOf: (channel) => deps.assistant?.(channel, this.selfId)?.place ?? deps.sentinelChat?.(channel, this.selfId) ?? deps.workspaces?.place(channel),
+      load: (channel) => void (channel.startsWith('ws:') && deps.workspaces?.ensureLoaded(channel.slice(3))),
       queuedFromChats: (channel) => this.lanes.get(channel)?.waiting.filter((w) => w.body.origin).length ?? 0,
       deliver: (body, steer) => this.deliverFromChat(body, steer),
-      deliverTo: (owner, body) => this.send(body, { to: owner }),
-      permissionRank: (channel) => this.permissionRank(channel),
-      agentIn: (channel) => deps.agentRef?.(channel) ?? CLAUDE_AGENT,
-      terminalDriving: (channel) => deps.terminalDriving?.(channel) ?? false,
-      load: (channel) => void (channel.startsWith('ws:') && deps.workspaces?.ensureLoaded(channel.slice(3))),
-      system: (channel, text, level) => deps.store.dispatch({ type: 'system', channel, level, text }),
+      send: (body, to) => this.send(body, { to }),
       askChain: (title, detail, channel) => this.pose('chain', title, detail, undefined, channel, { once: true }).then((answer) => answer !== 'no'),
       cancelChain: (chainId, why) => this.cancelChain(chainId, why),
+      deny: (requestId, from, text, channel) => this.emitAgent(requestId, from, 'denied', text, channel),
+      authorize: (from, body) => this.authorizeRequest(from, body),
     });
     this.btw = new BtwDesk({
       store: deps.store,
@@ -397,12 +369,12 @@ export class AgentHost {
     void this.pump(lane);
   }
 
-  /** Why this conversation's runtime can't be compacted by Beluga (Codex compacts itself); undefined when it can. */
-  /** A run's own address, with prefs.chatLinks on (the prompt teaches the chat chip with it). */
-  private chatLinkOf(channel: string): { chatLink?: ChatRef } {
-    return this.store.getState().prefs.chatLinks ? { chatLink: { owner: this.selfId, channel } } : {};
+  /** Messages agents send between chats (see chat-links/service.ts). */
+  get chatSends(): ChatSendService {
+    return this.links.sends;
   }
 
+  /** Why this conversation's runtime can't be compacted by Beluga (Codex compacts itself); undefined when it can. */
   private noCompact(channel: string): string | undefined {
     if (this.deps.terminalDriving?.(channel)) return TERMINAL_DRIVING;
     return fallbackFor(this.deps.agentRef?.(channel).runtime, 'compact');
@@ -672,7 +644,7 @@ export class AgentHost {
     for (const { from, body, compact } of dropped) {
       if (compact) continue;
       this.emitAgent(body.requestId, from, 'error', why, body.channel);
-      if (body.origin) this.chatSends.lost(body.requestId, why);
+      this.links.lost(body, why);
     }
     if (lane.current) {
       lane.interruptedBy = 'beluga';
@@ -706,7 +678,7 @@ export class AgentHost {
     for (const { from, body, compact } of mine) {
       if (compact) continue;
       this.emitAgent(body.requestId, from, 'error', 'Taken out of the queue when you stopped your agent', body.channel);
-      if (body.origin) this.chatSends.lost(body.requestId, 'The owner stopped the agent in that chat');
+      this.links.lost(body, 'The owner stopped the agent in that chat');
     }
     if (lane.current) {
       lane.stopping = true;
@@ -913,27 +885,20 @@ export class AgentHost {
     if (named) named.fallback = undefined;
     if (named && final) this.named.delete(requestId);
     // Its first event says it came from another chat: from then on, its card knows.
-    const fromChat = this.fromChats.get(requestId);
-    this.fromChats.delete(requestId);
+    const fromChat = this.links.cardOf(requestId);
     const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}), ...(fromChat ? { fromChat } : {}) };
     // Workspace conversations are private: events go to you and the people you invited, never to the room.
     const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.deps.sharing.recipients(channel)].map((to) => ({ to }));
     for (const opts of targets) {
       // A private chat's title only to those who can read that chat (BLG-305).
-      const theirs = fromChat && 'to' in opts ? { ...body, fromChat: { ...fromChat, origin: originSeenBy(fromChat.origin, opts.to, this.sourceReaders) } } : body;
+      const theirs = fromChat && 'to' in opts ? { ...body, fromChat: this.links.cardFor(fromChat, opts.to) } : body;
       if (!this.send(theirs, opts) && final) this.outbox = [...this.outbox, { body: theirs, opts }].slice(-50);
     }
   }
 
   async onAgentRequest(from: string, request: BodyOf<'agent_request'>): Promise<void> {
-    // A chain comes from this computer's own sends, or from a peer's chat into one shared with them (admitPeerChat checks it).
-    // With chat links off, a peer's origin is dropped: the request is a plain one, as before chat links.
-    const { origin, chain, ...rest } = request;
-    const links = this.store.getState().prefs.chatLinks;
-    const keep = origin && links && (from === this.selfId || request.channel !== 'room');
-    // A chain without an origin is only yours: your agent sent it on (see chainOf).
-    const keepChain = chain && links && from === this.selfId;
-    const body: BodyOf<'agent_request'> = { ...rest, ...(keep ? { origin } : {}), ...(keepChain ? { chain } : {}) };
+    // What it keeps from another chat: its origin and chain, only where they may be (chat-links/host.ts).
+    const body = this.links.received(from, request);
     // Drop replays of a request we've already seen.
     const key = `${from}:${body.requestId}`;
     if (this.seenRequests.includes(key)) return;
@@ -947,7 +912,7 @@ export class AgentHost {
       return;
     }
     if (body.origin && from !== this.selfId) {
-      const admitted = await this.admitPeerChat(from, body, body.origin);
+      const admitted = await this.links.admitPeer(from, body, body.origin);
       if (admitted) this.enqueue(from, admitted);
       return;
     }
@@ -968,47 +933,6 @@ export class AgentHost {
       return;
     }
     this.enqueue(from, body);
-  }
-
-  /**
-   * A message from another person's chat into one of yours (BLG-151). Who they are in the chat
-   * decides first (access.ts): a chat not shared with them is not_found at any trust. Then the
-   * limits, counted here (a peer's hop is a claim). Then your trust in them, as for any request.
-   * Each answer goes back to them as an event.
-   */
-  private async admitPeerChat(from: string, body: BodyOf<'agent_request'>, origin: ChatOrigin): Promise<BodyOf<'agent_request'> | undefined> {
-    const state = this.store.getState();
-    const sharing = this.deps.sharing;
-    const target = parseChatRef(`${this.selfId}/${body.channel}`);
-    const chat = target && resolveChat(state, target);
-    const exists = chat?.ownership === 'own' && chat.state !== 'removed' && chat.state !== 'loading' && chat.view?.kind === 'workspace';
-    const role = !exists ? undefined : sharing.canPost(from, body.channel) ? 'contribute' : sharing.canSee(from, body.channel) ? 'view' : undefined;
-    const access = peerSendAccess({ channel: body.channel, exists, ...(role ? { role } : {}) });
-    if (!access.allow) {
-      const text = refusalText(access.code);
-      // A chat they can't see gets no card: the answer goes to them alone, the same as for no chat.
-      if (access.code === 'not_found') this.send({ kind: 'agent_event', requestId: body.requestId, requester: from, event: 'denied', text, channel: body.channel, agent: this.deps.agentRef?.('room') ?? CLAUDE_AGENT }, { to: from });
-      else this.emitAgent(body.requestId, from, 'denied', text, body.channel);
-      return undefined;
-    }
-    const deny = (text: string): undefined => void this.emitAgent(body.requestId, from, 'denied', text, body.channel);
-    if (parseChatRef(origin.ref)?.owner !== from) return deny(refusalText('source_not_addressable'));
-    if (chat?.state === 'archived') return deny(refusalText('chat_archived'));
-    const queued = this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0;
-    // As for a plain request into a shared workspace: deny refuses everyone.
-    if (state.policy === 'deny') return deny('Request declined by the machine owner.');
-    // The limits are checked now and counted only once you said yes: a declined send uses none.
-    const limit = this.chatSends.admitFromPeer(from, origin, body.channel, queued, { count: false });
-    if (!limit.allow) return deny(limit.text);
-    // Your chat's plan mode holds, whatever the peer's request says.
-    const admitted: BodyOf<'agent_request'> = { ...body, plan: state.planMode[body.channel] === true, origin: { ...origin, hop: limit.hop } };
-    if (!(await this.authorizeRequest(from, admitted))) return deny('Request declined by the machine owner.');
-    const counted = this.chatSends.admitFromPeer(from, origin, body.channel, this.lanes.get(body.channel)?.waiting.filter((w) => w.body.origin).length ?? 0);
-    if (!counted.allow) return deny(counted.text);
-    // The hop as counted: the chain may have moved on while you decided.
-    const run: BodyOf<'agent_request'> = { ...admitted, origin: { ...origin, hop: counted.hop } };
-    this.fromChats.set(body.requestId, { origin: run.origin!, text: body.prompt });
-    return run;
   }
 
   /**
@@ -1037,7 +961,7 @@ export class AgentHost {
     if (!this.agent || waiting >= MAX_QUEUED_PER_PERSON) return undefined;
     const lane = this.lane(body.channel);
     const item: Waiting = { from: this.selfId, body };
-    if (body.origin) this.fromChats.set(body.requestId, { origin: body.origin, text: body.prompt });
+    this.links.noteCard(body);
     const live = lane.current && !lane.current.signal.aborted && !lane.interrupting;
     const run = live && lane.steer && lane.runFrom === this.selfId && !body.plan && !body.project ? lane.steer : undefined;
     const steeredIn = (): Delivered => ({ delivery: 'steered', ...(lane.currentRequest ? { readBy: lane.currentRequest.id } : {}) });
@@ -1045,14 +969,6 @@ export class AgentHost {
     await this.onAgentRequest(this.selfId, body);
     if (lane.steered?.has(body.requestId)) return steeredIn();
     return { delivery: lane.waiting.some((w) => w.body.requestId === body.requestId) ? 'queued' : 'started' };
-  }
-
-  /** How far a chat's run can act on its own, your launch flags included (core/chat-links/permission.ts). */
-  private permissionRank(channel: string): number {
-    const state = this.store.getState();
-    const place = this.deps.assistant?.(channel, this.selfId)?.place ?? this.deps.sentinelChat?.(channel, this.selfId) ?? this.deps.workspaces?.place(channel);
-    const runtime = (this.deps.agentRef?.(channel) ?? CLAUDE_AGENT).runtime;
-    return permissionRank({ planMode: state.planMode[channel] === true, place, runtime, flags: { claude: state.prefs.claudeArgs, codex: state.prefs.codexArgs } });
   }
 
   /**
@@ -1120,7 +1036,7 @@ export class AgentHost {
       // A turn of its own, in the run that is already open: its tools read the same chain object.
       // A person's message starts a new chain; a chat's message never lowers the hop of the run.
       if (lane.chain) {
-        const next = chainOf(body);
+        const next = this.links.chainOf(body);
         Object.assign(lane.chain, body.origin ? { ...next, hop: Math.max(lane.chain.hop, next.hop) } : next);
       }
       emit('started');
@@ -1360,7 +1276,7 @@ export class AgentHost {
     this.emitAgent(body.requestId, from, 'awaiting_approval', `Waiting for ${state.self?.name ?? 'owner'} to approve`, body.channel);
     const reach = reachOf(state, from) === 'full' ? 'whole computer' : 'shared folders; anything else asks you';
     // A message from their chat says which chat sent it: its title is theirs, so it is one line at most.
-    const who = body.origin ? `${name}'s agent, from ${oneLine(body.origin.title, CARD_TITLE_CHARS) || 'a chat'},` : `${name}${body.viaAgent ? "'s agent" : ''}`;
+    const who = this.links.approvalAsker(body, name) ?? `${name}${body.viaAgent ? "'s agent" : ''}`;
     const answer = await this.ask('request', `${who} wants your agent to run this (${reach})`, body.prompt, from, body.channel);
     if (answer === 'always') this.deps.people.setTrust(from, 'trusted');
     return answer !== 'no';
@@ -1406,7 +1322,7 @@ export class AgentHost {
     lane.current = controller;
     lane.currentRequest = { id: body.requestId, controller };
     lane.runFrom = from;
-    const chain = chainOf(body);
+    const chain = this.links.chainOf(body);
     lane.chain = chain;
     const requesterName = peerName(this.store.getState(), from);
     const root = body.project && body.channel === 'room' ? this.projectRoot(body.project) : undefined;
@@ -1455,7 +1371,7 @@ export class AgentHost {
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
       // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
-      const chats = this.readsChats(from, body.channel) ? chatToolsOf({ state: () => this.store.getState(), requester: from, chain: () => ({ ...chain }), load: (channel) => void (channel.startsWith('ws:') && this.deps.workspaces?.ensureLoaded(channel.slice(3))), messages: this.chatSends.forRun({ channel: body.channel, requester: from, chain: () => ({ ...chain }), signal: controller.signal }) }) : undefined;
+      const chats = this.links.toolsFor({ from, channel: body.channel, chain: () => chain, signal: controller.signal });
       // Live previews (Settings › Experimental): your own runs in a project's folder learn to show what they build.
       const previewBrief = from === this.selfId && place && experimentOn(this.store.getState().prefs.experiments, 'previews') ? buildPreviewAppend() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
@@ -1511,7 +1427,7 @@ export class AgentHost {
       const runPlace = plans?.tools && place?.askOnly && !place.syncMain ? withoutAskOnly(place) : place;
       const final = await Promise.race([gone, exited, agent.run({
         ...(scratch ? { scratchDir: scratch } : {}),
-        ...this.chatLinkOf(body.channel),
+        ...this.links.linkOf(body.channel),
         ...(board?.tools ? { board: board.tools } : {}),
         ...(board?.brief ? { taskBrief: board.brief } : {}),
         ...(board?.needsDefinition && board.planApproved ? { planTask: { needsDefinition: board.needsDefinition, approved: board.planApproved } } : {}),
@@ -1648,7 +1564,7 @@ export class AgentHost {
     return agent.terminal(
       {
         terminal: true,
-        ...this.chatLinkOf(channel),
+        ...this.links.linkOf(channel),
         prompt,
         requesterName,
         viaAgent: false,
@@ -1804,23 +1720,7 @@ export class AgentHost {
 
   /** The name on the prompt's "Request from" line. */
   private askerOf(body: BodyOf<'agent_request'>, from: string): string {
-    return body.origin ? chatMessageAsker(this.originShown(body.origin, body.channel)) : peerName(this.store.getState(), from);
-  }
-
-  /** Who reads which of your chats, for a private chat's title (chat-links/private-title.ts). */
-  private get sourceReaders(): SourceReaders {
-    return { selfId: this.selfId, canSee: (peer, channel) => this.deps.sharing.canSee(peer, channel) };
-  }
-
-  /** The origin as the run reads it: in a chat you share, everyone there sees what the run says. */
-  private originShown(origin: ChatOrigin, channel: string): ChatOrigin {
-    return originSeenByAll(origin, this.deps.sharing.recipients(channel), this.sourceReaders);
-  }
-
-  /** May this person's run find and read other chats? */
-  private readsChats(from: string, channel: string): boolean {
-    // Not in a place other people see (the room, friends' chats, a worktree you share): their words could ask it to quote your chats there.
-    return from === this.selfId && isAddressableChannel(channel) && this.store.getState().prefs.chatLinks && this.deps.sharing.recipients(channel).length === 0;
+    return this.links.askerOf(body) ?? peerName(this.store.getState(), from);
   }
 
   /**
@@ -1829,16 +1729,14 @@ export class AgentHost {
    */
   private promptOf(body: BodyOf<'agent_request'>, from: string, sent?: SentPlace): string {
     const board = this.store.getState().board;
-    // A message from another chat: Beluga's words first, its own in a fence (see message-prompt.ts).
-    const said = body.origin ? chatMessagePrompt(this.originShown(body.origin, body.channel), body.prompt) : body.prompt;
+    // A message from another chat, and the chats it names (chat-links/host.ts).
+    const said = this.links.said(body);
     const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
-    // A chat it names: a note on how to read it, only for a run that has the tools (BLG-143).
-    const mentioned = this.readsChats(from, body.channel) ? explainChatMentions(tasks) : tasks;
+    const mentioned = this.links.explained(from, body.channel, tasks);
     const prompt = sent ? withSentFiles(mentioned, this.selfId, sent.root, sent.rel) : mentioned;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;
-    // What was added to a message from another chat names no skill either (a task's title, the carried chat).
-    return body.origin ? withoutSkillMentions(whole) : whole;
+    return this.links.finished(body, whole);
   }
 
   /** A worktree's own conversation, the only one in its folder (others share theirs: Your Mac's chats, a chat in a folder). */
