@@ -133,7 +133,10 @@ export const APP_VERSION: string = version;
 /** Attach to Beluga. */
 export async function connect(caps: Capabilities): Promise<SocketClient> {
   const { url, token } = await endpoint();
-  return SocketClient.connect({ url, token, kind: 'mac', version: APP_VERSION, caps });
+  const client = await SocketClient.connect({ url, token, kind: 'mac', version: APP_VERSION, caps });
+  // The window opens on Overview (a screen starts on the room, which is no place of its own here: BLG-871).
+  client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
+  return client;
 }
 
 /**

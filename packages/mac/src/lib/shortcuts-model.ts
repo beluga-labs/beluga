@@ -113,7 +113,6 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
 
   def('go-overview', 'Overview', 'Go', ['Cmd+1']),
   def('go-tasks', 'Tasks', 'Go', ['Cmd+2']),
-  def('go-room', 'Chat', 'Go', ['Cmd+3']),
   def('go-search', 'Search', 'Go', ['Cmd+4']),
   def('go-usage', 'Usage', 'Go', ['Cmd+5']),
   def('go-terminal', 'Terminal', 'Go', ['Cmd+6']),

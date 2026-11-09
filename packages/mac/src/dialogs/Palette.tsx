@@ -2,6 +2,7 @@ import { Command } from 'cmdk';
 import * as Dialog from '@radix-ui/react-dialog';
 import { findWorkspace, workspaceButtons } from '@beluga/ui/workspace-models.js';
 import { macTabs } from '../lib/go.js';
+import { groupChatOpen } from '../lib/group-chat.js';
 import { worktreeOrigin } from '@beluga/workspaces/origin.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { useActions } from '../lib/actions.js';
@@ -33,7 +34,7 @@ const keysOf = (id: string): { keys?: string } => {
   return keys ? { keys } : {};
 };
 
-const VIEW_ICONS: Record<string, IconName> = { room: 'chat', files: 'folder', overview: 'grid', search: 'search', usage: 'gauge', terminal: 'terminal', tasks: 'task' };
+const VIEW_ICONS: Record<string, IconName> = { files: 'folder', overview: 'grid', search: 'search', usage: 'gauge', terminal: 'terminal', tasks: 'task' };
 
 /**
  * Everything you can do, one keystroke away: go anywhere, act on what's open, start something
@@ -89,10 +90,13 @@ export function Palette() {
     { id: 'invite', label: 'Add a friend…', hint: 'Invite someone: a link, a code or a QR code, no server', icon: 'people', keywords: ['invite', 'invite someone', 'friend', 'code', 'link'], run: () => document.dispatchEvent(new CustomEvent('beluga:invite')) },
     { id: 'templates', label: 'Start from a template…', icon: 'wand', run: () => ui.openMenu({ kind: 'templates' }) },
   ];
-  const people: Item[] = state.peers
-    .map((p, index) => ({ p, index }))
-    .filter(({ p }) => p.peerId !== state.selfId)
-    .map(({ p, index }) => ({ id: `person:${p.peerId}`, label: p.name, hint: 'trust, follow, run a command, share…', icon: 'person' as IconName, run: () => ui.openMenu({ kind: 'person', index }) }));
+  const people: Item[] = [
+    ...(groupChatOpen(state) ? [{ id: 'view:room', label: 'Group chat', hint: 'everyone in the room and their agents', icon: 'chat' as IconName, run: () => actions.run({ type: 'view', view: { kind: 'room' } }) }] : []),
+    ...state.peers
+      .map((p, index) => ({ p, index }))
+      .filter(({ p }) => p.peerId !== state.selfId)
+      .map(({ p, index }) => ({ id: `person:${p.peerId}`, label: p.name, hint: 'trust, follow, run a command, share…', icon: 'person' as IconName, run: () => ui.openMenu({ kind: 'person', index }) })),
+  ];
   // Friends and groups (the Beluga network), and adding a friend or a group.
   const net = networkPaletteItems(state, client);
   // The /commands as things to do (no `<arg>` syntax); the ones that need more open their sheet.
