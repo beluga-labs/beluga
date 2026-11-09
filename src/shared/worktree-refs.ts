@@ -41,15 +41,27 @@ export function codeWorktreeRefs(markdown: string, has: (id: string) => boolean)
   );
 }
 
-/** The worktree ids a message names (bare or in ticks, never in a code block), each once, in order. */
-export function worktreeRefsIn(text: string): string[] {
-  if (!text.includes(PREFIX)) return [];
-  const found: string[] = [];
-  outsideFences(text, (line) => {
-    for (const m of line.matchAll(MENTIONED)) if (!found.includes(m[3]!)) found.push(m[3]!);
-    return line;
-  });
-  return found;
+/** A piece of a line: its words, or a bare ref (`raw` as typed). */
+export type WorktreeRefPiece = { readonly text: string } | { readonly raw: string; readonly id: string };
+
+/**
+ * Words cut into plain text and the bare refs in them that `has` knows ("worktree:wt-…"): what the
+ * message box draws as a chip over the ref, as it does a pasted image.
+ */
+export function splitWorktreeRefs(text: string, has: (id: string) => boolean): WorktreeRefPiece[] {
+  if (!text.includes(PREFIX)) return text ? [{ text }] : [];
+  const out: WorktreeRefPiece[] = [];
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(BARE, 'gm'))) {
+    const id = m[2]!;
+    if (!has(id)) continue;
+    const start = (m.index ?? 0) + m[1]!.length;
+    if (start > last) out.push({ text: text.slice(last, start) });
+    out.push({ raw: `${PREFIX}${id}`, id });
+    last = start + PREFIX.length + id.length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
 }
 
 /** What Claude is told a worktree is. */

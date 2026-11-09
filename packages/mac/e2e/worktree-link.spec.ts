@@ -20,7 +20,8 @@ test('Copy Link on a worktree, pasted in another chat, shows as its chip', async
 
   // Right-click › Copy Link: the worktree's ref on the clipboard.
   await (await row(page, 'webhook-retries')).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Copy Link' }).click();
+  // The row's menu draws again as the busy demo moves on (as instant-worktrees.spec does for Delete…).
+  await page.getByRole('menuitem', { name: 'Copy Link' }).dispatchEvent('click');
   await expect(page.getByText(/Copied a link to webhook-retries/).last()).toBeVisible();
   const ref = await page.evaluate(() => navigator.clipboard.readText());
   expect(ref).toMatch(/^worktree:[\w-]{3,80}$/);
@@ -32,11 +33,12 @@ test('Copy Link on a worktree, pasted in another chat, shows as its chip', async
   await expect(page.getByRole('menuitem', { name: 'Copy Link' })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  // Pasted in another worktree's chat: its chip above the box before it's sent…
+  // Pasted in another worktree's chat: a chip in the box over the ref, as a pasted image is…
   await composer(page).fill(`compare this with ${ref}`);
-  const above = page.getByTestId('mentioned-worktree');
-  await expect(above).toContainText('webhook-retries');
-  await page.screenshot({ path: '../../.beluga/scratch/01-worktree-link-composer.png' });
+  const inBox = page.getByTestId('mention-highlighter').locator('mark[data-kind="worktree"]');
+  await expect(inBox).toContainText('webhook-retries');
+  const box = (await composer(page).boundingBox())!;
+  await page.screenshot({ path: '../../.beluga/scratch/03-worktree-chip-in-box.png', clip: { x: box.x - 16, y: box.y - 44, width: Math.min(box.width + 32, 640), height: box.height + 60 } });
 
   // …and in the message once it is.
   await composer(page).press('Enter');

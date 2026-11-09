@@ -8,7 +8,7 @@ import { Store, initialState } from '../src/core/store.js';
 import type { Project } from '../src/workspaces/types.js';
 import { waitFor } from './helpers.js';
 import { readInline } from '../src/shared/render/inline-model.js';
-import { codeWorktreeRefs, explainWorktreeRefs, worktreeRef, worktreeRefsIn, type WorktreeFacts } from '../src/shared/worktree-refs.js';
+import { codeWorktreeRefs, explainWorktreeRefs, splitWorktreeRefs, worktreeRef, type WorktreeFacts } from '../src/shared/worktree-refs.js';
 
 const ID = 'wt-1a2b3c4d5e6f';
 const has = (id: string): boolean => id === ID;
@@ -42,10 +42,10 @@ describe('worktree refs (BLG-878)', () => {
       expect(codeWorktreeRefs(text, has)).toBe(text);
   });
 
-  it('finds the ids a message names, bare or in ticks, each once', () => {
-    expect(worktreeRefsIn(`worktree:${ID} and \`worktree:wt-aaaaaaaaaaaa\` and worktree:${ID}`)).toEqual([ID, 'wt-aaaaaaaaaaaa']);
-    expect(worktreeRefsIn('```\nworktree:' + ID + '\n```')).toEqual([]);
-    expect(worktreeRefsIn('no refs here')).toEqual([]);
+  it('cuts the words in the box around the refs it knows, for their chips', () => {
+    expect(splitWorktreeRefs(`compare with worktree:${ID}, and\nworktree:${ID}`, has)).toEqual([{ text: 'compare with ' }, { raw: `worktree:${ID}`, id: ID }, { text: ', and\n' }, { raw: `worktree:${ID}`, id: ID }]);
+    expect(splitWorktreeRefs('worktree:wt-000000000000 here', has)).toEqual([{ text: 'worktree:wt-000000000000 here' }]);
+    expect(splitWorktreeRefs('', has)).toEqual([]);
   });
 
   it('tells Claude which worktree a ref is', () => {
