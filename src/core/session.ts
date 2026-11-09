@@ -460,7 +460,7 @@ export class Session {
     // A dialogue between your agents: started here (proposed, you confirm its caps), or what you say into one (core/dialogues).
     if (dialoguesOf(this)?.fromComposer(raw, channel)) return true;
     // "@codex": your own Codex when it runs here, listed on your card or not (BLG-520).
-    const parsed = parseInput(raw, this.selfId, state.peers, { runs: (runtime) => this.runsAgent({ runtime, label: runtime }) });
+    const parsed = parseInput(raw, this.selfId, state.peers, { runs: (runtime) => this.runsAgent({ runtime, label: runtime }), chatLinks: state.prefs.chatLinks });
     // In a workspace, you're talking to your Claude working in that folder.
     if (channel !== 'room' && (parsed.kind === 'chat' || parsed.kind === 'agent')) {
       // A leading "@claude" is just you talking to your Claude; "@claude:ata" stays in the words, so your

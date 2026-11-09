@@ -110,10 +110,17 @@ describe('a chat in the words', () => {
 
   it('at the start of a message is no person to ask', () => {
     const peers = [{ peerId: 'me', name: 'me', agent: true, shares: [] }, { peerId: 'b', name: 'Fix', agent: true, shares: [] }] as unknown as PeerInfo[];
-    expect(parseInput(`@Fix the login (chat: ${ref}) what happened?`, 'me', peers)).toMatchObject({ kind: 'chat', text: `@Fix the login (chat: ${ref}) what happened?` });
-    expect(parseInput(`@Fix (chat: ${ref}) what happened?`, 'me', peers)).toMatchObject({ kind: 'chat' });
-    expect(parseInput(`@claude @Fix the login (chat: ${ref}) what happened?`, 'me', peers)).toMatchObject({ kind: 'agent', prompt: `@Fix the login (chat: ${ref}) what happened?`, unknown: [] });
-    expect(parseInput('@Fix what happened?', 'me', peers)).toMatchObject({ kind: 'agent', prompt: 'what happened?' });
+    const on = { chatLinks: true };
+    expect(parseInput(`@Fix the login (chat: ${ref}) what happened?`, 'me', peers, on)).toMatchObject({ kind: 'chat', text: `@Fix the login (chat: ${ref}) what happened?` });
+    expect(parseInput(`@Fix (chat: ${ref}) what happened?`, 'me', peers, on)).toMatchObject({ kind: 'chat' });
+    expect(parseInput(`@claude @Fix the login (chat: ${ref}) what happened?`, 'me', peers, on)).toMatchObject({ kind: 'agent', prompt: `@Fix the login (chat: ${ref}) what happened?`, unknown: [] });
+    expect(parseInput('@Fix what happened?', 'me', peers, on)).toMatchObject({ kind: 'agent', prompt: 'what happened?' });
+  });
+
+  it('with chat links off is read as before chat links: "@Fix" asks Fix (BLG-309)', () => {
+    const peers = [{ peerId: 'me', name: 'me', agent: true, shares: [] }, { peerId: 'b', name: 'Fix', agent: true, shares: [] }] as unknown as PeerInfo[];
+    expect(parseInput(`@Fix (chat: ${ref}) what happened?`, 'me', peers)).toMatchObject({ kind: 'agent', targets: ['b'], prompt: `(chat: ${ref}) what happened?` });
+    expect(parseInput(`@Fix (chat: ${ref}) what happened?`, 'me', peers, { chatLinks: false })).toMatchObject({ kind: 'agent', targets: ['b'] });
   });
 });
 
