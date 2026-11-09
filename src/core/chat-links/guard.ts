@@ -81,6 +81,23 @@ export function checkSend(before: GuardState, ask: GuardAsk): { readonly state: 
 }
 
 /**
+ * A message your agent sends on outside the chat tools (a plan's message to a task): the hop and
+ * chain limits of a send, and it counts in its chain's budget. It names no source chat, so no rate
+ * window counts it. `hop`: the hop of the run that sends.
+ */
+export function checkSentOn(before: GuardState, ask: Pick<GuardAsk, 'chainId' | 'hop' | 'now'>): { readonly state: GuardState; readonly decision: { readonly allow: true; readonly hop: number } | { readonly allow: false; readonly code: GuardRefusal } } {
+  const state = pruned(before, ask.now);
+  const code = chainRefusal(state, ask);
+  if (code) return { state, decision: { allow: false, code } };
+  const hop = ask.hop + 1;
+  const chain = state.chains[ask.chainId];
+  return {
+    state: { ...state, chains: { ...state.chains, [ask.chainId]: { messages: (chain?.messages ?? 0) + 1, baseHop: chain?.baseHop ?? 0, highestHop: Math.max(chain?.highestHop ?? 0, hop), at: ask.now } } },
+    decision: { allow: true, hop },
+  };
+}
+
+/**
  * The user said Continue: a new budget for this chain. Its hops count from where it is now, its
  * count starts over, and its sends leave the rate windows.
  */
@@ -102,14 +119,21 @@ export function sentSoFar(state: GuardState, ask: Pick<GuardAsk, 'chainId' | 'ta
 
 function refusalOf(state: GuardState, ask: GuardAsk): { readonly code: GuardRefusal; readonly retryAt?: number } | undefined {
   if (ask.source === ask.target) return { code: 'self' };
-  const chain = state.chains[ask.chainId];
-  if (ask.hop + 1 - (chain?.baseHop ?? 0) > MAX_HOPS) return { code: 'hop_limit' };
-  if ((chain?.messages ?? 0) >= MAX_CHAIN_MESSAGES) return { code: 'chain_limit' };
+  const chain = chainRefusal(state, ask);
+  if (chain) return { code: chain };
   const pair = rateLimit(state.sent.filter((s) => s.source === ask.source && s.target === ask.target), MAX_PAIR_MESSAGES, PAIR_WINDOW_MS, ask.now);
   if (pair) return { code: 'pair_rate', retryAt: pair };
   const target = rateLimit(state.sent.filter((s) => s.target === ask.target), MAX_TARGET_MESSAGES, TARGET_WINDOW_MS, ask.now);
   if (target) return { code: 'target_rate', retryAt: target };
   if (ask.queued >= MAX_QUEUED_PER_TARGET) return { code: 'queue_full' };
+  return undefined;
+}
+
+/** The limits of a chain: how many agents in a row, and how many messages. */
+function chainRefusal(state: GuardState, ask: Pick<GuardAsk, 'chainId' | 'hop'>): 'hop_limit' | 'chain_limit' | undefined {
+  const chain = state.chains[ask.chainId];
+  if (ask.hop + 1 - (chain?.baseHop ?? 0) > MAX_HOPS) return 'hop_limit';
+  if ((chain?.messages ?? 0) >= MAX_CHAIN_MESSAGES) return 'chain_limit';
   return undefined;
 }
 

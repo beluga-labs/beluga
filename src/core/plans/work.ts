@@ -36,6 +36,11 @@ export interface PlansWorkDeps {
   readonly askClaude: (prompt: string, channel: string, echo: boolean, chain?: ChatChain) => string | void;
   /** Steer a waiting message in now: the agent host's Steer Now (AgentHost.promote). */
   readonly promote?: (requestId: string) => boolean;
+  /**
+   * A message the plan's agent sends on to a task, in the chain of its run: the chain it goes on
+   * in (one hop on), or why the chat-links guard refuses it (ChatSendService.sendOn). Default: one hop on.
+   */
+  readonly sendOn?: (chain: ChatChain) => { readonly chain: ChatChain } | { readonly refused: string };
   /** Stop your Claude in one conversation (its queued messages too): the agent host's Stop. */
   readonly stopRun?: (channel: string) => void;
   readonly intend: (intent: Intent) => void;
@@ -625,11 +630,13 @@ export class PlansWork {
         const w = issue.worktrees.at(-1);
         if (!w || issue.worktreeGone) throw new Error(`${issue.key} hasn't started: nothing to tell yet (start it, or change its brief)`);
         const steer = mode === 'steer';
+        const now = chain?.();
+        const on = now && (this.deps.sendOn?.(now) ?? { chain: { chainId: now.chainId, hop: now.hop + 1 } });
+        if (on && 'refused' in on) throw new Error(`Not sent to ${issue.key}: ${on.refused}`);
         // Shown there as the plan's message, not as yours.
         this.deps.store.dispatch({ type: 'system', channel: `${WS}${w}`, text: `${steer ? 'Urgent, from' : 'From'} the plan’s agent: ${text.trim().slice(0, 2000)}`, level: 'info' });
         const prompt = `${steer ? 'An urgent message' : 'A message'} from the head of the plan “${plan.body?.title ?? ''}” (another agent coordinating the plan, not the user):\n\n${text.trim()}`;
-        const now = chain?.();
-        const id = this.deps.askClaude(prompt, `${WS}${w}`, false, now ? { chainId: now.chainId, hop: now.hop + 1 } : undefined);
+        const id = this.deps.askClaude(prompt, `${WS}${w}`, false, on?.chain);
         if (!steer) return `Queued for the agent working on ${issue.key}: it reads it when its current turn ends (its card shows it waiting; use mode "steer" if it can't wait)`;
         // Steered: in now (interrupting a long command or a dead run), and followed until it's read.
         if (id) this.pilot.steer(planId, hit.task.id, id, prompt);

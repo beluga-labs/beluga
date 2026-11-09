@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type GuardAsk, type GuardState, MAX_CHAIN_MESSAGES, MAX_HOPS, MAX_PAIR_MESSAGES, MAX_QUEUED_PER_TARGET, MAX_TARGET_MESSAGES, NO_SENDS, PAIR_WINDOW_MS, TARGET_WINDOW_MS, checkSend, renewChain } from '../src/core/chat-links/guard.js';
+import { type GuardAsk, type GuardState, MAX_CHAIN_MESSAGES, MAX_HOPS, MAX_PAIR_MESSAGES, MAX_QUEUED_PER_TARGET, MAX_TARGET_MESSAGES, NO_SENDS, PAIR_WINDOW_MS, TARGET_WINDOW_MS, checkSend, checkSentOn, renewChain } from '../src/core/chat-links/guard.js';
 
 const T0 = 1_000_000;
 let ids = 0;
@@ -124,5 +124,24 @@ describe('the reset of a chain', () => {
     state = renewChain(state, 'c1', 1, T0);
     expect(state.sent.map((s) => s.chainId)).toEqual(['other']);
     expect(checkSend(state, ask()).decision.allow).toBe(true);
+  });
+});
+
+describe('a message your agent sends on outside the chat tools (a plan’s message to a task)', () => {
+  it('goes one hop on, and stops at the hop limit', () => {
+    expect(checkSentOn(NO_SENDS, { chainId: 'c1', hop: MAX_HOPS - 1, now: T0 }).decision).toEqual({ allow: true, hop: MAX_HOPS });
+    expect(checkSentOn(NO_SENDS, { chainId: 'c1', hop: MAX_HOPS, now: T0 }).decision).toEqual({ allow: false, code: 'hop_limit' });
+  });
+
+  it('counts in the budget of its chain, and not in any rate window', () => {
+    let state = NO_SENDS;
+    for (let i = 0; i < MAX_CHAIN_MESSAGES; i++) {
+      const out = checkSentOn(state, { chainId: 'c1', hop: 0, now: T0 });
+      expect(out.decision.allow).toBe(true);
+      state = out.state;
+    }
+    expect(state.sent).toEqual([]);
+    expect(checkSentOn(state, { chainId: 'c1', hop: 0, now: T0 }).decision).toEqual({ allow: false, code: 'chain_limit' });
+    expect(checkSend(state, ask({ source: 'x', target: 'y' })).decision).toEqual({ allow: false, code: 'chain_limit' });
   });
 });

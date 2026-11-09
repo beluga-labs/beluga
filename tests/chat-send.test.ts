@@ -13,7 +13,7 @@ import { decideTool } from '../src/agent/policy.js';
 import { runInstructions } from '../src/agent/run-instructions.js';
 import type { AgentBackend, AgentPlace, AgentRunInput, ChatTools, FollowUp, LiveStatus, Steer } from '../src/agent/types.js';
 import { AgentHost } from '../src/core/agent-host.js';
-import { MAX_PAIR_MESSAGES, MAX_QUEUED_PER_TARGET } from '../src/core/chat-links/guard.js';
+import { MAX_CHAIN_MESSAGES, MAX_HOPS, MAX_PAIR_MESSAGES, MAX_QUEUED_PER_TARGET } from '../src/core/chat-links/guard.js';
 import { type DomainState, Store, initialState } from '../src/core/store.js';
 import type { BodyOf, ChatOrigin } from '../src/protocol.js';
 import { humanizeTool } from '../src/shared/step-titles.js';
@@ -387,6 +387,29 @@ describe('a guard refusal starts no run and returns its code', () => {
     expect(parsed(await froms[5]!.send(refOf('ws:other'), 'elsewhere', {})).delivery).toBe('started');
     expect(t.runsIn(TARGET)).toHaveLength(1);
     t.h.stopAgent();
+  });
+});
+
+describe('a message your agent sends on outside the chat tools (a plan’s message to a task)', () => {
+  it('goes one hop on, and at the hop limit is refused with the words an agent reads', () => {
+    const t = setup();
+    expect(t.h.chatSends.sendOn({ chainId: 'c1', hop: 1 })).toEqual({ chain: { chainId: 'c1', hop: 2 } });
+    expect(t.h.chatSends.sendOn({ chainId: 'c1', hop: MAX_HOPS })).toEqual({ refused: expect.stringMatching(/^hop_limit: too many agents in a row/) });
+  });
+
+  it('counts in its chain’s budget: a chat in that chain then has none left', async () => {
+    const t = setup();
+    for (let i = 0; i < MAX_CHAIN_MESSAGES; i++) expect(t.h.chatSends.sendOn({ chainId: 'c1', hop: 0 })).toHaveProperty('chain');
+    expect(t.h.chatSends.sendOn({ chainId: 'c1', hop: 0 })).toEqual({ refused: expect.stringMatching(/^chain_limit:/) });
+    const from = await t.working(SOURCE, 'r1', { chain: { chainId: 'c1', hop: 1 } });
+    await expect(from.send(refOf(TARGET), 'hi', {})).rejects.toThrow(/^chain_limit:/);
+    await t.end(SOURCE);
+  });
+
+  it('with chat links off it checks nothing: one hop on, as before chat links', () => {
+    const t = setup();
+    t.store.dispatch({ type: 'prefs', prefs: { chatLinks: false } });
+    expect(t.h.chatSends.sendOn({ chainId: 'c1', hop: MAX_HOPS + 3 })).toEqual({ chain: { chainId: 'c1', hop: MAX_HOPS + 4 } });
   });
 });
 

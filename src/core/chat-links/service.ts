@@ -5,7 +5,7 @@ import type { ChatChain, ChatTools } from '../../agent/types.js';
 import type { AgentRef, BodyOf, ChatOrigin } from '../../protocol.js';
 import type { LogItem, Store } from '../store.js';
 import { chatAccessOf } from './access.js';
-import { type GuardRefusal, type GuardState, NO_SENDS, checkSend, renewChain, sentSoFar } from './guard.js';
+import { type GuardRefusal, type GuardState, NO_SENDS, checkSend, checkSentOn, renewChain, sentSoFar } from './guard.js';
 import { resolveChat } from './resolve.js';
 import { REFUSAL_WORDS, refOf } from './transcript.js';
 
@@ -108,6 +108,20 @@ export class ChatSendService {
       send: (ref, text, opts) => this.send(run, ref, text, opts),
       wait: (id, timeoutSec) => this.wait(run, id, timeoutSec),
     };
+  }
+
+  /**
+   * A message your agent sends on outside the chat tools (a plan's message to a task), from a run in
+   * `chain`: the hop and chain limits of a send, counted in that chain's budget. With chat links off
+   * a message carries no chain, so nothing is checked: one hop on, as before.
+   */
+  sendOn(chain: ChatChain): { readonly chain: ChatChain } | { readonly refused: string } {
+    const next = { chain: { chainId: chain.chainId, hop: chain.hop + 1 } };
+    if (!this.deps.store.getState().prefs.chatLinks) return next;
+    if (this.stopped.has(chain.chainId)) return { refused: refusalText('chain_stopped') };
+    const { state, decision } = checkSentOn(this.guard, { chainId: chain.chainId, hop: chain.hop, now: this.now() });
+    this.guard = state;
+    return decision.allow ? { chain: { chainId: chain.chainId, hop: decision.hop } } : { refused: refusalText(decision.code) };
   }
 
   /** A queued message was dropped with its chat (endIn): the sender hears it. */
