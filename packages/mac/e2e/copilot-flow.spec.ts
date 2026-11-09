@@ -29,12 +29,12 @@ test('start a worktree on Copilot, run a task, approve a command, stop mid-turn'
   await expect(ask).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Escape');
 
-  // 1. A new worktree, on Copilot's Auto (the picker's Other agents), with its first task.
+  // 1. A new worktree, on Copilot's Auto (the picker's agent rail), with its first task.
   await sidebar(page).getByRole('button', { name: 'bob-api' }).first().hover();
   await sidebar(page).getByRole('button', { name: 'New worktree in bob-api', exact: true }).click();
   await page.getByLabel('Worktree name').fill('e2e-copilot');
   await chip(page).click();
-  await page.getByRole('button', { name: 'Other agents' }).click();
+  await page.getByRole('tab', { name: 'Copilot' }).click();
   const models = page.getByRole('radiogroup', { name: 'Copilot models' });
   await expect(models).toBeVisible({ timeout: 15_000 });
   await expect(models.getByRole('radio').first()).toContainText('Auto');

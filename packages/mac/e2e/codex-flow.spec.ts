@@ -25,12 +25,12 @@ test('start a worktree on Codex, run a task, approve a command, stop mid-turn, h
   await expect(ask).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Escape');
 
-  // 1. A new worktree, on Codex (the picker's Other agents), with its first task.
+  // 1. A new worktree, on Codex (the picker's agent rail), with its first task.
   await sidebar(page).getByRole('button', { name: 'bob-api' }).first().hover();
   await sidebar(page).getByRole('button', { name: 'New worktree in bob-api', exact: true }).click();
   await page.getByLabel('Worktree name').fill('e2e-codex');
   await chip(page).click();
-  await page.getByRole('button', { name: 'Other agents' }).click();
+  await page.getByRole('tab', { name: 'Codex' }).click();
   const codexModels = page.getByRole('radiogroup', { name: 'Codex models' });
   await expect(codexModels).toBeVisible({ timeout: 15_000 });
   await codexModels.getByRole('radio').first().click();
@@ -60,6 +60,7 @@ test('start a worktree on Codex, run a task, approve a command, stop mid-turn, h
 
   // 4. Hand off to Claude: the picker's Claude models; Claude can't read Codex's conversation, so it asks how (BLG-592). Just switch, then Claude answers here.
   await chip(page).click();
+  await page.getByRole('tab', { name: 'Claude' }).click();
   await page.getByRole('radiogroup', { name: 'Claude models' }).getByRole('radio').first().click();
   const how = page.getByRole('group', { name: 'How to move to Claude' });
   await expect(how).toBeVisible();
