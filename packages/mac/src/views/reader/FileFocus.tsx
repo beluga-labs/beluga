@@ -49,6 +49,9 @@ function usePageKeys(page: RefObject<HTMLDivElement | null>): void {
 const keysTaken = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.isContentEditable || Boolean(target.closest('input, textarea, select, video, audio, [role="slider"], .cm-editor')));
 
+/** The keyboard is in a list of files (a tree or a listbox) that steps through them with the arrows. */
+const browsingList = (el: Element | null): boolean => el instanceof HTMLElement && Boolean(el.closest('[role="tree"], [role="listbox"]'));
+
 /**
  * ← and → over a picture, video, PDF or web page from the workspace's Scratch: the previous or next
  * one of those in Scratch's own order (newest first, or viewable first), stepping over files that
@@ -122,11 +125,12 @@ export function FileFocus({ viewer, wsId }: { viewer: ViewerState; wsId: string 
   const [copied, copy] = useCopied();
   usePageKeys(page);
 
-  // Another file opened here (a link in a document): it starts at its top, as itself.
+  // Another file opened here (a link in a document): it starts at its top, as itself. Stepping
+  // through a list beside it (the panel's Files), the keyboard stays there, so ↑ and ↓ keep stepping.
   useEffect(() => {
     setModeNow(pendingLine(viewer) ? 'source' : initialMode(viewer));
     page.current?.scrollTo({ top: 0 });
-    page.current?.focus({ preventScroll: true });
+    if (!browsingList(document.activeElement)) page.current?.focus({ preventScroll: true });
   }, [viewer.path]);
 
   const editing = Boolean(useEditSession(viewer));
