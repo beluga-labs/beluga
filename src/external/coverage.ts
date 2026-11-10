@@ -530,6 +530,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'local.browse': 'gated',
   'diagnostics.report': 'gated',
   'diagnostics.windowProblem': { refused: WINDOW_LOAD },
+  'diagnostics.windowCrash': { refused: WINDOW_LOAD },
   'voice.load': 'gated',
   'calls.start': 'gated',
   'calls.join': 'gated',

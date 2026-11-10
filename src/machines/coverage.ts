@@ -328,6 +328,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'diagnostics.report': 'drive',
   // The window couldn't load a part of itself (#370): noted in that computer's black box.
   'diagnostics.windowProblem': 'drive',
+  'diagnostics.windowCrash': 'drive',
   // ---- claudeCode
   'claudeCode.steps': 'drive',
   'claudeCode.step': 'drive',
