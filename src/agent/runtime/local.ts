@@ -2,6 +2,7 @@ import type { AgentBackend, AgentRunInput, FollowUp, Steer, TerminalSink } from 
 import { CLAUDE_CAPABILITIES, claudeRuntime } from './claude/index.js';
 import { createClaudeBackend } from './claude/runner.js';
 import { askBtw } from './claude/btw.js';
+import { endpointClaudeHome } from './endpoint-home.js';
 import { tokensPerSecond } from '../../shared/local-endpoints.js';
 import type { AgentRuntime } from './types.js';
 import type { BtwRequest } from '../btw.js';
@@ -21,11 +22,14 @@ export interface LocalTarget {
  * request goes to `baseUrl`, every model alias (and sub-agents, and the small fast model) is the
  * endpoint's model, and Claude Code's own traffic (telemetry, error reports, updates) stays off.
  * The key is the endpoint's, never your Claude login: without one, a placeholder (Ollama takes any),
- * so your Anthropic sign-in never goes to someone else's server.
+ * so your Anthropic sign-in never goes to someone else's server. Claude Code runs in a folder of
+ * its own (`configDir`, see endpoint-home.ts): signed in to Claude, it would send that sign-in
+ * over any of these variables.
  */
-export function endpointEnv(t: LocalTarget): Record<string, string> {
+export function endpointEnv(t: LocalTarget, configDir: string = endpointClaudeHome()): Record<string, string> {
   const m = t.model;
   return {
+    CLAUDE_CONFIG_DIR: configDir,
     ANTHROPIC_BASE_URL: t.baseUrl,
     ANTHROPIC_AUTH_TOKEN: t.key || 'ollama',
     ANTHROPIC_API_KEY: '',

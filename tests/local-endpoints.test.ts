@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRunInput, FollowUp } from '../src/agent/types.js';
 import { endpointEnv, onEndpoint, usageMeter } from '../src/agent/runtime/local.js';
+import { endpointClaudeHome } from '../src/agent/runtime/endpoint-home.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
 import { EnvVars } from '../src/core/env-vars.js';
@@ -134,6 +135,31 @@ describe('local endpoints: a run', () => {
     const env = endpointEnv(target);
     expect(env).toMatchObject({ ANTHROPIC_BASE_URL: OLLAMA_URL, ANTHROPIC_AUTH_TOKEN: 'ollama', ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', ANTHROPIC_SMALL_FAST_MODEL: 'qwen3-coder', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'qwen3-coder', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
     expect(endpointEnv({ ...target, key: 'sk-1' }).ANTHROPIC_AUTH_TOKEN).toBe('sk-1');
+    // Claude Code runs in its own folder there, where it finds no Claude sign-in to send instead of the key.
+    expect(endpointEnv(target, '/tmp/endpoint-claude').CLAUDE_CONFIG_DIR).toBe('/tmp/endpoint-claude');
+    expect(endpointEnv(target).CLAUDE_CONFIG_DIR).toMatch(/claude-endpoint$/);
+  });
+
+  it('its Claude Code folder is yours, linked, without your sign-in; conversations land in yours', () => {
+    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'endpoint-home-')));
+    const mine = path.join(root, 'claude');
+    const into = path.join(root, 'endpoint');
+    mkdirSync(path.join(mine, 'projects'), { recursive: true });
+    mkdirSync(path.join(mine, 'skills', 'review'), { recursive: true });
+    writeFileSync(path.join(mine, 'settings.json'), '{"hooks":{}}');
+    writeFileSync(path.join(mine, '.credentials.json'), '{"claudeAiOauth":{"accessToken":"sk-ant-oat"}}');
+    expect(endpointClaudeHome(mine, into)).toBe(into);
+    expect(readdirSync(into).sort()).toEqual(['projects', 'settings.json', 'skills']);
+    expect(lstatSync(path.join(into, 'projects')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(path.join(into, 'settings.json'), 'utf8')).toBe('{"hooks":{}}');
+    // A conversation Claude Code writes there is in your own projects folder, where Beluga reads it.
+    writeFileSync(path.join(into, 'projects', 'run.jsonl'), '{}');
+    expect(existsSync(path.join(mine, 'projects', 'run.jsonl'))).toBe(true);
+    // Something gone from yours goes from it; a sign-in put there is taken out.
+    rmSync(path.join(mine, 'skills'), { recursive: true });
+    writeFileSync(path.join(into, '.credentials.json'), '{}');
+    endpointClaudeHome(mine, into);
+    expect(readdirSync(into).sort()).toEqual(['projects', 'settings.json']);
   });
 
   it('runs on the model’s own name, its env over yours, no effort, and maps a model picked mid-run', () => {
