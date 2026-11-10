@@ -164,7 +164,8 @@ describe('local endpoints: a run', () => {
     rmSync(path.join(into, 'settings.json'));
     writeFileSync(path.join(into, 'settings.json'), '{"stale":true}');
     endpointClaudeHome(mine, into);
-    expect(lstatSync(path.join(into, 'settings.json')).isSymbolicLink()).toBe(true);
+    // (Windows without Developer Mode copies a file instead of linking it: the same words either way.)
+    if (process.platform !== 'win32') expect(lstatSync(path.join(into, 'settings.json')).isSymbolicLink()).toBe(true);
     expect(readFileSync(path.join(into, 'settings.json'), 'utf8')).toBe('{"hooks":{}}');
   });
 
