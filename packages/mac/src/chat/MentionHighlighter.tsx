@@ -9,6 +9,8 @@ import {
   splitMentions,
 } from "./mentions.js";
 import m from "./mention.module.css";
+import type { ChipSpan } from "./chip-caret.js";
+import { useChipCaret } from "./use-chip-caret.js";
 
 function withImages(piece: MentionPiece): MentionPiece[] {
   if ("ref" in piece) return [piece];
@@ -45,6 +47,23 @@ function worktreeNames(projects: readonly { readonly workspaces: readonly { read
 /** Drawn as a chip over the room its words take (the box's own words go see-through). */
 const isChip = (p: MentionPiece): boolean => "ref" in p && (p.ref.kind === "image" || p.ref.kind === "worktree");
 
+/** Where each chip's words are in the text (the pieces, laid end to end, are the text). */
+function chipSpans(pieces: readonly MentionPiece[]): { all: ChipSpan[]; worktrees: ChipSpan[] } {
+  const all: ChipSpan[] = [];
+  const worktrees: ChipSpan[] = [];
+  let at = 0;
+  for (const p of pieces) {
+    const length = "ref" in p ? p.raw.length : p.text.length;
+    if (isChip(p)) {
+      const span = { start: at, end: at + length };
+      all.push(span);
+      if ("ref" in p && p.ref.kind === "worktree") worktrees.push(span);
+    }
+    at += length;
+  }
+  return { all, worktrees };
+}
+
 /**
  * Behind the message box: the same text, invisible, with every mention that names someone or
  * something marked, so "@mia" or "@src/auth.ts" shows as a pill while you type. It follows the
@@ -52,7 +71,8 @@ const isChip = (p: MentionPiece): boolean => "ref" in p && (p.ref.kind === "imag
  *
  * An image's reference is drawn as a chip (an icon and the end of its file name) over the room
  * its words take, and so is a pasted worktree link (its branch icon and name): while there is one, the words show from here and the box's own go see-through
- * (its caret and selection stay).
+ * (its caret and selection stay). The words under a chip are one piece: the caret steps over them
+ * and Backspace takes them whole (use-chip-caret.ts).
  */
 /** A box with no mentions to mark (only its images). */
 const NO_MENTIONS: MentionWorld = {
@@ -82,6 +102,8 @@ export function MentionHighlighter({
       .flatMap((p) => withWorktrees(p, names));
   }, [text, world, known]);
   const chips = pieces.some(isChip);
+  const spans = useMemo(() => chipSpans(pieces), [pieces]);
+  useChipCaret(input, text, spans.all, spans.worktrees);
   useEffect(() => {
     const el = input.current;
     if (!el) return;
