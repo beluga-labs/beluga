@@ -272,3 +272,8 @@
 .steadyOff {
   visibility: hidden;
 }
+.repo .itemName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

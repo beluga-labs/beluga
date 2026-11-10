@@ -347,6 +347,40 @@ test('Clone lists your GitHub repositories: pick one and its address fills in', 
   await expect(sheet).toBeHidden();
 });
 
+test('Clone with a hundred repositories and long names stays inside a short window', async ({ page }) => {
+  const { existsSync, readFileSync, writeFileSync } = await import('node:fs');
+  const path = await import('node:path');
+  const file = path.join(process.env.BELUGA_HOME!, 'fake-gh.json');
+  const before = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as object) : { prs: {} };
+  const long = 'a-repository-with-a-really-long-name-that-goes-on-and-on-and-on-and-keeps-going-past-the-edge-of-the-sheet';
+  const repos = Array.from({ length: 100 }, (_, i) => {
+    const name = i % 3 === 0 ? `${long}-${i}` : `repo-${i}`;
+    const owner = i % 4 === 0 ? 'an-organization-with-a-very-long-name-indeed' : 'you';
+    return { full_name: `${owner}/${name}`, clone_url: `https://github.com/${owner}/${name}.git`, private: i % 2 === 0, pushed_at: new Date(Date.now() - i * 86_400_000).toISOString(), description: 'A description that is far too long to fit on one line of this sheet, so it has to end with an ellipsis somewhere'.repeat(2) };
+  });
+  writeFileSync(file, JSON.stringify({ ...before, repos }));
+  await page.setViewportSize({ width: 820, height: 560 });
+  await sidebar(page).getByRole('button', { name: /Add a project/ }).first().click();
+  await page.getByRole('menuitem', { name: 'Clone from Git…' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Clone a project' });
+  const list = sheet.getByRole('list');
+  await expect(list.getByRole('listitem')).toHaveCount(100);
+  // The list scrolls inside the sheet; the sheet, its address and its buttons stay on screen.
+  const box = (await sheet.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(560);
+  await expect(sheet.getByRole('button', { name: 'Clone Project' })).toBeInViewport({ ratio: 1 });
+  await expect(sheet.getByRole('textbox', { name: 'Git address' })).toBeInViewport({ ratio: 1 });
+  const sizes = await list.evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight, wide: el.scrollWidth - el.clientWidth }));
+  expect(sizes.scroll).toBeGreaterThan(sizes.client);
+  // Long names end in an ellipsis instead of pushing the list sideways.
+  expect(sizes.wide).toBe(0);
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/clone-many-repos-short-window.png` });
+  await list.getByRole('listitem').nth(99).scrollIntoViewIfNeeded();
+  await list.getByRole('listitem').nth(99).click();
+  await expect(sheet.getByRole('textbox', { name: 'Git address' })).toHaveValue(/-99\.git$/);
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+});
+
 // ---- images in the chat, and the queue
 
 /** A 1×1 PNG, pasted into the box the way ⌘V hands an image to the web view. */
