@@ -2,21 +2,20 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useRef, useState } from 'react';
 import type { SupportAnswer } from '@beluga/core/support-store.js';
 import avatar from '../assets/maintainer.png';
-import { Confetti } from '../components/Confetti.js';
 import { Icon } from '../components/Icon.js';
-import { cx } from '../components/ui.js';
 import { GitHubMark } from '../components/GitHubMark.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import { GITHUB_URL, MAINTAINER, closeSupport, useOpenedSupport } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { useClock, windowActive } from '../lib/window-active.js';
-import { StarScene } from './StarScene.js';
+import { StarGlyph, StarScene } from './StarScene.js';
 import s from './support.module.css';
 
 /**
  * The one ask merged work brings (core/support-store.ts): a star on GitHub after the third merge,
- * with confetti and a living picture (StarScene.tsx), and how many starred it already. It waits for a calm moment (no other sheet up, the window in front), so it never
- * lands on top of what you're doing. Opened by hand (Settings › About, the palette) it's the same
+ * with Beluga's icon in a calm, moving picture (StarScene.tsx) and how many starred it already. It
+ * waits for a calm moment (no other sheet up, the window in front), so it never lands on top of
+ * what you're doing. Opened by hand (Settings › About, the palette) it's the same
  * sheet, and answering it tells the daemon nothing. Beluga never asks for money.
  */
 export function SupportSheets() {
@@ -75,7 +74,7 @@ const WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'E
 /** The headline: the merges that brought it, or a plain question when you opened it yourself. */
 function titleFor(merges: number, byHand: boolean): string {
   if (byHand) return 'Enjoying Beluga?';
-  return `${WORDS[merges] ?? merges} merges in!`;
+  return `${WORDS[merges] ?? merges} merges, all landed`;
 }
 
 interface StarSheetProps {
@@ -88,69 +87,60 @@ interface StarSheetProps {
 function StarSheet({ merges, stars, byHand, onAnswer }: StarSheetProps) {
   const later = byHand ? 'Close' : 'Maybe later';
   return (
-    <>
-      {byHand ? null : <Confetti />}
-      <Dialog.Root open onOpenChange={(v) => (v ? undefined : onAnswer('later'))}>
-        <Dialog.Portal>
-          <Dialog.Overlay className={s.overlay} />
-          <Dialog.Content className={s.sheet} data-support="star" aria-describedby={undefined} onOpenAutoFocus={(e) => focusMain(e)}>
-            <div className={s.band}>
-              <StarScene />
-              <Dialog.Close className={s.close} aria-label={later}>
-                <Icon name="x" size={12} />
-              </Dialog.Close>
-            </div>
-            {byHand ? null : <MergeTrail merges={merges} />}
-            <div className={cx(s.body, byHand && s.bodyByHand)}>
-              <Dialog.Title className={s.title}>{titleFor(merges, byHand)}</Dialog.Title>
-              <p className={s.lead}>
-                {byHand ? '' : 'Your work keeps landing. '}Beluga is free and open source, made by <MaintainerChip />
-              </p>
-              <StarCount stars={stars} />
-              <button
-                type="button"
-                data-main
-                className={s.main}
-                onClick={() => {
-                  void openExternal(GITHUB_URL);
-                  onAnswer('yes');
-                }}
-              >
+    <Dialog.Root open onOpenChange={(v) => (v ? undefined : onAnswer('later'))}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={s.overlay} />
+        <Dialog.Content className={s.sheet} data-support="star" aria-describedby={undefined} onOpenAutoFocus={(e) => focusMain(e)}>
+          <div className={s.band}>
+            <StarScene />
+            <Dialog.Close className={s.close} aria-label={later}>
+              <Icon name="x" size={12} />
+            </Dialog.Close>
+          </div>
+          <div className={s.body}>
+            {byHand ? null : (
+              <span className={s.eyebrow}>
+                <Icon name="merge" size={12} />
+                {merges} pieces of work merged with Beluga
+              </span>
+            )}
+            <Dialog.Title className={s.title}>{titleFor(merges, byHand)}</Dialog.Title>
+            <p className={s.lead}>
+              Beluga is free and open source, made by <MaintainerChip />
+              <br />
+              If it has earned a place in your workflow, a star helps other developers find it.
+            </p>
+            <button
+              type="button"
+              data-main
+              className={s.main}
+              onClick={() => {
+                void openExternal(GITHUB_URL);
+                onAnswer('yes');
+              }}
+            >
+              <span className={s.mainLabel}>
                 <span className={s.mainStar}>
-                  <Icon name="star" size={16} />
+                  <StarGlyph size={16} />
                 </span>
                 Star Beluga on GitHub
-              </button>
+              </span>
+              {stars === undefined ? null : <span className={s.mainCount}>{stars.toLocaleString()}</span>}
+            </button>
+            <div className={s.foot}>
+              {stars === undefined ? null : (
+                <>
+                  <span>Yours would be star #{(stars + 1).toLocaleString()}</span>
+                  <span className={s.dot} aria-hidden="true" />
+                </>
+              )}
               <button type="button" className={s.quietButton} onClick={() => onAnswer('later')}>
                 {later}
               </button>
             </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-    </>
-  );
-}
-
-/** How many already starred it, and where you'd land; without a number, why a star matters. */
-function StarCount({ stars }: { readonly stars?: number }) {
-  if (stars === undefined) return <p className={s.count}>Stars are how other developers find Beluga, and every one of them counts.</p>;
-  return (
-    <p className={s.count}>
-      <strong>{stars.toLocaleString()}</strong> developers starred Beluga. Yours would be <span className={s.next}>#{(stars + 1).toLocaleString()}</span>
-    </p>
-  );
-}
-
-/** The merges that brought it, as bright coins with a tick, sitting on the picture's edge. */
-function MergeTrail({ merges }: { readonly merges: number }) {
-  return (
-    <div className={s.trail} aria-label={`${merges} pieces of work merged`}>
-      {[0, 1, 2].map((i) => (
-        <span key={i} className={s.coin} style={{ animationDelay: `${260 + i * 140}ms` }}>
-          <Icon name="check" size={17} />
-        </span>
-      ))}
-    </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

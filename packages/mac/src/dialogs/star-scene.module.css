@@ -1,195 +1,138 @@
-/* The Star sheet's picture (StarScene.tsx): a pastel evening sea, the whale leaping, no glow. */
+/* The Star sheet's picture (StarScene.tsx): the app icon over a dot grid, ripples, an amber star badge. */
 .scene {
-  display: block;
-  width: 100%;
-  height: 100%;
+  --dots: #c9d0da;
+  --ripple: rgba(44, 62, 92, 0.2);
+  --ring: #f3f5f8;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+:global([data-theme='dark']) .scene {
+  --dots: rgba(255, 255, 255, 0.09);
+  --ripple: rgba(255, 255, 255, 0.13);
+  --ring: #15171c;
 }
 
-.sun {
-  fill: #fff2c2;
+/* A faint dot grid that fades out toward the edges. */
+.grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--dots) 1px, transparent 1.2px);
+  background-size: 14px 14px;
+  background-position: center;
+  mask-image: radial-gradient(60% 75% at 50% 50%, #000 0%, transparent 100%);
 }
-.cloud {
-  fill: rgba(255, 255, 255, 0.82);
+
+/* Ripples spreading from the icon, like water. */
+.ripples {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
 }
-.sparkle {
-  fill: #ffffff;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: twinkle 2.6s ease-in-out infinite;
-}
-.seaBack {
-  fill: #c4e3fb;
-}
-.seaMid {
-  fill: #9ccdf4;
-}
-.seaFront {
-  fill: #79b6eb;
-}
-.whale {
-  fill: #ffffff;
-}
-.whaleLine {
-  fill: #4a5384;
-  stroke: #4a5384;
-}
-.star {
-  fill: #ffd45e;
-  stroke: #e9a93a;
-}
-.drop {
-  fill: #ffffff;
-  stroke: #9ccdf4;
-  stroke-width: 1;
+.ripple {
+  grid-area: 1 / 1;
+  width: 96px;
+  height: 96px;
+  border-radius: 30px;
+  border: 1px solid var(--ripple);
   opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: spout 4.2s ease-out infinite;
+  animation: ripple 5.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
 }
-.glint {
-  fill: rgba(255, 255, 255, 0.85);
-  animation: glint 3.4s ease-in-out infinite;
+.ripple:nth-child(2) {
+  animation-delay: 1.8s;
 }
-
-:global([data-theme='dark']) .sun {
-  fill: #f4eedc;
+.ripple:nth-child(3) {
+  animation-delay: 3.6s;
 }
-:global([data-theme='dark']) .cloud {
-  fill: rgba(255, 255, 255, 0.14);
-}
-:global([data-theme='dark']) .seaBack {
-  fill: #3c5a82;
-}
-:global([data-theme='dark']) .seaMid {
-  fill: #33507a;
-}
-:global([data-theme='dark']) .seaFront {
-  fill: #2a4469;
-}
-:global([data-theme='dark']) .whale {
-  fill: #f3f1fb;
-}
-:global([data-theme='dark']) .whaleLine {
-  fill: #1f2340;
-  stroke: #1f2340;
-}
-:global([data-theme='dark']) .drop {
-  stroke: #5f86b5;
-}
-:global([data-theme='dark']) .glint {
-  fill: rgba(255, 255, 255, 0.35);
-}
-
-/* ---- the movement */
-.bob {
-  transform-box: fill-box;
-  transform-origin: 50% 80%;
-  animation: bob 3.2s ease-in-out infinite alternate;
-}
-@keyframes bob {
-  from {
-    transform: translateY(2px) rotate(-2.5deg);
-  }
-  to {
-    transform: translateY(-6px) rotate(2deg);
-  }
-}
-.hop {
-  animation: hop 1.6s cubic-bezier(0.33, 0, 0.3, 1) infinite;
-}
-@keyframes hop {
+@keyframes ripple {
   0% {
-    transform: translateY(0) rotate(0deg) scale(1.08, 0.88);
-  }
-  12% {
-    transform: translateY(-2px) rotate(4deg) scale(0.95, 1.06);
-  }
-  50% {
-    transform: translateY(-17px) rotate(36deg) scale(1, 1);
-  }
-  88% {
-    transform: translateY(-1px) rotate(68deg) scale(0.97, 1.04);
-  }
-  100% {
-    transform: translateY(0) rotate(72deg) scale(1.08, 0.88);
-  }
-}
-.drop:nth-child(odd) {
-  animation-duration: 4.2s;
-}
-@keyframes spout {
-  0%,
-  62% {
     opacity: 0;
-    transform: translate(0, 0) scale(0.6);
-  }
-  66% {
-    opacity: 1;
-  }
-  80% {
-    opacity: 1;
-    transform: translate(var(--dx), -26px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(calc(var(--dx) * 1.8), -8px) scale(0.7);
-  }
-}
-.waveBack,
-.waveMid,
-.waveFront {
-  animation: slide linear infinite;
-}
-.waveBack {
-  --period: -115px;
-  animation-duration: 11s;
-}
-.waveMid {
-  --period: -153.33px;
-  animation-duration: 8s;
-  animation-direction: reverse;
-}
-.waveFront {
-  --period: -115px;
-  animation-duration: 5.5s;
-}
-@keyframes slide {
-  to {
-    transform: translateX(var(--period));
-  }
-}
-.cloudA {
-  animation: drift 16s ease-in-out infinite alternate;
-}
-.cloudB {
-  animation: drift 21s ease-in-out infinite alternate-reverse;
-}
-@keyframes drift {
-  from {
-    transform: translateX(-14px);
-  }
-  to {
-    transform: translateX(18px);
-  }
-}
-@keyframes twinkle {
-  0%,
-  100% {
-    opacity: 1;
     transform: scale(1);
   }
-  50% {
-    opacity: 0.25;
-    transform: scale(0.55);
+  12% {
+    opacity: 1;
   }
-}
-@keyframes glint {
-  0%,
   100% {
     opacity: 0;
+    transform: scale(2.7);
+    border-radius: 48px;
+  }
+}
+
+/* The app icon, floating. */
+.float {
+  position: relative;
+  animation: float 4.8s ease-in-out infinite;
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(2px);
   }
   50% {
-    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+.tile {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #2a2c31 0%, #0b0c0e 100%);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(10, 14, 22, 0.12),
+    0 12px 28px rgba(10, 14, 22, 0.2);
+}
+:global([data-theme='dark']) .tile {
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.16),
+    0 12px 28px rgba(0, 0, 0, 0.45);
+}
+.whale {
+  width: 62px;
+  height: 50px;
+  fill: #ffffff;
+}
+
+/* The star badge on the icon's corner: pops in, then tips now and then. */
+.badge {
+  position: absolute;
+  top: -9px;
+  right: -11px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #e8a317;
+  box-shadow: 0 0 0 3px var(--ring);
+  animation:
+    badgeIn 520ms cubic-bezier(0.3, 1.5, 0.5, 1) 380ms both,
+    tip 6s ease-in-out 1.6s infinite;
+}
+@keyframes badgeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.2) rotate(-40deg);
+  }
+}
+@keyframes tip {
+  0%,
+  86%,
+  100% {
+    transform: rotate(0deg);
+  }
+  90% {
+    transform: rotate(-14deg);
+  }
+  95% {
+    transform: rotate(10deg);
   }
 }
 
@@ -197,9 +140,15 @@
 :global([data-motion='reduce']) .scene {
   animation: none !important;
 }
+:global([data-motion='reduce']) .ripple {
+  opacity: 0;
+}
 @media (prefers-reduced-motion: reduce) {
   .scene,
   .scene * {
     animation: none !important;
+  }
+  .ripple {
+    opacity: 0;
   }
 }
