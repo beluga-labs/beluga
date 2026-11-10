@@ -198,6 +198,20 @@ describe('the counter', () => {
     expect(listPrs).toHaveBeenCalledTimes(1);
     counter.stop();
   });
+
+  it('asks GitHub about every project, past Chats (listed first, with no folder)', async () => {
+    const store = new Store(initialState('test', 'ask'));
+    store.dispatch({ type: 'identity', selfId: SELF, isHost: true });
+    const chats: Project = { id: 'chats', name: 'Chats', root: '', base: '', workspaces: [] };
+    store.dispatch({ type: 'projects', projects: [chats, project([ws('a')])] });
+    const merged = [{ number: 7, headRefName: 'beluga/a', createdAt: new Date(NOW - DAY).toISOString(), mergedAt: new Date(NOW).toISOString(), additions: 12, deletions: 3 }];
+    const listPrs = vi.fn(async () => JSON.stringify(merged));
+    const counter = new StatsCounter({ store, file: null, historyDir: null, listPrs, now: () => NOW });
+    await counter.backfill();
+    expect(listPrs).toHaveBeenCalledWith(ROOT);
+    expect(totalsOf(counter.snapshot(), '')).toMatchObject({ prsMerged: 1, linesAdded: 12, linesRemoved: 3 });
+    counter.stop();
+  });
 });
 
 describe('the API', () => {

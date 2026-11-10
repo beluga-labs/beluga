@@ -208,7 +208,9 @@ export class StatsCounter {
     if (this.noGitHub) return;
     const list = this.deps.listPrs ?? defaultListPrs;
     for (const p of this.deps.store.getState().projects) {
-      if (this.stopped || !p.root) return;
+      if (this.stopped) return;
+      // Chats (always listed first) has no folder and no pull requests: skipped, never the end of the list.
+      if (!p.root) continue;
       if (this.now() - (this.data.prsAt[p.root] ?? 0) < PRS_EVERY_MS) continue;
       const branches = belugaBranches(p, this.agentOf);
       try {
