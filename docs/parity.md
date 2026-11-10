@@ -466,6 +466,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `projects.suggest` | ✓ "On this Mac" in the Add projects sheet |
 | `projects.create` | ✓ Add projects sheet › Start new, New Project… in the Projects + menu and the palette |
 | `projects.clone` | ✓ Add projects sheet › Clone, Clone from Git… in the Projects + menu, Clone a project… in the palette: paste a git address (https or ssh); a repository you have already opens instead |
+| `projects.myRepos` | ✓ Add projects sheet › Clone: "Your repositories" from GitHub (gh's sign-in), filter and pick one; ones you have already say Here |
 | `projects.newHome` | ✓ the location a new project goes in, in Add projects › Start new |
 | `projects.icon` | ✓ project icons in the sidebar |
 | `projects.iconAt` | ✓ icons of suggested folders |

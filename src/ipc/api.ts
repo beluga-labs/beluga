@@ -497,6 +497,8 @@ export const API = {
   'projects.clone': args(z.string().min(1).max(500), opt(path)),
   // Where a new project goes unless you pick somewhere.
   'projects.newHome': args(),
+  // Your GitHub repositories (through gh's sign-in), most recently pushed first, for the Clone tab → { gh, repos: [{ fullName, url, private, pushedAt, here? }] }.
+  'projects.myRepos': args(),
   // The icon of a folder that isn't a project yet (one of the suggestions).
   'projects.iconAt': args(path),
 

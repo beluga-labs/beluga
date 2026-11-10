@@ -15,6 +15,7 @@ import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
 import { cloneProject, createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
 import { sameRepo } from '../shared/repo-key.js';
+import { listMyReposHere } from '../workspaces/github-repos.js';
 import { projectId } from '../workspaces/manager.js';
 import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
@@ -434,6 +435,10 @@ export const HANDLERS = {
     return { id: added?.project?.id ?? projectId(dir), path: dir };
   },
   'projects.newHome': () => defaultProjectsHome(),
+  'projects.myRepos': (s) => {
+    const roots = s.store.getState().projects.map((p) => p.root).filter(Boolean);
+    return listMyReposHere(async () => (await Promise.all(roots.map((r) => tryGit(r, ['remote', 'get-url', 'origin'])))).flatMap((o) => (o?.trim() ? [o.trim()] : [])));
+  },
   'local.listDirs': (s, dir) => {
     const entries = listLocalDirs(dir);
     s.store.dispatch({ type: 'dir_cache', key: localDirKey(dir), entries });
