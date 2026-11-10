@@ -322,6 +322,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'support.answer': 'drive',
   // ---- stats
   'stats.get': 'drive',
+  'stats.leaderboard': 'drive',
   'stats.note': 'drive',
   'stats.saveImage': 'drive',
   // ---- diagnostics

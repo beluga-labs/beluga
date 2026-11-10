@@ -560,6 +560,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'agentTerm.takeOver': { refused: AGENT_TERM },
   'agentTerm.visual': 'ui_only',
   'stats.get': { refused: STATS },
+  'stats.leaderboard': { refused: STATS },
   'stats.note': { refused: STATS },
   'stats.saveImage': { refused: SAVE_PANEL },
   'preview.open': { refused: PREVIEW },

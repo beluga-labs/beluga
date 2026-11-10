@@ -27,6 +27,7 @@ export async function codexComplete(req: CompletionRequest, deps: { readonly con
   const stop = (): void => void conn.proc.kill();
   req.signal?.addEventListener('abort', stop, { once: true });
   try {
+    if (req.signal?.aborted) throw new Error('aborted');
     const { rpc } = conn;
     let answer = '';
     const done = new Promise<Turn>((resolve) =>
