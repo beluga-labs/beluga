@@ -1,7 +1,7 @@
-import { BOARD_DAYS, type BoardDay, type BoardDays } from '../../shared/leaderboard.js';
+import { BOARD_DAYS, type BoardDay, type BoardDays, type BoardPerson } from '../../shared/leaderboard.js';
 import { statDay } from '../../shared/stats.js';
 import type { Mesh } from '../../net/mesh/mesh.js';
-import { meshBoardLinks } from './launch.js';
+import { meshBoardLinks } from './links.js';
 import { Leaderboard } from './service.js';
 
 /**
@@ -44,4 +44,16 @@ export function startDemoBoard(mesh: Mesh, pace: DemoPace): () => void {
   const board = new Leaderboard({ links: meshBoardLinks(mesh), mine: () => demoBoardDays(pace, Date.now()), file: null });
   board.start();
   return () => board.stop();
+}
+
+const CROWD = ['ata', 'noor', 'leo', 'sam', 'ivy', 'kenji', 'lucia', 'omar', 'priya', 'tom', 'zoe', 'felix', 'hana', 'ravi', 'elif', 'max', 'nina', 'yusuf'];
+
+/** A crowd of made-up friends with numbers (BELUGA_DEMO_SCENE=crowd): how the board looks with many. */
+export function demoCrowd(now: number): BoardPerson[] {
+  return CROWD.map((name, i) => ({
+    peerId: `crowd${String(i).padStart(2, '0')}`.padEnd(32, 'x'),
+    name,
+    online: i % 3 !== 0,
+    days: demoBoardDays({ chars: 1_500 + noise(i + 1) * 9_000, prs: 0.1 + noise(i + 5) * 0.7, hours: 0.5 + noise(i + 9) * 7, seed: 20 + i }, now),
+  }));
 }

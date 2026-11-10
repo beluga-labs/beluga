@@ -1,11 +1,13 @@
 import path from 'node:path';
-import type { Mesh } from '../../net/mesh/mesh.js';
 import { type BoardDays, type BoardPerson, type LeaderboardView, boardDaysOf } from '../../shared/leaderboard.js';
 import { belugaHome } from '../home.js';
 import { watchNetwork } from '../network.js';
 import { maybeStatsOf } from '../stats/counter.js';
 import type { Store } from '../store.js';
-import { type BoardLinks, Leaderboard } from './service.js';
+import { belugaEnv } from '../beluga-env.js';
+import { demoCrowd } from './demo.js';
+import { meshBoardLinks } from './links.js';
+import { Leaderboard } from './service.js';
 
 /**
  * The leaderboard for the daemon (BLG-904), whenever the network is on: your days go to your
@@ -14,22 +16,8 @@ import { type BoardLinks, Leaderboard } from './service.js';
  */
 
 const boards = new WeakMap<object, Leaderboard>();
-
-/** Friends' links, as the swap sees them. */
-export function meshBoardLinks(mesh: Mesh): BoardLinks {
-  return {
-    linked: () => mesh.linkedFriends(),
-    send: (peerId, payload) => mesh.sendStats(peerId, payload),
-    onFrame: (fn) => {
-      mesh.on('stats', fn);
-      return () => void mesh.off('stats', fn);
-    },
-    onLink: (fn) => {
-      mesh.on('link', fn);
-      return () => void mesh.off('link', fn);
-    },
-  };
-}
+/** Sessions running the demo (BELUGA_DEMO_SCENE=crowd adds a crowd of made-up friends to the board). */
+const demos = new WeakSet<object>();
 
 /** Your days now, from your stats (none before the counter runs). */
 function mineOf(session: object): BoardDays | undefined {
@@ -39,6 +27,7 @@ function mineOf(session: object): BoardDays | undefined {
 
 export function launchLeaderboard(host: { readonly session: object; readonly store: Store; readonly demo: boolean }): () => void {
   const { session } = host;
+  if (host.demo) demos.add(session);
   let current: Leaderboard | undefined;
   const off = watchNetwork(session, (service) => {
     current?.stop();
@@ -70,5 +59,7 @@ export function leaderboardView(session: object, store: Store): LeaderboardView 
     const old = !theirs && f.beluga && !f.beluga.can.includes('stats.board');
     return { peerId: f.peerId, name: f.name, online: f.online, ...(theirs ? { days: theirs.days, at: theirs.at } : {}), ...(old ? { old: true as const } : {}) };
   });
-  return { network: true, people: [me, ...friends] };
+  // BELUGA_DEMO_SCENE=crowd: a board with many friends (screenshots of how it holds up).
+  const crowd = demos.has(session) && belugaEnv('DEMO_SCENE') === 'crowd' ? demoCrowd(Date.now()) : [];
+  return { network: true, people: [me, ...friends, ...crowd] };
 }

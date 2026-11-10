@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { meshBoardLinks } from '../../src/core/leaderboard/launch.js';
+import { meshBoardLinks } from '../../src/core/leaderboard/links.js';
 import { boardFrame, parseBoardFrame } from '../../src/core/leaderboard/protocol.js';
 import { type BoardLinks, Leaderboard } from '../../src/core/leaderboard/service.js';
 import type { BoardDays } from '../../src/shared/leaderboard.js';

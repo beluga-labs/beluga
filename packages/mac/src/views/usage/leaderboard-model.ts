@@ -103,5 +103,50 @@ export function racesOf(view: LeaderboardView, range: BoardRange, now: number): 
   });
 }
 
+// ---------------------------------------------------------------- many friends
+
+/** Standings rows shown before "Show all". */
+export const STANDINGS_SHOWN = 8;
+/** Figures under each number before "and N more". */
+export const FIGURES_SHOWN = 4;
+/** How close two faces on the shared line may be (of its length) before the lower one becomes a dot. */
+export const FACE_GAP = 0.12;
+/** Faces on the shared line at most (the leader and you among them); the rest are dots. */
+export const FACES_SHOWN = 5;
+
+/**
+ * Which rows a list shows: the first `limit`, and you after them when you're further down (so you
+ * always see where you stand). `hidden`: how many aren't shown; `gap`: you come after a jump.
+ */
+export function shortList<T extends { readonly person: BoardPerson }>(items: readonly T[], limit: number): { shown: T[]; hidden: number; gap: boolean } {
+  if (items.length <= limit) return { shown: [...items], hidden: 0, gap: false };
+  const head = items.slice(0, limit - 1);
+  const me = items.findIndex((x) => x.person.me);
+  const tail = me >= limit - 1 ? items[me]! : items[limit - 1]!;
+  return { shown: [...head, tail], hidden: items.length - limit, gap: me > limit - 1 };
+}
+
+/**
+ * How each one shows on the shared line: a face for the leader, for you, and for the next with room
+ * around them (five faces at most); a small dot for the rest, so a crowd never piles up into a heap.
+ */
+export function markKinds(lanes: readonly Lane[], gap = FACE_GAP, most = FACES_SHOWN): Map<string, 'face' | 'dot'> {
+  const out = new Map<string, 'face' | 'dot'>();
+  const faces: number[] = [];
+  const me = lanes.find((l) => l.person.me);
+  const take = (l: Lane): void => {
+    out.set(l.person.peerId, 'face');
+    faces.push(l.of);
+  };
+  if (lanes[0]) take(lanes[0]);
+  if (me && !out.has(me.person.peerId)) take(me);
+  for (const l of lanes) {
+    if (out.has(l.person.peerId)) continue;
+    if (faces.length < most && faces.every((f) => Math.abs(f - l.of) >= gap)) take(l);
+    else out.set(l.person.peerId, 'dot');
+  }
+  return out;
+}
+
 /** Has anyone friends on the board (beside you)? */
 export const hasFriends = (view: LeaderboardView): boolean => view.people.some((p) => !p.me);

@@ -40,12 +40,33 @@
 
 /* ------------------------------------------------------------ standings */
 
+.standingsWrap {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 4px;
+}
 .standings {
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 10px 12px 4px;
+  padding: 0;
   list-style: none;
+}
+/* You, after a jump past the rows not shown. */
+.gapRow {
+  height: 1px;
+  margin: 6px 10px;
+  background: repeating-linear-gradient(to right, var(--card-line) 0 4px, transparent 4px 8px);
+}
+.standingsFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 8px 10px 2px;
+}
+.more {
+  margin-left: auto;
 }
 .row {
   display: grid;
@@ -58,9 +79,6 @@
 }
 .rowMe {
   background: color-mix(in srgb, var(--card) 92%, var(--text) 4%);
-}
-.rowWaiting .name {
-  color: var(--text-3);
 }
 .place {
   color: var(--text-3);
@@ -117,9 +135,8 @@
   font-weight: 500;
 }
 .note {
-  grid-column: 3 / -1;
   color: var(--text-3);
-  font-size: 0.88rem;
+  font-size: 0.86rem;
 }
 
 .legend {
@@ -224,6 +241,17 @@
     0 0 0 3.5px var(--b);
 }
 
+.dot {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--b) 45%, var(--card));
+  box-shadow: 0 0 0 1.5px var(--card);
+  transform: translate(-50%, -50%);
+  transition: left 800ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
 .figures {
   display: flex;
   flex-direction: column;
@@ -254,6 +282,16 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.figureGap {
+  height: 1px;
+  margin: 3px 0;
+  background: repeating-linear-gradient(to right, var(--card-line) 0 4px, transparent 4px 8px);
+}
+.fMore {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 0.82rem;
+}
 .fVs {
   color: var(--text-3);
   font-size: 0.82rem;
@@ -263,7 +301,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .barFill,
-  .mark {
+  .mark,
+  .dot {
     transition: none;
   }
 }

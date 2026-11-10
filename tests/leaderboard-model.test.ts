@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type BoardPerson, type LeaderboardView, boardDaysOf, boardTotals } from '../src/shared/leaderboard.js';
 import { EMPTY_STATS, type StatsSnapshot, statDay } from '../src/shared/stats.js';
-import { boardRows, hasFriends, headlineOf, racesOf, times } from '../packages/mac/src/views/usage/leaderboard-model.js';
+import { boardRows, hasFriends, headlineOf, markKinds, racesOf, shortList, times } from '../packages/mac/src/views/usage/leaderboard-model.js';
 
 const NOW = new Date(2026, 10, 10, 15).getTime();
 const day = (ago: number): string => statDay(new Date(2026, 10, 10 - ago, 12).getTime());
@@ -91,5 +91,26 @@ describe('the board', () => {
     expect(times(2.43)).toBe('2.4×');
     expect(times(2)).toBe('2×');
     expect(times(12.6)).toBe('13×');
+  });
+
+  it('with many friends, shows the first few and you after a jump', () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({ person: person(`p${i}`, [1, 0, 0], i === 14) }));
+    const short = shortList(items, 8);
+    expect(short.shown.map((x) => x.person.name)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p14']);
+    expect(short).toMatchObject({ hidden: 12, gap: true });
+    const near = shortList(items.map((x, i) => ({ person: person(`p${i}`, [1, 0, 0], i === 3) })), 8);
+    expect(near.shown.map((x) => x.person.name)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']);
+    expect(near.gap).toBe(false);
+    expect(shortList(items.slice(0, 5), 8)).toMatchObject({ hidden: 0, gap: false });
+  });
+
+  it('puts faces on the shared line only where there is room, five at most, the leader and you always', () => {
+    const lane = (name: string, of: number, me = false) => ({ person: person(name, [0, 0, 0], me), value: of, of });
+    const lanes = [lane('a', 1), lane('b', 0.98), lane('c', 0.8), lane('d', 0.6), lane('me', 0.59, true), lane('e', 0.4), lane('f', 0.2), lane('g', 0.05)];
+    const kinds = markKinds(lanes);
+    const faces = lanes.filter((l) => kinds.get(l.person.peerId) === 'face').map((l) => l.person.name);
+    expect(faces).toEqual(['a', 'c', 'me', 'e', 'f']);
+    expect(kinds.get(lanes[1]!.person.peerId)).toBe('dot');
+    expect(kinds.get(lanes[3]!.person.peerId)).toBe('dot');
   });
 });
