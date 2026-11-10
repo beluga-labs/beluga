@@ -90,6 +90,11 @@ describe('"My agent asks before commands" on Codex', () => {
 });
 
 describe("Beluga's tools on Codex", () => {
+  it.each(['beluga_plan', 'beluga_board'])('lets %s calls reach Beluga\'s own permission gate', (name) => {
+    const config = mcpConfig({ [name]: { type: 'stdio', command: 'node', args: [], env: {} } });
+    expect(config[`mcp_servers.${name}`]).toMatchObject({ default_tools_approval_mode: 'approve' });
+  });
+
   it('waits long enough for a tool that waits on you or a friend (tool_timeout_sec)', async () => {
     expect(TOOL_TIMEOUT_SEC).toBeGreaterThanOrEqual(900);
     expect(mcpConfig({ beluga: { type: 'stdio', command: 'node', args: [], env: {} } })['mcp_servers.beluga']).toMatchObject({ tool_timeout_sec: TOOL_TIMEOUT_SEC });

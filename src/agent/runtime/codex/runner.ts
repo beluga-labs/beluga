@@ -111,9 +111,9 @@ export function clampEffort(effort: AgentRunInput['effort'], supported: readonly
  */
 export const TOOL_TIMEOUT_SEC = 3600;
 
-/** Beluga's tool servers as Codex config overrides (`mcp_servers.<name>`), for one thread. */
+/** Beluga's mounted servers only: Codex lets calls through to ToolHost's per-call permission gate. */
 export function mcpConfig(servers: Readonly<Record<string, StdioServerConfig>>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(servers).map(([name, s]) => [`mcp_servers.${name}`, { command: s.command, args: s.args, env: s.env, tool_timeout_sec: TOOL_TIMEOUT_SEC }]));
+  return Object.fromEntries(Object.entries(servers).map(([name, s]) => [`mcp_servers.${name}`, { command: s.command, args: s.args, env: s.env, tool_timeout_sec: TOOL_TIMEOUT_SEC, default_tools_approval_mode: 'approve' }]));
 }
 
 /**
