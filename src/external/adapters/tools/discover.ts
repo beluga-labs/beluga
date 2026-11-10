@@ -15,13 +15,20 @@ const FIND_MAX = 20;
 const NAME_MAX = 100;
 const QUERY_MAX = 200;
 
-/** What a client lists: the tools given here, then find and call. `others` stay reachable through those two. */
-export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[]): ExternalToolDef[] {
+/** Ranks by meaning when semantic tool search is on and ready; undefined otherwise (adapters/semantic-search.ts). */
+export type SemanticRanking = (query: string) => Promise<readonly string[] | undefined>;
+
+/**
+ * What a client lists: the tools given here, then find and call. `others` stay reachable through those two.
+ * beluga_find ranks with `semantic` when it answers, and with the built-in BM25 when it has no answer or throws.
+ */
+export function withDiscovery(listed: readonly ExternalToolDef[], others: readonly ExternalToolDef[], semantic?: SemanticRanking): ExternalToolDef[] {
   const reachable = new Map([...listed, ...others].map((def) => [def.name as string, def]));
   const hidden = new Map(others.map((def) => [def.name as string, def]));
   let bm25: ToolRanking | undefined;
   // Made at the first search, a few milliseconds: a Beluga that no agent uses never builds it.
-  const rank = async (query: string): Promise<readonly string[]> => (bm25 ??= bm25Ranking(others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) }))))(query);
+  const lexical = (query: string): readonly string[] => (bm25 ??= bm25Ranking(others.map((def) => ({ name: def.name, description: def.description, inputSchema: schemaOf(def) }))))(query);
+  const rank = async (query: string): Promise<readonly string[]> => (await semantic?.(query).catch(() => undefined)) ?? lexical(query);
   return [
     ...listed,
     {
@@ -50,7 +57,7 @@ export function withDiscovery(listed: readonly ExternalToolDef[], others: readon
   ];
 }
 
-function schemaOf(def: ExternalToolDef): unknown {
+export function schemaOf(def: ExternalToolDef): unknown {
   const { $schema: _schema, ...schema } = z.toJSONSchema(z.object(def.inputSchema), { io: 'input', unrepresentable: 'any' });
   return schema;
 }
