@@ -26,7 +26,8 @@ export function withDiscovery(listed: readonly ExternalToolDef[], others: readon
     ...listed,
     {
       name: 'beluga_find',
-      description: 'Find a tool that is not in this list: tasks, plans, sentinels, git, pull requests, CI, files, terminals, the phone, friends, settings and more. It returns matches with their input schema. Call a match with beluga_call.',
+      description:
+        "Find a tool that is not in this list: tasks, plans, sentinels, git, pull requests, CI, files, terminals, the phone, friends, settings and more. Search with the action and the thing, like 'pause sentinel' or 'archive worktree', not with a name or an id. Beluga's words: a watcher or monitor is a sentinel, a ticket or card on the board is a task, a branch's checkout is a worktree, a multi-step project is a plan, a contact is a friend, the Android phone is the phone. It returns matches with their input schema. Call a match with beluga_call.",
       inputSchema: { query: z.string().min(1).max(QUERY_MAX).describe('Words to look for in tool names and descriptions.'), limit: z.number().int().min(1).max(FIND_MAX).optional() },
       resolve: () => ({ target: '', inScope: true }),
       run: async (args, grant) => {

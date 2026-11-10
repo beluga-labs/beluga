@@ -22,7 +22,7 @@ import { sessionPeers } from './adapters/session-peers.js';
 import { sessionWorkspace } from './adapters/session-workspace.js';
 import { REMOTE_FULL_WARNING } from '../shared/remote-full.js';
 import { LIMITS } from './domain/limits.js';
-import { DISCOVERY_TOOLS } from './domain/tools.js';
+import { ALSO_LISTED, DISCOVERY_TOOLS } from './domain/tools.js';
 import { attachExternal, detachExternal } from './registry.js';
 import { ExternalService } from './service.js';
 
@@ -37,10 +37,12 @@ export function launchExternal(deps: { readonly session: Session; readonly log?:
   const chats = sessionControl(deps.session, { runCap: (id) => LIMITS[service.grants.list().find((g) => g.id === id)?.route ?? 'remote'].runs });
   const methods = sessionMethods(deps.session);
   const chatControl = controlTools(reads, chats);
-  const others = [...stateTools(sessionState(deps.session), chats), ...workspaceTools(reads, sessionWorkspace(deps.session), chats), ...peerTools(sessionPeers(deps.session)), ...methodTools(ALL_METHOD_ROWS, reads, methods, chats.startedBy), ...fileTools(reads, sessionFiles(deps.session), methods), ...peopleTools(methods)];
+  const all = [...stateTools(sessionState(deps.session), chats), ...workspaceTools(reads, sessionWorkspace(deps.session), chats), ...peerTools(sessionPeers(deps.session)), ...methodTools(ALL_METHOD_ROWS, reads, methods, chats.startedBy), ...fileTools(reads, sessionFiles(deps.session), methods), ...peopleTools(methods)];
+  const alsoListed = all.filter((t) => (ALSO_LISTED as readonly string[]).includes(t.name));
+  const others = all.filter((t) => !alsoListed.includes(t));
   const service = new ExternalService({
     ...(deps.log ? { log: deps.log } : {}),
-    tools: withDiscovery([...readTools(reads, { alsoTools: [...chatControl.map((t) => t.name), ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl], others),
+    tools: withDiscovery([...readTools(reads, { alsoTools: [...chatControl.map((t) => t.name), ...ALSO_LISTED, ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl, ...alsoListed], others),
     // A card with no chat waits in the agent's own place, not in the group chat.
     // The agent is the card's peer: its cap on waiting cards applies and a stop finds them. The answer is only for this call, and writes no trust.
     ask: (title, detail, once, card, signal) => deps.session.host.ask('tool', title, detail, card ? externalRequester(card.agentId) : undefined, card?.chatId ? `ws:${card.chatId}` : card ? externalRequester(card.agentId) : 'room', { once, call: true, ...(card ? { asker: card.agent } : {}), ...(signal ? { signal } : {}) }),
