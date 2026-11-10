@@ -37,9 +37,9 @@ test('the palette opens the Star sheet, with no coffee or payment anywhere', asy
 test('the third merge brings the Star sheet by itself', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_ASKS !== 'star', 'needs BELUGA_DEMO_ASKS=star');
   await page.goto('/');
-  const sheet = page.getByRole('dialog', { name: 'Three merges, all landed' });
+  const sheet = page.getByRole('dialog', { name: 'You shipped your 3rd PR with Beluga' });
   await expect(sheet).toBeVisible({ timeout: 15_000 });
-  await expect(sheet.getByText('3 pieces of work merged with Beluga')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Share feedback' })).toBeVisible();
   const shots = process.env.BELUGA_SHOTS;
   if (shots) {
     await page.waitForTimeout(1200);
@@ -54,5 +54,5 @@ test('the third merge brings the Star sheet by itself', async ({ page }) => {
   await sheet.getByRole('button', { name: 'Maybe later' }).last().click();
   await expect(sheet).toBeHidden();
   await page.waitForTimeout(3000);
-  await expect(page.getByRole('dialog', { name: /merges, all landed/ })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: /PR with Beluga/ })).toHaveCount(0);
 });

@@ -5,7 +5,7 @@ import avatar from '../assets/maintainer.png';
 import { Icon } from '../components/Icon.js';
 import { GitHubMark } from '../components/GitHubMark.js';
 import { useApi, useApp } from '../lib/beluga.js';
-import { GITHUB_URL, MAINTAINER, closeSupport, useOpenedSupport } from '../lib/support.js';
+import { FEEDBACK_URL, GITHUB_URL, MAINTAINER, closeSupport, useOpenedSupport } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { useClock, windowActive } from '../lib/window-active.js';
 import { StarGlyph, StarScene } from './StarScene.js';
@@ -13,10 +13,11 @@ import s from './support.module.css';
 
 /**
  * The one ask merged work brings (core/support-store.ts): a star on GitHub after the third merge,
- * with Beluga's icon in a calm, moving picture (StarScene.tsx) and how many starred it already. It
- * waits for a calm moment (no other sheet up, the window in front), so it never lands on top of
- * what you're doing. Opened by hand (Settings › About, the palette) it's the same
- * sheet, and answering it tells the daemon nothing. Beluga never asks for money.
+ * with a paper-cut ocean the whale rises out of (StarScene.tsx), how many starred it already, and a
+ * way to tell us what you think. It waits for a calm moment (no other sheet up, the window in
+ * front), so it never lands on top of what you're doing. Opened by hand (Settings › About, the
+ * palette) it's the same sheet, and answering it tells the daemon nothing. Beluga never asks for
+ * money.
  */
 export function SupportSheets() {
   const api = useApi();
@@ -69,12 +70,16 @@ function focusMain(e: Event): void {
   main.focus();
 }
 
-const WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+/** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st. */
+export function ordinal(n: number): string {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+  return `${n}${suffix}`;
+}
 
-/** The headline: the merges that brought it, or a plain question when you opened it yourself. */
+/** The headline: the work that brought it, or a plain question when you opened it yourself. */
 function titleFor(merges: number, byHand: boolean): string {
-  if (byHand) return 'Enjoying Beluga?';
-  return `${WORDS[merges] ?? merges} merges, all landed`;
+  return byHand ? 'Enjoying Beluga?' : `You shipped your ${ordinal(merges)} PR with Beluga`;
 }
 
 interface StarSheetProps {
@@ -98,17 +103,11 @@ function StarSheet({ merges, stars, byHand, onAnswer }: StarSheetProps) {
             </Dialog.Close>
           </div>
           <div className={s.body}>
-            {byHand ? null : (
-              <span className={s.eyebrow}>
-                <Icon name="merge" size={12} />
-                {merges} pieces of work merged with Beluga
-              </span>
-            )}
             <Dialog.Title className={s.title}>{titleFor(merges, byHand)}</Dialog.Title>
             <p className={s.lead}>
               Beluga is free and open source, made by <MaintainerChip />
               <br />
-              If it has earned a place in your workflow, a star helps other developers find it.
+              How is it working for you? We’d love to hear what you like, and what you don’t.
             </p>
             <button
               type="button"
@@ -126,6 +125,10 @@ function StarSheet({ merges, stars, byHand, onAnswer }: StarSheetProps) {
                 Star Beluga on GitHub
               </span>
               {stars === undefined ? null : <span className={s.mainCount}>{stars.toLocaleString()}</span>}
+            </button>
+            <button type="button" className={s.second} onClick={() => void openExternal(FEEDBACK_URL)}>
+              <Icon name="chat" size={14} />
+              Share feedback
             </button>
             <div className={s.foot}>
               {stars === undefined ? null : (

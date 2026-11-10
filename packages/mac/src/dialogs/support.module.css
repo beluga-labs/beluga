@@ -1,4 +1,4 @@
-/* The Star sheet (SupportSheets.tsx): the app icon in a calm moving picture (StarScene.tsx), neutral words, a GitHub-style star button. */
+/* The Star sheet (SupportSheets.tsx): a paper-cut ocean (StarScene.tsx), neutral words, a GitHub-style star button. */
 .overlay {
   composes: overlay from './sheet.module.css';
 }
@@ -17,12 +17,8 @@
 /* ---- the picture */
 .band {
   position: relative;
-  height: 188px;
-  border-bottom: 0.5px solid var(--hairline);
-  background: linear-gradient(180deg, #f8f9fb 0%, #eef1f5 100%);
-}
-:global([data-theme='dark']) .band {
-  background: linear-gradient(180deg, #191b20 0%, #121418 100%);
+  height: 196px;
+  overflow: hidden;
 }
 .close {
   position: absolute;
@@ -34,16 +30,22 @@
   width: 26px;
   height: 26px;
   border-radius: 13px;
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
-  box-shadow: inset 0 0 0 0.5px var(--hairline);
+  color: #24486e;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 2px rgba(10, 60, 120, 0.12);
   transition:
     color var(--dur-fast),
     background var(--dur-fast);
 }
 .close:hover {
-  color: var(--text);
-  background: var(--bg-raised);
+  background: rgba(255, 255, 255, 0.9);
+}
+:global([data-theme='dark']) .close {
+  color: #dbe6f5;
+  background: rgba(255, 255, 255, 0.12);
+}
+:global([data-theme='dark']) .close:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* ---- the words */
@@ -53,27 +55,6 @@
   align-items: stretch;
   gap: 10px;
   padding: 20px 28px 16px;
-}
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 11px;
-  color: var(--text-2);
-  font-size: 0.8rem;
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-  background: var(--bg-hover);
-  box-shadow: inset 0 0 0 0.5px var(--hairline);
-}
-.eyebrow svg {
-  color: #3f9b6a;
-}
-:global([data-theme='dark']) .eyebrow svg {
-  color: #6fcf97;
 }
 .title {
   margin: 0;
@@ -192,6 +173,31 @@
     0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+/* Share feedback: a quiet outlined button under the star. */
+.second {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  border-radius: 11px;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+  transition: background var(--dur-fast);
+}
+.second:hover {
+  background: var(--bg-hover);
+}
+.second svg {
+  color: var(--text-2);
+}
+.second:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
+}
 .foot {
   display: flex;
   align-items: center;

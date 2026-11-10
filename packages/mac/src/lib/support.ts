@@ -1,13 +1,16 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * Supporting Beluga: a star on GitHub, nothing more (Beluga never asks for money). The ask that
- * comes with the third merge is the daemon's (the shared state's `support`, core/support-store.ts);
- * the Star sheet opened by hand (Settings › About, the palette) is the same sheet, any time, telling
- * the daemon nothing.
+ * Supporting Beluga: a star on GitHub and your feedback, nothing more (Beluga never asks for
+ * money). The ask that comes with the third merge is the daemon's (the shared state's `support`,
+ * core/support-store.ts); the Star sheet opened by hand (Settings › About, the palette) is the same
+ * sheet, any time, telling the daemon nothing.
  */
 
 export const GITHUB_URL = 'https://github.com/beluga-labs/beluga';
+
+/** Where "Share feedback" goes: a new discussion in the repo's General category. */
+export const FEEDBACK_URL = `${GITHUB_URL}/discussions/new?category=general`;
 
 /** Who makes Beluga, shown as a GitHub chip (the avatar ships with the app: the window loads no remote images). */
 export const MAINTAINER = { login: 'kayraucklnc', url: 'https://github.com/kayraucklnc' } as const;
