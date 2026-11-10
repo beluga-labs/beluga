@@ -307,10 +307,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
 
   // Your agents (which run on this Mac), for the room's "@codex" (BLG-520).
   const runtimes = useApp((st) => st.runtimes);
-  // In a friend's worktree "@claude" is their agent, on their Mac (or yours, when it runs in your copy).
+  // In a friend's worktree, "@claude" is yours (reading theirs from here, or in your copy) and "@claude:<them>" theirs.
   const sharedOwner = shared ? state.shared.find((w) => w.id === (state.view as { id: string }).id)?.owner : undefined;
   const ownerName = sharedOwner ? peerName({ ...state, network: { friends: state.friends } }, sharedOwner) : undefined;
-  const claudeHere = !ownerName ? undefined : runOn === 'here' ? { hint: 'ask your agent, in your copy' } : { hint: `ask ${ownerName}’s agent, in their worktree`, owner: ownerName };
+  const claudeHere = !ownerName
+    ? undefined
+    : runOn === 'here'
+      ? { hint: 'ask your agent, in your copy' }
+      : { hint: `ask your agent: it reads ${ownerName}’s worktree from here`, owner: { name: ownerName, hint: `ask ${ownerName}’s agent, in their worktree` } };
   // Suggestions as you type: commands, people and Claudes, workspaces, folders, tasks.
   const suggestions: Suggestion[] = useMemo(
     () =>

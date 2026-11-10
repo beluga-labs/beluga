@@ -128,6 +128,8 @@ export interface AgentRunInput {
   /** "Your Mac" (core/assistant): its tools (the screen, device info, starting work) and what Claude is told it is. */
   readonly macTools?: MacTools;
   readonly macBrief?: string;
+  /** Asked in a friend's worktree (your "@claude" there): whose it is and how to read it from here. */
+  readonly sharedBrief?: string;
   /** Your phone (core/phone): tools to act on your own paired phone, and what Claude is told about it. */
   readonly phoneTools?: PhoneTools;
   readonly phoneBrief?: string;

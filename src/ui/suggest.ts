@@ -55,11 +55,11 @@ export interface SuggestContext {
   /** The room's agent tags ("@codex", "@bob:codex"; shared/agent-tags.ts roomAgentTags), in the room only (BLG-520). */
   readonly agentTags?: readonly AgentTag[];
   /**
-   * Who "@claude" asks here, when it isn't simply your agent: in a friend's worktree, theirs (on their
-   * Mac, where its files are), or yours in your copy. `owner`: the friend whose agent it is, so their
-   * "@claude:<owner>" (the same agent) isn't offered as well.
+   * What "@claude" does here, when it says more than "ask your agent": in a friend's worktree, yours
+   * reading theirs from afar, or yours in your copy. `owner`: that friend's agent there, offered
+   * right under it ("@claude:<owner>") with its own words, instead of where friends' agents go.
    */
-  readonly claudeHere?: { readonly hint: string; readonly owner?: string };
+  readonly claudeHere?: { readonly hint: string; readonly owner?: { readonly name: string; readonly hint: string } };
 }
 
 /** How a friend is written in a message: "@mia" ("@Mia Chen" → "@MiaChen", "@Zoë" stays). */
@@ -231,12 +231,13 @@ function mentionSuggestions(buffer: string, ctx: SuggestContext): Suggestion[] {
       .filter((o) => o.label.toLowerCase() !== token)
       .map((o) => ({ label: o.label, hint: o.hint, value: `${before}${o.label}${o.folder ? '' : ' '}`, enter: 'complete' as const, kind: o.folder ? ('folder' as const) : ('file' as const) }));
   }
-  // In a friend's worktree "@claude" is already their agent: "@claude:<them>" would be it twice.
-  const owner = ctx.claudeHere?.owner?.toLowerCase();
-  const notOwner = (name: string): boolean => owner === undefined || name.toLowerCase() !== owner;
+  // In a friend's worktree their agent comes right under yours, with its own words (not again below).
+  const owner = ctx.claudeHere?.owner;
+  const notOwner = (name: string): boolean => owner === undefined || name.toLowerCase() !== owner.name.toLowerCase();
   // `name`: the friend's handle, so "@mi" offers mia and mia's Claude alike.
   const options: Array<{ label: string; hint: string; kind: SuggestionKind; name?: string; mark?: AgentMark }> = [
     { label: '@claude', hint: ctx.claudeHere?.hint ?? 'ask your agent', kind: 'claude' },
+    ...(owner && friendMention(owner.name).length > 1 ? [{ label: `@claude:${friendMention(owner.name).slice(1)}`, hint: owner.hint, kind: 'claude' as const }] : []),
     // Each agent by name, with its mark (BLG-520): yours ("@codex"), then each person's ("@bob:codex").
     ...(ctx.agentTags ?? []).map((t) => ({ label: t.tag, hint: t.hint, kind: 'claude' as const, mark: t.mark, ...(t.person ? { name: t.person } : {}) })),
     ...ctx.peers
