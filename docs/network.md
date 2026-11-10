@@ -179,6 +179,18 @@ if it's the checksum that person announced, it hashes to it, and it is a small p
 checksum (`PersonView.avatar`, `NetworkSelf.avatar`) and screens get the bytes with `network.avatar.get`,
 so a picture crosses the network once per change and still shows while its owner is away.
 
+## The leaderboard (BLG-904)
+
+Being friends means sharing three numbers a day with each other, for Usage › Leaderboard: the
+characters you wrote to your agents, the pull requests merged, and your agents' working time (the
+run's whole time, tests and waits included). Nothing else goes: no projects, prompts or agents.
+`src/core/leaderboard/` sends your last 400 days as a `stats` frame (`{ v: 1, at, days: { "2026-11-09":
+[chars, prs, agentMs] } }`, checked in `protocol.ts`) when a friend's link comes up and again when
+your numbers changed (looked at every 5 minutes); only friends' frames are taken. What each friend sent
+last is kept in `~/.beluga/leaderboard.json` so they still show while away, and dropped once they're no
+longer a friend. Macs that do it say `stats.board`; a friend's Beluga without it shows as needing an
+update. The Usage tab asks for everyone's with `stats.leaderboard`.
+
 ## Friends from your room (BLG-202)
 
 There is one people list: Friends. Someone in your room who is also a friend is just their friend row,

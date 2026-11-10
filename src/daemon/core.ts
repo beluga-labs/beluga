@@ -35,6 +35,7 @@ import { launchEarnings } from '../core/stripe-launch.js';
 import { launchRevenueCat } from '../core/revenuecat-launch.js';
 import { launchSupport } from '../core/merge-counter.js';
 import { launchStats } from '../core/stats/counter.js';
+import { launchLeaderboard } from '../core/leaderboard/launch.js';
 import { claudeHome, launchClaudeCode } from '../core/claude-code/launch.js';
 import { launchCompanion } from '../companion/launch.js';
 import { launchExternal } from '../external/launch.js';
@@ -382,6 +383,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
   let stopRevenueCat = (): void => undefined;
   let stopSupport = (): void => undefined;
   let stopStats = (): void => undefined;
+  let stopLeaderboard = (): void => undefined;
   let stopClaudeCode = (): void => undefined;
   let stopGateway = (): void => undefined;
   let stopChat = (): void => undefined;
@@ -410,6 +412,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     // Your stats for the Usage tab: prompts, agent time, worktrees, pull requests, by project and agent.
     // BELUGA_DEMO_STATS=sparse: someone with only Claude, a plan without a 5-hour limit, no GitHub CLI, never dictating.
     if (opts.network) stopStats = launchStats({ session, store, demo: Boolean(demo), sparse: belugaEnv('DEMO_STATS') === 'sparse' });
+    // The leaderboard: friends swap three numbers a day (prompt characters, merged PRs, agent time) while the network is on.
+    if (opts.network) stopLeaderboard = launchLeaderboard({ session, store, demo: Boolean(demo) });
     // Claude Code sessions running outside Beluga (Conductor, a terminal): the Mac app shows them live, read-only.
     // Tasks between Claudes (the gateway): over this room now, and over the network whenever it's on.
     if (opts.network) stopGateway = launchGateway({ session, store, demo: Boolean(demo) });
@@ -500,6 +504,7 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
     stopEarnings();
     stopRevenueCat();
     stopSupport();
+    stopLeaderboard();
     stopStats();
     stopClaudeCode();
     await session.stop();

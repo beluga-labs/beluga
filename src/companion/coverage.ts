@@ -327,6 +327,7 @@ export const PHONE: Record<Method, Side> = {
   'support.answer': 'mac',
   // ---- your stats: the Usage tab's charts and what the composer saw (the phone keeps its plan meters)
   'stats.get': 'mac',
+  'stats.leaderboard': 'mac',
   'stats.note': 'mac',
   'stats.saveImage': 'mac',
   'diagnostics.report': 'mac',
