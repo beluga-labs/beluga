@@ -18,22 +18,31 @@ import { sshRemoteOf } from '../src/shared/git-trouble.js';
 const base = mkdtempSync(path.join(os.tmpdir(), 'fetch-ssh-'));
 const sshLog = path.join(base, 'ssh.log');
 
-// A copy of git's own programs whose https helper dies like the AppImage's did.
-const realExec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
-const execDir = path.join(base, 'git-core');
-mkdirSync(execDir);
-for (const name of readdirSync(realExec)) if (!/^git-remote-https?$/.test(name)) symlinkSync(path.join(realExec, name), path.join(execDir, name));
-for (const name of ['git-remote-https', 'git-remote-http']) {
-  writeFileSync(path.join(execDir, name), `#!/bin/sh\necho "$0: symbol lookup error: /lib/x86_64-linux-gnu/libcurl.so.4: undefined symbol: nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation" >&2\nexit 127\n`);
-  chmodSync(path.join(execDir, name), 0o755);
+/**
+ * The stand-ins (a crashing https helper, an "ssh" that serves from here) are shell scripts, which
+ * Git for Windows doesn't run in their place: there git would really go to github.com. So the
+ * end-to-end part runs on macOS and Linux; the rest (words, routes, the AppImage's paths) everywhere.
+ */
+const STAND_INS = process.platform !== 'win32';
+
+if (STAND_INS) {
+  // A copy of git's own programs whose https helper dies like the AppImage's did.
+  const realExec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
+  const execDir = path.join(base, 'git-core');
+  mkdirSync(execDir);
+  for (const name of readdirSync(realExec)) if (!/^git-remote-https?$/.test(name)) symlinkSync(path.join(realExec, name), path.join(execDir, name));
+  for (const name of ['git-remote-https', 'git-remote-http']) {
+    writeFileSync(path.join(execDir, name), `#!/bin/sh\necho "$0: symbol lookup error: /lib/x86_64-linux-gnu/libcurl.so.4: undefined symbol: nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation" >&2\nexit 127\n`);
+    chmodSync(path.join(execDir, name), 0o755);
+  }
+  // git runs: <ssh> [-o SendEnv=GIT_PROTOCOL] git@github.com "git-upload-pack 'me/app.git'": serve it from `base`.
+  const fakeSsh = path.join(base, 'fake-ssh');
+  writeFileSync(fakeSsh, `#!/bin/sh\nfor last; do :; done\necho "$*" >> '${sshLog}'\ncd '${base}' && exec sh -c "$last"\n`);
+  chmodSync(fakeSsh, 0o755);
+  // git.ts reads them once, as it loads: set before it's imported below.
+  process.env.GIT_SSH_COMMAND = fakeSsh;
+  process.env.GIT_EXEC_PATH = execDir;
 }
-// git runs: <ssh> [-o SendEnv=GIT_PROTOCOL] git@github.com "git-upload-pack 'me/app.git'": serve it from `base`.
-const fakeSsh = path.join(base, 'fake-ssh');
-writeFileSync(fakeSsh, `#!/bin/sh\nfor last; do :; done\necho "$*" >> '${sshLog}'\ncd '${base}' && exec sh -c "$last"\n`);
-chmodSync(fakeSsh, 0o755);
-// git.ts reads them once, as it loads: set before it's imported below.
-process.env.GIT_SSH_COMMAND = fakeSsh;
-process.env.GIT_EXEC_PATH = execDir;
 
 let sync: typeof import('../src/workspaces/sync.js');
 let routes: typeof import('../src/workspaces/ssh-routes.js');
@@ -63,6 +72,7 @@ function seedCommits(file: string): string {
 
 beforeAll(async () => {
   [sync, routes, pr, gitTs] = await Promise.all([import('../src/workspaces/sync.js'), import('../src/workspaces/ssh-routes.js'), import('../src/workspaces/pr.js'), import('../src/workspaces/git.js')]);
+  if (!STAND_INS) return;
   mkdirSync(path.dirname(bare), { recursive: true });
   execFileSync('git', ['init', '--bare', '-q', '-b', 'main', bare]);
   git(base, 'init', '-q', '-b', 'main', seed);
@@ -71,7 +81,7 @@ beforeAll(async () => {
 
 beforeEach(() => routes.clearSshRoutes());
 
-describe('https broken, SSH working', () => {
+describe.skipIf(!STAND_INS)('https broken, SSH working', () => {
   it('fetch goes over SSH, the remote stays as it was, and what reaches GitHub next goes over SSH too', async () => {
     const dir = cloneWithOrigin('friend', 'https://github.com/me/app.git');
     const tip = seedCommits('b');
