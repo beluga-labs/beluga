@@ -1,141 +1,179 @@
-/* The Star and coffee sheets (SupportSheets.tsx): a pastel band with a drawing, soft tints, no glow. */
+/* The Star sheet (SupportSheets.tsx): a pastel sky with the whale balancing a star, soft tints, no glow. */
 .overlay {
   composes: overlay from './sheet.module.css';
 }
 .sheet {
   composes: sheet from './sheet.module.css';
-  top: 12vh;
-  width: min(420px, calc(100vw - 48px));
-  max-height: 84vh;
+}
+/* With its attribute, so it wins over the shared sheet's size whatever order the styles load in. */
+.sheet[data-support] {
+  top: 11vh;
+  width: min(440px, calc(100vw - 48px));
+  max-height: 86vh;
   overflow: hidden auto;
-  border-radius: 16px;
+  border-radius: 18px;
 }
 
-/* ---- the band */
+/* ---- the band: a pastel sky, lavender into butter */
 .band {
   position: relative;
   display: grid;
-  place-items: center;
-  height: 132px;
-  border-bottom: 0.5px solid var(--hairline);
+  place-items: end center;
+  height: 172px;
+  background:
+    radial-gradient(120% 90% at 85% 0%, #fdf1cf 0%, transparent 60%),
+    linear-gradient(180deg, #ece8fb 0%, #f4effa 55%, #e6f1fb 100%);
 }
-.bandCoffee {
-  background: #fbeee2;
-}
-.bandStar {
-  background: #f1eefb;
-}
-:global([data-theme='dark']) .bandCoffee {
-  background: #322a25;
-}
-:global([data-theme='dark']) .bandStar {
-  background: #2b2833;
+:global([data-theme='dark']) .band {
+  background:
+    radial-gradient(120% 90% at 85% 0%, #3b3424 0%, transparent 60%),
+    linear-gradient(180deg, #2a2737 0%, #2b2a35 55%, #232c36 100%);
 }
 .art {
-  margin-top: 6px;
-  animation: settle 520ms var(--ease-out) both;
+  margin-bottom: 8px;
+  animation: settle 620ms var(--ease-out) both;
 }
 @keyframes settle {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.96);
+    transform: translateY(8px) scale(0.96);
   }
 }
 .close {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 12px;
+  right: 12px;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
   color: color-mix(in srgb, var(--text) 55%, transparent);
-  background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+  background: color-mix(in srgb, var(--bg-raised) 65%, transparent);
+  transition:
+    color var(--dur-fast),
+    background var(--dur-fast);
 }
 .close:hover {
   color: var(--text);
   background: var(--bg-raised);
 }
 
-/* ---- the drawings */
-.cup {
-  fill: #fffaf4;
-  stroke: #d9a988;
-  stroke-width: 2.5;
+/* ---- the drawing */
+.whale path {
+  fill: #ffffff;
+  stroke: #b8aee0;
 }
-.rim {
-  fill: #c98f6b;
+:global([data-theme='dark']) .whale path {
+  fill: #ebe8f7;
+  stroke: #8a80b6;
 }
-.handle {
-  stroke: #d9a988;
+.waves {
+  stroke: #b9d8f1;
 }
-.saucer {
-  fill: #f0d6c2;
+:global([data-theme='dark']) .waves {
+  stroke: #4b6580;
 }
-.cupHeart {
-  fill: #f2a7b6;
+.bigStarGroup {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: balance 3.6s ease-in-out infinite;
 }
-.steam {
-  stroke: #e6c3ab;
-}
-.steam path {
-  animation: steam 2.8s ease-in-out infinite;
-}
-.steam path:nth-child(2) {
-  animation-delay: 0.5s;
-}
-.steam path:nth-child(3) {
-  animation-delay: 1s;
-}
-@keyframes steam {
+@keyframes balance {
   0%,
   100% {
-    opacity: 0.25;
-    transform: translateY(2px);
+    transform: rotate(-5deg) translateY(0);
   }
   50% {
-    opacity: 0.9;
-    transform: translateY(-3px);
+    transform: rotate(5deg) translateY(-2px);
   }
 }
 .bigStar {
-  fill: #fde9a6;
-  stroke: #e9c46a;
+  fill: #fde7a0;
+  stroke: #e7bf5d;
 }
 .smallStar {
-  fill: #d8cff6;
+  fill: #d6cdf6;
+  animation: twinkle 2.8s ease-in-out infinite;
 }
 .speck {
-  fill: #f6c5cf;
+  fill: #f5c3cf;
+  animation: twinkle 3.2s ease-in-out infinite;
 }
-:global([data-theme='dark']) .cup {
-  fill: #3b322c;
-  stroke: #b98b6d;
-}
-:global([data-theme='dark']) .handle {
-  stroke: #b98b6d;
-}
-:global([data-theme='dark']) .saucer {
-  fill: #4a3c33;
-}
-:global([data-theme='dark']) .steam {
-  stroke: #7d6555;
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 :global([data-theme='dark']) .bigStar {
-  fill: #6b5c32;
+  fill: #6e5f33;
   stroke: #d9b65e;
 }
 :global([data-theme='dark']) .smallStar {
-  fill: #5a5180;
+  fill: #5b5283;
 }
-:global([data-motion='reduce']) .steam path,
-:global([data-motion='reduce']) .art {
+:global([data-theme='dark']) .speck {
+  fill: #7e5260;
+}
+
+/* ---- three merged pieces of work, on the band's edge */
+.trail {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: -16px;
+  position: relative;
+}
+.coin {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--tint) 45%, #2a2a2e);
+  background: color-mix(in srgb, var(--tint) 55%, #ffffff);
+  box-shadow:
+    0 0 0 3px var(--bg-raised),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  animation: pop 420ms var(--ease-out) both;
+}
+.coin:nth-child(1) {
+  --tint: #f2a7b6;
+}
+.coin:nth-child(2) {
+  --tint: #a9dcbb;
+}
+.coin:nth-child(3) {
+  --tint: #f2d27a;
+}
+:global([data-theme='dark']) .coin {
+  color: color-mix(in srgb, var(--tint) 85%, #ffffff);
+  background: color-mix(in srgb, var(--tint) 30%, var(--bg-raised));
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+:global([data-motion='reduce']) .art,
+:global([data-motion='reduce']) .bigStarGroup,
+:global([data-motion='reduce']) .smallStar,
+:global([data-motion='reduce']) .speck,
+:global([data-motion='reduce']) .coin {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .steam path,
-  .art {
+  .art,
+  .bigStarGroup,
+  .smallStar,
+  .speck,
+  .coin {
     animation: none;
   }
 }
@@ -145,13 +183,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px 22px 14px;
+  padding: 16px 26px 14px;
 }
 .title {
   margin: 0;
-  font-size: 1.32rem;
+  font-size: 1.36rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   text-align: center;
 }
 .lead,
@@ -160,6 +198,7 @@
   color: var(--text-2);
   line-height: 1.6;
   text-align: center;
+  text-wrap: balance;
 }
 .why {
   margin: 0;
@@ -229,141 +268,51 @@
   --tint: #b9d4f2;
 }
 
-/* ---- the amounts */
-.amounts {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 4px;
-}
-.amount {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 11px 4px 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--tint) 14%, var(--bg-raised));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 40%, var(--hairline));
-  transition:
-    background var(--dur-fast),
-    box-shadow var(--dur-fast),
-    transform var(--dur-fast);
-}
-.amount:nth-child(1) {
-  --tint: #f7c9a8;
-}
-.amount:nth-child(2) {
-  --tint: #f2c46b;
-}
-.amount:nth-child(3) {
-  --tint: #a9dcbb;
-}
-.amount:nth-child(4) {
-  --tint: #b9c6f2;
-}
-.amount:hover {
-  background: color-mix(in srgb, var(--tint) 26%, var(--bg-raised));
-}
-.amount:active {
-  transform: scale(0.97);
-}
-.picked,
-.picked:hover {
-  background: color-mix(in srgb, var(--tint) 34%, var(--bg-raised));
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tint) 90%, var(--text-3));
-}
-.sum {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.words {
-  color: var(--text-2);
-  font-size: 0.76rem;
-  white-space: nowrap;
-}
-:global([data-theme='dark']) .amount {
-  background: color-mix(in srgb, var(--tint) 8%, var(--bg-raised));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 22%, var(--hairline));
-}
-:global([data-theme='dark']) .amount:hover {
-  background: color-mix(in srgb, var(--tint) 14%, var(--bg-raised));
-}
-:global([data-theme='dark']) .picked,
-:global([data-theme='dark']) .picked:hover {
-  background: color-mix(in srgb, var(--tint) 20%, var(--bg-raised));
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tint) 70%, transparent);
-}
-.amount:focus-visible,
-.main:focus-visible,
-.other:focus-visible,
-.chip:focus-visible,
-.quietButton:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-
 /* ---- what to do */
 .main {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 40px;
-  border-radius: 11px;
-  color: #fff;
+  height: 42px;
+  margin-top: 2px;
+  border-radius: 12px;
+  color: #1d1d1f;
   font-size: 1rem;
   font-weight: 650;
-  background: #b9805c;
+  background: #f6dc8a;
   transition:
     background var(--dur-fast),
     transform var(--dur-fast);
 }
 .main:hover {
-  background: #a87250;
+  background: #f1d071;
 }
 .main:active {
   transform: scale(0.99);
 }
-[data-support='star'] .main {
-  color: #1d1d1f;
-  background: #f6dc8a;
-}
-[data-support='star'] .main:hover {
-  background: #f1d071;
-}
 :global([data-theme='dark']) .main {
-  background: #a47456;
+  background: #e9cd78;
 }
-.other {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 5px;
-  margin-top: -4px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  color: var(--text-2);
-  font-size: 0.9rem;
+:global([data-theme='dark']) .main:hover {
+  background: #f1d687;
 }
-.other:hover {
-  color: var(--text);
+/* The main button's focus ring takes its own colour, not the system blue. */
+.main:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg-raised),
+    0 0 0 4px color-mix(in srgb, #e9c46a 60%, transparent);
 }
-.fine {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  color: var(--text-3);
-  font-size: 0.8rem;
+.chip:focus-visible,
+.quietButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 .quiet {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   margin-top: 2px;
   padding-top: 12px;
   border-top: 0.5px solid var(--hairline);
@@ -376,22 +325,4 @@
 }
 .quietButton:hover {
   color: var(--text);
-}
-.dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--text-3);
-  opacity: 0.6;
-}
-/* The main button's focus ring takes its own colour, not the system blue. */
-.main:focus-visible {
-  box-shadow:
-    0 0 0 2px var(--bg-raised),
-    0 0 0 4px color-mix(in srgb, #b9805c 45%, transparent);
-}
-[data-support='star'] .main:focus-visible {
-  box-shadow:
-    0 0 0 2px var(--bg-raised),
-    0 0 0 4px color-mix(in srgb, #e9c46a 60%, transparent);
 }

@@ -323,7 +323,7 @@ export const PHONE: Record<Method, Side> = {
   'revenuecat.refresh': 'mac',
   'revenuecat.setApps': 'mac',
 
-  // ---- supporting Beluga: the star and coffee asks are the Mac's (they open web pages there)
+  // ---- supporting Beluga: the star ask is the Mac's (it opens GitHub there)
   'support.answer': 'mac',
   // ---- your stats: the Usage tab's charts and what the composer saw (the phone keeps its plan meters)
   'stats.get': 'mac',

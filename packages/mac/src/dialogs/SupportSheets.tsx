@@ -1,36 +1,34 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
-import type { SupportAnswer, SupportAsk } from '@beluga/core/support-store.js';
+import { useEffect, useRef, useState } from 'react';
+import type { SupportAnswer } from '@beluga/core/support-store.js';
 import avatar from '../assets/maintainer.png';
+import { BELUGA } from '../components/beluga-path.js';
 import { Confetti } from '../components/Confetti.js';
 import { Icon, type IconName } from '../components/Icon.js';
-import { cx } from '../components/ui.js';
-import { useApi, useApp } from '../lib/beluga.js';
 import { GitHubMark } from '../components/GitHubMark.js';
-import { COFFEE_AMOUNTS, COFFEE_LINKS, COFFEE_WORDS, type CoffeeAmount, GITHUB_URL, exactLink, MAINTAINER, closeSupport, useOpenedSupport } from '../lib/support.js';
+import { useApi, useApp } from '../lib/beluga.js';
+import { GITHUB_URL, MAINTAINER, closeSupport, useOpenedSupport } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { useClock, windowActive } from '../lib/window-active.js';
 import s from './support.module.css';
 
 /**
- * The two asks merged work brings (core/support-store.ts): a star on GitHub after the first merge,
- * with confetti, and a coffee after the fifth. They wait for a calm moment (no other sheet up, the
- * window in front), so they never land on top of what you're doing. Opened by hand (Settings ›
- * About, the palette) they're the same sheets, and answering them tells the daemon nothing.
+ * The one ask merged work brings (core/support-store.ts): a star on GitHub after the third merge,
+ * with confetti. It waits for a calm moment (no other sheet up, the window in front), so it never
+ * lands on top of what you're doing. Opened by hand (Settings › About, the palette) it's the same
+ * sheet, and answering it tells the daemon nothing. Beluga never asks for money.
  */
 export function SupportSheets() {
   const api = useApi();
   const support = useApp((st) => st.support);
-  const opened = useOpenedSupport();
-  const calm = useCalmMoment(Boolean(support.due) && !opened);
-  const ask: SupportAsk | undefined = opened ?? (calm ? support.due : undefined);
-  if (!ask) return null;
-  const byHand = opened !== undefined;
+  const byHand = useOpenedSupport();
+  const calm = useCalmMoment(Boolean(support.due) && !byHand);
+  if (!byHand && !(calm && support.due)) return null;
   const answer = (a: SupportAnswer): void => {
     if (byHand) closeSupport();
-    else void api.support.answer(ask, a);
+    else void api.support.answer('star', a);
   };
-  return ask === 'star' ? <StarSheet onAnswer={answer} /> : <CoffeeSheet merges={support.merges} byHand={byHand} onAnswer={answer} />;
+  return <StarSheet merges={support.merges} byHand={byHand} onAnswer={answer} />;
 }
 
 /** True once nothing else has been up for a couple of seconds (latched: the ask's own sheet doesn't undo it). */
@@ -63,30 +61,6 @@ export function MaintainerChip() {
   );
 }
 
-
-/** The shell both asks share: a pastel band with its picture, then the words, then what to do. */
-function SupportShell({ tone, art, title, label, onClose, children }: { tone: 'coffee' | 'star'; art: ReactNode; title: string; label: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <Dialog.Root open onOpenChange={(v) => (v ? undefined : onClose())}>
-      <Dialog.Portal>
-        <Dialog.Overlay className={s.overlay} />
-        <Dialog.Content className={s.sheet} data-support={tone} aria-describedby={undefined} onOpenAutoFocus={(e) => focusMain(e)}>
-          <div className={cx(s.band, tone === 'star' ? s.bandStar : s.bandCoffee)}>
-            <div className={s.art}>{art}</div>
-            <Dialog.Close className={s.close} aria-label={label}>
-              <Icon name="x" size={12} />
-            </Dialog.Close>
-          </div>
-          <div className={s.body}>
-            <Dialog.Title className={s.title}>{title}</Dialog.Title>
-            {children}
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
 /** The main button gets the focus, so Return does the kind thing (not the close button). */
 function focusMain(e: Event): void {
   const main = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-main]');
@@ -95,142 +69,113 @@ function focusMain(e: Event): void {
   main.focus();
 }
 
-/** Three small promises under the title. */
-function Promises({ items }: { items: ReadonlyArray<[IconName, string]> }) {
-  return (
-    <ul className={s.promises}>
-      {items.map(([icon, text]) => (
-        <li key={text}>
-          <Icon name={icon} size={12} />
-          {text}
-        </li>
-      ))}
-    </ul>
-  );
+const PROMISES: ReadonlyArray<readonly [IconName, string]> = [
+  ['heart', 'Free, always'],
+  ['branch', 'Open source'],
+  ['check', 'No ads, no paywalls'],
+];
+
+/** The title: the merge that brought it, or a plain question when you opened it yourself. */
+function titleFor(merges: number, byHand: boolean): string {
+  if (byHand) return 'Enjoying Beluga?';
+  return merges === 3 ? 'Your third merge with Beluga!' : `${merges} merges with Beluga!`;
 }
 
-function StarSheet({ onAnswer }: { onAnswer: (a: SupportAnswer) => void }) {
+interface StarSheetProps {
+  readonly merges: number;
+  readonly byHand: boolean;
+  readonly onAnswer: (a: SupportAnswer) => void;
+}
+
+function StarSheet({ merges, byHand, onAnswer }: StarSheetProps) {
+  const later = byHand ? 'Close' : 'Maybe later';
   return (
     <>
-      <Confetti />
-      <SupportShell tone="star" art={<StarArt />} title="Your first merge with Beluga!" label="Maybe later" onClose={() => onAnswer('later')}>
-        <p className={s.lead}>
-          Work you made in Beluga just landed. Beluga is free software and a passion project by <MaintainerChip />
-        </p>
-        <p className={s.why}>Stars are how other people find Beluga, and every single one truly matters. If it has helped you, a star would mean a lot.</p>
-        <button
-          type="button"
-          data-main
-          className={s.main}
-          onClick={() => {
-            void openExternal(GITHUB_URL);
-            onAnswer('yes');
-          }}
-        >
-          <Icon name="star" size={14} />
-          Star Beluga on GitHub
-        </button>
-        <div className={s.quiet}>
-          <button type="button" className={s.quietButton} onClick={() => onAnswer('later')}>
-            Maybe later
-          </button>
-        </div>
-      </SupportShell>
+      {byHand ? null : <Confetti />}
+      <Dialog.Root open onOpenChange={(v) => (v ? undefined : onAnswer('later'))}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={s.overlay} />
+          <Dialog.Content className={s.sheet} data-support="star" aria-describedby={undefined} onOpenAutoFocus={(e) => focusMain(e)}>
+            <div className={s.band}>
+              <div className={s.art}>
+                <WhaleArt />
+              </div>
+              <Dialog.Close className={s.close} aria-label={later}>
+                <Icon name="x" size={12} />
+              </Dialog.Close>
+            </div>
+            {byHand ? null : <MergeTrail merges={merges} />}
+            <div className={s.body}>
+              <Dialog.Title className={s.title}>{titleFor(merges, byHand)}</Dialog.Title>
+              <p className={s.lead}>
+                Beluga is free and open source, built and maintained by <MaintainerChip />
+              </p>
+              <ul className={s.promises}>
+                {PROMISES.map(([icon, text]) => (
+                  <li key={text}>
+                    <Icon name={icon} size={12} />
+                    {text}
+                  </li>
+                ))}
+              </ul>
+              <p className={s.why}>Stars are how other developers find Beluga. If it has earned a spot in your day, yours would mean a lot.</p>
+              <button
+                type="button"
+                data-main
+                className={s.main}
+                onClick={() => {
+                  void openExternal(GITHUB_URL);
+                  onAnswer('yes');
+                }}
+              >
+                <Icon name="star" size={15} />
+                Star Beluga on GitHub
+              </button>
+              <div className={s.quiet}>
+                <button type="button" className={s.quietButton} onClick={() => onAnswer('later')}>
+                  {later}
+                </button>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   );
 }
 
-function CoffeeSheet({ merges, byHand, onAnswer }: { merges: number; byHand: boolean; onAnswer: (a: SupportAnswer) => void }) {
-  const [amount, setAmount] = useState<CoffeeAmount>(10);
-  const give = (link: string): void => {
-    void openExternal(link);
-    onAnswer('yes');
-  };
+/** Three merged pieces of work, as soft coins with a tick, sitting on the band's edge. */
+function MergeTrail({ merges }: { readonly merges: number }) {
   return (
-    <SupportShell tone="coffee" art={<CupArt />} title="Keep Beluga brewing" label={byHand ? 'Close' : 'Not now'} onClose={() => onAnswer('later')}>
-      <p className={s.lead}>
-        {byHand || merges < 2 ? '' : `You’ve shipped ${merges} pieces of work with Beluga. `}
-        Beluga is a passion project, built and maintained by <MaintainerChip />
-      </p>
-      <Promises
-        items={[
-          ['heart', 'Free, always'],
-          ['branch', 'Open source'],
-          ['check', 'No ads, no paywalls'],
-        ]}
-      />
-      <div className={s.amounts} role="radiogroup" aria-label="Amount">
-        {COFFEE_AMOUNTS.map((a) => (
-          <button
-            key={a}
-            type="button"
-            role="radio"
-            aria-checked={a === amount}
-            className={cx(s.amount, a === amount && s.picked)}
-            onClick={() => setAmount(a)}
-            onDoubleClick={() => give(COFFEE_LINKS[a])}
-          >
-            <span className={s.sum}>${a}</span>
-            <span className={s.words}>{COFFEE_WORDS[a]}</span>
-          </button>
-        ))}
-      </div>
-      <button type="button" data-main className={s.main} onClick={() => give(COFFEE_LINKS[amount])}>
-        <Icon name="cup" size={15} />
-        Buy a coffee · ${amount}
-      </button>
-      <button type="button" className={s.other} onClick={() => give(COFFEE_LINKS.other)}>
-        Or choose your own amount
-        <Icon name="arrowRight" size={11} />
-      </button>
-      <div className={s.fine}>
-        <Icon name="lock" size={11} />
-        {exactLink(amount) ? 'Secure checkout by Stripe, in your browser' : `Secure checkout by Stripe: enter $${amount} there`}
-      </div>
-      <div className={s.quiet}>
-        <button type="button" className={s.quietButton} onClick={() => onAnswer('later')}>
-          {byHand ? 'Close' : 'Not now'}
-        </button>
-        {byHand ? null : (
-          <>
-            <span className={s.dot} aria-hidden="true" />
-            <button type="button" className={s.quietButton} onClick={() => onAnswer('never')}>
-              Don’t ask again
-            </button>
-          </>
-        )}
-      </div>
-    </SupportShell>
+    <div className={s.trail} aria-label={`${merges} pieces of work merged`}>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={s.coin} style={{ animationDelay: `${180 + i * 110}ms` }}>
+          <Icon name="check" size={13} />
+        </span>
+      ))}
+    </div>
   );
 }
 
-/** A cup on its saucer with a heart on it and steam curling up (still, with less motion asked for). */
-function CupArt() {
+/** The Beluga whale, balancing a star on its nose above soft waves, with a few small stars around. */
+function WhaleArt() {
   return (
-    <svg width="112" height="92" viewBox="0 0 112 92" aria-hidden="true" className={s.cupArt}>
-      <g className={s.steam} fill="none" strokeWidth="3" strokeLinecap="round">
-        <path d="M44 30c-5-6 5-9 0-16" />
-        <path d="M56 28c-5-6 5-9 0-16" />
-        <path d="M68 30c-5-6 5-9 0-16" />
+    <svg width="236" height="132" viewBox="0 0 236 132" aria-hidden="true" className={s.whaleArt}>
+      <g className={s.waves} fill="none" strokeWidth="2.5" strokeLinecap="round">
+        <path d="M28 114c10-6 20-6 30 0s20 6 30 0 20-6 30 0 20 6 30 0 20-6 30 0 20 6 30 0" />
+        <path d="M58 124c8-4.5 16-4.5 24 0s16 4.5 24 0 16-4.5 24 0 16 4.5 24 0" />
       </g>
-      <ellipse cx="56" cy="80" rx="40" ry="7" className={s.saucer} />
-      <path d="M78 46h6a11 11 0 0 1 0 22h-8" fill="none" strokeWidth="5" className={s.handle} />
-      <path d="M26 38h56v14a26 26 0 0 1-26 26h-4a26 26 0 0 1-26-26z" className={s.cup} />
-      <path d="M26 38h56v5H26z" className={s.rim} />
-      <path d="M54 66s-10-5.8-10-12.3a5.2 5.2 0 0 1 10-2 5.2 5.2 0 0 1 10 2C64 60.2 54 66 54 66z" className={s.cupHeart} />
-    </svg>
-  );
-}
-
-/** A soft star with a few small ones around it. */
-function StarArt() {
-  return (
-    <svg width="112" height="92" viewBox="0 0 112 92" aria-hidden="true" className={s.starArt}>
-      <path d="M56 12l10.6 21.5 23.7 3.4-17.2 16.7 4.1 23.6L56 66l-21.2 11.2 4.1-23.6-17.2-16.7 23.7-3.4z" className={s.bigStar} strokeLinejoin="round" strokeWidth="3" />
-      <path d="M92 14l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.6-4.8 2.6.9-5.4-3.9-3.8 5.4-.8z" className={s.smallStar} />
-      <path d="M20 54l1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z" className={s.smallStar} />
-      <circle cx="22" cy="20" r="3" className={s.speck} />
-      <circle cx="94" cy="62" r="2.5" className={s.speck} />
+      <svg x="52" y="36" width="116" height="93" viewBox="56 147 912 730" className={s.whale}>
+        <path d={BELUGA} fillRule="evenodd" strokeWidth="20" strokeLinejoin="round" />
+      </svg>
+      <g className={s.bigStarGroup}>
+        <path d="M166 10l6.6 13.4 14.8 2.1-10.7 10.4 2.5 14.7L166 43.7l-13.2 6.9 2.5-14.7-10.7-10.4 14.8-2.1z" className={s.bigStar} strokeLinejoin="round" strokeWidth="2.5" />
+      </g>
+      <path d="M206 50l1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6z" className={s.smallStar} />
+      <path d="M34 34l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5z" className={s.smallStar} style={{ animationDelay: '0.9s' }} />
+      <circle cx="58" cy="18" r="2.6" className={s.speck} />
+      <circle cx="214" cy="20" r="2.2" className={s.speck} style={{ animationDelay: '1.4s' }} />
+      <circle cx="20" cy="80" r="2" className={s.speck} style={{ animationDelay: '0.5s' }} />
     </svg>
   );
 }

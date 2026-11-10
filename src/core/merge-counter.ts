@@ -2,8 +2,8 @@
  * Counting the work made in Beluga that got merged: worktrees Beluga made (never another tool's)
  * whose branch was merged here (Merge into main), through a GitHub pull request (the workbench
  * follows those), or by git some other way (a merge in a terminal, a pull request merged after the
- * worktree was archived). Each branch counts once, kept in ~/.beluga/support.json, so the asks in
- * core/support-store.ts come at the right merge and only once. Nothing here leaves this computer.
+ * worktree was archived). Each branch counts once, kept in ~/.beluga/support.json, so the ask in
+ * core/support-store.ts comes at the right merge and only once. Nothing here leaves this computer.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -12,11 +12,11 @@ import { isAncestor, tryGit } from '../workspaces/git.js';
 import type { Project, Workspace } from '../workspaces/types.js';
 import { belugaHome } from './home.js';
 import type { Action, Store } from './store.js';
-import { EMPTY_SUPPORT, type SupportAnswer, type SupportAsk, type SupportRecord, answerAsk, mergeKey, supportView } from './support-store.js';
+import { EMPTY_SUPPORT, STAR_AT, type SupportAnswer, type SupportAsk, type SupportRecord, answerAsk, mergeKey, supportView } from './support-store.js';
 import type { WorkspaceController, WorktreeEvent } from './workspace-controller.js';
 
 const AnsweredSchema = z.object({ merges: z.number().int().min(0), answer: z.enum(['yes', 'later', 'never']), times: z.number().int().min(1), at: z.number() });
-export const SupportFileSchema = z.object({ counted: z.array(z.string()).default([]), star: AnsweredSchema.optional(), coffee: AnsweredSchema.optional() });
+export const SupportFileSchema = z.object({ counted: z.array(z.string()).default([]), star: AnsweredSchema.optional() });
 
 export const supportPath = (): string => path.join(belugaHome(), 'support.json');
 
@@ -210,14 +210,14 @@ export function supportOf(session: object): MergeCounter {
 }
 
 /**
- * Start counting for the daemon. The demo keeps its record in memory and has both asks behind it
- * (so its pretend merges never ask a pretend you for anything), unless BELUGA_DEMO_ASKS is `star`
- * or `coffee`: then that ask is due right away (screenshots of the sheets).
+ * Start counting for the daemon. The demo keeps its record in memory with the star already answered
+ * (so its pretend merges never ask a pretend you for anything), unless BELUGA_DEMO_ASKS is `star`:
+ * then it's due right away (screenshots of the sheet).
  */
 export function launchSupport(host: { readonly session: { readonly workspaces?: WorkspaceController }; readonly store: Store; readonly demo: boolean; readonly asks?: string }): () => void {
   const fake = (n: number): string[] => Array.from({ length: n }, (_, i) => mergeKey('/demo', `demo-${i + 1}`));
   const done = { merges: 0, answer: 'never', times: 1, at: 0 } as const;
-  const seed: SupportRecord = host.asks === 'star' ? { counted: fake(1) } : host.asks === 'coffee' ? { counted: fake(5), star: { ...done, answer: 'yes' } } : { counted: [], star: done, coffee: done };
+  const seed: SupportRecord = host.asks === 'star' ? { counted: fake(STAR_AT) } : { counted: [], star: done };
   const counter = new MergeCounter({
     store: host.store,
     ...(host.demo ? { file: null, seed } : {}),
