@@ -160,6 +160,12 @@ describe('local endpoints: a run', () => {
     writeFileSync(path.join(into, '.credentials.json'), '{}');
     endpointClaudeHome(mine, into);
     expect(readdirSync(into).sort()).toEqual(['projects', 'settings.json']);
+    // A settings file Claude Code rewrote there (a file of its own now) is linked to yours again.
+    rmSync(path.join(into, 'settings.json'));
+    writeFileSync(path.join(into, 'settings.json'), '{"stale":true}');
+    endpointClaudeHome(mine, into);
+    expect(lstatSync(path.join(into, 'settings.json')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(path.join(into, 'settings.json'), 'utf8')).toBe('{"hooks":{}}');
   });
 
   it('runs on the model’s own name, its env over yours, no effort, and maps a model picked mid-run', () => {

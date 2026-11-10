@@ -33,9 +33,11 @@ export function endpointClaudeHome(from: string = claudeHome(), into: string = p
     }
     for (const name of yours) {
       const here = path.join(into, name);
-      if (isLink(here) || existsSync(here)) continue;
       const there = path.join(from, name);
       const folder = statSync(there).isDirectory();
+      // A file of yours that Claude Code rewrote here (a new file, not through the link) is yours again.
+      if (!folder && !isLink(here) && existsSync(here) && statSync(here).isFile()) rmSync(here, { force: true });
+      if (isLink(here) || existsSync(here)) continue;
       try {
         // A junction for a folder needs no rights on Windows; a file there may need copying instead.
         symlinkSync(there, here, folder ? 'junction' : 'file');
