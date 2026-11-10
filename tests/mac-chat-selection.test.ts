@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chatCount, chatJoins, chatSelectionStore, joinValue, clearChatSelection, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
+import { bulkTriage, chatCount, chatJoins, chatSelectionStore, joinValue, clearChatSelection, clickChat, emptyChatSelection, retainVisibleChats, runChatBatch, visibleChatIds } from '../packages/mac/src/layout/chat-selection.js';
 
 describe('sidebar chat selection', () => {
   it('selects downward in visible sidebar order', () => {
@@ -163,5 +163,28 @@ describe('selected rows as one box', () => {
     expect(joinValue(joins.get('high'))).toBe('down');
     expect(joinValue(joins.get('low'))).toBe('up');
     expect(joinValue(undefined)).toBe('');
+  });
+
+  describe('bulk triage of picked chats', () => {
+    const picked = [
+      { channel: 'ws:inbox', category: 'active' as const },
+      { channel: 'ws:busy', category: 'working' as const },
+      { channel: 'ws:asks', category: 'active' as const, refusal: 'It waits on you' },
+      { channel: 'ws:later', category: 'snoozed' as const },
+      { channel: 'ws:done', category: 'settled' as const },
+    ];
+
+    it('sends each action only to the chats it applies to', () => {
+      expect(bulkTriage(picked, true)).toEqual({
+        later: ['ws:inbox', 'ws:busy', 'ws:asks', 'ws:done'],
+        showAgain: ['ws:later'],
+        settle: ['ws:inbox', 'ws:busy', 'ws:later'],
+        unsettle: ['ws:done'],
+      });
+    });
+
+    it('offers only Remind Me Later and Show Again Now with the categories off', () => {
+      expect(bulkTriage(picked, false)).toEqual({ later: ['ws:inbox', 'ws:busy', 'ws:asks', 'ws:done'], showAgain: ['ws:later'], settle: [], unsettle: [] });
+    });
   });
 });
