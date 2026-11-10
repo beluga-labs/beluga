@@ -27,8 +27,9 @@ test('Settings › Claude lists your MCP servers and signs you in to one', async
   const tab = page.context().waitForEvent('page');
   await signIns.first().click();
   await expect(settings.getByRole('button', { name: 'Waiting for Browser…' })).toBeVisible();
-  expect((await tab).url()).toContain('example.com/oauth/figma');
+  // The toast first: it's up for a few seconds, and the tab only counts as opened once its page starts loading (the network's pace).
   await expect(page.getByText('Signed in to figma')).toBeVisible();
+  expect((await tab).url()).toContain('example.com/oauth/figma');
   await expect(settings.getByText('Yours, in every project · Connected')).toBeVisible();
   await expect(signIns).toHaveCount(1);
 });

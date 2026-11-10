@@ -181,6 +181,8 @@ const SCRIPTS: readonly Script[] = [
   {
     // Background work with steps after it: once answered, it folds with the older steps (e2e/subagents.spec.ts).
     match: /keep (them )?watching/i,
+    // The reading after it, slow enough to see the background row running, even on a busy machine.
+    stepMs: 1500,
     steps: ['Read package.json', 'Bash npm test'],
     subagents: [{ title: 'npm test --watch', steps: ['24 passed', '24 passed'], kind: 'background' }],
     after: ['Read src/payments.ts', 'Grep "coverage"', 'Read README.md'],
@@ -1048,13 +1050,15 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       for (const s of subs) {
         const step = s.steps[i];
         if (step) input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'step', step }));
-        if (i === s.steps.length - 1) input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
+        // Background work (a watcher) keeps going while Claude reads on: it ends with the turn, below.
+        if (i === s.steps.length - 1 && s.kind !== 'background') input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
       }
     }
     for (const step of script.after ?? []) {
       await sleep((script.stepMs ?? 450) * pace, input.signal);
       input.onEvent('tool', step);
     }
+    for (const s of subs) if (s.kind === 'background') input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
     if (script.report) await bridge.writeReport(script.report.title, script.report.markdown);
     // Doing a task: keep it true, as real Claude is told to (core/board/prompt.ts).
     if (input.board?.current) keepTaskTrue(input, script);

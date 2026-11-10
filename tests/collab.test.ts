@@ -24,6 +24,7 @@ const sessions: Session[] = [];
  * peers, and the workspaces it talks in don't depend on what another test said there.
  */
 let demo: WorkspaceManager;
+// Two real repos with history and worktrees: well past 30 s on a busy Windows runner.
 beforeAll(async () => {
   demo = await createDemoWorkspaces();
 }, 120_000);

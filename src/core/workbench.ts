@@ -1897,12 +1897,14 @@ export class Workbench {
     };
     for (const channel of loaded) {
       if (channel === 'draft') continue;
+      // The room's chat is a page only while someone else is in it (BLG-871): alone, a hit there would open nothing.
+      if (channel === 'room' && state.peers.length <= 1) continue;
       const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
       const shared = channel.startsWith('ws:') ? state.shared.find((w) => w.id === channel.slice(3)) : undefined;
       // A workspace that's gone (deleted, its project removed): nothing to open, so nothing to find.
       if (channel.startsWith('ws:') && !ws && !shared) continue;
       const items = state.log.filter((l) => l.channel === channel);
-      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? (state.peers.length > 1 ? 'Group chat' : 'Chat') : isAssistant(channel) ? macChatPlace(channel, items) : channel, items, archived: ws?.archived });
+      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? 'Group chat' : isAssistant(channel) ? macChatPlace(channel, items) : channel, items, archived: ws?.archived });
     }
     for (const ws of this.manager.list.flatMap((p) => p.workspaces)) {
       const channel = `ws:${ws.id}`;

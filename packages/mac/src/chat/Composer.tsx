@@ -5,6 +5,7 @@ import { type AppState, type View, channelOf, peerName } from '@beluga/core/stor
 import { localDirKey } from '@beluga/core/local-key.js';
 import { workspaceMentions } from '@beluga/core/mentions.js';
 import { composeState, queueIn } from '@beluga/ui/compose.js';
+import { isRunning } from '@beluga/ui/format.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
 import { worktreeMode } from '@beluga/ui/submit.js';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
@@ -523,7 +524,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     if (!text && draftProject) return createWorktree(draftProject, '');
     // The words fly from the box into the chat (or into the queue while Claude works): see flight.ts.
     if (typed && !typed.startsWith('/') && !draftProject && !pending) {
-      launchFlight({ channel, target: queueing && compose.typing && !urgent ? 'queue' : 'chat', text: typed, from: ref.current });
+      const live = state.log.some((l) => l.type === 'agent' && l.channel === channel && isRunning(l.status));
+      launchFlight({ channel, target: queueing && compose.typing && !urgent ? 'queue' : 'chat', text: typed, from: ref.current, live });
       // Steering joins the turn Claude is on (no new card to wait for).
       if (compose.typing && !compose.busy) expectClaude(channel, state.log.filter((l) => l.type === 'agent' && l.channel === channel).length);
     }

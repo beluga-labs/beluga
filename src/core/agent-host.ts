@@ -33,6 +33,7 @@ import { findIssue } from './board/model.js';
 import { explainTaskMentions } from '../shared/task-refs.js';
 import { HostChatLinks, type RunChain } from './chat-links/host.js';
 import type { ChatSendService, Delivered } from './chat-links/service.js';
+import { explainWorktreeRefs } from '../shared/worktree-refs.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { type SlotWait, clampParallelRuns } from '../shared/run-slots.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
@@ -1947,15 +1948,21 @@ export class AgentHost {
   }
 
   /**
-   * The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)").
+   * The words Claude reads: each "@BLG-24" this board has says it's a task, and which ("@BLG-24 (task: Fix the login)"),
+   * and each pasted "worktree:wt-…" which worktree it is and where (BLG-878).
    * `sent`: what the message sends (images, files) is copied there, and the words say where.
    */
   private promptOf(body: BodyOf<'agent_request'>, from: string, sent?: SentPlace): string {
-    const board = this.store.getState().board;
+    const { board, projects } = this.store.getState();
     // A message from another chat, and the chats it names (chat-links/host.ts).
     const said = this.links.said(body);
-    const tasks = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
-    const mentioned = this.links.explained(from, body.channel, tasks);
+    const tasked = board.issues.length ? explainTaskMentions(said, (key) => findIssue(board, key)) : said;
+    const worktrees = explainWorktreeRefs(tasked, (id) => {
+      const project = projects.find((p) => p.workspaces.some((w) => w.id === id));
+      const w = project?.workspaces.find((x) => x.id === id);
+      return w && { name: w.name, project: project?.name, branch: w.branch, path: w.path, archived: w.archived };
+    });
+    const mentioned = this.links.explained(from, body.channel, worktrees);
     const prompt = sent ? withSentFiles(mentioned, this.selfId, sent.root, sent.rel) : mentioned;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;

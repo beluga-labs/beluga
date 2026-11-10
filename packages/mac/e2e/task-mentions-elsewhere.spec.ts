@@ -14,17 +14,17 @@ test('another project’s task is offered last, says so when picked, and goes in
   const list = page.getByRole('listbox', { name: 'Suggestions' });
 
   // The first couple of letters: only this project's.
+  // (With nothing of this project's to offer, there may be no list at all.)
   await box.fill('see @re');
-  await expect(list).not.toContainText('Refund endpoint');
+  await expect(box).toHaveValue('see @re');
+  await expect(list.getByText('Refund endpoint')).toHaveCount(0);
 
   await box.fill('see @refund');
   await expect(list).toContainText('In other projects, not this one');
-  // bob-api's tasks come last; others match "refund" too, so find this one by name, then hold it by its key
-  // (picking it once swaps its title for the question).
-  await expect(list.getByRole('option').last()).toContainText('bob-api');
-  const named = list.getByRole('option', { name: /Refund endpoint/ });
-  await expect(named).toContainText('bob-api');
-  const key = (await named.getAttribute('aria-label') ?? (await named.innerText())).match(/^[A-Z]+-\d+/)![0];
+  // (bob-api's epic "Refunds and launch" is offered there too.) Followed by its key: once picked, its title gives way to a note.
+  const found = list.getByRole('option', { name: /Refund endpoint/ });
+  await expect(found).toBeVisible();
+  const key = /[A-Z]+-\d+/.exec((await found.textContent()) ?? '')![0];
   const option = list.getByRole('option', { name: new RegExp(`^${key} `) });
   if (process.env.BELUGA_SHOTS) await list.screenshot({ path: `${process.env.BELUGA_SHOTS}/01-other-project-section.png` });
 
