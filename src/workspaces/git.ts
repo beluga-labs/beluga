@@ -571,11 +571,6 @@ export async function contentIn(dir: string, head: string, base: string): Promis
   return merged && tree ? merged === tree : undefined;
 }
 
-/** Fetch `remote` (no pruning, no tags beyond the usual). Throws git's error. */
-export async function fetchRemote(dir: string, remote = 'origin'): Promise<void> {
-  await git(dir, ['fetch', remote]);
-}
-
 /** Move this worktree's branch to `to` (a clean worktree only: its files change to match). */
 export async function resetTo(dir: string, to: string): Promise<void> {
   await withLockRetry(dir, ['reset', '--hard', to]);
