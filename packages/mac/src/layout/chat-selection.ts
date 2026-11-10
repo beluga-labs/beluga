@@ -1,4 +1,4 @@
-import type { ChatCategory } from '@beluga/core/triage/model.js';
+import type { ChatCategory } from '../../../../src/core/triage/model.js';
 
 export interface ChatSelection {
   readonly anchor?: string;
