@@ -54,6 +54,12 @@ describe('sidebar chat selection', () => {
     expect(clickChat({ anchor: 'a', ids: [] }, order, 'folded-project', true)).toEqual(emptyChatSelection);
   });
 
+  it('counts a chat drawn twice once, where it first shows (its category, then Projects)', () => {
+    const order = visibleChatIds([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'b' }]);
+    expect(order).toEqual(['a', 'b', 'c']);
+    expect(clickChat({ anchor: 'a', ids: [] }, order, 'c', true).ids).toEqual(['a', 'b', 'c']);
+  });
+
   it('removes folded or deleted chats from an existing selection and its anchor', () => {
     expect(retainVisibleChats({ anchor: 'a', ids: ['a', 'b', 'c'] }, ['b', 'c'])).toEqual({ ids: ['b', 'c'] });
     expect(clickChat({ anchor: 'gone', ids: [] }, ['a', 'b'], 'b', true)).toEqual({ anchor: 'b', ids: ['b'] });

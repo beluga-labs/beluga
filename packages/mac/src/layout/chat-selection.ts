@@ -67,8 +67,9 @@ export function chatJoins(selected: readonly RowBox[]): ReadonlyMap<string, Chat
 /** The row's `data-chat-join`: "up", "down", "up down", or nothing. */
 export const joinValue = (join: ChatJoin | undefined): string => [join?.up && 'up', join?.down && 'down'].filter(Boolean).join(' ');
 
+/** The chats in screen order. One drawn twice (its category, and Projects for the one you're in) counts where it first shows. */
 export function visibleChatIds(rows: readonly ChatRow[]): string[] {
-  return rows.filter((row) => !row.folded).map((row) => row.id);
+  return [...new Set(rows.filter((row) => !row.folded).map((row) => row.id))];
 }
 
 export function retainVisibleChats(selection: ChatSelection, visible: readonly string[]): ChatSelection {
