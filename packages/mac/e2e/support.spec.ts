@@ -37,16 +37,22 @@ test('the palette opens the Star sheet, with no coffee or payment anywhere', asy
 test('the third merge brings the Star sheet by itself', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_ASKS !== 'star', 'needs BELUGA_DEMO_ASKS=star');
   await page.goto('/');
-  const sheet = page.getByRole('dialog', { name: 'Your third merge with Beluga!' });
+  const sheet = page.getByRole('dialog', { name: 'Three merges in!' });
   await expect(sheet).toBeVisible({ timeout: 15_000 });
   await expect(sheet.getByLabel('3 pieces of work merged')).toBeVisible();
   const shots = process.env.BELUGA_SHOTS;
   if (shots) {
     await page.waitForTimeout(1200);
     await sheet.screenshot({ path: `${shots}/star-sheet-third-merge.png` });
+    await page.waitForTimeout(700);
+    await sheet.screenshot({ path: `${shots}/star-sheet-third-merge-b.png` });
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    await page.waitForTimeout(400);
+    await sheet.screenshot({ path: `${shots}/star-sheet-third-merge-dark.png` });
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
   }
   await sheet.getByRole('button', { name: 'Maybe later' }).last().click();
   await expect(sheet).toBeHidden();
   await page.waitForTimeout(3000);
-  await expect(page.getByRole('dialog', { name: /merge with Beluga/ })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: /merges in/ })).toHaveCount(0);
 });

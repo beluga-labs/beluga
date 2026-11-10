@@ -1,4 +1,4 @@
-/* The Star sheet (SupportSheets.tsx): a pastel sky with the whale balancing a star, soft tints, no glow. */
+/* The Star sheet (SupportSheets.tsx): a living pastel sea on top (StarScene.tsx), bright words below, no glow. */
 .overlay {
   composes: overlay from './sheet.module.css';
 }
@@ -7,37 +7,29 @@
 }
 /* With its attribute, so it wins over the shared sheet's size whatever order the styles load in. */
 .sheet[data-support] {
-  top: 11vh;
-  width: min(440px, calc(100vw - 48px));
-  max-height: 86vh;
+  top: 9vh;
+  width: min(460px, calc(100vw - 48px));
+  max-height: 88vh;
   overflow: hidden auto;
-  border-radius: 18px;
+  border-radius: 20px;
+  animation: rise 520ms cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
 }
-
-/* ---- the band: a pastel sky, lavender into butter */
-.band {
-  position: relative;
-  display: grid;
-  place-items: end center;
-  height: 172px;
-  background:
-    radial-gradient(120% 90% at 85% 0%, #fdf1cf 0%, transparent 60%),
-    linear-gradient(180deg, #ece8fb 0%, #f4effa 55%, #e6f1fb 100%);
-}
-:global([data-theme='dark']) .band {
-  background:
-    radial-gradient(120% 90% at 85% 0%, #3b3424 0%, transparent 60%),
-    linear-gradient(180deg, #2a2737 0%, #2b2a35 55%, #232c36 100%);
-}
-.art {
-  margin-bottom: 8px;
-  animation: settle 620ms var(--ease-out) both;
-}
-@keyframes settle {
+@keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.96);
+    transform: translate(-50%, 18px) scale(0.94);
   }
+}
+
+/* ---- the picture: an evening sky over the sea */
+.band {
+  position: relative;
+  height: 210px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #c9bdfa 0%, #e8c6ec 42%, #ffd9c4 72%, #ffe9cf 100%);
+}
+:global([data-theme='dark']) .band {
+  background: linear-gradient(180deg, #24214a 0%, #3d2f5c 45%, #5a3f5a 75%, #6a4a54 100%);
 }
 .close {
   position: absolute;
@@ -45,136 +37,58 @@
   right: 12px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 13px;
-  color: color-mix(in srgb, var(--text) 55%, transparent);
-  background: color-mix(in srgb, var(--bg-raised) 65%, transparent);
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  color: #3d3a5c;
+  background: rgba(255, 255, 255, 0.55);
   transition:
-    color var(--dur-fast),
-    background var(--dur-fast);
+    background var(--dur-fast),
+    transform var(--dur-fast);
 }
 .close:hover {
-  color: var(--text);
-  background: var(--bg-raised);
+  background: rgba(255, 255, 255, 0.85);
+  transform: rotate(90deg);
+}
+:global([data-theme='dark']) .close {
+  color: #ece9ff;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-/* ---- the drawing */
-.whale path {
-  fill: #ffffff;
-  stroke: #b8aee0;
-}
-:global([data-theme='dark']) .whale path {
-  fill: #ebe8f7;
-  stroke: #8a80b6;
-}
-.waves {
-  stroke: #b9d8f1;
-}
-:global([data-theme='dark']) .waves {
-  stroke: #4b6580;
-}
-.bigStarGroup {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  animation: balance 3.6s ease-in-out infinite;
-}
-@keyframes balance {
-  0%,
-  100% {
-    transform: rotate(-5deg) translateY(0);
-  }
-  50% {
-    transform: rotate(5deg) translateY(-2px);
-  }
-}
-.bigStar {
-  fill: #fde7a0;
-  stroke: #e7bf5d;
-}
-.smallStar {
-  fill: #d6cdf6;
-  animation: twinkle 2.8s ease-in-out infinite;
-}
-.speck {
-  fill: #f5c3cf;
-  animation: twinkle 3.2s ease-in-out infinite;
-}
-@keyframes twinkle {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-:global([data-theme='dark']) .bigStar {
-  fill: #6e5f33;
-  stroke: #d9b65e;
-}
-:global([data-theme='dark']) .smallStar {
-  fill: #5b5283;
-}
-:global([data-theme='dark']) .speck {
-  fill: #7e5260;
-}
-
-/* ---- three merged pieces of work, on the band's edge */
+/* ---- the merges that brought it, on the picture's edge */
 .trail {
+  position: relative;
   display: flex;
   justify-content: center;
-  gap: 8px;
-  margin-top: -16px;
-  position: relative;
+  gap: 10px;
+  margin-top: -19px;
 }
 .coin {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  color: color-mix(in srgb, var(--tint) 45%, #2a2a2e);
-  background: color-mix(in srgb, var(--tint) 55%, #ffffff);
+  color: #ffffff;
+  background: var(--tint);
   box-shadow:
-    0 0 0 3px var(--bg-raised),
-    0 1px 2px rgba(0, 0, 0, 0.06);
-  animation: pop 420ms var(--ease-out) both;
+    0 0 0 4px var(--bg-raised),
+    0 2px 6px rgba(40, 30, 80, 0.12);
+  animation: pop 560ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
 }
 .coin:nth-child(1) {
-  --tint: #f2a7b6;
+  --tint: #ff8fa8;
 }
 .coin:nth-child(2) {
-  --tint: #a9dcbb;
+  --tint: #5fcf96;
 }
 .coin:nth-child(3) {
-  --tint: #f2d27a;
-}
-:global([data-theme='dark']) .coin {
-  color: color-mix(in srgb, var(--tint) 85%, #ffffff);
-  background: color-mix(in srgb, var(--tint) 30%, var(--bg-raised));
+  --tint: #ffbe3d;
 }
 @keyframes pop {
   from {
     opacity: 0;
-    transform: scale(0.6);
-  }
-}
-
-:global([data-motion='reduce']) .art,
-:global([data-motion='reduce']) .bigStarGroup,
-:global([data-motion='reduce']) .smallStar,
-:global([data-motion='reduce']) .speck,
-:global([data-motion='reduce']) .coin {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .art,
-  .bigStarGroup,
-  .smallStar,
-  .speck,
-  .coin {
-    animation: none;
+    transform: scale(0.3) rotate(-30deg);
   }
 }
 
@@ -182,27 +96,36 @@
 .body {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 12px;
-  padding: 16px 26px 14px;
+  padding: 14px 28px 16px;
+}
+.bodyByHand {
+  padding-top: 20px;
 }
 .title {
   margin: 0;
-  font-size: 1.36rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
   text-align: center;
+  background: linear-gradient(90deg, #7a5cf0, #e2609b 55%, #f29a3d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.lead,
-.why {
+:global([data-theme='dark']) .title {
+  background: linear-gradient(90deg, #b9a6ff, #ff9cc6 55%, #ffc27a);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.lead {
   margin: -4px 0 0;
   color: var(--text-2);
   line-height: 1.6;
   text-align: center;
   text-wrap: balance;
-}
-.why {
-  margin: 0;
-  font-size: 0.92rem;
 }
 
 /* The maker's GitHub chip, sitting in a sentence. */
@@ -234,38 +157,37 @@
   color: var(--text-3);
 }
 
-.promises {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
+/* How many starred it already. */
+.count {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.promises li {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 11px;
+  padding: 10px 14px;
+  border-radius: 12px;
   color: var(--text-2);
-  font-size: 0.82rem;
-  font-weight: 500;
-  background: color-mix(in srgb, var(--tint) 22%, var(--bg-raised));
+  font-size: 0.92rem;
+  line-height: 1.5;
+  text-align: center;
+  background: #fff6dc;
 }
-.promises li svg {
-  color: color-mix(in srgb, var(--tint) 80%, var(--text));
+.count strong {
+  color: var(--text);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
-.promises li:nth-child(1) {
-  --tint: #f2a7b6;
+.next {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 7px;
+  color: #6a4300;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  background: #ffd96b;
 }
-.promises li:nth-child(2) {
-  --tint: #a9dcbb;
+:global([data-theme='dark']) .count {
+  background: #3a3322;
 }
-.promises li:nth-child(3) {
-  --tint: #b9d4f2;
+:global([data-theme='dark']) .next {
+  color: #2a1c00;
+  background: #f2c95a;
 }
 
 /* ---- what to do */
@@ -273,56 +195,69 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 42px;
+  gap: 9px;
+  height: 46px;
   margin-top: 2px;
-  border-radius: 12px;
-  color: #1d1d1f;
-  font-size: 1rem;
-  font-weight: 650;
-  background: #f6dc8a;
+  border-radius: 14px;
+  color: #3a2408;
+  font-size: 1.04rem;
+  font-weight: 750;
+  background: linear-gradient(100deg, #ffd65c 0%, #ffbf6b 55%, #ffa88a 100%);
+  box-shadow:
+    inset 0 -2px 0 rgba(120, 60, 0, 0.14),
+    0 2px 6px rgba(150, 90, 20, 0.14);
   transition:
-    background var(--dur-fast),
-    transform var(--dur-fast);
+    transform 160ms var(--ease-out),
+    filter var(--dur-fast);
 }
 .main:hover {
-  background: #f1d071;
+  transform: translateY(-1px);
+  filter: saturate(1.08) brightness(1.02);
 }
 .main:active {
-  transform: scale(0.99);
+  transform: translateY(0) scale(0.985);
 }
-:global([data-theme='dark']) .main {
-  background: #e9cd78;
+.mainStar {
+  display: grid;
+  transition: transform 420ms cubic-bezier(0.3, 1.6, 0.5, 1);
 }
-:global([data-theme='dark']) .main:hover {
-  background: #f1d687;
+.main:hover .mainStar {
+  transform: rotate(144deg) scale(1.18);
 }
 /* The main button's focus ring takes its own colour, not the system blue. */
 .main:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 2px var(--bg-raised),
-    0 0 0 4px color-mix(in srgb, #e9c46a 60%, transparent);
-}
-.chip:focus-visible,
-.quietButton:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-.quiet {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 2px;
-  padding-top: 12px;
-  border-top: 0.5px solid var(--hairline);
+    0 0 0 4px color-mix(in srgb, #ffb347 70%, transparent);
 }
 .quietButton {
-  padding: 2px 6px;
+  align-self: center;
+  padding: 2px 8px;
   border-radius: 6px;
   color: var(--text-3);
   font-size: 0.86rem;
 }
 .quietButton:hover {
   color: var(--text);
+}
+.chip:focus-visible,
+.quietButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+:global([data-motion='reduce']) .sheet[data-support],
+:global([data-motion='reduce']) .coin,
+:global([data-motion='reduce']) .mainStar {
+  animation: none;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet[data-support],
+  .coin,
+  .mainStar {
+    animation: none;
+    transition: none;
+  }
 }

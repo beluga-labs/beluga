@@ -1,0 +1,205 @@
+/* The Star sheet's picture (StarScene.tsx): a pastel evening sea, the whale leaping, no glow. */
+.scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sun {
+  fill: #fff2c2;
+}
+.cloud {
+  fill: rgba(255, 255, 255, 0.82);
+}
+.sparkle {
+  fill: #ffffff;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: twinkle 2.6s ease-in-out infinite;
+}
+.seaBack {
+  fill: #c4e3fb;
+}
+.seaMid {
+  fill: #9ccdf4;
+}
+.seaFront {
+  fill: #79b6eb;
+}
+.whale {
+  fill: #ffffff;
+}
+.whaleLine {
+  fill: #4a5384;
+  stroke: #4a5384;
+}
+.star {
+  fill: #ffd45e;
+  stroke: #e9a93a;
+}
+.drop {
+  fill: #ffffff;
+  stroke: #9ccdf4;
+  stroke-width: 1;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spout 4.2s ease-out infinite;
+}
+.glint {
+  fill: rgba(255, 255, 255, 0.85);
+  animation: glint 3.4s ease-in-out infinite;
+}
+
+:global([data-theme='dark']) .sun {
+  fill: #f4eedc;
+}
+:global([data-theme='dark']) .cloud {
+  fill: rgba(255, 255, 255, 0.14);
+}
+:global([data-theme='dark']) .seaBack {
+  fill: #3c5a82;
+}
+:global([data-theme='dark']) .seaMid {
+  fill: #33507a;
+}
+:global([data-theme='dark']) .seaFront {
+  fill: #2a4469;
+}
+:global([data-theme='dark']) .whale {
+  fill: #f3f1fb;
+}
+:global([data-theme='dark']) .whaleLine {
+  fill: #1f2340;
+  stroke: #1f2340;
+}
+:global([data-theme='dark']) .drop {
+  stroke: #5f86b5;
+}
+:global([data-theme='dark']) .glint {
+  fill: rgba(255, 255, 255, 0.35);
+}
+
+/* ---- the movement */
+.bob {
+  transform-box: fill-box;
+  transform-origin: 50% 80%;
+  animation: bob 3.2s ease-in-out infinite alternate;
+}
+@keyframes bob {
+  from {
+    transform: translateY(2px) rotate(-2.5deg);
+  }
+  to {
+    transform: translateY(-6px) rotate(2deg);
+  }
+}
+.hop {
+  animation: hop 1.6s cubic-bezier(0.33, 0, 0.3, 1) infinite;
+}
+@keyframes hop {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1.08, 0.88);
+  }
+  12% {
+    transform: translateY(-2px) rotate(4deg) scale(0.95, 1.06);
+  }
+  50% {
+    transform: translateY(-17px) rotate(36deg) scale(1, 1);
+  }
+  88% {
+    transform: translateY(-1px) rotate(68deg) scale(0.97, 1.04);
+  }
+  100% {
+    transform: translateY(0) rotate(72deg) scale(1.08, 0.88);
+  }
+}
+.drop:nth-child(odd) {
+  animation-duration: 4.2s;
+}
+@keyframes spout {
+  0%,
+  62% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.6);
+  }
+  66% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+    transform: translate(var(--dx), -26px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--dx) * 1.8), -8px) scale(0.7);
+  }
+}
+.waveBack,
+.waveMid,
+.waveFront {
+  animation: slide linear infinite;
+}
+.waveBack {
+  --period: -115px;
+  animation-duration: 11s;
+}
+.waveMid {
+  --period: -153.33px;
+  animation-duration: 8s;
+  animation-direction: reverse;
+}
+.waveFront {
+  --period: -115px;
+  animation-duration: 5.5s;
+}
+@keyframes slide {
+  to {
+    transform: translateX(var(--period));
+  }
+}
+.cloudA {
+  animation: drift 16s ease-in-out infinite alternate;
+}
+.cloudB {
+  animation: drift 21s ease-in-out infinite alternate-reverse;
+}
+@keyframes drift {
+  from {
+    transform: translateX(-14px);
+  }
+  to {
+    transform: translateX(18px);
+  }
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.55);
+  }
+}
+@keyframes glint {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+:global([data-motion='reduce']) .scene *,
+:global([data-motion='reduce']) .scene {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene,
+  .scene * {
+    animation: none !important;
+  }
+}

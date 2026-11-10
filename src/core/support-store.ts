@@ -52,11 +52,13 @@ export interface SupportView {
   /** The ask to show now. */
   readonly due?: SupportAsk;
   readonly starShown: boolean;
+  /** How many people starred Beluga on GitHub, when the daemon could find out (once a day). */
+  readonly stars?: number;
 }
 
-export const supportView = (record: SupportRecord): SupportView => {
+export const supportView = (record: SupportRecord, stars?: number): SupportView => {
   const due = dueAsk(record);
-  return { merges: record.counted.length, ...(due ? { due } : {}), starShown: Boolean(record.star) };
+  return { merges: record.counted.length, ...(due ? { due } : {}), starShown: Boolean(record.star), ...(stars === undefined ? {} : { stars }) };
 };
 
 export interface SupportSlice {
