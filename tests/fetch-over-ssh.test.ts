@@ -1,102 +1,147 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { dropAppImageEnv } from '../src/core/appimage-env.js';
+import { sshRemoteOf } from '../src/shared/git-trouble.js';
 
 /**
- * A friend who only uses SSH, on the Linux AppImage, got "remote helper 'https' aborted session"
+ * A friend on the Linux AppImage who only uses SSH got "remote helper 'https' aborted session"
  * from Fetch: the AppImage's libraries broke git's https helper, and an https origin had no other
- * way in. The daemon now drops those library paths, and an https fetch from GitHub, GitLab or
- * Bitbucket that fails tries SSH once. Here "SSH" is a stand-in that serves a bare repository
- * from this computer, and https is turned off for the clone, so nothing leaves the machine.
+ * way in. The daemon now drops those library paths, and when https can't get into a GitHub,
+ * GitLab or Bitbucket origin, fetch and push go over SSH (and every command reaching that remote
+ * after them). Here git's https helper crashes the way it did there, and "SSH" is a stand-in that
+ * serves bare repositories from this computer: nothing leaves the machine.
  */
 
 const base = mkdtempSync(path.join(os.tmpdir(), 'fetch-ssh-'));
 const sshLog = path.join(base, 'ssh.log');
-const fakeSsh = path.join(base, 'fake-ssh');
+
+// A copy of git's own programs whose https helper dies like the AppImage's did.
+const realExec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
+const execDir = path.join(base, 'git-core');
+mkdirSync(execDir);
+for (const name of readdirSync(realExec)) if (!/^git-remote-https?$/.test(name)) symlinkSync(path.join(realExec, name), path.join(execDir, name));
+for (const name of ['git-remote-https', 'git-remote-http']) {
+  writeFileSync(path.join(execDir, name), `#!/bin/sh\necho "$0: symbol lookup error: /lib/x86_64-linux-gnu/libcurl.so.4: undefined symbol: nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation" >&2\nexit 127\n`);
+  chmodSync(path.join(execDir, name), 0o755);
+}
 // git runs: <ssh> [-o SendEnv=GIT_PROTOCOL] git@github.com "git-upload-pack 'me/app.git'": serve it from `base`.
+const fakeSsh = path.join(base, 'fake-ssh');
 writeFileSync(fakeSsh, `#!/bin/sh\nfor last; do :; done\necho "$*" >> '${sshLog}'\ncd '${base}' && exec sh -c "$last"\n`);
 chmodSync(fakeSsh, 0o755);
-// git.ts reads it once, as it loads: set before sync.js is imported below.
+// git.ts reads them once, as it loads: set before it's imported below.
 process.env.GIT_SSH_COMMAND = fakeSsh;
+process.env.GIT_EXEC_PATH = execDir;
 
 let sync: typeof import('../src/workspaces/sync.js');
+let routes: typeof import('../src/workspaces/ssh-routes.js');
+let pr: typeof import('../src/workspaces/pr.js');
+let gitTs: typeof import('../src/workspaces/git.js');
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', ...args], { cwd, stdio: 'pipe' }).toString();
 const sshCalls = (): number => (existsSync(sshLog) ? readFileSync(sshLog, 'utf8').split('\n').filter(Boolean).length : 0);
+const bare = path.join(base, 'me', 'app.git');
+const seed = path.join(base, 'seed');
 
-/** A clone whose origin is `url`, with the bare repository at base/me/app.git holding one commit on main. */
-function cloneWithOrigin(name: string, url: string, config: Record<string, string> = {}): string {
+/** A clone whose origin is `url`, of the bare repository at base/me/app.git. */
+function cloneWithOrigin(name: string, url: string): string {
   const dir = path.join(base, name);
-  git(base, 'clone', '-q', path.join(base, 'me', 'app.git'), dir);
+  git(base, 'clone', '-q', bare, dir);
   git(dir, 'remote', 'set-url', 'origin', url);
   git(dir, 'remote', 'set-head', 'origin', '--delete');
-  for (const [k, v] of Object.entries(config)) git(dir, 'config', k, v);
   return dir;
 }
 
+function seedCommits(file: string): string {
+  writeFileSync(path.join(seed, file), `${file}\n`);
+  git(seed, 'add', '.');
+  git(seed, 'commit', '-q', '-m', file);
+  git(seed, 'push', '-q', bare, 'main');
+  return git(seed, 'rev-parse', 'HEAD').trim();
+}
+
 beforeAll(async () => {
-  sync = await import('../src/workspaces/sync.js');
-  const bare = path.join(base, 'me', 'app.git');
+  [sync, routes, pr, gitTs] = await Promise.all([import('../src/workspaces/sync.js'), import('../src/workspaces/ssh-routes.js'), import('../src/workspaces/pr.js'), import('../src/workspaces/git.js')]);
   mkdirSync(path.dirname(bare), { recursive: true });
   execFileSync('git', ['init', '--bare', '-q', '-b', 'main', bare]);
-  const seed = path.join(base, 'seed');
   git(base, 'init', '-q', '-b', 'main', seed);
-  writeFileSync(path.join(seed, 'a'), 'a\n');
-  git(seed, 'add', '.');
-  git(seed, 'commit', '-q', '-m', 'one');
-  git(seed, 'push', '-q', bare, 'main');
+  seedCommits('a');
 });
 
-describe('an https fetch that fails tries SSH', () => {
-  it('fetches a GitHub https origin over SSH when https can’t, and learns the default branch that way too', async () => {
-    const dir = cloneWithOrigin('friend', 'https://github.com/me/app.git', { 'protocol.https.allow': 'never' });
-    const seed = path.join(base, 'seed');
-    writeFileSync(path.join(seed, 'b'), 'b\n');
-    git(seed, 'add', '.');
-    git(seed, 'commit', '-q', '-m', 'two');
-    git(seed, 'push', '-q', path.join(base, 'me', 'app.git'), 'main');
+beforeEach(() => routes.clearSshRoutes());
 
+describe('https broken, SSH working', () => {
+  it('fetch goes over SSH, the remote stays as it was, and what reaches GitHub next goes over SSH too', async () => {
+    const dir = cloneWithOrigin('friend', 'https://github.com/me/app.git');
+    const tip = seedCommits('b');
     const fetched = await sync.fetchRemote(dir);
     expect(fetched.ok).toBe(true);
+    expect(git(dir, 'rev-parse', 'origin/main').trim()).toBe(tip);
+    expect(readFileSync(sshLog, 'utf8')).toMatch(/git@github\.com .*git-upload-pack 'me\/app\.git'/);
+    expect(git(dir, 'remote', 'get-url', 'origin').trim()).toBe('https://github.com/me/app.git');
     // Newer git sets origin/HEAD while fetching; older git: Beluga asks the remote, over SSH too.
     const learned = fetched.ok && fetched.remoteDefault ? fetched.remoteDefault : git(dir, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD').trim().replace(/^origin\//, '');
     expect(learned).toBe('main');
-    expect(git(dir, 'rev-parse', 'origin/main').trim()).toBe(git(seed, 'rev-parse', 'HEAD').trim());
-    expect(readFileSync(sshLog, 'utf8')).toMatch(/git@github\.com .*git-upload-pack 'me\/app\.git'/);
-    // The project's own remote is left as it was.
-    expect(git(dir, 'remote', 'get-url', 'origin').trim()).toBe('https://github.com/me/app.git');
-    // Next time it goes straight to SSH, and still works.
-    expect((await sync.fetchRemote(dir)).ok).toBe(true);
-  });
 
-  it('says why when SSH doesn’t get in either', async () => {
-    const dir = cloneWithOrigin('nokey', 'https://github.com/someone/else.git', { 'protocol.https.allow': 'never' });
-    const fetched = await sync.fetchRemote(dir);
-    expect(fetched.ok).toBe(false);
-    expect(git(dir, 'remote', 'get-url', 'origin').trim()).toBe('https://github.com/someone/else.git');
-  });
-
-  it('leaves other hosts and a network that’s down alone', async () => {
+    // The helper is broken for the whole host: Beluga's other git (a quiet fetch, ls-remote) goes over SSH straight away.
     const before = sshCalls();
-    const elsewhere = cloneWithOrigin('elsewhere', 'https://git.example.com/me/app.git', { 'protocol.https.allow': 'never' });
-    expect((await sync.fetchRemote(elsewhere)).ok).toBe(false);
-    const offline = cloneWithOrigin('offline', 'https://github.com/me/app.git', { 'http.proxy': 'http://127.0.0.1:9' });
-    const fetched = await sync.fetchRemote(offline);
-    expect(fetched.ok === false && fetched.reason).toBe('offline');
+    await gitTs.git(dir, ['fetch', 'origin', '--prune']);
+    expect(sshCalls()).toBeGreaterThan(before);
+    // Commands that don't reach a remote are left alone.
+    expect(routes.withSshRoutes(['status'])).toEqual(['status']);
+    expect(routes.withSshRoutes(['-c', 'x=y', 'push', 'origin'])[1]).toBe('url.git@github.com:.insteadOf=https://github.com/');
+  });
+
+  it('push for a pull request goes over SSH when https can’t, and lands on the remote', async () => {
+    const dir = cloneWithOrigin('pusher', 'https://github.com/me/app.git');
+    git(dir, 'checkout', '-q', '-b', 'feat');
+    writeFileSync(path.join(dir, 'f'), 'f\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'feat');
+    expect(await pr.pushForPr(dir, 'feat')).toBe('pushed');
+    expect(git(bare, 'rev-parse', 'feat').trim()).toBe(git(dir, 'rev-parse', 'HEAD').trim());
+    expect(routes.routedOverSsh('https://github.com/me/app.git')).toBe(true);
+  });
+
+  it('says why in plain words when SSH doesn’t get in either, and stops routing that way', async () => {
+    routes.rememberSshRoute('https://github.com/someone/else.git', true);
+    const dir = cloneWithOrigin('nokey', 'https://github.com/someone/else.git');
+    const fetched = await sync.fetchRemote(dir);
+    expect(fetched.ok === false && fetched.reason).toBe('https_broken');
+    expect(fetched.ok === false && fetched.message).toMatch(/can’t use https on this computer/);
+    expect(routes.routedOverSsh('https://github.com/someone/else.git')).toBe(false);
+  });
+
+  it('leaves other hosts on https', async () => {
+    const before = sshCalls();
+    const dir = cloneWithOrigin('elsewhere', 'https://git.example.com/me/app.git');
+    const fetched = await sync.fetchRemote(dir);
+    expect(fetched.ok === false && fetched.reason).toBe('https_broken');
     expect(sshCalls()).toBe(before);
   });
+});
 
+describe('SSH addresses for https remotes', () => {
   it.each([
-    ['https://github.com/me/app.git', ['-c', 'url.git@github.com:.insteadOf=https://github.com/']],
-    ['https://token@GitHub.com/me/app', ['-c', 'url.git@github.com:.insteadOf=https://token@GitHub.com/']],
-    ['https://gitlab.com/group/sub/app.git', ['-c', 'url.git@gitlab.com:.insteadOf=https://gitlab.com/']],
-    ['git@github.com:me/app.git', undefined],
-    ['https://git.example.com/me/app.git', undefined],
-    ['/Users/me/app.git', undefined],
-  ])('%s → %j', (url, args) => {
-    expect(sync.sshInsteadOf(url)).toEqual(args);
+    ['https://github.com/me/app.git', 'git@github.com:me/app.git', 'https://github.com/'],
+    ['https://token@GitHub.com/me/app', 'git@github.com:me/app', 'https://token@GitHub.com/'],
+    ['https://gitlab.com/group/sub/app.git', 'git@gitlab.com:group/sub/app.git', 'https://gitlab.com/'],
+  ])('%s → %s', (url, ssh, prefix) => {
+    expect(sshRemoteOf(url)).toEqual({ url: ssh, host: { https: prefix, ssh: ssh.slice(0, ssh.indexOf(':') + 1) } });
+  });
+
+  it.each(['git@github.com:me/app.git', 'https://git.example.com/me/app.git', '/Users/me/app.git'])('%s has none', (url) => {
+    expect(sshRemoteOf(url)).toBeUndefined();
+  });
+
+  it('routes one repository, or a whole host when its https is broken', () => {
+    routes.rememberSshRoute('https://github.com/me/app.git', false);
+    expect(routes.routedOverSsh('https://github.com/me/app.git')).toBe(true);
+    expect(routes.routedOverSsh('https://github.com/me/other.git')).toBe(false);
+    expect(routes.sshRouteArgs()).toEqual(['-c', 'url.git@github.com:me/app.git.insteadOf=https://github.com/me/app.git']);
+    routes.rememberSshRoute('https://gitlab.com/x/y.git', true);
+    expect(routes.routedOverSsh('https://gitlab.com/any/thing')).toBe(true);
   });
 });
 
@@ -108,7 +153,7 @@ describe('a broken https helper in words', () => {
   ])('%s', (raw) => {
     const failure = sync.classifyFetchError(raw);
     expect(failure.reason).toBe('https_broken');
-    expect(failure.message).toMatch(/https helper failed[^]*SSH/);
+    expect(failure.message).toMatch(/https helper fails[^]*SSH/);
   });
 });
 

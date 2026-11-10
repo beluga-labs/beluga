@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { HTTPS_BROKEN } from '../shared/git-trouble.js';
 import { GitError, conflictedFiles, git, tryGit } from './git.js';
+import { forgetSshRoute, rememberSshRoute, routedOverSsh, sshArgsFor } from './ssh-routes.js';
 
 /**
  * Keeping a project's main folder up to date with its remote: fetching (never asking for a
@@ -26,16 +28,13 @@ export interface FetchFailure {
 const AUTH = /authentication failed|could not read (username|password)|terminal prompts disabled|permission denied \(publickey|host key verification failed|returned error: 40[13]|access denied|invalid username or password|repository not found|support for password authentication was removed|could not read from remote repository/i;
 const OFFLINE = /could not resolve host|couldn't connect|failed to connect|network is unreachable|operation timed out|connection (refused|timed out|reset)|no route to host|temporary failure in name resolution/i;
 
-/** git-remote-https crashed or couldn't load: libcurl and its libraries don't match (an AppImage's LD_LIBRARY_PATH, a half-done upgrade). */
-const HTTPS_BROKEN = /remote helper '?https?'? aborted session|symbol lookup error|undefined symbol: \w*(nghttp2|curl)|(libcurl|libnghttp2)[\w.-]*: (cannot open|version)|git-remote-https: error while loading/i;
-
 /** What a failed fetch means, in words (auth and network trouble get their own advice). */
 export function classifyFetchError(raw: string, remote = 'origin'): FetchFailure {
   const detail = raw.trim().split('\n').filter(Boolean).slice(-3).join('\n');
   if (HTTPS_BROKEN.test(raw))
     return {
       reason: 'https_broken',
-      message: `git can’t use https on this computer (its https helper failed, usually mismatched libraries), and Beluga couldn’t fetch ${remote} over SSH instead. Give ${remote} its SSH address and add this computer’s SSH key where it’s hosted, or let your agent look into it.`,
+      message: `git can’t use https on this computer (its https helper fails, usually mismatched libraries). Give ${remote} an SSH address with a key this computer has, or let your agent look into it.`,
       detail,
     };
   // "Could not read from remote repository" comes with both: the network reason wins.
@@ -52,21 +51,6 @@ export function classifyFetchError(raw: string, remote = 'origin'): FetchFailure
 
 export type FetchResult = { readonly ok: true; readonly remoteDefault?: string } | ({ readonly ok: false } & FetchFailure);
 
-/** An https address on a host everyone reaches over SSH as git@host. */
-const SSH_HOST = /^https?:\/\/(?:[^@/\s]+@)?(github\.com|gitlab\.com|bitbucket\.org)\//i;
-
-/**
- * For an https remote on GitHub, GitLab or Bitbucket: the `-c` that makes one git command go over
- * SSH instead ("https://github.com/" → "git@github.com:"). Nothing in the repository's config changes.
- */
-export function sshInsteadOf(url: string | undefined): readonly string[] | undefined {
-  const m = url ? SSH_HOST.exec(url.trim()) : null;
-  return m ? ['-c', `url.git@${m[1]!.toLowerCase()}:.insteadOf=${m[0]}`] : undefined;
-}
-
-/** Repositories (and remote) whose https fetch failed but SSH worked: they go straight to SSH while the daemon runs. */
-const overSsh = new Set<string>();
-
 /** One `git fetch`, never prompting → git's words when it failed. */
 async function fetchOnce(repo: string, remote: string, extra: readonly string[] = []): Promise<string | undefined> {
   try {
@@ -80,22 +64,25 @@ async function fetchOnce(repo: string, remote: string, extra: readonly string[] 
 /**
  * Fetch, and when an https remote on GitHub, GitLab or Bitbucket fails (git can't sign in, its
  * https helper is broken, anything but no network), try once more over SSH: someone who only uses
- * SSH keys gets their fetch, no question asked. → why it failed, or the `-c` it worked with.
+ * SSH keys gets their fetch, no question asked, and from then on every command that reaches that
+ * remote goes over SSH too (ssh-routes.ts). → why it failed, or undefined when it worked.
  */
-async function fetchWithFallback(repo: string, remote: string): Promise<{ readonly failure: FetchFailure } | { readonly via: readonly string[] }> {
-  const key = `${repo}\0${remote}`;
-  const ssh = sshInsteadOf(await tryGit(repo, ['remote', 'get-url', remote]));
-  if (ssh && overSsh.has(key)) {
-    if ((await fetchOnce(repo, remote, ssh)) === undefined) return { via: ssh };
-    overSsh.delete(key);
+async function fetchWithFallback(repo: string, remote: string): Promise<FetchFailure | undefined> {
+  const url = (await tryGit(repo, ['remote', 'get-url', remote]))?.trim();
+  let raw = await fetchOnce(repo, remote);
+  if (raw === undefined) return undefined;
+  // Routed over SSH, and SSH stopped working: https again, as configured.
+  if (url && routedOverSsh(url)) {
+    forgetSshRoute(url);
+    raw = await fetchOnce(repo, remote);
+    if (raw === undefined) return undefined;
   }
-  const raw = await fetchOnce(repo, remote);
-  if (raw === undefined) return { via: [] };
   const failure = classifyFetchError(raw, remote);
-  if (!ssh || failure.reason === 'offline' || failure.reason === 'no_remote') return { failure };
-  if ((await fetchOnce(repo, remote, ssh)) !== undefined) return { failure };
-  overSsh.add(key);
-  return { via: ssh };
+  const ssh = sshArgsFor(url);
+  if (!url || !ssh || failure.reason === 'offline' || failure.reason === 'no_remote') return failure;
+  if ((await fetchOnce(repo, remote, ssh)) !== undefined) return failure;
+  rememberSshRoute(url, failure.reason === 'https_broken');
+  return undefined;
 }
 
 /**
@@ -103,10 +90,10 @@ async function fetchWithFallback(repo: string, remote: string): Promise<{ readon
  * the remote's default branch when origin/HEAD isn't set.
  */
 export async function fetchRemote(repo: string, remote = 'origin'): Promise<FetchResult> {
-  const fetched = await fetchWithFallback(repo, remote);
-  if ('failure' in fetched) return { ok: false, ...fetched.failure };
+  const failed = await fetchWithFallback(repo, remote);
+  if (failed) return { ok: false, ...failed };
   if (await tryGit(repo, ['symbolic-ref', '--quiet', `refs/remotes/${remote}/HEAD`])) return { ok: true };
-  const symref = await tryGit(repo, [...fetched.via, 'ls-remote', '--symref', remote, 'HEAD']);
+  const symref = await tryGit(repo, ['ls-remote', '--symref', remote, 'HEAD']);
   const remoteDefault = symref ? parseSymref(symref) : undefined;
   return remoteDefault ? { ok: true, remoteDefault } : { ok: true };
 }
