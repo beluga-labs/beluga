@@ -107,6 +107,26 @@ describe('pressing them', () => {
     expect(pressed(b, 'help-keys', press('.', 'Slash', { meta: true }))).toBe(false);
   });
 
+  it('never reads a letter you typed as another key: Dvorak ⌘V pastes, it doesn’t Stop', () => {
+    // On Dvorak the V key is where "." is on a US keyboard.
+    const paste = press('v', 'Period', { meta: true });
+    expect(pressed(b, 'conv-stop', paste)).toBe(false);
+    expect(shortcutFor(b, paste, ['conv-stop', 'help-keys'])).toBeUndefined();
+    // ⌘X there is where ⌘B is: still Cut, even with ⌘B given to something.
+    const mine = bindingsOf({ 'ws-run': ['Cmd+B'] });
+    expect(shortcutFor(mine, press('x', 'KeyB', { meta: true }), ['ws-run'])).toBeUndefined();
+    expect(pressed(mine, 'ws-run', press('x', 'KeyB', { meta: true }))).toBe(false);
+  });
+
+  it('still finds shortcuts by their key on a layout that types other letters', () => {
+    // Russian: ⌘. is on the "ю" key, where "." is on a US keyboard.
+    expect(pressed(b, 'conv-stop', press('ю', 'Period', { meta: true }))).toBe(true);
+    // Russian ⌘S types "ы": still the key it is.
+    expect(pressed(bindingsOf({ 'ws-run': ['Cmd+S'] }), 'ws-run', press('ы', 'KeyS', { meta: true }))).toBe(true);
+    // AZERTY: ⌘1 types "&".
+    expect(shortcutFor(b, press('&', 'Digit1', { meta: true }), ['go-overview'])).toBe('go-overview');
+  });
+
   it('follows your keys', () => {
     const mine = bindingsOf({ 'ws-run': ['Cmd+E'] });
     expect(pressed(mine, 'ws-run', press('e', 'KeyE', { meta: true }))).toBe(true);

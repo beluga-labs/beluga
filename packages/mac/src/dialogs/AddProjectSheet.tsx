@@ -41,7 +41,7 @@ const NEWEST = 24;
  * one from its git address.
  */
 export function AddProjectSheet() {
-  const { ui } = useBeluga();
+  const { ui, client } = useBeluga();
   const api = useApi();
   const asked = useUi((u) => u.addProject ?? false);
   const open = asked !== false;
@@ -120,16 +120,21 @@ export function AddProjectSheet() {
     const known = new Set(roots.split('\n'));
     const q = filter.trim().toLowerCase();
     const listed = new Set((found ?? []).map((f) => f.path));
-    // Folders you dropped, chose or typed (not among the suggestions) and hidden projects come first.
-    const extra = found ? [...rows.keys(), ...hiddenSet, ...revealed].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: baseName(p) || p, changed: 0 })) : [];
+    // Folders you dropped, chose or typed (not among the suggestions) and hidden projects come first,
+    // even while the suggestions are still being looked for: what you added shows at once.
+    const extra = [...rows.keys(), ...(found ? [...hiddenSet, ...revealed] : [])].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: baseName(p) || p, changed: 0 }));
     const newest = (found ?? []).filter((f, i) => q || i < NEWEST || rows.has(f.path));
     return [...extra, ...newest]
       .filter((f) => !known.has(f.path) || rows.has(f.path) || revealed.has(f.path))
       .filter((f) => !q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
   }, [found, filter, roots, rows, hiddenSet, revealed]);
 
+  // The folder panel failing says so (it used to do nothing); typing a path below still works.
   const choose = async (): Promise<void> => {
-    const picked = await pickFolders('Add projects');
+    const picked = await pickFolders('Add projects').catch((err: unknown) => {
+      client.store.dispatch({ type: 'toast', text: `Couldn't open the folder picker: ${errorText(err)}. Type the path below instead.`, level: 'error' });
+      return undefined;
+    });
     if (picked) await add(picked);
   };
 
@@ -187,10 +192,8 @@ export function AddProjectSheet() {
                 <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label={`Filter projects on ${thisComputer()}`} />
               </div>
               <div className={s.list} role="list">
-                {found === undefined ? (
-                  <div className={s.note}>Looking in your code folders…</div>
-                ) : shown.length === 0 ? (
-                  <div className={s.note}>{filter ? `Nothing called “${filter}”.` : 'No other git projects in ~/Projects, ~/Developer, ~/code and the like.'}</div>
+                {shown.length === 0 ? (
+                  <div className={s.note}>{found === undefined ? 'Looking in your code folders…' : filter ? `Nothing called “${filter}”.` : 'No other git projects in ~/Projects, ~/Developer, ~/code and the like.'}</div>
                 ) : (
                   shown.map((f) => {
                     const row = rows.get(f.path);
@@ -238,6 +241,7 @@ export function AddProjectSheet() {
                     );
                   })
                 )}
+                {found === undefined && shown.length > 0 ? <div className={s.note}>Looking in your code folders…</div> : null}
               </div>
 
               <form
