@@ -385,7 +385,7 @@ pub fn apply_keys<R: Runtime>(menu: &Menu<R>, keys: &HashMap<String, Option<Stri
 
 pub fn on_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     match id {
-        "quit" => app.exit(0),
+        "quit" => crate::quit::quit(app),
         "show" => {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();

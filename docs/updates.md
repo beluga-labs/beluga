@@ -24,7 +24,7 @@ Copies installed as Klaud update to Beluga like any other version: the old relea
   - **Check for updates** (on by default): when it's off, Beluga checks only when you click **Check Now**. Turning it off turns Update automatically off too, and turning Update automatically on turns it back on.
 
   Together they are the shell's `mode` in `updates.json`: `idle` (both on), `ask` (only checking) or `off`. The sheet's "Update automatically from now on" box is the first switch. A new install (no `updates.json`, and nothing else in its Application Support folder yet, such as `.window-state.json`) starts on `idle` and writes it right away; an existing `updates.json` is read as it is (no `mode` in it still means `ask`), and an earlier install that never wrote one stays on `ask`.
-- **Quitting.** A downloaded update always installs when you quit, unless updates are *Off*.
+- **Quitting.** A downloaded update always installs when you quit, unless updates are *Off*. Quitting still means quitting: Beluga doesn't reopen afterwards (on Windows the installer is told not to, #426), and the new version starts the next time you open Beluga.
 - **After an update.** The pill says "Updated to 0.5 · What's new" once.
 
 ## The phone app

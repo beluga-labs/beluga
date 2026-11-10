@@ -142,6 +142,15 @@ describe('a problem report', () => {
     expect(existsSync(made.path)).toBe(true);
   });
 
+  it('says where quitting stuck when the app had to end itself (#426, src-tauri/src/quit.rs)', () => {
+    const paths = blackboxPaths(path.join(dir, 'logs'));
+    mkdirSync(paths.incidents, { recursive: true });
+    const reason = 'Quitting Beluga stuck while stopping the engine (12 s): Beluga ended itself';
+    writeFileSync(path.join(paths.incidents, '7-quit.json'), JSON.stringify({ kind: 'quit', at: 7, stage: 'stopping the engine', reason }));
+    const made = makeReport({ version: '3.0.0', recorder: new Recorder(10), paths, home: '/Users/someone', now: Date.UTC(2026, 10, 10, 12) });
+    expect(made.summary).toMatchObject({ problems: 1, lastProblem: reason });
+  });
+
   it('opens an issue with the summary filled in', () => {
     const url = new URL(problemIssueUrl('https://github.com/kayraucklnc/beluga', { version: '2.1.0', os: 'Darwin 25.6.0 (arm64)', problems: 1, lastProblem: 'uncaught exception' }, 'beluga-report.json'));
     expect(url.pathname).toBe('/kayraucklnc/beluga/issues/new');
