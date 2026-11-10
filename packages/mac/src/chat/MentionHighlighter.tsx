@@ -11,6 +11,7 @@ import {
 import m from "./mention.module.css";
 import type { ChipSpan } from "./chip-caret.js";
 import { useChipCaret } from "./use-chip-caret.js";
+import { boxedWorktrees, plainWorktrees, type WorktreeNames, worktreeNamesOf } from "./worktree-box.js";
 
 function withImages(piece: MentionPiece): MentionPiece[] {
   if ("ref" in piece) return [piece];
@@ -28,20 +29,61 @@ function withImages(piece: MentionPiece): MentionPiece[] {
   return out;
 }
 
-/** A pasted worktree link ("worktree:wt-…", BLG-878) to one of yours: a chip with its name, as an image's. */
-function withWorktrees(piece: MentionPiece, names: ReadonlyMap<string, string>): MentionPiece[] {
+/**
+ * A pasted worktree link to one of yours (BLG-878): a chip with its name, as an image's. Written
+ * short in the box ("[\u2007name]", worktree-box.ts), or bare ("worktree:wt-…") from before.
+ */
+function withWorktrees(piece: MentionPiece, names: WorktreeNames): MentionPiece[] {
   if ("ref" in piece || !names.size) return [piece];
-  return splitWorktreeRefs(piece.text, (id) => names.has(id)).map((p) =>
-    "id" in p ? { raw: p.raw, ref: { kind: "worktree", label: names.get(p.id)!, id: p.id } } : p,
+  const out: MentionPiece[] = [];
+  let last = 0;
+  for (const w of boxedWorktrees(piece.text, names)) {
+    if (w.start > last) out.push({ text: piece.text.slice(last, w.start) });
+    out.push({ raw: piece.text.slice(w.start, w.end), ref: { kind: "worktree", label: names.get(w.id)!, id: w.id } });
+    last = w.end;
+  }
+  if (last < piece.text.length) out.push({ text: piece.text.slice(last) });
+  return out.flatMap((p): MentionPiece[] =>
+    "ref" in p
+      ? [p]
+      : splitWorktreeRefs(p.text, (id) => names.has(id)).map((q) =>
+          "id" in q ? { raw: q.raw, ref: { kind: "worktree" as const, label: names.get(q.id)!, id: q.id } } : q,
+        ),
   );
 }
 
 /** Each worktree's name by id, as one string (so the box draws again only when one changes). */
 const namesOf = new WeakMap<object, string>();
-function worktreeNames(projects: readonly { readonly workspaces: readonly { readonly id: string; readonly kind: string; readonly name: string }[] }[]): string {
+function worktreeNames(projects: Parameters<typeof worktreeNamesOf>[0]): string {
   let names = namesOf.get(projects);
-  if (names === undefined) namesOf.set(projects, (names = JSON.stringify(projects.flatMap((p) => p.workspaces.filter((w) => w.kind === "worktree").map((w) => [w.id, w.name])))));
+  if (names === undefined) namesOf.set(projects, (names = JSON.stringify([...worktreeNamesOf(projects)])));
   return names;
+}
+
+/** A bare "worktree:wt-…" takes more room than its name: its chip starts at the start of that room. */
+const isBare = (p: MentionPiece): boolean => "ref" in p && p.raw.startsWith("worktree:");
+
+/** Copied or cut from the box, a worktree's short link goes on the clipboard whole ("worktree:wt-…"). */
+function useWholeLinksOnCopy(input: RefObject<HTMLTextAreaElement | null>, known: string): void {
+  useEffect(() => {
+    const el = input.current;
+    if (!el || known === "[]") return;
+    const names = new Map(JSON.parse(known) as [string, string][]);
+    const onCopy = (e: ClipboardEvent): void => {
+      const picked = el.value.slice(el.selectionStart, el.selectionEnd);
+      const whole = plainWorktrees(picked, names);
+      if (whole === picked || !e.clipboardData) return;
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", whole);
+      if (e.type === "cut") document.execCommand("delete");
+    };
+    el.addEventListener("copy", onCopy);
+    el.addEventListener("cut", onCopy);
+    return () => {
+      el.removeEventListener("copy", onCopy);
+      el.removeEventListener("cut", onCopy);
+    };
+  }, [input, known]);
 }
 
 /** Drawn as a chip over the room its words take (the box's own words go see-through). */
@@ -94,7 +136,7 @@ export function MentionHighlighter({
   className: string;
 }) {
   const layer = useRef<HTMLDivElement>(null);
-  const known = useApp((st) => (text.includes("worktree:") ? worktreeNames(st.projects) : "[]"));
+  const known = useApp((st) => (text.includes("worktree:") || text.includes("\u2007") ? worktreeNames(st.projects) : "[]"));
   const pieces = useMemo(() => {
     const names = new Map(JSON.parse(known) as [string, string][]);
     return splitMentions(text, world)
@@ -104,6 +146,7 @@ export function MentionHighlighter({
   const chips = pieces.some(isChip);
   const spans = useMemo(() => chipSpans(pieces), [pieces]);
   useChipCaret(input, text, spans.all, spans.worktrees);
+  useWholeLinksOnCopy(input, known);
   useEffect(() => {
     const el = input.current;
     if (!el) return;
@@ -133,7 +176,7 @@ export function MentionHighlighter({
         "ref" in p && isChip(p) ? (
           <mark key={i} className={m.imageChip} data-mention={p.raw} data-kind={p.ref.kind}>
             <span className={m.chipRoom}>{p.raw}</span>
-            <ImageChip className={p.ref.kind === "worktree" ? `${m.chipFace} ${m.chipHug}` : m.chipFace} label={p.ref.label} icon={p.ref.kind === "worktree" ? "branch" : "image"} />
+            <ImageChip className={isBare(p) ? `${m.chipFace} ${m.chipHug}` : p.ref.kind === "worktree" ? `${m.chipFace} ${m.chipSnug}` : m.chipFace} label={p.ref.label} icon={p.ref.kind === "worktree" ? "branch" : "image"} />
           </mark>
         ) : "ref" in p ? (
           <mark

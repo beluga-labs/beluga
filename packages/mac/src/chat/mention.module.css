@@ -226,3 +226,10 @@ a.chip:hover {
 .chipFace.chipHug {
   justify-content: flex-start;
 }
+
+/* A worktree's link written short ("[\u2007name]", worktree-box.ts): its room is its name and about
+   a chip's icon and padding; a hair less padding keeps the whole name in it (BLG-887). */
+.chipFace.chipSnug {
+  padding: 0 3px 0 2px;
+  gap: 2px;
+}
