@@ -63,6 +63,11 @@ export interface PlansWorkDeps {
   readonly forYou?: PilotDeps['forYou'];
   /** How long a plan may sit quiet before Beluga moves it along: see PilotDeps.rescueMs. */
   readonly rescueMs?: number;
+  /**
+   * Put the plan's own conversation on `agent` (undefined: your default), as its own picker does:
+   * another runtime gets the recent conversation with the next message (a quiet switch, BLG-592).
+   */
+  readonly followAgent?: (channel: string, agent: AgentRef | undefined) => void;
 }
 
 const WS = 'ws:';
@@ -179,6 +184,8 @@ export class PlansWork {
     if (!chat) throw new Error('Couldn’t start the plan’s conversation');
     const home = `${WS}${chat.id}`;
     const plan = this.plans.create({ projectId: input.projectId, home, goal, ...(input.autonomy ? { autonomy: input.autonomy } : {}), ...(input.testsAt ? { testsAt: input.testsAt } : {}), ...(input.agent ? { agent: input.agent } : {}) }, this.me());
+    // Its conversation plans on the agent picked for its work (a new conversation: nothing to hand off).
+    if (input.agent) controller.manager.setAgent(chat.id, input.agent);
     if (!opts.quiet) this.deps.intend({ type: 'navigate', view: { kind: 'plan', id: plan.id } });
     this.deps.askClaude(goal, home, true);
     // Named in a moment by a quick model (your message is never its name); Claude's plan_write names it after that.
@@ -347,10 +354,13 @@ export class PlansWork {
   /**
    * Who works the plan's milestones and tasks (BLG-498): `agent`, or your default (null). Work that
    * starts from now on gets it; milestones and tasks already at work keep the agent they opened with
-   * (switching mid-run would lose their sessions). A task's own agent still beats it. → in words.
+   * (switching mid-run would lose their sessions). A task's own agent still beats it. The plan's own
+   * conversation moves to it too. → in words.
    */
   setWorkAgent(id: string, agent: AgentRef | null): string {
     const plan = this.plans.setWorkAgent(id, agent ?? undefined, this.me());
+    // The plan's own conversation follows it, so the one you plan with is the one you picked (even when the pick didn't change: it brings a drifted conversation back).
+    if (plan.status !== 'done' && plan.home.startsWith(WS)) this.deps.followAgent?.(plan.home, agent ?? undefined);
     const who = agent ? agentName(agent, { model: true }) : 'your default agent';
     const busy = Object.values(plan.runs).filter((r) => r?.agent && !r.passedAt).length;
     return busy ? `${who} works what starts next; the ${busy === 1 ? 'milestone' : `${busy} milestones`} already at work keep${busy === 1 ? 's' : ''} ${busy === 1 ? 'its' : 'their'} agent` : `${who} works this plan’s milestones and tasks`;

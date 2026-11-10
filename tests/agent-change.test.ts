@@ -145,6 +145,37 @@ describe('a plan’s agent for its work, changed (BLG-498)', () => {
     expect('agent' in t.plans.need(plan.id)).toBe(false);
   });
 
+  it('its own conversation follows: the pick, null back to your default, and the same pick again brings a drifted one back', () => {
+    const t = setup();
+    const plans = new Plans({ store: t.store, dir: null });
+    const followed: Array<[string, AgentRef | undefined]> = [];
+    const work = new PlansWork({ store: t.store, plans, board: t.work, controller: t.controller, git: null, askClaude: () => 'ask', intend: () => undefined, delayMs: 0, followAgent: (ch, a) => void followed.push([ch, a]) });
+    const plan = plans.create({ projectId: 'api', home: 'ws:main', autonomy: 'step' }, t.work.myClaude());
+    work.setWorkAgent(plan.id, LOCAL);
+    work.setWorkAgent(plan.id, LOCAL);
+    work.setWorkAgent(plan.id, null);
+    expect(followed).toEqual([
+      ['ws:main', LOCAL],
+      ['ws:main', LOCAL],
+      ['ws:main', undefined],
+    ]);
+  });
+
+  it('a new plan made with an agent opens its conversation on it', async () => {
+    const t = setup();
+    const set: Array<[string, AgentRef | undefined]> = [];
+    const controller = Object.assign(Object.create(t.controller as object), {
+      newChat: async () => ({ id: 'c1' }),
+      manager: { setAgent: (id: string, a: AgentRef | undefined) => void set.push([id, a]) },
+    }) as WorkspaceController;
+    const plans = new Plans({ store: t.store, dir: null });
+    const asked: string[] = [];
+    const work = new PlansWork({ store: t.store, plans, board: t.work, controller, git: null, askClaude: (_p, ch) => void asked.push(ch), intend: () => undefined, delayMs: 0 });
+    await work.create({ projectId: 'api', goal: 'A faster parser', agent: LOCAL }, { quiet: true });
+    expect(set).toEqual([['c1', LOCAL]]);
+    expect(asked).toEqual(['ws:c1']);
+  });
+
   it('the API: plans.setWorkAgent takes an agent or null', () => {
     const args = PLANS_API['plans.setWorkAgent'].args;
     expect(args.parse(['plan-1', LOCAL])[1]).toEqual(LOCAL);
