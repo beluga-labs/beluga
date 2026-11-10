@@ -22,6 +22,20 @@ const MAX_PAIR_BYTES = 64 * 1024;
 
 const NOT_FOUND = 'Nobody is waiting for that invitation. Check the code, or ask for a new one (codes work for an hour, links for a day).';
 
+/**
+ * Why using an invitation failed, from hyperdht's error code on the dial. Only PEER_NOT_FOUND (or
+ * no answer at all) means nobody is waiting: a failed hole-punch found them, and the invitation is
+ * still good, so it mustn't read as expired (a Mac and a Linux computer on networks that can't
+ * reach each other were told it had).
+ */
+export function pairFailure(code: string | undefined): string {
+  if (!code || code === 'PEER_NOT_FOUND') return NOT_FOUND;
+  if (/HOLEPUNCH/.test(code)) {
+    return `Found whoever made that invitation, but your two networks couldn't connect directly (${code}). The invitation still works: try again from another network (a phone's hotspot), or turn off a VPN or a firewall that blocks UDP on either side.`;
+  }
+  return `Found whoever made that invitation, but couldn't connect (${code}). The invitation still works: try again in a moment.`;
+}
+
 export type PairingDecision =
   | { readonly ok: true; readonly kind: 'friend' }
   | { readonly ok: true; readonly kind: 'group'; readonly group: { readonly id: string; readonly name: string; readonly status: 'joined' | 'waiting' } }
@@ -169,7 +183,11 @@ export async function pairWith(node: DHT, keyPair: KeyPair, me: Profile, ticket:
   const target = DHTClass.keyPair(secrets.seed).publicKey;
   const stream = node.connect(target, { keyPair });
   const socket = fromStream(stream, { maxBytes: MAX_PAIR_BYTES });
-  socket.on('error', () => undefined);
+  // The dial's own error (PEER_NOT_FOUND, HOLEPUNCH_ABORTED…) says why it closed (pairFailure).
+  let code: string | undefined;
+  socket.on('error', (err: Error & { code?: unknown }) => {
+    if (typeof err.code === 'string') code ??= err.code;
+  });
   return new Promise<PairResult>((resolve, reject) => {
     let settled = false;
     const settle = (fn: () => void): void => {
@@ -179,7 +197,7 @@ export async function pairWith(node: DHT, keyPair: KeyPair, me: Profile, ticket:
       fn();
       socket.close(1000);
     };
-    const timer = setTimeout(() => settle(() => reject(new Error(NOT_FOUND))), timeoutMs);
+    const timer = setTimeout(() => settle(() => reject(new Error(pairFailure(code)))), timeoutMs);
     timer.unref();
     socket.once('open', () => {
       const hh = stream.handshakeHash;
@@ -194,6 +212,6 @@ export async function pairWith(node: DHT, keyPair: KeyPair, me: Profile, ticket:
       if (!checkProof(secrets.auth, 'inviter', hh, canonical(msg.profile), msg.mac) || !verifyCard(msg.profile.card)) return settle(() => reject(new Error("The other side couldn't prove it made that invitation")));
       settle(() => resolve({ profile: msg.profile, kind: msg.kind, ...(msg.group ? { group: msg.group } : {}) }));
     });
-    socket.once('close', () => settle(() => reject(new Error(NOT_FOUND))));
+    socket.once('close', () => settle(() => reject(new Error(pairFailure(code)))));
   });
 }

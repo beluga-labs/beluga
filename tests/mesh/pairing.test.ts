@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import DHT from 'hyperdht';
 import { fromStream } from '../../src/net/transport.js';
 import { pairingSecrets, parseTicket } from '../../src/net/mesh/invitations.js';
+import { pairFailure } from '../../src/net/mesh/pairing.js';
 import { type Crowd, befriend, crowd, settle } from './helpers.js';
 
 let net: Crowd;
@@ -114,4 +115,27 @@ describe('adding friends without a server', () => {
     expect(() => jon.mesh.sendDm(ivy.identity.peerId, 'still there?')).not.toThrow();
     expect(jon.mesh.dmHistory(ivy.identity.peerId).at(-1)?.status).toBe('waiting');
   }, 40_000);
+});
+
+describe('why an invitation could not be used', () => {
+  it('says the invitation is gone only when nobody was found', () => {
+    expect(pairFailure(undefined)).toMatch(/Nobody is waiting/);
+    expect(pairFailure('PEER_NOT_FOUND')).toMatch(/Nobody is waiting/);
+  });
+
+  it('says the networks could not meet when the hole-punch failed, and that the invitation still works', () => {
+    for (const code of ['HOLEPUNCH_ABORTED', 'HOLEPUNCH_DOUBLE_RANDOMIZED_NATS', 'CANNOT_HOLEPUNCH', 'REMOTE_NOT_HOLEPUNCHABLE']) {
+      const said = pairFailure(code);
+      expect(said).toMatch(/couldn't connect directly/);
+      expect(said).toContain(code);
+      expect(said).toMatch(/still works/);
+      expect(said).not.toMatch(/Nobody is waiting/);
+    }
+  });
+
+  it('names any other failure without calling the invitation expired', () => {
+    const said = pairFailure('PEER_CONNECTION_FAILED');
+    expect(said).toMatch(/couldn't connect \(PEER_CONNECTION_FAILED\)/);
+    expect(said).not.toMatch(/Nobody is waiting/);
+  });
 });
