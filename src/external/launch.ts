@@ -7,6 +7,7 @@ import { stopAgentWork } from './adapters/stop.js';
 import { sessionControl } from './adapters/session-control.js';
 import { sessionFiles } from './adapters/session-files.js';
 import { sessionMethods } from './adapters/session-methods.js';
+import type { ExternalToolDef } from './adapters/mcp-tools.js';
 import { withDiscovery } from './adapters/tools/discover.js';
 import { fileTools } from './adapters/tools/files.js';
 import { peopleTools } from './adapters/tools/people.js';
@@ -35,14 +36,10 @@ export function launchExternal(deps: { readonly session: Session; readonly log?:
     runtimes: async () => (await runtimeStatuses()).map((r) => ({ id: r.id, ready: r.state === 'ready', asksEachStep: asksEachStep(r.id), models: r.models.map((m) => ({ value: m.value, label: m.label })) })),
   });
   const chats = sessionControl(deps.session, { runCap: (id) => LIMITS[service.grants.list().find((g) => g.id === id)?.route ?? 'remote'].runs });
-  const methods = sessionMethods(deps.session);
-  const chatControl = controlTools(reads, chats);
-  const all = [...stateTools(sessionState(deps.session), chats), ...workspaceTools(reads, sessionWorkspace(deps.session), chats), ...peerTools(sessionPeers(deps.session)), ...methodTools(ALL_METHOD_ROWS, reads, methods, chats.startedBy), ...fileTools(reads, sessionFiles(deps.session), methods), ...peopleTools(methods)];
-  const alsoListed = all.filter((t) => (ALSO_LISTED as readonly string[]).includes(t.name));
-  const others = all.filter((t) => !alsoListed.includes(t));
+  const { listed, others } = externalTools({ reads, chats, methods: sessionMethods(deps.session), state: sessionState(deps.session), workspace: sessionWorkspace(deps.session), peers: sessionPeers(deps.session), files: sessionFiles(deps.session) });
   const service = new ExternalService({
     ...(deps.log ? { log: deps.log } : {}),
-    tools: withDiscovery([...readTools(reads, { alsoTools: [...chatControl.map((t) => t.name), ...ALSO_LISTED, ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl, ...alsoListed], others),
+    tools: withDiscovery(listed, others),
     // A card with no chat waits in the agent's own place, not in the group chat.
     // The agent is the card's peer: its cap on waiting cards applies and a stop finds them. The answer is only for this call, and writes no trust.
     ask: (title, detail, once, card, signal) => deps.session.host.ask('tool', title, detail, card ? externalRequester(card.agentId) : undefined, card?.chatId ? `ws:${card.chatId}` : card ? externalRequester(card.agentId) : 'room', { once, call: true, ...(card ? { asker: card.agent } : {}), ...(signal ? { signal } : {}) }),
@@ -71,4 +68,23 @@ export function launchExternal(deps: { readonly session: Session; readonly log?:
     detachExternal(deps.session);
     await service.stop();
   };
+}
+
+export interface ToolPorts {
+  readonly reads: Parameters<typeof readTools>[0];
+  readonly chats: Parameters<typeof controlTools>[1] & { readonly startedBy: Parameters<typeof methodTools>[3] };
+  readonly methods: Parameters<typeof methodTools>[2];
+  readonly state: Parameters<typeof stateTools>[0];
+  readonly workspace: Parameters<typeof workspaceTools>[1];
+  readonly peers: Parameters<typeof peerTools>[0];
+  readonly files: Parameters<typeof fileTools>[1];
+}
+
+/** What a client lists, and the others it reaches through beluga_find and beluga_call (bench/ratel builds the same). */
+export function externalTools(p: ToolPorts): { readonly listed: ExternalToolDef[]; readonly others: ExternalToolDef[] } {
+  const chatControl = controlTools(p.reads, p.chats);
+  const all = [...stateTools(p.state, p.chats), ...workspaceTools(p.reads, p.workspace, p.chats), ...peerTools(p.peers), ...methodTools(ALL_METHOD_ROWS, p.reads, p.methods, p.chats.startedBy), ...fileTools(p.reads, p.files, p.methods), ...peopleTools(p.methods)];
+  const alsoListed = all.filter((t) => (ALSO_LISTED as readonly string[]).includes(t.name));
+  const others = all.filter((t) => !alsoListed.includes(t));
+  return { listed: [...readTools(p.reads, { alsoTools: [...chatControl.map((t) => t.name), ...ALSO_LISTED, ...DISCOVERY_TOOLS], moreTools: others.length }), ...chatControl, ...alsoListed], others };
 }
