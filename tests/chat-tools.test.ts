@@ -14,6 +14,7 @@ import { ToolHost } from '../src/agent/tool-host.js';
 import type { AgentBackend, AgentRunInput, RoomBridge } from '../src/agent/types.js';
 import { AgentHost } from '../src/core/agent-host.js';
 import { chatToolsOf } from '../src/core/chat-links/transcript.js';
+import { externalRequester } from '../src/core/trust.js';
 import { type DomainState, type LogItem, Store, initialState } from '../src/core/store.js';
 import { humanizeTool } from '../src/shared/step-titles.js';
 import { waitFor } from './helpers.js';
@@ -345,9 +346,10 @@ describe('who gets the suite', () => {
       workspaces: { place, refreshWorkspace: async () => undefined, manager: { list: [] } } as never,
       isGuest: (id: string) => id === 'guest',
     } as never);
-    return async (from: string): Promise<AgentRunInput> => {
+    host.setExternalAgents((r) => (r === externalRequester('g1') ? { name: 'GrokBot', level: 'full' } : undefined));
+    return async (from: string, via?: { id: string; name: string; creationSource: string }): Promise<AgentRunInput> => {
       const before = runs.length;
-      await host.onAgentRequest(from, { kind: 'agent_request', requestId: `r-${from}`, prompt: `read @x (chat: ${ME}/ws:wt-1)`, viaAgent: false, channel: 'ws:t', urgent: false, plan: false });
+      await host.onAgentRequest(from, { kind: 'agent_request', requestId: `r-${from}`, prompt: `read @x (chat: ${ME}/ws:wt-1)`, viaAgent: false, channel: 'ws:t', urgent: false, plan: false, ...(via ? { via } : {}) } as never);
       await waitFor(() => runs.length > before);
       return runs.at(-1)!;
     };
@@ -361,6 +363,12 @@ describe('who gets the suite', () => {
 
   it.each(['friend', 'guest'])('a run from a %s has neither, at full trust too', async (from) => {
     const got = await setup(true)(from);
+    expect(got.chatTools).toBeUndefined();
+    expect(got.prompt).not.toContain('read_chat');
+  });
+
+  it('an external agent’s run on your computer has neither, at full grant too: the tools reach chats outside its grant', async () => {
+    const got = await setup(true)('me', { id: 'g1', name: 'GrokBot', creationSource: 'mcp' });
     expect(got.chatTools).toBeUndefined();
     expect(got.prompt).not.toContain('read_chat');
   });

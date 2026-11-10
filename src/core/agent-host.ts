@@ -1526,8 +1526,8 @@ export class AgentHost {
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
-      // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's or a guest's.
-      const chats = this.links.toolsFor({ from, channel: body.channel, chain: () => chain, signal: controller.signal });
+      // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's, a guest's or an external agent's.
+      const chats = this.links.toolsFor({ from, external: Boolean(external), channel: body.channel, chain: () => chain, signal: controller.signal });
       // Live previews (Settings › Experimental): your own runs in a project's folder learn to show what they build.
       const previewBrief = from === this.selfId && place && experimentOn(this.store.getState().prefs.experiments, 'previews') ? buildPreviewAppend() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
@@ -1962,7 +1962,7 @@ export class AgentHost {
       const w = project?.workspaces.find((x) => x.id === id);
       return w && { name: w.name, project: project?.name, branch: w.branch, path: w.path, archived: w.archived };
     });
-    const mentioned = this.links.explained(from, body.channel, worktrees);
+    const mentioned = this.links.explained(from, Boolean(this.agentOf(from, body)), body.channel, worktrees);
     const prompt = sent ? withSentFiles(mentioned, this.selfId, sent.root, sent.rel) : mentioned;
     // The first run after a quiet switch (BLG-592) takes the recent conversation along; the chat and the queue keep only the message.
     const whole = this.deps.workspaces?.withCarry?.(body.channel, prompt, body.requestId) ?? prompt;

@@ -119,14 +119,14 @@ export class HostChatLinks {
     return this.on() ? { chatLink: { owner: this.self, channel } } : {};
   }
 
-  /** Other chats for this run to find, read and message; undefined when it may not. */
-  toolsFor(run: { readonly from: string; readonly channel: string; readonly chain: () => RunChain; readonly signal: AbortSignal }): ChatTools | undefined {
-    if (!this.readsChats(run.from, run.channel)) return undefined;
+  /** Other chats for this run to find, read and message; undefined when it may not. `external`: an external agent asked for it (see agentOf). */
+  toolsFor(run: { readonly from: string; readonly external: boolean; readonly channel: string; readonly chain: () => RunChain; readonly signal: AbortSignal }): ChatTools | undefined {
+    if (!this.readsChats(run.from, run.external, run.channel)) return undefined;
     const chain = (): RunChain => ({ ...run.chain() });
     const tools = chatToolsOf({ state: () => this.deps.store.getState(), requester: run.from, chain, load: this.deps.load, messages: this.sends.forRun({ channel: run.channel, requester: run.from, chain, signal: run.signal }) });
     // The rule at the run's start holds at each call: a chat shared since then reads and sends nothing.
     const still = (): void => {
-      if (!this.readsChats(run.from, run.channel)) throw new Error(NOT_ANY_MORE);
+      if (!this.readsChats(run.from, run.external, run.channel)) throw new Error(NOT_ANY_MORE);
     };
     return {
       chain: tools.chain,
@@ -143,8 +143,8 @@ export class HostChatLinks {
   }
 
   /** A chat the words name: a note on how to read it, only for a run that has the tools (BLG-143). */
-  explained(from: string, channel: string, text: string): string {
-    return this.readsChats(from, channel) ? explainChatMentions(text) : text;
+  explained(from: string, external: boolean, channel: string, text: string): string {
+    return this.readsChats(from, external, channel) ? explainChatMentions(text) : text;
   }
 
   /** What was added to a message from another chat names no skill either (a task's title, the carried chat). */
@@ -237,9 +237,10 @@ export class HostChatLinks {
   }
 
   /** May this person's run find and read other chats? */
-  private readsChats(from: string, channel: string): boolean {
+  private readsChats(from: string, external: boolean, channel: string): boolean {
     // Not in a place other people see (the room, friends' chats, a worktree you share): their words could ask it to quote your chats there.
-    return from === this.self && isAddressableChannel(channel) && this.on() && this.deps.sharing.recipients(channel).length === 0;
+    // Not an external agent's run: the tools reach every chat of yours, outside its grant.
+    return from === this.self && !external && isAddressableChannel(channel) && this.on() && this.deps.sharing.recipients(channel).length === 0;
   }
 
   /** How far a chat's run can act on its own, your launch flags included (permission.ts). */
