@@ -17,9 +17,9 @@ import { copyText } from '../lib/copy.js';
 import { brandNotice } from '../lib/brand.js';
 import { MachineProvider, toast, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { macNoticeTarget, openNoticeTarget } from '../lib/notices.js';
-import { sameDeep, sameFields } from '../lib/stable.js';
+import { sameFields } from '../lib/stable.js';
 import { PartBoundary } from '../lib/part-boundary.js';
-import { type Waiting, type WaitingAction, bellCount, isCovered, noticeNeedView, waitingList } from './waiting-model.js';
+import { type Waiting, type WaitingAction, bellCount, isCovered, noticeNeedView, sameWaiting, waitingList } from './waiting-model.js';
 import s from './notifications.module.css';
 
 /** A few marks the shared icon set doesn't have, drawn the same way (16 grid, 1.5 strokes). */
@@ -241,7 +241,7 @@ function Center({ close }: { close: () => void }) {
   const inbox = useApp((st) => st.inbox);
   const notify = useApp((st) => st.prefs.notify);
   // What waits for you, drawn again only when it changes (not on every streamed step).
-  const waiting = useApp(waitingList, sameDeep);
+  const waiting = useApp(waitingList, sameWaiting);
   const [filter, setFilter] = useState<NoticeFilter>('all');
   const now = useNow();
   const unread = inbox.filter((n) => !n.read).length;

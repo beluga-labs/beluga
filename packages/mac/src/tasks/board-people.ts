@@ -1,4 +1,4 @@
-import type { ProjectTeam } from '@beluga/core/team/model.js';
+import type { ProjectTeam } from '../../../../src/core/team/model.js';
 
 /**
  * Who's on a board (BLG-906): you, and everyone on the teams of the repos it covers, once each.
