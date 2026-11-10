@@ -23,17 +23,18 @@ const MAX_PAIR_BYTES = 64 * 1024;
 const NOT_FOUND = 'Nobody is waiting for that invitation. Check the code, or ask for a new one (codes work for an hour, links for a day).';
 
 /**
- * Why using an invitation failed, from hyperdht's error code on the dial. Only PEER_NOT_FOUND (or
- * no answer at all) means nobody is waiting: a failed hole-punch found them, and the invitation is
- * still good, so it mustn't read as expired (a Mac and a Linux computer on networks that can't
- * reach each other were told it had).
+ * Why using an invitation failed, from hyperdht's error code on the dial. A hole-punch only starts
+ * once whoever made the invitation has answered, so a failed one (HOLEPUNCH_*) means they're there
+ * and the invitation is still good, but the two networks can't meet: it mustn't read as expired (a
+ * Mac behind Cloudflare WARP and a Linux computer were told it had). Anything else, no answer at
+ * all included, is nobody waiting: PEER_NOT_FOUND, and PEER_CONNECTION_FAILED from an invitation
+ * that has closed while the DHT still remembers it.
  */
 export function pairFailure(code: string | undefined): string {
-  if (!code || code === 'PEER_NOT_FOUND') return NOT_FOUND;
-  if (/HOLEPUNCH/.test(code)) {
-    return `Found whoever made that invitation, but your two networks couldn't connect directly (${code}). The invitation still works: try again from another network (a phone's hotspot), or turn off a VPN or a firewall that blocks UDP on either side.`;
+  if (code && /HOLEPUNCH/.test(code)) {
+    return `Found whoever made that invitation, but your two networks couldn't connect directly (${code}). The invitation still works: try again from another network (a phone's hotspot), or turn off a VPN (such as Cloudflare WARP) or a firewall that blocks UDP on either side.`;
   }
-  return `Found whoever made that invitation, but couldn't connect (${code}). The invitation still works: try again in a moment.`;
+  return NOT_FOUND;
 }
 
 export type PairingDecision =

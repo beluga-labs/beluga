@@ -118,7 +118,7 @@ describe('adding friends without a server', () => {
 });
 
 describe('why an invitation could not be used', () => {
-  it('says the invitation is gone only when nobody was found', () => {
+  it('says the invitation is gone when nobody was found', () => {
     expect(pairFailure(undefined)).toMatch(/Nobody is waiting/);
     expect(pairFailure('PEER_NOT_FOUND')).toMatch(/Nobody is waiting/);
   });
@@ -133,9 +133,7 @@ describe('why an invitation could not be used', () => {
     }
   });
 
-  it('names any other failure without calling the invitation expired', () => {
-    const said = pairFailure('PEER_CONNECTION_FAILED');
-    expect(said).toMatch(/couldn't connect \(PEER_CONNECTION_FAILED\)/);
-    expect(said).not.toMatch(/Nobody is waiting/);
+  it('says nobody is waiting when the dial found only a closed invitation the DHT still remembers', () => {
+    expect(pairFailure('PEER_CONNECTION_FAILED')).toMatch(/Nobody is waiting/);
   });
 });
