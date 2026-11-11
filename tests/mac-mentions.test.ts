@@ -3,7 +3,7 @@ import { chatsToMention } from '../src/core/chat-links/resolve.js';
 import { parseInput } from '../src/core/mentions.js';
 import type { DomainState } from '../src/core/store.js';
 import type { FsEntry, PeerInfo } from '../src/protocol.js';
-import { chatLinksToMentions, chatMention, chatMentionEndingAt, parseChatRef, withChatWords } from '../src/shared/chat-ref.js';
+import { chatLinksToMentions, chatMention, parseChatRef, withChatWords } from '../src/shared/chat-ref.js';
 import { linkMentions, parseMentionHref, resolveMention, splitMentions, type MentionWorld } from '../packages/mac/src/chat/mentions.js';
 import { mentionDir, suggest, typedMention } from '../src/ui/suggest.js';
 
@@ -90,14 +90,6 @@ describe('a chat in the words', () => {
     expect(chatLinksToMentions(link, titleOf)).toBe(`@Fix login (chat: ${ref}) `);
     expect(chatLinksToMentions(`see ${link}, and ${link}.`, titleOf)).toBe(`see @Fix login (chat: ${ref}), and @Fix login (chat: ${ref}).`);
     for (const stays of [`[x](${link})`, `x${link}`, 'beluga://chat/peer-owner-0001/room', 'https://example.com', 'no link']) expect(chatLinksToMentions(stays, titleOf)).toBeUndefined();
-  });
-
-  it('Backspace right after one takes it whole', () => {
-    const text = `a @Fix (chat: ${ref}) b`;
-    const end = text.indexOf(' b');
-    expect(chatMentionEndingAt(text, end)).toEqual({ start: 2, end });
-    expect(chatMentionEndingAt(text, end + 1)).toBeUndefined();
-    expect(chatMentionEndingAt(text, 3)).toBeUndefined();
   });
 
   it('goes in a draft apart from the words around it', () => {

@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { QueuedMessage } from '@beluga/ui/compose.js';
 import { channelOf } from '@beluga/core/store.js';
 import { imageLinksAsWords } from '@beluga/shared/attachment-links.js';
+import { chatMentionsAsTitles } from '@beluga/shared/chat-ref.js';
 import { slotWaitNote } from '@beluga/shared/run-slots.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { InlineCode } from '../components/views/Inline.js';
@@ -74,11 +75,14 @@ export function QueueTray({ queue, selfName, onEdit, channel: given }: { queue: 
   const [steering, setSteering] = useState<ReadonlySet<string>>(new Set());
   // ⌥↩ is shown on Steer only when it steers what you type (with Steer as the default, or in Plan First, it queues).
   const prefs = usePrefs();
+  const chatLinks = useApp((st) => st.prefs.chatLinks);
   const steerBlock = useSteerBlock(channel);
   const steerKey = otherKeySteers(prefs.sendDuringTurn, !steerBlock) ? shortcutKeys('composer-steer') : undefined;
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   if (!queue.length) return null;
+  // One line of words: a chat it names by its title, never its ref.
+  const shown = (prompt: string): string => imageLinksAsWords(chatLinks ? chatMentionsAsTitles(prompt) : prompt);
   const yours = queue.filter((q) => q.yours);
   const call = (p: Promise<unknown>): void => void p.catch((err: unknown) => toast(client, errorText(err), 'error'));
   const settle = (id: string): void =>
@@ -117,8 +121,8 @@ export function QueueTray({ queue, selfName, onEdit, channel: given }: { queue: 
           return (
             <Row key={q.requestId} channel={channel} prompt={q.prompt} mine={q.yours && !q.origin} className={cx(s.row, !q.yours && s.theirs)}>
               <span className={s.n}>{i + 1}</span>
-              <span className={s.text} title={imageLinksAsWords(q.prompt)} translate="no">
-                {imageLinksAsWords(q.prompt) || 'A message'}
+              <span className={s.text} title={shown(q.prompt)} translate="no">
+                {shown(q.prompt) || 'A message'}
               </span>
               {q.origin ? (
                 <span className={s.fromChat} data-queue-from={q.origin.ref}>

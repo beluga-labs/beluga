@@ -3,7 +3,7 @@ import { redirectSystemPath } from '../packages/companion/app/+native-intent.js'
 import { runInstructions } from '../src/agent/run-instructions.js';
 import type { AgentRunInput } from '../src/agent/types.js';
 import { buildChatLinkAppend } from '../src/agent/view-prompt.js';
-import { chatChipOf, chatLink, chatLinkAnswer, chatLinkOf, chatMentionsAsCode, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
+import { chatChipOf, chatLink, chatLinkAnswer, chatLinkOf, codeChatRefs, formatChatRef, isAddressableChannel, parseChatRef } from '../src/shared/chat-ref.js';
 import { readInline } from '../src/shared/render/inline-model.js';
 
 const OWNER = 'pK3-x_Q9aZ01bC2dE3fG4hI5jK6lM7nO';
@@ -79,16 +79,42 @@ describe('a chat as an inline element', () => {
   });
 });
 
-describe('a chat mention as an inline element (the phone’s bubbles, BLG-306)', () => {
+describe('a chat named in a message, as an inline element (the chip on both screens, BLG-306)', () => {
   it('each mention becomes its inline code, which reads as the chat', () => {
-    const out = chatMentionsAsCode(`see @Login fix (chat: ${OWNER}/ws:wt-abc123) and @Notes (chat: ${OWNER}/mac:assistant) now`);
+    const out = codeChatRefs(`see @Login fix (chat: ${OWNER}/ws:wt-abc123) and @Notes (chat: ${OWNER}/mac:assistant) now`);
     expect(out).toBe(`see \`chat:${OWNER}/ws:wt-abc123\` and \`chat:${OWNER}/mac:assistant\` now`);
     expect(readInline(`chat:${OWNER}/ws:wt-abc123`)).toEqual({ kind: 'chat', ref: { owner: OWNER, channel: 'ws:wt-abc123' } });
   });
 
-  it('words with no mention, and a ref that is no chat’s, stay as they are', () => {
-    expect(chatMentionsAsCode('plain words @someone')).toBe('plain words @someone');
-    expect(chatMentionsAsCode(`@Room (chat: ${OWNER}/room)`)).toBe(`@Room (chat: ${OWNER}/room)`);
+  it('a bare ref becomes its inline code too, without the punctuation after it', () => {
+    expect(codeChatRefs(`send to ${OWNER}/ws:wt-9d87882a-26a: stop here`)).toBe(`send to \`chat:${OWNER}/ws:wt-9d87882a-26a\`: stop here`);
+    expect(codeChatRefs(`${OWNER}/mac:assistant.`)).toBe(`\`chat:${OWNER}/mac:assistant\`.`);
+    expect(codeChatRefs(`(see chat:${OWNER}/sentinel-chat:main)`)).toBe(`(see \`chat:${OWNER}/sentinel-chat:main\`)`);
+  });
+
+  it('words with no ref, and a ref that is no chat’s, stay as they are', () => {
+    expect(codeChatRefs('plain words @someone')).toBe('plain words @someone');
+    expect(codeChatRefs(`@Room (chat: ${OWNER}/room)`)).toBe(`@Room (chat: ${OWNER}/room)`);
+    expect(codeChatRefs(`${OWNER}/room and short/ws:wt-1`)).toBe(`${OWNER}/room and short/ws:wt-1`);
+  });
+
+  it('leaves a ref inside a path, a URL, a word, code or a link as it is', () => {
+    const left = [
+      `/Users/me/${OWNER}/ws:wt-abc123`,
+      `${OWNER}/ws:wt-abc123/more`,
+      `https://x.dev/${OWNER}/ws:wt-abc123`,
+      `x.${OWNER}/ws:wt-abc123`,
+      `\`${OWNER}/ws:wt-abc123\``,
+      `\`chat:${OWNER}/ws:wt-abc123\``,
+      `[it](beluga://chat/${OWNER}/ws%3Awt-abc123)`,
+      `[${OWNER}/ws:wt-abc123](https://x.dev)`,
+    ];
+    for (const text of left) expect(codeChatRefs(text)).toBe(text);
+  });
+
+  it('leaves fenced code alone', () => {
+    const text = ['```', `${OWNER}/ws:wt-abc123`, '```', `${OWNER}/ws:wt-abc123`].join('\n');
+    expect(codeChatRefs(text)).toBe(['```', `${OWNER}/ws:wt-abc123`, '```', `\`chat:${OWNER}/ws:wt-abc123\``].join('\n'));
   });
 });
 

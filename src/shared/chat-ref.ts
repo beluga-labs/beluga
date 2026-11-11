@@ -114,15 +114,23 @@ export function chatMentionsIn(text: string): ChatMention[] {
   });
 }
 
-/** The words with each chat mention as its inline code (`chat:<ref>`), which the screens draw as the chat's chip. */
-export function chatMentionsAsCode(text: string): string {
-  let out = '';
-  let last = 0;
-  for (const c of chatMentionsIn(text)) {
-    out += `${text.slice(last, c.start)}\`chat:${c.ref}\``;
-    last = c.end;
-  }
-  return out + text.slice(last);
+/**
+ * Markdown with each chat it names as the chat's inline code (`chat:<ref>`), which the screens draw
+ * as the chat's chip: a mention ("@Title (chat: <ref>)") and a bare ref ("<owner>/<channel>", also
+ * with `chat:` in front) standing on its own. The punctuation after a bare ref stays words. Fenced
+ * and inline code, links, URLs and anything that isn't a chat's ref are left as they are.
+ */
+export function codeChatRefs(markdown: string): string {
+  if (!markdown.includes('/')) return markdown;
+  let fenced = false;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const fence = /^\s*(```|~~~)/.test(line);
+      if (fence) fenced = !fenced;
+      return fence || fenced ? line : line.replace(REF_PIECE, codeOne);
+    })
+    .join('\n');
 }
 
 /** The words with each chat mention as its title only ("@Title"): where chat links are off, so no chip. */
@@ -134,12 +142,6 @@ export function chatMentionsAsTitles(text: string): string {
     last = c.end;
   }
   return out + text.slice(last);
-}
-
-/** The chat mention that ends right at `caret`, to take out whole. */
-export function chatMentionEndingAt(text: string, caret: number): { readonly start: number; readonly end: number } | undefined {
-  const hit = chatMentionsIn(text.slice(0, caret)).find((c) => c.end === caret);
-  return hit && { start: hit.start, end: hit.end };
 }
 
 /** Pasted words with each chat link as a mention; undefined when no link is one. */
@@ -158,3 +160,26 @@ export function chatLinksToMentions(text: string, titleOf: (ref: ChatRef) => str
 }
 
 const isChatRef = (ref: ChatRef): boolean => OWNER.test(ref.owner) && isAddressableChannel(ref.channel);
+
+/**
+ * In one line: inline code, a link or a URL (each left as it is), a mention (lead, title, ref), or a
+ * bare ref (lead, ref). A bare ref takes all it can, so a longer path is never cut down to one.
+ */
+const REF_PIECE = new RegExp(
+  [
+    String.raw`(\`+)[^\`]*?\1`,
+    String.raw`!?\[[^\]]*\]\([^)]*\)`,
+    String.raw`<[^>\s]+>`,
+    String.raw`[a-z][\w+.-]*:\/\/\S+`,
+    String.raw`(^|[\s({"'“])@([^\n@()]{1,100}?) \(chat: ([^\s()]+)\)`,
+    String.raw`(^|[\s({"'“])(?:chat:)?([\w-]{8,64}\/[\w:.-]+)(?![\w:.\/-])`,
+  ].join('|'),
+  'g',
+);
+
+function codeOne(whole: string, _ticks: string | undefined, mentionLead: string | undefined, _title: string | undefined, mentioned: string | undefined, bareLead: string | undefined, bare: string | undefined): string {
+  if (mentioned !== undefined) return parseChatRef(mentioned) ? `${mentionLead}\`chat:${mentioned}\`` : whole;
+  if (bare === undefined) return whole;
+  const ref = bare.replace(/[.:-]+$/, '');
+  return parseChatRef(ref) ? `${bareLead}\`chat:${ref}\`${bare.slice(ref.length)}` : whole;
+}

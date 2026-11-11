@@ -1,4 +1,4 @@
-import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { CHAT_LINK_PREFIX, chatLinkOf, codeChatRefs } from '@beluga/shared/chat-ref.js';
 import { openChatLink } from '../lib/chat-links.js';
 import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
 import { Suspense, createContext, lazy, memo, useContext, useEffect, useMemo, useState } from 'react';
@@ -264,17 +264,20 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
   const worktrees = useApp((st) => (tasks ? worktreeIds(st.projects) : ''));
   // Paths relative to a worktree link only where there's one on screen to open them in.
   const inWorktree = useApp((st) => paths && st.view.kind === 'workspace');
+  // A chat named by its ref ("<owner>/<channel>", or a mention a line's code kept from being a pill) is its chip.
+  const chatLinks = useApp((st) => st.prefs.chatLinks);
   const source = useMemo(() => {
     // Math first (prices stay words), then set aside so the links below leave it alone.
     const math = guardMath(prepareMath(typed ? keepBlankLines(text) : text));
-    // A pasted worktree link in ticks first (its chip), then mentions, paths and task keys: each leaves the code and links before it alone.
+    // A pasted worktree link in ticks first (its chip), then mentions, chats, paths and task keys: each leaves the code and links before it alone.
     const known = new Set(worktrees.split(' '));
     const withRefs = worktrees ? codeWorktreeRefs(math.text, (id) => known.has(id)) : math.text;
     const withMentions = mentions ? linkMentions(withRefs, mentions) : withRefs;
-    const withPaths = paths ? linkPaths(withMentions, { relative: inWorktree }) : withMentions;
+    const withChats = chatLinks ? codeChatRefs(withMentions) : withMentions;
+    const withPaths = paths ? linkPaths(withChats, { relative: inWorktree }) : withChats;
     const board = new Set(keys.split(' '));
     return math.restore(keys ? linkTaskKeys(withPaths, (k) => board.has(k)) : withPaths);
-  }, [text, keys, worktrees, mentions, paths, inWorktree, typed]);
+  }, [text, keys, worktrees, mentions, paths, inWorktree, typed, chatLinks]);
   // Every local image in the message, so the lightbox steps from one to the next.
   const images = useMemo(() => (localImages ? messageImages(text) : []), [text, localImages]);
   // The same renderers from one render to the next: a new one would remount what it drew (a graph

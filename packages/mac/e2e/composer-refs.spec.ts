@@ -212,6 +212,25 @@ async function chatLinksOn(page: Page): Promise<{ name: string; ref: string; id:
 
 const options = (page: Page) => page.getByRole('listbox', { name: 'Suggestions' }).getByRole('option');
 
+/** A chat's mention as the box writes it (chat/chat-box.ts): its title in brackets, a chip over it, no ref. */
+const short = (title: string): string => `[@\u2007${title.replace(/\s+/g, '\u00a0')}]`;
+
+/** What the box would send: each short mention whole again, ref and all. */
+async function sentFrom(page: Page, box: ReturnType<typeof composer>): Promise<string> {
+  const value = await box.inputValue();
+  return daemon<string>(page, `(c) => import('/src/chat/chat-box.ts').then((m) => m.plainWords(${JSON.stringify(value)}, c.store.getState()))`);
+}
+
+/** What copying the whole box puts on the clipboard. */
+const copied = (box: ReturnType<typeof composer>): Promise<string> =>
+  box.evaluate((el: HTMLTextAreaElement) => {
+    el.focus();
+    el.setSelectionRange(0, el.value.length);
+    const data = new DataTransfer();
+    el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData('text/plain');
+  });
+
 test('"@" offers a chat by its title; the prompt holds the reference and the chat shows the chip', async ({ page }) => {
   const { name, ref } = await chatLinksOn(page);
   await sidebar(page).getByText('Your Mac', { exact: true }).click();
@@ -221,33 +240,42 @@ test('"@" offers a chat by its title; the prompt holds the reference and the cha
   await expect(row).toBeVisible();
   await expect(page.getByRole('listbox', { name: 'Suggestions' })).toContainText('Chats');
   await row.click();
-  await expect(box).toHaveValue(`what happened in @${name} (chat: ${ref}) `);
-  await expect(page.locator(`[data-kind="chat"][data-mention="@${name} (chat: ${ref})"]`)).toBeAttached();
+  // The box shows the chat as a chip with its title only: no parentheses, no ref.
+  await expect(box).toHaveValue(`what happened in ${short(name)} `);
+  const chipInBox = page.locator(`[data-testid="mention-highlighter"] [data-kind="chat"]`);
+  await expect(chipInBox).toHaveText(new RegExp(name));
+  await expect(page.getByTestId('mention-highlighter')).not.toContainText('(chat:');
   await expect(page.getByRole('group', { name: 'Chat mentioned' }).or(page.getByLabel('Chat mentioned'))).toContainText(name);
+  // Copied, and as sent, the words carry the ref.
+  expect(await copied(box)).toBe(`what happened in @${name} (chat: ${ref}) `);
+  expect(await sentFrom(page, box)).toBe(`what happened in @${name} (chat: ${ref}) `);
   await page.screenshot({ path: path.join(import.meta.dirname, '../../../.beluga/scratch/20-chat-in-at-list.png') });
   await box.press('Enter');
   await expect(box).toHaveValue('');
-  // The words sent keep the reference, the chat draws the chip.
+  // The words sent keep the reference, the chat draws the chip, and the bubble shows no ref.
   await expect.poll(() => daemon<string[]>(page, `(c) => c.store.getState().log.filter((l) => l.type === 'chat').map((l) => l.text)`)).toContainEqual(`what happened in @${name} (chat: ${ref})`);
-  await expect(page.locator('main').getByRole('button', { name: `Worktree ${name}` }).first()).toBeVisible();
+  const bubble = page.locator('main [data-mine="true"]').filter({ hasText: 'what happened in' }).last();
+  await expect(bubble.getByRole('button', { name: `Worktree ${name}` })).toBeVisible();
+  await expect(bubble).not.toContainText('(chat:');
   await page.screenshot({ path: path.join(import.meta.dirname, '../../../.beluga/scratch/21-chat-chip-sent.png') });
 });
 
-test('a pasted chat link becomes a chip; Backspace takes the chip whole; plain paste keeps the link', async ({ page }) => {
+test('a pasted chat link becomes a chip; Backspace takes the chip whole; copy keeps the ref', async ({ page }) => {
   const { name, ref, id } = await chatLinksOn(page);
   const link = `beluga://chat/${ref.split('/')[0]}/${encodeURIComponent(`ws:${id}`)}`;
   await sidebar(page).getByText('Your Mac', { exact: true }).click();
   const box = page.getByRole('textbox', { name: 'Ask your Mac anything' });
   await box.fill('');
   await pasteText(box, link);
-  await expect(box).toHaveValue(`@${name} (chat: ${ref}) `);
+  await expect(box).toHaveValue(`${short(name)} `);
   await box.press('Backspace');
-  await expect(box).toHaveValue(`@${name} (chat: ${ref})`);
+  await expect(box).toHaveValue(short(name));
   await box.press('Backspace');
   await expect(box).toHaveValue('');
-  // In the middle of words, without their punctuation.
+  // In the middle of words, without their punctuation; copied, it keeps its ref.
   await pasteText(box, `see ${link}, please`);
-  await expect(box).toHaveValue(`see @${name} (chat: ${ref}), please`);
+  await expect(box).toHaveValue(`see ${short(name)}, please`);
+  expect(await copied(box)).toBe(`see @${name} (chat: ${ref}), please`);
 });
 
 test('"@" doesn’t offer the chat you are in, or any with chat links off', async ({ page }) => {

@@ -9,7 +9,7 @@ import { isRunning } from '@beluga/ui/format.js';
 import { localDirOf, mentionDir, openTarget, suggest, type Suggestion, typedMention } from '@beluga/ui/suggest.js';
 import { worktreeMode } from '@beluga/ui/submit.js';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
-import { chatChipOf, chatLinksToMentions, chatMentionEndingAt, chatMentionsIn, isAddressableChannel, parseChatRef, withChatWords } from '@beluga/shared/chat-ref.js';
+import { chatChipOf, chatLinksToMentions, chatMentionsIn, isAddressableChannel, parseChatRef, withChatWords } from '@beluga/shared/chat-ref.js';
 import { roomAgentTags } from '@beluga/shared/agent-tags.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { secretIn } from '@beluga/shared/secret-text.js';
@@ -29,7 +29,7 @@ import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../l
 import { ModelPicker, myRuntime } from './ModelPicker.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
-import { plainWorktrees, worktreeNamesOf } from './worktree-box.js';
+import { boxChats, plainWords } from './chat-box.js';
 import { RunsOnLabel, RunsOnPicker } from './RunsOn.js';
 import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { QueueTray } from './QueueTray.js';
@@ -209,7 +209,11 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const commentsWaiting = useWaitingComments(draftKey).length > 0;
   const ready = !!buffer.trim() || commentsWaiting;
   // A chat's link pasted here becomes a chip. In a friend's worktree, one of yours can take a copy along (see send).
-  const chipLinks = (text: string): string | undefined => (!client.store.getState().prefs.chatLinks ? undefined : chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label));
+  const chipLinks = (text: string): string | undefined => {
+    if (!client.store.getState().prefs.chatLinks) return undefined;
+    const words = chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label);
+    return words && boxChats(words);
+  };
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }), chipLinks });
   // A plan or a question waiting above the box: what you type answers it (the turn is waiting on you, not working).
   const answering = state.answering;
@@ -382,7 +386,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   useDraftChips(draftKey, (words) => {
     const text = ui.get().buffer;
     const at = ref.current?.value === text ? ref.current.selectionStart : text.length;
-    const next = withChatWords(text, at, words);
+    const next = withChatWords(text, at, boxChats(words));
     ui.patch({ buffer: next.text, cursor: next.caret });
     caretAfterDraw(ref, next.caret);
   });
@@ -499,7 +503,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     const typed = buffer.trim();
     if (aside) {
       if (!typed) return;
-      askBtw(client, api, channel, plainWorktrees(typed, worktreeNamesOf(client.store.getState().projects)));
+      askBtw(client, api, channel, plainWords(typed, client.store.getState()));
       setAsideIn(undefined);
       ui.patch({ buffer: '', cursor: 0, history: [...ui.get().history, `/btw ${typed}`].slice(-200), historyIndex: -1 });
       return;
@@ -513,7 +517,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     }
     secretWarned.current = undefined;
     // Chats of yours named in a chat another person owns: their agent can't read them, so you say if a copy goes (BLG-152).
-    const ours = copied ? [] : ownChatsNamed(typed);
+    const ours = copied ? [] : ownChatsNamed(plainWords(typed, client.store.getState()));
     if (ours.length) {
       openSheet({ kind: 'share_copy', titles: ours.map((c) => c.title), person: shareCopyPerson, share: () => void shareCopies(ours).then((ok) => ok && send(secondary, true)), without: () => send(secondary, true) });
       return;
@@ -576,7 +580,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       if (!handleInvite(client, ui, picked.value)) actions.submit(picked.value);
       return;
     }
-    set(picked.value);
+    // A chat picked: its mention written short, a chip with its title.
+    set(picked.kind === 'chat' ? boxChats(picked.value) : picked.value);
   }
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -591,16 +596,6 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     const modKey = e.metaKey || e.ctrlKey;
     if (sug.onKeyDown(e)) return;
     if (att.onRefKey(e)) return;
-    // Backspace right after a chat's chip takes it whole (its address is nothing to edit).
-    if (e.key === 'Backspace' && !modKey && !e.altKey && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
-      const chip = mentionWorld.chatLinks ? chatMentionEndingAt(buffer, e.currentTarget.selectionStart) : undefined;
-      if (chip) {
-        e.preventDefault();
-        e.currentTarget.setSelectionRange(chip.start, chip.end);
-        document.execCommand('delete');
-        return;
-      }
-    }
     // Backspace in an empty side question: back to an ordinary message.
     if (aside && e.key === 'Backspace' && !buffer) {
       e.preventDefault();

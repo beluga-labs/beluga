@@ -11,7 +11,7 @@ import { appendSpoken } from '../lib/dictate';
 import { useVoice, voiceAvailable } from '../lib/voice';
 import { type Option, Options } from './Options';
 import { InlineThing } from './render/Inline';
-import { parseChatRef } from '../lib/render';
+import { chatMentionsAsTitles, parseChatRef } from '../lib/render';
 import { Card, haptic, Press, T } from './ui';
 import { VoiceButton, VoiceNote, VoiceStage, voiceActive } from './Voice';
 import { matchTags, withTag } from '../../../src/shared/agent-tags';
@@ -85,7 +85,8 @@ export function QueueTray({ queue, onSteer, onRemove }: { readonly queue: readon
             </View>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <T v="callout" c={color.text} numberOfLines={1}>
-                {q.text}
+                {/* One line: a chat it names by its title, never its ref. */}
+                {chatMentionsAsTitles(q.text)}
               </T>
               {q.origin ? <QueuedFrom origin={q.origin} /> : null}
             </View>

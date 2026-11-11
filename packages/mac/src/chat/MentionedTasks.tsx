@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { findIssue } from '@beluga/core/board/model.js';
 import { Tip } from '../components/ui.js';
-import { useApp } from '../lib/beluga.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
+import { chatRefOf, plainChats } from './chat-box.js';
 import { StatusIcon } from '../tasks/marks.js';
 import { useTaskActions } from '../tasks/use-tasks.js';
 import { ChatChip } from '../tasks/TaskRef.js';
@@ -27,7 +28,9 @@ export function MentionedTasks({ text, world }: { text: string; world: MentionWo
 
 /** The same for each chat the words name: its chip says what it's called now, and opens it. */
 export function MentionedChats({ text, world }: { text: string; world: MentionWorld }) {
-  const refs = useMemo(() => chatsIn(text, world), [text, world]);
+  const { client } = useBeluga();
+  // The box writes a mention short (chat-box.ts): read it whole.
+  const refs = useMemo(() => chatsIn(plainChats(text, chatRefOf(client.store.getState())), world), [text, world, client]);
   if (!refs.length) return null;
   return (
     <div className={m.taskRow} aria-label={refs.length === 1 ? 'Chat mentioned' : `${refs.length} chats mentioned`}>
