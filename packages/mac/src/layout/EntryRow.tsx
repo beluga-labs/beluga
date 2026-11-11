@@ -50,6 +50,7 @@ export const EntryRow = forwardRef<HTMLDivElement, EntryRowProps>(function Entry
       {...rest}
       {...workspace?.props}
       selected={selected || Boolean(workspace?.inSelection)}
+      color={workspace?.color}
       className={cx(signalClass(e.signal, selected), workspace?.className)}
       data-signal-row={e.signal.level}
       // With what's waiting, so it reads (and is found) apart from the same conversation further down.
