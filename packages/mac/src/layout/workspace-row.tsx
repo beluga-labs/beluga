@@ -15,6 +15,7 @@ import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
+import type { RowColor } from '../lib/row-colors.js';
 import { triageItems } from './row-triage-actions.js';
 import { copyLinkItems } from './worktree-link.js';
 import { outsideLocation } from './outside-model.js';
@@ -24,6 +25,7 @@ import { HarnessMark } from '../threads/HarnessMark.js';
 import { FamilyEnd, FamilyMark } from '../threads/FamilyRow.js';
 import { threadFamilyRow } from '../threads/threads-model.js';
 import { useNow } from '../chat/Items.js';
+import { useWorkspaceColor } from './row-color-view.js';
 import s from './Sidebar.module.css';
 import o from './other-worktrees.module.css';
 
@@ -31,7 +33,7 @@ import o from './other-worktrees.module.css';
  * What a workspace's right-click menu offers: its toolbar's actions, named and drawn the same
  * (the shortcuts show for the workspace you're in, where they work).
  */
-export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<typeof useActions>['run'], client: ReturnType<typeof useBeluga>['client'], rename?: () => void, regenerate?: { readonly run: () => void; readonly pending: boolean }): ActionItem[] {
+export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<typeof useActions>['run'], client: ReturnType<typeof useBeluga>['client'], rename?: () => void, regenerate?: { readonly run: () => void; readonly pending: boolean }, color?: ActionItem): ActionItem[] {
   const { primary, icons, more } = toolbarActions(state, ws);
   const here = state.view.kind === 'workspace' && state.view.id === ws.id;
   const sections = inSections([...(primary ? [primary] : []), ...icons, ...more.flat()]);
@@ -41,6 +43,8 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
     ...triageItems(state, `ws:${ws.id}`, run, client),
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
     ...(ws.kind === 'chat' && regenerate ? [{ label: regenerate.pending ? 'Regenerating title…' : 'Regenerate title', icon: 'refresh' as const, disabled: regenerate.pending, onSelect: regenerate.run }] : []),
+    // Its colour in the sidebar (a project's, unless it has its own).
+    ...(color ? [color] : []),
     // Its link, to mention it in another chat (BLG-878).
     ...copyLinkItems(ws, client).map((item) => ({ ...item, separate: false })),
     ...sections.flatMap((section) =>
@@ -151,6 +155,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
         indent={indent}
         {...row.props}
         selected={row.inSelection || selected}
+        color={row.color}
         className={cx(signalClass(signal, selected), row.className)}
         data-signal-row={signal.level}
         data-kind={ws.kind}
@@ -249,6 +254,8 @@ export interface WorkspaceRowActions {
   readonly label: (name: ReactNode) => ReactNode;
   /** A click on its row: true when shift-click picking took it, so it doesn't open. */
   readonly pick: (event: { readonly shiftKey: boolean; preventDefault: () => void }) => boolean;
+  /** The colour you gave it, or its project (unset: plain). */
+  readonly color: RowColor | undefined;
 }
 
 /** The row behavior every workspace row shares. Without a workspace (a DM, a plan), it has none. */
@@ -260,6 +267,7 @@ export function useWorkspaceRowActions(ws: Workspace | undefined): WorkspaceRowA
   const [renaming, setRenaming] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const selection = useChatSelection();
+  const color = useWorkspaceColor(ws);
   if (!ws) return undefined;
   const chat = ws.kind === 'chat';
   const inSelection = chat && Boolean(selection?.ids.includes(ws.id));
@@ -277,9 +285,10 @@ export function useWorkspaceRowActions(ws: Workspace | undefined): WorkspaceRowA
   };
   return {
     inSelection,
+    color: color.color,
     props: chat ? { 'data-chat-id': ws.id, ...(inSelection ? { 'data-chat-selected': true as const } : {}), 'aria-pressed': inSelection } : {},
     className: inSelection ? s.chatSelected : undefined,
-    items: () => (inSelection && selection ? selection.items() : workspaceItems(client.store.getState(), ws, actions.run, client, () => setRenaming(true), { run: () => void regenerateTitle(), pending: regenerating })),
+    items: () => (inSelection && selection ? selection.items() : workspaceItems(client.store.getState(), ws, actions.run, client, () => setRenaming(true), { run: () => void regenerateTitle(), pending: regenerating }, color.item)),
     label: (name) =>
       renaming ? (
         <WorkspaceNameField
