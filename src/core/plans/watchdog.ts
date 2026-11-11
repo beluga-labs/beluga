@@ -4,6 +4,7 @@ import type { Store } from '../store.js';
 import type { Plan, TaskWatch } from './model.js';
 import type { Plans } from './plans.js';
 import type { PlanView, TaskView } from './progress.js';
+import { ASK_YOU } from './prompt.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../../shared/claude-notices.js';
 import { hhmm, span } from '../../shared/clock.js';
 import { LIMIT_MARGIN_MS, LIMIT_UNKNOWN_MS, autoContinueFor } from '../../shared/auto-continue.js';
@@ -217,6 +218,13 @@ export function assess(input: { readonly run?: RunInfo; readonly asking: boolean
   return { stall: why, woken: !yours };
 }
 
+/** What a stopped Claude said last, in one paragraph and at most 300 characters (none: undefined). */
+export function saidLast(run: Pick<RunInfo, 'text'> | undefined): string | undefined {
+  const said = run?.text.replace(/\s+/g, ' ').trim();
+  if (!said) return undefined;
+  return said.length > 300 ? `${said.slice(0, 300).trimEnd()}…` : said;
+}
+
 /** What a woken Claude is told: where it was, what isn't true yet, and what waited for it. */
 export function wakePrompt(issue: Issue, reason: string, run: RunInfo | undefined, waited: readonly string[], milestone = false): string {
   const open = unexplained(issue.brief.acceptance).map((c) => c.text);
@@ -228,7 +236,8 @@ export function wakePrompt(issue: Issue, reason: string, run: RunInfo | undefine
     open.length ? `- Not true yet: ${open.map((c) => `“${c}”`).join('; ')}` : '- Check the acceptance criteria in the task’s brief.',
     ...(waited.length ? ['', 'Messages that waited for you while you were stopped:', ...waited.map((w) => `---\n${w.trim()}`), '---'] : []),
     '',
-    'Go on from there until every acceptance criterion is true; then commit, rewrite the handoff and call task_update with status in_review. If only the user can decide something, say so in one clear line and end your turn: Beluga asks them.',
+    'Go on from there until every acceptance criterion is true; then commit, rewrite the handoff and call task_update with status in_review.',
+    ASK_YOU,
     ...(milestone ? ['Then go on with the next task of your milestone (your instructions list them in order), without stopping.'] : []),
   ].join('\n');
 }
@@ -413,8 +422,10 @@ export class TaskWatchdog {
       const key = t.issue.key;
       if (w?.wokeAt !== undefined && now - w.wokeAt < REPEAT_MS) {
         const line = `${key} stopped again: ${stall}. It waits for you`;
-        this.deps.plans.setWatch(plan.id, t.task.id, { at: now, reason: stall, ...(run ? { run: run.requestId } : {}), wokeAt: w.wokeAt, needsYou: true, line });
-        this.deps.plans.note(plan.id, 'problem', `${line} (woken at ${hhmm(w.wokeAt)}): Resume it, or open its chat.`, { kind: 'beluga' });
+        // What it said last: often what it waits on you for, so that's what you're shown.
+        const said = saidLast(run);
+        this.deps.plans.setWatch(plan.id, t.task.id, { at: now, reason: stall, ...(run ? { run: run.requestId } : {}), wokeAt: w.wokeAt, needsYou: true, line, ...(said ? { said } : {}) });
+        this.deps.plans.note(plan.id, 'problem', said ? `${line}. It said: “${said}” Do what it asks (or answer in its chat), then Resume it.` : `${line} (woken at ${hhmm(w.wokeAt)}): Resume it, or open its chat.`, { kind: 'beluga' });
         continue;
       }
       this.wake(plan, t, t.issue, channel, stall, run, `${key} stopped, woke it at ${hhmm(now)}`);

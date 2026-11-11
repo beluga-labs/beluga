@@ -206,8 +206,9 @@ function stuckItems(plan: Plan, progress: PlanProgress, at: Pick<NeedsYou, 'topi
     .map(([taskId, w]): NeedsYou => ({
       id: `plan:${plan.id}:stalled:${taskId}`,
       kind: 'decision',
-      title: clip(`“${titles.get(taskId) ?? 'A task'}” stopped twice: resume it?`, 500),
-      detail: clip(w.reason, 64_000),
+      // What it said last is usually what it waits on you for: shown first, with what to do.
+      title: clip(w.said ? `“${titles.get(taskId) ?? 'A task'}” needs you` : `“${titles.get(taskId) ?? 'A task'}” stopped twice: resume it?`, 500),
+      detail: clip(w.said ? `It says: “${w.said}” Do what it asks, then Resume it.` : w.reason, 64_000),
       ...at,
       askedAt: w.at,
       actions: [{ label: 'Resume', tone: 'main', method: 'plans.resumeTask', args: [plan.id, taskId] }],

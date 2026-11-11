@@ -125,8 +125,13 @@ export function nextWords(next: NextStep): { readonly title: string; readonly de
       return { title: 'Needs a fix', detail: `“${next.milestone.milestone.title}” didn’t pass the agent’s check` };
     case 'answer':
       return { title: 'Your agent asked something', detail: next.tasks.map((t) => t.issue?.key ?? t.task.title).join(', ') };
-    case 'stalled':
-      return { title: next.tasks.length === 1 ? `Resume ${next.tasks[0]!.issue?.key ?? `“${next.tasks[0]!.task.title}”`}` : `Resume ${next.tasks.length} Tasks`, detail: next.tasks.map((t) => t.watch?.line ?? `${t.issue?.key ?? t.task.title} stopped again`).join(' · ') };
+    case 'stalled': {
+      // One task that said what it waits on you for: that, and what to do, instead of a bare Resume.
+      const one = next.tasks.length === 1 ? next.tasks[0]! : undefined;
+      const name = one ? (one.issue?.key ?? `“${one.task.title}”`) : '';
+      if (one?.watch?.said) return { title: `${name} needs you`, detail: `It says: “${one.watch.said}” Do what it asks, then Resume it.` };
+      return { title: one ? `Resume ${name}` : `Resume ${next.tasks.length} Tasks`, detail: next.tasks.map((t) => t.watch?.line ?? `${t.issue?.key ?? t.task.title} stopped again`).join(' · ') };
+    }
     case 'working':
       return { title: next.tasks.length ? `${next.tasks.length} ${next.tasks.length === 1 ? 'task' : 'tasks'} in progress` : 'Starting…', ...(next.note ? { detail: next.note } : {}) };
     case 'waiting':
