@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
 import { EmojiSchema } from '../shared/reactions.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { ARCHIVE_SETTLED_DAYS_MAX, BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
@@ -113,6 +113,7 @@ export const PrefsPatch = z
     chatCategories: bool,
     settleOnMerge: bool,
     settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
+    archiveSettledDays: z.number().int().min(0).max(ARCHIVE_SETTLED_DAYS_MAX),
     pushToPr: bool,
     scratchFolder: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
