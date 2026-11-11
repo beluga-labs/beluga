@@ -29,9 +29,9 @@ export async function openChatLink(client: SocketClient, actions: Actions, ref: 
   if (answer.opens && chat?.view) openChatView(actions, chat.view);
 }
 
-/** "Copy Link" for a row's menu: none with chat links off, or for a chat with no address. */
+/** "Copy Chat Link" for a row's menu (beside a worktree's own Copy Link, BLG-878, which copies its worktree: ref): none with chat links off, or for a chat with no address. */
 export function chatLinkItems(state: AppState, client: SocketClient, channel: string): ActionItem[] {
   const link = state.prefs.chatLinks ? chatLink({ owner: state.selfId, channel }) : undefined;
   if (!link) return [];
-  return [{ label: 'Copy Link', icon: 'link', onSelect: () => void copyText(link).then(() => toast(client, 'Link copied', 'success')) }];
+  return [{ label: 'Copy Chat Link', icon: 'link', onSelect: () => void copyText(link).then(() => toast(client, 'Link copied', 'success')) }];
 }

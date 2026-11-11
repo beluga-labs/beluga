@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures.js';
 
 /**
- * A chat's address (shared/chat-ref.ts): Copy Link on a row, the link and the chip in a message.
+ * A chat's address (shared/chat-ref.ts): Copy Chat Link on a row, the link and the chip in a message.
  * The window has no OS deep links here, so a link in a message stands in for one: both end in
  * lib/chat-links.ts's openChatLink.
  */
@@ -49,11 +49,11 @@ test('copy a link from a row, open it, and read the chip', async ({ page, contex
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/');
   await daemon(page, `(c) => c.api.session.setPrefs({ chatLinks: true })`);
-  // Copy Link on the row. Projects start folded.
+  // Copy Chat Link on the row. Projects start folded.
   for (const project of ['bob-api', 'landing']) await sidebar(page).getByRole('button', { name: `Show what's in ${project}` }).first().click();
   const { id, name, self } = await worktreeWithRow(page);
   await sidebar(page).getByText(name, { exact: true }).first().click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Copy Link' }).click();
+  await page.getByRole('menuitem', { name: 'Copy Chat Link' }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`beluga://chat/${self}/${encodeURIComponent(`ws:${id}`)}`);
   const link = await page.evaluate(() => navigator.clipboard.readText());
 
@@ -117,6 +117,6 @@ test('a plan row stays with chat links on, and copies the link of its home chat'
   expect(logged.filter((l) => l.includes('Maximum update depth exceeded'))).toEqual([]);
 
   await row.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Copy Link' }).click();
+  await page.getByRole('menuitem', { name: 'Copy Chat Link' }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`beluga://chat/${self}/${encodeURIComponent(home)}`);
 });
