@@ -15,6 +15,7 @@ import { triageFacts } from '../src/core/triage/facts.js';
 import { PHONE } from '../src/companion/coverage.js';
 import { encodeFailure } from '../src/shared/run-failure.js';
 import type { Project, Workspace } from '../src/workspaces/types.js';
+import type { WorktreeEvent } from '../src/core/workspace-controller.js';
 
 const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;
@@ -1031,6 +1032,22 @@ describe('auto-settle', () => {
       serve(new Store({ ...base, shared: [{ id: 'f1' }] as unknown as DomainState['shared'], plans: { ...base.plans, plans: [plan] } }));
       after(1);
       expect(archived).toEqual([]);
+    });
+
+    it('a chat you restore is not archived again: it is back in the Inbox', () => {
+      const store = makeStore();
+      let tell: (event: WorktreeEvent) => void = () => undefined;
+      const service = new TriageService({ store, file, notify: () => undefined, history: () => [], now: () => Date.now(), archive: (id) => (archived.push(id), Promise.resolve(true)), onWorktree: (l) => ((tell = l), () => undefined) });
+      services.push(service);
+      service.settle(CH);
+      after(15);
+      expect(archived).toEqual(['w1']);
+      tell({ kind: 'restored', id: 'w1' });
+      expect(category(store)).toBe('active');
+      service.stop();
+      serve(store);
+      after(16);
+      expect(archived).toEqual(['w1']);
     });
 
     it('a chat whose turn runs waits for the turn to end', () => {

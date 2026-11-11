@@ -178,11 +178,16 @@ export class TriageService {
     }
   }
 
-  /** A merge into main here settles the chat, now or when it next can. */
+  /** A merge into main here settles the chat, now or when it next can. A restored chat is back: un-settled, so it isn't archived again. */
   private onWorktree(event: WorktreeEvent): void {
-    if (!this.on || event.kind !== 'merged') return;
-    this.applyIn(`ws:${event.id}`, { kind: 'merged_here' });
-    this.settleWhatCan();
+    if (!this.on) return;
+    if (event.kind === 'restored') {
+      this.archiving.delete(event.id);
+      this.applyIn(`ws:${event.id}`, { kind: 'unsettle' });
+    } else if (event.kind === 'merged') {
+      this.applyIn(`ws:${event.id}`, { kind: 'merged_here' });
+      this.settleWhatCan();
+    } else return;
     this.saveSoon();
   }
 
