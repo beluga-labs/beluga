@@ -368,7 +368,7 @@ export const HOURS_CHOICES: readonly ScheduleHours[] = [1, 2, 3, 6, 12];
 
 /** "Through the day"'s Every menu: every few minutes (on the clock), then every few hours. Values: "5m", "1h"… */
 export const INTERVAL_CHOICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly description?: string }> = [
-  ...SCHEDULE_MINUTES.map((m) => ({ value: `${m}m`, label: `${m} minutes`, description: m === 15 ? 'On the clock: :00, :15, :30, :45' : m === 30 ? 'On the clock: :00 and :30' : 'On the clock' })),
+  ...SCHEDULE_MINUTES.map((m) => ({ value: `${m}m`, label: m === 1 ? 'minute' : `${m} minutes`, description: m === 1 ? 'Best without an agent step' : m === 15 ? 'On the clock: :00, :15, :30, :45' : m === 30 ? 'On the clock: :00 and :30' : 'On the clock' })),
   ...HOURS_CHOICES.map((h) => ({ value: `${h}h`, label: h === 1 ? 'hour' : `${h} hours` })),
 ];
 

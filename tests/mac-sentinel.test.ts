@@ -193,7 +193,7 @@ describe('Sentinel on the Mac', () => {
 
   it('every few minutes or hours: one "Through the day" segment, one Every menu', () => {
     const hourly = { kind: 'schedule', every: 'hours', hours: 3, at: '00:00', missed: 'catch-up' } as const;
-    expect(INTERVAL_CHOICES.map((c) => c.label)).toEqual(['5 minutes', '10 minutes', '15 minutes', '30 minutes', 'hour', '2 hours', '3 hours', '6 hours', '12 hours']);
+    expect(INTERVAL_CHOICES.map((c) => c.label)).toEqual(['minute', '5 minutes', '10 minutes', '15 minutes', '30 minutes', 'hour', '2 hours', '3 hours', '6 hours', '12 hours']);
     expect(intervalOf(hourly)).toBe('3h');
     const quarter = withInterval(hourly, '15m');
     expect(quarter).toEqual({ kind: 'schedule', every: 'minutes', minutes: 15, at: '00:00', missed: 'catch-up' });

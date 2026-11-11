@@ -64,6 +64,13 @@ describe('nextRunAt', () => {
     expect(iso(nextRunAt(every({ every: 'minutes', minutes: 7 as 5 }), undefined, t('2026-10-26T09:31:00-04:00'), NY))).toBe('2026-10-26T14:00:00.000Z');
   });
 
+  it('every minute, on the minute', () => {
+    const minute = every({ every: 'minutes', minutes: 1 });
+    expect(iso(nextRunAt(minute, undefined, t('2026-10-26T09:07:20-04:00'), NY))).toBe('2026-10-26T13:08:00.000Z');
+    expect(iso(nextRunAt(minute, t('2026-10-26T23:59:00-04:00'), t('2026-10-26T23:59:00-04:00'), NY))).toBe('2026-10-27T04:00:00.000Z');
+    expect(iso(lastSlotAt(minute, t('2026-10-26T09:07:59-04:00'), NY))).toBe('2026-10-26T13:07:00.000Z');
+  });
+
   it('every few minutes, the slot before now', () => {
     const quarter = every({ every: 'minutes', minutes: 15 });
     expect(iso(lastSlotAt(quarter, t('2026-10-26T09:44:59-04:00'), NY))).toBe('2026-10-26T13:30:00.000Z');
@@ -175,6 +182,14 @@ describe('missed slots', () => {
     expect(dueNow(five, t('2026-10-26T07:00:00-04:00'), t('2026-10-26T07:04:00-04:00'), { tz: NY })).toEqual({ kind: 'wait', at: t('2026-10-26T07:05:00-04:00') });
     // A slot that only just passed (a tick is 30 s) still runs.
     expect(dueNow(five, slept, t('2026-10-26T07:00:40-04:00'), { tz: NY })).toMatchObject({ kind: 'run', late: false });
+  });
+
+  it('every minute: a tick that comes a little late still runs it on time; a night asleep is one run', () => {
+    const minute = every({ every: 'minutes', minutes: 1, missed: 'skip' });
+    // The tick is every 30 s: 45 s after its slot is not a missed one.
+    expect(dueNow(minute, t('2026-10-26T07:00:00-04:00'), t('2026-10-26T07:01:45-04:00'), { tz: NY })).toEqual({ kind: 'run', slot: t('2026-10-26T07:01:00-04:00'), late: false, missed: 1 });
+    const due = dueNow(every({ every: 'minutes', minutes: 1 }), t('2026-10-25T23:00:00-04:00'), t('2026-10-26T07:00:30-04:00'), { tz: NY });
+    expect(due).toMatchObject({ kind: 'run', slot: t('2026-10-26T07:00:00-04:00'), late: false, missed: 480 });
   });
 
   it('every 5 minutes, asleep for a week: still one run, worked out quickly', () => {

@@ -50,6 +50,7 @@ describe('sentences', () => {
     expect(s({ every: 'minutes', minutes: 15 })).toBe('Every 15 minutes');
     expect(s({ every: 'minutes', minutes: 5 })).toBe('Every 5 minutes');
     expect(s({ every: 'minutes' })).toBe('Every 30 minutes');
+    expect(s({ every: 'minutes', minutes: 1 })).toBe('Every minute');
     expect(scheduleSentence({ kind: 'manual' })).toBe('Only when you press Run');
     expect(scheduleSentence({ kind: 'after', sentinelId: 'sn_1', on: 'failure' }, () => 'Nightly tests')).toBe('After “Nightly tests” fails');
     expect(scheduleSentence({ kind: 'github', what: 'workflow-failed' })).toBe('When a workflow fails on GitHub');
@@ -116,6 +117,7 @@ describe('a schedule every few minutes with an agent step', () => {
   it('says how many times a day it asks the agent', () => {
     expect(at(15)).toMatch(/^Its agent step runs up to 96 times a day, which uses your plan’s limits quickly/);
     expect(at(30)).toMatch(/up to 48 times a day/);
+    expect(at(1)).toMatch(/up to 1440 times a day/);
     expect(at(5, 100)).toMatch(/up to 100 times a day \(its runs-per-day limit\)/);
   });
 

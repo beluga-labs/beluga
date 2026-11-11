@@ -22,7 +22,7 @@ export type ScheduleEvery = (typeof SCHEDULE_EVERY)[number];
 export const SCHEDULE_HOURS = [1, 2, 3, 6, 12] as const;
 export type ScheduleHours = (typeof SCHEDULE_HOURS)[number];
 /** Every few minutes: each divides the hour, so the runs line up on the clock (:00, :15, :30, :45). */
-export const SCHEDULE_MINUTES = [5, 10, 15, 30] as const;
+export const SCHEDULE_MINUTES = [1, 5, 10, 15, 30] as const;
 export type ScheduleMinutes = (typeof SCHEDULE_MINUTES)[number];
 /** A minutes schedule's step: 30 when it's missing or not one of SCHEDULE_MINUTES (the clock and the sentence agree). */
 export const scheduleMinutes = (t: { readonly minutes?: number }): ScheduleMinutes => ((SCHEDULE_MINUTES as readonly number[]).includes(t.minutes ?? 0) ? (t.minutes as ScheduleMinutes) : 30);
@@ -33,7 +33,7 @@ export interface ScheduleTrigger {
   /** Local time, "HH:MM" (for `hours`: where the hours line up, "00:00" by default; `minutes` doesn't use it). */
   readonly at: string;
   readonly hours?: ScheduleHours;
-  /** For `minutes`: 5, 10, 15 or 30, on the clock (every 15: :00, :15, :30, :45). */
+  /** For `minutes`: 1, 5, 10, 15 or 30, on the clock (every 15: :00, :15, :30, :45). */
   readonly minutes?: ScheduleMinutes;
   /** For `week`: 0 Sunday … 6 Saturday (Monday when empty). */
   readonly days?: readonly number[];
@@ -1150,7 +1150,7 @@ export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => strin
       const at = clockText(trigger.at);
       switch (trigger.every) {
         case 'minutes':
-          return `Every ${scheduleMinutes(trigger)} minutes`;
+          return scheduleMinutes(trigger) === 1 ? 'Every minute' : `Every ${scheduleMinutes(trigger)} minutes`;
         case 'hours': {
           const n = trigger.hours ?? 1;
           return n === 1 ? 'Every hour' : `Every ${n} hours`;

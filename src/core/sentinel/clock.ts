@@ -174,9 +174,12 @@ export function dueNow(trigger: Trigger, last: number | undefined, now: number, 
 
 const COUNT_MAX = 1000;
 
-/** When a slot counts as missed: LATE_MS, or half the gap for a schedule every few minutes (still well over a tick). */
+/** Never less than two ticks (30 s each): a slot the clock simply reached on its next look isn't a missed one. */
+const LATE_FLOOR_MS = 60_000;
+
+/** When a slot counts as missed: LATE_MS, or half the gap for a schedule every few minutes (never under LATE_FLOOR_MS). */
 function lateMsOf(t: ScheduleTrigger): number {
-  return t.every === 'minutes' ? Math.min(LATE_MS, (scheduleMinutes(t) * 60_000) / 2) : LATE_MS;
+  return t.every === 'minutes' ? Math.min(LATE_MS, Math.max(LATE_FLOOR_MS, (scheduleMinutes(t) * 60_000) / 2)) : LATE_MS;
 }
 
 /** How many slots from `first` to `last`, both counted (capped: it's only said in words). */

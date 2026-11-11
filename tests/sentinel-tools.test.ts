@@ -67,8 +67,8 @@ describe('beluga_sentinel', () => {
     // Only 5, 10, 15 or 30: the tool's schema says no to anything else.
     const shape = z.object(defs.find((d) => d.name === 'sentinel_create')!.inputSchema);
     const draft = (minutes: number) => ({ name: 'Odd', trigger: every(minutes), steps: [{ kind: 'notify', name: 'n' }] });
-    for (const ok of [5, 10, 15, 30]) expect(shape.safeParse(draft(ok)).success).toBe(true);
-    for (const no of [1, 7, 60]) expect(shape.safeParse(draft(no)).success).toBe(false);
+    for (const ok of [1, 5, 10, 15, 30]) expect(shape.safeParse(draft(ok)).success).toBe(true);
+    for (const no of [0, 2, 7, 60]) expect(shape.safeParse(draft(no)).success).toBe(false);
     expect(SentinelDraftSchema.safeParse({ name: 'Odd', trigger: every(7) }).success).toBe(false);
     expect(SentinelDraftSchema.safeParse({ name: 'Ok', trigger: every(10) }).success).toBe(true);
   });

@@ -582,7 +582,7 @@ test('a schedule every few minutes: Through the day’s Every menu, on the clock
   await when.getByRole('tab', { name: 'Through the day' }).click();
   await expect(main(page).getByTestId('sentinel-sentence')).toHaveText('Every 3 hours');
   await when.getByRole('combobox', { name: 'Every how long' }).click();
-  await expect(page.getByRole('option')).toHaveText([/^5 minutes/, /^10 minutes/, /^15 minutes/, /^30 minutes/, /^hour/, /^2 hours/, /^3 hours/, /^6 hours/, /^12 hours/]);
+  await expect(page.getByRole('option')).toHaveText([/^minute/, /^5 minutes/, /^10 minutes/, /^15 minutes/, /^30 minutes/, /^hour/, /^2 hours/, /^3 hours/, /^6 hours/, /^12 hours/]);
   await page.getByRole('option', { name: /^15 minutes/ }).click();
   await expect(main(page).getByTestId('sentinel-sentence')).toHaveText('Every 15 minutes');
   await expect(when.getByRole('tab', { name: 'Through the day' })).toHaveAttribute('aria-selected', 'true');
