@@ -95,7 +95,8 @@ function useFolderDrop(): { ref: React.RefObject<HTMLElement | null>; over: bool
 export function Sidebar() {
   const actions = useActions();
   const drop = useFolderDrop();
-  useChatDrag();
+  // A chat's row picked up: what's carried, and the chat that would take it.
+  const chatDrag = useChatDrag();
   // Only what the sidebar itself shows: drawn again when that changes, not on every streamed event (KLD-48).
   const { tabs, liveChats, view, badges, categories } = useApp((state) => {
     const news = overviewNews(state);
@@ -119,6 +120,7 @@ export function Sidebar() {
   const files = tabs.find((t) => t.kind === 'files');
   return (
     <SidebarChatSelection>
+    {chatDrag}
     <nav ref={drop.ref} className={cx(s.sidebar, drop.over && s.dropping)} aria-label="Sidebar">
       <div className={s.titlebar} data-tauri-drag-region>
         {/* The traffic lights' place; in a browser, which has no menu bar, the menu bar's button (Settings and the rest). */}

@@ -1,8 +1,9 @@
 import { expect, test, type Locator, type Page } from './fixtures.js';
 
 /**
- * Dragging a chat's row onto a chat (layout/chat-drag.ts): a chip goes in the target's draft and
- * nothing is sent. Esc cancels; the same chat, the room and a chat links off do nothing.
+ * Dragging a chat's row onto a chat (layout/chat-drag.tsx): a chip goes in the target's draft and
+ * nothing is sent. What's carried is the row itself; the chat that would take it lights up. Esc
+ * cancels; the same chat, the room and a chat links off do nothing.
  */
 
 // A slower hand and a video for the proof (CHAT_DRAG_VIDEO=1).
@@ -51,6 +52,19 @@ interface Worktree {
 const rowOf = (page: Page, w: Worktree) => sidebar(page).locator(`[data-chat-row="ws:${w.id}"]`).first();
 const boxIn = (page: Page, w: Worktree) => page.getByRole('textbox', { name: `Tell Claude what to do in ${w.name}` });
 const chip = (self: string, w: Worktree): string => `@${w.name} (chat: ${self}/ws:${w.id})`;
+/** The chat that would take a drop: its conversation veiled, its box glowing. */
+const glow = (page: Page) => page.locator('[data-chat-drop="box"]');
+const veil = (page: Page) => page.locator('[data-chat-drop="pane"]');
+
+/**
+ * What a box would send: the box shows a chat as a short mention, a chip with its title
+ * (chat/chat-box.ts), never its ref; out it goes whole, ref and all.
+ */
+async function sentFrom(page: Page, box: Locator): Promise<string> {
+  const value = await box.inputValue();
+  if (value.includes('(chat: ')) return `still whole in the box: ${value}`;
+  return daemon<string>(page, `(c) => import('/src/chat/chat-box.ts').then((m) => m.plainWords(${JSON.stringify(value)}, c.store.getState()))`);
+}
 /**
  * What you sent from these chats: your words and your agent asks in their channels only. The demo's
  * friends say things in the room on timers, and those must not count.
@@ -80,10 +94,15 @@ test('a row dropped on the open composer: a chip at the cursor, nothing sent', a
   const before = await sent(page, a, b);
   await pause(page);
   await lift(page, rowOf(page, b), box);
-  await expect(ghost(page)).toHaveText(b.name);
-  await expect(page.locator('[data-chat-box]')).toHaveClass(/over/);
+  // The row itself is carried, as wide as it is in the sidebar, swinging as it goes.
+  await expect(ghost(page)).toContainText(b.name);
+  const [carried, row] = await Promise.all([ghost(page).boundingBox(), rowOf(page, b).boundingBox()]);
+  expect(Math.abs(carried!.width - row!.width)).toBeLessThan(row!.width * 0.06);
+  await expect(glow(page)).toBeVisible();
+  await expect(veil(page)).toBeVisible();
   await page.mouse.up();
-  await expect(box).toHaveValue(`compare this ${chip(self, b)} with`);
+  await expect(glow(page)).toHaveCount(0);
+  await expect.poll(() => sentFrom(page, box)).toBe(`compare this ${chip(self, b)} with`);
   await expect(page.getByLabel('Chat mentioned')).toContainText(b.name);
   await expect(ghost(page)).toHaveCount(0);
   await pause(page);
@@ -99,8 +118,10 @@ test('a row dropped on the open chat’s log: the same', async ({ page }) => {
   const box = boxIn(page, a);
   await box.fill('');
   await lift(page, rowOf(page, b), page.locator('main').first());
+  await expect(glow(page)).toBeVisible();
+  await expect(veil(page)).toContainText('Drop to add it to your message');
   await page.mouse.up();
-  await expect(box).toHaveValue(`${chip(self, b)} `);
+  await expect.poll(() => sentFrom(page, box)).toBe(`${chip(self, b)} `);
   await box.fill('');
 });
 
@@ -112,14 +133,14 @@ test('a row dropped on another row: that row lights up, its chat opens with the 
   await expect(rowOf(page, b)).toHaveClass(/over/);
   await page.mouse.up();
   const box = boxIn(page, b);
-  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await expect.poll(() => sentFrom(page, box)).toBe(`${chip(self, a)} `);
   await pause(page);
   expect(await sent(page, a, b)).toBe(before);
   // The chip stays with that chat's draft, not with the others.
   await rowOf(page, a).click();
   await expect(boxIn(page, a)).toHaveValue('');
   await rowOf(page, b).click();
-  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await expect.poll(() => sentFrom(page, box)).toBe(`${chip(self, a)} `);
   await box.fill('');
 });
 
@@ -130,11 +151,11 @@ test('Your Mac’s row is a target and a source', async ({ page }) => {
   await lift(page, rowOf(page, a), mac);
   await page.mouse.up();
   const macBox = page.getByRole('textbox', { name: 'Ask your Mac anything' });
-  await expect(macBox).toHaveValue(`${chip(self, a)} `);
+  await expect.poll(() => sentFrom(page, macBox)).toBe(`${chip(self, a)} `);
   await macBox.fill('');
   await lift(page, mac, rowOf(page, a));
   await page.mouse.up();
-  await expect(boxIn(page, a)).toHaveValue(new RegExp(`\\(chat: ${self}/mac:assistant[^)]*\\) $`));
+  await expect.poll(() => sentFrom(page, boxIn(page, a))).toMatch(new RegExp(`\\(chat: ${self}/mac:assistant[^)]*\\) $`));
   await boxIn(page, a).fill('');
 });
 
@@ -145,12 +166,12 @@ test('a plan’s row takes a drop in its own chat, on its page, and can be dragg
   await lift(page, rowOf(page, a), row);
   await page.mouse.up();
   const box = page.getByRole('complementary', { name: 'Conversation' }).getByRole('textbox', { name: 'Message your agent about the plan' });
-  await expect(box).toHaveValue(`${chip(self, a)} `);
+  await expect.poll(() => sentFrom(page, box)).toBe(`${chip(self, a)} `);
   await box.fill('');
   await rowOf(page, a).click();
   await lift(page, row, boxIn(page, a));
   await page.mouse.up();
-  await expect(boxIn(page, a)).toHaveValue(new RegExp(`\\(chat: ${self}/${home}\\) $`));
+  await expect.poll(() => sentFrom(page, boxIn(page, a))).toMatch(new RegExp(`\\(chat: ${self}/${home}\\) $`));
   await boxIn(page, a).fill('');
 });
 
@@ -170,14 +191,14 @@ test('an Unread row is a source and a target (BLG-307)', async ({ page }) => {
   await lift(page, unreadRow(a), treeRow(b));
   await expect(treeRow(b)).toHaveClass(/over/);
   await page.mouse.up();
-  await expect(boxIn(page, b)).toHaveValue(`${chip(self, a)} `);
+  await expect.poll(() => sentFrom(page, boxIn(page, b))).toBe(`${chip(self, a)} `);
   await boxIn(page, b).fill('');
   await pause(page);
   // As a target: another chat's row dropped on it.
   await lift(page, treeRow(b), unreadRow(a));
   await expect(unreadRow(a)).toHaveClass(/over/);
   await page.mouse.up();
-  await expect(boxIn(page, a)).toHaveValue(`${chip(self, b)} `);
+  await expect.poll(() => sentFrom(page, boxIn(page, a))).toBe(`${chip(self, b)} `);
   await boxIn(page, a).fill('');
 });
 
@@ -189,7 +210,7 @@ test('Esc cancels; the row still opens its chat afterwards', async ({ page }) =>
   await lift(page, rowOf(page, b), box);
   await page.keyboard.press('Escape');
   await expect(ghost(page)).toHaveCount(0);
-  await expect(page.locator('[data-chat-box]')).not.toHaveClass(/over/);
+  await expect(glow(page)).toHaveCount(0);
   await page.mouse.up();
   await expect(box).toHaveValue('keep me');
   await box.fill('');
@@ -205,7 +226,7 @@ test('the same chat and the room refuse: no highlight, no chip', async ({ page }
   await box.fill('');
   // Its own composer, and its own row.
   await lift(page, rowOf(page, a), box);
-  await expect(page.locator('[data-chat-box]')).not.toHaveClass(/over/);
+  await expect(glow(page)).toHaveCount(0);
   await page.mouse.up();
   await expect(box).toHaveValue('');
   await lift(page, rowOf(page, a), rowOf(page, a));

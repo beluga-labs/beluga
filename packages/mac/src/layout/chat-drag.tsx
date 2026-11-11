@@ -1,8 +1,13 @@
-import { useEffect } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useMotionValue } from 'motion/react';
 import { resolveChat } from '@beluga/core/chat-links/resolve.js';
 import { type ChatRef, chatChipOf, chatMention } from '@beluga/shared/chat-ref.js';
+import { Icon } from '../components/Icon.js';
+import { Lifted, useLean } from '../components/Lifted.js';
 import { useBeluga } from '../lib/beluga.js';
 import { putChips } from '../chat/draft-chips.js';
+import c from '../chat/composer.module.css';
 import { SLOP, edgeSpeed, scrollerOf } from './arrange-drag.js';
 import s from './chat-drag.module.css';
 
@@ -14,6 +19,9 @@ import s from './chat-drag.module.css';
  * The rows and boxes say what they are: `data-chat-row` on a chat's row (its channel), and
  * `data-chat-box` on a message box that takes chips (the key of its draft). Anything without them
  * (the room, a DM, a group) refuses, and so does the chat you picked up.
+ *
+ * What's carried is the row itself, at its own width, lifted and swinging as a board's card does
+ * (Lifted.tsx). Over a chat that takes it, the chat and its box light up as for files from Finder.
  */
 
 /** What's picked up: a list, though one row gives one (several selected rows can give more). */
@@ -27,9 +35,33 @@ interface DropTarget {
   readonly row: boolean;
 }
 
-/** Sidebar rows can be picked up, with prefs.chatLinks on. Mounted once, with the sidebar. */
-export function useChatDrag(): void {
+interface Box {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The row being carried: a copy of it, at its width. */
+interface Carried {
+  readonly face: HTMLElement;
+  readonly width: number;
+}
+
+/** A chat that a drop would go in: the conversation, and its message box. */
+interface Lit {
+  readonly pane: Box;
+  readonly box: Box;
+}
+
+/** Sidebar rows can be picked up, with prefs.chatLinks on. Mounted once, with the sidebar; draws what's carried. */
+export function useChatDrag(): ReactNode {
   const { client } = useBeluga();
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const lean = useLean(x);
+  const [carried, setCarried] = useState<Carried>();
+  const [lit, setLit] = useState<Lit>();
   useEffect(() => {
     let stop: (() => void) | undefined;
     const press = (e: PointerEvent): void => {
@@ -45,7 +77,7 @@ export function useChatDrag(): void {
       const start = { x: e.clientX, y: e.clientY };
       let point = start;
       let started = false;
-      let ghost: HTMLElement | undefined;
+      let grab = { x: 0, y: 0 };
       let target: DropTarget | undefined;
       let frame = 0;
       const scroller = scrollerOf(row);
@@ -54,8 +86,9 @@ export function useChatDrag(): void {
         const next = targetAt(point.x, point.y, from);
         if (next?.el === target?.el) return;
         target?.el.classList.remove(s.over!);
-        next?.el.classList.add(s.over!);
+        if (next?.row) next.el.classList.add(s.over!);
         target = next;
+        setLit(next && !next.row ? litOf(next.el) : undefined);
       };
       /** Only over the list: a drop near the window's bottom edge doesn't scroll the sidebar. */
       const speed = (): number => {
@@ -74,7 +107,12 @@ export function useChatDrag(): void {
       };
       const begin = (): void => {
         started = true;
-        ghost = makeGhost(refs.map((r) => titleOf(state, r)).join(', '));
+        const r = row.getBoundingClientRect();
+        grab = { x: start.x - r.left, y: start.y - r.top };
+        x.set(point.x - grab.x);
+        y.set(point.y - grab.y);
+        lean.jump(0);
+        setCarried({ face: faceOf(row), width: r.width });
         document.documentElement.dataset.arranging = '';
         window.getSelection()?.removeAllRanges();
       };
@@ -85,7 +123,8 @@ export function useChatDrag(): void {
           begin();
         }
         ev.preventDefault();
-        if (ghost) ghost.style.transform = `translate(${point.x + 10}px, ${point.y + 6}px)`;
+        x.set(point.x - grab.x);
+        y.set(point.y - grab.y);
         update();
         if (!frame && speed()) frame = requestAnimationFrame(tick);
       };
@@ -117,7 +156,8 @@ export function useChatDrag(): void {
         window.removeEventListener('blur', cancel);
         window.removeEventListener('keydown', key, { capture: true });
         if (frame) cancelAnimationFrame(frame);
-        ghost?.remove();
+        setCarried(undefined);
+        setLit(undefined);
         target?.el.classList.remove(s.over!);
         delete document.documentElement.dataset.arranging;
         stop = undefined;
@@ -134,7 +174,17 @@ export function useChatDrag(): void {
       window.removeEventListener('pointerdown', press);
       stop?.();
     };
-  }, [client]);
+  }, [client, x, y, lean]);
+  return (
+    <>
+      {lit ? <DropGlow lit={lit} /> : null}
+      {carried ? (
+        <Lifted className={s.ghost} x={x} y={y} lean={lean} width={carried.width} data-chat-ghost="">
+          <Face face={carried.face} />
+        </Lifted>
+      ) : null}
+    </>
+  );
 }
 
 /** Where a drop at (x, y) goes: another chat's row, or the message box of the chat under the pointer. */
@@ -148,13 +198,45 @@ function targetAt(x: number, y: number, from: string): DropTarget | undefined {
 
 const titleOf = (state: Parameters<typeof resolveChat>[0], ref: ChatRef): string => chatChipOf(resolveChat(state, ref)).label;
 
-/** The title following the pointer. */
-function makeGhost(title: string): HTMLElement {
-  const ghost = document.createElement('div');
-  ghost.className = s.ghost!;
-  ghost.textContent = title;
-  ghost.setAttribute('aria-hidden', 'true');
-  ghost.dataset.chatGhost = '';
-  document.body.appendChild(ghost);
-  return ghost;
+const boxOf = (el: Element): Box => {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+};
+
+/** The conversation a message box is in, and the box. */
+const litOf = (box: HTMLElement): Lit => ({ pane: boxOf(box.closest('main, [role="complementary"]') ?? box), box: boxOf(box) });
+
+/** A copy of the row to carry: it looks the same, and is nothing anyone can find or press. */
+function faceOf(row: HTMLElement): HTMLElement {
+  const face = row.cloneNode(true) as HTMLElement;
+  for (const el of [face, ...face.querySelectorAll<HTMLElement>('*')]) {
+    for (const name of ['id', 'role', 'tabindex', 'title', 'aria-label', 'aria-expanded', 'aria-current', 'data-chat-row', 'data-drag']) el.removeAttribute(name);
+  }
+  face.inert = true;
+  return face;
+}
+
+/** The row's copy, put in its holder as it is. */
+function Face({ face }: { face: HTMLElement }) {
+  const holder = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    holder.current?.replaceChildren(face);
+  }, [face]);
+  return <div ref={holder} />;
+}
+
+/** The chat that would take a drop: the conversation veiled as for files from Finder, its box glowing. */
+function DropGlow({ lit }: { lit: Lit }) {
+  return createPortal(
+    <>
+      <div className={c.dropTarget} style={lit.pane} data-chat-drop="pane" aria-hidden>
+        <div className={c.dropTargetLabel}>
+          <Icon name="chat" size={16} />
+          Drop to add it to your message
+        </div>
+      </div>
+      <div className={s.boxGlow} style={lit.box} data-chat-drop="box" aria-hidden />
+    </>,
+    document.body,
+  );
 }
