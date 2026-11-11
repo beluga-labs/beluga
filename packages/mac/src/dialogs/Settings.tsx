@@ -27,6 +27,7 @@ import { UsageLimitSettings } from './UsageLimitSettings.js';
 import { ParallelSettings } from './ParallelSettings.js';
 import { AgentThreadsSettings, ThreadLimitsSettings } from './AgentThreadsSettings.js';
 import { ChatLimitSettings } from './ChatLimitSettings.js';
+import { ArchiveSettledRow } from './ArchiveSettledRow.js';
 import { McpSettings } from './McpSettings.js';
 import { ExternalAgentsSettings } from './ExternalAgentsSettings.js';
 import { LaunchFlagsSettings } from './LaunchFlagsSettings.js';
@@ -306,6 +307,7 @@ function Appearance() {
             <Row label="Settle idle chats" detail="A chat with no activity for this long moves to Settled. An open pull request stops it.">
               <Select label="Settle idle chats" value={String(daemonPrefs.settleIdleDays)} onChange={(v) => void api.session.setPrefs({ settleIdleDays: Number(v) })} options={idleChoices.map((d) => ({ value: String(d), label: idleWords(d) }))} />
             </Row>
+            <ArchiveSettledRow />
           </>
         ) : (
           <Row label="Unread in the sidebar" detail="Conversations that finished or need you, listed at the top while there are any.">
