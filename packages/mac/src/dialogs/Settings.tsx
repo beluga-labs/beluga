@@ -38,6 +38,7 @@ import { KeyboardSettings } from './KeyboardSettings.js';
 import { ExperimentalSettings } from './ExperimentalSettings.js';
 import { WebAccessSettings } from './WebAccessSettings.js';
 import { Group, Row, Select, Switch } from './settings-controls.js';
+import { LOCALES, type LanguagePref, languagePref, setLanguage } from '../i18n/index.js';
 import { PANES } from './settings-index.js';
 import { SettingsSearchField, SettingsSearchResults, useSettingsSearch } from './SettingsSearch.js';
 import { MaintainerChip } from './SupportSheets.js';
@@ -51,7 +52,7 @@ import { PhoneSettings } from '../phone/Phone.js';
 import { MachinesSettings } from './MachinesSettings.js';
 import { AccessSettings } from '../gateway/AccessSettings.js';
 import { UpdateAboutRow, UpdateSettingsGroup } from './UpdateSettings.js';
-import { GITHUB_URL, openSupport } from '../lib/support.js';
+import { GITHUB_URL } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { keyPlatform } from '../lib/shortcuts-model.js';
@@ -150,6 +151,9 @@ function General() {
           </form>
         </Row>
         <PictureRow />
+        <Row label="Language" detail="The language of Beluga’s windows and menus. Beluga reloads to switch.">
+          <Select<LanguagePref> label="Language" value={languagePref()} options={LOCALES} onChange={setLanguage} />
+        </Row>
         <Row label="Friends' requests for your agent" detail="For people you haven't picked a trust level for.">
           <Select
             label="Default policy"
@@ -635,22 +639,11 @@ function About() {
       <Group title="Support Beluga">
         <Row label="Beluga is free, and a passion project" detail={
             <>
-              Built and maintained by <MaintainerChip />. A star helps others find it; a coffee keeps it going.
+              Built and maintained by <MaintainerChip />. Stars are how other developers find it.
             </>
           }>
           <Button size="small" icon="star" onClick={() => void openExternal(GITHUB_URL)}>
             Star on GitHub
-          </Button>
-          <Button
-            size="small"
-            icon="cup"
-            onClick={() => {
-              // The sheet opens where Settings was (Settings sits above sheets).
-              ui.patch({ settings: undefined });
-              openSupport('coffee');
-            }}
-          >
-            Buy a Coffee…
           </Button>
         </Row>
       </Group>

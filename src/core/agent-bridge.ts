@@ -7,6 +7,7 @@ import { gatewayOf, needGateway } from './gateway/registry.js';
 import { GRANT_INFO, externalRequester } from './trust.js';
 import type { MessageVia, PeerInfo } from '../protocol.js';
 import type { Session } from './session.js';
+import { peerName } from './store.js';
 import { PROJECT_DIR } from '../shared/scratch-dir.js';
 
 /** Where your Claude writes reports, and how they're announced to the room. */
@@ -37,6 +38,16 @@ export function createRoomBridge(session: Session, cwd: () => string, channel?: 
     if (!peer) throw new Error(`No peer named "${name}". Call list_peers first.`);
     return peer;
   };
+  /** Whose folder: someone in the room, or a friend whose worktree with that share is shared with you (over the network too). */
+  const folderOwner = (name: string, share: string): string => {
+    const peer = session.findPeer(name);
+    if (peer) return peer.peerId;
+    const state = session.store.getState();
+    const lower = name.toLowerCase().replace(/^@/, '');
+    const ws = state.shared.find((w) => w.share === share && peerName(state, w.owner).toLowerCase() === lower);
+    if (!ws) throw new Error(`No peer named "${name}". Call list_peers first.`);
+    return ws.owner;
+  };
   /** A file's frames have no label of their own: the words they show say who asked. */
   const viaWords = (words?: string): string | undefined => {
     const via = session.host.viaIn(conversation());
@@ -59,8 +70,8 @@ export function createRoomBridge(session: Session, cwd: () => string, channel?: 
       return session.runOnPeer(name, command, { ...opts, viaAgent: true, channel: conversation(), ...(via ? { via } : {}) });
     },
     describePeers: () => describePeers(session),
-    listPeerFiles: (name, share, p) => session.files.listFiles({ owner: requirePeer(name).peerId, share, path: p }),
-    readPeerFile: async (name, share, p) => (await session.files.readFile({ owner: requirePeer(name).peerId, share, path: p })).content,
+    listPeerFiles: (name, share, p) => session.files.listFiles({ owner: folderOwner(name, share), share, path: p }),
+    readPeerFile: async (name, share, p) => (await session.files.readFile({ owner: folderOwner(name, share), share, path: p })).content,
     // In a workspace's conversation, its own folder: the room's may be "/" when the app starts the daemon.
     writeReport: (title, markdown) => writeReport(session, (channel && session.workspaces?.inChannel(channel)?.path) || cwd(), title, markdown),
     reportUsage: (usage, agent) => session.updateUsage(usage, agent),

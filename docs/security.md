@@ -24,7 +24,9 @@ Inviting someone exposes your agent, with your permissions, to other people. Bel
 
 ## Codex runs
 
-Claude Code asks Beluga before every step it takes, so the rules above are checked one step at a time. Codex runs its own commands and edits without asking first, so on Codex the same rules are kept by **Codex's own sandbox** instead: a permissions profile Beluga sets for each run, enforced by macOS.
+Claude Code asks Beluga before every step it takes, so the rules above are checked one step at a time. Codex runs its own commands and edits without asking first, so on Codex the same rules are kept by **Codex's own sandbox** instead: a permissions profile Beluga sets for each run, enforced by the operating system.
+
+On Linux, runs that keep your home private (a friend's task below Full trust, an external agent below Full trust, and quick side calls) start with Codex's minimal system-tool reads and explicit grants for the run's folders and your git config. Other user folders stay unreadable. This also keeps read-only shared folders usable: Codex 0.164's Linux sandbox cannot reopen them beneath a denied home directory. Beluga omits redundant nested masks while retaining secret denials inside readable shared folders. Tool-free side calls skip project instruction files, using only the instructions supplied with the call. Your own runs and other platforms keep their existing baseline.
 
 - Writes go only to the run's own folders. A project's main folder, and a plan while it's being made, are read only.
 - `.env` files, keys and credential stores (`.ssh`, `.aws`, the GitHub CLI's token, the keychains, Beluga's own files in `~/.beluga`, Codex's and Claude's logins) can't be read at all, so no command reaches them however it's written. Templates like `.env.example` are hidden too: the sandbox can't tell them apart.
@@ -34,6 +36,7 @@ Claude Code asks Beluga before every step it takes, so the rules above are check
 - Guests can't use Codex.
 - Quick side calls on Codex (answering in a chat, naming a worktree, drafting a task) run as tightly as a friend's task, whoever asked: read only, your home and `.env` files out of reach, none of your own Codex tools, and no network unless the call runs commands (a pull request's review). A call given no tools can't read the folder either.
 - A talk or cross-reference between agents only looks: a Codex speaker's sandbox writes nowhere, whatever the worktree allows.
+- On Windows, Codex's unelevated sandbox (a standard account without MXC or Codex's elevated sandbox) fences writes but can't hide a file, and refuses a profile that does. There your own run still works in its folders, but it can read `.env` files and credential stores, and its card says so. Anyone else's run (a friend's task, an external agent below Full trust) is refused, because hiding those files is what keeps it out of your secrets. Codex's elevated sandbox, or MXC where Windows supports it, puts the denials back.
 
 <!-- codex-trust-table -->
 | Who asks | Trust | Files | Rest of your home | Network | `.env`, keys, credential stores | Going past the sandbox | Your Codex tools |

@@ -79,7 +79,8 @@ describe('the black box on disk', () => {
     const r = new Recorder(4);
     const box = startBlackbox({ version: '1', recorder: r, paths, everyMs: 20, journalMax: 600 });
     for (let i = 0; i < 3; i++) r.record('log', `line ${i}`);
-    await new Promise((res) => setTimeout(res, 60));
+    // Its next save, however late a busy machine runs it.
+    await waitFor(() => readJournal(paths.current)?.entries.at(-1)?.text === 'line 2', 5_000).catch(() => undefined);
     expect(readJournal(paths.current)?.entries.map((e) => e.text)).toEqual(['Beluga 1 started (pid ' + process.pid + ', Node ' + process.version + ', ' + process.platform + ' ' + process.arch + ')', 'line 0', 'line 1', 'line 2']);
     for (let i = 3; i < 30; i++) r.record('log', `line ${i} ${'x'.repeat(40)}`);
     await new Promise((res) => setTimeout(res, 60));
@@ -176,5 +177,24 @@ describe('the window notes a part of itself that did not load (#370)', () => {
     expect(args.safeParse([{ kind: 'crashed', chunk: 'x', ms: 1, message: 'y' }]).success).toBe(false);
     expect(args.safeParse([{ kind: 'failed', chunk: 'x'.repeat(201), ms: 1, message: 'y' }]).success).toBe(false);
     expect(args.safeParse([{ kind: 'failed', chunk: 'x', ms: 1, message: 'y', extra: 1 }]).success).toBe(false);
+  });
+});
+
+describe('the window notes a part of itself that crashed while drawing (BLG-905)', () => {
+  const args = API['diagnostics.windowCrash'].args;
+  const note = DIAGNOSTICS_HANDLERS['diagnostics.windowCrash'];
+
+  it('records which part, its error and its stack', () => {
+    const before = blackbox.version;
+    const [crash] = args.parse([{ part: 'notifications', message: 'boom', stack: 'Error: boom\nat Row' }]);
+    note({} as Session, crash);
+    expect(blackbox.since(before).map((e) => [e.kind, e.text])).toEqual([['error', 'window: notifications crashed: boom\nError: boom\nat Row']]);
+  });
+
+  it('takes only a short, known shape', () => {
+    expect(args.safeParse([{ part: 'window', message: 'y' }]).success).toBe(true);
+    expect(args.safeParse([{ part: '', message: 'y' }]).success).toBe(false);
+    expect(args.safeParse([{ part: 'window', message: 'y', stack: 'z'.repeat(4001) }]).success).toBe(false);
+    expect(args.safeParse([{ part: 'window', message: 'y', extra: 1 }]).success).toBe(false);
   });
 });

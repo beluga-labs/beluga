@@ -257,6 +257,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'projects.create': 'drive',
   'projects.clone': 'drive',
   'projects.newHome': 'drive',
+  'projects.myRepos': 'drive',
   'projects.iconAt': 'drive',
   // ---- local
   'local.listDirs': 'drive',
@@ -321,12 +322,14 @@ export const MACHINE: Record<Method, MachineSide> = {
   'support.answer': 'drive',
   // ---- stats
   'stats.get': 'drive',
+  'stats.leaderboard': 'drive',
   'stats.note': 'drive',
   'stats.saveImage': 'drive',
   // ---- diagnostics
   'diagnostics.report': 'drive',
   // The window couldn't load a part of itself (#370): noted in that computer's black box.
   'diagnostics.windowProblem': 'drive',
+  'diagnostics.windowCrash': 'drive',
   // ---- claudeCode
   'claudeCode.steps': 'drive',
   'claudeCode.step': 'drive',

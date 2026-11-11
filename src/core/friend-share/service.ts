@@ -613,12 +613,15 @@ export class FriendShares implements FriendSharing {
     }
     let author = from;
     if (m.as) {
-      // Only a worktree's owner passes on what others said in it.
-      if ((body.kind !== 'chat' && body.kind !== 'chat_react') || !theirs || m.as === this.opts.mesh.peerId) return;
+      // Only a worktree's owner passes on what others said in it (and what their own agents answered there).
+      if ((body.kind !== 'chat' && body.kind !== 'chat_react' && body.kind !== 'agent_event') || !theirs || m.as === this.opts.mesh.peerId) return;
       author = m.as;
     }
     if (body.kind === 'agent_request' && (!mine || body.project)) return;
-    if ((body.kind === 'agent_event' || body.kind === 'agent_question') && !theirs) return;
+    if (body.kind === 'agent_question' && !theirs) return;
+    // A contributor's own agent answering them in your worktree (their "@claude" there) writes in it too.
+    const guestAgent = body.kind === 'agent_event' && mine && !m.as && session.sharing.agentMayWrite(from, body.channel, body.requester);
+    if (body.kind === 'agent_event' && !theirs && !guestAgent) return;
     if (body.kind === 'fs_list' || body.kind === 'fs_read' || body.kind === 'fs_fetch' || body.kind === 'fs_search' || body.kind === 'ws_diff') {
       if (body.kind === 'ws_diff') {
         if (!mine) return;
@@ -636,6 +639,11 @@ export class FriendShares implements FriendSharing {
     const passOn = body.kind === 'chat' ? session.sharing.canPost(from, body.channel ?? '') : body.kind === 'chat_react' && session.sharing.canSee(from, body.channel);
     if (passOn && mine && !m.as) {
       for (const peer of Object.keys(session.sharing.members(ws!))) if (peer !== from) this.courier.send(peer, { k: 'body', b: body, as: from }, { reliable: true });
+    }
+    // Its steps as they stream go to who's linked now, as the owner's own agent's do.
+    if (guestAgent) {
+      const reliable = KEPT_EVENTS.has(body.event);
+      for (const peer of Object.keys(session.sharing.members(ws!))) if (peer !== from) this.courier.send(peer, { k: 'body', b: body, as: from }, { reliable });
     }
   }
 

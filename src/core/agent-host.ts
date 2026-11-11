@@ -99,6 +99,8 @@ export interface AgentHostDeps {
   readonly threads?: (channel: string) => import('../agent/types.js').ThreadTools | undefined;
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
   readonly assistant?: (channel: string, from: string) => { readonly place: AgentPlace; readonly tools: MacTools; readonly brief: string } | undefined;
+  /** Your own agent asked in a friend's worktree (your "@claude" there): where it runs here, and what it's told about theirs. */
+  readonly guestRun?: (channel: string, from: string) => { readonly place: AgentPlace; readonly brief: string } | undefined;
   /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
   /** The notes of calls you were in (core/calls, BLG-715), as tools for your own runs. */
   readonly callNotes?: () => import('../agent/types.js').CallNotesTools | undefined;
@@ -911,12 +913,21 @@ export class AgentHost {
     if (final) this.requestVia.delete(asked);
     const body: BodyInput = { kind: 'agent_event', requestId, requester, event, text: text.slice(0, 60_000), channel, ...(slotWait ? { slotWait } : {}), agent: named?.agent ?? this.deps.agentRef?.(channel) ?? CLAUDE_AGENT, ...(fallback ? { fallback } : {}), ...(via ? { via } : {}), ...(fromChat ? { fromChat } : {}) };
     // Workspace conversations are private: events go to you and the people you invited, never to the room.
-    const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.deps.sharing.recipients(channel)].map((to) => ({ to }));
+    const targets = channel === 'room' ? [{ keep: final }] : [this.selfId, ...this.agentRecipients(channel)].map((to) => ({ to }));
     for (const opts of targets) {
       // A private chat's title only to those who can read that chat (BLG-305).
       const theirs = fromChat && 'to' in opts ? { ...body, fromChat: this.links.cardFor(fromChat, opts.to) } : body;
       if (!this.send(theirs, opts) && final) this.outbox = [...this.outbox, { body: theirs, opts }].slice(-50);
     }
+  }
+
+  /**
+   * Who hears your agent's turn in a workspace. Your own agent in a friend's worktree shared over the
+   * network tells only its owner, who passes it on (the others there aren't your links).
+   */
+  private agentRecipients(channel: string): string[] {
+    const shared = this.deps.sharing.sharedFor(channel);
+    return shared?.via === 'mesh' ? [shared.owner] : this.deps.sharing.recipients(channel);
   }
 
   /** A request off the wire. `ext:` is no peer's name: an external agent comes only through runExternal. */
@@ -1484,7 +1495,9 @@ export class AgentHost {
     const mac = root ? undefined : this.deps.assistant?.(body.channel, from);
     // The Sentinel chat: its own folder and session (your runs only).
     const sentinelChat = root || mac ? undefined : this.deps.sentinelChat?.(body.channel, from);
-    const place = root ? { cwd: root, additionalDirectories: [], autoEdit: false, onSession: () => undefined, askOnly: { project: body.project ?? '' } } : (mac?.place ?? sentinelChat ?? this.deps.workspaces?.place(body.channel));
+    // A friend's worktree, your own agent asked there: it works here and reads theirs from afar.
+    const guest = root || mac || sentinelChat ? undefined : this.deps.guestRun?.(body.channel, from);
+    const place = root ? { cwd: root, additionalDirectories: [], autoEdit: false, onSession: () => undefined, askOnly: { project: body.project ?? '' } } : (mac?.place ?? sentinelChat ?? guest?.place ?? this.deps.workspaces?.place(body.channel));
     let markFinished: () => void = () => undefined;
     /** Claude Code's process for this run (see gone), and whether the run is over. */
     let proc: RunProcess | undefined;
@@ -1592,6 +1605,7 @@ export class AgentHost {
         ...(plans?.brief ? { planBrief: plans.brief } : {}),
         ...(threads ? { threadTools: threads } : {}),
         ...(mac ? { macTools: mac.tools, macBrief: mac.brief } : {}),
+        ...(guest ? { sharedBrief: guest.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
         ...(chats ? { chatTools: chats } : {}),

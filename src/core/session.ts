@@ -26,6 +26,8 @@ import { agentName } from '../shared/agent-label.js';
 import { parseInput, parseWorkspaceMention, workspaceMentions } from './mentions.js';
 import { networkOf } from './network.js';
 import { mentionNote, personMentions } from './person-mentions.js';
+import type { SharedWorkspace } from './collab-store.js';
+import { sharedAskTarget } from './shared-guest.js';
 import { type ShareService, parseShareSpec } from './shares.js';
 import { existsSync } from 'node:fs';
 import { type Attention, type Location, type MyShare, type Prefs, type Store, peerName } from './store.js';
@@ -281,16 +283,22 @@ export class Session {
   /** A made agent (the demo's, a test's) with `also` beside it: a turn whose place picked one of them runs there. */
   private beside(agent: AgentBackend, also: readonly AgentRuntime[]): AgentBackend {
     if (!also.length) return agent;
-    const options = { cwd: this.opts.agentCwd, autoEdit: true, additionalDirectories: [], bridge: this.bridge };
+    const options = { cwd: this.opts.agentCwd, autoEdit: true, additionalDirectories: [], bridge: this.bridge, ownEnv: this.ownEnv };
     return routedBackend(agent, 'claude', (id) => {
       const rt = also.find((r) => r.id === id);
       return rt ? guardedBackend(rt.create(options), rt.capabilities) : undefined;
     });
   }
 
+  /**
+   * Your saved variables for your agent's own checks in `cwd` (Settings' MCP servers, #442): as a
+   * run of yours there gets them (yours, then the project's), read when asked so a change counts.
+   */
+  private readonly ownEnv = (cwd: string): Record<string, string> => this.env.envFor({ dir: cwd }, { claude: true });
+
   /** Your default agent's backend, sending each turn whose place picked another runtime to that one's (agent/runtime/router.ts). */
   private routed(main: AgentRuntime, rt: NonNullable<SessionOptions['runtime']>): AgentBackend {
-    const make = (r: AgentRuntime): AgentBackend => guardedBackend(r.create({ ...rt.options, bridge: this.bridge }), r.capabilities);
+    const make = (r: AgentRuntime): AgentBackend => guardedBackend(r.create({ ...rt.options, bridge: this.bridge, ownEnv: this.ownEnv }), r.capabilities);
     // Every other runtime that has plan usage reports it too (Codex's windows on the usage tab).
     const withUsage = KNOWN_RUNTIMES.map((r) => r.id).filter((id) => id !== main.id && rt.runtimes(id)?.capabilities.hasUsage);
     return routedBackend(
@@ -320,7 +328,7 @@ export class Session {
     // A local endpoint is Claude Code pointed elsewhere (BLG-449), as in routed(): it runs wherever Claude does.
     const rt = runtime === LOCAL_RUNTIME ? (this.opts.runtime?.runtimes('claude') ? localRuntime((v) => this.local.resolve(v)) : undefined) : this.opts.runtime?.runtimes(runtime);
     if (!rt || !this.opts.runtime) return undefined;
-    const backend = guardedBackend(rt.create({ ...this.opts.runtime.options, bridge: this.bridge }), rt.capabilities);
+    const backend = guardedBackend(rt.create({ ...this.opts.runtime.options, bridge: this.bridge, ownEnv: this.ownEnv }), rt.capabilities);
     this.otherBackends.set(runtime, backend);
     return backend;
   }
@@ -462,6 +470,9 @@ export class Session {
     if (dialoguesOf(this)?.fromComposer(raw, channel)) return true;
     // "@codex": your own Codex when it runs here, listed on your card or not (BLG-520).
     const parsed = parseInput(raw, this.selfId, state.peers, { runs: (runtime) => this.runsAgent({ runtime, label: runtime }), chatLinks: state.prefs.chatLinks });
+    // In a friend's worktree: their agent, or yours with "@claude" (core/shared-guest).
+    const shared = channel !== 'room' && (parsed.kind === 'chat' || parsed.kind === 'agent') ? this.sharing.sharedFor(channel) : undefined;
+    if (shared) return this.submitShared(raw, shared, channel, urgent, id);
     // In a workspace, you're talking to your Claude working in that folder.
     if (channel !== 'room' && (parsed.kind === 'chat' || parsed.kind === 'agent')) {
       // A leading "@claude" is just you talking to your Claude; "@claude:ata" stays in the words, so your
@@ -511,6 +522,39 @@ export class Session {
         else if (parsed.to.length === 0 && parsed.notes.length === 0) this.toast('No agent is online', 'warn');
         return true;
     }
+  }
+
+  /**
+   * A line in a worktree a friend shared with you: their agent answers it (it works on their Mac),
+   * unless it starts with "@claude", your own agent: it runs here, reads their worktree from afar
+   * and answers in the same conversation for everyone there. See submit for `id`.
+   */
+  private submitShared(raw: string, shared: SharedWorkspace, channel: string, urgent: boolean, id?: string): boolean {
+    if (id && this.sentById.has(id)) return true;
+    const ask = sharedAskTarget(raw, peerName(this.store.getState(), shared.owner));
+    const requestId = ask.to === 'self' ? this.askOwnAgentIn(shared, raw, ask.prompt, channel, urgent) : this.askOwnClaude(ask.prompt, channel, urgent, raw.trim());
+    if (requestId === undefined) return false;
+    this.tellMentioned(ask.prompt, channel);
+    if (id) {
+      this.sentById.set(id, requestId);
+      if (this.sentById.size > 200) this.sentById.delete(this.sentById.keys().next().value!);
+    }
+    return true;
+  }
+
+  /** Your own agent, asked in a friend's worktree: your line goes to everyone there, the run is yours. */
+  private askOwnAgentIn(shared: SharedWorkspace, text: string, prompt: string, channel: string, urgent: boolean): string | undefined {
+    if (shared.role !== 'contribute') {
+      this.toast(`You can follow ${shared.name}, but not ask an agent there. Ask the owner to let you contribute`, 'warn');
+      return undefined;
+    }
+    if (!this.agent) {
+      this.toast('Your agent isn’t on, so it can’t answer here', 'warn');
+      return undefined;
+    }
+    const requestId = randomUUID();
+    this.sendChat(text.trim(), false, channel, requestId);
+    return this.requestAgent(this.selfId, prompt, false, channel, urgent, undefined, requestId);
   }
 
   /**
@@ -1516,8 +1560,9 @@ export class Session {
   }
 
   private onAgentEvent(from: string, ts: number, body: BodyOf<'agent_event'>): void {
-    // Only your own Claude writes into your workspaces; in one shared with you, only its owner's Claude.
-    if (body.channel !== 'room' && from !== this.selfId && this.sharing.sharedFor(body.channel)?.owner !== from) return;
+    // Your own agent writes into your workspaces, and in one shared with you its owner's; a contributor's
+    // own agent too, answering what they asked it there (their "@claude" in a friend's worktree).
+    if (body.channel !== 'room' && !this.sharing.agentMayWrite(from, body.channel, body.requester)) return;
     if (body.event === 'usage') {
       if (from === this.selfId) this.workbench?.onUsage(body.channel, body.text);
       return;

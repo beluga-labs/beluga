@@ -6,6 +6,7 @@ import { MESSAGE_BANNER, NOTIFICATION_TAP } from './notices.js';
 import { REQUEST_NOTIFICATION, notificationActions } from '../gateway/request-actions.js';
 import { version } from '../../src-tauri/tauri.conf.json';
 import { machineSocketUrl } from '../machines/pane-model.js';
+import { t } from '../i18n/index.js';
 
 /** Running inside the Tauri shell (otherwise: a browser, while developing). */
 export const inApp = (): boolean => '__TAURI_INTERNALS__' in globalThis;
@@ -96,7 +97,7 @@ export function capabilities(setZoom: (dir: 'in' | 'out' | 'reset') => { ok: boo
         // A real sound name ("default" isn't one on macOS: it was silent). See lib/sounds/native.ts.
         const { sound, fallback }: { sound?: string; fallback?: () => void } = test ? {} : await notificationSound(n);
         // An approval on its own gets Approve / Decline (and Always for a friend's request) on the notification.
-        sendNotification({ title: n.title, body: n.body, ...(sound ? { sound } : {}), ...notificationActions(n), extra: { ...(n.channel ? { channel: n.channel } : {}), ...(n.approval ? { approval: n.approval } : {}), ...(n.task ? { task: n.task } : {}) } });
+        sendNotification({ title: t(n.title), body: t(n.body), ...(sound ? { sound } : {}), ...notificationActions(n), extra: { ...(n.channel ? { channel: n.channel } : {}), ...(n.approval ? { approval: n.approval } : {}), ...(n.task ? { task: n.task } : {}) } });
         fallback?.();
         return;
       }
