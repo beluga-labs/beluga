@@ -119,7 +119,7 @@ describe('masking', () => {
       'my db is postgres://admin:hunter2pass@db.internal:5432/app and the pass is s3cr3t-db-pass-91',
       'ANTHROPIC_API_KEY=sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
       'openai sk-proj-1234567890abcdefghijABCDEFGHIJ and github ghp_1234567890abcdefghijABCDEFGHIJklmn',
-      'stripe sk_live_1234567890abcdefABCDEF, aws AKIAIOSFODNN7EXAMPLE, ratel rtl_wt7HKUQexampleexample1',
+      'stripe sk_live_1234567890abcdefABCDEF, aws AKIAIOSFODNN7EXAMPLE, ratel rtl_exampleexampleexample1',
       'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
       '"password": "correct horse battery", token: abcdefgh12345678',
       'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345',
@@ -127,7 +127,7 @@ describe('masking', () => {
       'mail me at jane.doe@example.co.uk, files in /Users/someone/code/app',
     ].join('\n');
     const out = masker.mask(text);
-    for (const leak of ['hunter2pass', 's3cr3t-db-pass-91', 'sk-ant-api03', 'sk-proj-123', 'ghp_123', 'sk_live_', 'AKIAIOSFODNN7EXAMPLE', 'rtl_wt7', 'eyJhbGci', 'correct horse', 'abcdefgh12345678', 'abcdefghijklmnopqrstuvwxyz012345', 'MIIEowIBAAKCAQEA', 'jane.doe', '/Users/someone']) {
+    for (const leak of ['hunter2pass', 's3cr3t-db-pass-91', 'sk-ant-api03', 'sk-proj-123', 'ghp_123', 'sk_live_', 'AKIAIOSFODNN7EXAMPLE', 'rtl_exampleexample', 'eyJhbGci', 'correct horse', 'abcdefgh12345678', 'abcdefghijklmnopqrstuvwxyz012345', 'MIIEowIBAAKCAQEA', 'jane.doe', '/Users/someone']) {
       expect(out, leak).not.toContain(leak);
     }
     expect(out).toContain(REDACTED);
