@@ -39,7 +39,8 @@ const ALWAYS_OK = new Set([
   ...['who_can', 'wait_for', 'check', 'cancel', 'answer_question'].map((n) => `mcp__beluga__${n}`),
   // The task board: your own runs, and a friend's you trust (BLG-701: only its repo's board, and a
   // Trusted friend's changes ask you, see boardAsks); each change is in the task's activity.
-  ...['task_define', 'task_get', 'task_list', 'task_create', 'board_create', 'task_update', 'task_brief_edit', 'task_note', 'task_relate', 'task_attach_proof'].map((n) => `mcp__beluga_board__${n}`),
+  // task_start refuses a friend's run (core/board/work.ts): it starts a worktree on this Mac.
+  ...['task_define', 'task_get', 'task_list', 'task_create', 'task_start', 'board_create', 'task_update', 'task_brief_edit', 'task_note', 'task_relate', 'task_attach_proof'].map((n) => `mcp__beluga_board__${n}`),
   // Sentinels (core/sentinel): only your own runs have them; a new one starts paused until you turn it on,
   // and a change to what one can do pauses it. sentinel_remove and sentinel_delete_runs aren't here: deleting asks you.
   // sentinel_test and sentinel_try_source only read: a database read-only, a file, an address without your
@@ -49,6 +50,9 @@ const ALWAYS_OK = new Set([
   // dashboards' tiles and read the numbers (a tile removed takes nothing kept with it).
   // dashboard_remove isn't here: deleting a dashboard asks you.
   ...['sentinel_measure', 'dashboard_list', 'dashboard_create', 'dashboard_update', 'dashboard_add_tile', 'dashboard_update_tile', 'dashboard_move_tile', 'dashboard_remove_tile', 'metric_list', 'metric_read'].map((n) => `mcp__beluga_dashboard__${n}`),
+  // Other chats (core/chat-links): only your own runs have them. core/chat-links/access.ts decides each read and send,
+  // and guard.ts limits sends. A message approves nothing in the chat that reads it.
+  ...['list_chats', 'read_chat', 'send_to_chat', 'wait_for_chat'].map((n) => `mcp__beluga_chats__${n}`),
   // A plan's tools: only its home conversation has them (core/plans); changes to an approved plan wait for you.
   ...['plan_get', 'plan_write', 'plan_update', 'plan_gate', 'plan_review', 'plan_start_task', 'plan_message_task', 'plan_stop_task', 'plan_pause'].map((n) => `mcp__beluga_plan__${n}`),
   // Child threads (core/threads): only your own runs have them, with the flag on. They start and follow your own chats, under limits; no tool archives or deletes one.
@@ -86,12 +90,19 @@ export const ALWAYS_ASK_YOU: ReadonlySet<string> = new Set(['mcp__beluga_sentine
 const DOTENV_IN_COMMAND = /(?<![\w.-])\.env(?!\.(?:example|sample|template|dist|defaults)(?![\w-]))(\.[\w-]+)?(?![\w-])/;
 const CREDENTIAL_IN_COMMAND = /(?<![\w.-])(id_(rsa|ed25519|ecdsa|dsa)|\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.npmrc|\.netrc|\.git-credentials|credentials(\.json)?)(?![\w-])/;
 export const SECRET_IN_COMMAND = new RegExp(`${DOTENV_IN_COMMAND.source}|${CREDENTIAL_IN_COMMAND.source}`);
+/**
+ * Beluga's private files by name, right under its home folder (daemon.json holds the token to the
+ * whole API). Only there: a project's .beluga holds reports and scratch, and worktrees live under
+ * ~/.beluga/workspaces. In any case, as the Mac's file system ignores it. Not a fence: see docs/security.md.
+ */
+const BELUGA_FILE_IN_COMMAND = /(?<![\w.-])\.(beluga|klaude?)[\\/]+(\.[\\/]+)*(daemon|identity|env|devices|web-sessions|cli-grant)\.json(?![\w-])/i;
 
 const mentions = (re: RegExp, command: string): boolean => re.test(command) || re.test(command.replace(/['"\\]/g, ''));
+const mentionsCredential = (command: string): boolean => mentions(CREDENTIAL_IN_COMMAND, command) || mentions(BELUGA_FILE_IN_COMMAND, command);
 /** True when a shell command touches secrets, also through quoting tricks like `".e"nv` or `\.env`. */
-export const mentionsSecret = (command: string): boolean => mentions(SECRET_IN_COMMAND, command);
+export const mentionsSecret = (command: string): boolean => mentions(DOTENV_IN_COMMAND, command) || mentionsCredential(command);
 /** The only secret a shell command touches is a .env file. */
-export const mentionsOnlyDotenv = (command: string): boolean => mentions(DOTENV_IN_COMMAND, command) && !mentions(CREDENTIAL_IN_COMMAND, command);
+export const mentionsOnlyDotenv = (command: string): boolean => mentions(DOTENV_IN_COMMAND, command) && !mentionsCredential(command);
 
 /** 'secret': your own Claude wants a .env file; you're asked even when nothing else asks (see AgentRunInput.canUseSecret). */
 export type Decision = 'allow' | 'deny' | 'ask' | 'secret';

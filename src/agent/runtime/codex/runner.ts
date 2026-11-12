@@ -17,7 +17,8 @@ import { CodexSubAgents } from './subagents.js';
 import { codexComplete } from './complete.js';
 import { CodexEvents, type TurnSink, contextEvent, usageEvent } from './events.js';
 import { type AskForApproval, type Model, REASONING_EFFORTS, type ReasoningEffort, type ThreadStartResponse, type ThreadTokenUsage, type Turn, type UserInput } from './protocol.js';
-import { approvalFor, codexConfinement, originOf, trustRow } from './sandbox.js';
+import { type CodexConfinement, approvalFor, codexConfinement, originOf, readsUndeniable, trustRow, withoutReadDenials } from './sandbox.js';
+import { ELICITATION, GatePasses, argsOnServer, mcpToolCallOf } from './tool-questions.js';
 import { CODEX_USAGE_AGENT, type CodexRateLimits, fromRateLimits } from './rate-limits.js';
 import { findCodex } from './app-server.js';
 import { CodexMcp } from './mcp.js';
@@ -36,6 +37,8 @@ export interface CodexBackendOptions {
   readonly connect?: CodexConnect;
   /** Where Beluga's tools are served to the run over stdio (one per daemon). */
   readonly toolHost?: ToolHost;
+  /** Your saved variables for Settings' MCP check in a folder (RuntimeOptions.ownEnv). */
+  readonly ownEnv?: (cwd: string) => Readonly<Record<string, string>>;
 }
 
 const CODEX_AGENT = { runtime: 'codex', label: 'Codex' } as const;
@@ -158,9 +161,13 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
   const host = (): ToolHost => opts.toolHost ?? toolHost();
   // Your Codex MCP servers for Settings (BLG-518): asked of an app-server of their own, started where
   // Claude's list starts (Codex has no per-request folder for the list, so a project's own
-  // .codex/config.toml servers show only for that folder: the room's, here).
-  const mcp = new CodexMcp((cwd) => connect({ cwd, ...(opts.codexPath ? { bin: opts.codexPath } : {}) }));
+  // .codex/config.toml servers show only for that folder: the room's, here). It gets your saved
+  // variables over Beluga's, as your runs do, so a server's bearer_token_env_var or env_vars kept in
+  // Settings › Environment is found (#442).
+  const mcp = new CodexMcp((cwd) => connect({ cwd, env: { ...process.env, ...opts.ownEnv?.(cwd) }, ...(opts.codexPath ? { bin: opts.codexPath } : {}) }));
   const mcpCwd = (_projects: readonly string[]): string => opts.cwd;
+  /** Codex's sandbox on this computer can't deny reads (#425): learned from its refusal once, then every thread opens without them. */
+  let readsOpen = false;
 
   return {
     async run(input: AgentRunInput): Promise<string> {
@@ -199,7 +206,9 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
       };
 
       // Beluga's tools, served for this run alone and gated per call (vetTool, policy, you).
-      const mounted = await host().mount(runToolSuites(input, bridge, shelf, cwd), (name, args) => gateTool(name, args, input, policy));
+      const passes = new GatePasses();
+      const suites = runToolSuites(input, bridge, shelf, cwd);
+      const mounted = await host().mount(suites, (name, args) => (passes.take(name, args) ? Promise.resolve(undefined) : gateTool(name, args, input, policy)));
       let conn: CodexConnection | undefined;
       // Codex's sub-agents (BLG-519): rows and steps on the request's card, as Claude's are.
       const subAgents = new CodexSubAgents(cwd, { onSub: (e) => input.onEvent('sub', JSON.stringify(e)), ...(input.onStep ? { onStep: input.onStep } : {}), onFileTouched: input.onFileTouched });
@@ -266,7 +275,15 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
               for (const file of files) if (await gateTool('Edit', { file_path: file }, input, policy)) return { decision: 'decline' };
               return { decision: 'accept' };
             }
-            // Anything else (more permissions, questions, elicitations) isn't Beluga's to grant.
+            // Codex asking before an MCP tool call (your own runs only): the same gate, and one question for the call.
+            const call = method === ELICITATION && trustRow(origin, input.scope).yourTools ? mcpToolCallOf(params) : undefined;
+            if (call) {
+              const served = argsOnServer(suites, call);
+              if (planning || (await gateTool(call.name, served ?? call.args, input, policy))) return { action: 'decline' };
+              if (served) passes.add(call.name, served);
+              return { action: 'accept', content: {} };
+            }
+            // Anything else (more permissions, questions, other elicitations) isn't Beluga's to grant.
             throw new Error(`${method} isn’t supported in Beluga`);
           });
           // A friend's task gets none of your own Codex MCP servers: their names, to switch them off.
@@ -278,13 +295,31 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
             settled = true;
             await settle(rpc, input.model ?? place?.model ?? opts.model);
           }
-          const params = { cwd, ...(model ? { model } : {}), developerInstructions: runInstructions(input, opts.bridge.selfName(), CODEX_AGENT), config: { ...confined.config, ...PROJECT_DOCS, ...runFeatures(confined.row.yourTools), ...mcpConfig(mounted.servers) }, approvalPolicy: approval };
-          let thread: ThreadStartResponse | undefined;
-          if (resume) {
-            thread = await rpc.request<ThreadStartResponse>('thread/resume', { threadId: resume, ...params }).catch(() => undefined);
-            if (!thread) input.onEvent('progress', 'Started a new Codex conversation (the last one couldn’t be opened)');
-          }
-          thread ??= await rpc.request<ThreadStartResponse>('thread/start', params);
+          const instructions = runInstructions(input, opts.bridge.selfName(), CODEX_AGENT);
+          const begin = async (c: CodexConfinement, loose: boolean): Promise<ThreadStartResponse> => {
+            const params = { cwd, ...(model ? { model } : {}), developerInstructions: loose ? `${instructions}\n\n${LOOSE_NOTE}` : instructions, config: { ...c.config, ...PROJECT_DOCS, ...runFeatures(c.row.yourTools), ...mcpConfig(mounted.servers) }, approvalPolicy: approval };
+            let thread: ThreadStartResponse | undefined;
+            if (resume) {
+              // Its sandbox refusing the profile isn't a lost conversation: that's told by opening it again below.
+              thread = await rpc.request<ThreadStartResponse>('thread/resume', { threadId: resume, ...params }).catch((err: unknown) => (readsUndeniable(err) ? Promise.reject(err) : undefined));
+              if (!thread) input.onEvent('progress', 'Started a new Codex conversation (the last one couldn’t be opened)');
+            }
+            return thread ?? rpc.request<ThreadStartResponse>('thread/start', params);
+          };
+          // Codex's sandbox here can't hide a file (unelevated Windows, #425): your own run opens without its read denials, anyone else's not at all.
+          const loosened = (): Promise<ThreadStartResponse> => {
+            const loose = withoutReadDenials(confined);
+            if (!loose) throw new Error(WINDOWS_REFUSED);
+            input.onEvent('progress', WINDOWS_READS);
+            return begin(loose, true);
+          };
+          const thread = readsOpen
+            ? await loosened()
+            : await begin(confined, false).catch((err: unknown) => {
+                if (!readsUndeniable(err)) throw err;
+                readsOpen = true;
+                return loosened();
+              });
           subAgents.lead = thread.thread.id;
           threadModel = thread.model || threadModel;
           // Where its windows stand now, without waiting for the turn to move them.
@@ -603,6 +638,14 @@ function reportLimits(bridge: RoomBridge, limits: CodexRateLimits | undefined): 
 
 /** A project's instructions: Codex reads AGENTS.md itself, and CLAUDE.md where a project has only that. */
 const PROJECT_DOCS = { project_doc_fallback_filenames: ['CLAUDE.md'] };
+
+/** Your own run on a Codex sandbox that can't deny reads (#425): what it can read now, and how to hide it again. */
+const WINDOWS_READS =
+  'Codex’s Windows sandbox on this account can’t hide files, so this run can read your .env files and credential stores (its writes still stay in its folders). To hide them again, use Codex’s elevated sandbox (windows.sandbox = "elevated" in ~/.codex/config.toml, set up once as an administrator) or MXC where Windows supports it.';
+const LOOSE_NOTE = "Your sandbox here can't hide .env files, keys or credential stores: don't read them unless the person asks you to.";
+/** Anyone else's run there: refused, as its denials are what keeps it out of your secrets. */
+const WINDOWS_REFUSED =
+  'Codex’s Windows sandbox on this account can’t keep this task away from your home, .env files and credential stores, so Beluga won’t run it on Codex. Use Codex’s elevated sandbox (windows.sandbox = "elevated" in ~/.codex/config.toml, set up once as an administrator) or MXC where Windows supports it, or run it on Claude.';
 
 /** A failed Codex run, told as Codex's (not Claude Code's). */
 const codexFailure = (end: RunEnd): RunFailedError => new RunFailedError({ ...classifyRun(end), runtime: 'codex' });

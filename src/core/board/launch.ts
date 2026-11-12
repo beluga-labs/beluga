@@ -22,6 +22,7 @@ import { demoLinear } from './sync/demo.js';
 import { belugaEnv } from '../beluga-env.js';
 import { attachBoard, detachBoard } from './registry.js';
 import { BoardWork, busyChannels } from './work.js';
+import { ReviewPr } from './review-pr.js';
 import { Plans } from '../plans/plans.js';
 import { PlansWork } from '../plans/work.js';
 import { attachPlans, detachPlans } from '../plans/registry.js';
@@ -78,6 +79,8 @@ export function launchBoard(host: BoardHost): () => void {
         }),
   });
   attachBoard(session, work);
+  // A worktree's task reaching In Review opens its draft pull request, with the setting on (BLG-927).
+  const reviewPr = new ReviewPr({ store, issues: () => board.list(), openPr: (id, extra) => session.workbench?.createPr(id, extra, { auto: true }) });
   // A project's GitHub issues, handed to Claude through tasks. The demo has a pretend GitHub (acme/<project>).
   const projectOf = (id: string) => store.getState().projects.find((p) => p.id === id);
   const issues = new GitHubIssues({
@@ -119,13 +122,15 @@ export function launchBoard(host: BoardHost): () => void {
     plans,
     board: work,
     ...(session.workspaces ? { controller: session.workspaces } : {}),
-    askClaude: (prompt, channel, echo) => session.askOwnClaude(prompt, channel, false, echo),
+    askClaude: (prompt, channel, echo, chain) => session.askForPlan(prompt, channel, echo, chain),
     intend: (intent) => session.intend(intent),
     // A task whose Claude stopped: is its process there, and taking over to wake it.
     alive: (channel) => session.host.runningIn(channel),
     takeOver: (channel) => session.host.takeOver(channel),
     // The head Claude's steered messages go in the way Steer does, and stop a long command or a dead run (yours never do: see AgentHost.rush).
     promote: (requestId) => session.host.promote(requestId, { interrupt: true }),
+    // A message to a task goes on in the chain of the plan's run, under the chat-links limits.
+    sendOn: (chain) => session.host.chatSends.sendOn(chain),
     // The head Claude stopping a task's Claude (plan_stop_task).
     stopRun: (channel) => void session.host.stopRun(channel),
     // A milestone check you passed past: its run stops, so nothing the plan asks next waits behind it.
@@ -193,6 +198,7 @@ export function launchBoard(host: BoardHost): () => void {
     detachSync(session);
     sync.stop();
     detachBoard(session);
+    reviewPr.stop();
     work.stop();
     store.dispatch({ type: 'plans_off' });
     store.dispatch({ type: 'board_off' });

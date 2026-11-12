@@ -41,7 +41,7 @@ const NEWEST = 24;
  * one from its git address.
  */
 export function AddProjectSheet() {
-  const { ui } = useBeluga();
+  const { ui, client } = useBeluga();
   const api = useApi();
   const asked = useUi((u) => u.addProject ?? false);
   const open = asked !== false;
@@ -120,16 +120,21 @@ export function AddProjectSheet() {
     const known = new Set(roots.split('\n'));
     const q = filter.trim().toLowerCase();
     const listed = new Set((found ?? []).map((f) => f.path));
-    // Folders you dropped, chose or typed (not among the suggestions) and hidden projects come first.
-    const extra = found ? [...rows.keys(), ...hiddenSet, ...revealed].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: baseName(p) || p, changed: 0 })) : [];
+    // Folders you dropped, chose or typed (not among the suggestions) and hidden projects come first,
+    // even while the suggestions are still being looked for: what you added shows at once.
+    const extra = [...rows.keys(), ...(found ? [...hiddenSet, ...revealed] : [])].filter((p, i, all) => !listed.has(p) && all.indexOf(p) === i).map((p): Found => ({ path: p, name: baseName(p) || p, changed: 0 }));
     const newest = (found ?? []).filter((f, i) => q || i < NEWEST || rows.has(f.path));
     return [...extra, ...newest]
       .filter((f) => !known.has(f.path) || rows.has(f.path) || revealed.has(f.path))
       .filter((f) => !q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
   }, [found, filter, roots, rows, hiddenSet, revealed]);
 
+  // The folder panel failing says so (it used to do nothing); typing a path below still works.
   const choose = async (): Promise<void> => {
-    const picked = await pickFolders('Add projects');
+    const picked = await pickFolders('Add projects').catch((err: unknown) => {
+      client.store.dispatch({ type: 'toast', text: `Couldn't open the folder picker: ${errorText(err)}. Type the path below instead.`, level: 'error' });
+      return undefined;
+    });
     if (picked) await add(picked);
   };
 
@@ -187,10 +192,8 @@ export function AddProjectSheet() {
                 <input ref={filterBox} className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label={`Filter projects on ${thisComputer()}`} />
               </div>
               <div className={s.list} role="list">
-                {found === undefined ? (
-                  <div className={s.note}>Looking in your code folders…</div>
-                ) : shown.length === 0 ? (
-                  <div className={s.note}>{filter ? `Nothing called “${filter}”.` : 'No other git projects in ~/Projects, ~/Developer, ~/code and the like.'}</div>
+                {shown.length === 0 ? (
+                  <div className={s.note}>{found === undefined ? 'Looking in your code folders…' : filter ? `Nothing called “${filter}”.` : 'No other git projects in ~/Projects, ~/Developer, ~/code and the like.'}</div>
                 ) : (
                   shown.map((f) => {
                     const row = rows.get(f.path);
@@ -238,6 +241,7 @@ export function AddProjectSheet() {
                     );
                   })
                 )}
+                {found === undefined && shown.length > 0 ? <div className={s.note}>Looking in your code folders…</div> : null}
               </div>
 
               <form
@@ -365,14 +369,120 @@ function NewProject({ onDone }: { onDone: () => void }) {
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={!name.trim() || busy}>
-          {busy ? 'Creating…' : 'Create Project'}
+          <Steady now={busy ? 'Creating…' : 'Create Project'} all={['Create Project', 'Creating…']} />
         </Button>
       </div>
     </form>
   );
 }
 
-/** Clone: a git address (https or ssh) and where it goes; Beluga clones and adds it, then opens a worktree draft in it. */
+/**
+ * A button's words that keep it as wide as its widest wording: "Clone Project" turning into the
+ * shorter "Cloning…" no longer shrinks it (WebKit left a strip of the wider blue button behind).
+ */
+function Steady({ now, all }: { now: string; all: readonly string[] }) {
+  return (
+    <span className={s.steady}>
+      {all.map((w) => (
+        <span key={w} className={w === now ? undefined : s.steadyOff} aria-hidden={w === now ? undefined : true}>
+          {w}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+type MyRepos = Awaited<ReturnType<ReturnType<typeof useApi>['projects']['myRepos']>>;
+type MyRepo = MyRepos['repos'][number];
+
+/** Your GitHub repositories (gh's sign-in): undefined while asked, an error's words when GitHub couldn't be reached. */
+function useMyRepos(): MyRepos | string | undefined {
+  const api = useApi();
+  const [got, setGot] = useState<MyRepos | string | undefined>();
+  useEffect(() => {
+    let alive = true;
+    api.projects.myRepos().then(
+      (r) => alive && setGot(r),
+      (err: unknown) => alive && setGot(errorText(err)),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return got;
+}
+
+/** The Clone tab's list of your repositories: pick one (its address fills in), double-click to clone it. */
+function MyRepoList({ got, url, onPick, onClone }: { got: MyRepos | string | undefined; url: string; onPick: (r: MyRepo) => void; onClone: (r: MyRepo) => void }) {
+  const [filter, setFilter] = useState('');
+  const q = filter.trim().toLowerCase();
+  const repos = typeof got === 'object' ? got.repos : [];
+  const shown = q ? repos.filter((r) => r.fullName.toLowerCase().includes(q) || r.description?.toLowerCase().includes(q)) : repos;
+  const picked = url.trim();
+  return (
+    <>
+      <div className={s.listHead}>
+        <span>Your repositories</span>
+        <input className={s.filter} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" aria-label="Filter your repositories" spellCheck={false} />
+      </div>
+      <div className={cx(s.list, s.repoList)} role="list">
+        {got === undefined ? (
+          <div className={s.note}>
+            <DotMatrix size={12} /> Looking at your GitHub…
+          </div>
+        ) : typeof got === 'string' ? (
+          <div className={s.note} role="alert">
+            Couldn't read your repositories: {got}
+          </div>
+        ) : shown.length === 0 ? (
+          <div className={s.note}>{filter ? `Nothing called “${filter}”.` : 'No repositories on your GitHub yet.'}</div>
+        ) : (
+          shown.map((r) => {
+            const [owner, name] = r.fullName.split('/');
+            const on = picked !== '' && picked === r.url;
+            return (
+              <button
+                key={r.fullName}
+                type="button"
+                role="listitem"
+                className={cx(s.item, s.repo, on && s.repoPicked)}
+                aria-current={on || undefined}
+                onClick={() => onPick(r)}
+                onDoubleClick={() => onClone(r)}
+              >
+                <span className={s.glyph}>
+                  <Icon name={r.private ? 'lock' : 'folder'} size={13} />
+                </span>
+                <span className={s.itemText}>
+                  <span className={s.itemName}>{name ?? r.fullName}</span>
+                  <span className={s.itemPath}>
+                    {owner}
+                    {r.private ? ' · private' : ''}
+                    {r.pushedAt ? ` · pushed ${ago(r.pushedAt)}` : ''}
+                    {r.description ? ` · ${r.description}` : ''}
+                  </span>
+                </span>
+                {r.here ? (
+                  <span className={s.added}>
+                    <Icon name="check" size={12} /> On {thisComputer()}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Without gh, or signed out of it: one line on how to get your repositories listed here. */
+function MyReposHint({ gh }: { gh: MyRepos['gh'] }) {
+  if (gh === 'ok') return null;
+  return <p className={s.newNote}>{gh === 'missing' ? 'Install the GitHub CLI (brew install gh) and run gh auth login to pick from your repositories here.' : 'Run gh auth login in Terminal to pick from your GitHub repositories here.'}</p>;
+}
+
+/** Clone: one of your GitHub repositories, or any git address (https or ssh), and where it goes; Beluga clones and adds it, then opens a worktree draft in it. */
 function CloneProject({ onDone }: { onDone: () => void }) {
   const api = useApi();
   const actions = useActions();
@@ -382,17 +492,20 @@ function CloneProject({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const urlBox = useRef<HTMLInputElement>(null);
+  const mine = useMyRepos();
+  // The list shows while it's asked for and once you're signed in; without gh, the paste box as before.
+  const listed = mine === undefined || typeof mine === 'string' || mine.gh === 'ok';
 
   useEffect(() => urlBox.current?.focus(), []);
 
   const address = url.trim();
   const name = cloneableOrigin(address) ? repoName(address) : undefined;
-  const clone = async (): Promise<void> => {
-    if (!address || busy) return;
+  const clone = async (to = address): Promise<void> => {
+    if (!to || busy) return;
     setBusy(true);
     setError(undefined);
     try {
-      const got = await api.projects.clone(address, parent);
+      const got = await api.projects.clone(to, parent);
       onDone();
       actions.run({ type: 'new_worktree', projectId: got.id });
     } catch (err) {
@@ -402,14 +515,20 @@ function CloneProject({ onDone }: { onDone: () => void }) {
   };
 
   const where = parent && name ? `${short(parent).replace(/[\\/]+$/, '')}${sepOf(parent)}${name}` : undefined;
+  const pick = (r: MyRepo): void => {
+    if (busy) return;
+    setUrl(r.url);
+    setError(undefined);
+  };
   return (
     <form
-      className={s.newForm}
+      className={cx(s.newForm, listed && s.cloneForm)}
       onSubmit={(e) => {
         e.preventDefault();
         void clone();
       }}
     >
+      {listed ? <MyRepoList got={mine} url={url} onPick={pick} onClone={(r) => (pick(r), void clone(r.url))} /> : null}
       <label className={s.field}>
         <span>Address</span>
         <input
@@ -417,7 +536,7 @@ function CloneProject({ onDone }: { onDone: () => void }) {
           className={s.nameInput}
           value={url}
           onChange={(e) => (setUrl(e.target.value), setError(undefined))}
-          placeholder="https://github.com/owner/repo"
+          placeholder={listed ? 'Pick one above, or paste any git address' : 'https://github.com/owner/repo'}
           aria-label="Git address"
           spellCheck={false}
           autoComplete="off"
@@ -427,13 +546,14 @@ function CloneProject({ onDone }: { onDone: () => void }) {
       <p className={error ? s.newError : s.newNote} role={error ? 'alert' : undefined}>
         {error ?? (busy ? 'Cloning… a big repository can take a few minutes.' : where ? `Clones it into ${where} and adds it, ready for worktrees.` : 'An https or ssh address, from GitHub or anywhere git can reach.')}
       </p>
+      {typeof mine === 'object' ? <MyReposHint gh={mine.gh} /> : null}
       <div className={s.pathRow}>
         <span className={s.flex} />
         <Button variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={!address || busy}>
-          {busy ? 'Cloning…' : 'Clone Project'}
+          <Steady now={busy ? 'Cloning…' : 'Clone Project'} all={['Clone Project', 'Cloning…']} />
         </Button>
       </div>
     </form>

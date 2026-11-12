@@ -10,6 +10,7 @@ import {
   SECTION_INFO,
   STATUS_INFO,
   actorName,
+  externalLabel,
   activityText,
   assigneeName,
   blocking,
@@ -36,7 +37,7 @@ const SHOWN_COMMENTS = 20;
 const COMMENT_CHARS = 1500;
 
 /** Who said it, from no one's side (a run's instructions are the same whoever reads them). */
-const speaker = (a: Actor): string => (a.kind === 'person' ? a.name : a.kind === 'claude' ? agentLabel(undefined, a.ownerName, false) : 'Beluga');
+const speaker = (a: Actor): string => (a.kind === 'person' ? a.name : a.kind === 'claude' ? (a.external ? externalLabel(a.external) : agentLabel(undefined, a.ownerName, false)) : 'Beluga');
 
 /** The talk on a task: its comments and notes, oldest first. */
 const commentsOf = (issue: Issue): Activity[] => issue.activity.filter((a) => (a.kind === 'comment' || a.kind === 'note') && a.body?.trim());
@@ -111,6 +112,9 @@ const HOW_TASKS_WORK = [
   'An epic follows its sub-tasks (all Done: Done) and, reaching Done, takes its open ones with it: never move an epic by hand. The user archives Done tasks.',
   'Work across a few repos goes on one board for them all: when there is none, board_create makes one (a name and',
   'the repos; the user doesn\'t need to open it first), then task_create with board puts tasks on it, each running in one of its repos.',
+  'Starting one: task_start makes a task\'s worktree (in whichever repo it runs in, this project or another) with',
+  'an agent working it from its brief, as the user\'s Start does. Use it when the user asks you to start, kick off or',
+  'hand off work, never for every task you open: a task you create waits in Ready until someone starts it.',
   'Use tasks unasked when one message asks for two or more separate things (fixes, features, changes): before',
   'working, open one task per thing with task_create (under a parent task when they belong together), then work',
   'through them: task_update to in_progress when you start one, in_review once it\'s built and checked (tick its',
@@ -184,7 +188,7 @@ export function aboutPrompt(board: Pick<BoardState, 'projects'>, projectId: stri
 export function boardNote(): string {
   return [
     '',
-    'Tasks: Beluga has task boards (mcp__beluga_board__*: task_list, task_get, task_create, board_create, task_update,',
+    'Tasks: Beluga has task boards (mcp__beluga_board__*: task_list, task_get, task_create, task_start, board_create, task_update,',
     'task_brief_edit, task_note, task_relate, task_attach_proof). Use it when the user talks about tasks, issues,',
     'a backlog or what to do next, asks you to track or plan work, or asks for several things at once.',
     ...HOW_TASKS_WORK,

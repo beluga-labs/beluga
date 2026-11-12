@@ -5,7 +5,7 @@ import { newShares } from '@beluga/core/store.js';
 import { usageFor } from '@beluga/agent/usage.js';
 import { windowsOf } from '@beluga/ui/usage-cards.js';
 import { myRuntime } from '../chat/ModelPicker.js';
-import { Icon, type IconName } from '../components/Icon.js';
+import { Icon } from '../components/Icon.js';
 import { Badge, IconButton, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { inApp } from '../lib/boot.js';
@@ -17,6 +17,7 @@ import { PhoneMark } from '../phone/Phone.js';
 import { ChatsMenu } from './ChatsMenu.js';
 import { Projects, ProjectsAddMenu } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
+import { useChatDrag } from './chat-drag.js';
 import { WorkspaceWithAgents } from './SubAgents.js';
 import { threadNesting } from '../threads/threads-model.js';
 import { ChatSelectionCount, SidebarChatSelection } from './chat-selection-view.js';
@@ -42,15 +43,12 @@ import { CallPill } from '../call/CallLayer.js';
 import { AppMenu } from './AppMenu.js';
 
 /**
- * The sidebar's top: three places, always. The rest are a click away without a row of their
+ * The sidebar's top: Overview, then Work, Sentinel and Files. The rest are a click away without a row of their
  * own: Search in the toolbar (⇧⌘F), Usage as an icon above, the terminal in the right panel (⌘J),
  * folders friends share under Files (projects they share are in Projects); Activity and Requests show up only while there's something
- * in them. Everything is also in ⌘K and the Go menu (⌘1…7).
+ * in them. Everything is also in ⌘K and the Go menu (⌘1…7). The room's group chat is no place
+ * here (BLG-871): it's the first of Channels while someone else is in the room.
  */
-const NAV: ReadonlyArray<{ kind: 'overview' | 'room'; icon: IconName }> = [
-  { kind: 'overview', icon: 'grid' },
-  { kind: 'room', icon: 'chat' },
-];
 
 export { workspaceItems } from './workspace-row.js';
 
@@ -97,12 +95,13 @@ function useFolderDrop(): { ref: React.RefObject<HTMLElement | null>; over: bool
 export function Sidebar() {
   const actions = useActions();
   const drop = useFolderDrop();
+  // A chat's row picked up: what's carried, and the chat that would take it.
+  const chatDrag = useChatDrag();
   // Only what the sidebar itself shows: drawn again when that changes, not on every streamed event (KLD-48).
   const { tabs, liveChats, view, badges, categories } = useApp((state) => {
     const news = overviewNews(state);
     const fresh = newShares(state);
     const badges: Partial<Record<string, { count: number; urgent?: boolean }>> = {
-      room: { count: state.unread.room ?? 0, urgent: true },
       files: { count: fresh },
       overview: { count: state.view.kind === 'overview' ? 0 : news.count, urgent: news.urgent },
     };
@@ -117,9 +116,11 @@ export function Sidebar() {
   const later = useLater();
   // A child thread sits under its parent's row (SubAgents.tsx); put off till later, it is in Later.
   const { nested } = useApp(threadNesting);
+  const overview = tabs.find((t) => t.kind === 'overview');
   const files = tabs.find((t) => t.kind === 'files');
   return (
     <SidebarChatSelection>
+    {chatDrag}
     <nav ref={drop.ref} className={cx(s.sidebar, drop.over && s.dropping)} aria-label="Sidebar">
       <div className={s.titlebar} data-tauri-drag-region>
         {/* The traffic lights' place; in a browser, which has no menu bar, the menu bar's button (Settings and the rest). */}
@@ -137,24 +138,17 @@ export function Sidebar() {
       <div className={s.scroll}>
         <section className={s.section}>
           <AssistantNav />
-          {NAV.map((n) => {
-            const tab = tabs.find((t) => t.kind === n.kind);
-            if (!tab) return null;
-            const b = badges[n.kind];
-            const row = (
-              <Row
-                key={n.kind}
-                icon={<Icon name={n.icon} size={14} />}
-                label={tab.label}
-                detail={tab.hint}
-                selected={view.kind === n.kind}
-                onClick={() => actions.run({ type: 'view', view: { kind: n.kind } })}
-                trailing={b?.count ? <Badge count={b.count} urgent={b.urgent} /> : null}
-              />
-            );
-            // Overview, Work (Tasks, GitHub's issues and Plans in one row, BLG-197), Sentinel and its Dashboard, then Chat.
-            return n.kind === 'overview' ? [row, <WorkNav key="work" />, <SentinelNav key="sentinel" />] : row;
-          })}
+          <Row
+            icon={<Icon name="grid" size={14} />}
+            label={overview?.label ?? 'Overview'}
+            detail={overview?.hint}
+            selected={view.kind === 'overview'}
+            onClick={() => actions.run({ type: 'view', view: { kind: 'overview' } })}
+            trailing={badges.overview?.count ? <Badge count={badges.overview.count} urgent={badges.overview.urgent} /> : null}
+          />
+          {/* Work (Tasks, GitHub's issues and Plans in one row, BLG-197), then Sentinel and its Dashboard. */}
+          <WorkNav />
+          <SentinelNav />
           {/* Files: folders friends share with you (over the network), and the room's (BLG-205). */}
           <Row
             icon={<Icon name="folder" size={14} />}

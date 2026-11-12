@@ -21,6 +21,7 @@ import { claudeComplete } from './complete.js';
 import { askBtw } from './btw.js';
 import { claudeTerminal } from './terminal.js';
 import { claudeLaunch } from './launch-args.js';
+import { chromeGate, isChromeTool } from '../../chrome.js';
 import { ViewShelf } from '../../view-tools.js';
 import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
@@ -76,6 +77,8 @@ export interface ClaudeBackendOptions {
   readonly agentOf?: (input: AgentRunInput) => AgentRef | undefined;
   /** Your MCP servers' sign-in (a fake one in tests); by default Claude Code's own. */
   readonly mcp?: McpConnect;
+  /** Your saved variables for Settings' MCP check in a folder (RuntimeOptions.ownEnv). */
+  readonly ownEnv?: (cwd: string) => Readonly<Record<string, string>>;
 }
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -169,7 +172,8 @@ function reconnect(q: Query, name: string): void {
  */
 export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
   let sessionId: string | undefined;
-  const mcp = opts.mcp ?? new McpConnect(claudeMcpSession(opts.claudePath));
+  // Settings' MCP list reads your saved variables as your runs do (#442).
+  const mcp = opts.mcp ?? new McpConnect(claudeMcpSession(opts.claudePath), opts.ownEnv ? { ownEnv: opts.ownEnv } : {});
   // Every Claude Code query running now: a sign-in that connects reaches each of them.
   const live = new Set<Query>();
   mcp.onSignedIn((name) => {
@@ -232,7 +236,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         return own && mayBeCommand(msg.prompt) ? expandCommand(msg.prompt, cwd, home).then(build) : build(msg.prompt);
       };
       // Your `claude` flags (Settings › Agents): how it asks, in the SDK's words; the rest as they are.
-      const launch = claudeLaunch(input.launchArgs?.claude ?? [], { plan: Boolean(input.plan), autoEdit });
+      const launch = claudeLaunch(input.launchArgs?.claude ?? [], { plan: Boolean(input.plan), autoEdit, chrome: Boolean(input.chrome) });
+      // Claude in Chrome: as usual on a run you typed; any other asks you once before it first uses it (agent/chrome.ts).
+      const chrome = chromeGate(input.chrome);
       const options: Options = {
         cwd,
         additionalDirectories: [...extraDirs, ...(fixup ? [fixup] : [])],
@@ -257,6 +263,11 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
                   const toolInput = (hookInput.tool_input ?? {}) as Record<string, unknown>;
                   const veto = input.vetTool?.(hookInput.tool_name, toolInput);
                   if (veto) return verdict('deny', veto);
+                  if (isChromeTool(hookInput.tool_name)) {
+                    const said = await chrome(hookInput.tool_name, toolInput);
+                    if (said.kind === 'deny') return verdict('deny', said.reason);
+                    if (said.kind === 'allow') return verdict('allow', 'Approved by the machine owner.');
+                  }
                   const decision = decideTool(hookInput.tool_name, toolInput, policy);
                   if (decision === 'deny') return verdict('deny', denyReason(hookInput.tool_name, toolInput, policy));
                   // A sub-agent is told where its own scratch folder is, so what it makes shows on its page.
@@ -266,7 +277,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
                   const kept = input.env?.KLAUD_WORKTREE ? keptBashInput(hookInput.tool_name, scratched ?? toolInput, keptLog) : undefined;
                   const patched = kept ?? scratched;
                   const allow = (reason: string) => (patched ? { hookSpecificOutput: { ...verdict('allow', reason).hookSpecificOutput, updatedInput: patched } } : verdict('allow', reason));
-                  if (decision === 'allow') return patched ? allow('Allowed by Beluga.') : {};
+                  if (decision === 'allow' && !input.asksFirst?.(hookInput.tool_name)) return patched ? allow('Allowed by Beluga.') : {};
                   if (decision === 'secret') return (await input.canUseSecret?.(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', SECRET_DECLINED);
                   return (await input.canUseTool(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', 'The machine owner declined this action.');
                 },

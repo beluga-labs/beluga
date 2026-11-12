@@ -454,9 +454,9 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
   if (item.type === 'chat') {
     const who = item.byAgent ? 'claude' : item.from === me ? 'you' : 'friend';
     const prose = who === 'claude' ? pictures(proseOf(item.text)) : proseOf(item.text);
-    const edit = who === 'you' && !steer ? editOf(state, item.channel, item.text, prose) : undefined;
+    const edit = who === 'you' && !steer && !item.via ? editOf(state, item.channel, item.text, prose) : undefined;
     const reactions = reactableChannel(item.channel) ? chipsView(state, chatReactions(item), me) : undefined;
-    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}), ...(reactableChannel(item.channel) ? { reactable: true } : {}), ...(reactions ? { reactions } : {}) };
+    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), ...(item.via ? { via: clip(item.via.name, 80) } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}), ...(reactableChannel(item.channel) ? { reactable: true } : {}), ...(reactions ? { reactions } : {}) };
   }
   if (item.type === 'system') {
     // Earlier lines of a shared workspace's conversation ("bob: …") read as that person's turn.
@@ -503,6 +503,7 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
     agent: item.agent ?? CLAUDE_AGENT,
     prose: pictures(proseOf(item.text)),
     ts: item.ts,
+    ...(item.origin ? { origin: { ref: clip(item.origin.ref, 400), title: clip(item.origin.title, 200), agent: clip(item.origin.agent.label, 64), prose: proseOf(item.prompt ?? '') } } : {}),
     ...(status ? { status } : {}),
     ...(step ? { step } : {}),
     steps: item.steps.length,
@@ -746,6 +747,7 @@ export function convView(state: DomainState, ctx: ViewContext, topic: Topic): Co
     ...(conv?.project ? { project: clip(conv.project, 200) } : {}),
     turns,
     more,
+    ...(state.prefs.chatLinks ? { chatLinks: true as const } : {}),
     needsYou: items.slice(0, 20),
     canSend: conv?.mine ?? false,
     working,
@@ -865,13 +867,13 @@ function branchViewOf(state: DomainState, ws: Workspace): BranchView | undefined
   };
 }
 
-/** Your messages waiting for your Claude in a conversation, in run order (the Mac's queue tray, src/ui/compose.ts queueIn). */
+/** What waits for your Claude in a conversation, in run order (the Mac's queue tray, src/ui/compose.ts queueIn): your messages, and messages from your other chats. */
 function queueOf(state: DomainState, channel: string): NonNullable<ConvView['queue']> {
   const me = myId(state);
   return state.log
     .filter((l): l is AgentItem => l.type === 'agent' && l.channel === channel && l.status === 'queued' && l.owner === me && (l.requester !== undefined ? l.requester === me : l.requesterName === l.ownerName))
     .slice(0, 20)
-    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}) }));
+    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}), ...(l.origin ? { origin: { ref: clip(l.origin.ref, 400), title: clip(l.origin.title, 200), agent: clip(l.origin.agent.label, 64) } } : {}) }));
 }
 
 const planState = (plan: Plan, progress: PlanProgress): string => (plan.status === 'active' && plan.paused ? 'paused' : plan.status === 'active' && progress.next.kind === 'done' ? 'done' : plan.status);
@@ -1425,6 +1427,7 @@ function messageView(state: DomainState, ctx: ViewContext, m: MessageView): Chat
     text,
     ts: m.ts,
     ...(m.edited ? { edited: m.edited } : {}),
+    ...(m.via ? { sentBy: m.via.name } : {}),
     ...(m.mine && !m.claude && !m.task && m.conversation.startsWith('dm:') && text === m.text && text.trim() ? { editable: true } : {}),
     ...(files.length ? { files: files.slice(0, 20) } : {}),
     ...(m.reactions?.length ? { reactions: reactionsView(state, m) } : {}),

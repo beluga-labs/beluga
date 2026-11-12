@@ -124,6 +124,12 @@ export interface RuntimeOptions {
   readonly model?: string;
   /** The agent's own executable (Claude Code's path); unset: the runtime finds it. */
   readonly executablePath?: string;
+  /**
+   * Your saved variables (Settings › Environment) for something of your own starting in `cwd`, as
+   * your runs there get them, read fresh each call: Settings' MCP check uses them, so a token kept
+   * there isn't reported missing (#442). Never for a friend's run, never logged or shown.
+   */
+  readonly ownEnv?: (cwd: string) => Readonly<Record<string, string>>;
 }
 
 /**
@@ -196,9 +202,9 @@ export type RunSafety =
  * friend's task (vetTool) only on a runtime whose sandbox confines every step (BLG-452: Codex's
  * workspace-write, network off, secrets unreachable; see runtime/codex/sandbox.ts).
  */
-export function safetyFor(caps: RuntimeCapabilities, input?: Pick<AgentRunInput, 'vetTool' | 'guest'>): RunSafety {
+export function safetyFor(caps: RuntimeCapabilities, input?: Pick<AgentRunInput, 'vetTool' | 'guest' | 'asOwner'>): RunSafety {
   if (caps.canGateEveryTool) return { kind: 'gated' };
-  const refuse = input?.vetTool && !caps.hasSandbox
+  const refuse = input?.vetTool && !input.asOwner && !caps.hasSandbox
     ? "This agent can't check each step against a friend's limits, so it can't take friends' tasks."
     : input?.guest
       ? "This agent can't check each step, so it can't answer guests."

@@ -11,6 +11,9 @@ export type Entry =
 /** Still going: never folded away, so what's happening stays in sight. */
 export const isLive = (e: Entry): boolean => (e.kind === 'sub' ? e.sub.status === 'running' : e.kind === 'step' ? e.step.status === 'running' : false);
 
+/** Failed: never folded away either, so an error always shows. */
+const isFailed = (e: Entry): boolean => e.kind === 'step' && e.step.status === 'error';
+
 /**
  * The steps with each sub-agent in the place it started: where its launching call is (launchedAt,
  * your own Claude's records), else when it started; and what Claude said between its steps
@@ -40,13 +43,22 @@ export const workIn = (entries: readonly Entry[]): number => entries.filter((e) 
 
 /**
  * Which finished rows fold into "N steps · 12s": all but the last `keep` of them, once that's
- * more than one row (folding a single row hides nothing). Live rows always stay shown, in place.
+ * more than one row (folding a single row hides nothing). Live and failed rows always stay shown, in place.
+ *
+ * What Claude said on the way (remarks) never counts toward `keep`. While it works (`working`),
+ * the newest thing it said stays shown in its place, so you can follow along; the ones before it
+ * fold with the steps. Once the turn is done, they all fold: only its answer stands out.
  */
-export function foldOf(entries: readonly Entry[], keep: number): { older: Entry[]; shown: Entry[] } {
-  const done = entries.filter((e) => !isLive(e));
-  if (done.length <= keep + 1) return { older: [], shown: [...entries] };
-  const older = new Set(done.slice(0, done.length - keep));
-  return { older: [...older], shown: entries.filter((e) => !older.has(e)) };
+export function foldOf(entries: readonly Entry[], keep: number, working = false): { older: Entry[]; shown: Entry[] } {
+  const remarks = entries.filter((e) => e.kind === 'remark');
+  const latest = working ? remarks.at(-1) : undefined;
+  const done = entries.filter((e) => e.kind !== 'remark' && !isLive(e) && !isFailed(e));
+  const work = done.length <= keep + 1 ? [] : done.slice(0, done.length - keep);
+  // While it works, earlier remarks fold only once some steps do (a short turn shows all it said).
+  const said = working ? (work.length ? remarks.filter((e) => e !== latest) : []) : remarks;
+  const older = new Set<Entry>([...work, ...said]);
+  if (!older.size) return { older: [], shown: [...entries] };
+  return { older: entries.filter((e) => older.has(e)), shown: entries.filter((e) => !older.has(e)) };
 }
 
 /**

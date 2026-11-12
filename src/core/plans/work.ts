@@ -1,7 +1,7 @@
-import type { PlanTools } from '../../agent/types.js';
+import type { ChatChain, PlanTools } from '../../agent/types.js';
 import type { AgentRef } from '../../protocol.js';
 import { agentName } from '../../shared/agent-label.js';
-import type { Actor, Issue } from '../board/model.js';
+import type { Actor, ExternalActor, Issue } from '../board/model.js';
 import type { BoardWork } from '../board/work.js';
 import type { CombineResult } from '../../workspaces/git.js';
 import type { Intent } from '../intents.js';
@@ -32,10 +32,15 @@ export interface PlansWorkDeps {
   readonly plans: Plans;
   readonly board: BoardWork;
   readonly controller?: WorkspaceController;
-  /** Ask your Claude in a conversation; returns the request's id, when it can (to follow a steered message). */
-  readonly askClaude: (prompt: string, channel: string, echo: boolean) => string | void;
+  /** Ask your Claude in a conversation; returns the request's id, when it can (to follow a steered message). `chain`: the chain it goes on in (BLG-303). */
+  readonly askClaude: (prompt: string, channel: string, echo: boolean, chain?: ChatChain) => string | void;
   /** Steer a waiting message in now: the agent host's Steer Now (AgentHost.promote). */
   readonly promote?: (requestId: string) => boolean;
+  /**
+   * A message the plan's agent sends on to a task, in the chain of its run: the chain it goes on
+   * in (one hop on), or why the chat-links guard refuses it (ChatSendService.sendOn). Default: one hop on.
+   */
+  readonly sendOn?: (chain: ChatChain) => { readonly chain: ChatChain } | { readonly refused: string };
   /** Stop your Claude in one conversation (its queued messages too): the agent host's Stop. */
   readonly stopRun?: (channel: string) => void;
   readonly intend: (intent: Intent) => void;
@@ -185,6 +190,17 @@ export class PlansWork {
       })
       .catch(() => undefined);
     return plan;
+  }
+
+  /**
+   * A plan an external agent starts: a draft and its own conversation, and no run of your agent. The
+   * agent writes the draft with plan_write, and you approve it.
+   */
+  async createForAgent(projectId: string, goal: string, agent: ExternalActor): Promise<Plan> {
+    const chat = await this.deps.controller?.newChat(projectId, UNTITLED, undefined, { quiet: true });
+    if (!chat) throw new Error('Couldn’t start the plan’s conversation');
+    this.deps.controller?.manager.setStartedBy(chat.id, agent);
+    return this.plans.create({ projectId, home: `${WS}${chat.id}`, goal: goal.trim() }, this.deps.board.agentActor(agent));
   }
 
   /** A plan's own conversation goes by the plan's name (in the sidebar too), unless you renamed it. */
@@ -434,7 +450,7 @@ export class PlansWork {
   // ------------------------------------------------------------------ for Claude
 
   /** A run in a plan's home conversation (yours): the plan's tools, and how to plan or run it. */
-  forRun(channel: string, from: string): { readonly tools?: PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined {
+  forRun(channel: string, from: string, chain?: () => ChatChain): { readonly tools?: PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined {
     const me = this.deps.board.me();
     if (me.kind !== 'person' || from !== me.id) return undefined;
     // A milestone's checker: its brief, and only plan_get and plan_gate.
@@ -453,7 +469,7 @@ export class PlansWork {
     const board = this.deps.store.getState().board;
     const view = this.pilot.view(plan);
     const brief = plan.body ? headBrief(view) + planningBrief(plan, board, this.plans.planningStyle) : planningBrief(plan, board, this.plans.planningStyle);
-    return { tools: this.toolsFor(plan.id), brief };
+    return { tools: this.toolsFor(plan.id, undefined, chain), brief };
   }
 
   /** In a task's worktree: the plan it's part of. */
@@ -529,6 +545,21 @@ export class PlansWork {
     };
   }
 
+  /**
+   * An external agent's tools on one plan. Its changes stay a draft for you, also on autopilot: an
+   * agent never gets a plan approved. Its name goes in the plan's history.
+   */
+  toolsForAgent(planId: string, agent: ExternalActor): PlanTools {
+    return { ...this.toolsFor(planId, this.deps.board.agentActor(agent)), only: ['plan_get', 'plan_write', 'plan_update', 'plan_start_task', 'plan_pause'] };
+  }
+
+  /** The chat of a plan's started task (its id, or its board key): the worktree it works in. */
+  taskChat(planId: string, task: string): string | undefined {
+    const hit = allTasks(this.plans.need(planId).body).find((t) => t.task.id === task || (t.task.issueId && this.deps.board.board.get(t.task.issueId)?.key === task.toUpperCase()));
+    const issue = hit?.task.issueId ? this.deps.board.board.get(hit.task.issueId) : undefined;
+    return issue && !issue.worktreeGone ? issue.worktrees.at(-1) : undefined;
+  }
+
   /** A draft's reviewer: it reads the draft and records what it found, nothing more. */
   private reviewerTools(planId: string): PlanTools {
     const full = this.toolsFor(planId);
@@ -547,7 +578,9 @@ export class PlansWork {
     };
   }
 
-  private toolsFor(planId: string): PlanTools {
+  /** `chain`: the chain of the run that has the tools; a message to a task goes on in it, one hop on (BLG-303). */
+  private toolsFor(planId: string, external?: Actor, chain?: () => ChatChain): PlanTools {
+    const by = (): Actor => external ?? this.claude();
     const plans = this.plans;
     const after = (change: () => Plan): string => {
       const before = plans.need(planId);
@@ -559,7 +592,7 @@ export class PlansWork {
       // What this change left behind, said next to "Saved" (BLG-772).
       const warn = (body: Plan['draft']): string => (body ? warningsText(coherenceWarnings(body, before.draft ?? before.body)) : '');
       // On autopilot, the head Claude's changes to a running plan apply at once.
-      if (plan.body && plan.autonomy === 'autopilot') {
+      if (!external && plan.body && plan.autonomy === 'autopilot') {
         const applied = this.approve(plan.id, this.claude());
         return `Applied at once (the plan runs on autopilot): ${sizeWords(applied.body)}.${warn(applied.body)}`;
       }
@@ -567,13 +600,13 @@ export class PlansWork {
     };
     return {
       get: () => describePlan(this.pilot.view(plans.need(planId))),
-      write: (body: BodyInput) => after(() => plans.writeDraft(planId, { ...body, milestones: body.milestones.map((m) => ({ ...m, tasks: (m.tasks ?? []).map((t) => this.adopt(t, planId)) })) }, this.claude())),
+      write: (body: BodyInput) => after(() => plans.writeDraft(planId, { ...body, milestones: body.milestones.map((m) => ({ ...m, tasks: (m.tasks ?? []).map((t) => this.adopt(t, planId)) })) }, by())),
       update: (ops: readonly PlanOp[], reason?: string) =>
         after(() =>
           plans.editDraft(
             planId,
             ops.map((o) => (o.op === 'add_task' ? { ...o, task: this.adopt(o.task, planId) } : o.op === 'update_task' ? { ...o, patch: this.adopt(o.patch, planId) } : o.op === 'add_milestone' ? { ...o, milestone: { ...o.milestone, tasks: (o.milestone.tasks ?? []).map((t) => this.adopt(t, planId)) } } : o)),
-            this.claude(),
+            by(),
             reason,
           ),
         ),
@@ -588,7 +621,7 @@ export class PlansWork {
         const auto = (m.autonomy ?? plan.autonomy) === 'autopilot';
         return verdict === 'pass' ? (auto ? 'Recorded: the milestone passes and the plan moves on.' : 'Recorded: the user passes the milestone.') : 'Recorded as failed. Add the fix tasks with plan_update.';
       },
-      start: (task) => this.pilot.startNow(planId, task, this.claude()),
+      start: (task) => this.pilot.startNow(planId, task, by()),
       message: (task, text, mode = 'queue') => {
         const plan = plans.need(planId);
         const hit = allTasks(plan.body).find((t) => t.task.id === task || (t.task.issueId && this.deps.board.board.get(t.task.issueId)?.key === task.toUpperCase()));
@@ -597,10 +630,13 @@ export class PlansWork {
         const w = issue.worktrees.at(-1);
         if (!w || issue.worktreeGone) throw new Error(`${issue.key} hasn't started: nothing to tell yet (start it, or change its brief)`);
         const steer = mode === 'steer';
+        const now = chain?.();
+        const on = now && (this.deps.sendOn?.(now) ?? { chain: { chainId: now.chainId, hop: now.hop + 1 } });
+        if (on && 'refused' in on) throw new Error(`Not sent to ${issue.key}: ${on.refused}`);
         // Shown there as the plan's message, not as yours.
         this.deps.store.dispatch({ type: 'system', channel: `${WS}${w}`, text: `${steer ? 'Urgent, from' : 'From'} the plan’s agent: ${text.trim().slice(0, 2000)}`, level: 'info' });
         const prompt = `${steer ? 'An urgent message' : 'A message'} from the head of the plan “${plan.body?.title ?? ''}” (another agent coordinating the plan, not the user):\n\n${text.trim()}`;
-        const id = this.deps.askClaude(prompt, `${WS}${w}`, false);
+        const id = this.deps.askClaude(prompt, `${WS}${w}`, false, on?.chain);
         if (!steer) return `Queued for the agent working on ${issue.key}: it reads it when its current turn ends (its card shows it waiting; use mode "steer" if it can't wait)`;
         // Steered: in now (interrupting a long command or a dead run), and followed until it's read.
         if (id) this.pilot.steer(planId, hit.task.id, id, prompt);
@@ -618,7 +654,8 @@ export class PlansWork {
         return `Stopped the agent working on ${issue.key}. It waits: tell it what to do with plan_message_task, or start it again from the plan`;
       },
       pause: (paused) => {
-        this.setPaused(planId, paused);
+        plans.setPaused(planId, paused, external ?? this.me());
+        this.pilot.schedule();
         return paused ? 'Paused: nothing new starts until the user (or you, when they ask) resumes it' : 'Resumed: ready tasks start again';
       },
     };

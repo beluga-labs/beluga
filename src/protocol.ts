@@ -128,6 +128,13 @@ export type PeerInfo = z.infer<typeof PeerInfo>;
 // `sentinel-chat:<id>`: the Sentinel chat (docs/sentinel.md §12), yours only; its events only go to you.
 export const Channel = z.string().regex(/^(room|mac:assistant(:[a-z0-9]{1,24})?|sentinel-chat:[a-z0-9]{1,24}|ws:[\w:.-]{1,80}|dm:[\w-]{8,64}|group:[\w-]{1,80})$/).default('room');
 
+/**
+ * An external agent acted through its owner's Beluga: the frame is signed with the owner's key, so
+ * this says the words aren't the owner's. Additive: an older Mac drops it and shows the rest.
+ */
+export const MessageVia = z.object({ id: z.string().min(1).max(40), name: z.string().min(1).max(80), creationSource: z.literal('mcp') });
+export type MessageVia = z.infer<typeof MessageVia>;
+
 export const ChatBody = z.object({
   kind: z.literal('chat'),
   text: z.string().min(1).max(MAX_TEXT),
@@ -135,6 +142,7 @@ export const ChatBody = z.object({
   channel: Channel,
   /** With `byAgent`: which of their agents wrote it (an older Mac leaves it out: Claude). */
   agent: AgentRef.optional(),
+  via: MessageVia.optional(),
   /**
    * BLG-702: the sender's own id for it, the same in every copy (a workspace chat goes to each person
    * in a frame of its own), so a reaction can name it: it's `<from>:<mid>` everywhere. An older Mac
@@ -169,11 +177,31 @@ export const FocusBody = z.object({
   actor: z.enum(['human', 'agent']),
 });
 
+/**
+ * BLG-146: where a message from another chat came from, and its chain. Beluga writes it, never an
+ * agent. A message without it is from a person, and starts a new chain.
+ */
+export const ChatOrigin = z.object({
+  /** The source chat, as `<owner>/<channel>`. */
+  ref: z.string().min(1).max(400),
+  title: z.string().max(200),
+  agent: AgentRef,
+  chainId: shortStr,
+  /** How many sends led to this message. */
+  hop: z.number().int().min(0).max(1000),
+  messageId: shortStr,
+  /** The source chat wants an answer. Without it, the message wants none. */
+  replyWanted: z.boolean().optional(),
+});
+export type ChatOrigin = z.infer<typeof ChatOrigin>;
+
 export const AgentRequestBody = z.object({
   kind: z.literal('agent_request'),
   requestId: shortStr,
   prompt: z.string().min(1).max(MAX_TEXT),
   viaAgent: z.boolean().default(false),
+  /** An external agent of theirs asked: their card says so. */
+  via: MessageVia.optional(),
   channel: Channel,
   /** Now, not after the current task: your own steer the run working (read at its next step), else interrupt it. */
   urgent: z.boolean().default(false),
@@ -188,6 +216,13 @@ export const AgentRequestBody = z.object({
    * there. An older Mac drops it and its default answers; a malformed one is dropped alone.
    */
   agent: AgentRef.optional().catch(undefined),
+  /** A message from another chat (see ChatOrigin). An older Mac drops it; a malformed one is dropped alone. */
+  origin: ChatOrigin.optional().catch(undefined),
+  /**
+   * BLG-303: the chain of your own message that one of your agents sent on (a plan's message to a
+   * task), so it doesn't start a new one. Only your own requests keep it. An older Mac drops it.
+   */
+  chain: z.object({ chainId: shortStr, hop: z.number().int().min(0).max(1000) }).optional().catch(undefined),
 });
 
 export const AgentEventKind = z.enum([
@@ -227,6 +262,10 @@ export const AgentEventBody = z.object({
   agent: AgentRef.optional(),
   /** BLG-520: the request named another agent, which doesn't run there: why `agent` answers instead (in words). */
   fallback: z.string().max(300).optional(),
+  /** BLG-149: the run reads a message from another chat: where it came from, and its words. An older Mac drops it. */
+  fromChat: z.object({ origin: ChatOrigin, text: z.string().max(MAX_TEXT) }).optional().catch(undefined),
+  /** The run is an external agent's: its requester shows as this name. */
+  via: MessageVia.optional(),
 });
 
 export const FsListBody = z.object({
@@ -445,6 +484,8 @@ export const ShellRequestBody = z.object({
   timeoutSec: z.number().int().min(1).max(MAX_SHELL_SECONDS).default(120),
   /** Your Claude asked (not you). */
   viaAgent: z.boolean().default(false),
+  /** An external agent of theirs asked: their card says so. */
+  via: MessageVia.optional(),
   why: z.string().max(500).default(''),
 });
 export const ShellResultBody = z.object({

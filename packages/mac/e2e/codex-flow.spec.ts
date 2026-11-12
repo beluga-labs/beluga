@@ -19,7 +19,7 @@ test('start a worktree on Codex, run a task, approve a command, stop mid-turn, h
   // Your agent asks before commands (else a command leaving Codex's sandbox just runs).
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog');
-  await settings.getByRole('button', { name: 'Agent' }).click();
+  await settings.getByRole('button', { name: 'Agent', exact: true }).click();
   const ask = settings.getByRole('switch', { name: 'Self approval' });
   if ((await ask.getAttribute('aria-checked')) !== 'true') await ask.click();
   await expect(ask).toHaveAttribute('aria-checked', 'true');

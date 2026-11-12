@@ -32,6 +32,9 @@ import { ghRepoEnv } from '../workspaces/github.js';
 import { AgentTerminals } from './agent-term.js';
 import { claudeHome } from './claude-code/launch.js';
 import { callNotesToolsOf } from './calls/launch.js';
+import { guestPlace, sharedWorktreeBrief } from './shared-guest.js';
+import { belugaHome } from './home.js';
+import { peerName } from './store.js';
 
 /** Everything a session is made of, wired to each other and to the session. */
 export interface SessionParts {
@@ -107,7 +110,12 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         onWorktreeCreated: (ws) => workbench?.onWorktreeCreated(ws),
         onWorkspaceGoing: (id) => workbench?.closeTerminals(id),
         onWorktreeRestored: (ws, remake) => workbench?.onWorktreeRestored(ws, remake),
-        env: { newKeysBack: (projectId) => env.newKeysBack(projectId), merge: (projectId, vars) => env.merge(projectId, vars) },
+        env: {
+          newKeysBack: (projectId) => env.newKeysBack(projectId),
+          merge: (projectId, vars) => env.merge(projectId, vars),
+          syncExample: (id, noteOnly) => env.syncWorktreeExample(id, noteOnly),
+          forgetWorktree: (id) => env.forgetWorktree(id),
+        },
       });
     }
     if (workspaces) {
@@ -230,10 +238,15 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       sentinel: (channel, from) => sentinelOf(session)?.forRun(channel, from),
       sentinelChat: (channel, from) => sentinelOf(session)?.chatPlace(channel, from),
       confirmTool: (toolName, input) => sentinelOf(session)?.confirmWords(toolName, input),
-      plans: (channel, from) => plansOf(session)?.forRun(channel, from),
+      plans: (channel, from, chain) => plansOf(session)?.forRun(channel, from, chain),
       threads: (channel) => threadsOf(session)?.forRun(channel),
       // "Your Mac"'s chats, and your own asks in friends' chats (BLG-207): both work in its folder.
       assistant: (channel, from) => assistantOf(session)?.forRun(channel, from) ?? assistantOf(session)?.forChat(channel, from),
+      // Your "@claude" in a worktree a friend shared with you: your agent, here, reading theirs (core/shared-guest).
+      guestRun: (channel, from) => {
+        const ws = from === session.selfId ? sharing.sharedFor(channel) : undefined;
+        return ws?.role === 'contribute' ? { place: guestPlace(belugaHome()), brief: sharedWorktreeBrief(ws, peerName(opts.store.getState(), ws.owner)) } : undefined;
+      },
       phone: (scratchDir) => companionOf(session)?.control.toolsFor(scratchDir),
       callNotes: () => callNotesToolsOf(session),
       phoneUse: () => companionOf(session)?.control.useLevel() ?? 'off',

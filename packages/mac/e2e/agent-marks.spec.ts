@@ -16,7 +16,7 @@ test('your agent can be any runtime, and pickers show each one by its mark', asy
 
   await page.keyboard.press('Meta+,');
   const settings = page.getByRole('dialog');
-  await settings.getByRole('button', { name: 'Agent' }).click();
+  await settings.getByRole('button', { name: 'Agent', exact: true }).click();
   const yours = settings.getByRole('combobox', { name: 'Your agent' });
   await expect(yours).toBeVisible();
   if (shots) await settings.screenshot({ path: `${shots}/01-settings-your-agent.png` });

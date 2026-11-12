@@ -46,9 +46,54 @@ describe('remarks in the timeline', () => {
     expect(ids(older)).toEqual(['a', 'remark:2', 'b']);
     expect(workIn(older)).toBe(2);
   });
+
+  it('never takes one of the kept rows: the last few steps stay shown', () => {
+    const t = timelineOf([step('a', 1), step('b', 3), step('c', 5), step('d', 7)], [], () => undefined, [{ text: 'x', ts: 6 }]);
+    expect(ids(foldOf(t, 2, true).shown)).toEqual(['c', 'remark:6', 'd']);
+  });
+});
+
+describe('what Claude said, while it works and once done', () => {
+  const rows = [step('a', 1), step('b', 3), step('c', 5), step('d', 7), step('e', 9)];
+  const said = [{ text: 'looking', ts: 2 }, { text: 'found it', ts: 4 }];
+
+  it('keeps the newest thing it said in sight while it works, however many steps came after it', () => {
+    const { older, shown } = foldOf(timelineOf(rows, [], () => undefined, said), 2, true);
+    expect(ids(older)).toEqual(['a', 'remark:2', 'b', 'c']);
+    expect(ids(shown)).toEqual(['remark:4', 'd', 'e']);
+  });
+
+  it('a newer remark pops in and the one before goes into the fold', () => {
+    const later = [...said, { text: 'now the tests', ts: 8 }];
+    const { older, shown } = foldOf(timelineOf(rows, [], () => undefined, later), 2, true);
+    expect(ids(older)).toContain('remark:4');
+    expect(ids(shown)).toEqual(['d', 'remark:8', 'e']);
+  });
+
+  it('shows all it said on a short turn while it works (nothing folds yet)', () => {
+    const t = timelineOf([step('a', 1), step('b', 3)], [], () => undefined, said);
+    expect(foldOf(t, 2, true).older).toEqual([]);
+  });
+
+  it('folds everything it said once the turn is done, even when its steps stay shown', () => {
+    const many = foldOf(timelineOf(rows, [], () => undefined, said), 3);
+    expect(ids(many.older)).toEqual(['a', 'remark:2', 'b', 'remark:4']);
+    expect(ids(many.shown)).toEqual(['c', 'd', 'e']);
+    const short = foldOf(timelineOf([step('a', 1), step('b', 3)], [], () => undefined, said), 3);
+    expect(ids(short.older)).toEqual(['remark:2', 'remark:4']);
+    expect(workIn(short.older)).toBe(0);
+    expect(ids(short.shown)).toEqual(['a', 'b']);
+  });
 });
 
 describe('foldOf', () => {
+  it('never folds a failed step away', () => {
+    const steps = ['a', 'b', 'c', 'd', 'e'].map((id, i) => ({ kind: 'step' as const, id, step: { id, status: i === 1 ? 'error' : 'done' } as never }));
+    const { older, shown } = foldOf(steps, 1);
+    expect(older.map((e) => e.id)).toEqual(['a', 'c', 'd']);
+    expect(shown.map((e) => e.id)).toEqual(['b', 'e']);
+  });
+
   it('folds all but the last few finished rows, never just one', () => {
     const t = timelineOf([step('a', 1), step('b', 2), step('c', 3)], [], () => undefined);
     expect(foldOf(t, 2).older).toEqual([]);

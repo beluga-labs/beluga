@@ -1,3 +1,5 @@
+import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from './chat-links.js';
 import { sumCounts } from '@beluga/machines/attention.js';
 import { onRemoteAttention, remoteAttention } from '../machines/remote-attention.js';
 import { untag } from '@beluga/machines/attention.js';
@@ -28,12 +30,12 @@ import { newChatProject } from './project-home.js';
 import { type MenuBarCounts, SPOUT_EVERY_MS, spoutStep, trayTitle } from '../menubar/menubar-look.js';
 import { shownState } from '../network/net-model.js';
 import { SHOW_TILE, boardLinkOf } from './widget-links.js';
+import { t } from '../i18n/index.js';
 
 const isCommand = (id: string): id is CommandId => (COMMAND_IDS as readonly string[]).includes(id);
 
 const GO: Record<string, PlaceKind> = {
   'go-tasks': 'tasks',
-  'go-room': 'room',
   'go-files': 'files',
   'go-overview': 'overview',
   'go-search': 'search',
@@ -156,15 +158,23 @@ export function useNative(client: SocketClient, ui: UiStore, actions: Actions, o
       const a = await listen<string>('menu', (e) => fromMenu(e.payload, () => runMenuItem(e.payload, client, ui, actions)));
       // The same link can come both ways (live and from the launch buffer): handle it once.
       const handled = new Set<string>();
-      let lastBoard: { url: string; at: number } | undefined;
+      let lastClick: { url: string; at: number } | undefined;
       const open = (url: string): void => {
         // A widget's link, clicked as often as you like (the same one twice in a second is one click).
         const board = boardLinkOf(url);
         if (board) {
-          if (lastBoard?.url === url && Date.now() - lastBoard.at < 1000) return;
-          lastBoard = { url, at: Date.now() };
+          if (lastClick?.url === url && Date.now() - lastClick.at < 1000) return;
+          lastClick = { url, at: Date.now() };
           actions.run({ type: 'view', view: board.board ? { kind: 'dashboard', id: board.board } : { kind: 'sentinel' } });
           if (board.tile) setTimeout(() => document.dispatchEvent(new CustomEvent(SHOW_TILE, { detail: board.tile })), 300);
+          return;
+        }
+        // A chat's link, as often as you like. One that's malformed goes nowhere, as any unknown link.
+        if (url.startsWith(CHAT_LINK_PREFIX)) {
+          const ref = chatLinkOf(url);
+          if (!ref || (lastClick?.url === url && Date.now() - lastClick.at < 1000)) return;
+          lastClick = { url, at: Date.now() };
+          void openChatLink(client, actions, ref);
           return;
         }
         if (handled.has(url)) return;
@@ -418,7 +428,7 @@ export function useMenuState(client: SocketClient): void {
         const st = commandState(state, id);
         enabled[id] = st.enabled;
         if (st.checked !== undefined) checked[id] = st.checked;
-        if (st.label) labels[id] = st.label;
+        if (st.label) labels[id] = t(st.label);
       }
       const key = JSON.stringify([enabled, checked, labels]);
       if (key === last) return;

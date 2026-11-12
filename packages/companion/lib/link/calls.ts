@@ -72,6 +72,12 @@ export const calls = {
   setModel: (topic: Topic, value: string, label: string): Call => make('workbench.setModel', [channelOf(topic), value], `Use ${label}`),
   setAgent: (topic: Topic, agent: { runtime: string; label: string; model?: string } | null, label: string): Call => make('workbench.setAgent', [channelOf(topic), agent], `Use ${label}`),
   stop: (topic: Topic): Call => make('host.stopRun', [channelOf(topic)], 'Stop'),
+  /** 1.38 (BLG-122): external agents: who holds a grant, what they did, and stopping them. */
+  externalAgents: (): Call => make('external.agents', [], 'External agents'),
+  externalActivity: (kind?: 'allowed' | 'asked' | 'refused'): Call => make('external.activity', [kind ? { kind } : {}], 'Activity'),
+  externalStop: (agent: string, name: string): Call => make('external.stopAgent', [agent], `Stop ${short(name)}`),
+  externalStopAll: (): Call => make('external.stopAll', [], 'Stop all agents'),
+  externalRevoke: (agent: string, name: string): Call => make('external.revoke', [agent], `Revoke ${short(name)}`),
   /** Give a conversation the Mac's terminal drives back to the chat (1.36, BLG-534). */
   takeOver: (topic: Topic): Call => make('agentTerm.takeOver', [channelOf(topic).replace(/^ws:/, '')], 'Take over'),
   /** A request you asked of a friend's Claude (a `conv:task:<id>`): stop it, or (1.27) remove it from your lists. */
@@ -110,6 +116,8 @@ export const calls = {
   addTask: (projectId: string, d: PhoneDraft & { more?: PhoneDraft[]; epic?: boolean }): Call =>
     make('companion.addTask', [{ projectId, ...d }], d.more?.length ? `Add ${d.more.length + 1} tasks` : `Add "${short(d.title)}"`),
   /** A live view's rows: the Mac runs its source (one your own Claude's view names) and sends the page. */
+  // 1.44: what a chat's address is now (its chip).
+  resolveChat: (ref: string): Call => make('chats.resolve', [ref], 'Chat link'),
   viewFetch: (a: { topic: Topic; turn: string; block: number; query: object; source?: object; confirm?: boolean; fresh?: boolean; text?: boolean }): Call => make('companion.viewFetch', [a as never], 'View rows'),
   /** Merging a worktree (its conversation): look first, merge, Claude resolves the conflicts. */
   mergeCheck: (topic: Topic): Call => make('companion.mergeCheck', [topic], 'Check the merge'),

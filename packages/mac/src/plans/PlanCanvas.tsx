@@ -11,7 +11,7 @@ import { layout } from '../components/graph/layout.js';
 import { useSharpZoom } from '../components/graph/sharp-zoom.js';
 import { breath, turn, useLive } from '../lib/live-motion.js';
 import { MILESTONE_STATE, type MilestoneJoin, type PlanGraphShape, TASK_STATE, changeMarks, gateId, graphShape, groupId, lockWords, milestoneJoin, milestoneLink, milestoneNowWords, startingMilestones, taskNodeId, taskWords } from './plans-model.js';
-import { COMPACT_STATES, FOLDS_KEY, type Folds, MILESTONE, type MilestoneFrame, PLAN_GAPS, arrowHead, isFolded, labelAt, milestoneAnchors, milestoneFrame, milestoneRoute, placeMilestones, readFolds, taskSize, withFold } from './plan-layout.js';
+import { COMPACT_STATES, FOLDS_KEY, type Folds, MILESTONE, type MilestoneFrame, PLAN_GAPS, arrowHead, isFolded, joinAt, labelAt, milestoneAnchors, milestoneFrame, milestoneRoute, placeMilestones, readFolds, taskSize, withFold } from './plan-layout.js';
 import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useGlide } from './use-glide.js';
 import { LiveDot, LockMark, TaskChatMark, TaskStateIcon } from './marks.js';
@@ -65,6 +65,9 @@ interface GateData extends Record<string, unknown> {
   readonly current: boolean;
   readonly selected: boolean;
   readonly folded: boolean;
+  readonly planId: string;
+  /** The plan runs (not a draft), so a gate waiting for you can be passed right from it. */
+  readonly canPass: boolean;
 }
 type PlanNode = Node<TaskData, 'task'> | Node<MilestoneData, 'milestone'> | Node<GateData, 'gate'>;
 
@@ -84,8 +87,6 @@ interface LineData extends Record<string, unknown> {
   readonly join?: MilestoneJoin & { readonly stem: readonly Point[] };
 }
 
-/** How far above a milestone's lock the lines from several meet. */
-const JOIN_STEM = 30;
 type PlanEdge = Edge<LineData, 'line'>;
 
 export interface PlanCanvasProps {
@@ -114,6 +115,8 @@ interface Laid {
   readonly places: ReadonlyMap<string, Placed>;
   readonly frames: ReadonlyMap<string, MilestoneFrame>;
   readonly routes: ReadonlyMap<string, Route>;
+  /** Each line between milestones: the height it runs across above the one it leads into (where lines into it meet). */
+  readonly meets: ReadonlyMap<string, number>;
 }
 
 /** ELK's options for a milestone's inside: its tasks left to right by what waits on what. */
@@ -228,6 +231,7 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
 
     const places = new Map<string, Placed>();
     const routes = new Map<string, Route>();
+    const meets = new Map<string, number>();
     for (const m of shape.milestones) {
       const box = boxes.get(m.id);
       // Folded, its cards and gate stay where they sit open (hidden), so opening it fades them in in place.
@@ -258,8 +262,9 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
       const exitY = b.y - (a.y + a.height) <= PLAN_GAPS.row ? enterY : a.y + a.height + PLAN_GAPS.row / 2;
       const obstacles = [...boxes].filter(([id]) => id !== e.from && id !== e.to).map(([, box]) => box);
       routes.set(e.id, { points: milestoneRoute(milestoneAnchors(a, fa.gate).out, milestoneAnchors(b).in, exitY, enterY, obstacles) });
+      meets.set(e.id, enterY);
     }
-    return { places, frames, routes };
+    return { places, frames, routes, meets };
   }, [inner, foldKey]);
 
   const lane = useMemo(() => new Map(shape.milestones.flatMap((m) => m.tasks.map((t) => [taskNodeId(t), m.id] as const))), [shape]);
@@ -318,7 +323,7 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
       }
       const gate = laid.places.get(gateId(id));
       if (gate) {
-        out.push({ id: gateId(id), type: 'gate', parentId: groupId(id), position: { x: gate.x, y: gate.y }, width: gate.width, height: gate.height, measured: { width: gate.width, height: gate.height }, draggable: false, ...hidden, data: { view: m, current, folded: away, selected: selected === gateId(id) } });
+        out.push({ id: gateId(id), type: 'gate', parentId: groupId(id), position: { x: gate.x, y: gate.y }, width: gate.width, height: gate.height, measured: { width: gate.width, height: gate.height }, draggable: false, ...hidden, data: { view: m, current, folded: away, selected: selected === gateId(id), planId: view.plan.id, canPass: Boolean(view.plan.body) && !view.plan.draft } });
       }
     }
     return out;
@@ -356,18 +361,16 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
         let route = laid.routes.get(e.id);
         const siblings = into.get(e.to) ?? [];
         let join: LineData['join'];
-        if (siblings.length > 1 && route && route.points.length >= 2) {
-          // Where it turns down into the lock (the run across above the row), else straight above it.
-          const end = route.points[route.points.length - 1]!;
-          const turn = route.points[route.points.length - 2]!;
-          const knot = route.points.length > 2 && Math.abs(turn.x - end.x) < 0.5 && end.y - turn.y > JOIN_STEM / 2 ? turn : { x: end.x, y: end.y - JOIN_STEM };
-          const head = route.points.slice(0, -1);
-          route = { ...route, points: head[head.length - 1] === knot ? head : [...head, knot] };
+        const meet = laid.meets.get(e.id);
+        const cut = siblings.length > 1 && route && meet !== undefined ? joinAt(route.points, meet) : undefined;
+        if (route && cut) {
+          // Every line in stops where they meet, on the run across above its lock (however its lane ran down).
+          route = { ...route, points: cut.line };
           // The first line in carries the join and its stem (so they're drawn once).
           if (siblings[0] === e.id) {
             const parents = shown.filter((x) => x.kind === 'next' && x.to === e.to).map((x) => byMs.get(x.from.replace(/^gate:/, '')));
             const j = milestoneJoin(parents, view.plan.branch);
-            if (j) join = { ...j, stem: [knot, end] };
+            if (j) join = { ...j, stem: cut.stem };
           }
         }
         return { id: e.id, source: e.from, target: e.to, ariaLabel: `${titleOf(e.from)} leads to ${titleOf(e.to)}`, type: 'line', data: { kind: 'next', state: link.state, current: now(e), ...(route ? { route } : {}), ...(label ? { label } : {}), ...(siblings.length > 1 ? { joined: true } : {}), ...(join ? { join } : {}) } };
@@ -683,7 +686,15 @@ const GateNode = memo(function GateNode({ data }: NodeProps<Node<GateData, 'gate
   const state = m.state === 'merging' ? 'passed' : m.state;
   // Its checker's conversation, one click from its state (“Checking…”); the rest of the gate still opens its details.
   const checker = useCheckerChat(m);
-  const { openWorktree } = usePlanActions();
+  const { api, act, openWorktree } = usePlanActions();
+  // Waiting for you, its label (“Checked · pass it”) does what it says; the check's chat sits beside it.
+  const passable = m.state === 'gate' && data.canPass && !data.folded;
+  const [passing, setPassing] = useState(false);
+  const pass = (): void => {
+    if (passing) return;
+    setPassing(true);
+    void act(() => api.pass(data.planId, m.milestone.id)).finally(() => setPassing(false));
+  };
   return (
     <div
       ref={gate}
@@ -700,7 +711,33 @@ const GateNode = memo(function GateNode({ data }: NodeProps<Node<GateData, 'gate
         </span>
         <span className={c.gateTitle}>Pass criteria</span>
         {criteria.length ? <span className={c.gateCount}>{criteria.length}</span> : null}
-        {checker ? (
+        {passable ? (
+          <span className={c.gateActions}>
+            {checker ? (
+              <button
+                type="button"
+                className={cx(c.gateEye, 'nodrag', 'nopan')}
+                title="Open the check"
+                aria-label={`Open the Check of ${m.milestone.title}`}
+                onClick={(e) => (e.stopPropagation(), openWorktree(checker))}
+              >
+                <Icon name="eye" size={11} />
+                <TaskChatMark worktree={checker} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={cx(c.gatePass, 'nodrag', 'nopan')}
+              disabled={passing}
+              title={`Pass “${m.milestone.title}”`}
+              aria-label={`${label}: Pass ${m.milestone.title}`}
+              onClick={(e) => (e.stopPropagation(), pass())}
+            >
+              <Icon name="check" size={10} />
+              {passing ? 'Passing…' : label}
+            </button>
+          </span>
+        ) : checker ? (
           <button
             type="button"
             className={cx(c.gateState, c.gateWatch, 'nodrag', 'nopan')}

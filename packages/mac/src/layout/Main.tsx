@@ -1,7 +1,8 @@
-import { Suspense, useRef } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { Empty } from '../components/ui.js';
-import { useApp } from '../lib/beluga.js';
+import { useApp, useBeluga } from '../lib/beluga.js';
+import { groupChatOpen } from '../lib/group-chat.js';
 import { ViewBoundary, lazyView } from '../lib/lazy-view.js';
 import { useMaking } from '../lib/making.js';
 import { ChatView } from '../views/ChatView.js';
@@ -50,16 +51,19 @@ const PhoneView = lazyView('phone/PhoneView', () => import('../phone/PhoneView.j
  */
 function MakingWorktree() {
   const ws = useApp((st) => (st.view.kind === 'workspace' ? findWorkspace(st.projects, st.view.id) : undefined));
+  const parent = useApp((st) => (ws?.forkedFrom ? findWorkspace(st.projects, ws.forkedFrom)?.name : undefined));
   const asked = useApp((st) => (ws ? st.log.some((l) => l.channel === `ws:${ws.id}`) : false));
   if (!ws) return null;
   const from = ws.base ?? 'the latest origin';
+  // A fork (BLG-921): a copy of another worktree, its conversation shown already.
+  const fork = ws.forkedFrom ? (parent ?? 'its parent') : undefined;
   if (!asked) {
     return (
       <Empty
         icon="branch"
         mark={<span className={side.making} style={{ width: 18, height: 18 }} aria-hidden="true" />}
-        title={`Making ${ws.name}…`}
-        detail={`A new worktree from ${from}. Its conversation opens here in a moment; anything you asked your agent starts then.`}
+        title={fork ? `Forking ${fork}…` : `Making ${ws.name}…`}
+        detail={fork ? `${ws.name} gets a copy of its commits, uncommitted changes, Scratch and conversation. It opens here in a moment.` : `A new worktree from ${from}. Its conversation opens here in a moment; anything you asked your agent starts then.`}
       />
     );
   }
@@ -68,9 +72,28 @@ function MakingWorktree() {
       <ChatLog key={ws.id} channel={`ws:${ws.id}`} />
       <div className={s.makingLine} role="status">
         <span className={side.making} aria-hidden="true" />
-        Making {ws.name} from {from}. Your agent starts as soon as its folder is ready.
+        {fork ? `Forking ${fork} into ${ws.name}: copying its changes, Scratch and conversation. You can write here in a moment.` : `Making ${ws.name} from ${from}. Your agent starts as soon as its folder is ready.`}
       </div>
     </div>
+  );
+}
+
+/**
+ * The room's group chat with its call around it (BLG-716), while someone else is in the room.
+ * Alone, it's no place (BLG-871): what still opens it (Back, a notification, /room, the phone's
+ * Open on your Mac) goes to Overview. Someone leaving while you read it leaves you where you are.
+ */
+function RoomChat() {
+  const { client } = useBeluga();
+  const [open] = useState(() => groupChatOpen(client.store.getState()));
+  useEffect(() => {
+    if (!open) client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
+  }, [open, client]);
+  if (!open) return null;
+  return (
+    <CallRoom id="room">
+      <ChatView />
+    </CallRoom>
   );
 }
 
@@ -83,12 +106,7 @@ function Route() {
   if (making) return <MakingWorktree />;
   switch (view.kind) {
     case 'room':
-      // The room's chat with its call around it (BLG-716).
-      return (
-        <CallRoom id="room">
-          <ChatView />
-        </CallRoom>
-      );
+      return <RoomChat />;
     case 'assistant':
     case 'draft':
     case 'draft_worktree':

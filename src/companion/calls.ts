@@ -16,6 +16,9 @@ const done = z.unknown();
 export const AskResult = z.object({ topic: z.string() });
 export const AskPersonResult = z.object({ topic: z.string(), task: z.string() });
 export const OlderResult = z.union([z.object({ turns: z.array(TurnView), more: z.boolean() }), z.object({ messages: z.array(ChatMessageView), more: z.boolean() })]);
+/** What a chat's address is now (src/core/chat-links/resolve.ts); null for a malformed ref or with chat links off. Where it opens stays the Mac's: the phone opens /conv/<channel>. */
+export const ChatResolveResult = z.object({ title: z.string().optional(), kind: z.string(), state: z.enum(['idle', 'working', 'archived', 'removed', 'loading']), ownership: z.enum(['own', 'shared', 'unknown']) }).passthrough().nullable();
+export type ChatResolveResult = z.infer<typeof ChatResolveResult>;
 /** Open on your Mac: it came to the front, or why not. */
 export const OpenOnMacResult = z.object({ opened: z.boolean(), why: z.string().optional() });
 /** A project's small icon (PNG, or a small SVG), by checksum. */
@@ -50,6 +53,12 @@ export const PhoneCalls = {
   'threads.stop': entry('threads.stop', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
   'threads.stopAll': entry('threads.stopAll', z.object({ stopped: z.number() }).passthrough().optional()),
   'host.cancelQueued': entry('host.cancelQueued', done),
+  // 1.38: external agents: who holds a grant, what they did, and stopping them.
+  'external.agents': entry('external.agents', z.array(z.object({ id: z.string(), name: z.string(), level: z.string(), route: z.string(), lastSeen: z.number() }).passthrough())),
+  'external.revoke': entry('external.revoke', z.boolean()),
+  'external.stopAgent': entry('external.stopAgent', z.boolean()),
+  'external.stopAll': entry('external.stopAll', z.number()),
+  'external.activity': entry('external.activity', z.array(z.object({ ts: z.number(), agent: z.string(), tool: z.string(), target: z.string(), decidedBy: z.string(), kind: z.enum(['allowed', 'asked', 'refused']) }).passthrough())),
   'inbox.read': entry('inbox.read', done),
   'inbox.unread': entry('inbox.unread', done),
   'questions.answer': entry('questions.answer', done),
@@ -149,6 +158,7 @@ export const PhoneCalls = {
   // 1.14: Your Mac's chats: a new one (its id comes back), or one deleted for good.
   'assistant.newChat': entry('assistant.newChat', z.string()),
   'assistant.deleteChat': entry('assistant.deleteChat', done),
+  'chats.resolve': entry('chats.resolve', ChatResolveResult),
   'companion.openOnMac': entry('companion.openOnMac', OpenOnMacResult),
   'companion.icon': entry('companion.icon', IconResult),
   'companion.mergeCheck': entry('companion.mergeCheck', MergeCheckView),
