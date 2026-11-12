@@ -168,6 +168,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Run setup in new worktrees', 'The project’s setup command runs in each new worktree.', 'npm install setup command auto setup'],
     ['Branch prefix', 'What new worktrees’ branches start with.', 'git branch name prefix'],
     ['Keep open pull requests current', 'Your agent pushes its commits to an open pull request when its turn ends.', 'push pr pull request git agent commits'],
+    ['Open a pull request when work is ready', 'When a worktree’s task moves to In Review, your agent opens a draft pull request.', 'auto pr pull request draft create review task automatic'],
     ['Friends may start work here', 'They ask to start a worktree or hand work to you.', 'friend worktrees'],
   ]),
   group('workspaces', 'Hidden projects', 'Projects you hid from the sidebar.', 'hide show unhide project sidebar'),
@@ -236,8 +237,7 @@ export const SETTINGS: readonly Entry[] = [
   ]),
 
   // Environment
-  ...rows('environment', undefined, [['Variables for', 'Yours, or one project’s workspaces.', 'env variables scope project api keys']]),
-  ...rows('environment', 'Worktrees', [['New keys go to the main folder', 'A key a worktree adds to its .env goes to the main folder too.', '.env worktree keys']]),
+  group('environment', 'Projects', 'Each project’s own variables, beside its .env: open one from its row.', 'env variables scope project api keys .env.example worktree'),
   ...rows('environment', 'Your agent', [['Read .env files without asking', 'Your agent reads a project’s .env without a request.', 'dotenv secrets read env files']]),
   ...rows('environment', 'Database', [['Postgres for your agent’s views', 'The database your agent’s views read.', 'postgres database sql supabase database url']]),
 

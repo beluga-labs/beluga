@@ -1,3 +1,4 @@
+import type { ChatRef } from '../shared/chat-ref.js';
 import type { ChatAnswerRequest } from '../core/chat/claude-prompt.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from './setup-fixer.js';
 import type { DraftContext, TaskDraft } from './task-drafter.js';
@@ -53,10 +54,14 @@ export interface AgentRunInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Your own runs: your own MCP servers from Claude Code (agent/owner-mcp.ts); never a friend's or a guest's. */
   readonly ownerMcp?: boolean;
+  /** Claude in Chrome (agent/chrome.ts): as usual on a run you typed, asking you on any other. Unset: no Chrome (a guest's run). */
+  readonly chrome?: import('./chrome.js').ChromeAccess;
   /** Auto-compact threshold (percent) for Claude Code's own compaction; unset: auto-compact is off. */
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */
   readonly scratchDir?: string;
+  /** This chat's address, with prefs.chatLinks on: the run learns the chat chip (view-prompt.ts). */
+  readonly chatLink?: ChatRef;
   /** Where to run: a workspace folder with its own Claude conversation. Defaults to the room's folder. */
   readonly place?: AgentPlace;
   /** The conversation this run answers in: its room tools (send_chat, asks) post there. */
@@ -147,6 +152,8 @@ export interface AgentRunInput {
   readonly dashboardTools?: DashboardTools;
   /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
   readonly callNotesTools?: CallNotesTools;
+  /** Your own runs, with prefs.chatLinks on: find and read other chats (core/chat-links); never a friend's or a guest's. */
+  readonly chatTools?: ChatTools;
   /** Your own runs, when you turned agent threads on: tools to start and follow child threads (core/threads), bound to this run's chat. */
   readonly threadTools?: ThreadTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
@@ -307,6 +314,8 @@ export interface BoardTools {
     /** Only the user sees it (BLG-501). */
     readonly private?: boolean;
   }): string;
+  /** Start a task (as the app's Start): a worktree of its own, in the repo it runs in, with your agent working it. Your own runs only. */
+  start(key: string): Promise<string>;
   /** A board of its own covering a few repos (their names); its key prefix made from its name unless given. */
   createBoard(input: { readonly name: string; readonly repos: readonly string[]; readonly prefix?: string }): string;
   update(
@@ -637,4 +646,24 @@ export interface CallNotesTools {
   search(query: string, call?: string, limit?: number): string;
   /** A page of one call, from a turn (`from`) or a time into it (`at`: "12:30", or minutes). */
   read(call: string, opts?: { readonly from?: number; readonly at?: string | number; readonly limit?: number }): string;
+}
+
+/** Other chats, as a run finds and reads them (core/chat-links/transcript.ts). A refusal throws, and its message starts with the refusal code. */
+/** The chain a run is in. Beluga sets it, and no tool argument can change it (core/agent-host.ts). */
+export interface ChatChain {
+  readonly chainId: string;
+  readonly hop: number;
+}
+
+export interface ChatTools {
+  /** The chain of this run now. */
+  chain(): ChatChain;
+  /** Deliver a message to a chat. Its answer is a receipt, or it throws with a refusal code. */
+  send(ref: string, text: string, opts: { readonly mode?: 'queue' | 'steer'; readonly reply?: 'none' | 'wanted'; readonly requestId?: string }): Promise<string>;
+  /** The final answer of the run that read a message this chat sent, or its state at the timeout. */
+  wait(messageId: string, timeoutSec?: number): Promise<string>;
+  /** The chats this run may read, newest activity first. */
+  list(opts: { readonly query?: string; readonly state?: 'idle' | 'working' | 'archived'; readonly limit?: number }): string;
+  /** A page of one chat, oldest first. `after` is the `next` position of the page before. */
+  read(ref: string, opts: { readonly view?: 'messages' | 'activity'; readonly after?: string; readonly limit?: number }): string;
 }

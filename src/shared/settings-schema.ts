@@ -163,8 +163,12 @@ export const Settings = z.object({
   settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
   /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
   pushToPr: z.boolean().catch(true),
+  /** A worktree's task moving to In Review has its agent open a draft pull request there (BLG-927). */
+  prOnReview: z.boolean().catch(false),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
+  /** Chat refs, chips and links. Owner: the plan "Communication between chats"; goes once it has shipped. */
+  chatLinks: z.boolean().default(false),
   /** How much of Claude's sub-agent work the chat shows. */
   subagents: z.enum(['full', 'compact', 'hidden']).default('full'),
   /** Workspace buttons you chose to hide from the top bar. */

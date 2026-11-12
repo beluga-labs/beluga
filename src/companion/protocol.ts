@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 51 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 54 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -136,10 +136,15 @@ export const COMPANION_PROTO = { major: 1, minor: 51 } as const;
  * Runs on from its own links (BLG-810).
  * 1.50 (BLG-121, BLG-122): a message an external agent sent says so (`TurnView.via`). An older phone shows the message
  * without it. External agents from the phone: `external.agents`, `stopAgent`, `stopAll`, `revoke`, `activity` (SINCE.externalAgents).
- * 1.51 (BLG-922): usage statistics' level on the phone's Settings (`HomeView.mac.telemetry`, `telemetry.choose`). An older phone
+ * 1.51 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
+ * An older Mac has no such call: the phone shows the token as code. `ConvView.chatLinks`: the Mac has
+ * chat links on; with them off the phone shows a chat mention as its title, with no chip.
+ * 1.52 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
+ * 1.53 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
+ * 1.54 (BLG-922): usage statistics' level on the phone's Settings (`HomeView.mac.telemetry`, `telemetry.choose`). An older phone
  * shows no such row; an older Mac sends no `telemetry`.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, telemetry: 51 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -435,6 +440,11 @@ export const TurnView = z.object({
   subagents: z.array(SubAgentView).max(40).optional(),
   outputs: z.array(OutputView).max(50).optional(),
   endTs: ts.optional(),
+  /**
+   * 1.45 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
+   * title, the agent, and its words. Drawn above the turn as a card, never as your message.
+   */
+  origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), prose: ProseView }).optional(),
   /** 1.3: what it's doing now (a running turn), and its steps in words with their tools, newest last. */
   live: LiveView.optional(),
   trail: z.array(StepView).max(40).optional(),
@@ -517,7 +527,7 @@ export type ConvSummary = z.infer<typeof ConvSummary>;
 
 export const HomeView = z.object({
   // 1.13: keepAwake, whether the Mac stays awake for the phone (companion.keepAwake).
-  // 1.51: usage statistics (BLG-922): only when this Mac's build can send them; level unset until chosen.
+  // 1.54: usage statistics (BLG-922): only when this Mac's build can send them; level unset until chosen.
   mac: z.object({ name: z.string().max(100), version: z.string().max(40), keepAwake: z.enum(['off', 'power', 'always']).optional(), telemetry: z.object({ level: z.enum(['off', 'limited', 'on']).optional() }).optional() }),
   me: z.object({ name: z.string().max(64), peerId: id }),
   usage: z.array(UsageView).max(8),
@@ -666,6 +676,8 @@ export const ConvView = z.object({
   turns: z.array(TurnView).max(200),
   /** Older turns exist (companion.older). */
   more: z.boolean(),
+  /** 1.51: the Mac has chat links on: each "@Title (chat: …)" of yours is a chip. Without it, the phone shows "@Title". */
+  chatLinks: z.literal(true).optional(),
   needsYou: z.array(NeedsYou).max(20),
   /** You may write here (it's yours, or shared with you to work in). */
   canSend: z.boolean(),
@@ -676,9 +688,20 @@ export const ConvView = z.object({
   projectId: z.string().max(200).optional(),
   icon: z.string().regex(/^[0-9a-f]{16,64}$/).optional(),
   outputs: z.array(OutputView).max(100).optional(),
-  /** Your messages waiting for Claude here, in run order: Steer one (host.promote) or remove it (host.cancelQueued) by `id`. */
+  /** What waits for your agent here, in run order: your messages, and messages from your other chats (`origin`). Steer one (host.promote) or remove it (host.cancelQueued) by `id`. */
   /** `waiting`: why it hasn't started though nothing runs here (your Claude works in as many conversations as it may at once). */
-  queue: z.array(z.object({ id, text: z.string().max(300), waiting: z.string().max(300).optional() })).max(20).optional(),
+  queue: z
+    .array(
+      z.object({
+        id,
+        text: z.string().max(300),
+        waiting: z.string().max(300).optional(),
+        /** 1.46: an agent in another chat sent it, not you: its chat's ref and title, and the agent. */
+        origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64) }).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
   /** 1.3: a worktree of yours: it can be merged from the phone (companion.mergeCheck, companion.merge). */
   mergeable: z.boolean().optional(),
   /** 1.3: where its merge stands: merging, conflicts (files by name), Claude resolving them, Claude done (check again), merged, or blocked (why). */
