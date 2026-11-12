@@ -104,7 +104,7 @@ export class McpConnect {
     const session = this.open(cwds[0] ?? process.cwd(), Object.fromEntries(entries.map((e) => [e.name, e.config])));
     try {
       if (typeof session.readMcpResource !== 'function') throw new Error('This Claude Code can’t read MCP App views. Update Claude Code.');
-      await this.settle(session);
+      await this.settle(session, server);
       const item = (await session.readMcpResource(server, uri)).contents.find((c) => typeof c.text === 'string');
       if (!item?.text) throw new Error('That MCP App has no page to show.');
       return { html: item.text, ...(item._meta ? { meta: item._meta } : {}) };
@@ -140,12 +140,12 @@ export class McpConnect {
     return this.opts.ownEnv ? this.open(cwd, servers, this.envAt(cwds)) : this.open(cwd, servers);
   }
 
-  /** The statuses once none is still starting, or as they are when it took too long. */
-  private async settle(session: McpSession): Promise<McpServerStatus[]> {
+  /** The statuses once none (or `only`, when named) is still starting, or as they are when it took too long. */
+  private async settle(session: McpSession, only?: string): Promise<McpServerStatus[]> {
     const until = Date.now() + (this.opts.settleMs ?? SETTLE_MS);
     for (;;) {
       const statuses = await session.mcpServerStatus();
-      if (!statuses.some((s) => s.status === 'pending') || Date.now() >= until) return statuses;
+      if (!statuses.some((s) => s.status === 'pending' && (only === undefined || s.name === only)) || Date.now() >= until) return statuses;
       await sleep(this.opts.pollMs ?? POLL_MS);
     }
   }

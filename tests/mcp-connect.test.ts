@@ -112,3 +112,38 @@ describe('McpConnect', () => {
     expect(f.closed()).toBe(1);
   });
 });
+
+describe('McpConnect.readUiResource (MCP Apps)', () => {
+  const st = (name: string, status: McpServerStatus['status']): McpServerStatus => ({ name, status }) as McpServerStatus;
+
+  it('reads the page once its server is up, without waiting for the others, and closes the session', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'pending'), st('linear', 'pending')], [st('figma', 'connected'), st('linear', 'pending')]]);
+    const read: Array<[string, string]> = [];
+    let closed = 0;
+    const open: OpenMcpSession = (cwd, servers) => {
+      const s = f.open(cwd, servers);
+      return {
+        ...s,
+        readMcpResource: async (server: string, uri: string) => {
+          read.push([server, uri]);
+          return { contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: '<p>app</p>', _meta: { ui: { csp: { connectDomains: ['https://api.example.com'] } } } }] };
+        },
+        close: () => void closed++,
+      };
+    };
+    const mcp = new McpConnect(open, { home: dir, env: {}, settleMs: 60_000, pollMs: 1 });
+    const page = await mcp.readUiResource([dir], 'figma', 'ui://figma/app.html');
+    expect(page).toEqual({ html: '<p>app</p>', meta: { ui: { csp: { connectDomains: ['https://api.example.com'] } } } });
+    expect(read).toEqual([['figma', 'ui://figma/app.html']]);
+    expect(closed).toBe(1);
+  });
+
+  it('says so when Claude Code cannot read resources', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'connected')]]);
+    const mcp = new McpConnect(f.open, { home: dir, env: {}, pollMs: 1 });
+    await expect(mcp.readUiResource([dir], 'figma', 'ui://figma/app.html')).rejects.toThrow(/can’t read MCP App views/);
+    expect(f.closed()).toBe(1);
+  });
+});

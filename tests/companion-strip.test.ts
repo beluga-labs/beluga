@@ -72,3 +72,9 @@ describe('humanizeStep', () => {
     expect(stripCode('the error [📎 image 1 (png, 6K)](klaud-attachment:F5W6TU1pJG/checkout-error.png) on staging').text).toBe('the error 📎 image 1 (png, 6K) on staging');
   });
 });
+
+describe('an MCP App step on the phone', () => {
+  it('reads as the one line its step has, with no app in it', () => {
+    expect(stepWords('mcp__basic__get-time')).toEqual({ did: 'Used get time', doing: 'Using get time', tool: 'tool' });
+  });
+});

@@ -29,6 +29,7 @@ import { brandText } from '../lib/brand.js';
 import { messageItems } from './message-menu.js';
 import { Markdown } from './Markdown.js';
 import { AgentSteps, StepsFold, StepsToggle } from './steps/AgentSteps.js';
+import { McpApps } from './mcp-app/McpApps.js';
 import { useDisclosure } from './steps/step-memory.js';
 import { useFlightLanding } from './flight.js';
 import { type TurnPart, workingPhase } from './live-tail.js';
@@ -564,6 +565,8 @@ function TurnCard({
           <StepsFold folded={folded}>
             <AgentSteps item={item} running={running} part={part} subs={subs} />
           </StepsFold>
+          {/* MCP Apps (Settings › Experimental): a UI tool's page, kept in sight when the steps fold. */}
+          <McpApps item={item} running={running} />
           {/* What it asked other people's Claudes, before its answer (which comes last). */}
           {tasks?.map((t) => (
             <div key={t.id} className={s.turnTask}>
