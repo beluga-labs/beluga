@@ -13,6 +13,9 @@ const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sidebar' }
 const inspector = (page: Page) => page.getByRole('complementary', { name: 'Inspector' });
 const CHAT = 'Daily status';
 
+/** A picture for the proof, with the terminal masked: its prompt is the real shell's, with personal data. */
+const shoot = (page: Page, name: string) => page.screenshot({ path: path.join(shots, `chat-schedules-${name}.png`), mask: [page.locator('.xterm')] });
+
 type Demo = { readonly endpoint: { readonly url: string; readonly token: string } };
 const connect = (demo: Demo) => SocketClient.connect({ url: demo.endpoint.url, token: demo.endpoint.token, kind: 'test', version: 'e2e' });
 
@@ -50,7 +53,7 @@ test('the Info panel lists the chat’s schedule; Run Now runs it and the switch
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'true');
   // The chat's row in the sidebar has the clock mark.
   await expect(sidebar(page).locator('[data-scheduled="on"]')).toHaveCount(1);
-  await page.screenshot({ path: path.join(shots, 'chat-schedules-01-info.png') });
+  await shoot(page, '01-info');
 
   await row.getByRole('button', { name: 'Run Morning status now' }).click();
   await expect(page.getByText('Morning status is running')).toBeVisible();
@@ -59,7 +62,7 @@ test('the Info panel lists the chat’s schedule; Run Now runs it and the switch
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
   await expect(row).toContainText('Every day at 9:00 · paused');
   await expect(sidebar(page).locator('[data-scheduled="off"]')).toHaveCount(1);
-  await page.screenshot({ path: path.join(shots, 'chat-schedules-02-off.png') });
+  await shoot(page, '02-off');
 
   // A click on the row opens the sentinel's page.
   await row.getByRole('button', { name: /Morning status/ }).first().click();
@@ -76,13 +79,13 @@ test('/schedule opens the sheet; In hours makes a once schedule that starts on a
   await expect(sheet.getByRole('textbox', { name: 'Prompt' })).toHaveValue('Check the build');
   await sheet.getByRole('radio', { name: 'In hours' }).click();
   await sheet.getByRole('textbox', { name: 'In how many hours' }).fill('2');
-  await page.screenshot({ path: path.join(shots, 'chat-schedules-03-sheet.png') });
+  await shoot(page, '03-sheet');
   await sheet.getByRole('button', { name: 'Schedule', exact: true }).click();
   await expect(sheet).toBeHidden();
   const row = inspector(page).locator('[data-schedule]').filter({ hasText: 'Check the build' });
   await expect(row).toContainText(/Once, .* · next/);
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'true');
-  await page.screenshot({ path: path.join(shots, 'chat-schedules-04-made.png') });
+  await shoot(page, '04-made');
 });
 
 test('with the experiment off, the section is hidden', async ({ page, demo }) => {
