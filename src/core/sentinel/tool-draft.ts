@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ACCESS, BELUGA_EVENTS, GITHUB_EVENTS, KEEP_CHATS, NOTIFY_WHERE, SENTRY_EVENTS, STRIPE_EVENTS } from './model.js';
 import { SOURCE_KINDS } from '../../shared/view-spec.js';
-import { LimitsSchema, MetricSpecSchema, ScheduleTriggerSchema } from './schema.js';
+import { LimitsSchema, MetricSpecSchema, OnceTriggerSchema, ScheduleTriggerSchema } from './schema.js';
 import { ASSISTANT_TITLE } from '../../shared/assistant.js';
 
 /**
@@ -24,6 +24,7 @@ const stepName = z.string().max(80);
 const TOOL_TRIGGER = z
   .discriminatedUnion('kind', [
     ScheduleTriggerSchema.describe('every: minutes (with minutes: 1|5|10|15|30, on the clock: every 15 is :00, :15, :30, :45; at is not used), hours (with hours: 1|2|3|6|12), day, other-day, week (with days: 0 Sunday…6 Saturday), month (with day: 1…28); at: "HH:MM" local time. A missed slot (the Mac asleep) runs once at most (catch-up) or not at all (skip). Every few minutes with an Ask your agent step uses the user’s plan quickly: prefer 15 or 30 (never 1 without a reason), or set limits.perDay'),
+    OnceTriggerSchema.describe('One time, at "at": an ISO date and time with its offset, like "2026-11-12T14:00:00+01:00" (for "in 5 hours", add 5 hours to now). The time must be in the future. After the run, the sentinel stays and does not run again. A missed time (the Mac asleep) runs when the Mac is back (catch-up) or not at all (skip)'),
     z.object({ kind: z.literal('manual') }),
     z.object({ kind: z.literal('after'), sentinelId: z.string().min(1).max(80).describe('The other sentinel’s id (sentinel_list)'), on: z.enum(['success', 'failure', 'always']) }),
     z.object({ kind: z.literal('beluga'), what: z.enum(BELUGA_EVENTS), projectId: z.string().max(80).optional() }).describe('Something in Beluga happened'),

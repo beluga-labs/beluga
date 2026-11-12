@@ -80,7 +80,7 @@ import { defaultAgentOf } from '../../protocol.js';
 import { dashboardAskBrief, describeSentinels, sentinelAskBrief, sentinelChatBrief, sentinelMaterial, sentinelNote } from './prompt.js';
 import { RECIPES } from './recipes.js';
 import { type ActiveRun, OUTPUT_KEPT, type SentinelChat, type SentinelClaude, type SentinelFriends, type SentinelGitHub, type SentinelPlaces, type SentinelShell, type SourceFetch, SentinelRunner, type YourAnswer, mergePinned, runSentinelShell } from './runner.js';
-import { MetricUnitSchema, StepInputSchema } from './schema.js';
+import { MetricUnitSchema, StepInputSchema, pastOnce } from './schema.js';
 import type { ToolDraft, ToolPatch, ToolStep } from './tool-draft.js';
 import { Triggers, isEventTrigger } from './triggers/index.js';
 import type { TriggerDeps, TriggerEvent } from './triggers/types.js';
@@ -396,6 +396,8 @@ export class Sentinels {
   create(draft: SentinelDraft): Sentinel {
     if (this.items.length >= MAX_SENTINELS) throw new Error(`Up to ${MAX_SENTINELS} sentinels: delete one you don’t need first`);
     const at = this.now();
+    const past = pastOnce(draft.trigger, at);
+    if (past) throw new Error(past);
     const access = draft.access ?? 'look';
     const projectId = this.projectIdOf(draft.projectId ?? undefined);
     const steps = this.stepsOf(draft.steps ?? [], access);
@@ -430,6 +432,8 @@ export class Sentinels {
     const projectId = patch.projectId === null ? undefined : patch.projectId !== undefined ? this.projectIdOf(patch.projectId) : was.projectId;
     const { projectId: _p, ...rest } = was;
     const triggerChanged = patch.trigger !== undefined && JSON.stringify(patch.trigger) !== JSON.stringify(was.trigger);
+    const past = triggerChanged ? pastOnce(patch.trigger, this.now()) : undefined;
+    if (past) throw new Error(past);
     const next: Sentinel = {
       ...rest,
       ...(patch.name !== undefined ? { name: oneLine(patch.name, 80) || was.name } : {}),
@@ -777,7 +781,7 @@ export class Sentinels {
     this.lastTick = now;
     this.expireWaiting();
     for (const s of this.items) {
-      if (s.paused || s.trigger.kind !== 'schedule') continue;
+      if (s.paused || (s.trigger.kind !== 'schedule' && s.trigger.kind !== 'once')) continue;
       const due = dueNow(s.trigger, s.lastScheduledAt, now, this.deps.tz ? { tz: this.deps.tz } : {});
       if (due.kind === 'wait') {
         // The clock jumped: what the window says comes next is worked out again.
@@ -1320,7 +1324,7 @@ export class Sentinels {
   }
 
   private nextAtOf(s: Sentinel): number | undefined {
-    if (s.paused || s.trigger.kind !== 'schedule') return undefined;
+    if (s.paused || (s.trigger.kind !== 'schedule' && s.trigger.kind !== 'once')) return undefined;
     return nextRunAt(s.trigger, s.lastScheduledAt, this.now(), this.deps.tz);
   }
 

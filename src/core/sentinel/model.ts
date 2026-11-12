@@ -15,7 +15,7 @@ import { chatMentionsAsTitles } from '../../shared/chat-ref.js';
 
 // ---------------------------------------------------------------- triggers
 
-export const TRIGGER_KINDS = ['schedule', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
+export const TRIGGER_KINDS = ['schedule', 'once', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const SCHEDULE_EVERY = ['minutes', 'hours', 'day', 'other-day', 'week', 'month'] as const;
@@ -41,6 +41,15 @@ export interface ScheduleTrigger {
   /** For `month`: 1…28. */
   readonly day?: number;
   /** A slot that passed while the Mac slept or Beluga was closed: run once when it's back, or skip it. */
+  readonly missed: 'catch-up' | 'skip';
+}
+
+/** One time, at a moment ('in 5 hours'). After it ran it has no next time: the sentinel stays. */
+export interface OnceTrigger {
+  readonly kind: 'once';
+  /** The moment, as an ISO date and time with its offset ("2026-11-12T14:00:00+01:00"). */
+  readonly at: string;
+  /** The moment passed while the Mac slept or Beluga was closed: run when it's back, or skip it. */
   readonly missed: 'catch-up' | 'skip';
 }
 
@@ -103,7 +112,7 @@ export interface WebhookTrigger {
   readonly signature?: 'github' | 'stripe';
 }
 
-export type Trigger = ScheduleTrigger | ManualTrigger | AfterTrigger | BelugaTrigger | GitHubTrigger | StripeTrigger | UptimeTrigger | SentryTrigger | WebhookTrigger;
+export type Trigger = ScheduleTrigger | OnceTrigger | ManualTrigger | AfterTrigger | BelugaTrigger | GitHubTrigger | StripeTrigger | UptimeTrigger | SentryTrigger | WebhookTrigger;
 
 // ---------------------------------------------------------------- steps
 
@@ -909,6 +918,7 @@ export const sentinelLabel = (s: Pick<Sentinel, 'name'>): string => `sentinel:${
 
 export const TRIGGER_INFO: Readonly<Record<TriggerKind, { readonly label: string; readonly phase: 1 | 2 | 3 }>> = {
   schedule: { label: 'On a schedule', phase: 1 },
+  once: { label: 'One time', phase: 1 },
   manual: { label: 'Only when you press Run', phase: 1 },
   after: { label: 'After another sentinel', phase: 2 },
   beluga: { label: 'When something happens in Beluga', phase: 3 },
@@ -994,6 +1004,7 @@ const stepTargets = (st: Step): string[] =>
 const triggerTarget = (t: Trigger): string => {
   switch (t.kind) {
     case 'schedule':
+    case 'once':
     case 'manual':
       return t.kind;
     case 'after':
@@ -1107,6 +1118,15 @@ export const RUN_STATE_INFO: Readonly<Record<RunState, { readonly label: string;
 
 export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/** A one-time trigger's moment, in the Mac's local time: "Once, Thu 12 Nov 14:00". */
+function onceSentence(at: string): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return 'Once';
+  return `Once, ${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 /** "07:00" → "7:00". */
 export function clockText(at: string): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec(at);
@@ -1172,6 +1192,8 @@ export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => strin
       }
       return at;
     }
+    case 'once':
+      return onceSentence(trigger.at);
     case 'manual':
       return 'Only when you press Run';
     case 'after': {

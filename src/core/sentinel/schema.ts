@@ -25,8 +25,22 @@ export const ScheduleTriggerSchema = z.object({
   missed: z.enum(['catch-up', 'skip']).default('catch-up'),
 });
 
+/** One time, at a moment: an ISO date and time with its offset. A moment in the past is refused where it's set (futureOnce). */
+export const OnceTriggerSchema = z.object({
+  kind: z.literal('once'),
+  at: z.iso.datetime({ offset: true }),
+  missed: z.enum(['catch-up', 'skip']).default('catch-up'),
+});
+
+/** A one-time trigger set to a moment that has passed: the words why, else undefined. */
+export function pastOnce(trigger: { readonly kind: string; readonly at?: string } | undefined, now: number): string | undefined {
+  if (trigger?.kind !== 'once' || !trigger.at) return undefined;
+  return Date.parse(trigger.at) <= now ? `That moment has passed (${trigger.at}): pick a time to come` : undefined;
+}
+
 export const TriggerSchema = z.discriminatedUnion('kind', [
   ScheduleTriggerSchema,
+  OnceTriggerSchema,
   z.object({ kind: z.literal('manual') }),
   // Its sentinel may be picked later (empty: a run says to pick one).
   z.object({ kind: z.literal('after'), sentinelId: z.string().max(80), on: z.enum(['success', 'failure', 'always']).default('failure') }),
