@@ -15,15 +15,15 @@ export interface PlanOwner {
   readonly issue: Issue;
 }
 
-/** Plans that show in the sidebar as one row: being written, or running. */
-export const isLivePlan = (plan: Plan): boolean => plan.status !== 'done';
+/** Plans that show in the sidebar as one row: being written, or running (never a closed one). */
+export const isLivePlan = (plan: Plan): boolean => plan.status !== 'done' && !plan.closedAt;
 
 /** Every worktree that belongs to a running plan (workspace id → its plan's id). */
 export function planWorktrees(plans: PlansState, board: BoardState): ReadonlyMap<string, string> {
   const out = new Map<string, string>();
   const issues = new Map(board.issues.map((i) => [i.id, i]));
   for (const plan of plans.plans) {
-    if (plan.status !== 'active') continue;
+    if (plan.status !== 'active' || plan.closedAt) continue;
     for (const { task } of allTasks(plan.body)) {
       const issue = task.issueId ? issues.get(task.issueId) : undefined;
       if (!issue || issue.status === 'canceled') continue;
@@ -36,7 +36,7 @@ export function planWorktrees(plans: PlansState, board: BoardState): ReadonlyMap
 /** The running plan a worktree does a task of, if any. */
 export function planOwnerOf(plans: PlansState, board: BoardState, workspaceId: string): PlanOwner | undefined {
   for (const plan of plans.plans) {
-    if (plan.status !== 'active') continue;
+    if (plan.status !== 'active' || plan.closedAt) continue;
     for (const { task, milestone } of allTasks(plan.body)) {
       const issue = task.issueId ? board.issues.find((i) => i.id === task.issueId) : undefined;
       if (issue && issue.status !== 'canceled' && issue.worktrees.includes(workspaceId)) return { plan, task, milestone, issue };

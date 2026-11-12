@@ -11,7 +11,7 @@ import type { CcAgent } from '../core/claude-code/model.js';
 import type { PendingQuestion } from '../core/collab-store.js';
 import { type TaskView as GwTask, isFinal, requestGist, stateLabel, stateTone, targetLabel } from '../core/gateway/model.js';
 import { parseDecisionQid } from '../core/plans/decisions.js';
-import { type Plan, planForHome, planTitle } from '../core/plans/model.js';
+import { type Plan, planForHome, planTitle, plansOfHome } from '../core/plans/model.js';
 import { planOwnerOf } from '../core/plans/owner.js';
 import { branchState } from '../core/branch-state.js';
 import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
@@ -763,7 +763,8 @@ function waitingOf(state: DomainState, channel: string): { waiting?: string } {
 
 function planBand(state: DomainState, plan: Plan, topic: Topic): NonNullable<ConvView['plan']> {
   const progress = progressOf(state, plan);
-  return { topic, title: clip(planTitle(plan), 300), state: planState(plan, progress), done: progress.done, total: progress.total, milestones: progress.milestones.length };
+  const earlier = plansOfHome(state.plans, plan.home).length - 1;
+  return { topic, title: clip(planTitle(plan), 300), state: planState(plan, progress), done: progress.done, total: progress.total, milestones: progress.milestones.length, ...(earlier > 0 ? { earlier } : {}) };
 }
 
 const base = (p: string): string => p.split(/[\\/]/).at(-1) ?? p;

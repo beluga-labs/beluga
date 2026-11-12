@@ -228,7 +228,7 @@ export interface PlanShipped {
  * `gate`: Claude was asked to check a milestone, `checked`: its check passed (`failed`: it didn't);
  * `merged`: a milestone's work went into the plan's branch; `autonomy`: the run mode changed.
  */
-export type PlanEventKind = 'created' | 'drafted' | 'approved' | 'changed' | 'started' | 'finished' | 'gate' | 'checked' | 'merged' | 'passed' | 'failed' | 'autonomy' | 'paused' | 'resumed' | 'done' | 'note' | 'problem';
+export type PlanEventKind = 'created' | 'drafted' | 'approved' | 'changed' | 'started' | 'finished' | 'gate' | 'checked' | 'merged' | 'passed' | 'failed' | 'autonomy' | 'paused' | 'resumed' | 'done' | 'closed' | 'note' | 'problem';
 
 export interface PlanEvent {
   readonly id: string;
@@ -285,6 +285,9 @@ export interface Plan {
   readonly updatedAt: number;
   readonly approvedAt?: number;
   readonly doneAt?: number;
+  /** Closed in its chat (`plan_close`, or Close on a screen): kept, read-only, never run again. Its chat can open a new one. */
+  readonly closedAt?: number;
+  readonly closedBy?: Actor;
 }
 
 /**
@@ -368,8 +371,11 @@ export function reducePlans(state: PlansSlice, action: PlansAction): PlansSlice 
 
 export const planById = (state: PlansState, id: string): Plan | undefined => state.plans.find((p) => p.id === id);
 
-/** The plan a conversation is the home of (the newest, when several were). */
-export const planForHome = (state: PlansState, channel: string): Plan | undefined => [...state.plans].reverse().find((p) => p.home === channel);
+/** The plan a conversation is the home of now (the newest that isn't closed). */
+export const planForHome = (state: PlansState, channel: string): Plan | undefined => [...state.plans].reverse().find((p) => p.home === channel && !p.closedAt);
+
+/** Every plan a conversation was the home of, closed ones too: newest first. */
+export const plansOfHome = (state: PlansState, channel: string): readonly Plan[] => state.plans.filter((p) => p.home === channel).reverse().sort((a, b) => b.createdAt - a.createdAt);
 
 /** The plan a board task stands for as an epic: the plan's own, or one of its milestones' (see epics.ts). */
 export function planEpicOf(state: PlansState, issueId: string): { readonly plan: Plan; readonly milestone?: PlanMilestone } | undefined {
