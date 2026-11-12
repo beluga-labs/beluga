@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 50 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 51 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -136,8 +136,10 @@ export const COMPANION_PROTO = { major: 1, minor: 50 } as const;
  * Runs on from its own links (BLG-810).
  * 1.50 (BLG-121, BLG-122): a message an external agent sent says so (`TurnView.via`). An older phone shows the message
  * without it. External agents from the phone: `external.agents`, `stopAgent`, `stopAll`, `revoke`, `activity` (SINCE.externalAgents).
+ * 1.51 (BLG-922): usage statistics' level on the phone's Settings (`HomeView.mac.telemetry`, `telemetry.choose`). An older phone
+ * shows no such row; an older Mac sends no `telemetry`.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, telemetry: 51 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -515,7 +517,8 @@ export type ConvSummary = z.infer<typeof ConvSummary>;
 
 export const HomeView = z.object({
   // 1.13: keepAwake, whether the Mac stays awake for the phone (companion.keepAwake).
-  mac: z.object({ name: z.string().max(100), version: z.string().max(40), keepAwake: z.enum(['off', 'power', 'always']).optional() }),
+  // 1.51: usage statistics (BLG-922): only when this Mac's build can send them; level unset until chosen.
+  mac: z.object({ name: z.string().max(100), version: z.string().max(40), keepAwake: z.enum(['off', 'power', 'always']).optional(), telemetry: z.object({ level: z.enum(['off', 'limited', 'on']).optional() }).optional() }),
   me: z.object({ name: z.string().max(64), peerId: id }),
   usage: z.array(UsageView).max(8),
   needsYou: z.array(NeedsYou).max(50),

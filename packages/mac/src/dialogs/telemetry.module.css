@@ -1,0 +1,95 @@
+/* Usage statistics (TelemetrySheets.tsx): the ask after an update, and What's sent. Neutral, one accent. */
+.head {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 26px 0 0;
+}
+.mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
+}
+.close,
+.closeInline {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  color: var(--text-2);
+  background: var(--bg-hover);
+  transition: color var(--dur-fast);
+}
+.close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.close:hover,
+.closeInline:hover {
+  color: var(--text);
+}
+.small {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.previewOverlay {
+  composes: overlay from './sheet.module.css';
+  /* Over Settings too (it opens from Settings › General): the layer Settings' own sheets use. */
+  z-index: 86;
+}
+.previewSheet[data-support] {
+  z-index: 87;
+  width: min(720px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 20px;
+  overflow: hidden;
+}
+.previewHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.previewTitle {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+.previewLevel {
+  flex: 1;
+  color: var(--text-3);
+  font-size: 0.84rem;
+}
+.previewLead {
+  margin: 8px 0 12px;
+  color: var(--text-2);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+.json {
+  flex: 1;
+  min-height: 200px;
+  max-height: 62vh;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--bg-sunken, var(--bg-hover));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre;
+}

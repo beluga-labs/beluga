@@ -13,6 +13,7 @@ import type { AgentBackend, RoomBridge } from '../agent/types.js';
 import type { AgentRuntime, RuntimeCapabilities, RuntimeId, RuntimeOptions } from '../agent/runtime/types.js';
 import { guardedBackend } from '../agent/runtime/guard.js';
 import { type SideRoute, routeSideCall, routedBackend } from '../agent/runtime/router.js';
+import { observeRuntime } from '../telemetry/hook.js';
 import { sideCalls } from '../agent/side-calls.js';
 import type { ChatAnswerRequest } from './chat/claude-prompt.js';
 import { localRuntime } from '../agent/runtime/local.js';
@@ -286,7 +287,7 @@ export class Session {
     const options = { cwd: this.opts.agentCwd, autoEdit: true, additionalDirectories: [], bridge: this.bridge, ownEnv: this.ownEnv };
     return routedBackend(agent, 'claude', (id) => {
       const rt = also.find((r) => r.id === id);
-      return rt ? guardedBackend(rt.create(options), rt.capabilities) : undefined;
+      return rt ? observeRuntime(guardedBackend(rt.create(options), rt.capabilities), rt.id) : undefined;
     });
   }
 
@@ -298,7 +299,8 @@ export class Session {
 
   /** Your default agent's backend, sending each turn whose place picked another runtime to that one's (agent/runtime/router.ts). */
   private routed(main: AgentRuntime, rt: NonNullable<SessionOptions['runtime']>): AgentBackend {
-    const make = (r: AgentRuntime): AgentBackend => guardedBackend(r.create({ ...rt.options, bridge: this.bridge, ownEnv: this.ownEnv }), r.capabilities);
+    // Each runtime's turns also reach usage statistics, when you chose to send them (src/telemetry/hook.ts).
+    const make = (r: AgentRuntime): AgentBackend => observeRuntime(guardedBackend(r.create({ ...rt.options, bridge: this.bridge, ownEnv: this.ownEnv }), r.capabilities), r.id);
     // Every other runtime that has plan usage reports it too (Codex's windows on the usage tab).
     const withUsage = KNOWN_RUNTIMES.map((r) => r.id).filter((id) => id !== main.id && rt.runtimes(id)?.capabilities.hasUsage);
     return routedBackend(
@@ -328,7 +330,7 @@ export class Session {
     // A local endpoint is Claude Code pointed elsewhere (BLG-449), as in routed(): it runs wherever Claude does.
     const rt = runtime === LOCAL_RUNTIME ? (this.opts.runtime?.runtimes('claude') ? localRuntime((v) => this.local.resolve(v)) : undefined) : this.opts.runtime?.runtimes(runtime);
     if (!rt || !this.opts.runtime) return undefined;
-    const backend = guardedBackend(rt.create({ ...this.opts.runtime.options, bridge: this.bridge, ownEnv: this.ownEnv }), rt.capabilities);
+    const backend = observeRuntime(guardedBackend(rt.create({ ...this.opts.runtime.options, bridge: this.bridge, ownEnv: this.ownEnv }), rt.capabilities), rt.id);
     this.otherBackends.set(runtime, backend);
     return backend;
   }
