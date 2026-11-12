@@ -129,7 +129,14 @@ export function confirmMenu(state: AppState, action: 'archive' | 'delete', id: s
         ),
       ]
     : [];
-  const envOption = env.length ? [{ id: `confirm-${action}-env`, label: `Copy env changes to the main folder, then ${action}`, hint: 'keeps your new keys' }] : [];
+  const removedKeys = env.flatMap((c) => c.removed);
+  const envOption = env.length
+    ? [
+        { id: `confirm-${action}-env`, label: `Copy env changes to the main folder, then ${action}`, hint: 'keeps your new keys' },
+        // Removed keys go from the main folder's file too, only when chosen.
+        ...(removedKeys.length ? [{ id: `confirm-${action}-env-all`, label: `Copy env changes and removals to the main folder, then ${action}`, hint: `also removes ${removedKeys.join(', ')}` }] : []),
+      ]
+    : [];
   if (action === 'archive') {
     return {
       title: `Archive ${ws.name}?`,
