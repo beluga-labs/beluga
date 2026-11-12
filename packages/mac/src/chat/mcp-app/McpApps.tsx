@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import type { LogItem } from '@beluga/core/store.js';
+import { mayHaveApps } from '@beluga/shared/mcp-apps.js';
 import { useApp } from '../../lib/beluga.js';
 import { useAgentSteps } from '../steps/use-steps.js';
 import { AppFrame } from './AppFrame.js';
@@ -13,7 +14,8 @@ type AgentItem = Extract<LogItem, { type: 'agent' }>;
  */
 export function McpApps({ item, running }: { item: AgentItem; running: boolean }) {
   const mine = useApp((st) => st.selfId === item.owner);
-  if (!mine) return null;
+  // A card with no MCP step reads nothing more: its steps are polled once already (AgentSteps).
+  if (!mine || !mayHaveApps(item.steps)) return null;
   return <AppList item={item} running={running} />;
 }
 

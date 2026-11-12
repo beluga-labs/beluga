@@ -1,3 +1,4 @@
+import { mayHaveApps } from '../src/shared/mcp-apps.js';
 import { describe, expect, it } from 'vitest';
 import { appCsp } from '../src/mcp-apps/domain/csp.js';
 import { boundStructured, STRUCTURED_MAX } from '../src/mcp-apps/domain/result.js';
@@ -105,5 +106,13 @@ describe('boundStructured', () => {
     expect(boundStructured(undefined)).toBeUndefined();
     expect(boundStructured({ content: 'x' })).toBeUndefined();
     expect(boundStructured({ structuredContent: { big: 'x'.repeat(STRUCTURED_MAX) } })).toBeUndefined();
+  });
+});
+
+describe('mayHaveApps', () => {
+  it('is true only for a card that called an MCP tool, so other cards never read their steps for apps', () => {
+    expect(mayHaveApps(['Read', 'mcp__clock__show_clock'])).toBe(true);
+    expect(mayHaveApps(['Read', 'Bash'])).toBe(false);
+    expect(mayHaveApps([])).toBe(false);
   });
 });

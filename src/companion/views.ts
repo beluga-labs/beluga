@@ -84,6 +84,7 @@ import { ASSISTANT_CHANNEL, ASSISTANT_TITLE, activeAssistantChannel, assistantCh
 import { STEERED_IN, TAKEN_BACK, type SteeredMessage, asSent, steeredMessages, steerWaiting } from '../shared/claude-notices.js';
 import { slotWaitDetail } from '../shared/run-slots.js';
 import type { DocKey } from './files.js';
+import { mayHaveApps } from '../shared/mcp-apps.js';
 
 /** Words for a turn: code taken out (strip.ts), math typeset (math-svg.ts). */
 const proseOf = (markdown: string) => withMath(stripCode(markdown));
@@ -498,7 +499,7 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
   const mineOut = outputs.filter((o) => o.ts !== undefined && o.ts >= item.ts && o.ts <= end && !(o.by && theirs.has(o.by)));
   const agents = [...subs.map((s) => subView(s, outputs, cc.get(s.id))), ...extra.map((a) => ccSubView(a, outputs.filter((o) => o.by === (a.toolUseId ?? a.id))))].slice(-40);
   // Only a card with an MCP step can have an app: the others never ask.
-  const apps = appSteps && item.steps.some((x) => x.startsWith('mcp__')) ? appSteps(item.channel, item.id) : undefined;
+  const apps = appSteps && mayHaveApps(item.steps) ? appSteps(item.channel, item.id) : undefined;
   const trail = trailOf(item.steps, 40, apps);
   return {
     id: item.id,

@@ -58,3 +58,8 @@ export interface AppStepRef {
 export type AppActResult<T> =
   | { readonly ok: true; readonly result: T }
   | { readonly ok: false; readonly reason: 'missing' | 'refused' | 'declined' | 'failed'; readonly message: string };
+
+/** Only a card that called an MCP tool (`mcp__…`) can have an app: the others never read their steps for one. */
+export function mayHaveApps(steps: readonly string[]): boolean {
+  return steps.some((x) => x.startsWith('mcp__'));
+}
