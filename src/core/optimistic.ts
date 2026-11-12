@@ -38,6 +38,9 @@ export function withAhead(projects: readonly Project[], ahead: Ahead): Project[]
         if (going === 'delete') return [];
         return going === 'archive' && !w.archived ? [{ ...w, archived: true }] : [w];
       });
-      return { ...p, workspaces: [...workspaces, ...made] };
+      // Where the real one will be (the newest worktree, right after the main checkout), so its row doesn't jump once it's made.
+      const at = workspaces.findIndex((w) => w.archived || w.kind !== 'main');
+      const cut = at < 0 ? workspaces.length : at;
+      return { ...p, workspaces: [...workspaces.slice(0, cut), ...made, ...workspaces.slice(cut)] };
     });
 }
