@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
 import { EmojiSchema } from '../shared/reactions.js';
-import { BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { ARCHIVE_SETTLED_DAYS_MAX, BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
@@ -14,6 +14,7 @@ import { STRIPE_API } from './stripe-api.js';
 import { REVENUECAT_API } from './revenuecat-api.js';
 import { TRIAGE_API } from './triage-api.js';
 import { SUPPORT_API } from './support-api.js';
+import { TELEMETRY_API } from './telemetry-api.js';
 import { STATS_API } from './stats-api.js';
 import { WEB_API } from './web-api.js';
 import { DIAGNOSTICS_API } from './diagnostics-api.js';
@@ -43,6 +44,7 @@ import { CALLS_API } from './calls-api.js';
 import { TERMINAL_IMPORT_API } from './terminal-import-api.js';
 import { AGENT_TERM_API } from './agent-term-api.js';
 import { HANDOFF_MODES } from '../shared/agent-handoff.js';
+import { FETCH_EVERY_MAX, FETCH_EVERY_MIN } from '../shared/background-fetch.js';
 
 /**
  * Everything a client can ask Beluga to do, in one list. The daemon validates every call
@@ -115,7 +117,10 @@ export const PrefsPatch = z
     chatCategories: bool,
     settleOnMerge: bool,
     settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
+    archiveSettledDays: z.number().int().min(0).max(ARCHIVE_SETTLED_DAYS_MAX),
     pushToPr: bool,
+    // Minutes between background fetches; 0: never on its own (#479).
+    fetchEvery: z.union([z.literal(0), z.number().int().min(FETCH_EVERY_MIN).max(FETCH_EVERY_MAX)]),
     prOnReview: bool,
     scratchFolder: bool,
     chatLinks: bool,
@@ -335,7 +340,7 @@ export const API = {
   'workspaces.commit': args(id, opt(z.string().max(2000))),
   'workspaces.merge': args(id),
   'workspaces.prepareRemoval': args(id),
-  'workspaces.applyEnvBack': args(id),
+  'workspaces.applyEnvBack': args(id, opt(bool)),
   // A worktree's env changes stay there: not asked about again until they change (BLG-369).
   'workspaces.keepEnvHere': args(id),
   // Save a worktree's env changes as the project's own variables in Beluga (every worktree gets them; the main .env is left alone).
@@ -460,6 +465,17 @@ export const API = {
   'env.importDotenv': args(id),
   // Keys a worktree adds go into the project's main .env on their own (on by default).
   'env.newKeysBack': args(id, bool),
+  // A worktree's own variables, over its project's (BLG-924) → them, with what it gets from below and its .env.example.
+  'env.worktree': args(id),
+  'env.setWorktree': args(id, EnvRows),
+  // Before a worktree goes: its own variables into the project's (same name: the worktree's wins) → how many.
+  'env.carryWorktree': args(id),
+  // A project's environment in names and counts (its page, the phone): never a value.
+  'env.overview': args(id),
+  // List in the main folder's .env.example what's set and it doesn't list (placeholders, never values) → the names added.
+  'env.addToExample': args(id),
+  // Keys a worktree adds to or removes from its .env reach its .env.example (on by default, BLG-925).
+  'env.exampleSync': args(id, bool),
   // Local and bring-your-own endpoints (BLG-449): → each with its URL and models, never its key (hasKey).
   'env.endpoints': args(),
   // Add (no id) or change one; key unset keeps it, '' removes it → its id.
@@ -523,6 +539,8 @@ export const API = {
   ...REVENUECAT_API,
   // ---- supporting Beluga: the star and coffee asks merges bring (support-api.ts)
   ...SUPPORT_API,
+  // ---- usage statistics: your level (Off, Limited, On), the ask after an update, what's sent (telemetry-api.ts)
+  ...TELEMETRY_API,
   // ---- your stats in the Usage tab: counted by the daemon, pastes and dictation from the Mac (stats-api.ts)
   ...STATS_API,
   // ---- problem reports: the daemon's black box in one redacted file (diagnostics-api.ts)

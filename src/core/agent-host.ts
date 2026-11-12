@@ -5,7 +5,10 @@ import path from 'node:path';
 import type { AgentBackend, AgentPlace, AgentRunInput, BoardTools, FollowUp, LiveStatus, MacTools, RunProcess, Steer, TerminalLaunch, TerminalSink } from '../agent/types.js';
 import { ALWAYS_ASK_YOU, writesCode } from '../agent/policy.js';
 import { withAppContext } from '../mcp-apps/domain/app-requests.js';
+import { type ChromeAccess, chromeCard, chromeOffByFlags } from '../agent/chrome.js';
+import { outsideYourHand } from './by-hand.js';
 import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, MAX_TEXT, type MessageVia } from '../protocol.js';
+import { mcpSignInTools } from './mcp-sign-in.js';
 import type { People } from './people.js';
 import type { QuestionBroker } from './questions.js';
 import type { ShareService } from './shares.js';
@@ -104,9 +107,11 @@ export interface AgentHostDeps {
   readonly assistant?: (channel: string, from: string) => { readonly place: AgentPlace; readonly tools: MacTools; readonly brief: string } | undefined;
   /** Your own agent asked in a friend's worktree (your "@claude" there): where it runs here, and what it's told about theirs. */
   readonly guestRun?: (channel: string, from: string) => { readonly place: AgentPlace; readonly brief: string } | undefined;
-  /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
+  /** Open a web page on your screen: an MCP sign-in your own run starts (core/mcp-sign-in.ts). */
+  readonly openPage?: (url: string) => Promise<void>;
   /** The notes of calls you were in (core/calls, BLG-715), as tools for your own runs. */
   readonly callNotes?: () => import('../agent/types.js').CallNotesTools | undefined;
+  /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
   readonly phone?: (scratchDir?: string) => { readonly tools: import('../agent/types.js').PhoneTools; readonly brief: string; readonly env?: Record<string, string> } | undefined;
   /** How freely Claude may use the phone now (off · ask · use · full), for the owner-approval gate. */
   /** Your own worktree runs: the project's setup, and Claude's tool to correct it (core/workbench). */
@@ -279,6 +284,13 @@ function withoutAskOnly<T extends { readonly askOnly?: unknown }>(place: T): T {
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** Who a Chrome card says wants your Chrome (agent/chrome.ts). */
+function chromeAsker(own: boolean, external: string | undefined, requesterName: string, sentinelRun: boolean | undefined): string {
+  if (external) return `${external}, your external agent,`;
+  if (sentinelRun) return 'Your agent (in a Sentinel run)';
+  return own ? 'Your agent' : `Your agent (working for ${requesterName})`;
+}
+
 /**
  * Your Claude serving requests (yours and other people's): who may use it, the queue, the
  * approvals you're asked for, running it in the right place with the right model, and
@@ -292,6 +304,8 @@ export class AgentHost {
   currentChannel = 'room';
   private readonly approvals = new Map<string, (answer: ApprovalAnswer) => void>();
   private readonly alwaysTools = new Set<string>();
+  /** Requests you sent from a screen yourself (core/by-hand.ts): their runs use Claude in Chrome as usual. */
+  private readonly yourRequests = new Set<string>();
   /** "person:project" pairs you said Always to (this session). */
   private readonly alwaysProjects = new Set<string>();
   /**
@@ -1542,6 +1556,9 @@ export class AgentHost {
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
+      // Your MCP servers: runs you asked for sign in to one from the chat (never a friend's, a guest's or an external agent's); its page opens on your screen.
+      const openPage = this.deps.openPage;
+      const mcpTools = from === this.selfId && !external && openPage && agent.mcpSignIn ? mcpSignInTools(agent, { roots: () => this.store.getState().projects.map((p) => p.root), openPage }) : undefined;
       // Other chats (core/chat-links): only runs you asked for find and read them, never a friend's, a guest's or an external agent's.
       const chats = this.links.toolsFor({ from, external: Boolean(external), channel: body.channel, chain: () => chain, signal: controller.signal });
       // Live previews (Settings › Experimental): your own runs in a project's folder learn to show what they build.
@@ -1560,7 +1577,9 @@ export class AgentHost {
       const noBoard = place?.syncMain || (place?.askOnly && plans?.checker && !sentinel?.inRun);
       // A friend's run gets its repo's board too, as their trust allows (BLG-701; see boardAccess).
       const friendBoard = from === this.selfId ? undefined : this.boardAccess(from);
-      const board = noBoard || (from !== this.selfId && !friendBoard) ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst && from === this.selfId, ...(friendBoard ? { friend: { id: from, name: requesterName } } : {}) });
+      const runBoard = noBoard || (from !== this.selfId && !friendBoard) ? undefined : this.deps.board?.(body.channel, from, { plan: planFirst && from === this.selfId, ...(friendBoard ? { friend: { id: from, name: requesterName } } : {}) });
+      // A sentinel run makes tasks but never starts one: it acts on what it watched, with nobody there.
+      const board = runBoard?.tools && sentinel?.inRun ? { ...runBoard, tools: { ...runBoard.tools, start: () => Promise.reject(new Error('A sentinel run doesn’t start tasks: it leaves them in Ready for the user to Start')) } } : runBoard;
       // Child threads: your own runs in your own chats, with the flag on. A dialogue's turn comes through runDialogueTurn and never gets them.
       // Not an external agent's run: a thread would run as you, without its grant, label or Stop.
       const threads = from === this.selfId && !external && this.store.getState().prefs.agentThreads && !root && !place?.syncMain && !sentinelChat && !sentinel?.inRun ? this.deps.threads?.(body.channel) : undefined;
@@ -1598,7 +1617,7 @@ export class AgentHost {
       // The plan's head Claude orchestrates: it may change things where it runs (your approvals and
       // Beluga's secrets rules still apply), not only read like other main-folder chats.
       const runPlace = plans?.tools && place?.askOnly && !place.syncMain ? withoutAskOnly(place) : place;
-      const final = await Promise.race([gone, exited, agent.run({
+      const final = await Promise.race([gone, exited, outsideYourHand(() => agent.run({
         ...(scratch ? { scratchDir: scratch } : {}),
         ...this.links.linkOf(body.channel),
         ...(board?.tools ? { board: board.tools } : {}),
@@ -1611,12 +1630,14 @@ export class AgentHost {
         ...(guest ? { sharedBrief: guest.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
+        ...(mcpTools ? { mcpTools } : {}),
         ...(chats ? { chatTools: chats } : {}),
         ...(previewBrief ? { previewBrief } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         // What MCP Apps here said for the model: your own runs only, wrapped as data (apps are third-party).
         prompt: withAppContext(this.promptOf(body, from, lane.sent), from === this.selfId ? (this.deps.appContext?.(body.channel) ?? []) : []),
         ...this.promptIdOf(body),
+        ...this.ownWordsOf(from, body),
         requesterName: this.askerOf(body, from),
         viaAgent: body.viaAgent,
         context: this.recentChat(body.channel),
@@ -1669,13 +1690,15 @@ export class AgentHost {
         ...this.modelFor(place?.model, place?.agent ?? named, place?.effort),
         // Your MCP servers (your logins: Figma, Linear…) are for runs you asked for, never a friend's.
         ...(yours ? { ownerMcp: true } : {}),
+        // Claude in Chrome: as usual on what you sent yourself, asking you on anything else (a Sentinel run included).
+        ...this.chromeFor({ requestId: body.requestId, from, ...(external ? { external } : {}), guest: from !== this.selfId && Boolean(this.deps.isGuest?.(from)), automatic: Boolean(sentinel?.inRun), channel: body.channel, who: chromeAsker(from === this.selfId, external ? requesterName : undefined, requesterName, sentinel?.inRun) }),
         // Your own flags for `claude` and `codex` (Settings › Agents), never on a friend's run or an agent's below full.
         ...(yours ? this.launchArgs() : {}),
         // Your variables can hold secrets: only runs you asked for get them, never a friend's.
         // Your own runs also get adb on PATH (and ANDROID_SERIAL) when a phone is set up, so Bash can drive it (BLG-174).
         ...(yours && (this.deps.envFor || phone?.env) ? { env: { ...this.deps.envFor?.(body.channel, place?.cwd), ...(phone?.env ?? {}), ...tag } } : worktree || remote ? { env: tag } : {}),
         ...this.compactor.threshold(),
-      })]);
+      }))]);
       if (controller.signal.aborted) throw new Error('aborted');
       this.emitAgent(body.requestId, from, 'done', final || '(done)', body.channel);
     } catch (err) {
@@ -1795,8 +1818,34 @@ export class AgentHost {
       canUseTool: (toolName, toolInput) => this.authorizeTool(this.selfId, requesterName, toolName, toolInput, channel, opts.place?.cwd),
       askUser: (question) => this.deps.questions.ask(this.selfId, requestId, channel, question),
       ...(opts.defaultModel ? this.modelFor(opts.place?.model, opts.place?.agent, opts.place?.effort) : {}),
+      // A dialogue's turn is your agents talking: Chrome asks you first.
+      ...this.chromeFor({ from: this.selfId, guest: false, automatic: true, channel, who: 'Your agent (in a dialogue)' }),
     });
     return { text, tokens };
+  }
+
+  /** A request you sent from a screen yourself (see Session.requestAgent). */
+  markYours(requestId: string): void {
+    this.yourRequests.add(requestId);
+    if (this.yourRequests.size > 500) this.yourRequests.delete(this.yourRequests.values().next().value!);
+  }
+
+  /**
+   * Claude in Chrome for a run (agent/chrome.ts). Off for a guest, and for every run when your
+   * launch flags say `--no-chrome`. As usual when you sent this request yourself; anything else (a
+   * Sentinel firing, a friend, an external agent, a thread, a plan's step, a dialogue) asks you
+   * first, once per request, with no Always: even a fully trusted friend's, as your Chrome is signed in as you.
+   */
+  private chromeFor(run: { readonly requestId?: string; readonly from: string; readonly external?: string; readonly guest: boolean; readonly automatic: boolean; readonly channel: string; readonly who: string }): { chrome?: ChromeAccess } {
+    if (run.guest || chromeOffByFlags(this.store.getState().prefs.claudeArgs)) return {};
+    const typed = run.requestId !== undefined && this.yourRequests.has(run.requestId);
+    if (typed && run.from === this.selfId && !run.external && !run.automatic) return { chrome: {} };
+    const requester = run.external ?? run.from;
+    const ask = async (toolName: string, input: Record<string, unknown>): Promise<boolean> => {
+      const card = chromeCard(run.who, toolName, input);
+      return (await this.askTool(requester, card.title, card.detail, run.channel, { once: true })) !== 'no';
+    };
+    return { chrome: { ask } };
   }
 
   /** Your launch flags per runtime (Settings › Agents › Launch flags), when you set any. */
@@ -1850,6 +1899,16 @@ export class AgentHost {
   private viaOf(requester: string): MessageVia | undefined {
     if (!isExternalRequester(requester)) return undefined;
     return { id: requester.slice(requester.indexOf(':') + 1), name: this.nameOf(requester), creationSource: 'mcp' };
+  }
+
+  /**
+   * The words you typed yourself, for a run you asked for on this computer: not a friend's, not an
+   * agent's, and without what Beluga adds to the prompt (worktree paths, task text, a carried
+   * conversation). Only usage statistics read it, at level On (src/telemetry/observe.ts).
+   */
+  private ownWordsOf(from: string, body: BodyOf<'agent_request'>): { ownWords?: string } {
+    // A message an agent sent from another chat (BLG-149) isn't yours either.
+    return from === this.selfId && !body.via && !body.viaAgent && !body.origin ? { ownWords: body.prompt } : {};
   }
 
   /** Who a run is for, as its agent reads it. `from` alone decides what it may do. */

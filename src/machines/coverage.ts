@@ -232,6 +232,12 @@ export const MACHINE: Record<Method, MachineSide> = {
   'env.testDatabase': 'drive',
   'env.importDotenv': 'drive',
   'env.newKeysBack': 'drive',
+  'env.worktree': 'drive',
+  'env.setWorktree': 'drive',
+  'env.carryWorktree': 'drive',
+  'env.overview': 'drive',
+  'env.addToExample': 'drive',
+  'env.exampleSync': 'drive',
   'env.endpoints': 'drive',
   'env.saveEndpoint': 'drive',
   'env.removeEndpoint': 'drive',
@@ -320,6 +326,11 @@ export const MACHINE: Record<Method, MachineSide> = {
   'revenuecat.setApps': 'drive',
   // ---- support
   'support.answer': 'drive',
+  // ---- usage statistics
+  'telemetry.choose': 'drive',
+  'telemetry.answer': 'drive',
+  'telemetry.exclude': 'drive',
+  'telemetry.mark': 'drive',
   // ---- stats
   'stats.get': 'drive',
   'stats.leaderboard': 'drive',

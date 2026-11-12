@@ -99,6 +99,7 @@ export function routedBackend(fallback: AgentBackend, fallbackRuntime: RuntimeId
     mcpAppTools: (projects: readonly string[], server: string) => claudeOnly('mcpAppTools', (c) => c.mcpAppTools!(projects, server)),
     mcpAppCall: (projects: readonly string[], server: string, tool: string, args: Readonly<Record<string, unknown>>) => claudeOnly('mcpAppCall', (c) => c.mcpAppCall!(projects, server, tool, args)),
     mcpAppRead: (projects: readonly string[], server: string, uri: string) => claudeOnly('mcpAppRead', (c) => c.mcpAppRead!(projects, server, uri)),
+    mcpSigningIn: (name: string, runtime?: RuntimeId) => pick(runtime ?? fallbackRuntime)?.mcpSigningIn?.(name) ?? false,
     mcpSetEnabled: async (projects: readonly string[], name: string, enabled: boolean, runtime?: RuntimeId) =>
       (await pick(runtime ?? fallbackRuntime)?.mcpSetEnabled?.(projects, name, enabled)) ?? { error: 'This agent’s servers are turned on and off in its own settings.' },
   });
