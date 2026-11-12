@@ -5,7 +5,7 @@ import { expect, test, type Page } from './fixtures.js';
 /**
  * Chat schedules (plan "Chat schedules on Sentinel", BLG-399…401): a chat's Info panel lists the
  * sentinels that wake it, with Run Now and an on/off switch; the section hides with the
- * chat-schedules experiment off. Screenshots go to .beluga/scratch/chat-schedules-*.png.
+ * chat-schedules experiment off; /schedule makes one; a scheduled chat's row has a clock mark. Screenshots go to .beluga/scratch/chat-schedules-*.png.
  */
 
 const shots = path.join(import.meta.dirname, '..', '..', '..', '.beluga', 'scratch');
@@ -48,6 +48,8 @@ test('the Info panel lists the chat’s schedule; Run Now runs it and the switch
   await expect(row).toContainText('Morning status');
   await expect(row).toContainText(/Every day at 9:00 · next/);
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'true');
+  // The chat's row in the sidebar has the clock mark.
+  await expect(sidebar(page).locator('[data-scheduled="on"]')).toHaveCount(1);
   await page.screenshot({ path: path.join(shots, 'chat-schedules-01-info.png') });
 
   await row.getByRole('button', { name: 'Run Morning status now' }).click();
@@ -56,6 +58,7 @@ test('the Info panel lists the chat’s schedule; Run Now runs it and the switch
   await row.getByRole('switch').click();
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
   await expect(row).toContainText('Every day at 9:00 · paused');
+  await expect(sidebar(page).locator('[data-scheduled="off"]')).toHaveCount(1);
   await page.screenshot({ path: path.join(shots, 'chat-schedules-02-off.png') });
 
   // A click on the row opens the sentinel's page.
@@ -90,4 +93,5 @@ test('with the experiment off, the section is hidden', async ({ page, demo }) =>
   await expect(inspector(page)).toBeVisible();
   await expect(inspector(page).locator('[data-schedule]')).toHaveCount(0);
   await expect(inspector(page).getByRole('heading', { name: /^Schedules/ })).toHaveCount(0);
+  await expect(sidebar(page).locator('[data-scheduled]')).toHaveCount(0);
 });

@@ -602,7 +602,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sentinel.moveReceive` | ✓ a sentinel's ⋯ › Move To ▸, on the computer it goes to |
 | `sentinel.moveLand` | ✓ a sentinel's ⋯ › Move To ▸: it lands paused there, its sources checked, what it lacks there said |
 | `sentinel.moveDrop` | ✓ a sentinel's ⋯ › Move To ▸: gone from where it was once the copy is in (or the copy, when the move didn't finish) |
-| `sentinel.forChat` | a chat's Info panel › Schedules (worktree, project and Your Mac chats; behind the chat-schedules experiment): each sentinel whose chat step wakes it, with its status dot, when it runs, Run Now and an on/off switch; a click opens its page (BLG-399) |
+| `sentinel.forChat` | a chat's Info panel › Schedules (worktree, project and Your Mac chats; behind the chat-schedules experiment): each sentinel whose chat step wakes it, with its status dot, when it runs, Run Now and an on/off switch; a click opens its page (BLG-399) · the sidebar's chat rows: a clock mark on a chat a sentinel wakes (dimmed when all its schedules are off) · phone: the conversation's ••• › Schedules (the conversation view's `schedules`, 1.54) with Run and Pause / Turn On only (BLG-401) |
 | `sentinel.runs` | ✓ a sentinel's page › History (the dot strip, then the runs as rows); the phone's sentinel page draws the same runs from its `sentinel:<id>` topic |
 | `sentinel.runGet` | ✓ a run's page: the steps' outputs (Show output) and the report; the phone opens a run's report |
 | `sentinel.ask` | ✓ a sentinel's page › the box under its header, "Ask Your Agent to change this sentinel…" (⌘↩; the agent's last line while it works, its answer and Open Chat after) · New Sentinel › Describe It (an empty paused sentinel, then this) |
