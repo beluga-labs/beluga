@@ -1,10 +1,19 @@
+import { CHAT_LINK_PREFIX, chatLinkOf } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from './chat-links.js';
+import { sumCounts } from '@beluga/machines/attention.js';
+import { onRemoteAttention, remoteAttention } from '../machines/remote-attention.js';
+import { untag } from '@beluga/machines/attention.js';
+import { machineClientOf } from '../machines/pane-clients.js';
+import { onMachine, pageOfChannel } from '../machines/pane-model.js';
 import { useEffect } from 'react';
 import { inApp } from './boot.js';
 import type { Actions } from './actions.js';
 import type { UiStore } from './beluga.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { setPrefs, getPrefs, subscribePrefs, zoom } from './prefs.js';
+import { FOCUS_SIDEBAR_SEARCH } from '../layout/sidebar-search-model.js';
 import { byMenu, showPanelTab, togglePanel, toggleTerminal } from './panel.js';
+import { navBack, navForward } from './nav.js';
 import { PANEL_LABELS, PANEL_TABS, type PanelTab } from './panel-model.js';
 import { dockCount, workingCount } from '../layout/attention-model.js';
 import { NOTIFICATION_TAP, macNoticeTarget, openNoticeTarget } from './notices.js';
@@ -21,12 +30,12 @@ import { newChatProject } from './project-home.js';
 import { type MenuBarCounts, SPOUT_EVERY_MS, spoutStep, trayTitle } from '../menubar/menubar-look.js';
 import { shownState } from '../network/net-model.js';
 import { SHOW_TILE, boardLinkOf } from './widget-links.js';
+import { t } from '../i18n/index.js';
 
 const isCommand = (id: string): id is CommandId => (COMMAND_IDS as readonly string[]).includes(id);
 
 const GO: Record<string, PlaceKind> = {
   'go-tasks': 'tasks',
-  'go-room': 'room',
   'go-files': 'files',
   'go-overview': 'overview',
   'go-search': 'search',
@@ -68,7 +77,11 @@ export function runMenuItem(id: string, client: SocketClient, ui: UiStore, actio
       return actions.run({ type: 'new_chat', projectId: newChatProject(state) });
     case 'new-worktree':
       if (project?.root) actions.run({ type: 'new_worktree', projectId: project.id });
-      else client.store.dispatch({ type: 'toast', text: 'Add a project first (File › Add Project…)', level: 'warn' });
+      else {
+        // A worktree needs a project: offer to add one, the way Add Project does.
+        client.store.dispatch({ type: 'toast', text: 'A worktree needs a project: add one first', level: 'warn' });
+        actions.run({ type: 'add_project' });
+      }
       return;
     case 'add-project':
       return actions.run({ type: 'add_project' });
@@ -80,6 +93,14 @@ export function runMenuItem(id: string, client: SocketClient, ui: UiStore, actio
       return ui.patch({ notices: true });
     case 'toggle-sidebar':
       return setPrefs({ sidebar: !getPrefs().sidebar });
+    case 'nav-back':
+      return void navBack();
+    case 'nav-forward':
+      return void navForward();
+    case 'sidebar-search':
+      // A hidden sidebar comes back first: the field is there a moment later.
+      setPrefs({ sidebar: true });
+      return void setTimeout(() => document.dispatchEvent(new CustomEvent(FOCUS_SIDEBAR_SEARCH)), 40);
     case 'toggle-dock':
       // ⌘J: the terminal, where you keep it (the drawer under the chat or the right panel).
       return byMenu('terminal', () => {
@@ -137,15 +158,23 @@ export function useNative(client: SocketClient, ui: UiStore, actions: Actions, o
       const a = await listen<string>('menu', (e) => fromMenu(e.payload, () => runMenuItem(e.payload, client, ui, actions)));
       // The same link can come both ways (live and from the launch buffer): handle it once.
       const handled = new Set<string>();
-      let lastBoard: { url: string; at: number } | undefined;
+      let lastClick: { url: string; at: number } | undefined;
       const open = (url: string): void => {
         // A widget's link, clicked as often as you like (the same one twice in a second is one click).
         const board = boardLinkOf(url);
         if (board) {
-          if (lastBoard?.url === url && Date.now() - lastBoard.at < 1000) return;
-          lastBoard = { url, at: Date.now() };
+          if (lastClick?.url === url && Date.now() - lastClick.at < 1000) return;
+          lastClick = { url, at: Date.now() };
           actions.run({ type: 'view', view: board.board ? { kind: 'dashboard', id: board.board } : { kind: 'sentinel' } });
           if (board.tile) setTimeout(() => document.dispatchEvent(new CustomEvent(SHOW_TILE, { detail: board.tile })), 300);
+          return;
+        }
+        // A chat's link, as often as you like. One that's malformed goes nowhere, as any unknown link.
+        if (url.startsWith(CHAT_LINK_PREFIX)) {
+          const ref = chatLinkOf(url);
+          if (!ref || (lastClick?.url === url && Date.now() - lastClick.at < 1000)) return;
+          lastClick = { url, at: Date.now() };
+          void openChatLink(client, actions, ref);
           return;
         }
         if (handled.has(url)) return;
@@ -214,15 +243,20 @@ export function useTrayStatus(client: SocketClient): void {
     let last = '';
     let seen: unknown;
     let seenLook: unknown;
+    let seenThere: unknown;
     let working: number | undefined;
     let repeating = false;
     const update = (): void => {
       const st = client.store.getState();
       const prefs = getPrefs();
-      if (st === seen && prefs.menuBar === seenLook) return;
+      const there = remoteAttention();
+      if (st === seen && prefs.menuBar === seenLook && there === seenThere) return;
       seen = st;
       seenLook = prefs.menuBar;
-      const counts = menuBarCounts(st);
+      seenThere = there;
+      // Every computer's added (BLG-790): one Dock badge and one menu bar for all of them.
+      const here = menuBarCounts(st);
+      const counts = { ...here, ...sumCounts(here, there.map((r) => r.counts)) };
       const look = prefs.menuBar;
       // The whale spouts: once as a Claude finishes, or on and off while one works.
       const step = spoutStep(prefs.reduceMotion ? 'off' : look.spout, working, counts.working);
@@ -243,7 +277,9 @@ export function useTrayStatus(client: SocketClient): void {
     tick.request();
     const off = client.store.subscribe(tick.request);
     const offPrefs = subscribePrefs(tick.request);
+    const offThere = onRemoteAttention(tick.request);
     return () => {
+      offThere();
       off();
       offPrefs();
       tick.stop();
@@ -338,7 +374,14 @@ export function useWindowFocus(client: SocketClient): void {
  */
 export function useNotificationTaps(client: SocketClient, ui: UiStore, actions: Actions): void {
   useEffect(() => {
-    const go = (channel: string | undefined): void => {
+    const go = (tagged: string | undefined): void => {
+      // One of your computers' (BLG-790): read there, and opened there in the pane.
+      const { machine, id: channel } = untag(tagged);
+      if (machine) {
+        void machineClientOf(machine)?.api.inbox.read(channel ? { channel } : {});
+        const page = channel ? pageOfChannel(channel) : undefined;
+        return page ? actions.run({ type: 'view', view: onMachine(machine, page) }) : ui.patch({ notices: true });
+      }
       const target = macNoticeTarget(client.store.getState(), channel);
       if (!target || channel === undefined) return ui.patch({ notices: true });
       void client.api.inbox.read({ channel });
@@ -385,7 +428,7 @@ export function useMenuState(client: SocketClient): void {
         const st = commandState(state, id);
         enabled[id] = st.enabled;
         if (st.checked !== undefined) checked[id] = st.checked;
-        if (st.label) labels[id] = st.label;
+        if (st.label) labels[id] = t(st.label);
       }
       const key = JSON.stringify([enabled, checked, labels]);
       if (key === last) return;

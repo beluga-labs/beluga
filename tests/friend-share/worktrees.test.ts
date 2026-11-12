@@ -2,10 +2,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { remoteScratch } from '../../src/core/friend-share/scratch.js';
+import { chatReactions } from '../../src/core/chat-reactions.js';
 import { conversations, convView, workView } from '../../src/companion/views.js';
 import { peopleHere, waitingNote } from '../../src/core/friend-share-people.js';
 import { createDemoWorkspaces } from '../../src/demo.js';
-import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
+import { type Crowd, SLOW, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type Mac, mac } from './helpers.js';
 
 /**
@@ -72,7 +73,45 @@ describe('a worktree shared over the network', () => {
     const conv = conversations(kay.store.getState()).find((c) => c.channel === channel);
     expect(conv).toMatchObject({ project: 'ata · bob-api', mine: true });
     expect(workView(kay.store.getState(), ctx).projects.some((p) => p.name === 'ata · bob-api')).toBe(true);
-  }, 60_000);
+  }, 60_000 * SLOW);
+
+  it("a guest's @claude is their own agent: it reads the worktree over the link and everyone sees its answer", async () => {
+    const { ata, kay, mia, channel } = await sharedWorktree();
+    expect(kay.session.submit('@claude what changed here?', { channel })).toBe(true);
+    // Kay's own agent answers, on kay's Mac; ata's stays out of it.
+    await settle(() => agentDone(kay, channel, 'what changed here?'));
+    expect(kay.runs.map((r) => r.prompt)).toEqual(['what changed here?']);
+    expect(ata.runs).toHaveLength(0);
+    // Ata sees it in her worktree, and passes it on to mia (not kay's friend), as kay's agent's.
+    await settle(() => agentDone(ata, channel, 'what changed here?') && agentDone(mia, channel, 'what changed here?'));
+    expect(agentDone(mia, channel, 'what changed here?')).toMatchObject({ owner: kay.id });
+    // Kay's agent reads the worktree over the link, ata named as in the conversation.
+    const share = kay.store.getState().shared.find((w) => `ws:${w.id}` === channel)!.share;
+    const files = await kay.session.bridge.listPeerFiles('ata', share, '');
+    expect(files.length).toBeGreaterThan(0);
+    // "@claude:ata" is still hers.
+    kay.session.submit('@claude:ata add a test', { channel });
+    await settle(() => ata.runs.some((r) => r.prompt === 'add a test'));
+  }, 60_000 * SLOW);
+
+  it('reactions reach everyone in it, through its owner’s Mac for people who aren’t friends (BLG-702)', async () => {
+    const { ata, kay, mia, channel } = await sharedWorktree();
+    ata.session.sendChat('pushed the fix', false, channel);
+    await settle(() => chatSeen(kay, channel, 'pushed the fix') && chatSeen(mia, channel, 'pushed the fix'));
+    const item = (m: Mac) => m.store.getState().log.find((l) => l.type === 'chat' && l.channel === channel && l.text === 'pushed the fix');
+    // One id in every copy.
+    expect(new Set([ata, kay, mia].map((m) => item(m)?.id)).size).toBe(1);
+    const chips = (m: Mac) => {
+      const it = item(m);
+      return it?.type === 'chat' ? chatReactions(it) : [];
+    };
+    kay.session.reactChat(channel, item(kay)!.id, '🎉');
+    await settle(() => chips(ata).length === 1 && chips(mia).length === 1);
+    expect(chips(mia)).toEqual([{ emoji: '🎉', by: [kay.id] }]);
+    mia.session.reactChat(channel, item(mia)!.id, '🎉');
+    await settle(() => chips(kay)[0]?.by.length === 2);
+    expect(chips(kay)).toEqual([{ emoji: '🎉', by: [kay.id, mia.id] }]);
+  }, 60_000 * SLOW);
 
   it("waits while the owner's Mac is offline, says so, and goes when it's back", async () => {
     const { ata, kay, channel, wsId } = await sharedWorktree();
@@ -94,7 +133,7 @@ describe('a worktree shared over the network', () => {
     expect(waitingNote(kay.store.getState(), wsId)).toBeUndefined();
     await new Promise((r) => setTimeout(r, 500));
     expect(ata.runs.filter((r) => r.prompt.includes('while you were away'))).toHaveLength(1);
-  }, 60_000);
+  }, 60_000 * SLOW);
 
   it('someone not in the worktree, or only following it, never reaches its Claude', async () => {
     const { ata, kay, channel, wsId } = await sharedWorktree();
@@ -107,7 +146,7 @@ describe('a worktree shared over the network', () => {
     kay.session.send({ kind: 'agent_request', requestId: 'r-by-hand-1', prompt: 'by hand', viaAgent: false, channel, urgent: false, plan: false }, { to: ata.id });
     await settle(() => kay.store.getState().log.find((l) => l.type === 'agent' && l.requestId === 'r-by-hand-1' && l.status === 'denied'));
     expect(ata.runs).toHaveLength(0);
-  }, 60_000);
+  }, 60_000 * SLOW);
 
   it('its scratch folder shows on the friend’s Mac too, newest first, read over the link (BLG-259)', async () => {
     const { ata, kay, wsId } = await sharedWorktree();
@@ -121,7 +160,7 @@ describe('a worktree shared over the network', () => {
     expect(list.files.map((f) => f.path)).toEqual(['.beluga/scratch/notes.md', '.beluga/scratch/shots/old.txt']);
     expect(list.files.every((f) => f.mtime > 0)).toBe(true);
     expect(await kay.session.readFile({ owner: ata.id, share: `ws-${wsId}`, path: '.beluga/scratch/notes.md' })).toMatchObject({ content: '# notes' });
-  }, 60_000);
+  }, 60_000 * SLOW);
 
   it('its whole conversation reaches the friend a page at a time as they scroll back, oldest on top (BLG-259)', async () => {
     net = await crowd();
@@ -153,5 +192,27 @@ describe('a worktree shared over the network', () => {
     expect(lines()[0]).toBe('line 0');
     await settle(() => !kay.store.getState().shared.find((w) => w.id === ws.id)?.earlier);
     expect(kay.shares.earlier(ata.id, ws.id)).toBe(false);
-  }, 60_000);
+  }, 60_000 * SLOW);
+
+  it('a long answer in its conversation (a graph) reaches the friend whole, not cut at 4,000 characters (BLG-622)', async () => {
+    net = await crowd();
+    const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
+    const kay = await mac(net, 'kay');
+    macs.push(ata, kay);
+    await befriend(ata.person, kay.person);
+    await settle(() => ata.person.mesh.belugaOf(kay.id)?.can.includes('share.history.long'));
+    const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
+    const ws = project.workspaces.find((w) => !w.archived && !w.external && w.kind === 'worktree')!;
+    const channel = `ws:${ws.id}`;
+    const nodes = Array.from({ length: 120 }, (_, i) => ({ id: `n${i}`, type: 'function', label: `Step ${i}`, sublabel: 'one stage of the pipeline, with a longer note' }));
+    const answer = `Here it is:\n\`\`\`beluga-graph\n${JSON.stringify({ title: 'How it runs', nodes })}\n\`\`\``;
+    expect(answer.length).toBeGreaterThan(10_000);
+    ata.session.workspaces!.manager.saveHistory(ws.id, [{ id: 'g-1', type: 'chat', channel, from: ata.id, text: answer, ts: Date.now() - 1000, byAgent: false }]);
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'view' });
+    // The line reads "<who>: <text>"; what was said is what's checked.
+    const seen = (): string | undefined => kay.store.getState().log.flatMap((l) => (l.channel === channel && l.type === 'system' ? [l.text.replace(/^[^:]*: /, '')] : []))[0];
+    await settle(() => seen());
+    expect(seen()?.length).toBe(answer.length);
+    expect(seen()).toBe(answer);
+  }, 60_000 * SLOW);
 });

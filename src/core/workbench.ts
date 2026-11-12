@@ -3,16 +3,21 @@ import { chmod, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { type PtyProcess, type TerminalManager, listShells, scriptShell } from '../terminal/index.js';
-import { type ShellChoice, shellArgs } from '../shared/shells.js';
+import { type PtyProcess, type TerminalManager, defaultShell, listShells, scriptShell } from '../terminal/index.js';
+import { type ShellChoice, commandArgs, shellArgs } from '../shared/shells.js';
 import type { EnvPlace } from './env-vars.js';
 import { systemOpen } from './os-open.js';
+import { editorCommand } from './editor-command.js';
+import { tilde } from './paths.js';
 import type { WorkspaceManager } from '../workspaces/manager.js';
 import type { Workspace } from '../workspaces/types.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { formatBytes, measureAll } from '../workspaces/disk.js';
-import { contentIn, fetchRemote, resetTo } from '../workspaces/git.js';
-import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, resetPrPrompt, unpushedCommits } from '../workspaces/pr.js';
+import { contentIn, resetTo } from '../workspaces/git.js';
+import { fetchRemote } from '../workspaces/sync.js';
+import { type MergeOptions, type MergeProblem, type PrStepKind, buildPrPrompt, catchUpPrompt, commitSubjects, createPr, disableAutoMerge, prFromCommits, titleOfBranch, resolvePrConflictsPrompt, customPrPrompt, deleteRemoteBranch, ensurePrPromptFile, explainMergeError, findPr, fixChecksPrompt, forgetGh, ghState, gitSetup, hasGh, headCarries, listPrs, useHttpsRemote, mergePr, mergeToBase, prStep, pushForPr, remoteRef, rerunFailed, cancelRun, resetPrPrompt, setPrTarget, unpushedCommits } from '../workspaces/pr.js';
+import { prTargetOf, pullOfBranch } from '../workspaces/github.js';
+import { failedRunIds, prOnOriginal, runningRunIds } from './branch-state.js';
 import { PROJECT_FILES, type ProjectScripts, checkSetup, projectFileName, scriptEnv } from '../workspaces/scripts.js';
 import { clonedSetup } from '../workspaces/setup-clone.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from '../agent/setup-fixer.js';
@@ -22,7 +27,9 @@ import { claudeCodeCommand } from '../agent/claude-code.js';
 import { CONTINUE_PROMPT } from '../shared/run-failure.js';
 import type { NoticeEvent } from './notify.js';
 import { type SearchSource, searchConversations } from './search.js';
-import { type LogItem, type Prefs, type Store, shippedText } from './store.js';
+import { type LogItem, type MergedMark, type Prefs, type Store, mergedText, shippedText } from './store.js';
+import { lastLogAt } from './triage/facts.js';
+import { triageKey } from './triage/model.js';
 import { addTemplate, loadTemplates, removeTemplate } from './templates.js';
 import type { ModelChoice, PrConversation, PrThread, PullRequest } from './work-store.js';
 import type { RuntimeStatus } from '../agent/runtime/types.js';
@@ -32,8 +39,11 @@ import { openCode } from '../workspaces/open-code.js';
 import type { WorkspaceController } from './workspace-controller.js';
 import type { Intent } from './intents.js';
 import { agentName } from '../shared/agent-label.js';
+import { sentinelChatOf } from './sentinel/model.js';
+import { ASSISTANT_TITLE, assistantChatOf, assistantChatTitle, isAssistant } from '../shared/assistant.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import type { RuntimeChoice } from '../shared/agent-runtimes.js';
+import type { HandoffMode } from '../shared/agent-handoff.js';
 import { type GitFixId, type GitSetup, type GitTrouble, explainGitTrouble, httpsRemoteOf, troubleLine } from '../shared/git-trouble.js';
 
 export interface WorkbenchDeps {
@@ -47,15 +57,21 @@ export interface WorkbenchDeps {
   readonly intend: (intent: Intent) => void;
   /** Ask your Claude in a workspace conversation. */
   readonly askClaude: (prompt: string, channel: string) => void;
+  /** What Your Mac's chats outside `loaded` said, read from disk for a search (unset: there is no Your Mac). */
+  readonly savedChats?: (loaded: ReadonlySet<string>) => ReadonlyArray<{ readonly channel: string; readonly items: readonly LogItem[] }>;
+  /** Bring a Your Mac chat with nothing in the log back from disk, before opening it. */
+  readonly loadSavedChat?: (id: string) => void;
   readonly setPrefs: (prefs: Partial<Prefs>) => void;
   /** Ask you before something runs by itself the first time (e.g. a repo's own setup command). */
   readonly confirm?: (title: string, detail: string) => Promise<'yes' | 'no' | 'always'>;
   /** Open a URL or a file with the system's default app. */
   readonly open?: (target: string) => void;
-  /** Models your Claude Code offers (asked once). */
+  /** Models your Claude Code offers (asked at start, and again once Claude Code moved to a newer one). */
   readonly listModels?: () => Promise<readonly ModelChoice[] | undefined>;
+  /** Keep Claude Code current in the background (agent/claude-code-updates.ts): true once it moved to a newer one. */
+  readonly updateAgent?: () => Promise<boolean>;
   /** Another runtime on a live conversation hands it off (core/agent-switch.ts, BLG-447); unset: a plain switch. */
-  readonly switchAgent?: (channel: string, agent: AgentRef | undefined) => Promise<unknown>;
+  readonly switchAgent?: (channel: string, agent: AgentRef | undefined, mode?: HandoffMode) => Promise<unknown>;
   /** The agent picker's runtimes: which run on this Mac, and why the others don't (BLG-446). */
   readonly listRuntimes?: () => readonly RuntimeChoice[];
   /** Whether each runtime that can say so is ready here (Codex: installed, signed in) and its models (BLG-455). */
@@ -70,6 +86,8 @@ export interface WorkbenchDeps {
   readonly mergePr?: (dir: string, number: number, opts: MergeOptions) => Promise<void>;
   /** How many commits here the branch on GitHub doesn't have yet (injected in tests). */
   readonly unpushedCommits?: (dir: string, branch: string) => Promise<number>;
+  /** Whether a PR's head holds every commit HEAD has (injected in tests; see pr.ts headCarries). */
+  readonly headCarries?: typeof headCarries;
   /** Delete a merged branch on GitHub (injected in tests). */
   readonly deleteRemoteBranch?: (dir: string, branch: string) => Promise<void>;
   /** A PR's one-click step on GitHub (injected in tests; throws gh's error). */
@@ -81,6 +99,10 @@ export interface WorkbenchDeps {
   readonly createPr?: typeof createPr;
   readonly mergeToBase?: typeof mergeToBase;
   readonly pushForPr?: typeof pushForPr;
+  /** Re-run a workflow run's failed jobs (tests stand in for gh). */
+  readonly rerunFailed?: typeof rerunFailed;
+  /** Cancel a workflow run still going (tests stand in for gh). */
+  readonly cancelRun?: typeof cancelRun;
   readonly disableAutoMerge?: (dir: string, number: number) => Promise<void>;
   /** Where a branch was last pushed to (its remote-tracking ref), to notice pushes. */
   readonly remoteRef?: (dir: string, branch: string) => string | undefined;
@@ -101,7 +123,7 @@ export interface WorkbenchDeps {
   /** What a project's run command should be after it failed in `dir` (a model looks). */
   readonly fixRun?: (dir: string, failed: string, output: string) => Promise<ScriptFix | undefined>;
   /** A project's setup and/or run worked out from its files (a model looks); undefined when no Claude can. */
-  readonly workOutScripts?: (dir: string, want: { setup: boolean; run: boolean }) => Promise<WorkedOutScripts | undefined> | undefined;
+  readonly workOutScripts?: (dir: string, want: { setup: boolean; run: boolean; system?: string }) => Promise<WorkedOutScripts | undefined> | undefined;
   /** Whether your Claude is on (it can be asked to fix a setup or run that failed). */
   readonly hasClaude?: () => boolean;
 }
@@ -124,14 +146,27 @@ export function withRuntimeStatus(runtimes: readonly RuntimeChoice[], found: Rea
 /** An agent that isn't ready yet (Codex not signed in) is asked about again this often. */
 const RUNTIME_RECHECK_MS = 60_000;
 const DISK_EVERY_MS = 5 * 60_000;
+/** Claude Code updates: first looked for a minute after start (not in the way of the first run), then every six hours. */
+const AGENT_FIRST_CHECK_MS = 60_000;
+const AGENT_CHECK_EVERY_MS = 6 * 60 * 60_000;
 /** How often to see which PRs are due a look (cheap: no gh unless one is). */
 const PR_TICK_MS = 5_000;
+
+/** How a command ended, in words: its exit code, or the signal that stopped it ("stopped by SIGHUP"). */
+export function endedWords(code: number | null, signal?: number): string {
+  if (code !== null) return `exit code ${code}`;
+  if (!signal) return 'exit code ?';
+  const name = Object.entries(os.constants.signals).find(([, n]) => n === signal)?.[0];
+  return `stopped by ${name ?? `signal ${signal}`}`;
+}
 /** PRs with checks running, or a branch just pushed. */
 export const PR_FAST_MS = 15_000;
 /** Other open PRs, and worktrees with commits but no PR yet. */
 export const PR_SLOW_MS = 60_000;
 /** Checks can take a moment to show up after a push: with none at all, Merge When Ready merges only after this long. */
 export const NO_CHECKS_GRACE_MS = 90_000;
+/** Merge When Ready after a push (BLG-840): how long GitHub's PR may go on without the pushed commits before it stops waiting and says so. */
+export const PUSHED_HEAD_WAIT_MS = 15 * 60_000;
 /** A push keeps its PR on the fast cadence this long (CI starts, a PR gets opened). */
 const PR_PUSHED_FOR_MS = 3 * 60_000;
 /** Coming back to the window refreshes PRs not looked at in this long. */
@@ -154,7 +189,7 @@ export function fixFailedPrompt(kind: 'setup' | 'run', command: string, code: nu
   return [
     `${what} didn't work: \`${command}\` stopped with exit code ${code ?? '?'}.`,
     tail ? `The end of its output:\n\n\`\`\`\n${tail}\n\`\`\`` : '',
-    `Find out why and fix it, so \`${command}\` works here. If the command itself is wrong, say which one is right: it can be set in the project's ⋯ menu (Setup and run commands), or in its beluga.json under "scripts" for everyone.`,
+    `Find out why and fix it, so \`${command}\` works here. If the command itself is wrong, say which one is right: it can be set in the project's ⋯ menu (Project Settings…), or in its beluga.json under "scripts" for everyone.`,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -162,6 +197,10 @@ export function fixFailedPrompt(kind: 'setup' | 'run', command: string, code: nu
 
 export { shellId, setupId, runId, githubId, globalShellId, isGlobalShell, globalShellNumber, globalShellDir } from '../shared/terminal-keys.js';
 import { agentTermId, githubId, runId, setupId, shellId, isGlobalShell, globalShellNumber, cleanTerminalName } from '../shared/terminal-keys.js';
+import { pace, paced } from './power-saver.js';
+
+/** How soon cmd ends when it couldn't find your editor (Windows). */
+const EDITOR_MISSING_MS = 3000;
 
 /**
  * What changed about a pull request that's worth telling you. A PR showing up is only news
@@ -176,6 +215,18 @@ export function prNews(name: string, channel: string, before: PullRequest | unde
   if (before.review !== pr.review && pr.review === 'CHANGES_REQUESTED') out.push({ kind: 'pr', title: `Changes requested on PR #${pr.number}`, body: name, channel });
   if (before.review !== pr.review && pr.review === 'APPROVED') out.push({ kind: 'pr', title: `PR #${pr.number} was approved`, body: name, channel });
   return out;
+}
+
+/**
+ * Whether a worktree's chat should now get the line saying its PR merged. Once per PR (`said`: the
+ * one it already shows). Seen merging (open last time, `quiet` off): yes. Otherwise (merged while
+ * Beluga was closed, or between two looks) only when nothing was said in the chat since it merged
+ * (`lastAt`), so everything above the line really is what merged.
+ */
+export function mergedLineDue(pr: PullRequest | undefined, before: PullRequest | undefined, quiet: boolean, said: number | undefined, lastAt: number | undefined): boolean {
+  if (pr?.state !== 'MERGED' || said === pr.number) return false;
+  if (!quiet && before?.number === pr.number && before.state === 'OPEN') return true;
+  return pr.mergedAt !== undefined && lastAt !== undefined && lastAt <= pr.mergedAt;
 }
 
 /**
@@ -203,7 +254,7 @@ export interface GitHubOutcome {
 }
 
 /** What to do again once a fix worked: Create PR (as a draft), Merge into its base, or nothing (say it's fixed). */
-export type GitRetry = 'pr' | 'pr_draft' | 'merge_base' | 'none';
+export type GitRetry = 'pr' | 'pr_draft' | 'pr_original' | 'merge_base' | 'none';
 
 /** How long a terminal step (installing gh, logging in) may take before Beluga stops waiting for it. */
 const GITHUB_STEP_MS = 15 * 60_000;
@@ -219,7 +270,12 @@ async function inPool(tasks: ReadonlyArray<() => Promise<void>>, limit: number):
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
 }
 
+/** "Your Mac › plan my trip": where a hit in one of Your Mac's chats was said. */
+const macChatPlace = (channel: string, items: readonly LogItem[]): string => `${ASSISTANT_TITLE} › ${assistantChatTitle(channel, items)}`;
+
 const samePr = (a: PullRequest | undefined, b: PullRequest | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** "https://github.com/kay/app/pull/12" → "https://github.com/kay/app": which repository a PR is on. */
+const repoOfPr = (url: string): string => url.replace(/\/pull\/\d+.*$/, '').toLowerCase();
 
 /** All an error said (a push's whole output, not just its line). */
 const rawOf = (err: unknown): string => (err && typeof err === 'object' && 'raw' in err && typeof err.raw === 'string' ? err.raw : err instanceof Error ? err.message : String(err));
@@ -239,6 +295,10 @@ export class Workbench {
     return agentName(defaultAgentOf(this.deps.store.getState().self));
   }
   private diskTimer?: NodeJS.Timeout;
+  private agentTimer?: NodeJS.Timeout;
+  private agentEvery?: NodeJS.Timeout;
+  /** The round of measuring under way: a second ask joins it rather than walking every folder again. */
+  private measuring?: Promise<void>;
   private prTimer?: NodeJS.Timeout;
   private runtimeTimer?: NodeJS.Timeout;
   /** What the runtimes last said about themselves, kept so a new list (a local endpoint answering) doesn't wipe it. */
@@ -272,6 +332,8 @@ export class Workbench {
   private readonly githubSteps = new Map<string, () => void>();
   /** Worktrees whose PR is being merged right now. */
   private readonly merging = new Set<string>();
+  /** Merge When Ready being looked at (refreshes overlap; it awaits git): one at a time per worktree. */
+  private readonly settling = new Set<string>();
   /** Projects Claude is working out the commands of right now (one look each, shared by the worktrees waiting on it). */
   private readonly workingOut = new Map<string, Promise<void>>();
   /** "Run this setup by itself?" questions waiting, by project and command. */
@@ -301,16 +363,31 @@ export class Workbench {
     });
     const runtimes = this.deps.listRuntimes?.();
     if (runtimes) this.deps.store.dispatch({ type: 'runtimes', runtimes });
-    void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
+    this.refreshModels();
     void this.checkRuntimes();
+    // Claude Code kept current, quietly: a newer one's models (a new Opus) show in the picker once it's in.
+    if (this.deps.updateAgent) {
+      const update = (): void => void this.deps.updateAgent!().then((moved) => moved && this.refreshModels(), () => undefined);
+      this.agentTimer = setTimeout(update, AGENT_FIRST_CHECK_MS);
+      this.agentTimer.unref();
+      this.agentEvery = setInterval(paced(AGENT_CHECK_EVERY_MS, () => this.deps.store.getState().powerSaving, update), AGENT_CHECK_EVERY_MS);
+      this.agentEvery.unref();
+    }
     setTimeout(() => void this.measureDisk(), 3000).unref();
-    this.diskTimer = setInterval(() => void this.measureDisk(), DISK_EVERY_MS);
+    this.diskTimer = setInterval(paced(DISK_EVERY_MS, () => this.deps.store.getState().powerSaving, () => void this.measureDisk()), DISK_EVERY_MS);
     this.diskTimer.unref();
     this.prTimer = setInterval(() => void this.pollPrs(), PR_TICK_MS);
     this.prTimer.unref();
   }
 
+  /** Ask Claude Code for its models again (at start, and after it moved to a newer one). */
+  refreshModels(): void {
+    void this.deps.listModels?.().then((models) => models && this.deps.store.dispatch({ type: 'models', models }), () => undefined);
+  }
+
   stop(): void {
+    clearTimeout(this.agentTimer);
+    clearInterval(this.agentEvery);
     clearInterval(this.diskTimer);
     clearInterval(this.prTimer);
     clearTimeout(this.runtimeTimer);
@@ -334,12 +411,15 @@ export class Workbench {
     this.deps.toast(`New conversations use ${label}`, 'success');
   }
 
-  /** Pick the agent for one conversation (undefined: your default); every run from there uses it. */
-  setAgent(channel: string, agent: AgentRef | undefined): boolean {
+  /**
+   * Pick the agent for one conversation (undefined: your default); every run from there uses it.
+   * `mode`: when the new agent can't read the session, switch quietly or have the old one write a note (BLG-592).
+   */
+  setAgent(channel: string, agent: AgentRef | undefined, mode?: HandoffMode): boolean {
     const id = channel.startsWith('ws:') ? channel.slice(3) : undefined;
     if (!id || !this.manager.find(id)) return false;
-    // Another runtime on a live conversation is a handoff (the old agent's note seeds the new one), never a silent swap.
-    if (this.deps.switchAgent) void this.deps.switchAgent(channel, agent).finally(() => void this.deps.controller.refresh());
+    // Another runtime on a live conversation is a handoff (a note, or the recent conversation with your next message), never a silent swap.
+    if (this.deps.switchAgent) void this.deps.switchAgent(channel, agent, mode).finally(() => void this.deps.controller.refresh());
     else {
       this.manager.setAgent(id, agent);
       void this.deps.controller.refresh();
@@ -358,8 +438,11 @@ export class Workbench {
     return ws;
   }
 
-  /** Claude commits what belongs to the work, pushes and opens a PR with a short description. */
-  createPr(id: string, extra = ''): void {
+  /**
+   * Claude commits what belongs to the work, pushes and opens a PR with a short description.
+   * `auto`: Beluga asked by itself (a task reached In Review, BLG-927), so the screen stays where you are.
+   */
+  createPr(id: string, extra = '', opts: { readonly auto?: boolean } = {}): void {
     const ws = this.worktree(id);
     if (!ws?.branch) return;
     if (this.deps.store.getState().gh === false) {
@@ -369,16 +452,19 @@ export class Workbench {
     const project = this.manager.list.find((p) => p.id === ws.projectId);
     const prompt = buildPrPrompt({ branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', projectPrompt: project?.scripts?.prPrompt, extra });
     if (!this.deps.store.getState().prs[ws.id]) this.prAsked.add(ws.id);
-    this.deps.controller.open(ws.id);
-    this.deps.askClaude(prompt, `ws:${ws.id}`);
-    this.deps.toast(`${this.agent()} is preparing the pull request…`);
+    if (!opts.auto) this.deps.controller.open(ws.id);
+    const ask = (): void => this.deps.askClaude(prompt, `ws:${ws.id}`);
+    // Its last PR went to a fork's original: this one goes to the fork, as the menu says (before the run reads where gh points).
+    if (prTargetOf(ws.path, ws.branch)) void setPrTarget(ws.path, ws.branch, undefined).catch(() => undefined).finally(ask);
+    else ask();
+    this.deps.toast(opts.auto ? `${ws.name} is ready for review: ${this.agent()} is opening a draft pull request…` : `${this.agent()} is preparing the pull request…`);
   }
 
   /**
    * Create PR, straight away and without Claude: commits anything left (as the branch's name),
    * pushes, and opens a pull request titled from the commits (`gh pr create`).
    */
-  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean } = {}): Promise<GitHubOutcome> {
+  async quickPr(id: string, opts: { readonly draft?: boolean; readonly https?: boolean; readonly original?: boolean } = {}): Promise<GitHubOutcome> {
     const fail = (message: string): { ok: false; message: string } => {
       this.deps.toast(message, 'error');
       return { ok: false, message };
@@ -392,11 +478,14 @@ export class Workbench {
       if (state !== 'ok') return this.troubleOr(ws, new Error(state === 'missing' ? 'The GitHub CLI (gh) isn’t installed' : 'The GitHub CLI isn’t logged in: gh auth login'), 'GitHub didn’t open the pull request');
       this.deps.store.dispatch({ type: 'gh', ok: true });
     }
+    // Create PR on the original (BLG-727): into the repository the project's origin was forked from.
+    const fork = opts.original ? this.manager.list.find((p) => p.id === ws.projectId)?.fork : undefined;
+    if (opts.original && !fork) return fail('This project’s origin isn’t a fork on GitHub, so there’s no original to open it on');
     if (this.creatingPr.has(id)) return { ok: false, message: 'The pull request is already being opened' };
     this.creatingPr.add(id);
     const branch = ws.branch;
     try {
-      this.deps.toast(`Opening a pull request for ${branch}…`);
+      this.deps.toast(`Opening a pull request for ${branch}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}…`);
       try {
         if ((ws.status?.changed ?? 0) > 0) await this.manager.commitAll(id, titleOfBranch(branch));
       } catch (err) {
@@ -407,7 +496,7 @@ export class Workbench {
       const text = prFromCommits(branch, subjects);
       let pr: PullRequest;
       try {
-        pr = await (this.deps.createPr ?? createPr)(ws.path, { base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}) });
+        pr = await (this.deps.createPr ?? createPr)(ws.path, { base: fork?.branch ?? base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}), ...(fork ? { to: fork } : {}) });
       } catch (err) {
         return this.troubleOr(ws, err, 'GitHub didn’t open the pull request');
       }
@@ -415,7 +504,7 @@ export class Workbench {
       this.pushedAt.set(id, this.now());
       this.deps.store.dispatch({ type: 'pr', id, pr });
       void this.deps.controller.refresh();
-      const message = `Opened PR #${pr.number}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
+      const message = `Opened PR #${pr.number}${fork ? ` on ${fork.owner}/${fork.repo}` : ''}${opts.draft ? ' as a draft' : ''}: ${pr.title || text.title}`;
       this.deps.toast(message, 'success');
       return { ok: true, message };
     } finally {
@@ -458,6 +547,7 @@ export class Workbench {
         const files = result.files.slice(0, 3).join(', ') + (result.files.length > 3 ? '…' : '');
         return warn(`${branch} conflicts with origin/${base} (${files}): nothing was pushed. Create a PR, or ask your agent to bring ${base} in first`);
       }
+      this.sayMerged(id, { into: base });
       void this.deps.controller.refresh();
       void this.refreshPrs(id);
       const message = `Merged ${branch} into ${base} on GitHub${result.how === 'fast_forward' ? '' : ' (a merge commit)'}`;
@@ -504,7 +594,7 @@ export class Workbench {
     const draft = retry === 'pr_draft';
     const again = (https = false): Promise<GitHubOutcome> => {
       if (retry === 'merge_base') return this.mergeToBase(id, https ? { https: true } : {});
-      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(https ? { https: true } : {}) });
+      if (retry !== 'none') return this.quickPr(id, { ...(draft ? { draft: true } : {}), ...(retry === 'pr_original' ? { original: true } : {}), ...(https ? { https: true } : {}) });
       const message = 'GitHub is set up: try it again';
       this.deps.toast(message, 'success');
       return Promise.resolve({ ok: true, message });
@@ -577,13 +667,14 @@ export class Workbench {
   /**
    * Claude Code isn't signed in on this Mac: `claude auth login` in one of your shells (`key`, a
    * global shell the screen picked, so it shows it), and once it ends well the Claude that stopped
-   * in `channel` goes on where it left off.
+   * in `channel` goes on where it left off. `how`: a Claude subscription (the default) or an
+   * Anthropic Console account, the first two of Claude Code's own /login choices.
    */
-  async signInClaude(key: string, channel: string): Promise<{ ok: boolean; message: string }> {
+  async signInClaude(key: string, channel: string, how: 'claudeai' | 'console' = 'claudeai'): Promise<{ ok: boolean; message: string }> {
     if (!isGlobalShell(key)) return { ok: false, message: 'That isn’t one of your shells' };
     const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
     this.closeTerminal(key);
-    const session = this.openSession(key, { path: ws?.path ?? os.homedir() }, `${shQuote(claudeCodeCommand())} auth login`);
+    const session = this.openSession(key, { path: ws?.path ?? os.homedir() }, `${shQuote(claudeCodeCommand())} auth login --${how}`);
     if (!session) return { ok: false, message: 'There’s no terminal here to run it in' };
     this.deps.store.dispatch({ type: 'terminal_name', id: key, name: 'Claude sign-in' });
     this.deps.toast('Sign in to Claude in your browser…');
@@ -606,7 +697,7 @@ export class Workbench {
     return { ok: true, message };
   }
 
-  /** The branch a worktree's PRs go into ("main"). */
+  /** The branch a worktree's PRs go into ("main"): its base on origin (a PR on a fork's original says its own in createPr). */
   private prBase(ws: Workspace): string {
     const project = this.manager.list.find((p) => p.id === ws.projectId);
     const base = (ws.base ?? project?.base ?? 'origin/main').replace(/^origin\//, '');
@@ -619,8 +710,19 @@ export class Workbench {
     const pr = this.deps.store.getState().prs[id];
     if (!ws || !pr) return;
     this.deps.controller.open(id);
-    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws)), `ws:${id}`);
+    const fork = prOnOriginal(this.manager.list.find((p) => p.id === ws.projectId)?.fork, pr);
+    this.deps.askClaude(resolvePrConflictsPrompt(pr, this.prBase(ws), fork ? { url: fork.url, branch: fork.branch } : undefined), `ws:${id}`);
     this.deps.toast(`${this.agent()} is resolving PR #${pr.number}’s conflicts…`);
+  }
+
+  /**
+   * A line across a worktree's chat: what's above it merged (in a PR, on GitHub, or into the main
+   * folder), so you see it there even when it merged outside Beluga. Its saved conversation is
+   * loaded first, so the line lands after it and is saved with it.
+   */
+  private sayMerged(id: string, mark: MergedMark): void {
+    this.deps.controller.ensureLoaded(id);
+    this.deps.store.dispatch({ type: 'system', channel: `ws:${id}`, text: mergedText(mark), merged: mark });
   }
 
   /**
@@ -636,13 +738,11 @@ export class Workbench {
     if ((ws.status?.changed ?? 0) > 0) return this.deps.toast(`${ws.name} has uncommitted changes: commit them first`, 'warn');
     const base = this.prBase(ws);
     const target = `origin/${base}`;
-    try {
-      await fetchRemote(ws.path);
-    } catch (err) {
-      return this.deps.toast(`Couldn’t fetch ${target}: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    }
+    // Over SSH when https can't and SSH can (sync.ts).
+    const fetched = await fetchRemote(ws.path);
+    if (!fetched.ok) return this.deps.toast(`Couldn’t fetch ${target}: ${fetched.message}`, 'error');
     const done = await contentIn(ws.path, 'HEAD', target);
-    this.manager.setPrDone(id, pr.number, { url: pr.url, into: base });
+    this.manager.setPrDone(id, pr.number, { url: pr.url, into: base, ...(pr.head ? { head: pr.head } : {}) });
     this.deps.store.dispatch({ type: 'pr', id, pr: undefined });
     // A line across the chat: what's above went out in this PR, what's below is the next one.
     this.deps.store.dispatch({ type: 'system', channel: `ws:${id}`, text: shippedText(pr.number, base), shipped: { number: pr.number, url: pr.url, into: base } });
@@ -675,6 +775,15 @@ export class Workbench {
    * sentence (a review is required, it conflicts…).
    */
   async mergePr(id: string, opts: MergeOptions): Promise<MergeOutcome> {
+    return this.mergeOnGitHub(id, opts, false);
+  }
+
+  /**
+   * Never a merge without the work it should carry (BLG-840): commits here that the PR doesn't have
+   * are pushed first, and GitHub merges only the head that has them (--match-head-commit). `fromWait`:
+   * Merge When Ready's own merge, which waits again for the checks of anything it had to push.
+   */
+  private async mergeOnGitHub(id: string, opts: MergeOptions, fromWait: boolean): Promise<MergeOutcome> {
     const ws = this.worktree(id);
     const pr = this.deps.store.getState().prs[id];
     const fail = (reason: Extract<MergeOutcome, { ok: false }>['reason'], message: string): MergeOutcome => {
@@ -688,8 +797,17 @@ export class Workbench {
     try {
       // GitHub merges what it has: commits made here since the last push would be left behind, and lost with the worktree. Push them first.
       const unpushed = await (this.deps.unpushedCommits ?? unpushedCommits)(ws.path, ws.branch);
-      if (unpushed > 0) {
-        const commits = unpushed === 1 ? '1 commit' : `${unpushed} commits`;
+      // The PR's own head too: origin/<branch> can be stale, or not the PR's branch at all.
+      const here = await (this.deps.headCarries ?? headCarries)(ws.path, pr.head);
+      // GitHub merges exactly the head that was checked here, or nothing if it moved since.
+      let matchHead = here.carries ? pr.head : undefined;
+      if (unpushed > 0 || here.carries === false) {
+        // Counted as the chip counts them (status.unpushed: main merged in here isn't more work).
+        const n = ws.status?.unpushed || unpushed;
+        const commits = n === 0 ? 'the latest commits' : n === 1 ? '1 commit' : `${n} commits`;
+        const them = n === 1 ? 'it' : 'them';
+        // A fork's pull request checked out here (BLG-756): Beluga can't push to it, so merging would leave them out.
+        if (pullOfBranch(ws.path, ws.branch) !== undefined) return fail('unpushed', `PR #${pr.number} is from someone’s fork, so Beluga can’t push ${commits} here to it, and merging it would leave ${them} out. Suggest ${them} on the PR, or open a PR of your own`);
         this.deps.toast(`Pushing ${commits} to ${ws.branch} before merging PR #${pr.number}…`);
         try {
           await (this.deps.pushForPr ?? pushForPr)(ws.path, ws.branch);
@@ -699,14 +817,23 @@ export class Workbench {
             this.deps.toast(trouble.title, 'warn');
             return { ok: false, reason: 'github', message: troubleLine(trouble), trouble };
           }
-          return fail('unpushed', `Couldn’t push ${commits} in ${ws.name}, so PR #${pr.number} isn’t merged (it would leave ${unpushed === 1 ? 'it' : 'them'} out): ${firstLine(err)}`);
+          return fail('unpushed', `Couldn’t push ${commits} in ${ws.name}, so PR #${pr.number} isn’t merged (it would leave ${them} out): ${firstLine(err)}`);
         }
         this.troubles.delete(id);
         this.pushedAt.set(id, this.now());
+        matchHead = here.head;
+        // Merge When Ready: what was just pushed has checks of its own, so it waits for those too.
+        if (fromWait) {
+          this.manager.setMergeWait(ws.id, { number: pr.number, method: opts.method, since: this.now(), ...(opts.deleteBranch ? { deleteBranch: true } : {}), ...(here.head ? { head: here.head } : {}) });
+          await this.deps.controller.refresh();
+          const message = `Pushed ${commits} to PR #${pr.number}: it merges once their checks pass`;
+          this.deps.toast(message, 'success');
+          return { ok: true, result: 'queued', message };
+        }
       }
-      if (opts.auto) return await this.mergeWhenReady(ws, pr, opts);
+      if (opts.auto) return await this.mergeWhenReady(ws, pr, opts, matchHead !== pr.head ? matchHead : undefined);
       try {
-        await (this.deps.mergePr ?? mergePr)(ws.path, pr.number, opts);
+        await (this.deps.mergePr ?? mergePr)(ws.path, pr.number, matchHead && !opts.matchHead ? { ...opts, matchHead } : opts);
       } catch (err) {
         const trouble = await this.troubleOf(ws, err);
         if (trouble) {
@@ -727,7 +854,9 @@ export class Workbench {
       if (merged && opts.deleteBranch) {
         await (this.deps.deleteRemoteBranch ?? deleteRemoteBranch)(ws.path, ws.branch).catch((err: unknown) => this.deps.toast(`Merged, but the branch on GitHub wasn’t deleted: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
       }
-      const message = merged ? `Merged PR #${pr.number}` : opts.auto ? `PR #${pr.number} merges when its checks pass` : `PR #${pr.number} is queued to merge`;
+      // Merged past its checks: the ones still running check nothing anymore, so they stop (no CI minutes spent on them).
+      const stopped = merged && opts.admin ? await this.cancelRunning(ws, pr) : 0;
+      const message = merged ? `Merged PR #${pr.number}${stopped ? `, and stopped its ${stopped === 1 ? 'running check' : `${stopped} running checks`}` : ''}` : opts.auto ? `PR #${pr.number} merges when its checks pass` : `PR #${pr.number} is queued to merge`;
       this.deps.toast(message, 'success');
       return { ok: true, result: merged ? 'merged' : 'queued', message };
     } finally {
@@ -736,11 +865,24 @@ export class Workbench {
   }
 
   /**
+   * Cancel the Actions runs still going on a PR just merged past its checks, as GitHub saw it
+   * before and after the merge (a run may have started in between) → how many stopped. A run
+   * that finished meanwhile can't be cancelled: that's fine, the merge stands either way.
+   */
+  private async cancelRunning(ws: Workspace, before: PullRequest): Promise<number> {
+    const after = this.deps.store.getState().prs[ws.id];
+    const runs = [...new Set([...runningRunIds(before), ...(after ? runningRunIds(after) : [])])];
+    const cancel = this.deps.cancelRun ?? cancelRun;
+    const done = await Promise.all(runs.map((run) => cancel(ws.path, run).then(() => true, () => false)));
+    return done.filter(Boolean).length;
+  }
+
+  /**
    * Merge When Ready: Beluga waits for the PR's checks itself and merges once they pass (see
    * settleMergeWait). Not GitHub's `--auto`, which merges at once when the repository requires no check.
    */
-  private async mergeWhenReady(ws: Workspace, pr: PullRequest, opts: MergeOptions): Promise<MergeOutcome> {
-    this.manager.setMergeWait(ws.id, { number: pr.number, method: opts.method, since: this.now(), ...(opts.deleteBranch ? { deleteBranch: true } : {}) });
+  private async mergeWhenReady(ws: Workspace, pr: PullRequest, opts: MergeOptions, pushed?: string): Promise<MergeOutcome> {
+    this.manager.setMergeWait(ws.id, { number: pr.number, method: opts.method, since: this.now(), ...(opts.deleteBranch ? { deleteBranch: true } : {}), ...(pushed ? { head: pushed } : {}) });
     await this.deps.controller.refresh();
     const message = `PR #${pr.number} merges once its checks pass`;
     this.deps.toast(message, 'success');
@@ -778,6 +920,16 @@ export class Workbench {
    * with a notice when they fail, it conflicts, or it was closed.
    */
   private async settleMergeWait(ws: Workspace, pr: PullRequest | undefined): Promise<void> {
+    if (this.settling.has(ws.id)) return;
+    this.settling.add(ws.id);
+    try {
+      await this.settleMergeWaitNow(ws, pr);
+    } finally {
+      this.settling.delete(ws.id);
+    }
+  }
+
+  private async settleMergeWaitNow(ws: Workspace, pr: PullRequest | undefined): Promise<void> {
     const wait = this.manager.find(ws.id)?.mergeWhenReady;
     if (!wait || this.merging.has(ws.id)) return;
     const channel = `ws:${ws.id}`;
@@ -792,6 +944,12 @@ export class Workbench {
     };
     // Merged or closed some other way (GitHub says so on its own), or a newer PR: nothing to wait for.
     if (!pr || pr.number !== wait.number || pr.state !== 'OPEN') return done();
+    // Just pushed (BLG-840): until GitHub's PR has that commit, its checks and conflicts are an older one's.
+    // A head it can't place (someone pushed on top) isn't waited on: the merge itself checks again.
+    if (wait.head && pr.head && pr.head !== wait.head && (await (this.deps.headCarries ?? headCarries)(ws.path, pr.head)).carries === false) {
+      if (this.now() - wait.since < PUSHED_HEAD_WAIT_MS) return;
+      return stop(`PR #${pr.number} still doesn’t have the commits pushed for it: not merging it`);
+    }
     if (pr.conflicts) return stop(`PR #${pr.number} conflicts with its base: not merging it`);
     if (pr.checks === 'failing') return stop(`Checks failed on PR #${pr.number}: not merging it`);
     if (pr.review === 'CHANGES_REQUESTED') return stop(`Changes were requested on PR #${pr.number}: not merging it`);
@@ -801,7 +959,9 @@ export class Workbench {
     // Waiting on a review, or the branch's rules: those can pass later.
     if (pr.review === 'REVIEW_REQUIRED' || pr.mergeState === 'blocked' || pr.mergeState === 'behind') return;
     await done();
-    const out = await this.mergePr(ws.id, { method: wait.method, ...(wait.deleteBranch ? { deleteBranch: true } : {}) });
+    const out = await this.mergeOnGitHub(ws.id, { method: wait.method, ...(wait.deleteBranch ? { deleteBranch: true } : {}) }, true);
+    // It pushed commits that weren't on the PR first, and waits for their checks now.
+    if (out.ok && out.result === 'queued') return;
     if (out.ok) this.deps.notify({ kind: 'pr', title: `PR #${pr.number} merged: its checks passed`, body: ws.name, channel });
     else this.deps.notify({ kind: 'problems', title: `PR #${pr.number} didn’t merge`, body: out.message, channel });
   }
@@ -822,6 +982,65 @@ export class Workbench {
     if (step === 'update_branch') this.pushedAt.set(id, this.now());
     await this.refreshPrs(id);
     const message = step === 'ready' ? `PR #${pr.number} is ready for review` : `PR #${pr.number} has the latest ${(ws.base ?? 'base').replace(/^origin\//, '')} now`;
+    this.deps.toast(message, 'success');
+    return { ok: true, message };
+  }
+
+  /**
+   * Push a worktree's commits to its open PR, no Claude in between: what GitHub said (failing
+   * checks, conflicts) was about an older commit, and pushing runs its checks again. Then its
+   * status and the PR are looked at again, so the toolbar moves on.
+   */
+  async pushPr(id: string): Promise<GitHubOutcome> {
+    const ws = this.worktree(id);
+    const pr = this.deps.store.getState().prs[id];
+    if (!ws?.branch) return { ok: false, message: 'Only a worktree (a branch of its own) can push' };
+    if (this.creatingPr.has(id)) return { ok: false, message: 'It’s already being pushed' };
+    // A fork's pull request checked out here (BLG-756): its branch lives on the fork, so pushing to
+    // origin wouldn't reach the PR, and would stop the branch following refs/pull/<n>/head.
+    const pull = pullOfBranch(ws.path, ws.branch);
+    if (pull !== undefined) {
+      const message = `PR #${pull} is from someone’s fork: Beluga can’t push to it, so your commits stay here. Suggest them on the PR, or open a PR of your own`;
+      this.deps.toast(message, 'info');
+      return { ok: false, message };
+    }
+    this.creatingPr.add(id);
+    try {
+      await (this.deps.pushForPr ?? pushForPr)(ws.path, ws.branch);
+    } catch (err) {
+      return this.troubleOr(ws, err, `Couldn’t push ${ws.branch}`);
+    } finally {
+      this.creatingPr.delete(id);
+    }
+    this.troubles.delete(id);
+    this.pushedAt.set(id, this.now());
+    await this.deps.controller.refresh();
+    await this.refreshPrs(id);
+    const message = pr?.state === 'OPEN' ? `Pushed ${ws.branch}: PR #${pr.number}’s checks run again` : `Pushed ${ws.branch}`;
+    this.deps.toast(message, 'success');
+    return { ok: true, message };
+  }
+
+  /** Run a PR's failed Actions jobs again on the same commit (a flaky test): `gh run rerun <id> --failed` for each run. */
+  async rerunChecks(id: string): Promise<GitHubOutcome> {
+    const ws = this.worktree(id);
+    const pr = this.deps.store.getState().prs[id];
+    if (!ws || !pr || pr.state !== 'OPEN') return { ok: false, message: 'This worktree has no open pull request' };
+    const runs = failedRunIds(pr);
+    if (!runs.length) {
+      const message = `None of PR #${pr.number}’s failed checks are GitHub Actions runs Beluga can start again: open the PR to re-run them`;
+      this.deps.toast(message, 'info');
+      return { ok: false, message };
+    }
+    try {
+      for (const run of runs) await (this.deps.rerunFailed ?? rerunFailed)(ws.path, run);
+    } catch (err) {
+      return this.troubleOr(ws, err, 'GitHub didn’t re-run the checks');
+    }
+    // Looked at often again, as after a push: the checks show as running soon.
+    this.pushedAt.set(id, this.now());
+    await this.refreshPrs(id);
+    const message = `PR #${pr.number}’s failed checks are running again`;
     this.deps.toast(message, 'success');
     return { ok: true, message };
   }
@@ -888,6 +1107,11 @@ export class Workbench {
     }
   }
 
+  /** Where a workspace's folder is (a live preview builds from it), or undefined when it's gone. */
+  folderOf(id: string): string | undefined {
+    return this.manager.find(id)?.path;
+  }
+
   /** Lines of a file in a workspace, for a code block in chat (never outside it, never a secret). */
   async excerpt(id: string, file: string, from?: number, to?: number): Promise<{ readonly ok: true; readonly excerpt: Excerpt } | { readonly ok: false; readonly message: string }> {
     const ws = this.manager.find(id);
@@ -943,7 +1167,8 @@ export class Workbench {
         // Merge When Ready waits on it: looked at often, so it merges soon after its checks pass.
         const every = ws.mergeWhenReady && prs[ws.id]?.state === 'OPEN' ? PR_FAST_MS : prCadence(prs[ws.id], this.pushedAt.get(ws.id), now);
         if (every === undefined) return false;
-        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : every);
+        // Low Power mode (BLG-621): looked at less often, unless you came back to the window or pushed.
+        return pushed || now - (this.prChecked.get(ws.id) ?? 0) >= (reason === 'focus' ? PR_FOCUS_FRESH_MS : pace(every, this.deps.store.getState().powerSaving));
       });
       if (due.length) await this.lookUpPrs(due, false);
     } finally {
@@ -998,7 +1223,11 @@ export class Workbench {
     for (const ws of list) byProject.set(ws.projectId, [...(byProject.get(ws.projectId) ?? []), ws]);
     const later: Workspace[] = [];
     const tasks: Array<() => Promise<void>> = [];
-    for (const group of byProject.values()) {
+    for (const all of byProject.values()) {
+      // A PR on a fork's original isn't in origin's list: asked about by itself (gh pr view owner:branch there).
+      // Nor is a fork's PR checked out here by its branch name: asked about by its number.
+      const group = all.filter((ws) => !prTargetOf(ws.path, ws.branch) && pullOfBranch(ws.path, ws.branch!) === undefined);
+      tasks.push(...all.filter((ws) => !group.includes(ws)).map((ws) => () => one(ws)));
       if (!listAll || group.length < 2) {
         tasks.push(...group.map((ws) => () => one(ws)));
         continue;
@@ -1025,10 +1254,21 @@ export class Workbench {
   /** gh's answer for a worktree's branch: keep it, and tell you what changed. */
   private gotPr(ws: Workspace, found: PullRequest | undefined, quiet: boolean): void {
     // A PR you carried on after (Continue After Merge) is done: the branch waits for its next one.
-    const pr = found && ws.prDone !== undefined && found.number <= ws.prDone ? undefined : found;
+    // Numbers only compare within one repository (a fork's and its original's both have a #5).
+    const sameRepo = !ws.prShipped?.url || !found || repoOfPr(ws.prShipped.url) === repoOfPr(found.url);
+    const pr = found && ws.prDone !== undefined && sameRepo && found.number <= ws.prDone ? undefined : found;
     const before = this.deps.store.getState().prs[ws.id];
     if (!samePr(before, pr)) this.deps.store.dispatch({ type: 'pr', id: ws.id, pr });
+    // Merged at that commit: what's in it is on GitHub, so the Delete step stops counting it as unpushed (BLG-833).
+    if (pr?.state === 'MERGED' && pr.head && this.manager.setMergedHead(ws.id, pr.head)) void this.deps.controller.refreshWorkspace(ws.path).catch(() => undefined);
     void this.settleMergeWait(ws, pr);
+    const state = this.deps.store.getState();
+    const key = triageKey(state, `ws:${ws.id}`);
+    const lastAt = (key ? state.triage[key]?.lastAt : undefined) ?? lastLogAt(state.log, `ws:${ws.id}`);
+    if (pr && mergedLineDue(pr, before, quiet, this.manager.find(ws.id)?.mergeSaid, lastAt)) {
+      this.manager.setMergeSaid(ws.id, pr.number);
+      this.sayMerged(ws.id, { into: this.prBase(ws), number: pr.number, url: pr.url });
+    }
     if (!pr || quiet) return;
     const asked = this.prAsked.delete(ws.id);
     // Merged or closed is said once, even if gh's answers flicker.
@@ -1041,12 +1281,36 @@ export class Workbench {
   /** Open your PR instructions in your editor (created with the built-in text the first time). */
   editPrPrompt(): void {
     const file = ensurePrPromptFile();
+    const opened = (): void => {
+      this.deps.store.dispatch({ type: 'pr_custom', custom: true });
+      this.deps.toast(`Opened ${tilde(file)}. Save it; the next PR uses it`, 'success');
+    };
+    // The system's own way to open it: when there's no editor to start, or yours didn't start.
+    const openHere = (): void => {
+      (this.deps.open ?? systemOpen)(file);
+      opened();
+    };
     const editor = process.env.VISUAL ?? '';
-    if (/\b(code|cursor|subl|zed|mate|gedit|kate)\b/.test(editor)) spawn(editor, [file], { stdio: 'ignore', detached: true }).on('error', () => undefined).unref();
-    else if (process.platform === 'darwin') spawn('open', ['-t', file], { stdio: 'ignore', detached: true }).on('error', () => undefined).unref();
-    else (this.deps.open ?? systemOpen)(file);
-    this.deps.store.dispatch({ type: 'pr_custom', custom: true });
-    this.deps.toast(`Opened ${file.replace(process.env.HOME ?? '', '~')}. Save it; the next PR uses it`, 'success');
+    if (/\b(code|cursor|subl|zed|mate|gedit|kate)\b/.test(editor)) {
+      const how = editorCommand(editor, file);
+      const child = spawn(how.command, [...how.args], { stdio: 'ignore', detached: true, shell: how.shell, windowsHide: true });
+      child.once('spawn', opened);
+      child.once('error', openHere);
+      // Through cmd (Windows) it always starts: cmd ending at once with an error means the editor
+      // wasn't found, so the system opens it. (An editor run with --wait ends much later.)
+      if (how.shell) {
+        const started = Date.now();
+        child.once('exit', (code) => {
+          if (code !== 0 && Date.now() - started < EDITOR_MISSING_MS) (this.deps.open ?? systemOpen)(file);
+        });
+      }
+      child.unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', ['-t', file], { stdio: 'ignore', detached: true })
+        .once('spawn', opened)
+        .once('error', openHere)
+        .unref();
+    } else openHere();
   }
 
   resetPrPrompt(): void {
@@ -1072,7 +1336,8 @@ export class Workbench {
       rows: size.rows,
       env,
       ...(shell ? { shell } : {}),
-      ...(command ? { args: ['-l', '-c', command], title: command } : { args: shellArgs({ login: prefs.shellLogin, extra: prefs.shellArgs }) }),
+      // PowerShell and cmd (Windows) take neither -l nor -c: each shell gets the arguments it knows.
+      ...(command ? { args: commandArgs(shell ?? defaultShell(), command), title: command } : { args: shellArgs({ login: prefs.shellLogin, extra: prefs.shellArgs, shell: shell ?? defaultShell() }) }),
     });
     this.deps.store.dispatch({ type: 'terminal', id: key, title: session.title });
     // A setup is over in a moment: only shells and the run command are worth a restart later.
@@ -1286,14 +1551,15 @@ export class Workbench {
         this.deps.toast(`${ws.name} is set up`, 'success');
         return;
       }
-      if (learn && this.deps.fixSetup) return void this.retrySetup(ws, command, code, session.backlog());
-      this.setupFailed(ws, command, code, session.backlog());
+      if (learn && this.deps.fixSetup) return void this.retrySetup(ws, command, code, session.backlog(), session.exited?.signal);
+      this.setupFailed(ws, command, code, session.backlog(), session.exited?.signal);
     });
   }
 
-  private setupFailed(ws: Workspace, command: string, code: number | null, output = ''): void {
-    this.deps.store.dispatch({ type: 'setup', id: ws.id, run: { status: 'failed', command, detail: `exit code ${code ?? '?'}` } });
-    this.deps.notify({ kind: 'problems', title: `Setup failed in ${ws.name}`, body: `${command} (exit code ${code ?? '?'}). See its Terminal tab`, channel: `ws:${ws.id}` });
+  private setupFailed(ws: Workspace, command: string, code: number | null, output = '', signal?: number): void {
+    const ended = endedWords(code, signal);
+    this.deps.store.dispatch({ type: 'setup', id: ws.id, run: { status: 'failed', command, detail: ended } });
+    this.deps.notify({ kind: 'problems', title: `Setup failed in ${ws.name}`, body: `${command} (${ended}). See its Terminal tab`, channel: `ws:${ws.id}` });
     this.offerFix(ws, 'setup', command, code, output);
   }
 
@@ -1346,11 +1612,11 @@ export class Workbench {
   }
 
   /** Setup failed: ask what it should be, remember the answer, and run that (once). */
-  private async retrySetup(ws: Workspace, command: string, code: number | null, output: string): Promise<void> {
+  private async retrySetup(ws: Workspace, command: string, code: number | null, output: string, signal?: number): Promise<void> {
     this.deps.toast(`Setup failed in ${ws.name}. Looking for the right one…`);
     const fix = await this.deps.fixSetup!(ws.path, command, output);
     const project = this.manager.find(ws.id) && this.manager.list.find((p) => p.id === ws.projectId);
-    if (!project || !fix || ('command' in fix && fix.command === command)) return this.setupFailed(ws, command, code, output);
+    if (!project || !fix || ('command' in fix && fix.command === command)) return this.setupFailed(ws, command, code, output, signal);
     if ('none' in fix) {
       this.deps.store.dispatch({ type: 'setup', id: ws.id });
       return this.learnSetup(project.id, fix, `${project.name} needs no setup. New worktrees skip it from now on`);
@@ -1380,7 +1646,22 @@ export class Workbench {
    * What it says is kept as yours, marked as Claude's. Undefined when there's nothing to look at.
    */
   private workOut(ws: Workspace): Promise<void> | undefined {
-    const project = this.manager.list.find((p) => p.id === ws.projectId);
+    return this.workOutIn(ws.projectId, ws.path);
+  }
+
+  /**
+   * A project just made ready on this computer (BLG-787): its setup worked out for this system
+   * (`system`, said to the setup agent) in its main folder and kept here, like a first worktree's.
+   * → the setup new worktrees run here (none: it needs none, or it couldn't be told).
+   */
+  async workOutFor(projectId: string, system: string): Promise<string | undefined> {
+    const project = this.manager.list.find((p) => p.id === projectId);
+    if (project?.root) await this.workOutIn(projectId, project.root, system);
+    return this.manager.yourScripts(projectId).skipSetup ? undefined : this.manager.scripts(projectId).setup?.command;
+  }
+
+  private workOutIn(projectId: string, dir: string, system?: string): Promise<void> | undefined {
+    const project = this.manager.list.find((p) => p.id === projectId);
     if (!project?.root || !this.deps.workOutScripts) return undefined;
     const pending = this.workingOut.get(project.id);
     if (pending) return pending;
@@ -1392,7 +1673,7 @@ export class Workbench {
     const guessed = now.setup?.source === 'detected' && !/^(make|just) /.test(now.setup.command) ? now.setup.command : undefined;
     const want = { setup: (!now.setup || Boolean(guessed)) && !yours.skipSetup, run: !now.run };
     if (!want.setup && !want.run) return undefined;
-    const asked = this.deps.workOutScripts(ws.path, want);
+    const asked = this.deps.workOutScripts(dir, { ...want, ...(system ? { system } : {}) });
     if (!asked) return undefined;
     this.deps.toast(`Working out how to ${want.setup && want.run ? 'set up and run' : want.setup ? 'set up' : 'run'} ${project.name}…`);
     const done = asked
@@ -1419,7 +1700,7 @@ export class Workbench {
           said.push(`run \`${found.run.command}\``);
         } else if (found.run) said.push('nothing to run');
         this.remember(project.id, learned, mine);
-        if (said.length) this.deps.toast(`${project.name}: ${said.join(', ')}. Change them in its ⋯ menu (Setup and run commands)`, 'success');
+        if (said.length) this.deps.toast(`${project.name}: ${said.join(', ')}. Change them in its ⋯ menu (Project Settings…)`, 'success');
       })
       .catch(() => undefined)
       .finally(() => this.workingOut.delete(project.id));
@@ -1451,11 +1732,11 @@ export class Workbench {
       if (looking && ws) {
         void looking.then(() => {
           if (this.manager.find(wsId) && project && this.manager.scripts(project.id).run) this.run(wsId);
-          else this.deps.toast(`${this.agent()} couldn't find a way to run this project. Set one in its ⋯ menu (Setup and run commands)`, 'warn');
+          else this.deps.toast(`${this.agent()} couldn't find a way to run this project. Set one in its ⋯ menu (Project Settings…)`, 'warn');
         });
         return undefined;
       }
-      this.deps.toast("This project has no run command. Set one in its ⋯ menu (Setup and run commands)", 'warn');
+      this.deps.toast("This project has no run command. Set one in its ⋯ menu (Project Settings…)", 'warn');
       return undefined;
     }
     const current = this.deps.terminals?.get(runId(wsId));
@@ -1608,13 +1889,18 @@ export class Workbench {
     return true;
   }
 
-  async measureDisk(): Promise<void> {
+  measureDisk(): Promise<void> {
+    return (this.measuring ??= this.measureRound().finally(() => (this.measuring = undefined)));
+  }
+
+  /** Every folder, one at a time, worktrees before main folders (a main folder's node_modules can take the whole time budget); each size shows as soon as it's known. */
+  private async measureRound(): Promise<void> {
     const dirs = this.manager.list
       .flatMap((p) => p.workspaces)
       .filter((w) => !w.archived && (w.kind === 'worktree' || w.kind === 'main' || (w.kind === 'chat' && !w.projectRoot)))
+      .sort((a, b) => Number(a.kind === 'main') - Number(b.kind === 'main'))
       .map((w) => ({ id: w.id, path: w.path }));
-    const sizes = await measureAll(dirs, this.deps.measure);
-    this.deps.store.dispatch({ type: 'disk', sizes });
+    await measureAll(dirs, this.deps.measure, (id, size) => this.deps.store.dispatch({ type: 'disk', sizes: { [id]: size } }));
   }
 
   /** "1.2 GB · 340k tokens" for a workspace. */
@@ -1639,15 +1925,23 @@ export class Workbench {
     };
     for (const channel of loaded) {
       if (channel === 'draft') continue;
+      // The room's chat is a page only while someone else is in it (BLG-871): alone, a hit there would open nothing.
+      if (channel === 'room' && state.peers.length <= 1) continue;
       const ws = channel.startsWith('ws:') ? this.manager.find(channel.slice(3)) : undefined;
       const shared = channel.startsWith('ws:') ? state.shared.find((w) => w.id === channel.slice(3)) : undefined;
-      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? (state.peers.length > 1 ? 'Group chat' : 'Chat') : channel, items: state.log.filter((l) => l.channel === channel), archived: ws?.archived });
+      // A workspace that's gone (deleted, its project removed): nothing to open, so nothing to find.
+      if (channel.startsWith('ws:') && !ws && !shared) continue;
+      const items = state.log.filter((l) => l.channel === channel);
+      sources.push({ channel, place: ws ? placeOf(ws) : shared ? shared.name : channel === 'room' ? 'Group chat' : isAssistant(channel) ? macChatPlace(channel, items) : channel, items, archived: ws?.archived });
     }
     for (const ws of this.manager.list.flatMap((p) => p.workspaces)) {
       const channel = `ws:${ws.id}`;
       if (loaded.has(channel)) continue;
       const items = this.manager.loadHistory<LogItem>(ws.id);
       if (items.length) sources.push({ channel, place: placeOf(ws), items, archived: ws.archived });
+    }
+    for (const { channel, items } of this.deps.savedChats?.(loaded) ?? []) {
+      if (items.length) sources.push({ channel, place: macChatPlace(channel, items), items });
     }
     const hits = searchConversations(query, sources);
     this.deps.store.dispatch({ type: 'search', search: { query, hits, searched: sources.length } });
@@ -1662,6 +1956,23 @@ export class Workbench {
       this.deps.intend({ type: 'navigate', view: { kind: 'room' } });
       return;
     }
+    const chat = assistantChatOf(hit.channel);
+    if (chat) {
+      this.deps.loadSavedChat?.(chat);
+      this.deps.intend({ type: 'navigate', view: { kind: 'assistant', chat } });
+      return;
+    }
+    const sentinelChat = sentinelChatOf(hit.channel);
+    if (sentinelChat) {
+      this.deps.intend({ type: 'navigate', view: { kind: 'sentinel_chat', chat: sentinelChat } });
+      return;
+    }
+    // A chat with a friend or a group: its channel is the conversation's id (the Mac adds its tab).
+    if (hit.channel.startsWith('dm:') || hit.channel.startsWith('group:')) {
+      this.deps.intend({ type: 'navigate', view: { kind: 'conversation', id: hit.channel } });
+      return;
+    }
+    if (!hit.channel.startsWith('ws:')) return;
     const id = hit.channel.slice(3);
     const shared = state.shared.find((w) => w.id === id);
     if (shared) this.deps.intend({ type: 'navigate', view: { kind: 'shared', owner: shared.owner, id, tab: 'chat' } });

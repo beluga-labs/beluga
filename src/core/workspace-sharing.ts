@@ -1,4 +1,4 @@
-import { defaultAgentOf } from '../protocol.js';
+import { defaultAgentOf, wsWireName } from '../protocol.js';
 import { placeAgent } from '../shared/agent-picker.js';
 import type { BodyInput, BodyOf, GuestCan, WsRole } from '../protocol.js';
 import { agentLabel } from '../shared/agent-label.js';
@@ -7,6 +7,7 @@ import type { ShareService } from './shares.js';
 import { type DomainState, type LogItem, type SaidBy, type Store, clean, peerName } from './store.js';
 import { shareNameOf } from './workspace-controller.js';
 import type { Intent } from './intents.js';
+import { SENTINEL_CHAT_PREFIX } from './sentinel/model.js';
 
 /** What to share with a friend: a project (all its worktrees, now and later), or one worktree (`workspaceId`; `projectId` may come with it). */
 export interface FriendShareInput {
@@ -34,17 +35,21 @@ export interface SharingDeps {
 }
 
 const HISTORY_ITEMS = 60;
+/** How long each message of a room invite's history may be (the room's ws_invite takes no more). */
+const HISTORY_TEXT = 8000;
 const wsIdOf = (channel: string): string | undefined => (channel.startsWith('ws:') ? channel.slice(3) : undefined);
+/** Your Mac chats and the Sentinel chat: only you post into them (BLG-393). */
+const isOwnerOnly = (channel: string): boolean => channel === 'mac:assistant' || channel.startsWith('mac:assistant:') || channel.startsWith(SENTINEL_CHAT_PREFIX);
 
-/** A short, plain-text version of the recent conversation for someone joining. */
-export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
+/** A short, plain-text version of the recent conversation for someone joining: its last `limit` messages, each up to `max` characters. */
+export function historyFor(log: readonly LogItem[], channel: string, nameOf: (id: string) => string, limit = HISTORY_ITEMS, max = HISTORY_TEXT): Array<{ from: string; text: string; ts: number; byAgent: boolean }> {
   return log
     .filter((l) => l.channel === channel && (l.type === 'chat' || (l.type === 'agent' && l.status === 'done')))
     .slice(-limit)
     .map((l) =>
       l.type === 'chat'
-        ? { from: nameOf(l.from), text: l.text.slice(0, 8000), ts: l.ts, byAgent: l.byAgent }
-        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, 8000) : '', ts: l.ts, byAgent: true },
+        ? { from: nameOf(l.from), text: l.text.slice(0, max), ts: l.ts, byAgent: l.byAgent }
+        : { from: l.type === 'agent' ? agentLabel(l.agent, l.ownerName, false) : '', text: l.type === 'agent' ? l.text.slice(0, max) : '', ts: l.ts, byAgent: true },
     );
 }
 
@@ -88,11 +93,21 @@ export class WorkspaceSharing {
     return Object.keys(this.members(id));
   }
 
+  /**
+   * May `from`'s agent write this turn into this channel? The owner's always; a contributor's own
+   * agent too, for its own asks (a guest's "@claude" in a friend's worktree), never for someone else's.
+   */
+  agentMayWrite(from: string, channel: string, requester: string): boolean {
+    if (from === this.deps.selfId() || this.sharedFor(channel)?.owner === from) return true;
+    return wsIdOf(channel) !== undefined && requester === from && this.canPost(from, channel);
+  }
+
   /** May `from` post into (or ask Claude in) this channel? */
   canPost(from: string, channel: string): boolean {
+    if (from === this.deps.selfId()) return true;
+    if (isOwnerOnly(channel)) return false;
     const id = wsIdOf(channel);
     if (!id) return true;
-    if (from === this.deps.selfId()) return true;
     const shared = this.sharedFor(channel);
     if (shared) return from === shared.owner || (this.deps.store.getState().roster[id] ?? []).some((m) => m.peerId === from && m.role === 'contribute');
     return this.members(id)[from] === 'contribute';
@@ -119,7 +134,7 @@ export class WorkspaceSharing {
     this.syncShare(wsId);
     const project = state.projects.find((p) => p.id === ws.projectId)?.name ?? '';
     const history = historyFor(state.log, `ws:${wsId}`, (id) => peerName(state, id));
-    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: ws.name, project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
+    this.deps.send({ kind: 'ws_invite', ws: { id: wsId, name: wsWireName(ws.name), project, ...(ws.branch ? { branch: ws.branch } : {}), agent: placeAgent(ws, defaultAgentOf(state.self)) }, role, ...(opts.can ? { can: opts.can } : {}), share: shareNameOf(wsId), history }, { to: peerId });
     this.broadcastRoster(wsId);
     this.onChange?.();
     if (!opts.quiet) this.deps.toast(`${peer.name} ${role === 'contribute' ? 'can now work with you' : 'can now follow along'} in ${ws.name}`, 'success');

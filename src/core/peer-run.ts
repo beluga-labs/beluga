@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import { mentionsSecret } from '../agent/policy.js';
-import { type BodyInput, type BodyOf, MAX_SHELL_OUTPUT, MAX_SHELL_SECONDS } from '../protocol.js';
+import { type BodyInput, type BodyOf, MAX_SHELL_OUTPUT, MAX_SHELL_SECONDS, type MessageVia } from '../protocol.js';
 import { ATTACHMENT_SHARE } from './attachments.js';
 import { tilde } from './paths.js';
+import { posixSh } from '../terminal/pty.js';
 import { killTree, ownGroup } from './process-tree.js';
 import { expandPath } from './remote-work.js';
 import { type ShareService, isSecretPath } from './shares.js';
-import { type ShellItem, type Store, clean, peerName } from './store.js';
+import { type ShellItem, type Store, clean, peerName, viaName } from './store.js';
 import type { AccessDecision, Decision, RequestFacts } from './gateway/access.js';
 import { declineReason } from './gateway/access.js';
 import { type TrustLevel, reachOf, shellGate, trustOf } from './trust.js';
@@ -44,8 +45,51 @@ export function keepTail(text: string, max = MAX_SHELL_OUTPUT): { text: string; 
 export { tilde };
 
 const BASE_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TZ'];
-/** The few environment variables a friend's command gets (never tokens or keys). */
-export const baseEnv = (): Record<string, string> => Object.fromEntries(BASE_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k] as string]] : [])));
+/** What Windows itself needs for programs to start and find their folders (none of it a secret). */
+const WINDOWS_ENV = [
+  'SystemRoot',
+  'windir',
+  'ComSpec',
+  'PATHEXT',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'USERNAME',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'ProgramData',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'ProgramW6432',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'NUMBER_OF_PROCESSORS',
+  'PROCESSOR_ARCHITECTURE',
+  'OS',
+];
+
+/**
+ * The few environment variables a friend's command gets (never tokens or keys). Windows names
+ * them in any letter case (its PATH is often "Path"), so there they're found that way.
+ */
+export function baseEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  const win = platform === 'win32';
+  const value = (name: string): string | undefined => env[name] ?? (win ? Object.entries(env).find(([k]) => k.toUpperCase() === name.toUpperCase())?.[1] : undefined);
+  return Object.fromEntries([...BASE_ENV, ...(win ? WINDOWS_ENV : [])].flatMap((k) => {
+    const v = value(k);
+    return v ? [[k, v]] : [];
+  }));
+}
+
+/**
+ * The shell a friend's command runs in: /bin/sh; on Windows Git Bash when it's there (Claude writes
+ * commands for sh, as Claude Code itself runs them there), else cmd.
+ */
+export function peerShell(command: string, platform: NodeJS.Platform = process.platform, findSh: () => string | undefined = posixSh): { readonly file: string; readonly args: readonly string[] } {
+  if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', command] };
+  const sh = findSh();
+  return sh ? { file: sh, args: ['-c', command] } : { file: 'cmd.exe', args: ['/d', '/s', '/c', command] };
+}
 
 /**
  * Run a command in a non-interactive shell: no input (stdin is closed), output capped (tail
@@ -54,12 +98,11 @@ export const baseEnv = (): Record<string, string> => Object.fromEntries(BASE_ENV
 export const runShell: ShellRunner = (command, cwd, timeoutMs) =>
   new Promise((resolve) => {
     const started = Date.now();
-    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command];
+    const { file: shell, args } = peerShell(command);
     let out = '';
     let truncated = false;
     let timedOut = false;
-    const child = spawn(shell, args, {
+    const child = spawn(shell, [...args], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: ownGroup(),
@@ -196,7 +239,7 @@ export class PeerRun {
    * Run a command on a friend's computer and show it (with its output) in `channel`.
    * Resolves with their answer; rejects only when it couldn't be asked at all.
    */
-  async run(peerId: string, command: string, opts: { cwd?: string; project?: string; timeoutSec?: number; why?: string; viaAgent: boolean; channel: string }): Promise<BodyOf<'shell_result'>> {
+  async run(peerId: string, command: string, opts: { cwd?: string; project?: string; timeoutSec?: number; why?: string; viaAgent: boolean; channel: string; via?: MessageVia }): Promise<BodyOf<'shell_result'>> {
     const reqId = randomUUID();
     const timeoutSec = Math.min(MAX_SHELL_SECONDS, Math.max(1, Math.round(opts.timeoutSec ?? DEFAULT_SHELL_SECONDS)));
     const item: ShellItem = {
@@ -227,6 +270,7 @@ export class PeerRun {
       command: item.command,
       timeoutSec,
       viaAgent: opts.viaAgent,
+      ...(opts.via ? { via: opts.via } : {}),
       why: (opts.why ?? '').slice(0, 500),
       ...(opts.cwd ? { cwd: opts.cwd.slice(0, 4096) } : {}),
       ...(opts.project ? { project: opts.project.slice(0, 80) } : {}),
@@ -371,7 +415,7 @@ export class PeerRun {
     const state = this.state;
     const cwd = await this.where(from, body, level === 'full');
     const name = peerName(state, from);
-    const who = `${name}${body.viaAgent ? "'s agent" : ''}`;
+    const who = `${name}${body.viaAgent ? "'s agent" : ''}${body.via ? ` (via ${viaName(body.via)})` : ''}`;
     const facts: RequestFacts = { peerId: from, kind: 'command', needs: ['shell'], command: body.command, folder: cwd, ...(body.project ? { project: body.project } : {}) };
     // The gateway decided already; otherwise your rules and capabilities decide (when attached), else trust alone.
     if (hooks.approved) gate = 'run';
@@ -383,7 +427,7 @@ export class PeerRun {
     if (gate === 'ask' && (this.access || !this.always.has(from))) {
       hooks.asking?.();
       const answer = await this.deps.approve(
-        `${name} (#${from.slice(0, 6)})${body.viaAgent ? "'s agent" : ''} wants to run a command on your computer`,
+        `${name} (#${from.slice(0, 6)})${body.viaAgent ? "'s agent" : ''}${body.via ? ` (via ${viaName(body.via)})` : ''} wants to run a command on your computer`,
         `in ${tilde(cwd, this.home)}\n$ ${clean(body.command)}\nstops after ${formatDuration(body.timeoutSec * 1000)} · no input${body.why ? `\nwhy: ${clean(body.why)}` : ''}\n${this.access ? `Always = run this command from ${name} in this folder without asking (a rule you can change in Settings › People & access)` : `Always = run ${name}'s commands without asking until Beluga quits`}`,
         from,
       );

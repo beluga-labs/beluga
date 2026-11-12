@@ -26,6 +26,15 @@ export function soundName(choice: SoundChoice): string {
 /** "8-bit · Coin": the name with where it's from. */
 export const soundTitle = (choice: SoundChoice): string => (choice.kind === 'none' || choice.kind === 'mac' ? soundName(choice) : `${FAMILY_LABELS[choice.kind]} · ${soundName(choice)}`);
 
+/** The sound Beluga's own chime stands in for off the Mac, where the Mac's sounds aren't there. */
+const MAC_STAND_IN: SoundChoice = { kind: 'chip', id: 'chime' };
+
+/** What can really play on this computer: a Mac sound off the Mac (the default is one) becomes Beluga's chime. */
+export const playableHere = (choice: SoundChoice, onMac: boolean): SoundChoice => (choice.kind === 'mac' && !onMac ? MAC_STAND_IN : choice);
+
+/** The kinds of sound to pick from: the Mac's own only on a Mac. */
+export const familiesHere = (onMac: boolean): readonly SoundFamily[] => (onMac ? ['chip', 'gen', 'mac', 'none'] : ['chip', 'gen', 'none']);
+
 /** Whether Beluga makes this sound itself (and the volume slider applies). */
 export const belugaMade = (choice: SoundChoice): choice is Extract<SoundChoice, { kind: 'chip' | 'gen' }> => choice.kind === 'chip' || choice.kind === 'gen';
 

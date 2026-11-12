@@ -10,16 +10,20 @@ import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { useMyAgentName } from '../../lib/agent-words.js';
 import { focusFor, openFocus, showPanelTab, forgetChangeAsk, peekChangeAsk, usePanelRuntime } from '../../lib/panel.js';
 import { SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN, clampShare } from '../../lib/panel-model.js';
+import { dirOf, groupByFolder, shownOrder } from '../../lib/changes-model.js';
 import { setPrefs, usePrefs } from '../../lib/prefs.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { useWsBusy, whileBusy } from '../../lib/ws-busy.js';
 import { STATE, UnifiedDiff, useCommitItems, useFileItems } from '../../views/DiffView.js';
-import { type ChangeLook, ChangedFileView, canShowFile, fileLookLabel, onlyAsFile, useChangeLocation } from '../../views/ChangedFile.js';
+import { type ChangeLook, ChangedFileView, canShowFile, changeLocation, fileLookLabel, onlyAsFile, useChangeLocation } from '../../views/ChangedFile.js';
+import { aheadOnHover, readAhead } from '../../views/reader/streamed.js';
+import { useDiffComments } from '../../views/DiffComment.js';
 import d from '../../views/diff.module.css';
 import { ResizeHandle } from './ResizeHandle.js';
 import { showGitTrouble } from '../../lib/git-trouble.js';
 import s from './panel.module.css';
 import { shortcutKeys } from '../../lib/shortcuts.js';
+import { useFirstPaintMark } from '../../lib/first-paint.js';
 
 /** The last answer Claude finished in this workspace (its edits may have changed what's shown). */
 function useLastTurn(wsId: string): string {
@@ -54,7 +58,7 @@ function useChanges(wsId: string): { data: Review | undefined; loading: boolean;
   return { data: mine?.data ?? last.current, loading: !!mine?.loading, error: mine?.error, reload };
 }
 
-function Summary({ data, loading, onReload }: { data: Review; loading: boolean; onReload: () => void }) {
+function Summary({ data, loading, grouped, onReload }: { data: Review; loading: boolean; grouped: boolean; onReload: () => void }) {
   const totals = data.files.reduce((t, f) => ({ add: t.add + f.added, del: t.del + f.removed }), { add: 0, del: 0 });
   const commitItems = useCommitItems();
   const [showCommits, setShowCommits] = useState(false);
@@ -67,6 +71,7 @@ function Summary({ data, loading, onReload }: { data: Review; loading: boolean; 
         <span className={d.add}>+{totals.add}</span>
         <span className={d.del}>−{totals.del}</span>
         <span className={s.flex} />
+        <IconButton icon="folder" label={grouped ? 'Show as One List' : 'Group by Folder'} active={grouped} aria-pressed={grouped} onClick={() => setPrefs({ changesByFolder: !grouped })} />
         <IconButton icon="refresh" label={loading ? 'Looking for changes…' : 'Look again'} className={cx(loading && s.spinning)} onClick={onReload} />
       </div>
       <div className={s.summaryMeta}>
@@ -160,6 +165,28 @@ function Actions({ wsId }: { wsId: string }) {
   );
 }
 
+/** Diffs read ahead under the pointer (workspaces.diffAhead), for the changes they were read in. */
+const diffsAhead = new Map<string, { readonly diff: string; readonly data: object; readonly at: number }>();
+const DIFF_AHEAD_MS = 10_000;
+
+function readDiffAhead(api: ReturnType<typeof useApi>, wsId: string, path: string, index: number, data: object | undefined): void {
+  if (!data) return;
+  void api.workspaces.diffAhead(index).then(
+    (diff) => {
+      if (typeof diff !== 'string') return;
+      if (diffsAhead.size >= 32) diffsAhead.delete(diffsAhead.keys().next().value as string);
+      diffsAhead.set(`${wsId}\0${path}`, { diff, data, at: Date.now() });
+    },
+    () => undefined,
+  );
+}
+
+/** A diff read ahead for these very changes, moments ago. */
+function peekDiff(wsId: string, path: string, data: object): string | undefined {
+  const ahead = diffsAhead.get(`${wsId}\0${path}`);
+  return ahead && ahead.data === data && Date.now() - ahead.at < DIFF_AHEAD_MS ? ahead.diff : undefined;
+}
+
 /**
  * The selected file, compact: its diff, or the file as itself (Markdown formatted, a picture or a
  * PDF only as itself), with the way to see it full size or in Files.
@@ -175,8 +202,11 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
   // Keep showing the last diff of this file while it reloads.
   const last = useRef<{ path: string; diff: string } | undefined>(undefined);
   if (current !== undefined) last.current = { path, diff: current };
-  const diff = current ?? (last.current?.path === path ? last.current.diff : undefined);
+  // Picked a moment ago and read ahead: drawn now, while the pick goes to where it runs (BLG-853).
+  const diff = current ?? (last.current?.path === path ? last.current.diff : undefined) ?? (review?.data ? peekDiff(wsId, path, review.data) : undefined);
   const lines = useMemo(() => (diff ? parseDiff(diff) : []), [diff]);
+  const comments = useDiffComments(path, lines);
+  useFirstPaintMark('beluga:diff-shown', path, lines.length > 0);
   const name = path.split('/').pop() ?? path;
   const mine = file?.path === path ? file : undefined;
   const st = mine ? STATE[mine.state] : undefined;
@@ -213,7 +243,7 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
           />
         ) : null}
         {showable ? <IconButton icon="folder" label="Show in Files" onClick={showInFiles} /> : null}
-        <IconButton icon="expand" label="Open in full" keys={`${mod()}↩`} onClick={() => openFocus('diff', wsId)} />
+        <IconButton icon="expand" label="Open in full" keys={chordLabel('Cmd+Enter')} onClick={() => openFocus('diff', wsId)} />
         <IconButton icon="x" label="Close" keys="Esc" onClick={onClose} />
       </div>
       {look === 'file' && at ? (
@@ -221,7 +251,7 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
           <ChangedFileView at={at} variant="panel" />
         </div>
       ) : (
-        <div className={cx(s.previewBody, d.code, 'selectable')} tabIndex={0}>{diff === undefined ? <div className={s.dimPad}>Loading the diff…</div> : lines.length ? <UnifiedDiff lines={lines} compact /> : <div className={s.dimPad}>{diff || 'No differences in the text.'}</div>}</div>
+        <div className={cx(s.previewBody, d.code, 'selectable')} tabIndex={0}>{diff === undefined ? <div className={s.dimPad}>Loading the diff…</div> : lines.length ? <UnifiedDiff lines={lines} compact comments={comments} /> : <div className={s.dimPad}>{diff || 'No differences in the text.'}</div>}</div>
       )}
     </section>
   );
@@ -230,6 +260,7 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
 /** The right panel's Changes: the changed files and, picked one, its diff under them. */
 export function ChangesTab({ wsId }: { wsId: string }) {
   const api = useApi();
+  const { client } = useBeluga();
   const prefs = usePrefs();
   const fileItems = useFileItems();
   const { data, loading, error, reload } = useChanges(wsId);
@@ -241,8 +272,18 @@ export function ChangesTab({ wsId }: { wsId: string }) {
   const [open, setOpen] = useState<string>();
   const inFocus = usePanelRuntime((r) => r.focus?.wsId === wsId && r.focus.kind === 'diff');
   const box = useRef<HTMLDivElement>(null);
-  const files = data?.files ?? [];
+  const files = useMemo(() => data?.files ?? [], [data]);
   const at = open ? files.findIndex((f) => f.path === open) : -1;
+  // Grouped by folder (a button at the top): each folder folds; the arrows walk what's shown.
+  const grouped = prefs.changesByFolder;
+  const groups = useMemo(() => (grouped ? groupByFolder(files) : []), [files, grouped]);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const order = grouped ? shownOrder(groups, folded) : files.map((_, i) => i);
+  const fold = (dir: string): void => setFolded((was) => (was.has(dir) ? new Set([...was].filter((x) => x !== dir)) : new Set([...was, dir])));
+  // The file you're looking at is never hidden in a folded folder.
+  useEffect(() => {
+    if (open && grouped && folded.has(dirOf(open))) fold(dirOf(open));
+  }, [open, grouped]);
   // A reload of this workspace's changes (Claude edited, a commit) selects the first file again:
   // once it's done, go back to the one you're looking at, or close it if it's gone.
   const wasLoading = useRef(reviewLoading);
@@ -260,11 +301,19 @@ export function ChangesTab({ wsId }: { wsId: string }) {
     if (picked && picked !== open) setOpen(picked);
   }, [selected]);
 
+  // Changed files shown as themselves: the one under the pointer, and the next one after a pick, are read ahead (BLG-791).
+  const asFiles = prefs.changeLook === 'file';
+  const ahead = (path: string | undefined): void => {
+    const where = asFiles && path ? changeLocation(client.store.getState(), path) : undefined;
+    if (where) readAhead(api, where);
+  };
   const show = (i: number): void => {
     const f = files[i];
     if (!f) return;
     setOpen(f.path);
     void api.workspaces.selectFile(i);
+    const k = order.indexOf(i);
+    if (k >= 0) ahead(files[order[k + 1] ?? -1]?.path);
   };
   // The arrows move the highlight; the list scrolls to keep it in sight.
   const listRef = useRef<HTMLDivElement>(null);
@@ -282,13 +331,16 @@ export function ChangesTab({ wsId }: { wsId: string }) {
     const i = at < 0 ? -1 : at;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      show(Math.max(0, Math.min(files.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1))));
+      const pos = order.indexOf(i);
+      const next = pos < 0 ? (e.key === 'ArrowDown' ? 0 : order.length - 1) : pos + (e.key === 'ArrowDown' ? 1 : -1);
+      const to = order[Math.max(0, Math.min(order.length - 1, next))];
+      if (to !== undefined) show(to);
     } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (i >= 0) openFocus('diff', wsId);
-    } else if (e.key === 'Enter' && i < 0 && files.length) {
+    } else if (e.key === 'Enter' && i < 0 && order.length) {
       e.preventDefault();
-      show(0);
+      show(order[0]!);
     } else if (e.key === 'Escape' && open && !focusFor(wsId)) {
       // (In the focus view, Esc goes back to the chat first.)
       e.preventDefault();
@@ -307,35 +359,66 @@ export function ChangesTab({ wsId }: { wsId: string }) {
     );
   }
   const split = clampShare(prefs.panelSplit, SPLIT_MIN, SPLIT_MAX);
+  // A changed file's row: in a folder, just its name (the folder says where).
+  const fileRow = (f: Review['files'][number], i: number, inFolder: boolean) => {
+    const st = STATE[f.state];
+    const name = f.path.split('/').pop() ?? f.path;
+    const dir = inFolder ? '' : dirOf(f.path);
+    const on = f.path === open;
+    const items = (): ReturnType<typeof fileItems> => fileItems(f, i).map((it, k) => (k === 0 ? { ...it, onSelect: () => show(i) } : it));
+    return (
+      <ActionsContext key={f.path} items={items}>
+        <div
+          role="option"
+          aria-selected={on}
+          className={cx(s.row, inFolder && s.rowInFolder, on && s.rowOn)}
+          title={f.path}
+          {...aheadOnHover(api, () => {
+            // Shown as its diff: the diff is worked out ahead instead (BLG-853).
+            if (!asFiles && !onlyAsFile(f.path) && !on) readDiffAhead(api, wsId, f.path, i, data);
+            return asFiles && canShowFile(f) ? changeLocation(client.store.getState(), f.path) : undefined;
+          })}
+          onClick={() => show(i)} onDoubleClick={() => (show(i), openFocus('diff', wsId))}>
+          <span className={cx(d.letter, st.tone)}>{st.letter}</span>
+          <span className={s.rowName}>
+            {name}
+            {dir ? <span className={s.rowDir}>{dir}</span> : null}
+          </span>
+          <span className={s.rowCounts}>
+            {f.added ? <span className={d.add}>+{f.added}</span> : null}
+            {f.removed ? <span className={d.del}>−{f.removed}</span> : null}
+          </span>
+        </div>
+      </ActionsContext>
+    );
+  };
   // Open full size, the diff is across the center: no second, smaller copy of it here.
   const shown = inFocus ? undefined : open;
   return (
     <div ref={box} className={s.stack}>
       <div className={s.top} style={shown ? { flex: `0 0 ${Math.round(split * 100)}%` } : undefined}>
-        <Summary data={data} loading={loading} onReload={reload} />
+        <Summary data={data} loading={loading} grouped={grouped} onReload={reload} />
         <div ref={listRef} className={s.list} role="listbox" aria-label="Changed files" tabIndex={0} onKeyDown={onKey}>
-          {files.map((f, i) => {
-            const st = STATE[f.state];
-            const name = f.path.split('/').pop() ?? f.path;
-            const dir = f.path.slice(0, f.path.length - name.length).replace(/\/$/, '');
-            const on = f.path === open;
-            const items = (): ReturnType<typeof fileItems> => fileItems(f, i).map((it, k) => (k === 0 ? { ...it, onSelect: () => show(i) } : it));
-            return (
-              <ActionsContext key={f.path} items={items}>
-                <div role="option" aria-selected={on} className={cx(s.row, on && s.rowOn)} title={f.path} onClick={() => show(i)} onDoubleClick={() => (show(i), openFocus('diff', wsId))}>
-                  <span className={cx(d.letter, st.tone)}>{st.letter}</span>
-                  <span className={s.rowName}>
-                    {name}
-                    {dir ? <span className={s.rowDir}>{dir}</span> : null}
-                  </span>
-                  <span className={s.rowCounts}>
-                    {f.added ? <span className={d.add}>+{f.added}</span> : null}
-                    {f.removed ? <span className={d.del}>−{f.removed}</span> : null}
-                  </span>
-                </div>
-              </ActionsContext>
-            );
-          })}
+          {grouped
+            ? groups.map((g) => {
+                const shut = folded.has(g.dir);
+                return (
+                  <div key={g.dir} role="group" aria-label={g.dir || 'Top level'}>
+                    <button type="button" tabIndex={-1} className={s.folderRow} aria-expanded={!shut} title={g.dir || 'Top level'} onClick={() => fold(g.dir)}>
+                      <Icon name={shut ? 'chevronRight' : 'chevronDown'} size={9} />
+                      <Icon name="folder" size={13} />
+                      <span className={cx(s.rowName, !g.dir && s.dim)}>{g.dir || 'Top level'}</span>
+                      <span className={s.rowCounts}>
+                        <span className={s.dim}>{g.files.length}</span>
+                        {g.added ? <span className={d.add}>+{g.added}</span> : null}
+                        {g.removed ? <span className={d.del}>−{g.removed}</span> : null}
+                      </span>
+                    </button>
+                    {shut ? null : g.files.map(({ file, index }) => fileRow(file, index, true))}
+                  </div>
+                );
+              })
+            : files.map((f, i) => fileRow(f, i, false))}
         </div>
         {shown ? null : <Actions wsId={wsId} />}
       </div>

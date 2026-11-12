@@ -1,11 +1,12 @@
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import type { AgentBackend, AgentRunInput, TerminalLaunch, TerminalSink } from '../src/agent/types.js';
-import { sessionArgs, trustFolder } from '../src/agent/runtime/claude/terminal.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentBackend, AgentRunInput, RoomBridge, TerminalLaunch, TerminalSink } from '../src/agent/types.js';
+import { claudeTerminal, sessionArgs, trustFolder } from '../src/agent/runtime/claude/terminal.js';
 import { childEnv } from '../src/terminal/pty.js';
+import { shellChildren } from '../src/terminal/shells-under.js';
 import { readFileSync } from 'node:fs';
 import { GATE_HOOK_SCRIPT, gateHookSettings, hasRawVisual, lastAnswer, shellQuote, terminalHookAnswer } from '../src/agent/terminal-hook.js';
 import { buildGraphAppend } from '../src/agent/graph-prompt.js';
@@ -111,7 +112,10 @@ describe('launching the agent’s terminal', () => {
     const after = JSON.parse(readFileSync(file, 'utf8'));
     expect(after.theme).toBe('dark');
     expect(after.projects['/other']).toEqual({ allowedTools: ['x'] });
-    expect(after.projects['/work/tree']).toEqual({ hasTrustDialogAccepted: true });
+    // The folder as the platform spells it (D:\work\tree on Windows), and as Claude Code there does (D:/work/tree).
+    const tree = path.resolve('/work/tree');
+    expect(after.projects[tree]).toEqual({ hasTrustDialogAccepted: true });
+    expect(after.projects[tree.replaceAll('\\', '/')]).toEqual({ hasTrustDialogAccepted: true });
     writeFileSync(file, '{ broken');
     trustFolder('/work/tree', file);
     expect(readFileSync(file, 'utf8')).toBe('{ broken');
@@ -142,6 +146,53 @@ describe('launching the agent’s terminal', () => {
     const main = terminalHookAnswer({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: path.join(cwd, 'x') } }, {}, { ...policy, autoEdit: false, askOnly: true });
     expect(main).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
     expect(terminalHookAnswer({ hook_event_name: 'PostToolUse' }, {}, policy)).toEqual({});
+  });
+
+  describe('the tools’ token stays off the command line (BLG-110)', () => {
+    const launched = async (home: string, host: ToolHost, cwd: string, signal = new AbortController().signal): Promise<TerminalLaunch> => {
+      vi.stubEnv('CLAUDE_CONFIG_DIR', home); // trustFolder writes here, not in your ~/.claude.json
+      const input = { prompt: 'hello', requesterName: 'me', viaAgent: false, context: [], place: { cwd, autoEdit: true, additionalDirectories: [] }, signal, onEvent: () => undefined } as unknown as AgentRunInput;
+      const bridge = { selfName: () => 'me', listPeers: () => [] } as unknown as RoomBridge;
+      return claudeTerminal(input, { add: () => 1 }, { bridge, claudePath: '/bin/claude', toolHost: host, node: '/bin/node', home });
+    };
+    const configIn = (launch: TerminalLaunch): string => launch.args[launch.args.indexOf('--mcp-config') + 1]!;
+
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('gives Claude Code a private file that goes when the run closes', async () => {
+      const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-mcp-home-'));
+      const cwd = mkdtempSync(path.join(os.tmpdir(), 'beluga-mcp-cwd-'));
+      const host = new ToolHost({ command: 'beluga', args: [] });
+      const launch = await launched(home, host, cwd);
+      const file = configIn(launch);
+      const { mcpServers } = JSON.parse(readFileSync(file, 'utf8')) as { mcpServers: Record<string, { env: Record<string, string> }> };
+      const token = mcpServers.beluga!.env.BELUGA_TOOLS_TOKEN!;
+
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      expect(launch.args.join(' ')).not.toContain(token);
+      expect(launch.args.join(' ')).not.toContain('BELUGA_TOOLS_TOKEN');
+      expect(launch.args.join(' ')).toContain('mcp__beluga');
+      if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
+      // Never in the worktree: its scratch folder shows on your screens and to friends sharing it.
+      expect(file.startsWith(home + path.sep)).toBe(true);
+
+      launch.close();
+      expect(existsSync(file)).toBe(false);
+      launch.close(); // closing again does no harm
+      await host.close();
+    });
+
+    it('gives each run its own file', async () => {
+      const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-mcp-home-'));
+      const cwd = mkdtempSync(path.join(os.tmpdir(), 'beluga-mcp-cwd-'));
+      const host = new ToolHost({ command: 'beluga', args: [] });
+      const [a, b] = [await launched(home, host, cwd), await launched(home, host, cwd)];
+      expect(configIn(a!)).not.toBe(configIn(b!));
+      a!.close();
+      expect(existsSync(configIn(b!))).toBe(true);
+      b!.close();
+      await host.close();
+    });
   });
 
   it('the hook script asks the daemon, and refuses when it can’t', async () => {
@@ -306,6 +357,9 @@ function fakePty(): PtyProcess & { end(): void } {
   const exits: Array<() => void> = [];
   let running = true;
   return {
+    watchers: 0,
+    lastOutputAt: 0,
+    pid: 4242,
     get running() {
       return running;
     },
@@ -318,7 +372,7 @@ function fakePty(): PtyProcess & { end(): void } {
   } as unknown as PtyProcess & { end(): void };
 }
 
-function terminals() {
+function terminals(extra: Partial<ConstructorParameters<typeof AgentTerminals>[0]> = {}) {
   const store = new Store(initialState('room', 'auto'));
   const home = mkdtempSync(path.join(os.tmpdir(), 'beluga-terms-'));
   const config = path.join(home, 'claude');
@@ -353,6 +407,7 @@ function terminals() {
     home,
     claudeConfigDir: config,
     pollMs: 0,
+    ...extra,
   });
   const transcript = (): string => {
     const variant = cwd.startsWith('/var/') ? `/private${cwd}` : cwd;
@@ -398,6 +453,30 @@ describe('the agent’s terminal on a conversation', () => {
     t.terms.sync('w1');
     expect(t.store.getState().log.filter((l) => l.channel === 'ws:w1')).toHaveLength(2);
     expect(t.terms.visual('w1', n)).toContain('How login works');
+  });
+
+  it('lets go of finished turns once they’re in the chat, and later turns keep their own ids (BLG-609)', async () => {
+    const t = terminals();
+    await t.terms.open('w1');
+    t.terms.sync('w1');
+    const file = t.transcript();
+    const say = (you: string, claude: string): void => {
+      const now = new Date().toISOString();
+      appendFileSync(file, `${line({ type: 'user', timestamp: now, message: { role: 'user', content: you } })}\n${line({ type: 'assistant', timestamp: now, message: { role: 'assistant', content: [{ type: 'text', text: claude }] } })}\n`);
+      t.terms.sync('w1');
+    };
+    say('one', 'first answer');
+    say('two', 'second answer');
+    say('three', 'third answer');
+    const log = t.store.getState().log.filter((l) => l.channel === 'ws:w1');
+    expect(log.map((l) => (l as { text: string }).text)).toEqual(['one', 'first answer', 'two', 'second answer', 'three', 'third answer']);
+    expect(new Set(log.map((l) => l.id)).size).toBe(6);
+    // Only the last turn is still read.
+    const live = (t.terms as unknown as { live: Map<string, { tail: { lines: string[] } }> }).live.get('w1')!;
+    expect(live.tail.lines).toHaveLength(2);
+    // Read again: nothing twice, nothing changed.
+    t.terms.sync('w1');
+    expect(t.store.getState().log.filter((l) => l.channel === 'ws:w1').map((l) => l.id)).toEqual(log.map((l) => l.id));
   });
 
   it('opens on a message sent from the chat, which stays the chat’s own (BLG-553)', async () => {
@@ -449,6 +528,65 @@ describe('the agent’s terminal on a conversation', () => {
     await expect(t.terms.open('nope')).rejects.toThrow(/archived or gone/);
     const codex = new AgentTerminals({ store: t.store, find: () => ({ id: 'w1', path: '/w', kind: 'worktree' }) as Workspace, ensureLoaded: () => undefined, launch: async () => { throw new Error('never launched'); }, openProgram: () => undefined, closeTerminal: () => undefined, pty: () => undefined, agentOf: () => ({ runtime: 'codex', label: 'Codex' }), rememberSession: () => undefined, self: () => ({ id: 'me', name: 'K' }), home: t.home, pollMs: 0 });
     await expect(codex.open('w1')).rejects.toThrow(/stay in the chat/);
+  });
+});
+
+describe('an unseen, quiet terminal rests (BLG-610)', () => {
+  const ended = (claude: string): string => `${line({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: 'hi' } })}\n${line({ type: 'assistant', timestamp: new Date().toISOString(), message: { role: 'assistant', stop_reason: claude, content: [{ type: 'text', text: 'done' }] } })}\n`;
+  const setup = async (o: { shell?: boolean; stop?: string } = {}) => {
+    let now = 1_000;
+    const asked: Array<number | undefined> = [];
+    const t = terminals({ now: () => now, restAfterMs: 60_000, shellUnder: async (pid) => (asked.push(pid), o.shell ?? false) });
+    const key = await t.terms.open('w1');
+    appendFileSync(t.transcript(), ended(o.stop ?? 'end_turn'));
+    const pty = t.ptys.get(key)! as unknown as { watchers: number; lastOutputAt: number };
+    pty.lastOutputAt = now;
+    const later = async (ms: number): Promise<void> => {
+      now += ms;
+      t.terms.tick('w1');
+      await new Promise((r) => setImmediate(r));
+    };
+    return { t, key, pty, later, asked };
+  };
+
+  it('lets go of its program once nobody has shown it and nothing happened for a while, its turns in the chat', async () => {
+    const { t, key, later, asked } = await setup();
+    await later(30_000);
+    expect(t.terms.driving('ws:w1')).toBe(true);
+    await later(31_000);
+    expect(asked).toEqual([4242]);
+    expect(t.terms.driving('ws:w1')).toBe(false);
+    expect(t.ptys.has(key)).toBe(false);
+    expect(t.closed()).toBe(1);
+    expect(t.store.getState().log.filter((l) => l.channel === 'ws:w1').map((l) => l.type)).toEqual(['chat', 'agent']);
+    // Shown again: it opens on the same conversation.
+    await t.terms.open('w1');
+    expect(t.launches()).toBe(2);
+  });
+
+  it('keeps one a screen shows, one with a shell under it, and one in the middle of a turn', async () => {
+    const shown = await setup();
+    shown.pty.watchers = 1;
+    await shown.later(120_000);
+    expect(shown.t.terms.driving('ws:w1')).toBe(true);
+    expect(shown.asked).toEqual([]);
+
+    const server = await setup({ shell: true });
+    await server.later(120_000);
+    expect(server.asked).toEqual([4242]);
+    expect(server.t.terms.driving('ws:w1')).toBe(true);
+
+    const working = await setup({ stop: 'tool_use' });
+    await working.later(120_000);
+    expect(working.asked).toEqual([]);
+    expect(working.t.terms.driving('ws:w1')).toBe(true);
+  });
+
+  it('counts only shells right under the program, not what its MCP servers start', () => {
+    const ps = ['  100     1 /Users/k/.beluga/claude-code/0.3/claude', '  101   100 /bin/zsh', '  102   100 npm exec @ratel-ai/mcp-server', '  103   102 sh', '  104   100 -zsh', '  105     7 /bin/bash'].join('\n');
+    expect(shellChildren(ps, 100)).toBe(2);
+    expect(shellChildren(ps, 102)).toBe(1);
+    expect(shellChildren(ps, 999)).toBe(0);
   });
 });
 

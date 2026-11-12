@@ -273,7 +273,7 @@ export function WaitingMark({ issueId }: { issueId: string }) {
   if (!words) return null;
   const mailed = people.every((p) => p.mailed);
   return (
-    <Tip label={`${words}. ${mailed ? 'It’s in their mailbox.' : 'It goes when their Mac is on.'}`}>
+    <Tip label={`${words}. ${mailed ? 'It’s in their mailbox.' : 'It goes when their computer is on.'}`}>
       <span className={s.waiting} aria-label={words} role="img">
         <Icon name="clock" size={12} />
         {people.length > 1 ? <span className={s.waitingCount}>{people.length}</span> : null}

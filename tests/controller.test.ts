@@ -3,13 +3,23 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFile
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { Board } from '../src/core/board/board.js';
+import { BoardWork } from '../src/core/board/work.js';
 import { runCommand } from '../src/core/commands.js';
+import { planForHome } from '../src/core/plans/model.js';
+import { Plans } from '../src/core/plans/plans.js';
+import { PlansWork } from '../src/core/plans/work.js';
 import type { Session } from '../src/core/session.js';
 import { ShareService } from '../src/core/shares.js';
 import { Store, initialState } from '../src/core/store.js';
 import { WorkspaceController, shareNameOf, workspaceIdOf } from '../src/core/workspace-controller.js';
+import { isMainCheckout } from '../src/workspaces/discovery.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
+import { API } from '../src/ipc/api.js';
+import { HANDLERS } from '../src/ipc/handlers.js';
+import { apiProxy, type BelugaClient } from '../src/ipc/client.js';
+import { submitTyped } from '../src/ui/submit.js';
 import { screenOver, waitFor } from './helpers.js';
 import type { ClientStore } from '../src/client/client-store.js';
 
@@ -22,6 +32,7 @@ let ctl: WorkspaceController;
 let toasts: string[];
 let trashed: string[];
 let asked: Array<{ prompt: string; channel: string }>;
+let askedInPlan: boolean[];
 let repo: string;
 let claude: string;
 
@@ -47,6 +58,7 @@ beforeEach(async () => {
   toasts = [];
   trashed = [];
   asked = [];
+  askedInPlan = [];
   const shown = screenOver(store);
   screen = shown.screen;
   ctl = new WorkspaceController({
@@ -56,7 +68,10 @@ beforeEach(async () => {
     selfId: () => 'me',
     toast: (t) => void toasts.push(t),
     intend: shown.intend,
-    askClaude: (prompt, channel) => void asked.push({ prompt, channel }),
+    askClaude: (prompt, channel) => {
+      asked.push({ prompt, channel });
+      askedInPlan.push(store.getState().planMode[channel] === true);
+    },
     claudeHome: claude,
     moveToTrash: async (dir) => void trashed.push(dir),
   });
@@ -83,6 +98,13 @@ const branches = (): string => sh(repo, 'branch', '--list', 'worktree-agent-*');
 const projectId = () => store.getState().projects.find((p) => p.root)!.id;
 
 describe('WorkspaceController', () => {
+  it('a thread record reaches every screen at once, without a refresh', () => {
+    const ws = store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.kind === 'main')!;
+    const thread = { parent: 'ws:top', parentTitle: 'top', root: 'ws:top', depth: 1, task: 't', startedAt: 1, owed: [] };
+    ctl.setThread(ws.id, thread);
+    expect(store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === ws.id)?.thread).toEqual(thread);
+  });
+
   it('publishes projects and makes every workspace a private share', () => {
     const app = store.getState().projects.find((p) => p.root)!;
     const main = app.workspaces[0]!;
@@ -266,6 +288,36 @@ describe('WorkspaceController', () => {
     expect(toasts.at(-1)).toMatch(/^Couldn't create the worktree: There's no branch called origin\/no-such-branch/);
   });
 
+  it('shows a fork at once, with the conversation so far, and it carries the uncommitted work and Scratch', async () => {
+    const ws = (await ctl.newWorktree(projectId(), 'source'))!;
+    store.dispatch({ type: 'system', channel: `ws:${ws.id}`, text: 'said before the fork' });
+    writeFileSync(path.join(ws.path, 'wip.txt'), 'wip');
+    mkdirSync(path.join(ws.path, '.beluga', 'scratch'), { recursive: true });
+    writeFileSync(path.join(ws.path, '.beluga', 'scratch', 'shot.png'), 'png');
+
+    const forking = ctl.fork(ws.id, 'source v2');
+    // Before any git work: its row (a fork of the source) and its page, with the conversation already there.
+    const row = store.getState().projects.find((p) => p.root)!.workspaces.find((w) => w.name === 'source-v2')!;
+    expect(row).toMatchObject({ pending: true, forkedFrom: ws.id });
+    expect(screen.getState().view).toEqual({ kind: 'workspace', id: row.id, tab: 'chat' });
+    expect(store.getState().log.some((l) => l.channel === `ws:${row.id}` && l.type === 'system' && l.text === 'said before the fork')).toBe(true);
+
+    const fork = (await forking)!;
+    expect(fork.id).toBe(row.id);
+    expect(store.getState().projects.find((p) => p.root)!.workspaces.find((w) => w.id === fork.id)?.pending).toBeUndefined();
+    expect(readFileSync(path.join(fork.path, 'wip.txt'), 'utf8')).toBe('wip');
+    expect(readFileSync(path.join(fork.path, '.beluga', 'scratch', 'shot.png'), 'utf8')).toBe('png');
+    const lines = store.getState().log.filter((l) => l.channel === `ws:${fork.id}` && l.type === 'system').map((l) => (l.type === 'system' ? l.text : ''));
+    expect(lines.filter((t) => t === 'said before the fork')).toHaveLength(1); // shown early, not twice once loaded
+    expect(lines.at(-1)).toMatch(/^Forked from “source” with its commits, uncommitted changes, Scratch and conversation/);
+
+    // It can't be made: the row and its page go again, and the toast says why.
+    const failing = ctl.fork('missing', 'ghost');
+    expect(await failing).toBeUndefined();
+    expect(store.getState().projects.find((p) => p.root)!.workspaces.some((w) => w.name === 'ghost')).toBe(false);
+    expect(toasts.at(-1)).toMatch(/^Couldn't fork/);
+  });
+
   it('archives and deletes out of the sidebar at once; a failure puts it back and says so', async () => {
     const ws = (await ctl.newWorktree(projectId(), 'away'))!;
     const live = () => store.getState().projects.find((p) => p.root)!.workspaces.find((w) => w.id === ws.id);
@@ -373,6 +425,78 @@ describe('WorkspaceController', () => {
     expect(existsSync(launch)).toBe(true); // never deletes a folder you started a chat in
   });
 
+  it.each(['/deploy staging', '/git:sync main', '//review changes'])('starts and runs the first skill or custom command %s in Plan mode', async (text) => {
+    store.dispatch({ type: 'plan_mode', channel: 'draft', on: true });
+    screen.dispatch({ type: 'view', view: { kind: 'draft', projectId: 'chats', dir: repo, back: { kind: 'overview' } } });
+    const api = apiProxy(async (method, raw) => {
+      expect(method).toBe('workspaces.startChat');
+      const args = API['workspaces.startChat'].args.parse(raw);
+      return HANDLERS['workspaces.startChat']({ workspaces: ctl } as Session, ...args);
+    });
+    submitTyped({ client: { store: screen, api } as BelugaClient, ui: () => ({}), patchUi: () => undefined, runUiAction: () => undefined }, text);
+    await waitFor(() => asked.length > 0);
+    const chat = store.getState().projects.find((p) => p.id === 'chats')!.workspaces[0]!;
+    expect(chat).toMatchObject({ kind: 'chat', path: repo });
+    expect(asked).toEqual([{ prompt: text.replace(/^\/\//, '/'), channel: `ws:${chat.id}` }]);
+    expect(askedInPlan).toEqual([true]);
+  });
+
+  it.each([true, false, undefined])('starts the first chat message in the selected mode (%s)', async (plan) => {
+    const args = API['workspaces.startChat'].args.parse(['chats', 'Explain this repo', repo, plan === undefined ? undefined : { plan }]);
+    await HANDLERS['workspaces.startChat']({ workspaces: ctl } as Session, ...args);
+    const chat = store.getState().projects.find((p) => p.id === 'chats')!.workspaces[0]!;
+    expect(asked).toEqual([{ prompt: 'Explain this repo', channel: `ws:${chat.id}` }]);
+    expect(askedInPlan).toEqual([plan === true]);
+    expect(store.getState().planMode[`ws:${chat.id}`] === true).toBe(plan === true);
+  });
+
+  it('starts a worktree as a plan’s home with Plan with Tasks: the draft plan is there before its agent hears the first message', async () => {
+    const work = new PlansWork({ store, plans: new Plans({ store, dir: null }), board: new BoardWork({ store, board: new Board({ store, dir: null, projectName: () => 'app' }), controller: ctl, selfId: () => 'me', selfName: () => 'Kay', askClaude: () => undefined }), git: null, askClaude: () => 'ask', intend: () => undefined, delayMs: 0 });
+    const heard: Array<{ prompt: string; channel: string; planned: boolean; plan: boolean; terminal: boolean }> = [];
+    const c = new WorkspaceController({
+      manager: new WorkspaceManager(new WorkspaceStore(path.join(repo, '..', '..', 'home'))),
+      store,
+      shares,
+      selfId: () => 'me',
+      toast: (t) => void toasts.push(t),
+      intend: () => undefined,
+      planHere: (channel) => void work.here(channel),
+      askClaude: (prompt, channel, o) =>
+        void heard.push({ prompt, channel, planned: Boolean(planForHome(store.getState().plans, channel)), plan: store.getState().planMode[channel] === true, terminal: o?.terminal === true }),
+      claudeHome: claude,
+    });
+    await c.refresh();
+    const args = API['workspaces.startWorktree'].args.parse([projectId(), 'Add refunds to the admin', { name: 'refunds', tasks: true, terminal: true }]);
+    const id = await HANDLERS['workspaces.startWorktree']({ workspaces: c, nameTask: async () => 'refunds' } as unknown as Session, ...args);
+    const channel = `ws:${id}`;
+    // Planned in the chat (milestones and tasks need it), never plan mode: a plan's own conversation has none.
+    expect(heard).toEqual([{ prompt: 'Add refunds to the admin', channel, planned: true, plan: false, terminal: false }]);
+    const plan = planForHome(store.getState().plans, channel)!;
+    expect(plan.body).toBeUndefined();
+    expect(work.forRun(channel, 'me')?.brief).toContain('a draft only you and the user see');
+  });
+
+  it('a worktree whose plan can’t be made plans first instead, and says why', async () => {
+    const heard: Array<{ channel: string; plan: boolean }> = [];
+    const c = new WorkspaceController({
+      manager: new WorkspaceManager(new WorkspaceStore(path.join(repo, '..', '..', 'home'))),
+      store,
+      shares,
+      selfId: () => 'me',
+      toast: (t) => void toasts.push(t),
+      intend: () => undefined,
+      planHere: () => {
+        throw new Error('Plans need the Beluga app');
+      },
+      askClaude: (_prompt, channel) => void heard.push({ channel, plan: store.getState().planMode[channel] === true }),
+      claudeHome: claude,
+    });
+    await c.refresh();
+    const ws = (await c.startWorktree(projectId(), 'Add refunds', async () => 'refunds', { name: 'refunds', tasks: true }))!;
+    expect(heard).toEqual([{ channel: `ws:${ws.id}`, plan: true }]);
+    expect(toasts).toContain('Couldn’t plan it with tasks (Plans need the Beluga app): its agent plans first instead');
+  });
+
   it('organizes projects into groups and hides them', async () => {
     await ctl.setGroup(projectId(), 'work');
     expect(store.getState().projectGroups).toEqual([{ name: 'work', projects: [repo] }]);
@@ -440,11 +564,38 @@ describe('WorkspaceController', () => {
     expect(toasts.at(-1)).toMatch(/Project not found/);
   });
 
+  it('adds a project back while its delete is still archiving: the delete can’t take it out again', async () => {
+    const ws = (await ctl.newWorktree(projectId(), 'tidy'))!;
+    const id = projectId();
+    const removing = ctl.removeProject(id);
+    const adding = ctl.addProject(repo);
+    expect(await removing).toBe(true);
+    expect(await adding).toEqual({ project: { id, name: 'app' } });
+    expect(store.getState().projects.find((p) => p.id === id)?.workspaces.find((w) => w.id === ws.id)?.archived).toBe(true);
+    await ctl.refresh();
+    expect(store.getState().projects.filter((p) => p.root).map((p) => p.id)).toEqual([id]);
+  });
+
+  it('says what adding did, or why it couldn’t, and a watched folder brings back what was removed from it', async () => {
+    const id = projectId();
+    expect(await ctl.removeProject(id)).toBe(true);
+    expect(store.getState().projects.filter((p) => p.root)).toEqual([]);
+    expect(await ctl.addFolder(path.dirname(repo))).toEqual({ found: 1 });
+    expect(store.getState().projects.filter((p) => p.root).map((p) => p.id)).toEqual([id]);
+    expect(await ctl.addProject('/definitely/not/here')).toEqual({ error: expect.stringMatching(/isn’t there anymore/) });
+    const plain = mkdtempSync(path.join(os.tmpdir(), 'klaud-plain-'));
+    const session = { workspaces: ctl, toast: (t: string) => void toasts.push(t), store } as unknown as Session;
+    expect(await HANDLERS['projects.add'](session, plain)).toEqual({ error: expect.stringMatching(/isn't a git project/), canInit: true });
+    expect(await HANDLERS['projects.initGit'](session, plain)).toEqual({ project: { id: expect.any(String), name: path.basename(plain) } });
+    expect(isMainCheckout(plain)).toBe(true);
+    expect(await HANDLERS['projects.add'](session, repo)).toEqual({ project: { id, name: 'app' } });
+  });
+
   it('starts chats and adds projects or folders', async () => {
     const chat = (await ctl.newChat(projectId(), 'Question'))!;
     expect(chat.kind).toBe('chat');
     expect(ctl.place(`ws:${chat.id}`)?.autoEdit).toBe(false);
-    await ctl.addProject('/definitely/not/here');
+    await ctl.addProject(mkdtempSync(path.join(os.tmpdir(), 'klaud-plain-')));
     expect(toasts.at(-1)).toMatch(/not a git project/);
     await ctl.addFolder(path.dirname(repo));
     expect(toasts.at(-1)).toMatch(/1 project/);

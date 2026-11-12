@@ -1,6 +1,6 @@
 import { dashboardConv } from './render-demo';
 import { JOB_DOCS } from './dashboard';
-import type { AgentRefView, ChatMessageView, ConvView, MergeView, NeedsYou, OutputView, PeopleView, PlanView, TaskPageView, TurnView, UsageView } from '../protocol';
+import type { AgentRefView, ChatMessageView, ConvSummary, ConvView, MergeView, NeedsYou, OutputView, PeopleView, PlanView, TaskPageView, Topic, TurnView, UsageView } from '../protocol';
 import { DEMO_IMAGES, type DemoImage } from './images.generated';
 import { stripCode } from '../../render';
 import { agentLabel, agentName } from '../../../../../src/shared/agent-label';
@@ -35,6 +35,8 @@ export interface DemoWorld {
   usage: UsageView[];
   needs: NeedsYou[];
   convs: Map<string, ConvView>;
+  /** What a real Mac adds to Work's rows (1.47): each chat's mark, and the chat a child sits under. */
+  threadRows: Readonly<Record<string, Partial<Pick<ConvSummary, 'harness' | 'parent'>>>>;
   projects: { id: string; name: string; convs: string[] }[];
   files: Map<string, DemoFile>;
   plans: PlanView[];
@@ -46,6 +48,8 @@ export interface DemoWorld {
   icons: Record<string, { sum: string; svg: string }>;
   /** Merges started from the phone, by conversation. */
   merges: Map<string, MergeView>;
+  /** Chats you settled or snoozed, by conversation; the others are Active, or Working while they work. */
+  triage: Map<string, { snoozedUntil?: number; settledWhy?: NonNullable<ConvSummary['settledWhy']>; back?: true }>;
 }
 
 /** The demo projects' icons: small SVG marks (what companion.icon hands out, by checksum). */
@@ -179,7 +183,22 @@ export function makeWorld(now = Date.now()): DemoWorld {
         { id: 'pr', label: 'Create PR', hint: 'Pushes beluga/pairing-feel and opens a pull request into main, titled from its commits' },
         { id: 'pr_claude', label: 'Create PR with Your Agent', hint: 'Your agent commits what belongs, then writes the title and description: what, why, how to test', claude: true },
         { id: 'pr_draft', label: 'Create Draft PR', hint: 'Like Create PR, as a draft: it can’t merge until it’s marked ready' },
+        { id: 'archive', label: 'Archive', hint: 'Keeps the branch and the conversation, frees the folder' },
+        { id: 'delete', label: 'Delete…', hint: 'The branch and the conversation go for good', danger: true },
       ],
+      threads: { archive: { count: 3, running: 2 }, delete: { count: 3, running: 2 } },
+    },
+    threadFamily: {
+      chat: 'onboarding',
+      children: [
+        { id: 'pair-android', topic: 'conv:beluga.pair-android', title: 'Check pairing on Android', state: 'running', working: true, harness: { runtime: 'codex', label: 'Codex' } },
+        { id: 'pair-e2e', topic: 'conv:beluga.pair-e2e', title: 'Write the pairing e2e', state: 'done', working: false, harness: { runtime: 'claude', label: 'Claude Code' } },
+      ],
+      agents: [
+        { id: 'sa-explore', title: 'Find the pairing screens', state: 'running', startedAt: now - 6 * MIN, harness: { runtime: 'claude', label: 'Claude Code' } },
+        { id: 'sa-fonts', title: 'Check the font licenses', state: 'done', startedAt: now - 20 * MIN, harness: { runtime: 'claude', label: 'Claude Code' } },
+      ],
+      stoppable: ['pair-fonts', 'pair-android'],
     },
     turns: [
       {
@@ -287,7 +306,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
     working: false,
     needsYou: [],
     turns: [
-      { id: 'r1', who: 'you', name: 'You', ts: now - 3 * HOUR, prose: { text: 'The radar flickers when I pinch. Fix it and show me.', code: [] } },
+      { id: 'r1', who: 'you', name: 'You', via: 'GrokBot', ts: now - 3 * HOUR, prose: { text: 'The radar flickers when I pinch. Fix it and show me.', code: [] } },
       {
         id: 'r2',
         who: 'claude',
@@ -469,7 +488,37 @@ export function makeWorld(now = Date.now()): DemoWorld {
     ],
   };
 
-  const convs = new Map<string, ConvView>([onboarding, push, radar, flaky, dashboardConv(now), loginBug, widgetPlanning, assistant, forecast, sentinelChat].map((c) => [c.topic, c]));
+  // ---- child threads of the onboarding work (1.47): one still at work with its own child, one done.
+  const child = (topic: Topic, title: string, working: boolean, text: string, threadFamily: ConvView['threadFamily']): ConvView => ({
+    topic,
+    title,
+    project: 'beluga',
+    more: false,
+    canSend: true,
+    working,
+    needsYou: [],
+    threadFamily,
+    turns: [{ id: `${topic}-t1`, who: 'claude', name: MY_AGENT_NAME, ts: now - 4 * MIN, ...(working ? { status: 'working' as const, step: text } : { status: 'done' as const, endTs: now - 2 * MIN }), prose: { text: working ? '' : text, code: [] } }],
+  });
+  const startedBy = (title: string, topic: Topic) => ({ title, topic, state: 'running', gone: false });
+  const threads = [
+    child('conv:beluga.pair-android', 'Check pairing on Android', true, 'Running the emulator', {
+      parent: startedBy('Make pairing feel like the Mac', 'conv:beluga.onboarding'),
+      children: [{ id: 'pair-fonts', topic: 'conv:beluga.pair-fonts', title: 'Compare the fonts', state: 'running', working: true, harness: { runtime: 'claude', label: 'Claude Code' } }],
+      chat: 'pair-android',
+      stoppable: ['pair-fonts'],
+    }),
+    child('conv:beluga.pair-fonts', 'Compare the fonts', true, 'Reading the screenshots', { parent: startedBy('Check pairing on Android', 'conv:beluga.pair-android'), children: [], chat: 'pair-fonts', stoppable: [] }),
+    child('conv:beluga.pair-e2e', 'Write the pairing e2e', false, 'The test covers the code, the fingerprint and a wrong code.', { parent: { title: 'Make pairing feel like the Mac', topic: 'conv:beluga.onboarding', state: 'running', gone: false }, children: [], chat: 'pair-e2e', stoppable: [] }),
+  ];
+  const threadRows: DemoWorld['threadRows'] = {
+    'conv:beluga.onboarding': { harness: { runtime: 'claude', label: 'Claude Code' } },
+    'conv:beluga.pair-android': { harness: { runtime: 'codex', label: 'Codex' }, parent: 'conv:beluga.onboarding' },
+    'conv:beluga.pair-fonts': { harness: { runtime: 'claude', label: 'Claude Code' }, parent: 'conv:beluga.pair-android' },
+    'conv:beluga.pair-e2e': { harness: { runtime: 'claude', label: 'Claude Code' }, parent: 'conv:beluga.onboarding' },
+    'conv:beluga.push': { harness: { runtime: 'opencode', label: 'OpenCode' } },
+  };
+  const convs = new Map<string, ConvView>([...threads, onboarding, push, radar, flaky, dashboardConv(now), loginBug, widgetPlanning, assistant, forecast, sentinelChat].map((c) => [c.topic, c]));
 
   // ---- what needs you, one of each kind (and one this phone doesn't know)
   // Shaped exactly as src/companion/views.ts makes them (the same methods, args and templates).
@@ -713,7 +762,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
           { id: 'm1', from: 'Mia', mine: false, text: 'is the phone app real?? 👀', ts: now - 3 * HOUR },
           { id: 'm2', from: 'You', mine: true, editable: true, text: 'getting there. I\'m approving deploys from the couch', ts: now - 3 * HOUR + 2 * MIN },
           { id: 'm3', from: 'Mia\'s Codex', mine: false, claude: true, agent: { runtime: 'codex', model: 'gpt-5', label: 'Codex' }, text: 'Here\'s Mia\'s desktop, as you asked: the radar build is open on the left.', ts: now - 2 * HOUR, files: [desktop] },
-          { id: 'm4', from: 'Mia', mine: false, text: 'view from the office today', ts: now - 41 * MIN, files: [sunset] },
+          { id: 'm4', from: 'Mia', mine: false, text: 'view from the office today', ts: now - 41 * MIN, files: [sunset], reactions: [{ emoji: '😍', count: 1, mine: true, who: ['You'] }] },
           { id: 'm5', from: 'Mia', mine: false, text: 'also my Codex wants a look at your screen for the radar thing, ok?', ts: now - 12 * MIN },
         ],
       },
@@ -740,7 +789,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
         messages: [
           { id: 'g1', from: 'Sam', mine: false, text: 'offline maps branch is ready for someone to take over', ts: now - 55 * MIN },
           { id: 'g2', from: 'Ada', mine: false, text: 'push relay: are we doing FCM data messages only?', ts: now - 25 * MIN },
-          { id: 'g3', from: 'You', mine: true, text: 'yes, sealed to the phone\'s box key, the relay only sees ciphertext', ts: now - 24 * MIN },
+          { id: 'g3', from: 'You', mine: true, text: 'yes, sealed to the phone\'s box key, the relay only sees ciphertext', ts: now - 24 * MIN, reactions: [{ emoji: '👍', count: 2, mine: false, who: ['Ada', 'Sam'] }, { emoji: '🎉', count: 1, mine: false, who: ['Ada'] }] },
           { id: 'g4', from: 'Ada', mine: false, text: 'nice. the e2e numbers from my run:', ts: now - 9 * MIN, files: [txt('ada-e2e.txt', 'text', 'pairing 9.4s\nviews 6.0s\nlink 5.1s\n', undefined, 9 * MIN)] },
           { id: 'g5', from: 'Theo', mine: false, text: 'can someone let me into the room 🙏', ts: now - 3 * MIN },
         ],
@@ -776,8 +825,9 @@ export function makeWorld(now = Date.now()): DemoWorld {
     usage,
     needs,
     convs,
+    threadRows,
     projects: [
-      { id: 'beluga', name: 'beluga', convs: ['conv:beluga.onboarding', 'conv:beluga.push'] },
+      { id: 'beluga', name: 'beluga', convs: ['conv:beluga.onboarding', 'conv:beluga.pair-android', 'conv:beluga.pair-fonts', 'conv:beluga.pair-e2e', 'conv:beluga.push'] },
       { id: 'pixel-weather', name: 'pixel-weather', convs: ['conv:ws:wt-login-bug', 'conv:weather.widget', 'conv:weather.radar', 'conv:weather.ci'] },
       { id: 'shop', name: 'shop', convs: ['conv:shop.forecast', 'conv:shop.dashboard'] },
       { id: 'asked', name: 'Asked of friends', convs: [] },
@@ -789,6 +839,10 @@ export function makeWorld(now = Date.now()): DemoWorld {
     tasks: demoTasks(now),
     icons: ICONS,
     merges: new Map(),
+    triage: new Map([
+      ['conv:weather.ci', { settledWhy: 'pr_merged' }],
+      ['conv:shop.dashboard', { snoozedUntil: now + 3 * 60 * MIN }],
+    ]),
   };
 }
 

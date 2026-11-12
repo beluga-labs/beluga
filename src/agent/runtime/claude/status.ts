@@ -31,7 +31,7 @@ const executable = (file: string): boolean => {
 /** The SDK's own Claude Code (development, npm installs): its platform package's binary. */
 function sdkBinary(): string | undefined {
   try {
-    return createRequire(import.meta.url).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
+    return createRequire(import.meta.url).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${process.platform === 'win32' ? 'claude.exe' : 'claude'}`);
   } catch {
     return undefined;
   }

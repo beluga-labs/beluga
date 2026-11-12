@@ -11,6 +11,8 @@
  * keys of their own there (OFF_MAC_KEYS).
  */
 
+import { fileManagerFor } from '../../../../src/shared/assistant.js';
+
 export type KeyPlatform = 'mac' | 'windows' | 'linux';
 
 /** Which keyboard this window has. Off a window (the tests, Node) it's a Mac's. */
@@ -96,6 +98,7 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
   def('add-project', 'Add Project…', 'General', ['Cmd+O']),
   def('invite', 'Invite…', 'General', ['Shift+Cmd+I']),
   def('find', 'Search Conversations', 'General', ['Shift+Cmd+F']),
+  def('sidebar-search', 'Search in the Sidebar', 'General', ['Alt+Cmd+F']),
   def('inbox', 'Inbox', 'General', ['Shift+Cmd+B']),
   def('paste-plain', 'Paste as Plain Text', 'General', ['Shift+Cmd+V']),
   { id: TALK_ID, label: 'Talk', section: 'General', keys: ['Alt+Space'], scope: 'app', hint: 'Hold it and speak (Settings › Voice)' },
@@ -110,7 +113,6 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
 
   def('go-overview', 'Overview', 'Go', ['Cmd+1']),
   def('go-tasks', 'Tasks', 'Go', ['Cmd+2']),
-  def('go-room', 'Chat', 'Go', ['Cmd+3']),
   def('go-search', 'Search', 'Go', ['Cmd+4']),
   def('go-usage', 'Usage', 'Go', ['Cmd+5']),
   def('go-terminal', 'Terminal', 'Go', ['Cmd+6']),
@@ -121,6 +123,9 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
   def('go-dashboard', 'Dashboard', 'Go', []),
   { id: 'place-next', label: 'Next Place', section: 'Go', keys: ['Ctrl+Tab'], scope: 'app' },
   { id: 'place-prev', label: 'Previous Place', section: 'Go', keys: ['Ctrl+Shift+Tab'], scope: 'app' },
+  // Back and Forward between pages (lib/nav.ts), with what was open on each. Window keys only (no menu-bar key): a page with its own Back keeps ⌘[ for it.
+  { id: 'nav-back', label: 'Back', section: 'Go', keys: ['Cmd+['], scope: 'app', hint: 'The page you were on, with its panels as you left them' },
+  { id: 'nav-forward', label: 'Forward', section: 'Go', keys: ['Cmd+]'], scope: 'app', hint: 'The page you came back from' },
   def('ws-prev', 'Previous Workspace', 'Go', ['Alt+Cmd+Up']),
   def('ws-next', 'Next Workspace', 'Go', ['Alt+Cmd+Down']),
 
@@ -138,15 +143,16 @@ const MAC_SHORTCUTS: readonly ShortcutDef[] = [
   def('ws-merge', 'Merge…', 'Workspace', ['Shift+Cmd+M']),
   def('ws-run', 'Run', 'Workspace', ['Cmd+R']),
   def('ws-review', 'Ask Your Agent to Review…', 'Workspace', ['Shift+Cmd+R']),
-  def('ws-finder', 'Show in Finder', 'Workspace', []),
+  // As os-words' revealLabel (it imports this file, so the words are written out here).
+  def('ws-finder', platform === 'linux' ? 'Show in Folder' : `Show in ${fileManagerFor(platform)}`, 'Workspace', []),
   def('ws-fork', 'Fork…', 'Workspace', []),
   def('ws-archive', 'Archive…', 'Workspace', ['Ctrl+Cmd+A']),
 
-  { id: 'composer-steer', label: 'Steer', section: 'Message box', keys: ['Alt+Enter'], scope: 'composer', hint: 'The agent reads it at its next step' },
+  { id: 'composer-steer', label: 'Steer', section: 'Message box', keys: ['Alt+Enter'], scope: 'composer', hint: 'The agent reads it at its next step. With Steer as your default it queues instead (Settings › General › Writing)' },
   { id: 'composer-send-now', label: 'Send Now', section: 'Message box', keys: ['Alt+Shift+Enter'], scope: 'composer', hint: 'Your steered message goes now; its step stops' },
   { id: 'composer-mode', label: 'Switch Acting and Planning', section: 'Message box', keys: ['Shift+Tab'], scope: 'composer' },
 
-  { id: 'page-back', label: 'Back', section: 'Pages', keys: ['Cmd+['], scope: 'page', hint: 'From a task, an issue, a run or a sentinel' },
+  { id: 'page-back', label: 'Back', section: 'Pages', keys: ['Cmd+['], scope: 'page', hint: 'From a task, an issue, a run or a sentinel', over: ['nav-back'] },
   { id: 'page-new', label: 'New Here', section: 'Pages', keys: ['Cmd+N', 'C'], scope: 'page', hint: 'A task in Tasks, a plan in Plans, a sentinel in Sentinel', bare: true, over: ['new-chat'] },
   { id: 'page-filter', label: 'Filter', section: 'Pages', keys: ['Cmd+F'], scope: 'page', hint: 'In Tasks and Sentinel', over: ['conv-find'] },
 
@@ -510,13 +516,26 @@ function tidy(o: Record<string, readonly string[]>): ShortcutOverrides {
 
 /* ---------- Pressing them ---------- */
 
+/**
+ * The press's other reading, when it may stand in: never for a Latin letter your layout typed or a
+ * key the system keeps (on Dvorak, ⌘V is where ⌘. is on a US keyboard: it pastes, never Stops).
+ * A layout that types other letters (Russian, Greek) still reaches shortcuts by the key.
+ */
+function otherReading(first: string | undefined, second: string | undefined): string | undefined {
+  if (!first || !second) return undefined;
+  const c = parseChord(first);
+  if (c && /^[A-Z]$/.test(c.key)) return undefined;
+  return (onMac() ? MAC_BUILT_IN : OTHER_BUILT_IN).some(([k]) => k === first) ? undefined : second;
+}
+
 /** Does this key press fire `id`? (Matching the way it's recorded first, then by the other reading.) */
 export function pressed(bindings: Bindings, id: string, e: KeyPress): boolean {
   const keys = bindings[id] ?? [];
   if (!keys.length) return false;
-  const [first, second] = chordsOf(e);
+  const [first, read] = chordsOf(e);
   if (first && keys.includes(first)) return true;
   // The other reading counts only when nothing else is this press the first way.
+  const second = otherReading(first, read);
   if (!second || !keys.includes(second)) return false;
   return !SHORTCUTS.some((d) => d.id !== id && (bindings[d.id] ?? []).includes(first!));
 }
@@ -524,8 +543,9 @@ export function pressed(bindings: Bindings, id: string, e: KeyPress): boolean {
 /** The first of these shortcuts this key press fires. */
 export function shortcutFor(bindings: Bindings, e: KeyPress, ids: Iterable<string>): string | undefined {
   const list = [...ids];
-  const [first, second] = chordsOf(e);
+  const [first, read] = chordsOf(e);
   if (!first) return undefined;
+  const second = otherReading(first, read);
   return list.find((id) => (bindings[id] ?? []).includes(first)) ?? (second ? list.find((id) => (bindings[id] ?? []).includes(second)) : undefined);
 }
 

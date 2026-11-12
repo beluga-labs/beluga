@@ -9,12 +9,16 @@ import { toast, useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { EarningsCard } from './EarningsCard.js';
 import { ConversationPeek, DeleteArchivedAlert } from './overview/ConversationPeek.js';
+import type { ThreadChildren } from '@beluga/shared/threads.js';
 import { FilterBar } from './overview/FilterBar.js';
 import { ActiveRow, type ArchivedActions, ArchivedRow } from './overview/OverviewRows.js';
-import { type OverviewGroup, type OverviewItem, emptyText, filterCounts, groupItems, inFilter, narrow, overviewItems, rowOrder, stepRow } from './overview/overview-model.js';
+import { type OverviewGroup, type OverviewItem, emptyText, filterCounts, groupItems, inFilter, narrow, narrowThere, overviewItems, rowOrder, stepRow } from './overview/overview-model.js';
+import { RemoteList } from '../machines/RemoteList.js';
+import { useRemoteAttention } from '../machines/remote-attention.js';
 import { useOverviewPrefs } from './overview/use-overview-prefs.js';
 import s from './overview.module.css';
 import { primaryKey } from '../lib/shortcuts-model.js';
+import { openFolderThere } from '../lib/remote-open.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const sameRows = (a: readonly OverviewItem[], b: readonly OverviewItem[]): boolean => sameDeep(a, b, 3);
@@ -43,7 +47,11 @@ export function OverviewView() {
   // A project that's gone (removed, hidden) means all of them again.
   const project = projects.find((p) => p.id === prefs.project);
   const narrowed = narrow(all, project?.id, search);
-  const counts = filterCounts(narrowed);
+  // Every computer's too (BLG-843): what needs you there, from the same source as the bell, tagged.
+  const remote = useRemoteAttention();
+  const there = useMemo(() => remote.flatMap((r) => narrowThere(r.needs, project?.name, search).map((item) => ({ machine: r.machine, item: { id: item.id, title: item.title, sub: `${item.project} · ${item.why}`, page: item.page }, offline: false }))), [remote, project?.name, search]);
+  const here = filterCounts(narrowed);
+  const counts = { ...here, needs: here.needs + there.length };
   const groups = groupItems(
     narrowed.filter((i) => inFilter(i, prefs.filter)),
     prefs.sort,
@@ -85,14 +93,14 @@ export function OverviewView() {
         .finally(() => setRestoring(undefined));
     },
     read: (item) => setPeek(item.ws.id),
-    finder: (item) => void api.local.openFolder(item.project.root).catch((err: unknown) => toast(client, `Couldn’t open the folder: ${errorText(err)}`, 'error')),
+    finder: (item) => void openFolderThere(client, item.project.root).catch((err: unknown) => toast(client, `Couldn’t open the folder: ${errorText(err)}`, 'error')),
     remove: (item) => setDeleting(item.ws.id),
   };
   const open = (item: OverviewItem): void => (item.archived ? act.read(item) : item.plan ? actions.run({ type: 'view', view: { kind: 'plan', id: item.plan.plan.id } }) : actions.run({ type: 'open_ws', id: item.ws.id }));
-  const remove = (item: OverviewItem): void => {
+  const remove = (item: OverviewItem, children?: ThreadChildren): void => {
     setDeleting(undefined);
     setPeek(undefined);
-    api.workspaces.remove(item.ws.id).catch((err: unknown) => toast(client, `Couldn’t delete ${item.ws.name}: ${errorText(err)}`, 'error'));
+    (children ? api.workspaces.remove(item.ws.id, { children }) : api.workspaces.remove(item.ws.id)).catch((err: unknown) => toast(client, `Couldn’t delete ${item.ws.name}: ${errorText(err)}`, 'error'));
   };
 
   const onListKey = (e: KeyboardEvent): void => {
@@ -133,7 +141,8 @@ export function OverviewView() {
       />
       {!searching && !project && (prefs.filter === 'all' || prefs.filter === 'active') ? <EarningsCard /> : null}
       <div ref={listRef} onKeyDown={onListKey}>
-        {groups.length ? (
+        {prefs.filter === 'needs' && there.length ? <RemoteList title="Needs you on your computers" rows={there} /> : null}
+        {groups.length || (prefs.filter === 'needs' && there.length) ? (
           groups.map((g) => <Group key={g.project.id} group={g} filter={prefs.filter} current={current} onSelect={setSelected} onOpen={open} act={act} />)
         ) : (
           <NothingHere
@@ -148,7 +157,7 @@ export function OverviewView() {
         )}
       </div>
       {peekItem ? <ConversationPeek item={peekItem} onClose={() => setPeek(undefined)} onRestore={() => act.restore(peekItem)} onDelete={() => act.remove(peekItem)} /> : null}
-      {deleteItem ? <DeleteArchivedAlert item={deleteItem} onCancel={() => setDeleting(undefined)} onDelete={() => remove(deleteItem)} /> : null}
+      {deleteItem ? <DeleteArchivedAlert item={deleteItem} onCancel={() => setDeleting(undefined)} onDelete={(children) => remove(deleteItem, children)} /> : null}
     </div>
   );
 }

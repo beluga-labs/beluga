@@ -1,9 +1,13 @@
 import { useLocalSearchParams } from 'expo-router';
+import { resetWords } from '../../../../src/shared/run-failure';
 import { KeyboardLift } from '../../components/KeyboardLift';
-import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, OctagonX, Plus, Send, Square, SquareTerminal, Trash2 } from 'lucide-react-native';
+import { Activity, Bot, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, Network, OctagonX, Plus, Send, Square, SquareTerminal, Trash2, Undo2 } from 'lucide-react-native';
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
+import { ThreadsSheet, threadsSummary } from '../../components/ThreadsSheet';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
+import { InlineThing } from '../../components/render/Inline';
+import { chatMentionsAsTitles, parseChatRef } from '../../lib/render';
 import { openOnMac } from '../../lib/mac';
 import { useRef, useState } from 'react';
 import { Platform, ScrollView, useWindowDimensions, View } from 'react-native';
@@ -13,6 +17,7 @@ import { Composer, QueueTray } from '../../components/Composer';
 import { AgentChips, Prose, StepTicker } from '../../components/Conv';
 import { answer, NeedButtons, NeedFace } from '../../components/Needs';
 import { Options } from '../../components/Options';
+import { QuickReactions, ReactionChips } from '../../components/Reactions';
 import { OutputGrid, OutputsTopic, TurnOutputs } from '../../components/Outputs';
 import { DeleteMacChat, MacChatsSheet, newMacChat } from '../../components/MacChats';
 import { Header, Screen, useScrolled } from '../../components/Screen';
@@ -21,10 +26,12 @@ import { EditPromptSheet } from '../../components/EditPrompt';
 import { AgentPickerSheet } from '../../components/AgentPicker';
 import { agentMark, markIcon, markOfName, runtimeMark } from '../../components/AgentMark';
 import { Avatar, Card, IconBadge, More, Pill, Press, T, type Tone, toneOf } from '../../components/ui';
-import { ago, elapsed, useSince, useSupports, useView, useVisibleNeeds } from '../../lib/hooks';
+import { ago, elapsed, useComputer, useSince, useSupports, useView, useVisibleNeeds } from '../../lib/hooks';
+import { OnComputer, useOn } from '../../lib/scope';
 import { calls } from '../../lib/link/calls';
+import { convAbilities, scoped } from '../../lib/link/scoped';
 import { type ConvView, type HomeView, type OutputView, type SubAgentView, type Topic, type TurnView, isMacTopic } from '../../lib/link/protocol';
-import { type Send as Pending, sends, useSends } from '../../lib/sends';
+import { type Send as Pending, sends, useSends, whereOf } from '../../lib/sends';
 import { SendStatus } from '../../components/SendStatus';
 import { AgentStrip, SubAgentSheet } from '../../components/SubAgents';
 import { store } from '../../lib/store';
@@ -39,7 +46,7 @@ import { router } from 'expo-router';
  */
 
 /** An empty Your Mac: three first things to ask, one tap each (the composer is there too). */
-function MacStarters({ topic }: { readonly topic: Topic }) {
+function MacStarters({ topic, on }: { readonly topic: Topic; readonly on?: string }) {
   const starters = [
     { label: 'Send me a screenshot', Icon: Camera, tone: 'sky' as Tone, text: 'Take a screenshot of my screen and send it to me.' },
     { label: 'What’s using my CPU?', Icon: Cpu, tone: 'peach' as Tone, text: 'What’s using my CPU and memory right now?' },
@@ -54,7 +61,7 @@ function MacStarters({ topic }: { readonly topic: Topic }) {
       </T>
       <View style={{ gap: 8, alignSelf: 'stretch', marginTop: 6 }}>
         {starters.map((s) => (
-          <Press key={s.label} scaleTo={0.985} onPress={() => sends.message(topic, s.text, calls.send(topic, s.text))}>
+          <Press key={s.label} scaleTo={0.985} onPress={() => sends.message(topic, s.text, calls.send(topic, s.text), on ? { on } : {})}>
             <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 14 }}>
               <IconBadge Icon={s.Icon} tone={s.tone} size={30} />
               <T v="body">{s.label}</T>
@@ -66,15 +73,30 @@ function MacStarters({ topic }: { readonly topic: Topic }) {
   );
 }
 
-export default function Conversation() {
+/** A conversation, on your Mac or (`?on=`) on one of your computers, over its own link (BLG-810). */
+export default function ConversationScreen() {
+  const { on } = useLocalSearchParams<{ on?: string }>();
+  return (
+    <OnComputer.Provider value={on || undefined}>
+      <Conversation />
+    </OnComputer.Provider>
+  );
+}
+
+function Conversation() {
   const { scrolled, onScroll } = useScrolled();
   const { id } = useLocalSearchParams<{ id: string }>();
+  // One of your computers': its calls go over its link, nothing waits for it, and what only your Mac does is left out.
+  const on = useOn();
+  const computer = useComputer(on);
+  const away = on && computer?.phase !== 'open' ? `${computer?.computer.name ?? 'That computer'} is away: this is what your phone kept.` : undefined;
+  const { call, where } = scoped(store, on);
   const topic = `conv:${decodeURIComponent(id ?? '')}` as Topic;
   const conv = useView<ConvView>(topic);
   const c = conv?.data;
-  const needs = useVisibleNeeds(c?.needsYou);
+  const needs = useVisibleNeeds(on ? store.placeNeeds(on, c?.needsYou) : c?.needsYou);
   /** What you sent that the Mac's view doesn't show yet (lib/sends.ts). */
-  const pending = useSends(topic);
+  const pending = useSends(whereOf(topic, on));
   const insets = useSafeAreaInsets();
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const atEnd = useRef(true);
@@ -83,14 +105,23 @@ export default function Conversation() {
   const [menu, setMenu] = useState(false);
   /** A steered message of yours Claude hasn't read yet, long-pressed: its sheet offers Send now. */
   const [unread, setUnread] = useState<TurnView | undefined>();
+  // A steered message you took back: its words, back in the box.
+  const [refill, setRefill] = useState<{ text: string; key: number } | undefined>();
   /** Your message, long-pressed to edit it (1.28): Rewind Here or New Fork. */
   const [editing, setEditing] = useState<TurnView | undefined>();
   const [picking, setPicking] = useState(false);
   const canEdit = useSupports('editPrompt');
+  // 1.41 (BLG-702): a person's message in the room's or a workspace's chat takes emoji reactions.
+  const reacts = useSupports('reactions');
+  const supportsCancel = useSupports('cancelSteer');
+  const [reacting, setReacting] = useState<TurnView | undefined>();
+  const react = (t: TurnView, emoji: string, on: boolean): void => void call(calls.reactTurn(topic, t.id, emoji, on), { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+  const chipsOf = (t: TurnView) => (reacts && t.reactions?.length ? <ReactionChips reactions={t.reactions} mine={t.who === 'you'} onToggle={(e, on) => react(t, e, on)} onWho={(text) => store.toast({ text, tone: 'info' })} /> : null);
+  const reactPress = (t: TurnView) => (reacts && t.reactable ? () => setReacting(t) : undefined);
   const older = async () => {
     if (!c) return;
     setOlderBusy(true);
-    await store.call(calls.older(topic, c.turns[0]?.id ?? '')).catch(() => undefined);
+    await call(calls.older(topic, c.turns[0]?.id ?? '')).catch(() => undefined);
     setOlderBusy(false);
   };
 
@@ -103,13 +134,15 @@ export default function Conversation() {
   const all: OutputView[] = c ? (c.outputs ?? c.turns.flatMap((t) => [...(t.outputs ?? []), ...(t.subagents ?? []).flatMap((a) => a.outputs)])) : [];
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [threadsOpen, setThreadsOpen] = useState(false);
   // What waits its turn is in the queue above the composer, not a turn of its own.
   const turns = c ? c.turns.filter((t) => !(c.queue && t.who === 'claude' && t.status === 'queued')) : [];
   // A worktree (or chat folder) of yours has files to read and terminals to share with the Mac (1.7).
-  const hasFolder = topic.startsWith('conv:ws:') || Boolean(c?.mergeable);
+  const can = convAbilities(scoped(store, on), { topic, agent: c?.agent, mergeable: c?.mergeable, branch: c?.branch, macTopic: isMacTopic(topic), askedTask: topic.startsWith('conv:task:') });
+  const hasFolder = can.hasFolder;
   // Your Mac's chats (1.14): a list to switch between in the header, New chat and Delete under •••.
   const canChats = useSupports('macChats');
-  const macChats = isMacTopic(topic) && canChats;
+  const macChats = canChats && can.macChats;
   const home = useView<HomeView>(macChats ? 'home' : undefined);
   const chatCount = home?.data.macChats?.length ?? 0;
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -154,7 +187,7 @@ export default function Conversation() {
           ) : c?.branch ? (
             // Where its branch stands (the Mac toolbar's state), unless a merge from here is under way.
             <View style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10 }}>
-              <BranchBand topic={topic} branch={c.branch} canMerge={Boolean(c.mergeable) && store.supports('merge')} onMerge={() => setMergeOpen(true)} />
+              <BranchBand topic={topic} branch={c.branch} canMerge={can.branchMerge} onMerge={() => setMergeOpen(true)} />
             </View>
           ) : null}
           {/* The plan this chat writes and runs (1.15): its milestones and map are a tap away. */}
@@ -202,10 +235,20 @@ export default function Conversation() {
               </Press>
             ) : null}
             {!c ? <T v="callout" style={{ textAlign: 'center', marginTop: 40 }}>Opening the conversation…</T> : null}
-            {c && isMacTopic(topic) && !turns.length && !pending.length ? <MacStarters topic={topic} /> : null}
+            {c && isMacTopic(topic) && !turns.length && !pending.length ? <MacStarters topic={topic} {...where} /> : null}
             {turns.map((t, i) => (
               <Animated.View key={t.id} entering={i > turns.length - 3 ? FadeIn.duration(180) : undefined}>
-                {t.dialogue ? <DialogueTurn d={t.dialogue} /> : t.who === 'you' ? <YourTurn t={t} onLongPress={t.steer?.waiting === 'next_step' ? () => setUnread(t) : t.edit && canEdit ? () => setEditing(t) : undefined} /> : <ClaudeTurn t={t} all={all} onAgent={setAgent} topic={topic} runtime={c?.agent?.runtime} />}
+                {t.dialogue ? (
+                  <DialogueTurn d={t.dialogue} />
+                ) : t.who === 'you' ? (
+                  <YourTurn t={t} chatLinks={c?.chatLinks === true} chips={chipsOf(t)} onLongPress={t.steer?.waiting === 'next_step' ? () => setUnread(t) : t.edit && canEdit ? () => setEditing(t) : reactPress(t)} />
+                ) : t.who === 'friend' && reactPress(t) ? (
+                  <Press onLongPress={reactPress(t)} haptics={false} scaleTo={0.99}>
+                    <ClaudeTurn t={t} all={all} onAgent={setAgent} topic={topic} runtime={c?.agent?.runtime} chatLinks={c?.chatLinks === true} chips={chipsOf(t)} />
+                  </Press>
+                ) : (
+                  <ClaudeTurn t={t} all={all} onAgent={setAgent} topic={topic} runtime={c?.agent?.runtime} chatLinks={c?.chatLinks === true} chips={chipsOf(t)} />
+                )}
               </Animated.View>
             ))}
             {pending.map((p) => (
@@ -222,39 +265,40 @@ export default function Conversation() {
               </Animated.View>
             ))}
           </ScrollView>
-          {c?.terminal ? <TerminalBand label={c.terminal.label} onTakeOver={() => void store.call(calls.takeOver(topic)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))} /> : null}
+          {c?.terminal ? <TerminalBand label={c.terminal.label} onTakeOver={() => void call(calls.takeOver(topic)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))} /> : null}
           <Composer
+            {...(refill ? { refill } : {})}
             placeholder={c?.waiting ?? (c?.working ? 'What’s next for your agent…' : 'Reply to your agent…')}
             working={c?.working}
             // The room: "@codex", "@bob:codex" as you type @ (BLG-520).
             {...(c?.tags?.length ? { tags: c.tags } : {})}
-            disabled={c?.terminal ? `${c.terminal.label}’s terminal on your Mac has this conversation: Take Over to write here.` : c && !c.canSend ? 'You can read this conversation, not write in it.' : undefined}
-            photos
+            disabled={away ?? (c?.terminal ? `${c.terminal.label}’s terminal on your Mac has this conversation: Take Over to write here.` : c && !c.canSend ? 'You can read this conversation, not write in it.' : undefined)}
+            photos={!on}
             onSend={(text, photos) => {
               atEnd.current = true;
               // Photos go up first (`put`), then the message names them; on the Mac it waits its
               // turn while Claude works, as a queued message does.
               if (photos.length) return sends.message(topic, text, async () => calls.send(topic, text, await Promise.all(photos.map(upload))), { photo: true });
               // While Claude works, Send queues (after), as on the Mac; Steer is a long-press away.
-              const call = c?.working && !topic.startsWith('conv:task:') ? calls.queue(topic, text) : calls.send(topic, text);
-              sends.message(topic, text, call);
+              const msg = c?.working && !topic.startsWith('conv:task:') ? calls.queue(topic, text) : calls.send(topic, text);
+              sends.message(topic, text, msg, where);
             }}
             onSteer={
               topic.startsWith('conv:task:')
                 ? undefined
                 : (text) => {
                     atEnd.current = true;
-                    sends.message(topic, text, calls.steer(topic, text));
+                    sends.message(topic, text, calls.steer(topic, text), where);
                   }
             }
-            onStop={() => void store.call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic))}
+            onStop={() => void call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic))}
             bottom={insets.bottom}
             above={
               c?.queue?.length ? (
                 <QueueTray
                   queue={c.queue}
-                  onSteer={(qid) => void store.call(calls.steerQueued(qid)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))}
-                  onRemove={(qid) => void store.call(calls.unqueue(qid)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))}
+                  onSteer={(qid) => void call(calls.steerQueued(qid)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))}
+                  onRemove={(qid) => void call(calls.unqueue(qid)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }))}
                 />
               ) : null
             }
@@ -282,6 +326,25 @@ export default function Conversation() {
         </Sheet>
         {c?.mergeable ? <MergeSheet topic={topic} visible={mergeOpen} onClose={() => setMergeOpen(false)} /> : null}
         <EditPromptSheet turn={editing} onClose={() => setEditing(undefined)} />
+        <ThreadsSheet threadFamily={c?.threadFamily} visible={threadsOpen} onClose={() => setThreadsOpen(false)} />
+        <Options
+          visible={Boolean(reacting)}
+          onClose={() => setReacting(undefined)}
+          head={
+            reacting ? (
+              <QuickReactions
+                quick={c?.quick}
+                reactions={reacting.reactions}
+                onPick={(e, on) => {
+                  const t = reacting;
+                  setReacting(undefined);
+                  react(t, e, on);
+                }}
+              />
+            ) : undefined
+          }
+          options={[]}
+        />
         <AgentPickerSheet topic={topic} picker={c?.agent} visible={picking} onClose={() => setPicking(false)} />
         <Options
           visible={Boolean(unread)}
@@ -295,7 +358,24 @@ export default function Conversation() {
               tone: 'peach',
               onPress: () => {
                 const request = unread?.steer?.request;
-                if (request) void store.call(calls.steerNow(request)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+                if (request) void call(calls.steerNow(request)).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+              },
+            },
+            {
+              Icon: Undo2,
+              label: 'Cancel',
+              sub: 'Takes it back before your agent reads it; its words go back in the box',
+              tone: 'rose',
+              hidden: !supportsCancel,
+              onPress: () => {
+                const request = unread?.steer?.request;
+                if (!request) return;
+                void call(calls.cancelSteer(request))
+                  .then((r) => {
+                    const back = r as { cancelled?: boolean; prompt?: string } | undefined;
+                    if (back?.cancelled && back.prompt) setRefill({ text: back.prompt, key: Date.now() });
+                  })
+                  .catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
               },
             },
           ]}
@@ -305,23 +385,24 @@ export default function Conversation() {
           onClose={() => setMenu(false)}
           title={c?.title}
           options={[
-            { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !c?.agent || !store.supports('agentPicker'), onPress: () => setPicking(true) },
+            { Icon: c?.agent ? markIcon(runtimeMark(c.agent.runtime)) : Bot, label: `Agent · ${c?.agent?.label ?? ''}`, sub: 'Pick the agent and model for this conversation', tone: 'lavender', hidden: !can.agentPicker, onPress: () => setPicking(true) },
             { Icon: Plus, label: 'New chat', sub: 'A fresh chat with your Mac, a new tab there too', tone: 'sky', hidden: !macChats, onPress: () => newMacChat((h) => router.replace(h as never)) },
-            { Icon: Square, label: askedTask ? 'Stop asking' : 'Stop the agent', tone: 'rose', hidden: !c?.working, onPress: () => void store.call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic)) },
+            { Icon: Square, label: askedTask ? 'Stop asking' : 'Stop the agent', tone: 'rose', hidden: !c?.working, onPress: () => void call(askedTask ? calls.cancelTask(askedTask) : calls.stop(topic)) },
+            { Icon: Network, label: 'Threads', sub: threadsSummary(c?.threadFamily), tone: 'lavender', hidden: !c?.threadFamily, onPress: () => setThreadsOpen(true) },
             { Icon: Images, label: 'Outputs', sub: all.length ? `${all.length} from this worktree` : 'Nothing yet', tone: 'sky', hidden: !all.length, onPress: () => setOutputsOpen(true) },
-            { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: !c?.mergeable || !store.supports('merge') || Boolean(c?.branch), onPress: () => setMergeOpen(true) },
-            { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: !hasFolder || !store.supports('files'), onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },
-            { Icon: SquareTerminal, label: 'Terminal', sub: 'The same terminal as on your Mac', tone: 'lavender', hidden: !hasFolder || !store.supports('terminal'), onPress: () => router.push({ pathname: '/terminal', params: { topic, title: c?.title ?? '' } }) },
+            { Icon: GitMerge, label: 'Merge…', sub: 'Into your main folder, checked first', tone: 'lavender', hidden: !can.merge, onPress: () => setMergeOpen(true) },
+            { Icon: FolderTree, label: 'Files', sub: 'Browse and read this worktree, read only', tone: 'sky', hidden: !can.files, onPress: () => router.push({ pathname: '/files', params: { topic, name: c?.title ?? 'Worktree' } }) },
+            { Icon: SquareTerminal, label: 'Terminal', sub: 'The same terminal as on your Mac', tone: 'lavender', hidden: !can.terminal, onPress: () => router.push({ pathname: '/terminal', params: { topic, title: c?.title ?? '' } }) },
             { Icon: History, label: 'Earlier messages', tone: 'sky', hidden: !c?.more, onPress: () => void older() },
-            { Icon: Monitor, label: 'Open on your Mac', sub: 'Code, changes and the full history', tone: 'plain', onPress: () => void openOnMac({ topic }) },
+            { Icon: Monitor, label: 'Open on your Mac', sub: 'Code, changes and the full history', tone: 'plain', hidden: !can.openOnMac, onPress: () => void openOnMac({ topic }) },
             { Icon: Trash2, label: 'Delete this chat', sub: 'For good, here and on your Mac', tone: 'rose', hidden: !macChats, onPress: () => setDeleting(true) },
             {
               Icon: Trash2,
               label: 'Remove',
               sub: c?.working ? 'Stops asking, then takes it off your lists' : 'Takes it off your lists, here and on your Mac',
               tone: 'rose',
-              hidden: !askedTask || !store.supports('forget'),
-              onPress: () => void store.call(calls.forgetTask(askedTask!)).then(() => (router.canGoBack() ? router.back() : router.replace('/' as never))),
+              hidden: !can.forget,
+              onPress: () => void call(calls.forgetTask(askedTask!)).then(() => (router.canGoBack() ? router.back() : router.replace('/' as never))),
             },
           ]}
         />
@@ -336,18 +417,27 @@ export default function Conversation() {
   );
 }
 
-/** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now); else long-press edits it (1.28). */
-function YourTurn({ t, onLongPress }: { t: TurnView; onLongPress?: (() => void) | undefined }) {
+/** Your message. Steered into Claude's turn and not read yet: dimmed, with a clock (long-press: Send now, or Cancel from 1.43); else long-press edits it (1.28). */
+function YourTurn({ t, chatLinks, onLongPress, chips }: { t: TurnView; chatLinks: boolean; onLongPress?: (() => void) | undefined; chips?: React.ReactNode }) {
   const waiting = t.steer?.waiting;
+  // A chat you named is its chip, as on the Mac (BLG-306); an older Mac's words stay words. With the Mac's chat links off: its title, no chip.
+  const chats = useSupports('chatLinks') && chatLinks;
+  const prose = chats ? t.prose : { ...t.prose, text: chatMentionsAsTitles(t.prose.text) };
   return (
     <Press onLongPress={onLongPress} disabled={!onLongPress} scaleTo={0.99} style={{ alignItems: 'flex-end', paddingLeft: 48 }}>
+      {t.via ? (
+        <T v="caption" style={{ marginBottom: 4, marginRight: 4 }}>
+          {`Sent by ${t.via}`}
+        </T>
+      ) : null}
       <View style={{ backgroundColor: color.card, borderRadius: 20, borderBottomRightRadius: 6, paddingVertical: 10, paddingHorizontal: 14, opacity: waiting ? 0.6 : 1 }}>
-        <Prose prose={t.prose} size={15} tasks />
+        <Prose prose={prose} size={15} tasks chats={chats} />
       </View>
+      {chips ? <View style={{ marginTop: 4 }}>{chips}</View> : null}
       {waiting ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4, marginRight: 4 }}>
           <Clock color={color.text2} size={12} />
-          <T v="caption">{waiting === 'stopping' ? 'Sent · your agent is stopping its step to read it' : 'Sent · waiting for your agent to read it'}</T>
+          <T v="caption">{waiting === 'stopping' ? 'Sent · your agent is stopping its step to read it' : 'Sent · your agent reads it after its current step'}</T>
         </View>
       ) : (
         <T v="caption" style={{ marginTop: 4, marginRight: 4 }}>
@@ -413,26 +503,49 @@ function DialogueTurn({ d }: { d: NonNullable<TurnView['dialogue']> }) {
   );
 }
 
+/** A message from an agent in another chat (1.45): a card with its source, never your bubble. */
+function FromChatCard({ origin, topic, turn, chats }: { origin: NonNullable<TurnView['origin']>; topic: Topic; turn: string; chats: boolean }) {
+  const on = useSupports('chatLinks');
+  const ref = parseChatRef(origin.ref);
+  return (
+    <View style={{ gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: color.hairline, backgroundColor: color.code }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+        <T v="caption" style={{ fontWeight: '600' }}>
+          From
+        </T>
+        {on && ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
+        <T v="caption">· {origin.agent}, an agent</T>
+      </View>
+      <Prose prose={origin.prose} at={{ topic, turn }} chats={chats} />
+    </View>
+  );
+}
+
 /** An agent's turn, under its name with its mark (BLG-498: the agent the Mac sends; an older Mac's, by the name, else the conversation's runtime). */
-function ClaudeTurn({ t, all, onAgent, topic, runtime }: { t: TurnView; all: OutputView[]; onAgent: (a: SubAgentView) => void; topic: Topic; runtime?: string | undefined }) {
+function ClaudeTurn({ t, all, onAgent, topic, runtime, chatLinks, chips }: { t: TurnView; all: OutputView[]; onAgent: (a: SubAgentView) => void; topic: Topic; runtime?: string | undefined; chatLinks: boolean; chips?: React.ReactNode }) {
+  // A chat it names by its ref is the chat's chip, as on the Mac; with the Mac's chat links off, words as before.
+  const chats = useSupports('chatLinks') && chatLinks;
   const working = t.status === 'working';
   const outs = t.outputs ?? [];
   const mins = t.endTs ? Math.max(1, Math.round((t.endTs - t.ts) / 60000)) : undefined;
   // No card around Claude's answer: it takes the screen's full width, your bubbles sit on the right.
   return (
     <View style={{ gap: 12, paddingTop: 2 }}>
+      {t.origin ? <FromChatCard origin={t.origin} topic={topic} turn={t.id} chats={chats} /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
         <Avatar name={t.name} size={26} {...(t.who === 'claude' ? { mark: t.agent ? agentMark(t.agent) : markOfName(t.name, runtime) } : {})} />
         <T v="callout" c={color.text} style={{ fontWeight: '700' }}>
           {t.name}
         </T>
         <T v="caption" style={{ flex: 1 }} numberOfLines={1}>
+          {t.via ? `Sent by ${t.via}${t.steps || mins ? ' · ' : ''}` : ''}
           {t.steps ? `${t.steps} ${t.steps === 1 ? 'step' : 'steps'}` : ''}
           {mins ? ` · ${mins} min` : ''}
         </T>
         <T v="caption">{ago(t.ts)}</T>
       </View>
-      {t.prose.text ? <Prose prose={t.prose} at={{ topic, turn: t.id }} tasks /> : null}
+      {t.prose.text ? <Prose prose={t.prose} at={{ topic, turn: t.id }} tasks chats={chats} /> : null}
+      {chips}
       {working ? <LivePanel t={t} /> : <StepsFold t={t} />}
       {t.subagents?.length ? (
         working || t.subagents.length <= 3 ? (
@@ -456,6 +569,15 @@ function ClaudeTurn({ t, all, onAgent, topic, runtime }: { t: TurnView; all: Out
           {t.status === 'failed' ? <CircleX color={color.error} size={14} /> : <OctagonX color={color.text2} size={14} />}
           <T v="caption" c={t.status === 'failed' ? color.error : color.text2}>
             {t.status === 'failed' ? 'Failed' : 'Stopped'}
+          </T>
+        </View>
+      ) : null}
+      {t.resumesAt ? (
+        // 1.42 (BLG-757): stopped on your usage limit; Beluga tells it to continue once the limit resets.
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Clock color={color.text2} size={14} />
+          <T v="caption" c={color.text2}>
+            Continues on its own at {resetWords(t.resumesAt)}
           </T>
         </View>
       ) : null}

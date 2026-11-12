@@ -1,40 +1,76 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { handoffPeople } from '@beluga/ui/worktree-share.js';
 import { Field, FormSheet, PickList, formStyles as f } from '../../components/FormSheet.js';
 import { Icon } from '../../components/Icon.js';
 import { Avatar } from '../../components/ui.js';
-import { useApp } from '../../lib/beluga.js';
+import { useApi, useApp } from '../../lib/beluga.js';
 import { openNet } from '../../network/net-sheets.js';
 import type { NativeMenuProps } from './index.js';
 import { usePick } from './pick.js';
 import s from './menus.module.css';
 
+/** What asking someone's Beluga "could you take this?" found: still asking, yes, or why not (BLG-614). */
+type Check = 'checking' | { readonly ok: boolean; readonly why?: string };
+
 /**
  * Hand a workspace to someone: who, and what happens, then one button. Anyone in your room with
- * their Claude, or any friend over the Beluga network, room or not (BLG-341).
+ * their Claude, or any friend over the Beluga network, room or not (BLG-341). As it opens, each
+ * one online is asked whether their Mac has this repository, so nobody is handed what they can't take.
  */
 export function HandoffSheet({ menu, close }: NativeMenuProps<'handoff'>) {
+  const api = useApi();
   const pick = usePick(menu);
   const ws = useApp((st) => findWorkspace(st.projects, menu.id));
   const peers = useApp((st) => st.peers);
   const self = useApp((st) => st.self);
   const network = useApp((st) => st.network);
   const people = handoffPeople({ peers, self, network });
+  const [checks, setChecks] = useState<Readonly<Record<string, Check>>>({});
   const [who, setWho] = useState<string | undefined>((people.find((p) => !p.why && p.online) ?? people.find((p) => !p.why))?.peerId);
+  const askable = people.filter((p) => !p.why && p.online).map((p) => p.peerId);
+  const askKey = askable.join(',');
+  useEffect(() => {
+    let live = true;
+    const fresh = askable.filter((id) => !checks[id]);
+    if (!fresh.length) return;
+    setChecks((c) => ({ ...c, ...Object.fromEntries(fresh.map((id) => [id, 'checking' as const])) }));
+    for (const id of fresh) {
+      void api.remote
+        .canHandOff(menu.id, id)
+        .then((r) => r, () => ({ ok: true }))
+        .then((r) => live && setChecks((c) => ({ ...c, [id]: r })));
+    }
+    return () => {
+      live = false;
+    };
+    // Asked once per person while the sheet is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askKey, menu.id]);
   if (!ws) return null;
-  const person = people.find((p) => p.peerId === who);
-  const handOff = (peerId = who): void => {
-    if (peerId && !people.find((p) => p.peerId === peerId)?.why) pick(`ho:${peerId}`);
+  const whyNot = (peerId: string): string | undefined => {
+    const p = people.find((x) => x.peerId === peerId);
+    const c = checks[peerId];
+    return p?.why ?? (c && c !== 'checking' && !c.ok ? (c.why ?? `${p?.name ?? 'They'} can’t take it`) : undefined);
   };
-  const detail = (p: (typeof people)[number]): string => p.why ?? `${p.name}’s agent continues on ${p.name}’s computer${p.online ? '' : '. They’re offline: it waits for them'}`;
+  const person = people.find((p) => p.peerId === who);
+  const blocked = (peerId: string): boolean => Boolean(whyNot(peerId)) || checks[peerId] === 'checking';
+  const handOff = (peerId = who): void => {
+    if (peerId && people.some((p) => p.peerId === peerId) && !blocked(peerId)) pick(`ho:${peerId}`);
+  };
+  const detail = (p: (typeof people)[number]): string => {
+    const why = whyNot(p.peerId);
+    if (why) return why;
+    if (checks[p.peerId] === 'checking') return `Checking ${p.name} has this repository…`;
+    return `${p.name}’s agent continues on ${p.name}’s computer${p.online ? '' : '. They’re offline: it waits for them'}`;
+  };
   return (
     <FormSheet
       title={`Hand Off “${ws.name}”`}
       icon="hand"
       intro="A friend takes over this work on their computer, with their own agent. They need the same repository. To work on it together instead, use Share."
       submitLabel={person ? `Hand Off to ${person.name}` : 'Hand Off'}
-      canSubmit={Boolean(person && !person.why)}
+      canSubmit={Boolean(person && !blocked(person.peerId))}
       onSubmit={() => handOff()}
       onCancel={close}
       width={540}

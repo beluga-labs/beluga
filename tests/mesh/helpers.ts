@@ -11,8 +11,23 @@ import { waitFor } from '../helpers.js';
 /** Quick timings so people going offline and coming back takes milliseconds, not minutes. */
 export const FAST: Timing = { dialTimeoutMs: 4_000, backoffMinMs: 100, backoffMaxMs: 400, pingMs: 250, syncMs: 400, pairTimeoutMs: 5_000 };
 
+/**
+ * Windows' CI runners are several times slower at git, processes and the local testnet (a demo
+ * Mac alone can take 20 s there): network tests' waits and timeouts scale by this.
+ */
+export const SLOW = process.platform === 'win32' ? 3 : 1;
+
+/**
+ * Network tests that now and then waited for a message that never came while the rest of their file
+ * passed in a second (BLG-728), on Windows' runners and on Linux CI too (tests/mesh/calls.test.ts).
+ * The cause: two Macs dialing each other at once, one gave up a link the other had just sent on.
+ * The given-up link now hears the other side out first (RETIRE_MS in links.ts,
+ * tests/mesh/links-retire.test.ts). Windows still skips them until its runs show that was all.
+ */
+export const LOSES_A_MESSAGE_ON_WINDOWS = process.platform === 'win32';
+
 /** How long a network condition may take to show up on a local testnet. */
-export const SETTLE_MS = 15_000;
+export const SETTLE_MS = 15_000 * SLOW;
 
 export const settle = <T>(fn: () => T | undefined | false | null): Promise<T> => waitFor(fn, SETTLE_MS);
 

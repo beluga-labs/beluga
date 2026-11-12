@@ -17,6 +17,7 @@ import t from '../tasks/tasks.module.css';
 import s from './issues.module.css';
 import arr from '../lib/arrive.module.css';
 import { useLateArrival } from '../lib/last-seen.js';
+import { NoProjects } from '../work/NoProjects.js';
 import { primaryKey } from '../lib/shortcuts-model.js';
 
 const STATES: ReadonlyArray<{ readonly value: GhIssueState; readonly label: string; readonly hint: string }> = [
@@ -72,7 +73,7 @@ export function IssuesView() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
-  if (!projects.length || !here || !projectId) return <Empty icon="issue" title="No projects yet" detail="Issues come from a project’s GitHub repository. Add a project from the sidebar." />;
+  if (!projects.length || !here || !projectId) return <NoProjects icon="issue" detail="Issues come from a project’s GitHub repository. Add a project to see them here." />;
 
   const repo = list && list.kind !== 'none' ? list.repo : undefined;
   return (

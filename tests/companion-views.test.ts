@@ -362,6 +362,8 @@ describe('the views of a known Mac', () => {
     expect(w1.agent?.groups.map((g) => [g.runtime, g.available])).toEqual([
       ['claude', true],
       ['codex', false],
+      ['opencode', false],
+      ['copilot', false],
       ['local', false],
     ]);
     expect(w1.agent?.groups[1]?.why).toMatch(/Codex/);
@@ -402,6 +404,34 @@ describe('the views of a known Mac', () => {
     expect(w2).toMatchObject({ projectId: 'p1', icon: ICON });
     expect(w2.queue).toEqual([{ id: 'r3', text: 'Then update the docs' }]);
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.icon).toBe(ICON);
+  });
+
+  it('BLG-840: commits a worktree’s open PR doesn’t have show on the phone as on the Mac, and its band offers no merge without them', () => {
+    const behind = {
+      ...state,
+      projects: state.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'w1' ? { ...w, branch: 'beluga/auth', status: { changed: 0, ahead: 11, behind: 0, unpushed: 3 } } : w)) })),
+      prs: { ...state.prs, w1: { number: 398, url: 'https://github.com/o/r/pull/398', state: 'OPEN', title: 'Auth', draft: false, checks: 'passing' } },
+    } as DomainState;
+    const rows = WorkView.parse(viewOf(behind, ctx, 'work')).projects.flatMap((p) => p.conversations);
+    expect(rows.find((c) => c.topic === 'conv:ws:w1')?.notOnPr).toEqual({ count: 3, pr: 398 });
+    expect(rows.find((c) => c.topic === 'conv:ws:w2')?.notOnPr).toBeUndefined();
+    const band = ConvView.parse(viewOf(behind, ctx, 'conv:ws:w1')).branch!;
+    expect([band.kind, band.label, band.pr?.number]).toEqual(['not_pushed', '3 commits not on PR', 398]);
+    expect(band.next).toMatchObject({ id: 'push', label: 'Push 3 Commits to PR #398' });
+    expect(band.steps?.map((s) => s.id)).toEqual(['push', 'merge_auto', 'open_pr']);
+    expect(band.steps?.find((s) => s.id === 'merge_auto')?.label).toBe('Push and Merge When Ready');
+    // Pushed: no chip, and Squash and Merge is back.
+    const pushed = { ...behind, projects: behind.projects.map((p) => ({ ...p, workspaces: p.workspaces.map((w) => (w.id === 'w1' ? { ...w, status: { changed: 0, ahead: 11, behind: 0 } } : w)) })) } as DomainState;
+    expect(WorkView.parse(viewOf(pushed, ctx, 'work')).projects.flatMap((p) => p.conversations).find((c) => c.topic === 'conv:ws:w1')?.notOnPr).toBeUndefined();
+    expect(ConvView.parse(viewOf(pushed, ctx, 'conv:ws:w1')).branch?.next?.id).toBe('merge_pr');
+  });
+
+  it('work lists a project with no conversations yet (one just added), last, and never Chats (BLG-675)', () => {
+    const added = { ...state, projects: [...state.projects, { id: 'p9', name: 'notes', root: '/srv/notes', base: 'main', workspaces: [] }, { id: 'chats', name: 'Chats', root: '', base: '', workspaces: [] }] } as DomainState;
+    const work = WorkView.parse(viewOf(added, ctx, 'work'));
+    expect(work.projects.at(-1)).toEqual({ id: 'p9', name: 'notes', conversations: [] });
+    expect(work.projects.find((p) => p.id === 'p1')?.conversations.length).toBeGreaterThan(0);
+    expect(work.projects.some((p) => p.id === 'chats' || p.name === 'Chats')).toBe(false);
   });
 
   it('tasks: by project and status, and one task’s page with its brief, ticks and activity', () => {
@@ -474,6 +504,21 @@ describe('the views of a known Mac', () => {
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'asked')?.conversations.map((c) => c.topic)).toEqual(['conv:task:t_screen000001']);
   });
 
+  it('the room’s turns carry their reactions and your quick row; a conversation with Claude has none (1.41, BLG-702, BLG-742)', () => {
+    const store = new Store(state);
+    store.dispatch({ type: 'chat', id: 'r1', from: BOB, text: 'shipped it', ts: T0 + 40, byAgent: false, channel: 'room' });
+    store.dispatch({ type: 'chat_react', channel: 'room', id: 'r1', emoji: '🚀', by: BOB, on: true, at: 1 });
+    store.dispatch({ type: 'chat_react', channel: 'room', id: 'r1', emoji: '🚀', by: ME, on: true, at: 2 });
+    const room = ConvView.parse(viewOf(store.getState(), ctx, 'conv:room'));
+    expect(room.turns.find((t) => t.id === 'r1')).toMatchObject({ reactable: true, reactions: [{ emoji: '🚀', count: 2, mine: true, who: ['bob', 'You'] }] });
+    expect(room.quick).toEqual(['🚀', '👍', '❤️', '😂', '🎉', '👀']);
+    // A workspace chat is a conversation with Claude: no emoji there, even one an older Mac put.
+    store.dispatch({ type: 'chat_react', channel: 'ws:w1', id: 'c1', emoji: '🚀', by: BOB, on: true, at: 3 });
+    const conv = ConvView.parse(viewOf(store.getState(), ctx, 'conv:ws:w1'));
+    expect(conv.turns.every((t) => !t.reactable && !t.reactions)).toBe(true);
+    expect(conv.quick).toBeUndefined();
+  });
+
   it('a message steered in that Claude hasn’t read yet says so on your turn, not as a turn of Claude’s (BLG-54)', () => {
     const store = new Store(state);
     store.dispatch({ type: 'agent_event', owner: ME, requestId: 'r9', requester: ME, event: 'started', text: '', ts: T0 + 20, channel: 'ws:w1' });
@@ -500,6 +545,17 @@ describe('the views of a known Mac', () => {
     expect(turns.find((t) => t.id === 'c20')?.edit).toBeUndefined();
     expect(turns.find((t) => t.id === 'c21')?.edit).toBeUndefined();
     expect(ConvView.parse(viewOf(store.getState(), ctx, 'conv:mac:assistant')).turns.find((t) => t.id === 'ca1')?.edit).toBeUndefined();
+  });
+
+  it('a merge shows in the conversation, though other info lines stay on the Mac', () => {
+    const store = new Store(state);
+    store.dispatch({ type: 'system', id: 'mg', channel: 'ws:w1', text: 'Above this line was merged into main in PR #4.', ts: T0 + 35, merged: { into: 'main', number: 4, url: 'u/4' } });
+    store.dispatch({ type: 'system', id: 'sh', channel: 'ws:w1', text: 'Above this line went to PR #4, merged into main. New work starts here, for a new pull request.', ts: T0 + 36, shipped: { number: 4, into: 'main' } });
+    store.dispatch({ type: 'system', id: 'nf', channel: 'ws:w1', text: 'Checked out PR #9', ts: T0 + 37 });
+    const turns = ConvView.parse(viewOf(store.getState(), ctx, 'conv:ws:w1')).turns;
+    expect(turns.find((t) => t.id === 'mg')).toMatchObject({ who: 'system', name: 'Beluga' });
+    expect(turns.find((t) => t.id === 'sh')).toMatchObject({ who: 'system' });
+    expect(turns.find((t) => t.id === 'nf')).toBeUndefined();
   });
 
   it('a dialogue between agents shows its header with Stop, and its turns named for their agent (BLG-466)', () => {
@@ -534,7 +590,7 @@ describe('the views of a known Mac', () => {
   it('plans, chats and people', () => {
     expect(PlansView.parse(viewOf(state, ctx, 'plans')).plans).toEqual([{ id: 'pl_auth', title: 'Add auth', state: 'draft', topic: 'plan:pl_auth', done: 0, total: 1 }]);
     const page = PlanView.parse(viewOf(state, ctx, 'plan:pl_auth'));
-    expect(page.needsYou.find((n) => n.kind === 'decision')?.actions.map((a) => a.method)).toEqual(['plans.approve', 'plans.discard']);
+    expect(page.needsYou.find((n) => n.kind === 'decision')?.actions.map((a) => a.method)).toEqual(['plans.approve', 'plans.verify', 'plans.discard']);
     // While Claude still writes it (no milestones yet), there's nothing to approve or discard.
     const writing = { ...state, plans: { ...state.plans, plans: [{ ...plan, draft: { title: 'Add auth', goal: '', milestones: [] } } as unknown as Plan] } };
     expect(PlanView.parse(viewOf(writing, ctx, 'plan:pl_auth')).needsYou.filter((n) => n.kind === 'decision')).toEqual([]);
@@ -551,9 +607,28 @@ describe('the views of a known Mac', () => {
     ]);
     // 1.30 (BLG-429): only your own words, whole on the phone, can be edited there.
     expect(chat.messages.map((m) => m.editable)).toEqual([undefined, true]);
+    // 1.38 (BLG-574): what's unread, so the phone marks it when it opens; none, and it isn't said.
+    expect(chat.unread).toBe(2);
+    expect(ChatView.parse(viewOf({ ...state, network: { ...state.network, friends: state.network.friends.map((f) => ({ ...f, unread: 0 })) } }, ctx, `chat:dm:${BOB}`)).unread).toBeUndefined();
     expect(ChatsView.parse(viewOf(state, ctx, 'chats')).chats[0]).toMatchObject({ name: 'bob', kind: 'dm', unread: 2 });
     expect(PeopleView.parse(viewOf(state, ctx, 'people')).people[0]).toMatchObject({ name: 'bob', presence: 'away', note: 'lunch', offers: ['claude', 'screen', 'shell'] });
     expect(WorkView.parse(viewOf(state, ctx, 'work')).projects.find((p) => p.id === 'p1')?.conversations.map((c) => c.title)).toEqual(['tests', 'auth']);
+  });
+
+  it('a chat’s reactions and your quick row (1.41, BLG-702)', () => {
+    const conv = `dm:${BOB}`;
+    const list = state.network.messages[conv] ?? [];
+    const [first, ...rest] = list;
+    const reacted = { ...state, network: { ...state.network, messages: { ...state.network.messages, [conv]: [{ ...first!, reactions: [{ emoji: '🚀', by: [BOB, ME] }, { emoji: '👀', by: [BOB] }] }, ...rest] } } };
+    const chat = ChatView.parse(viewOf(reacted, ctx, `chat:${conv}`));
+    expect(chat.messages[0]?.reactions).toEqual([
+      { emoji: '🚀', count: 2, mine: true, who: ['bob', 'You'] },
+      { emoji: '👀', count: 1, mine: false, who: ['bob'] },
+    ]);
+    expect(chat.messages[1]?.reactions).toBeUndefined();
+    // The one you use comes first in your row, then the defaults.
+    expect(chat.quick).toEqual(['🚀', '👍', '❤️', '😂', '🎉', '👀']);
+    expect(ChatView.parse(viewOf(state, ctx, `chat:${conv}`)).quick).toEqual(['👍', '❤️', '😂', '🎉', '👀', '✅']);
   });
 
   it('people are friends only: someone only in your room isn’t listed, and their friend request needs you (BLG-202)', () => {

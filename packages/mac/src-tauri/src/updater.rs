@@ -124,6 +124,8 @@ struct Available {
     version: String,
     notes: Option<String>,
     date: Option<String>,
+    /// The app protocol it speaks (BLG-777), for the sheet to warn about computers left behind.
+    ipc: Option<u32>,
 }
 
 /// What the window shows (lib/updates.ts › UpdateState).
@@ -232,6 +234,7 @@ fn view(app: &AppHandle, i: &Inner) -> View {
             version: p.version.clone(),
             notes: p.notes.clone(),
             date: p.date.clone(),
+            ipc: crate::update_rules::manifest_ipc(&p.raw),
         }),
         progress: i.progress,
         choice: i.saved.pending.as_ref().map(|p| p.choice),
@@ -561,6 +564,53 @@ fn idle_for() -> f64 {
 }
 
 /// Beluga's terminals running a program right now (`None`: couldn't tell).
+#[cfg(windows)]
+async fn terminal_programs(daemon_pid: u32) -> Option<usize> {
+    let procs = tauri::async_runtime::spawn_blocking(windows_processes)
+        .await
+        .ok()??;
+    Some(update_rules::busy_terminals_windows(&procs, daemon_pid))
+}
+
+/// Every process on this PC, from a ToolHelp snapshot (`None`: couldn't take one).
+#[cfg(windows)]
+fn windows_processes() -> Option<Vec<update_rules::WinProc>> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    // SAFETY: a snapshot handle we open and close here, and an entry of the size the calls are
+    // told; a failed call just ends the walk.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE || snap.is_null() {
+            return None;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut procs = Vec::new();
+        let mut ok = Process32FirstW(snap, &mut entry) != 0;
+        while ok {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            procs.push(update_rules::WinProc {
+                pid: entry.th32ProcessID,
+                ppid: entry.th32ParentProcessID,
+                exe: String::from_utf16_lossy(&entry.szExeFile[..len]),
+            });
+            ok = Process32NextW(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+        Some(procs)
+    }
+}
+
+/// Beluga's terminals running a program right now (`None`: couldn't tell).
+#[cfg(unix)]
 async fn terminal_programs(daemon_pid: u32) -> Option<usize> {
     let out = tauri::async_runtime::spawn_blocking(|| {
         Command::new("/bin/ps")
@@ -626,15 +676,46 @@ fn ready_update(app: &AppHandle) -> Option<(Update, Pending)> {
 }
 
 /// Verify and put the new app in place of this one. The running app carries on from memory.
-fn install_files(app: &AppHandle, update: &Update, pending: &Pending) -> Result<(), String> {
+///
+/// On Windows the installer takes over and this process ends inside `install`, so what a
+/// finished install leaves behind ("what's new", no download waiting) is saved first, and put
+/// back if the installer doesn't start. `reopen`: the Windows installer opens the new Beluga
+/// when it's done (Restart Now, Update When Idle), never after you quit (#426).
+fn install_files(
+    app: &AppHandle,
+    update: &Update,
+    pending: &Pending,
+    reopen: bool,
+) -> Result<(), String> {
     let bytes = std::fs::read(&pending.file).map_err(|e| e.to_string())?;
-    let result = update.install(bytes).map_err(|e| e.to_string());
+    if cfg!(windows) {
+        record_install(app, pending, true);
+    }
+    let result = update
+        .clone()
+        .restart_after_install(reopen)
+        .install(bytes)
+        .map_err(|e| e.to_string());
+    record_install(app, pending, result.is_ok());
+    result
+}
+
+/// What an install leaves saved: the news when it went in, and never the same download again.
+fn record_install(app: &AppHandle, pending: &Pending, installed: bool) {
     let mut saved = with(app, |i| {
-        if result.is_ok() {
+        if installed {
             i.saved.news = Some(News {
                 version: pending.version.clone(),
                 notes: pending.notes.clone(),
             });
+        } else if i
+            .saved
+            .news
+            .as_ref()
+            .is_some_and(|n| n.version == pending.version)
+        {
+            // Said ahead of the Windows installer, which then didn't start: not true after all.
+            i.saved.news = None;
         }
         // A package that doesn't verify or install is dropped (a fresh one comes next time).
         i.saved.pending = None;
@@ -642,23 +723,27 @@ fn install_files(app: &AppHandle, update: &Update, pending: &Pending) -> Result<
         i.saved.clone()
     });
     forget_download(Some(pending));
-    if result.is_err() {
+    if !installed {
         saved.news = None;
     }
     save(app, &saved);
-    result
 }
 
 /// Install now and open the new Beluga (`background`: without its window, not taking focus).
 async fn install_and_relaunch(app: &AppHandle, background: bool) -> Result<(), String> {
     let (update, pending) = ready_update(app).ok_or("No update is ready.")?;
     change(app, |i| i.phase = Phase::Installing);
+    // Windows can't replace the bundled node.exe while the daemon runs it, and the installer
+    // ends this process before quitting would stop it: stop it first.
+    #[cfg(windows)]
+    crate::daemon::stop_for_update(app).await;
     let handle = app.clone();
-    let result =
-        tauri::async_runtime::spawn_blocking(move || install_files(&handle, &update, &pending))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        install_files(&handle, &update, &pending, true)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
     if let Err(e) = result {
         change(app, |i| {
             i.phase = Phase::Error;
@@ -742,7 +827,9 @@ pub fn on_exit(app: &AppHandle) {
         return;
     }
     if let Some((update, pending)) = ready_update(app) {
-        if let Err(e) = install_files(app, &update, &pending) {
+        crate::quit::at(app, crate::quit::Stage::InstallingUpdate);
+        // Quit means quit: the new version opens the next time you open Beluga.
+        if let Err(e) = install_files(app, &update, &pending, false) {
             eprintln!("beluga: installing the update on quit failed: {e}");
         }
     }

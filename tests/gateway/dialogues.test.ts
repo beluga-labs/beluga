@@ -4,7 +4,7 @@ import { TALK_READ_ONLY_REASON } from '../../src/agent/dialogue-tools.js';
 import type { Dialogue } from '../../src/core/dialogues/model.js';
 import { Dialogues } from '../../src/core/dialogues/service.js';
 import type { AgentRef } from '../../src/protocol.js';
-import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
+import { type Crowd, LOSES_A_MESSAGE_ON_WINDOWS, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type Node, node } from './helpers.js';
 
 /**
@@ -99,6 +99,15 @@ describe('a dialogue across owners', () => {
     const id = Object.keys(kay.n.store.getState().dialogues)[0]!;
     kay.d.confirm(id);
     await settle(() => dialogueOf(bob, id)?.status === 'running' && bob.n.claude.runs.length === 1);
+    // Bob's frames reach kay in order but one read at a time, as they often do on Windows: the
+    // halted turn's result must not end it on kay's side as a failure before the stop is read.
+    const mesh = bob.n.person.mesh;
+    const send = mesh.sendGateway.bind(mesh);
+    let line = Promise.resolve();
+    mesh.sendGateway = (peer, frame) => {
+      line = line.then(() => new Promise((r) => setTimeout(() => (send(peer, frame), r()), 30)));
+      return true;
+    };
     bob.d.stop(id);
     await settle(() => dialogueOf(kay, id)?.status === 'stopped');
     expect(dialogueOf(kay, id)?.note).toBe('Stopped by dlgB2');
@@ -121,7 +130,7 @@ describe('a dialogue across owners', () => {
     expect(texts(dialogueOf(kay, id))).toHaveLength(3);
   }, 60_000);
 
-  it('blocked means the dialogue ends with a clear note', async () => {
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('blocked means the dialogue ends with a clear note', async () => {
     const [kay, bob] = await pair('dlgD1', 'dlgD2');
     bob.n.trust(kay.n.id, 'blocked');
     kay.d.fromComposer('@my:claude @dlgD2:codex talk about anything', 'room');

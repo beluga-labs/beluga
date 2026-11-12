@@ -8,6 +8,7 @@ import type { MenuOption, MenuSpec } from './menus.js';
 import { joinArgs, shellName } from '../shared/shells.js';
 import { dndActive, dndLabel } from '../shared/quiet.js';
 import { soundOn } from '../shared/notify-sound.js';
+import { FILE_MANAGER } from '../shared/assistant.js';
 import { type NoticeFilter, NOTICE_FILTERS, filterNotices, groupNotices, noticeAgo } from './notice-models.js';
 
 export type SettingsSection = 'claude' | 'notify' | 'workspaces' | 'people' | 'display' | 'buttons' | 'terminal' | 'env';
@@ -38,7 +39,7 @@ export const HIDEABLE_BUTTONS: ReadonlyArray<readonly [string, string]> = [
   ['handoff', 'Hand off'],
   ['compact', 'Compact'],
   ['fork', 'Fork'],
-  ['finder', 'Finder'],
+  ['finder', FILE_MANAGER],
   ['archive', 'Archive'],
   ['share', 'Share'],
 ];

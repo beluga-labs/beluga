@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Icon, type IconName } from '../../components/Icon.js';
 import { ViewBlock } from '../../components/views/ViewBlock.js';
 import { usePrefs } from '../../lib/prefs.js';
@@ -68,7 +68,11 @@ function useOnce(): number {
   return beat;
 }
 
-export function Tables() {
+/**
+ * `view`: another table to answer with (the README's has more rows, a filter and pages);
+ * `extra`: drawn over the window (the README's pointer trying the table out); `tip`: the line under it.
+ */
+export function Tables({ view = VIEW, extra, tip }: { readonly view?: string; readonly extra?: ReactNode; readonly tip?: ReactNode } = {}) {
   const beat = useOnce();
   const picking = beat >= 1;
   const picked = beat >= 2;
@@ -78,7 +82,7 @@ export function Tables() {
   const table = beat >= LAST;
   return (
     <div className={s.stage}>
-      <div className={s.tables}>
+      <div className={s.tables} style={extra ? { position: 'relative' } : undefined}>
         <div className={s.windowBar}>
           <span className={s.lights}>
             <i />
@@ -141,14 +145,19 @@ export function Tables() {
           <AnimatePresence>
             {table ? (
               <motion.div key="table" className={s.weave} initial={{ opacity: 0, y: 16, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: 'spring', stiffness: 200, damping: 22 }}>
-                <ViewBlock code={VIEW} type="table" />
+                <ViewBlock code={view} type="table" />
                 <div className={s.weaveTry}>
-                  <Icon name="hand" size={11} /> It’s the real table: click a heading to sort, or turn it into a chart.
+                  {tip ?? (
+                    <>
+                      <Icon name="hand" size={11} /> It’s the real table: click a heading to sort, or turn it into a chart.
+                    </>
+                  )}
                 </div>
               </motion.div>
             ) : null}
           </AnimatePresence>
         </div>
+        {extra}
       </div>
     </div>
   );

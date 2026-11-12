@@ -12,6 +12,7 @@ import { type NetSheet, closeNet, openNet, useNetSheet } from './net-sheets.js';
 import { StatusSheet } from './StatusMenu.js';
 import { errorText, openGroup, quietly, useSay, useShownConversation } from './use-net.js';
 import s from './network.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /** Friends with checkboxes (a new group, adding people). */
 function FriendPicker({ friends, chosen, onChange }: { friends: readonly FriendView[]; chosen: ReadonlySet<string>; onChange: (next: Set<string>) => void }) {
@@ -67,7 +68,7 @@ function NewGroupSheet({ preset }: { preset: readonly string[] }) {
   return (
     <Sheet
       title="New Channel"
-      subtitle="A conversation with several friends, kept on everyone’s Mac."
+      subtitle="A conversation with several friends, kept on everyone’s computer."
       icon="people"
       close={closeNet}
       onReturn={() => void create()}
@@ -169,12 +170,12 @@ function LeaveGroupAlert({ groupId: id }: { groupId: string }) {
     await api['groups.leave'](g.id);
     if (!remove) return;
     await api['groups.delete'](g.id);
-    say(`Left ${g.name} and deleted it from this Mac`);
+    say(`Left ${g.name} and deleted it from ${thisComputer()}`);
   };
   return (
     <Alert
       title={`Leave ${g.name}?`}
-      message={`You stop getting its messages.${remove ? '' : ' What was said stays on this Mac, read-only.'}${lastAdmin ? ' You’re its only admin, so the person who’s been in it longest becomes admin.' : ''}`}
+      message={`You stop getting its messages.${remove ? '' : ` What was said stays on ${thisComputer()}, read-only.`}${lastAdmin ? ' You’re its only admin, so the person who’s been in it longest becomes admin.' : ''}`}
       tone="danger"
       icon="people"
       confirm={{
@@ -187,7 +188,7 @@ function LeaveGroupAlert({ groupId: id }: { groupId: string }) {
       }}
       onCancel={closeNet}
     >
-      <Checkbox checked={remove} onChange={setRemove} label="Also delete its messages from this Mac" detail="The others keep their copies." />
+      <Checkbox checked={remove} onChange={setRemove} label={`Also delete its messages from ${thisComputer()}`} detail="The others keep their copies." />
     </Alert>
   );
 }
@@ -202,7 +203,7 @@ function DeleteGroupAlert({ groupId: id }: { groupId: string }) {
   return (
     <Alert
       title={`Delete ${g.name}?`}
-      message={`Its messages are removed from this Mac. The people still in ${g.name} keep their copies, and if someone adds you again it comes back.`}
+      message={`Its messages are removed from ${thisComputer()}. The people still in ${g.name} keep their copies, and if someone adds you again it comes back.`}
       tone="danger"
       icon="people"
       confirm={{
@@ -211,7 +212,7 @@ function DeleteGroupAlert({ groupId: id }: { groupId: string }) {
         onClick: () => {
           closeNet();
           closeChat(client, groupId(g.id), shown);
-          void client.api.network['groups.delete'](g.id).then(() => say(`Deleted ${g.name} from this Mac`), () => undefined);
+          void client.api.network['groups.delete'](g.id).then(() => say(`Deleted ${g.name} from ${thisComputer()}`), () => undefined);
         },
       }}
       onCancel={closeNet}
@@ -227,7 +228,7 @@ function Confirmations() {
   const shown = useShownConversation();
   const api = client.api.network;
   const leaveView = (id: string): void => {
-    if (shown === id) client.store.dispatch({ type: 'view', view: { kind: 'room' } });
+    if (shown === id) client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
   };
   if (sheet?.kind === 'remove_friend') {
     const f = net.friends.find((x) => x.peerId === sheet.peerId);
@@ -235,7 +236,7 @@ function Confirmations() {
     return (
       <Alert
         title={`Remove ${f.name}?`}
-        message={`You won’t be connected any more, and your conversation with ${f.name} is removed from this Mac. Channels you share stay.`}
+        message={`You won’t be connected any more, and your conversation with ${f.name} is removed from ${thisComputer()}. Channels you share stay.`}
         tone="danger"
         icon="person"
         confirm={{
@@ -260,7 +261,7 @@ function Confirmations() {
     return (
       <Alert
         title={`Clear your chat with ${f.name}?`}
-        message={`Every message is removed from this Mac. ${f.name} keeps their copy.`}
+        message={`Every message is removed from ${thisComputer()}. ${f.name} keeps their copy.`}
         tone="caution"
         icon="chat"
         confirm={{
@@ -282,7 +283,7 @@ function Confirmations() {
     return (
       <Alert
         title={`Remove ${m.name} from ${g.name}?`}
-        message={`${m.name} stops getting new messages. What was said before stays on their Mac.`}
+        message={`${m.name} stops getting new messages. What was said before stays on their computer.`}
         tone="danger"
         confirm={{
           label: 'Remove',
@@ -308,7 +309,7 @@ function DeleteMessageAlert({ conversation, id, mine }: { conversation: string; 
   return (
     <Alert
       title="Delete this message?"
-      message={everyone ? `It’s removed from this Mac and from ${name}’s.` : `It’s removed from this Mac. ${name} still has it.`}
+      message={everyone ? `It’s removed from ${thisComputer()} and from ${name}’s.` : `It’s removed from ${thisComputer()}. ${name} still has it.`}
       tone="caution"
       icon="trash"
       confirm={{
@@ -375,7 +376,7 @@ function TurnOnSheet({ asked }: { asked: string }) {
       }
     >
       <p className={s.halfText} style={{ margin: '2px 0 4px' }}>
-        Messages, channels and files go straight from Mac to Mac, end-to-end encrypted. No server, no account. You can turn it off again in Settings.
+        Messages, channels and files go straight from computer to computer, end-to-end encrypted. No server, no account. You can turn it off again in Settings.
       </p>
     </Sheet>
   );

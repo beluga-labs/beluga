@@ -1,5 +1,8 @@
 import { type AppState, channelOf, peerName } from '../core/store.js';
+import { isBelugaCommand } from '../core/commands.js';
+import { parseInput } from '../core/mentions.js';
 import type { BelugaClient } from '../ipc/client.js';
+import { builtInInstead } from '../shared/skills.js';
 import { answerTyped } from './collab-actions.js';
 import type { UiState } from './keymap.js';
 import type { UiAction } from './workspace-models.js';
@@ -14,6 +17,15 @@ export interface SubmitContext {
   readonly expand?: (text: string) => string;
   /** Whether a message sent in `channel` ('draft': a new one) opens its agent's terminal on it, as the screen shows it (BLG-553). */
   readonly toTerminal?: (channel: string) => boolean;
+}
+
+/**
+ * How a new worktree starts, from the mode picked on its page: Plan with Tasks plans in the chat
+ * (never its terminal, and no plan mode: a plan's own conversation has none).
+ */
+export function worktreeMode(picked: { readonly terminal: boolean; readonly plan: boolean; readonly tasks: boolean }): { terminal?: true; plan?: true; tasks?: true } {
+  if (picked.tasks) return { tasks: true };
+  return { ...(picked.terminal ? { terminal: true as const } : {}), ...(picked.plan ? { plan: true as const } : {}) };
 }
 
 /**
@@ -42,12 +54,30 @@ export function submitTyped(c: SubmitContext, typed: string, urgent = false): vo
     return;
   }
   const terminal = c.toTerminal?.(channelOf(latest.view)) ?? false;
-  if (latest.view.kind === 'draft' && !text.startsWith('/')) {
-    void (terminal ? api.workspaces.startChat(latest.view.projectId, text, latest.view.dir ?? null, { terminal }) : api.workspaces.startChat(latest.view.projectId, text, latest.view.dir));
-    return;
+  if (latest.view.kind === 'draft') {
+    const view = latest.view;
+    const plan = latest.planMode.draft === true;
+    const start = (prompt: string): void => {
+      void (terminal || plan ? api.workspaces.startChat(view.projectId, prompt, view.dir ?? null, { ...(terminal ? { terminal } : {}), ...(plan ? { plan } : {}) }) : api.workspaces.startChat(view.projectId, prompt, view.dir));
+    };
+    const command = text.startsWith('/') ? parseInput(text, latest.selfId, latest.peers) : undefined;
+    if (!command || command.kind === 'chat') return start(command?.kind === 'chat' ? command.text : text);
+    if (command.kind === 'command' && !isBelugaCommand(command.name)) {
+      if (!builtInInstead(command.name)) return start(text);
+      const dir = view.projectId === 'chats' ? view.dir : latest.projects.find((p) => p.id === view.projectId)?.root;
+      const explain = (): void => {
+        void api.session.submit(text, { channel: 'draft', urgent });
+      };
+      void api.claudeCode.skills('draft', dir || undefined).then(
+        (skills) => skills.some((skill) => skill.name.toLowerCase() === command.name) ? start(text) : explain(),
+        explain,
+      );
+      return;
+    }
   }
   if (latest.view.kind === 'draft_worktree' && !text.startsWith('/')) {
-    void api.workspaces.startWorktree(latest.view.projectId, text, terminal ? { terminal } : undefined);
+    const mode = worktreeMode({ terminal, plan: latest.planMode.draft === true, tasks: false });
+    void api.workspaces.startWorktree(latest.view.projectId, text, Object.keys(mode).length ? mode : undefined);
     return;
   }
   const pending = ui.pending;

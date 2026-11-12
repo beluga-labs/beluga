@@ -1,5 +1,6 @@
 import type { IconName } from '../components/Icon.js';
 import type { Step } from './onboarding-model.js';
+import { thisComputer } from '../lib/os-words.js';
 
 /** The tour's words, one idea a step. Every line says what the app really does. */
 export interface TourCopy {
@@ -32,12 +33,19 @@ export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
     body: 'Ask about your data and your agent finds the database, picks the way in (Postgres, SQLite, a file, a URL), connects and runs the query. The answer comes back as a live table in the conversation.',
     points: ['Headings sort, long tables search and page', 'A table turns into a chart in a click', 'File trees, JSON, terminal output and diagrams too'],
   },
+  machines: {
+    eyebrow: 'Your computers',
+    icon: 'server',
+    title: 'Your app here. The work on any computer.',
+    body: `Pair a Mac mini at home, a cloud server or a Linux box, and any task can run there while you follow it from ${thisComputer()} or your phone. Make one your Always On, and it keeps working, and answers your friends, while you’re away.`,
+    points: ['Pick where a task runs, beside the mode and model', 'Close the lid, and your phone keeps up', 'One Always On computer stands in for you'],
+  },
   friends: {
     eyebrow: 'Together',
     icon: 'people',
     title: 'Your agent, and your friends’ agents.',
-    body: 'Add friends and your agents work together. Yours asks theirs for what only their Mac has: a file, an account, a page they’re signed in to. They allow it, the result comes back, and yours carries on. Mac to Mac, end-to-end encrypted.',
-    points: ['Files, screenshots and errands between Macs', 'You approve, or trust a friend once', 'Invite to one project, or to everything'],
+    body: 'Add friends and your agents work together. Yours asks theirs for what only their computer has: a file, an account, a page they’re signed in to. They allow it, the result comes back, and yours carries on. Computer to computer, end-to-end encrypted.',
+    points: ['Files, screenshots and errands between computers', 'You approve, or trust a friend once', 'Invite to one project, or to everything'],
   },
   sentinel: {
     eyebrow: 'Sentinel',
@@ -57,8 +65,8 @@ export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
     eyebrow: 'Earnings',
     icon: 'gauge',
     title: 'Know what every project earns.',
-    body: 'Connect Stripe and each project shows its revenue right next to the work, kept up to date as sales come in.',
-    points: ['A read-only key, kept on this Mac', 'Per project and per month', 'In the currency you think in'],
+    body: 'Connect Stripe or RevenueCat and each project shows its revenue right next to the work, kept up to date as sales come in.',
+    points: [`A read-only key, kept on ${thisComputer()}`, 'Per project and per month', 'In the currency you think in'],
   },
   archive: {
     eyebrow: 'Archive',

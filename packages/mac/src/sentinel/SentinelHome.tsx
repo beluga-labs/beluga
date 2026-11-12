@@ -1,3 +1,6 @@
+import { RemoteList } from '../machines/RemoteList.js';
+import { remoteDashboards, remoteSentinels } from '../machines/remote-work.js';
+import { useRemoteSources } from '../machines/use-remote.js';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { CLAUDE_CHANGED, FIRST_SENTINEL_CHAT, MAX_RUN_AT_ONCE, RUN_STATE_INFO, type RunSummary, type Sentinel, type SentinelState, lastRunOf, pausedWords, sentinelChatChannel } from '@beluga/core/sentinel/model.js';
 import { Icon } from '../components/Icon.js';
@@ -19,6 +22,8 @@ import { Showcase } from './Showcase.js';
 import { MAC_SCOPE, type Need, dotsOf, doesLine, durationText, filterSentinels, groupSentinels, headlineOf, iconOf, latestOf, needsOf, runDuration, rowOf, scopesOf } from './sentinel-model.js';
 import { sentinelMenu, useRunsFolder, useSentinelActions, useSentinelState, type SentinelActions } from './use-sentinel.js';
 import s from './home.module.css';
+import { thisComputer } from '../lib/os-words.js';
+import { useOpenFolderLabel } from '../lib/remote-open.js';
 
 /**
  * Sentinel, one page (BLG-300): what needs you, your board's numbers at a glance, and every
@@ -50,7 +55,13 @@ export function SentinelHome() {
   // Ask Sentinel stays docked on the right (it opens with the page) until you close it.
   const docked = useAskDocked();
   const any = state.items.length > 0;
+  // The last sentinel just went (deleted, with the chat docked beside the list): back to the first
+  // visit, not into a conversation that was only open beside the page.
+  const hadAny = useRef(any);
   useLayoutEffect(() => {
+    const emptied = hadAny.current && !any;
+    hadAny.current = any;
+    if (emptied && asking) return void actions.run({ type: 'view', view: { kind: 'sentinel' } });
     if (asking) setAskDocked(true);
     else if (docked && any && (view.kind === 'sentinel' || view.kind === 'dashboard')) actions.run({ type: 'view', view: { kind: 'sentinel_chat', chat: active } });
   }, [view, docked, any]);
@@ -59,10 +70,21 @@ export function SentinelHome() {
     actions.run({ type: 'view', view: { kind: 'sentinel', ...(scope ? { projectId: scope } : {}) } });
   };
 
-  if (!state.enabled) return <Empty icon="sentinel" title="Sentinel needs the Beluga app" detail="Sentinels run on your Mac, as you: open Beluga for Mac to make one." />;
+  if (!state.enabled) return <Empty icon="sentinel" title="Sentinel needs the Beluga app" detail={`Sentinels run on ${thisComputer()}, as you: open the Beluga app to make one.`} />;
+  // Nothing set up yet: the conversation is the page (BLG-590). Once your agent makes the first
+  // sentinel, the page shows it and the chat moves aside, docked on the right.
+  if (!any && asking) {
+    return (
+      <div className={s.home} data-asking>
+        <div className={s.middle} data-testid="sentinel-first-chat">
+          <SentinelChat key={view.chat ?? 'main'} onClose={() => actions.run({ type: 'view', view: { kind: 'sentinel' } })} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={s.home} data-asking={asking || undefined}>
-      <div className={s.page}>{state.items.length ? <Lived state={state} scope={scope} setScope={setScope} board={board} setBoard={setBoard} /> : <FirstVisit />}</div>
+      <div className={s.page}>{any ? <Lived state={state} scope={scope} setScope={setScope} board={board} setBoard={setBoard} /> : <FirstVisit />}</div>
       {asking ? (
         <AskPanel>
           <SentinelChat key={view.chat ?? 'main'} onClose={close} />
@@ -148,6 +170,8 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
   const needs = needsOf(state, scoped);
   const shown = filterSentinels(state.items, { ...(scoped ? { scope: scoped } : {}), show: 'all', query });
   const groups = groupSentinels(shown, projects);
+  // A sentinel on a computer: its runs folder in your editor over Remote-SSH, else its path copied (BLG-852).
+  const runsFolder = useOpenFolderLabel('Open the Runs Folder', 'Copy the Runs Folder’s Path');
   const more: ActionItem[] = [
     {
       label: 'Run at Once',
@@ -155,7 +179,7 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
       submenu: Array.from({ length: MAX_RUN_AT_ONCE }, (_, i) => i + 1).map((n) => ({ label: n === 1 ? '1 at a time' : `${n} at once`, checked: state.runAtOnce === n, onSelect: () => void a.act(() => a.api.setRunAtOnce(n)) })),
       onSelect: () => undefined,
     },
-    ...(folder ? [{ label: 'Open the Runs Folder', icon: 'folder' as const, hint: 'Each run’s outputs and report', onSelect: () => a.openFolder(folder) }] : []),
+    ...(folder ? [{ label: runsFolder, icon: 'folder' as const, hint: 'Each run’s outputs and report', onSelect: () => a.openFolder(folder) }] : []),
   ];
   const projectOf = (id: string | undefined) => projects.find((p) => p.id === id);
   return (
@@ -240,6 +264,21 @@ function Lived({ state, scope, setScope, board, setBoard }: { state: SentinelSta
           </div>
         )}
       </section>
+      {/* Sentinels and dashboards on your computers (BLG-785). */}
+      <RemoteSentinels />
+    </>
+  );
+}
+
+/** Your computers' sentinels and dashboards, tagged. */
+function RemoteSentinels() {
+  const sources = useRemoteSources();
+  const sentinels = useMemo(() => remoteSentinels(sources).map((t) => ({ ...t, item: { id: t.item.id, title: t.item.name, sub: [t.item.project, t.item.paused ? 'paused' : undefined].filter(Boolean).join(' · '), page: { kind: 'sentinel_page' as const, id: t.item.id } } })), [sources]);
+  const dashboards = useMemo(() => remoteDashboards(sources).map((t) => ({ ...t, item: { id: t.item.id, title: t.item.name, page: { kind: 'dashboard' as const, id: t.item.id } } })), [sources]);
+  return (
+    <>
+      <RemoteList title="Sentinels on your computers" rows={sentinels} />
+      <RemoteList title="Dashboards on your computers" rows={dashboards} />
     </>
   );
 }
@@ -413,6 +452,7 @@ const Message = memo(function Message({ sentinel, run, now, a }: { sentinel: Sen
 /** One-tap ideas under the box: the first lets Claude look at your projects and suggest. */
 const IDEAS: ReadonlyArray<{ readonly label: string; readonly icon: Parameters<typeof Icon>[0]['name']; readonly prompt: string }> = [
   { label: 'Suggest Some for Me', icon: 'sparkles', prompt: 'I’m new to Sentinel. Look at my projects and what they use, and suggest three watchers that would help me, each in one plain line. Set them up, with a board for their numbers, when I say yes.' },
+  { label: 'Make Me a Dashboard', icon: 'gauge', prompt: 'Make me a dashboard with the numbers that matter for my projects, and set up what keeps them fresh.' },
   { label: 'A Morning Brief', icon: 'clock', prompt: 'Every weekday morning, tell me on my phone what changed in my projects and what needs me first.' },
   { label: 'Watch My Website', icon: 'pulse', prompt: 'Check my website every 5 minutes and tell me the moment it stops answering, and when it’s back.' },
   { label: 'Fix Failing Tests', icon: 'wrench', prompt: 'When the tests fail on GitHub for one of my projects, have the agent fix it and open a pull request for me to merge.' },
@@ -425,6 +465,11 @@ const IDEAS: ReadonlyArray<{ readonly label: string; readonly icon: Parameters<t
  */
 function FirstVisit() {
   const ask = useAsk();
+  // A conversation already under way (you went back to this page from it): one click returns to it.
+  const talked = useApp((st) => {
+    const channel = sentinelChatChannel(st.sentinel.chats?.active ?? FIRST_SENTINEL_CHAT);
+    return st.log.some((l) => l.channel === channel);
+  });
   const [words, setWords] = useState('');
   const send = (): void => {
     if (!words.trim()) return;
@@ -434,7 +479,7 @@ function FirstVisit() {
   return (
     <div className={s.first} data-testid="sentinel-first">
       <h1 className={s.firstTitle}>Let your agent keep an eye on things</h1>
-      <p className={s.lede}>Say what you want in your own words. Your agent sets it up; nothing runs until you turn it on.</p>
+      <p className={s.lede}>Say what you want to see or keep an eye on. Your agent builds the dashboard, watcher or pipeline for you; nothing runs until you turn it on.</p>
       <Showcase onPick={(slide) => ask(slide.prompt)} />
       <div className={s.composer}>
         <textarea
@@ -466,6 +511,11 @@ function FirstVisit() {
         ))}
       </div>
       <div className={s.firstFoot}>
+        {talked ? (
+          <button type="button" className={s.link} onClick={() => ask()}>
+            Back to your conversation
+          </button>
+        ) : null}
         <button type="button" className={s.link} onClick={() => openSheet({ kind: 'new_sentinel', way: 'recipe' })}>
           Every recipe
         </button>

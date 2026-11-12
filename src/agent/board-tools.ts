@@ -4,12 +4,13 @@ import { DEFAULT_LABELS } from '../core/board/labels.js';
 import type { BoardTools } from './types.js';
 
 /**
- * The task board as Claude's tools (server `beluga_board`), in your own runs: read tasks, keep the
+ * The task board as Claude's tools (server `beluga_board`), in your own runs (and a trusted friend's,
+ * on their project's board only: BLG-701): read tasks, keep the
  * one it's doing true (its brief, decisions, notes for the next agent, proof), split work into
  * sub-tasks and mark what waits on what. Every change shows in the task's activity as Claude's.
  */
 
-export const BOARD_TOOL_NAMES = ['task_define', 'task_get', 'task_list', 'task_create', 'board_create', 'task_update', 'task_brief_edit', 'task_note', 'task_relate', 'task_attach_proof'].map((n) => `mcp__beluga_board__${n}`);
+export const BOARD_TOOL_NAMES = ['task_define', 'task_get', 'task_list', 'task_create', 'task_start', 'board_create', 'task_update', 'task_brief_edit', 'task_note', 'task_relate', 'task_attach_proof'].map((n) => `mcp__beluga_board__${n}`);
 
 const key = z.string().min(2).max(40).optional().describe('The task’s key, like BOB-12. Leave out for the task this worktree is doing');
 const STATUS = z.enum(['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled']);
@@ -18,11 +19,11 @@ const SECTION = z.enum(['goal', 'context', 'acceptance', 'decisions', 'questions
 const ESTIMATE = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(5), z.literal(8)]).describe('Points: 1 an hour or so, 2 half a day, 3 a day, 5 a few days, 8 a week (split it)');
 const items = (max: number) => z.array(z.string().min(1).max(400)).max(max);
 
-function guarded(fn: () => string): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+async function guarded(fn: () => string | Promise<string>): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
-    return Promise.resolve({ content: [{ type: 'text', text: fn() }] });
+    return { content: [{ type: 'text', text: await fn() }] };
   } catch (err) {
-    return Promise.resolve({ content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true });
+    return { content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true };
   }
 }
 
@@ -38,7 +39,7 @@ export function createBoardToolDefs(board: BoardTools) {
   return [
     tool(
       'task_define',
-      'Define the work this conversation is for, as a task: a short title and, in your own words (never the user’s message pasted in), its goal, the context someone new needs, acceptance criteria, the decisions made and why, open questions, an estimate and a priority. In plan mode it goes on the board when the user approves your plan; call it right before ExitPlanMode.',
+      'Define the work this conversation is for, as a task: a short title and, in your own words (never the user’s message pasted in), its goal, the context someone new needs, acceptance criteria, the decisions made and why, open questions, an estimate and a priority. In plan mode it goes on the board when the user approves your plan; call it right before ExitPlanMode. Elsewhere, with no task yet, it opens this worktree’s task now: private and the user’s (tell them).',
       {
         title: z.string().min(1).max(120),
         goal: z.string().min(1).max(4000).describe('What it’s for and what done looks like, in a sentence or three'),
@@ -112,6 +113,12 @@ export function createBoardToolDefs(board: BoardTools) {
             ...(a.private ? { private: true } : {}),
           }),
         ),
+    ),
+    tool(
+      'task_start',
+      'Start a task, as the user’s Start does: a worktree of its own in the repo it runs in (this project or another), with an agent working it from its brief right away. task_create first when it isn’t on the board. Only when the user asks you to start, kick off or hand off work. Name both in your answer as the result says (`task:KEY`, `worktree:<id>`).',
+      { key: z.string().min(2).max(40).describe('The task’s key, like BOB-12') },
+      (a) => guarded(() => board.start(a.key)),
     ),
     tool(
       'board_create',

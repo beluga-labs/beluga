@@ -1,7 +1,7 @@
 import type { BoardState } from '../../../../src/core/board/model.js';
 import type { Actor } from '../../../../src/core/board/model.js';
-import { AUTONOMY_INFO, type Autonomy, type Plan, type PlanBody, type PlanEvent, type PlanPr, type PlansState, diffBodies, milestoneDeps, planTitle, shownBody } from '../../../../src/core/plans/model.js';
-import type { MilestoneState, MilestoneView, NextStep, PlanView, TaskState, TaskView } from '../../../../src/core/plans/progress.js';
+import { AUTONOMY_INFO, type Autonomy, type Plan, type PlanBody, type PlanEvent, type PlanPr, type PlansState, diffBodies, milestoneDeps, planTitle, reviewState, shownBody } from '../../../../src/core/plans/model.js';
+import { type MilestoneState, type MilestoneView, type NextStep, type PlanView, type TaskState, type TaskView, agentNowWords } from '../../../../src/core/plans/progress.js';
 import { pulseWords } from '../../../../src/core/plans/watchdog.js';
 
 /**
@@ -95,6 +95,12 @@ export function taskWords(t: TaskView, now: number): { readonly label: string; r
   return { label: w.label, tone: w.tone, ...(sub ? { sub } : {}) };
 }
 
+/** A milestone's Claude right now, for its header and details (see agentNowWords): nothing while it isn't at work. */
+export function milestoneNowWords(m: Pick<MilestoneView, 'agentNow' | 'agent' | 'tasks'>, now: number): { readonly label: string; readonly tone: Tone; readonly sub?: string; readonly onCard: boolean } | undefined {
+  const w = agentNowWords(m, now);
+  return w ? { label: w.label, tone: w.asking ? 'warn' : 'claude', ...(w.sub ? { sub: w.sub } : {}), onCard: w.onCard } : undefined;
+}
+
 /** The one thing to do next, in words (the page's main button and its line). */
 export function nextWords(next: NextStep): { readonly title: string; readonly detail?: string } {
   switch (next.kind) {
@@ -139,7 +145,8 @@ export function nextWords(next: NextStep): { readonly title: string; readonly de
 /** A project's plans: running first, then drafts, then finished; newest first in each. */
 export function plansOf(state: PlansState, projectId: string | undefined): Plan[] {
   const rank = (p: Plan): number => (p.status === 'active' ? 0 : p.status === 'draft' ? 1 : 2);
-  return state.plans.filter((p) => p.projectId === projectId).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
+  // One that moved to another computer runs there: its record here stays off the lists (its page still opens).
+  return state.plans.filter((p) => p.projectId === projectId && !p.movedTo).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
 }
 
 export const titleOf = planTitle;
@@ -222,6 +229,12 @@ export function headline(view: PlanView): Headline {
   const running = view.active.filter((t) => t.state === 'running' || t.state === 'idle');
   const inMilestones = new Set(running.map((t) => t.milestoneId)).size;
   const alsoRunning = running.length ? ` · ${count(running.length, 'task')} running` : '';
+  if (!plan.body && view.milestones.length) {
+    // The draft's review before approval (BLG-772).
+    const review = reviewState(plan);
+    if (review === 'reviewing') return { who: 'claude', text: plan.review?.thenApprove ? 'A fresh agent is verifying the plan; it’s approved once nothing needs fixing' : 'A fresh agent is verifying the plan' };
+    if (review === 'findings' && !plan.review?.fixAsked) return { who: 'you', text: `Verifying found ${count(plan.review!.findings.length, 'thing')} to fix in the plan: Fix, or approve anyway` };
+  }
   if (!plan.body) return view.milestones.length ? { who: 'you', text: `Approve the plan: ${count(view.milestones.length, 'milestone')} · ${count(view.total, 'task')} · a draft, not on the board yet` } : { who: 'claude', text: 'Your agent is writing the plan' };
   if (plan.draft) return { who: 'you', text: `Review your agent’s changes: ${changeWords(plan)}` };
   if (next.kind !== 'done' && next.kind !== 'answer' && next.kind !== 'failed') {

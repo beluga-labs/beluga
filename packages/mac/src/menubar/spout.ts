@@ -186,8 +186,14 @@ export function spoutSvg(t: number, look: SpoutLook, size: { w: number; h: numbe
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="${BOX.x} ${BOX.y} ${BOX.w} ${BOX.h}"><g fill="${ink}"${scene}><path fill-rule="evenodd"${whale} d="${BELUGA}"/>${parts.join('')}</g></svg>`;
 }
 
-/** Every frame of one spout, first and last at rest. */
-export function spoutFrames(look: SpoutLook, size?: { w: number; h: number }): string[] {
+/**
+ * The whale's colour in the tray off the Mac: Windows and Linux bars don't tint a template, and
+ * they're light or dark, so a soft blue that reads on both (src-tauri/src/menu.rs uses the same).
+ */
+export const TRAY_INK_OFF_MAC = '#5b9bd5';
+
+/** Every frame of one spout, first and last at rest (`ink`: black for the Mac's template). */
+export function spoutFrames(look: SpoutLook, size?: { w: number; h: number }, ink = '#000'): string[] {
   const count = frameCount(look);
-  return Array.from({ length: count }, (_, i) => spoutSvg(i / (count - 1), look, size));
+  return Array.from({ length: count }, (_, i) => spoutSvg(i / (count - 1), look, size, ink));
 }

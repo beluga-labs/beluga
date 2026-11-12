@@ -70,7 +70,7 @@ export function SentinelChip({ id }: { id: string }) {
   const actions = useActions();
   if (!item) {
     return (
-      <Tip label={`No sentinel ${id} here: deleted, or on someone else’s Mac`}>
+      <Tip label={`No sentinel ${id} here: deleted, or on someone else’s computer`}>
         <span className={r.missing}>
           <span className={r.key}>{id}</span>
           <span>not found</span>

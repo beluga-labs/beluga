@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { inApp } from './boot.js';
+import { beat, usePowerSaving } from './power.js';
 
 /**
  * Whether you're looking at Beluga's window: it's in front (focused) and not hidden, minimized or
@@ -63,12 +64,13 @@ export function useWindowActive(): boolean {
 export function useClock(running: boolean, every = 1000): number {
   const [now, setNow] = useState(Date.now);
   const looking = useWindowActive();
+  const step = beat(every, usePowerSaving());
   useEffect(() => {
     if (!running || !looking) return;
     setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), every);
+    const t = setInterval(() => setNow(Date.now()), step);
     return () => clearInterval(t);
-  }, [running, looking, every]);
+  }, [running, looking, step]);
   return now;
 }
 

@@ -5,6 +5,16 @@ import type { CodexConnect, CodexConnection } from './app-server.js';
 import { handshake } from './app-server.js';
 import { CodexRpc } from './rpc.js';
 
+/** What codex-cli says opening a thread on its unelevated Windows sandbox under a profile that denies reads (#425). */
+const UNELEVATED_WINDOWS =
+  'error creating thread: failed to load AGENTS.md instructions for environment local: failed to prepare fs sandbox: failed to prepare windows sandbox wrapper: windows unelevated restricted-token sandbox cannot enforce deny-read restrictions directly; refusing to run unsandboxed';
+
+/** A thread's permissions profile denies a read somewhere. */
+const deniesReads = (params: Record<string, unknown>): boolean => {
+  const profiles = Object.entries((params.config ?? {}) as Record<string, unknown>).filter(([k]) => k.startsWith('permissions.'));
+  return profiles.some(([, p]) => Object.values((p as { filesystem?: Record<string, string> }).filesystem ?? {}).includes('deny'));
+};
+
 /** The words a scripted agent reads from a built prompt: its last line. */
 export const scriptedWords = (prompt: string): string => prompt.trim().split('\n').at(-1)!.trim();
 
@@ -32,6 +42,8 @@ export class ScriptedCodex {
   readonly threads = new Set<string>();
   /** Answers for server requests Codex sends (approvals), by item. */
   readonly approvals: unknown[] = [];
+  /** A tool call that Codex's question let through reaches the run's tool server. */
+  mcpCall?: (server: string, tool: string, args: Record<string, unknown>) => Promise<unknown>;
   /** Set: a command step asks for approval before running (the prompt's words start with "ask"). */
   connections = 0;
   /** Signed in (account/read says who), or not. */
@@ -54,6 +66,11 @@ export class ScriptedCodex {
   readonly mcpSignedIn = new Set<string>();
   /** How a sign-in ends once its page is "opened": true signs in, false fails, undefined waits forever. */
   mcpLoginEnds: boolean | undefined = true;
+  /**
+   * Codex's unelevated Windows sandbox (#425: a standard account, without MXC or the elevated
+   * sandbox): a thread whose profile denies any read won't open, in codex-cli's words.
+   */
+  unelevatedWindows = false;
 
   readonly connect: CodexConnect = async () => {
     this.connections++;
@@ -154,6 +171,19 @@ export class ScriptedCodex {
         this.approvals.push(await ask('item/fileChange/requestApproval', { threadId, turnId, itemId: item.id, reason: 'outside the workspace' }));
       }
       // Asks also when the request asked, under a note after it (a plan's turn ends with its note).
+      // `mcp T`: asks about the tool call T, as codex-cli 0.163 does. `question`: a server's own question to the user.
+      const planned = /^Request from [^\n]*:\n(mcp \S+)/m.exec(text)?.[1];
+      if (words.startsWith('mcp ') || planned || words.startsWith('question')) {
+        const tool = (planned ?? words).slice(4);
+        const verdict = (await ask(
+          'mcpServer/elicitation/request',
+          tool && !words.startsWith('question')
+            ? { threadId, turnId, serverName: 'beluga', mode: 'form', _meta: { codex_approval_kind: 'mcp_tool_call', persist: ['session', 'always'], tool_description: 'A tool', tool_params: { peer: 'mia', command: 'uptime' }, tool_params_display: [] }, message: `Allow the beluga MCP server to run tool "${tool}"?`, requestedSchema: { type: 'object', properties: {} } }
+            : { threadId, turnId, serverName: 'beluga', mode: 'form', _meta: null, message: 'What is your name?', requestedSchema: { type: 'object', properties: { name: { type: 'string' } } } },
+        )) as { action?: string } | undefined;
+        this.approvals.push(verdict);
+        if (verdict?.action === 'accept') await this.mcpCall?.('beluga', tool, { peer: 'mia', command: 'uptime' });
+      }
       if (words.startsWith('ask') || /^Request from [^\n]*:\nask/m.test(text)) {
         const verdict = (await ask('item/commandExecution/requestApproval', { threadId, turnId, itemId: cmd, command: `echo ${words}`, cwd: process.cwd() })) as { decision?: string } | undefined;
         this.approvals.push(verdict);
@@ -185,12 +215,14 @@ export class ScriptedCodex {
         case 'initialize':
           return { userAgent: 'fake', codexHome: '/tmp', platformFamily: 'unix', platformOs: 'macos' };
         case 'thread/start': {
+          if (this.unelevatedWindows && deniesReads(params)) throw new Error(UNELEVATED_WINDOWS);
           const id = randomUUID();
           this.threads.add(id);
           return { thread: { id }, model: 'gpt-fake' };
         }
         case 'thread/resume':
           if (!this.threads.has(String(params.threadId))) throw new Error('no rollout found');
+          if (this.unelevatedWindows && deniesReads(params)) throw new Error(UNELEVATED_WINDOWS);
           return { thread: { id: params.threadId }, model: 'gpt-fake' };
         case 'turn/start': {
           const id = randomUUID();

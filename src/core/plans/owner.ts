@@ -15,8 +15,11 @@ export interface PlanOwner {
   readonly issue: Issue;
 }
 
-/** Plans that show in the sidebar as one row: being written, or running. */
-export const isLivePlan = (plan: Plan): boolean => plan.status !== 'done';
+/**
+ * Plans that show in the sidebar as one row: being written, running, or every milestone passed
+ * with its branch not in main yet (its pull request still to open or merge): it goes once it ships.
+ */
+export const isLivePlan = (plan: Plan): boolean => plan.status !== 'done' || (Boolean(plan.branch) && !plan.shipped && plan.pr?.state !== 'MERGED');
 
 /** Every worktree that belongs to a running plan (workspace id → its plan's id). */
 export function planWorktrees(plans: PlansState, board: BoardState): ReadonlyMap<string, string> {
@@ -56,6 +59,8 @@ function foldMap(plans: PlansState, board: BoardState): ReadonlyMap<string, Plan
   for (const plan of plans.plans) if (isLivePlan(plan) && plan.home.startsWith('ws:')) map.set(plan.home.slice(3), plan);
   // The conversations that check its milestones.
   for (const plan of plans.plans) if (isLivePlan(plan)) for (const run of Object.values(plan.runs ?? {})) if (run?.checker) map.set(run.checker, plan);
+  // The conversation that reviews its draft (BLG-772).
+  for (const plan of plans.plans) if (isLivePlan(plan) && plan.review?.chat) map.set(plan.review.chat, plan);
   for (const [ws, id] of planWorktrees(plans, board)) map.set(ws, planById(plans, id)!);
   folds.set(plans, { board, map });
   return map;

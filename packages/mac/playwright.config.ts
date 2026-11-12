@@ -1,4 +1,5 @@
-import { defineConfig } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { defineConfig, firefox, webkit } from '@playwright/test';
 import { homesFor, portFor, workerCount, worktreeOf } from '../../scripts/e2e-lock.mjs';
 
 // `npm run e2e` runs through scripts/e2e-lock.mjs: one Mac e2e run at a time, nothing left behind.
@@ -17,7 +18,7 @@ const port = Number(process.env.E2E_PORT || portFor(worktree));
 process.env.E2E_WORKERS ||= String(workerCount());
 process.env.E2E_PORT = String(port);
 
-export default defineConfig({
+export default defineConfig<object, { demoLinkMs: number }>({
   testDir: 'e2e',
   timeout: 45_000,
   expect: { timeout: 10_000 },
@@ -35,5 +36,18 @@ export default defineConfig({
     // And on Tasks' list (the board is the default since BLG-216; the specs pick it when they mean it).
     storageState: { cookies: [], origins: [{ origin: `http://localhost:${port}`, localStorage: [{ name: 'beluga.onboarding.v1', value: JSON.stringify({ version: 'e2e', at: 0, how: 'finished' }) }, { name: 'beluga.tasks.v2', value: JSON.stringify({ display: 'list' }) }] }] },
   },
+  projects: [
+    // The app through the dev server and per-file demo daemons (e2e/fixtures.ts).
+    { name: 'app', testIgnore: ['web/**', 'remote/**'] },
+    // Work on the demo's computer, 80 ms away (e2e/remote/, BLG-795): the main flows again, on a computer's page.
+    { name: 'remote', testMatch: /remote\/.*\.spec\.ts$/, use: { demoLinkMs: 80 } },
+    // The real served build through the daemon's web port, joined by a link (e2e/web/, BLG-652): built once first.
+    { name: 'web-build', testMatch: /web\/build\.setup\.ts$/ },
+    { name: 'web', testMatch: /web\/.*\.spec\.ts$/, dependencies: ['web-build'], use: { baseURL: undefined, storageState: { cookies: [], origins: [] } } },
+    // The same in Firefox and Safari's WebKit, where they're installed (`npx playwright install firefox webkit`).
+    ...(['firefox', 'webkit'] as const)
+      .filter((name) => existsSync({ firefox, webkit }[name].executablePath()))
+      .map((name) => ({ name: `web-${name}`, testMatch: /web\/.*\.spec\.ts$/, dependencies: ['web-build'], use: { browserName: name, baseURL: undefined, storageState: { cookies: [], origins: [] } } })),
+  ],
   webServer: { command: `npx vite --port ${port} --strictPort`, url: `http://localhost:${port}`, reuseExistingServer: false, env: { BELUGA_HOME: process.env.KLAUD_HOME!, KLAUD_HOME: process.env.KLAUD_HOME! } },
 });

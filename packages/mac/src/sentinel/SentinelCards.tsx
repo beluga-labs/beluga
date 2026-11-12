@@ -20,6 +20,7 @@ import {
   accessAllows,
   ordinal,
   presetFields,
+  frequentAgentNote,
   scheduleSentence,
   stepAvailable,
   stepRefusal,
@@ -41,7 +42,7 @@ import {
   AFTER_ON,
   CLAUDE_PRESETS,
   EVERY_CHOICES,
-  HOURS_CHOICES,
+  INTERVAL_CHOICES,
   LATER,
   STEP_ICON,
   TEMPLATE_HELP,
@@ -63,6 +64,9 @@ import {
   triggerChoices,
   triggerOfKind,
   withEvery,
+  everySegment,
+  intervalOf,
+  withInterval,
   agentFields,
   stepAgentChoice,
 } from './sentinel-model.js';
@@ -73,6 +77,7 @@ import { sentinelGraph } from '@beluga/core/sentinel/workflow.js';
 import { GraphBlock } from '../components/graph/GraphBlock.js';
 import s from './sentinel.module.css';
 import { ASSISTANT_TITLE, THIS_COMPUTER } from '@beluga/shared/assistant.js';
+import { computerWord } from '../lib/os-words.js';
 
 /** The sentinel page's editor: When it runs, and its Steps. Everything saves as you change it. */
 
@@ -109,7 +114,7 @@ export function WhenCard({ item, save }: { item: Sentinel; save: Save }) {
             }}
           />
         </div>
-        {t.kind === 'schedule' ? <ScheduleControls t={t} save={save} /> : null}
+        {t.kind === 'schedule' ? <ScheduleControls t={t} item={item} save={save} /> : null}
         {t.kind === 'manual' ? <p className={s.hint}>It runs only when you press Run Now: here, on its row, or from your phone.</p> : null}
         {t.kind === 'after' ? <AfterControls t={t} item={item} items={items} save={save} /> : null}
         {t.kind !== 'schedule' && t.kind !== 'manual' && t.kind !== 'after' ? <EventControls item={item} save={save} /> : null}
@@ -139,17 +144,19 @@ function AfterControls({ t, item, items, save }: { t: AfterTrigger; item: Sentin
   );
 }
 
-function ScheduleControls({ t, save }: { t: ScheduleTrigger; save: Save }) {
+function ScheduleControls({ t, item, save }: { t: ScheduleTrigger; item: Sentinel; save: Save }) {
   const set = (next: ScheduleTrigger): void => save({ trigger: next });
+  const often = t.every === 'hours' || t.every === 'minutes';
+  const heavy = frequentAgentNote({ trigger: t, steps: item.steps, limits: item.limits });
   return (
     <>
       <div className={s.every}>
-        <Segmented label="How often" value={t.every} onChange={(every) => set(withEvery(t, every))} options={EVERY_CHOICES} />
+        <Segmented label="How often" value={everySegment(t)} onChange={(every) => (every === everySegment(t) ? undefined : set(withEvery(t, every)))} options={EVERY_CHOICES} />
       </div>
-      {t.every === 'hours' ? (
+      {often ? (
         <div className={s.controlRow}>
           <span className={s.controlLabel}>Every</span>
-          <Select label="Every how many hours" size="small" value={String(t.hours ?? 1)} options={HOURS_CHOICES.map((h) => ({ value: String(h), label: h === 1 ? 'hour' : `${h} hours` }))} onChange={(h) => set({ ...t, hours: Number(h) as ScheduleTrigger['hours'] & number })} />
+          <Select label="Every how long" size="small" value={intervalOf(t)} options={INTERVAL_CHOICES} onChange={(v) => set(withInterval(t, v))} />
         </div>
       ) : (
         <div className={s.controlRow}>
@@ -187,9 +194,9 @@ function ScheduleControls({ t, save }: { t: ScheduleTrigger; save: Save }) {
         </div>
       ) : null}
       <div className={s.controlRow}>
-        <span className={s.controlLabel}>If my Mac was asleep</span>
+        <span className={s.controlLabel}>If my {computerWord()} was asleep</span>
         <Select
-          label="If my Mac was asleep"
+          label={`If my ${computerWord()} was asleep`}
           size="small"
           value={t.missed}
           options={[
@@ -199,6 +206,7 @@ function ScheduleControls({ t, save }: { t: ScheduleTrigger; save: Save }) {
           onChange={(missed) => set({ ...t, missed })}
         />
       </div>
+      {heavy ? <p className={s.hint}>{heavy}</p> : null}
     </>
   );
 }
@@ -427,7 +435,7 @@ function ClaudeFields({ step, item, change }: { step: ClaudeStep; item: Sentinel
         {/* Which agent and model does it (BLG-497): the run's chat or worktree runs it for this step. */}
         <Select label="Agent and model" size="small" value={stepAgentChoice(step)} options={agents} onChange={(v) => change(agentFields(v))} />
       </div>
-      {step.where === 'mac' && stepAgentChoice(step) ? <p className={s.hint}>On Your Mac, your default agent does it: pick In the project or In a new worktree for this one.</p> : null}
+      {step.where === 'mac' && stepAgentChoice(step) ? <p className={s.hint}>On {ASSISTANT_TITLE}, your default agent does it: pick In the project or In a new worktree for this one.</p> : null}
     </>
   );
 }
@@ -653,7 +661,7 @@ function MergeFields({ step, change }: { step: MergeStep; change: (patch: Partia
   };
   return (
     <>
-      <Checkbox checked={step.require.approval} onChange={setApproval} label="Ask me before merging" detail="A card on the Mac and your phone, with Merge and Not Now; unanswered for a day, the run stops" />
+      <Checkbox checked={step.require.approval} onChange={setApproval} label="Ask me before merging" detail={`A card on the ${computerWord()} and your phone, with Merge and Not Now; unanswered for a day, the run stops`} />
       <div className={s.controlRow}>
         <span className={s.controlLabel}>Merge as</span>
         <Select

@@ -4,6 +4,7 @@ import { Button, cx } from '../components/ui.js';
 import { useBeluga } from '../lib/beluga.js';
 import { DEFAULT_SHORTCUT } from '../lib/dictation-model.js';
 import { getPrefs, setPrefs, usePrefs } from '../lib/prefs.js';
+import { otherKeyShortcut } from '../chat/send-action.js';
 import { setRecording, useBindings } from '../lib/shortcuts.js';
 import {
   type AssignMode,
@@ -33,6 +34,7 @@ import { showUndo } from '../lib/undo-toast.js';
 import { Group } from './settings-controls.js';
 import s from './settings.module.css';
 import k from './keyboard.module.css';
+import { osName } from '../lib/os-words.js';
 
 /** The most keys one shortcut keeps. */
 const MAX_KEYS = 3;
@@ -226,7 +228,9 @@ export function KeyboardSettings() {
   const builtIn = keyQuery ? builtInFor(keyQuery) : undefined;
   const builtInRows = BUILT_IN.filter(([chord, label]) => (keyQuery ? chord === keyQuery : !query.trim() || `${label} ${chordLabel(chord)}`.toLowerCase().includes(query.trim().toLowerCase())));
 
-  const row = (d: ShortcutDef) => {
+  const row = (def: ShortcutDef) => {
+    // ⌥↩ is named for what it does with your default during a turn: Steer, or Queue.
+    const d = def.id === 'composer-steer' ? { ...def, ...otherKeyShortcut(prefs.sendDuringTurn) } : def;
     const keys = bindings[d.id] ?? [];
     const recording = rec?.id === d.id;
     const bad = problem?.id === d.id ? problem.text : undefined;
@@ -355,7 +359,7 @@ export function KeyboardSettings() {
         <div className={k.free}>
           {builtIn ? (
             <>
-              <kbd className={k.inline}>{chordLabel(keyQuery)}</kbd> is {builtIn}: macOS keeps it.
+              <kbd className={k.inline}>{chordLabel(keyQuery)}</kbd> is {builtIn}: {osName()} keeps it.
             </>
           ) : (
             <>
@@ -373,7 +377,7 @@ export function KeyboardSettings() {
       ))}
 
       {builtInRows.length ? (
-        <Group title="Built into macOS">
+        <Group title={`Built into ${osName()}`}>
           {builtInRows.map(([chord, label]) => (
             <div key={chord} className={cx(s.row, k.row)}>
               <div className={s.rowText}>
@@ -388,10 +392,10 @@ export function KeyboardSettings() {
             <div className={cx(s.row, k.row)}>
               <div className={s.rowText}>
                 <div className={s.rowLabel}>Send a Message</div>
-                <div className={s.rowDetail}>{prefs.sendWith === 'enter' ? '⇧↩ makes a new line' : '↩ makes a new line'}</div>
+                <div className={s.rowDetail}>{`${chordLabel(prefs.sendWith === 'enter' ? 'Shift+Enter' : 'Enter')} makes a new line`}</div>
               </div>
               <div className={k.keys}>
-                <span className={cx(k.chip, k.fixed)}>{prefs.sendWith === 'enter' ? '↩' : '⌘↩'}</span>
+                <span className={cx(k.chip, k.fixed)}>{chordLabel(prefs.sendWith === 'enter' ? 'Enter' : 'Cmd+Enter')}</span>
                 <Button size="small" variant="quiet" onClick={() => ui.patch({ settings: 'general' })}>
                   Change…
                 </Button>

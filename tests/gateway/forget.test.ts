@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { conversations, homeView } from '../../src/companion/views.js';
-import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
+import { type Crowd, LOSES_A_MESSAGE_ON_WINDOWS, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type Node, node, task } from './helpers.js';
 
 /**
@@ -27,7 +27,7 @@ async function pair(a: string, b: string, extra: Parameters<typeof node>[2] = {}
 const running = (n: Node): string[] => homeView(n.store.getState(), { mac: { name: 'Mac', version: '1' } } as never).running.map((c) => c.topic);
 
 describe('a request that never ends', () => {
-  it('Remove cancels it on their side and takes it off yours', async () => {
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('Remove cancels it on their side and takes it off yours', async () => {
     const [ria, sol] = await pair('ria', 'sol');
     ria.trust(sol.id, 'trusted');
     sol.trust(ria.id, 'trusted');
@@ -47,7 +47,7 @@ describe('a request that never ends', () => {
     expect(() => ria.gw.forget(back.id)).toThrow(/you sent/);
   }, 90_000);
 
-  it('a day without word from their Mac: it failed, and stops showing as running', async () => {
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('a day without word from their Mac: it failed, and stops showing as running', async () => {
     let clock = Date.now();
     const [tao, uma] = await pair('tao', 'uma', { now: () => clock });
     tao.trust(uma.id, 'trusted');

@@ -12,10 +12,14 @@ import {
   TASK_CARD,
   TASK_COMPACT,
   arrowHead,
+  between,
   chatOpen,
   clampChatWidth,
+  easeOut,
   gateHeight,
+  glidable,
   isFolded,
+  joinAt,
   labelAt,
   milestoneAnchors,
   milestoneFrame,
@@ -99,6 +103,38 @@ describe('the plan graph’s geometry', () => {
     for (let i = 1; i < route.length; i++) expect(route[i]!.x === route[i - 1]!.x || route[i]!.y === route[i - 1]!.y).toBe(true);
   });
 
+  it('cuts every line into a milestone waiting on several where they meet, above its lock', () => {
+    // Its lane runs straight down onto the lock: one long last stretch, still cut just above the lock.
+    const lane = milestoneRoute({ x: 1133, y: 85 }, { x: 751, y: 743 }, 145, 703);
+    expect(lane).toEqual([
+      { x: 1133, y: 85 },
+      { x: 1133, y: 145 },
+      { x: 751, y: 145 },
+      { x: 751, y: 743 },
+    ]);
+    expect(joinAt(lane, 703)).toEqual({
+      line: [
+        { x: 1133, y: 85 },
+        { x: 1133, y: 145 },
+        { x: 751, y: 145 },
+        { x: 751, y: 703 },
+      ],
+      stem: [
+        { x: 751, y: 703 },
+        { x: 751, y: 743 },
+      ],
+    });
+    // Coming in across the run above it: cut where it turns down.
+    const across = milestoneRoute({ x: 368, y: 641 }, { x: 751, y: 743 }, 703, 703);
+    expect(joinAt(across, 703)?.line).toEqual([
+      { x: 368, y: 641 },
+      { x: 368, y: 703 },
+      { x: 751, y: 703 },
+    ]);
+    // Never on the lock itself.
+    expect(joinAt(across, 740)?.stem[0]).toEqual({ x: 751, y: 731 });
+  });
+
   it('places rows top to bottom, centred, a row under the milestones it waits on', () => {
     const sizes = new Map([
       ['a', { width: 400, height: 300 }],
@@ -157,6 +193,29 @@ describe('the plan graph’s geometry', () => {
     expect(arrowHead([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 0 }], 4)).toBe('M95,4 L100,0 L95,-4');
     expect(arrowHead([{ x: 1, y: 1 }])).toBe('');
     expect(labelAt([{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 90, y: 40 }])).toEqual({ x: 0, y: 20 });
+  });
+
+  it('glides a line with the cards: on their curve, square all the way, or not at all when its shape changes', () => {
+    // The canvas's ease-out: from 0 to 1, always on its way, well ahead of linear early on.
+    expect(easeOut(0)).toBe(0);
+    expect(easeOut(1)).toBe(1);
+    expect(easeOut(-1)).toBe(0);
+    expect(easeOut(0.25)).toBeGreaterThan(0.6);
+    const steps = Array.from({ length: 21 }, (_, i) => easeOut(i / 20));
+    for (let i = 1; i < steps.length; i++) expect(steps[i]!).toBeGreaterThanOrEqual(steps[i - 1]!);
+    // A gate's line as its milestone opens: same corners, each stretch the same way, so it glides.
+    const folded = [{ x: 100, y: 56 }, { x: 100, y: 100 }, { x: 300, y: 100 }, { x: 300, y: 140 }];
+    const open = [{ x: 120, y: 400 }, { x: 120, y: 444 }, { x: 300, y: 444 }, { x: 300, y: 484 }];
+    expect(glidable(folded, open)).toBe(true);
+    const half = between(folded, open, 0.5);
+    expect(half).toEqual([{ x: 110, y: 228 }, { x: 110, y: 272 }, { x: 300, y: 272 }, { x: 300, y: 312 }]);
+    expect(half[1]!.x).toBe(half[0]!.x);
+    expect(half[2]!.y).toBe(half[1]!.y);
+    expect(between(folded, open, 1)).toEqual(open);
+    // More corners, or a stretch turning from down to across: it can't stay square, so it doesn't glide.
+    expect(glidable(folded, [{ x: 100, y: 56 }, { x: 100, y: 140 }])).toBe(false);
+    expect(glidable([{ x: 0, y: 0 }, { x: 0, y: 50 }], [{ x: 0, y: 0 }, { x: 50, y: 0 }])).toBe(false);
+    expect(glidable([], [])).toBe(false);
   });
 
   it('folds passed milestones by itself, and keeps your choice for each plan', () => {

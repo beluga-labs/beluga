@@ -21,6 +21,8 @@ export const FEATURE_NAMES = {
   'share.copy': 'project copies',
   /** Sends a shared worktree's earlier conversation a page at a time (core/friend-share). */
   'share.history': 'whole conversations',
+  /** Takes a conversation's long messages whole (a graph, a long answer), not cut at 4,000 characters (BLG-622). */
+  'share.history.long': 'long messages in conversations',
   /** Packs a shared worktree (its changes, Scratch, conversation) for a friend's own fork of it (core/friend-share/fork.ts). */
   'share.fork': 'forks of worktrees',
   /** Takes a worktree handed over by a friend outside the room: its note, branch bundle and chat (core/friend-share, BLG-341). */
@@ -35,18 +37,22 @@ export const FEATURE_NAMES = {
   'team.knock': 'knocks on worktrees',
   /** Profile pictures, sent once per change and kept by the Macs that see them (net/mesh/avatars.ts). */
   'profile.avatar': 'profile pictures',
+  /** Calls in a conversation: voice, screen sharing and pointing at it (core/calls, BLG-706). */
+  'call.voice': 'calls',
+  /** Friends swap their prompt characters, merged PRs and agent time a day for the leaderboard (core/leaderboard, BLG-904). */
+  'stats.board': 'the leaderboard',
 } as const;
 
 export type Feature = keyof typeof FEATURE_NAMES;
 
 /** What a Mac takes while it shares projects and folders with friends (core/friend-share). */
-export const SHARE_FEATURES: readonly Feature[] = ['share.project', 'share.folder', 'share.copy', 'share.history', 'share.fork', 'share.handoff'];
+export const SHARE_FEATURES: readonly Feature[] = ['share.project', 'share.folder', 'share.copy', 'share.history', 'share.history.long', 'share.fork', 'share.handoff'];
 
 /** What a Mac takes while its team boards run (core/team). */
 export const TEAM_FEATURES: readonly Feature[] = ['team.board', 'team.plans', 'team.context', 'team.knock'];
 
 /** What the network itself always does. */
-export const MESH_FEATURES: readonly Feature[] = ['chat.files', 'chat.claude', 'profile.avatar'];
+export const MESH_FEATURES: readonly Feature[] = ['chat.files', 'chat.claude', 'profile.avatar', 'call.voice', 'stats.board'];
 
 /** What a Mac takes while its gateway listens (core/gateway). */
 export const TASK_FEATURES: readonly Feature[] = ['task.ask', 'task.run', 'task.file', 'task.question', 'task.secret'];

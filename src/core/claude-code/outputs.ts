@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isUnder } from '../../shared/path-inside.js';
+import { homeDir } from '../home-path.js';
 
 /**
  * What an agent made or looked at while it worked, from its transcript: the screenshots it took,
@@ -62,7 +63,7 @@ export function isArtifact(p: string, cwd?: string): boolean {
 const isTarget = (p: string): boolean => path.isAbsolute(p) && !p.startsWith('/dev/') && !NEVER.test(p) && (isMedia(p) || TEXT.test(p));
 
 const full = (p: string, cwd?: string): string | undefined => {
-  const raw = p.replace(/^~(?=\/)/, process.env.HOME ?? '~');
+  const raw = p.replace(/^~(?=[\\/])/, () => homeDir());
   if (path.isAbsolute(raw)) return path.normalize(raw);
   return cwd ? path.resolve(cwd, raw) : undefined;
 };

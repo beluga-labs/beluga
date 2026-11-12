@@ -1,4 +1,5 @@
 import type { PhoneArgs, PhoneMethod } from '../../../../src/companion/calls';
+import type { ThreadChildren } from '../../../../src/shared/threads';
 import type { NeedsYou, PhoneBranchStep, Topic, VoiceModelId } from './protocol';
 
 /**
@@ -46,6 +47,11 @@ export const calls = {
   deleteMacChat: (topic: Topic): Call => make('assistant.deleteChat', [macChatOf(topic)], 'Delete the chat'),
   /** A chat's id → its topic: the first (`main`) keeps `conv:mac:assistant`. */
   macChatTopic: (id: string): Topic => (id === 'main' ? 'conv:mac:assistant' : `conv:mac:assistant:${id}`) as Topic,
+  /** 1.44 (BLG-74): a chat's category, as its sheet in Work changes it. The setting itself stays the Mac's. */
+  settle: (topic: Topic): Call => make('triage.settle', [channelOf(topic)], 'Settle'),
+  unsettle: (topic: Topic): Call => make('triage.unsettle', [channelOf(topic)], 'Un-settle'),
+  snooze: (topic: Topic, until: number): Call => make('triage.snooze', [channelOf(topic), until], 'Remind Me Later'),
+  wake: (topic: Topic): Call => make('triage.wake', [channelOf(topic)], 'Show Again Now'),
   /** A message in a conversation (yours, or shared with you to work in), with photos. */
   send: (topic: Topic, text: string, files?: Files): Call => make('companion.ask', [{ target: { topic }, text, ...withFiles(files) }], `Send "${short(text)}"`),
   /** Ask your Mac in a project: a new conversation there (its topic comes back). */
@@ -66,6 +72,12 @@ export const calls = {
   setModel: (topic: Topic, value: string, label: string): Call => make('workbench.setModel', [channelOf(topic), value], `Use ${label}`),
   setAgent: (topic: Topic, agent: { runtime: string; label: string; model?: string } | null, label: string): Call => make('workbench.setAgent', [channelOf(topic), agent], `Use ${label}`),
   stop: (topic: Topic): Call => make('host.stopRun', [channelOf(topic)], 'Stop'),
+  /** 1.38 (BLG-122): external agents: who holds a grant, what they did, and stopping them. */
+  externalAgents: (): Call => make('external.agents', [], 'External agents'),
+  externalActivity: (kind?: 'allowed' | 'asked' | 'refused'): Call => make('external.activity', [kind ? { kind } : {}], 'Activity'),
+  externalStop: (agent: string, name: string): Call => make('external.stopAgent', [agent], `Stop ${short(name)}`),
+  externalStopAll: (): Call => make('external.stopAll', [], 'Stop all agents'),
+  externalRevoke: (agent: string, name: string): Call => make('external.revoke', [agent], `Revoke ${short(name)}`),
   /** Give a conversation the Mac's terminal drives back to the chat (1.36, BLG-534). */
   takeOver: (topic: Topic): Call => make('agentTerm.takeOver', [channelOf(topic).replace(/^ws:/, '')], 'Take over'),
   /** A request you asked of a friend's Claude (a `conv:task:<id>`): stop it, or (1.27) remove it from your lists. */
@@ -74,8 +86,8 @@ export const calls = {
   cancelTask: (id: string): Call => make('gateway.cancel', [id], 'Stop asking'),
   forgetTask: (id: string): Call => make('gateway.forget', [id], 'Remove'),
   /**
-   * While Claude works, as the Mac's composer: Steer gives it your words now (at its next step; a
-   * long command is interrupted for it), Queue lets it finish first. The same `session.submit` the
+   * While Claude works, as the Mac's composer: Steer gives it your words at its next step (never
+   * stopping it), Queue lets it finish first. The same `session.submit` the
    * Mac sends (`urgent` for Steer).
    */
   steer: (topic: Topic, text: string): Call => make('session.submit', [text, { channel: channelOf(topic), urgent: true }], `Steer "${short(text)}"`),
@@ -104,15 +116,22 @@ export const calls = {
   addTask: (projectId: string, d: PhoneDraft & { more?: PhoneDraft[]; epic?: boolean }): Call =>
     make('companion.addTask', [{ projectId, ...d }], d.more?.length ? `Add ${d.more.length + 1} tasks` : `Add "${short(d.title)}"`),
   /** A live view's rows: the Mac runs its source (one your own Claude's view names) and sends the page. */
+  // 1.44: what a chat's address is now (its chip).
+  resolveChat: (ref: string): Call => make('chats.resolve', [ref], 'Chat link'),
   viewFetch: (a: { topic: Topic; turn: string; block: number; query: object; source?: object; confirm?: boolean; fresh?: boolean; text?: boolean }): Call => make('companion.viewFetch', [a as never], 'View rows'),
   /** Merging a worktree (its conversation): look first, merge, Claude resolves the conflicts. */
   mergeCheck: (topic: Topic): Call => make('companion.mergeCheck', [topic], 'Check the merge'),
   merge: (topic: Topic): Call => make('companion.merge', [topic], 'Merge'),
   resolve: (topic: Topic): Call => make('companion.resolve', [topic], 'Ask your agent to resolve'),
   /** 1.8: one of a worktree's branch steps (Archive, Squash and Merge, Fix with Claude…), as the Mac's toolbar does it. */
-  branchStep: (topic: Topic, step: PhoneBranchStep, label: string): Call => make('companion.branchStep', [topic, step], label),
+  branchStep: (topic: Topic, step: PhoneBranchStep, label: string, children?: ThreadChildren): Call => make('companion.branchStep', children ? [topic, step, children] : [topic, step], label),
+  /** 1.47: one child thread and those under it stop, as the Mac's Threads panel does it. */
+  stopThread: (id: string): Call => make('threads.stop', [id], 'Stop the thread'),
+  stopThreads: (id: string): Call => make('threads.stopAll', [id], 'Stop the threads'),
   /** Your steered message Claude hasn't read yet, now: its step stops and it reads it next. */
   steerNow: (request: string): Call => make('host.steerNow', [request], 'Send now'),
+  /** 1.43: your steered message Claude hasn't read yet, taken back → { cancelled, prompt: its words, for the box }. */
+  cancelSteer: (request: string): Call => make('host.cancelSteer', [request], 'Cancel'),
   /** 1.28 (BLG-387): a message you sent, edited: the conversation rewinds to it ('here') or goes on in a new fork → where it went on. */
   editPrompt: (ws: string, turn: string, text: string, mode: 'here' | 'fork'): Call => make('workspaces.editPrompt', [ws, turn, text, mode], mode === 'here' ? 'Rewind and send' : 'Fork and send'),
   /** 1.7: a worktree's files, read-only: a folder ('' is the top), names that match, a page of a file. */
@@ -143,6 +162,10 @@ export const calls = {
   deleteMessage: (topic: Topic, id: string, everyone: boolean): Call => make('network.messages.delete', [conversationOf(topic), id, everyone ? { everyone: true } : {}], 'Delete the message'),
   editMessage: (topic: Topic, id: string, text: string): Call => make('network.messages.edit', [conversationOf(topic), id, text], `Edit to "${short(text)}"`),
   clearChat: (topic: Topic): Call => make('network.clear', [conversationOf(topic)], 'Clear the chat'),
+  /** 1.41 (BLG-702): an emoji on a person's message in the room's or a workspace's chat (`on`), or yours taken off. */
+  reactTurn: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('session.react', [channelOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
+  /** 1.41 (BLG-702): put an emoji on a message (`on`) or take yours off. */
+  react: (topic: Topic, id: string, emoji: string, on: boolean): Call => make('network.messages.react', [conversationOf(topic), id, emoji, on], on ? `React ${emoji}` : `Take back ${emoji}`),
   /** 1.34 (BLG-466): a dialogue between agents: Stop it, or Continue? → yes. */
   dialogueStop: (id: string): Call => make('dialogues.stop', [id], 'Stop the dialogue'),
   dialogueContinue: (id: string): Call => make('dialogues.continue', [id], 'Continue the dialogue'),

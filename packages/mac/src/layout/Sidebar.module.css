@@ -28,6 +28,11 @@
 :global(html:not([data-os='mac'])) .trafficSpace {
   width: 8px;
 }
+/* A browser: the menu bar's button (AppMenu) where the traffic lights would be. */
+.appMenu {
+  display: inline-flex;
+  padding-left: 10px;
+}
 
 .scroll {
   flex: 1;
@@ -62,6 +67,11 @@
 }
 .sectionHead:hover .sectionChevron {
   opacity: 1;
+}
+.sectionCount {
+  margin-left: 5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 .sectionAction {
   opacity: 0;
@@ -107,12 +117,146 @@
 .selected .rowIcon {
   color: var(--accent);
 }
+/*
+ * A colour you gave a project or chat (lib/row-colors.ts): a soft stripe at the row's edge (a
+ * project and its chats line up as one rail) and its icon in the colour. Plain rows are untouched.
+ */
+.colorStripe {
+  position: absolute;
+  left: 1px;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--row-hue) var(--row-sat) 62%);
+  pointer-events: none;
+}
+.row[data-row-color] .rowIcon {
+  color: hsl(var(--row-hue) var(--row-sat) 44%);
+}
+:global([data-theme='dark']) .colorStripe {
+  background: hsl(var(--row-hue) var(--row-sat) 58%);
+}
+:global([data-theme='dark']) .row[data-row-color] .rowIcon {
+  color: hsl(var(--row-hue) var(--row-sat) 72%);
+}
+/*
+ * Chats picked with Shift-click: rows that touch read as one box, a dashed line between each
+ * (chat-selection-view.tsx marks which sides of a row the box goes on past, in data-chat-join).
+ * Its fill, outline, corners and lines ease in and out.
+ */
+@property --chat-separator {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+.row[data-chat-id] {
+  --chat-separator: transparent;
+  background-image: repeating-linear-gradient(to right, var(--chat-separator) 0 3px, transparent 3px 6px);
+  background-position: 10px 100%;
+  background-size: calc(100% - 20px) 1px;
+  background-repeat: no-repeat;
+  transition:
+    background-color var(--dur) var(--ease-out),
+    border-radius var(--dur) var(--ease-out),
+    --chat-separator var(--dur) var(--ease-out);
+}
+.row[data-chat-id]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur) var(--ease-out),
+    border-width var(--dur) var(--ease-out);
+}
+.chatSelected,
+.chatSelected:hover {
+  background-color: var(--bg-selected);
+}
+.chatSelected::before {
+  opacity: 1;
+}
+.chatSelected[data-chat-join~='up'] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.chatSelected[data-chat-join~='up']::before {
+  border-top-width: 0;
+}
+.chatSelected[data-chat-join~='down'] {
+  --chat-separator: var(--hairline-strong);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.chatSelected[data-chat-join~='down']::before {
+  border-bottom-width: 0;
+}
+/* The count under the lists, in the selection's own colours: it unfolds as a selection starts and folds away as it ends. */
+.chatSelection {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--dur) var(--ease-out),
+    opacity var(--dur) var(--ease-out),
+    visibility 0s;
+}
+.chatSelection[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--dur) var(--ease-out),
+    opacity var(--dur) var(--ease-out),
+    visibility 0s var(--dur);
+}
+.chatSelectionFold {
+  min-height: 0;
+  overflow: hidden;
+}
+.chatSelectionBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 6px 8px 4px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 8px;
+  background: var(--bg-selected);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.chatSelectionBar button {
+  color: var(--accent);
+}
 .rowLabel {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.renameField {
+  width: calc(100% - 4px);
+  min-width: 0;
+  height: 20px;
+  margin: 2px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.renameField:focus {
+  outline: none;
 }
 .trailing {
   display: inline-flex;
@@ -141,6 +285,10 @@
 .projectRow .rowIcon {
   width: auto;
   color: var(--text-3);
+}
+/* A row with a disclosure before its icon (a sentinel under Sentinel, BLG-570): the icon slot widens for both. */
+.foldRow .rowIcon {
+  width: auto;
 }
 /* The disclosure triangle, then the project's icon (like Finder's sidebar and Xcode's navigator). */
 .projectIcon {
@@ -178,6 +326,18 @@
 .hoverTools:has(button[data-state='open']) button {
   width: 22px;
   opacity: 1;
+}
+/* A category row's status gives its room to the tools. */
+.rowStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.row:hover .rowStatus,
+.row:focus-visible .rowStatus,
+.row:has(:focus-visible) .rowStatus,
+.row:has(.hoverTools button[data-state='open']) .rowStatus {
+  display: none;
 }
 /* A status dot in a row's trailing tools: always the last thing, at the right edge. */
 .status {
@@ -323,6 +483,17 @@
 .agentDisclosureOpen {
   transform: rotate(90deg);
 }
+/* The harness of a chat, at the row's edge: one width, so nothing beside it moves. */
+.harnessMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  /* One quiet tone in each theme, as the Scratch panel's beluga: never the makers' own colors (BLG-345). */
+  color: var(--text-3);
+  opacity: 0.8;
+}
 .agentCount {
   display: inline-flex;
   align-items: center;
@@ -335,4 +506,19 @@
 .agentCount svg {
   color: var(--claude);
   opacity: 0.7;
+}
+/* Commits its open PR doesn't have (BLG-840): a soft blue chip, "↑3". */
+.notOnPr {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 4px;
+  padding: 0 5px 0 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+  font-size: 0.78em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
 }

@@ -1176,6 +1176,14 @@ th[style*='right'] .th {
   overflow: hidden;
   font-variant-numeric: tabular-nums;
 }
+/* Opened from the welcome (the tour's table): above it (onboarding.module.css .overlay is 85), under pop-ups (90).
+   Under it, the modal is hidden yet still takes every click, Continue's too. */
+.fullOverlay[data-over-welcome] {
+  z-index: 86;
+}
+.full[data-over-welcome] {
+  z-index: 87;
+}
 .fullBody {
   flex: 1;
   min-height: 0;
@@ -1366,7 +1374,8 @@ th[style*='right'] .th {
 .headBare .titles {
   display: none;
 }
-.bare .scroll {
+/* Flush only without a search above: its ring would hide under the sticky headings. */
+.bare .scroll:first-child {
   margin-top: 0;
 }
 

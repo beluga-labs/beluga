@@ -99,6 +99,8 @@ const SECRET_TOKENS: readonly RegExp[] = [
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b(?:sk|rk|pk|whsec)_(?:live|test)_[A-Za-z0-9]{10,}/g,
+  // RevenueCat V2 secret keys have no live/test infix, so the Stripe pattern misses them.
+  /\bsk_[A-Za-z0-9_-]{16,}/g,
   /\bnpm_[A-Za-z0-9]{30,}/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ];
@@ -120,7 +122,7 @@ export function redactSecrets(text: string): string {
 }
 
 /** Input keys whose values are secrets whatever they look like. */
-const SECRET_KEY = /(password|passwd|secret|token|api[_-]?key|authorization|cookie|credential)/i;
+export const SECRET_KEY = /(password|passwd|secret|token|api[_-]?key|authorization|cookie|credential)/i;
 
 /** A tool's input, safe to keep and show: secrets redacted, long strings cut, the whole kept small. */
 export function boundInput(input: Readonly<Record<string, unknown>>): { input: Record<string, unknown>; truncated: boolean } {
@@ -195,6 +197,13 @@ export function thinkingTitle(durationMs: number | undefined, hidden: boolean): 
 }
 
 /** The light part of a record. */
+/** A message sent to another chat: its words also say how it was delivered, from the receipt. */
+function sentLabel(r: StepRecord, label: string): string {
+  if (!r.tool?.endsWith('__send_to_chat') || r.isError || !r.output) return label;
+  const delivery = /"delivery":\s*"(\w+)"/.exec(r.output)?.[1];
+  return delivery ? `${label} · ${delivery}` : label;
+}
+
 export function summaryOf(r: StepRecord): StepSummary {
   return {
     id: r.id,
@@ -203,7 +212,7 @@ export function summaryOf(r: StepRecord): StepSummary {
     status: r.status,
     startedAt: r.startedAt,
     ...(r.tool ? { tool: r.tool } : {}),
-    ...(r.label ? { label: r.label } : {}),
+    ...(r.label ? { label: sentLabel(r, r.label) } : {}),
     ...(r.doing ? { doing: r.doing } : {}),
     ...(r.person ? { person: r.person } : {}),
     ...(r.task ? { task: r.task } : {}),

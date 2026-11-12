@@ -18,11 +18,19 @@ async function paste(field: Locator, text: string): Promise<void> {
   }, text);
 }
 
-async function openConnectSheet(page: Page): Promise<Locator> {
+/** The sheet from the palette, on the project you name, and its Stripe form. */
+async function openStripeForm(page: Page, project: string): Promise<Locator> {
   await page.keyboard.press('Meta+K');
-  await page.keyboard.type('Connect Stripe');
+  await page.keyboard.type('Connect Earnings');
   await page.keyboard.press('Enter');
-  return page.getByRole('dialog', { name: /Connect Stripe to/ });
+  const home = page.getByRole('dialog', { name: /^Connect Earnings to/ });
+  await expect(home).toBeVisible();
+  await pick(home, 'Project', project);
+  await expect(page.getByRole('dialog', { name: `Connect Earnings to ${project}` })).toBeVisible();
+  await home.getByRole('button', { name: 'Connect Stripe' }).click();
+  const sheet = page.getByRole('dialog', { name: `Connect Stripe to ${project}` });
+  await expect(sheet).toBeVisible();
+  return sheet;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -48,14 +56,12 @@ test('the Usage view shows connected projects’ earnings, and a project opens i
   await rows.getByRole('button', { name: /^bob-api/ }).click();
   await expect(page.getByRole('dialog', { name: 'bob-api earnings' })).toContainText('Bob API, Inc.');
   await page.keyboard.press('Escape');
-  await card.getByRole('button', { name: 'Connect Stripe to Another Project…' }).click();
-  await expect(page.getByRole('dialog', { name: /Connect Stripe to/ })).toBeVisible();
+  await card.getByRole('button', { name: 'Connect Earnings to Another Project…' }).click();
+  await expect(page.getByRole('dialog', { name: /^Connect Earnings to/ })).toBeVisible();
 });
 
 test('connecting Stripe checks the key, then the project shows its earnings; disconnecting forgets them', async ({ page }) => {
-  const sheet = await openConnectSheet(page);
-  await expect(sheet).toBeVisible();
-  await pick(sheet, 'Project', 'landing');
+  const sheet = await openStripeForm(page, 'landing');
   await expect(sheet.getByRole('heading', { name: 'Connect Stripe to landing' })).toBeVisible();
   const key = sheet.getByLabel('Restricted key');
   const connect = sheet.getByRole('button', { name: 'Connect', exact: true });
@@ -103,14 +109,20 @@ test('connecting Stripe checks the key, then the project shows its earnings; dis
   await expect(pills).toHaveCount(1);
 });
 
-test('Connect Stripe… is in every project’s right-click menu, and the amount opens its earnings', async ({ page }) => {
+test('Connect Earnings… is in every project’s right-click menu, and the amount opens its earnings', async ({ page }) => {
   await sidebar(page).getByRole('button', { name: 'landing', exact: true }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Connect Stripe…' }).click();
+  await page.getByRole('menuitem', { name: 'Connect Earnings…' }).click();
+  const home = page.getByRole('dialog', { name: 'Connect Earnings to landing' });
+  await expect(home).toBeVisible();
+  await home.getByRole('button', { name: 'Connect Stripe' }).click();
   const sheet = page.getByRole('dialog', { name: 'Connect Stripe to landing' });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByRole('button', { name: /Create a restricted key in Stripe/ })).toBeVisible();
-  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await sheet.getByRole('button', { name: 'Back' }).click();
   await expect(sheet).toBeHidden();
+  await expect(home).toBeVisible();
+  await home.getByRole('button', { name: 'Done' }).last().click();
+  await expect(home).toBeHidden();
 
   // The sidebar's amount steps aside for the row's tools on hover: the project home's opens it.
   await sidebar(page).getByText('bob-api', { exact: true }).first().click();
@@ -161,8 +173,8 @@ test('a project’s home shows how it’s doing lately: one folded row, then the
   await expect(section.locator('[data-earnings-summary]')).toHaveAttribute('aria-expanded', 'true');
   await expect(section.locator('[data-earnings-summary]')).toHaveAccessibleName(/in the last 7 days$/);
 
-  // Stripe Earnings… opens the sheet, which says the last 30 days too.
-  await section.getByRole('button', { name: 'Stripe Earnings…' }).click();
+  // Earnings… opens the sheet, which says the last 30 days too.
+  await section.getByRole('button', { name: 'Earnings…', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'bob-api earnings' });
   await expect(sheet.locator('[data-last-30]')).toHaveText(/^Last 30 days: (≈ )?\$[\d,]+\.\d\d from \d+ payments by \d+ customers$/);
   await page.keyboard.press('Escape');
@@ -170,8 +182,7 @@ test('a project’s home shows how it’s doing lately: one folded row, then the
 
 test('every total shows in one currency you choose, in Settings or the Stripe sheet', async ({ page }) => {
   // landing sells in lira and rupees, bob-api in dollars and euros.
-  const sheet = await openConnectSheet(page);
-  await pick(sheet, 'Project', 'landing');
+  const sheet = await openStripeForm(page, 'landing');
   await paste(sheet.getByLabel('Restricted key'), ['rk', 'live', 'landingLiraShop000000'].join('_'));
   await sheet.getByRole('button', { name: 'Connect', exact: true }).click();
   const done = page.getByRole('dialog', { name: 'landing earnings' });
@@ -221,4 +232,145 @@ test('every total shows in one currency you choose, in Settings or the Stripe sh
   await page.getByRole('dialog', { name: 'landing earnings' }).getByRole('button', { name: 'Disconnect…' }).click();
   await page.getByRole('alertdialog', { name: 'Disconnect Stripe from landing?' }).getByRole('button', { name: 'Disconnect' }).click();
   await expect(rows.getByRole('button', { name: /^landing/ })).toBeHidden();
+});
+
+test('RevenueCat connects from the sheet, lists its apps to tick, and disconnects', async ({ page }) => {
+  await sidebar(page).getByRole('button', { name: 'landing', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Connect Earnings…' }).click();
+  const home = page.getByRole('dialog', { name: 'Connect Earnings to landing' });
+  await home.getByRole('button', { name: 'Connect RevenueCat' }).click();
+  const form = page.getByRole('dialog', { name: 'Connect RevenueCat to landing' });
+  const key = form.getByLabel('Secret key');
+  const connect = form.getByRole('button', { name: 'Connect', exact: true });
+
+  // Checked as you paste, before anything is sent: a Stripe key, then a public SDK key.
+  await paste(key, ['rk', 'live', 'landingLiraShop000000'].join('_'));
+  await expect(form.getByText(/That’s a Stripe key/)).toBeVisible();
+  await expect(connect).toBeDisabled();
+  await key.fill('');
+  await paste(key, ['appl', 'publicSdkKey0000000000'].join('_'));
+  await expect(form.getByText(/public SDK key/)).toBeVisible();
+
+  // RevenueCat refuses it: said in the sheet, which stays open.
+  await key.fill(['sk', 'revokedKey0000000000000'].join('_'));
+  await connect.click();
+  await expect(form.getByRole('alert')).toContainText('RevenueCat doesn’t accept this key anymore');
+
+  // A good one: the project's earnings, then the apps to tick.
+  await key.fill('');
+  await paste(key, ['sk', 'landingDemoKey00000000'].join('_'));
+  await connect.click();
+  const done = page.getByRole('dialog', { name: 'landing earnings' });
+  await expect(done).toBeVisible();
+  await expect(done.getByRole('region', { name: 'RevenueCat' })).toBeVisible();
+  await done.getByRole('button', { name: 'Choose apps…' }).first().click();
+  const apps = page.getByRole('dialog', { name: 'Choose apps for landing' });
+  await expect(apps.getByRole('group', { name: 'Count revenue from' }).getByRole('checkbox').first()).toBeVisible();
+  await expect(apps.getByText(/Counted from your Stripe key on bob-api/).first()).toBeVisible();
+  await apps.getByRole('button', { name: 'Save' }).click();
+  await expect(apps).toBeHidden();
+
+  // Disconnect, after an alert.
+  await page.getByRole('dialog', { name: 'landing earnings' }).getByRole('button', { name: 'Disconnect…' }).click();
+  const alert = page.getByRole('alertdialog', { name: 'Disconnect RevenueCat from landing?' });
+  await alert.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(alert).toBeHidden();
+  await expect(page.locator('[data-earnings-pill]')).toHaveCount(1);
+});
+
+/** The dollars in an amount's accessible name ("All-time earnings $1,234.56"). */
+const dollars = (name: string | null): number => Number(/\$([\d,]+\.\d\d)/.exec(name ?? '')?.[1]?.replace(/,/g, ''));
+
+test('with both connected, bob-api adds Stripe and RevenueCat: the split, the extras, the labels', async ({ page }) => {
+  // The Overview says where it comes from.
+  await sidebar(page).getByRole('button', { name: 'Overview' }).first().click();
+  await expect(page.getByRole('region', { name: 'Earnings' })).toContainText('from Stripe and RevenueCat');
+
+  // The pill's tooltip lists each source.
+  await sidebar(page).getByText('bob-api', { exact: true }).first().click();
+  const main = page.getByRole('main');
+  await main.locator('[data-earnings-pill]').first().hover();
+  const tip = page.getByRole('tooltip');
+  await expect(tip.getByText('Stripe', { exact: true })).toBeVisible();
+  await expect(tip.getByText('RevenueCat', { exact: true })).toBeVisible();
+
+  const section = main.getByRole('region', { name: 'Earnings' });
+  const summary = section.locator('[data-earnings-summary]');
+  await expect(summary).toContainText(/\d+ paying customers \(Stripe\)/);
+  await summary.click();
+  await expect(summary).toHaveAttribute('aria-expanded', 'true');
+
+  // What each source brought in over the range.
+  const split = section.getByRole('list', { name: 'By source' });
+  await expect(split.getByRole('listitem').filter({ hasText: 'Stripe' })).toContainText(/\$[\d,]+\.\d\d/);
+  await expect(split.getByRole('listitem').filter({ hasText: 'RevenueCat' })).toContainText(/\$[\d,]+\.\d\d/);
+
+  // RevenueCat's own figures, with what's kept after store fees and taxes.
+  const rcBlock = section.getByRole('group', { name: 'RevenueCat' });
+  await expect(rcBlock.getByText('MRR')).toBeVisible();
+  await expect(rcBlock.getByText('Active subscriptions')).toBeVisible();
+  await expect(rcBlock.getByText('Active trials')).toBeVisible();
+  await expect(rcBlock.getByText('New customers (28 days)')).toBeVisible();
+  await expect(rcBlock.getByText(/^You keep ≈ \$[\d,]+\.\d\d \(after store fees and taxes\)$/)).toBeVisible();
+
+  // Payments are Stripe's, and say so; both dashboards are a click away.
+  await expect(section.getByRole('heading', { name: 'Latest payments from Stripe' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Open Stripe' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Open RevenueCat' })).toBeVisible();
+  await section.getByRole('button', { name: /^Earnings…$/ }).click();
+  await page.keyboard.press('Escape');
+});
+
+test('a project with only RevenueCat draws every surface; choosing apps changes its total; disconnecting forgets it', async ({ page }) => {
+  await sidebar(page).getByRole('button', { name: 'landing', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Connect Earnings…' }).click();
+  await page.getByRole('dialog', { name: 'Connect Earnings to landing' }).getByRole('button', { name: 'Connect RevenueCat' }).click();
+  const form = page.getByRole('dialog', { name: 'Connect RevenueCat to landing' });
+  await paste(form.getByLabel('Secret key'), ['sk', 'landingDemoKey00000000'].join('_'));
+  await form.getByRole('button', { name: 'Connect', exact: true }).click();
+  const done = page.getByRole('dialog', { name: 'landing earnings' });
+  await expect(done).toBeVisible();
+  await done.getByRole('button', { name: 'Done' }).last().click();
+
+  // The sidebar pill, the Overview tile, the Usage row.
+  await expect(page.locator('[data-earnings-pill]')).toHaveCount(2);
+  await sidebar(page).getByRole('button', { name: 'Overview' }).first().click();
+  const card = page.getByRole('region', { name: 'Earnings' });
+  await expect(card.getByRole('button', { name: /landing/ })).toContainText(/\$\d/);
+  await sidebar(page).getByRole('button', { name: 'Usage', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Earnings' }).getByRole('list', { name: 'Earnings by project' }).getByRole('button', { name: /^landing: \$[\d,]+\.\d\d/ })).toBeVisible();
+
+  // Its home: money, payments and RevenueCat's block, but nothing that is Stripe's alone.
+  await sidebar(page).getByText('landing', { exact: true }).first().click();
+  const main = page.getByRole('main');
+  const section = main.getByRole('region', { name: 'Earnings' });
+  const summary = section.locator('[data-earnings-summary]');
+  await expect(summary).toHaveAccessibleName(/^(≈ )?\$[\d,.]+K? in the last \d+ days$/);
+  await expect(summary).not.toContainText('paying customer');
+  if ((await summary.getAttribute('aria-expanded')) !== 'true') await summary.click();
+  await expect(section.getByRole('group', { name: 'RevenueCat' }).getByText('MRR')).toBeVisible();
+  await expect(section.getByRole('heading', { name: /^Latest payments/ })).toBeHidden();
+  await expect(section.getByRole('list', { name: 'By source' })).toBeHidden();
+  await expect(section.getByRole('button', { name: 'Open RevenueCat' })).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Open Stripe' })).toBeHidden();
+
+  // Ticking Web Billing (left to Stripe by default) adds its sales to the total.
+  const pill = main.locator('[data-earnings-pill]').first();
+  await expect(pill).toHaveAccessibleName(/^All-time earnings /);
+  const before = dollars(await pill.getAttribute('aria-label'));
+  await pill.click();
+  await page.getByRole('dialog', { name: 'landing earnings' }).getByRole('button', { name: 'Choose apps…' }).first().click();
+  const apps = page.getByRole('dialog', { name: 'Choose apps for landing' });
+  await apps.getByRole('checkbox', { name: /Web Billing/ }).check();
+  await apps.getByRole('button', { name: 'Save' }).click();
+  await expect(apps).toBeHidden();
+  await page.getByRole('dialog', { name: 'landing earnings' }).getByRole('button', { name: 'Done' }).last().click();
+  await expect.poll(async () => dollars(await pill.getAttribute('aria-label'))).toBeGreaterThan(before);
+
+  // Disconnect: the pill, the tile and the section are gone.
+  await pill.click();
+  await page.getByRole('dialog', { name: 'landing earnings' }).getByRole('button', { name: 'Disconnect…' }).click();
+  await page.getByRole('alertdialog', { name: 'Disconnect RevenueCat from landing?' }).getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.locator('[data-earnings-pill]')).toHaveCount(1);
+  await expect(section).toBeHidden();
 });

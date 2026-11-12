@@ -6,12 +6,13 @@ import { insertText } from '../chat/paste-paths.js';
 import { inApp } from './boot.js';
 import { getPrefs, usePrefs, type UiPrefs } from './prefs.js';
 import { joinPhrases, PhraseCutter, PHRASE_RATE, promptFrom, Resampler } from '@beluga/shared/voice-phrases.js';
-import { cleanWords, DICTATION_MAX_SECONDS, HOLD_MS, matchesAccel, parseAccel, spoken, wavFromFloats } from './dictation-model.js';
+import { cleanWords, DICTATION_MAX_SECONDS, dictationAudio, HOLD_MS, matchesAccel, parseAccel, spoken, wavFromFloats } from './dictation-model.js';
 import { isRecording } from './shortcuts.js';
+import { microphoneSettings, thisComputer } from './os-words.js';
 
 /**
  * Speak instead of typing (BLG-145): the microphone beside Send, and the talk shortcut (Settings ›
- * Voice). The window records (getUserMedia), and each pause cuts a phrase (BLG-160) that the daemon
+ * Voice). The window records (getUserMedia, from the microphone picked there), and each pause cuts a phrase (BLG-160) that the daemon
  * writes down on the Mac's GPU at once (voice.transcribe: Whisper Turbo or Parakeet, the phone's On
  * your Mac engine), in order, while you keep talking; so when you stop, the words are ready. They go
  * in at the cursor of the box you were in, to read over; or, with Send right away, they're sent.
@@ -57,6 +58,8 @@ export function useDictation(): DictationState {
 interface Target {
   readonly el: () => HTMLTextAreaElement | null;
   readonly send: () => void;
+  /** The conversation (or project page) it writes into, for your stats. */
+  readonly channel: () => string | undefined;
 }
 const targets = new Set<Target>();
 let lastTarget: Target | undefined;
@@ -68,11 +71,13 @@ export const errorIn = (el: HTMLTextAreaElement | null): string | undefined =>
   state.kind === 'off' && state.error && el && (into?.el()?.isConnected ? into.el() === el : pickTarget()?.el() === el) ? state.error : undefined;
 
 /** A composer takes dictated words (and Send right away sends them with its own send). */
-export function useDictationTarget(ref: React.RefObject<HTMLTextAreaElement | null>, send: () => void): void {
+export function useDictationTarget(ref: React.RefObject<HTMLTextAreaElement | null>, send: () => void, channel?: string): void {
   const sendRef = useRef(send);
   sendRef.current = send;
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   useEffect(() => {
-    const t: Target = { el: () => ref.current, send: () => sendRef.current() };
+    const t: Target = { el: () => ref.current, send: () => sendRef.current(), channel: () => channelRef.current };
     targets.add(t);
     const focused = (): void => void (lastTarget = t);
     const el = ref.current;
@@ -213,7 +218,7 @@ export async function startDictation(prefer?: HTMLTextAreaElement | null): Promi
     return set({ kind: 'off', error: `Couldn’t get ${VOICE_MODELS[model].label}: ${errorText(e)}` });
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: dictationAudio(getPrefs().voiceMic) });
     // Esc while macOS asked for the microphone.
     if (getDictation().kind !== 'getting') return void stream.getTracks().forEach((t) => t.stop());
     const ctx = new AudioContext();
@@ -250,7 +255,7 @@ export async function startDictation(prefer?: HTMLTextAreaElement | null): Promi
   } catch (e) {
     stopRecording();
     const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-    set({ kind: 'off', error: denied ? 'Beluga can’t use the microphone: allow it in System Settings › Privacy & Security › Microphone' : `Couldn’t start listening: ${errorText(e)}` });
+    set({ kind: 'off', error: denied ? `Beluga can’t use the microphone: allow it in ${microphoneSettings()}` : `Couldn’t start listening: ${errorText(e)}` });
   }
 }
 
@@ -260,6 +265,10 @@ export async function finishDictation(opts: { send?: boolean } = {}): Promise<vo
   if (state.kind === 'writing' && opts.send) return set({ ...state, send: true });
   if (state.kind !== 'listening' || !client) return;
   stopRecording();
+  // How long you spoke, and where, for your stats (the Usage tab): only the time, never the words.
+  const spokeMs = Math.min(3_600_000, Math.round(Date.now() - state.since));
+  const spokeIn = into?.channel();
+  if (spokeMs > 0) void client.api.stats.note({ kind: 'dictation', ms: spokeMs, ...(spokeIn ? { channel: spokeIn } : {}) }).catch(() => undefined);
   const mine = run;
   const target = into;
   const last = cutter?.end();
@@ -305,7 +314,7 @@ export const clearDictationError = (): void => {
 
 /** The bar's words for the model coming. */
 export const gettingLine = (s: Extract<DictationState, { kind: 'getting' }>): string =>
-  s.progress > 0 ? `Getting ${VOICE_MODELS[s.model].label} on this Mac · ${Math.round(s.progress * 100)}% of ${voiceSize(VOICE_MODELS[s.model].files.mac?.bytes ?? 0)}, once` : 'Getting ready…';
+  s.progress > 0 ? `Getting ${VOICE_MODELS[s.model].label} on ${thisComputer()} · ${Math.round(s.progress * 100)}% of ${voiceSize(VOICE_MODELS[s.model].files.mac?.bytes ?? 0)}, once` : 'Getting ready…';
 
 /* ---------- The shortcut ---------- */
 

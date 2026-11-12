@@ -40,6 +40,12 @@ A profile (`PeerInfo`) may carry `agents` and `defaultAgent`: the agents that pe
 The proofs bind both cards to that one connection (no replay, no one in the middle without the
 secret), and the invitee must dial with the address on its card. Friend invitations are
 single-use and last 24 h; five bad proofs in a minute pause an invitation for the rest of it.
+Using an invitation that fails says why. A failed hole-punch (`HOLEPUNCH_*`) means the inviter answered
+(a hole-punch only starts after that), so it says the two networks couldn't connect directly, names the
+code, and that the invitation still works. Anything else is "Nobody is waiting for that invitation":
+`PEER_NOT_FOUND`, no answer at all, and `PEER_CONNECTION_FAILED` (an invitation that closed while the DHT
+still remembers it) (`pairFailure` in `src/net/mesh/pairing.ts`). Pairing has no relay yet: nobody is
+linked to both of you before you're friends.
 Group invitations (`beluga://join#…`, `beluga://join?code=…`) work the same, are multi-use (the
 link for 7 days, the code for an hour), and either let people in at once (`auto`) or leave a
 request for an admin (`network.groups.approve`). Someone who was removed always needs an admin.
@@ -61,9 +67,17 @@ knows. Two Macs dialing each other at once keep the same connection (direct over
 the one dialed by the lower address); a reconnection after a restart replaces the stale link
 at once. A relayed link is retried directly now and then and replaced once that works. Each link has a heartbeat (dropped after 3 missed),
 2 MB frames and token-bucket limits on messages and bytes. Messages are versioned JSON (`hello` carries
-`proto: 1`; unknown kinds are ignored): `hello`, `presence`, `dm`/`dm_ack`,
+`proto: 1`; unknown kinds are ignored): `hello`, `presence`, `dm`/`dm_ack`/`dm_seen`,
 `av_get`/`av_data` (profile pictures), `g_heads`/`g_sync`/`g_entries`, `tun_open`/`tun_in`/`tun_data`/`tun_close`, `gw` (the gateway), `share`
 (sharing with friends), `team` (team boards: friends on the same GitHub repository, see docs/tasks-and-plans.md phase 3).
+
+**Delivered, then Seen** (BLG-798). A direct message is Delivered once the install that is them on the network
+(their Mac, or their Always On) acks it with `dm_ack`. `dm_seen { id }` says their messages up to that one were on
+a screen of theirs: a conversation visible in a Beluga window in front, or opened on their phone (`network.read`),
+said by whichever install runs their network, never by an Always On on its own (it has no screens; your Mac's
+attention reaches it through your link). Once per newest message, only while linked, and not at all when Say
+When You've Seen a Message is off (`readReceipts`, a setting that follows you to every device). An older Beluga
+ignores the frame and never sends it, so its messages stay Delivered. Seen is kept as a `{ seen }` line in the DM log.
 
 **Versions and features.** `hello` also carries the Beluga version (`app`) and what this Mac does (`can`,
 `src/net/mesh/features.ts`: `chat.*` always, `task.*` while the gateway listens, `share.*` while sharing with friends
@@ -171,6 +185,18 @@ if it's the checksum that person announced, it hashes to it, and it is a small p
 checksum (`PersonView.avatar`, `NetworkSelf.avatar`) and screens get the bytes with `network.avatar.get`,
 so a picture crosses the network once per change and still shows while its owner is away.
 
+## The leaderboard (BLG-904)
+
+Being friends means sharing three numbers a day with each other, for Usage › Leaderboard: the
+characters you wrote to your agents, the pull requests merged, and your agents' working time (the
+run's whole time, tests and waits included). Nothing else goes: no projects, prompts or agents.
+`src/core/leaderboard/` sends your last 400 days as a `stats` frame (`{ v: 1, at, days: { "2026-11-09":
+[chars, prs, agentMs] } }`, checked in `protocol.ts`) when a friend's link comes up and again when
+your numbers changed (looked at every 5 minutes); only friends' frames are taken. What each friend sent
+last is kept in `~/.beluga/leaderboard.json` so they still show while away, and dropped once they're no
+longer a friend. Macs that do it say `stats.board`; a friend's Beluga without it shows as needing an
+update. The Usage tab asks for everyone's with `stats.leaderboard`.
+
 ## Friends from your room (BLG-202)
 
 There is one people list: Friends. Someone in your room who is also a friend is just their friend row,
@@ -236,7 +262,55 @@ so the person's peer id is the same in every room (`tests/multi-room.test.ts`).
 - A join request reaches the admin whose invitation was used, not every admin.
 - Groups you didn't ask for are only fetched from friends (an admin adding you directly) and
   from the admin whose invite you used; at most 500 groups and 100 people per group.
-- One Mac per identity: a second Beluga process with the same `~/.beluga` doesn't start the network.
+- Exactly one of you on the network: the install that holds your identity runs it, this Mac or the
+  computer you made your Always On (below), never both. Your other devices (apps, computers,
+  phones) show your network through their link to it. A second Beluga process with the same
+  `~/.beluga` doesn't start the network, and the lease stands this Mac in only while your Always
+  On is down. How your computers fit together: [docs/machines.md](machines.md).
+
+## Your Always On
+
+Code: `src/machines/always-on.ts` (the handover), `always-on-bundle.ts` (what moves, staged and checked),
+`always-on-state.ts` (`~/.beluga/always-on.json`: where you are), `src/core/identity.ts` (the identity the
+device set, the companion and the network read through). Settings › Your Computers › a computer › ••• ›
+Make Always On…, and Make This Mac Always On under You on the Network (BLG-796).
+
+- One of your computers can be you on the network. After one confirmation your identity, your friends
+  network's files (friends, invitations, DMs and their outbox, reactions, read marks, presence, groups
+  and their logs, avatars) and the settings that are you to friends (name, trust levels, Ask Me For,
+  what friends may ask, the mailbox) travel there over your own end-to-end device link. Friends see the
+  same peer id, name, groups and chats: nothing for them to redo.
+- Two steps, so there is never two of you and never none: the giver stops its network and sends; the
+  taker stages everything, checks each file's SHA-256 and that the identity is the one its device set
+  belongs to, and says ready; only then does the giver note where you are, wipe its copy and say commit,
+  and the taker installs it and starts the network. A link that drops before commit changes nothing; one
+  that drops after it leaves the staging, and the giver says commit again until it lands.
+- The install that gave it keeps a stand-in key of its own, never starts the network itself while
+  `always-on.json` names another device, and shows your network through the link (your Always On says
+  its friends, groups and invitations in each poll). Every device certificate stays valid; each install
+  pins its companion address (`companion-seed.json`) before its identity changes, so phones and computers
+  reach it as before. New phones and computers are signed in where your identity is.
+- Make This Mac Always On brings it back the same way; moving it to another computer goes through this
+  Mac (back here, not started, then on). Rooms keep the key they joined with until Beluga restarts.
+- Friends through it (`src/machines/friends.ts`, BLG-797): this Mac's daemon keeps a client link of its
+  own to the Always On and mirrors its network into this Mac's state (`net_mirror`, then each `net_*`
+  action), so People, chats, groups, calls and the phone work as before and notify as before. Every
+  `network.*` and `calls.*` call is forwarded there (the Friends switch too). What this Mac's screens show
+  is said there, so those conversations are read. Friends' requests run there under the same trust levels;
+  the ones waiting on you show here as `ao:<id>` and the first answer from any device counts. Call
+  signals come back to the window in the call: audio and video stay on this Mac. The last mirror is kept
+  in `friends-mirror.json`, so messages that came while this Mac was closed are news when it opens.
+- Never two of you, never none (`src/machines/lease.ts`, BLG-799): whichever install is you renews a
+  lease every minute, a DHT mutable record under a key only your identity derives (`beluga-lease-v1`).
+  The Mac that made a computer its Always On keeps its own copy of your identity
+  (`identity-standby.json`: it never leaves this Mac again) and a replica of the network files, refreshed
+  from the Always On every 10 minutes (never the identity). Once the Always On hasn't answered for 10
+  minutes, its lease is 10 minutes stale (or the DHT can't be read), and one last try over the link fails,
+  this Mac stands in from the replica and Settings › Your Computers says so. When it answers again, the
+  stand-in hands back by itself: chat logs are merged line by line, the rest is the stand-in's. A holder
+  that finds a fresher lease of another install stops at once, and an install that was your Always On
+  asks the lease before its network starts, so it never comes back as a second you. Installs that never
+  took part in an Always On never read or write the lease.
 
 ## Chats: channels, files and agents
 
@@ -249,6 +323,35 @@ link) a message is `{ text, files?, ask?, claude?, task? }`: `files` are `{ sha,
 bytes travel separately), `ask: { to: 'all' | peerIds }` calls agents in, `claude: { for }` marks an agent's
 answer to message `for`, `task: { id, role: 'request' }` is a task's card (see *Tasks between Claudes*). Older Macs read only `text`. Names are cleaned (no folders, control or bidi
 characters); malformed extras are dropped.
+
+**Reactions** (BLG-702). Under a message, a chip per emoji with how many put it there (who, on hover; yours
+in the accent's soft tint; a click adds yours or takes it back). Hovering a message shows a smiley-plus
+button: your six quick reactions (the ones you use most in these chats, then 👍 ❤️ 😂 🎉 👀 ✅) and More, every
+emoji (Emojibase's set, `emojibase-data`, loaded when it first opens; searchable, in categories; nothing past
+Emoji 16, which today's Macs and phones can't draw). The model is `src/shared/reactions.ts`: one person's
+change at a time (this emoji on or off, at `at`), the newest per message, emoji and person wins and an off wins
+a tie, so every copy that got the same changes shows the same chips in any order. One emoji is an emoji only
+(32 UTF-16 units, no words), each person has it once on a message, a message shows at most 20 different
+ones, and one person keeps at most 20 on it. In a **direct conversation** a change is a `dm_react { id, e, on,
+at }` frame (`dm_react_ack` back), checked on arrival, kept next to the messages in
+`~/.beluga/dms/<peer>.reactions.jsonl` and, until their Mac says it got it, in `~/.beluga/dm-reactions.json`
+(sent again on every link, like an edit). In a **channel** it is an encrypted message of its author's in the
+group's log, `{ text, react: { to, e, on } }`, so it syncs, is kept and checked like any message and nobody
+outside sees who reacted; its log position orders one author's changes. Macs that know reactions fold those
+into their message and never show, count or hand them to agents as messages; older Macs show the `text`
+("Reacted 👍 to “Morning!…”"). Screens get a message's `reactions` (`MessageView`) and a change as
+`net_reacted`; `network.messages.react(conversation, id, emoji, on?)` makes one (none flips yours).
+
+The room's **group chat** and **workspace chats** (yours shared in the room, or a worktree shared with
+friends) have the same reactions, with the same rules, as a `chat_react { channel, to, e, on, at }` body
+(src/protocol.ts; an older Mac doesn't know the kind and drops it). A chat message now carries its own `mid`,
+so its id is `<from>:<mid>` in every copy (`chatMessageId`; an older Mac's keeps its frame's id). In the room
+the change goes into the room's history (`keep`), so someone who joins later gets it too; in a workspace it
+goes to each person in it, and in a friend's worktree through its owner's Mac, which passes it on (from
+anyone who sees the worktree: viewers may react, never post). Each chat item keeps its changes (`reacts`,
+`core/chat-reactions.ts`), so a workspace's reactions are saved with its conversation in
+`~/.beluga/history/<id>.json`. `session.react(channel, id, emoji, on?)` makes one. Earlier lines of a shared
+worktree (its history page, drawn as messages) aren't messages here and take none.
 
 Each person's agent is drawn in that person's color (its mark and its name), here and in rooms, so a
 conversation with several agents reads as who's who.
@@ -324,6 +427,158 @@ the prompt's own sections (`<chat>`, `<message>`, `<file>` in them are defused).
 it reaches you (you were offline) isn't answered, and each is answered once (`~/.beluga/chat-claude.json`).
 If your agent can't answer, you get a notification; the others just see it stop.
 
+## Calls (BLG-706)
+
+Voice, cameras and screen sharing in a DM, a channel or a room, with no call server. The call stays in its
+conversation, and it's the same chat.
+
+- **Setup over the links you already have.** `call` link frames (core/calls, checked there, only
+  between people in that conversation): `ring`, `here` (I'm in it: muted, sharing, joined at; every
+  10 s), `bye`, `decline`, and `sig`, WebRTC setup for one person's window (64 KB at most). Nobody
+  runs a call: each Mac keeps the roster from what it hears and drops whoever was quiet for 32 s.
+  Two people pressing Call at once end up in the same call (the lower id wins on every Mac).
+- **Only someone who can answer.** A call whose `ring` would reach nobody (everyone offline, so no
+  link to send it on) doesn't start, and the Call button says so before you press it. The caller
+  hears it ring at the others' (a bright ring-ring, then a moment of quiet, as a phone does) until
+  someone joins; the window wakes
+  its sound on that click, since WebKit keeps sound started without one silent. The ringback and
+  the bells as people come and go play as a stream in a hidden `<audio>`, like the voices, from the
+  speaker picked for calls: with the microphone open, macOS's voice processing turns down anything
+  else the window plays, and the caller heard no ringback.
+- **Missed calls.** A ring that stops before you answered or said Not Now (nobody picked up in
+  45 s, or the caller hung up) leaves "Ann tried calling you at 14:05" where it rang in the
+  conversation, with Call Back, and in the inbox (core/calls/missed.ts, kept in
+  `~/.beluga/missed-calls.json` for a month, so it's still there when you open Beluga again).
+- **Media goes Mac to Mac.** The window makes the call with WebRTC (packages/mac/src/call): Opus
+  voice with echo cancellation and noise suppression to everyone in it (a mesh), DTLS-SRTP
+  encrypted. Public STUN only finds each Mac's address; there's no TURN yet, so two networks that
+  block UDP can't call each other, and neither can a Mac behind a VPN that gives each destination
+  its own port (Cloudflare WARP does) with most home networks. Call notes still arrive then (they go
+  between the daemons), so a line that hasn't connected after 12 s says so in the strip, by name,
+  until it does: otherwise it looks like a call where nobody talks.
+- **Screen sharing through a tree.** A share is tuned for text (`contentHint: text`, resolution
+  kept before frame rate, H.264 first: the Mac's hardware encodes it). The sharer feeds the first
+  three viewers; each viewer passes it on to at most two more (`shareTree` in shared/calls.ts), so
+  the sharer's upload stays the same however big the call gets. Every Mac draws the same tree from
+  the roster, in join order.
+- **Pointing at it.** The laser, ink that fades after a few seconds and Ask Claude's marked area go
+  as vectors on a WebRTC data channel (fractions of the picture), never through the daemons. Ask
+  Claude puts a snapshot of the share (with the ink on it) in the chat as a question for your own
+  Claude; its answer is a chat message, shown on the stage for everyone in the call.
+- **One window makes your side.** The Mac screen that started or joined it (or the first to say
+  so after you answered from the phone) gets the setup and says it's still there every few
+  seconds. If it goes quiet for 32 s, you leave the call.
+- **Pointing, without tools** (BLG-717). On a shared screen a click sends a ripple everyone sees,
+  and dragging draws; your pointer shows only once you choose to (below). Strokes a moment apart are one sketch (a word,
+  a circle and an arrow); drawing again after a pause clears your old sketch, and left alone it
+  dissolves a few seconds later by itself. The Box tool (or Shift as you drag) marks a box instead;
+  it goes as a stroke along its sides, so it fades and can be asked about like any sketch. Beside
+  your sketch, Ask your agent sends the part it covers, ink and all, to the chat; the sketch stays up
+  while you type the question. The sharer picks Sharp (text) or Smooth (motion) behind •••; each
+  viewer can pick their own there too (BLG-743), or keep the sharer's. A viewer's choice goes out as
+  `want`, and whoever feeds them the picture sends it that way (the sharer captures every frame once
+  anyone wants Smooth); passed on through another viewer, it can't be sharper than what they get. Full
+  Screen gives the picture the whole display. Nothing is written over the shared screen while the
+  chat shows beside it.
+- **Everyone's pointer** (BLG-733). Off until you turn on Show My Pointer in the stage's bar (each
+  share starts with it off). Then your pointer shows for the others as an arrow in your colour with
+  your picture and name, and you see the same mark under your own mouse in place of the usual
+  arrow, so it looks the same on both ends. It's sent 60 times a second on a second data channel,
+  unordered and never resent (only the newest spot counts), once the other Mac says it has one
+  (`pointers` in `streams`); older Macs get it on the stage channel. Each screen glides it to its
+  last spot on a critically damped spring (call/glide.ts), so it moves smoothly however the
+  network delivers.
+- **Microphone and speaker** (BLG-737). The chevron beside Mute picks which microphone and speaker
+  the call uses; a new microphone goes on every line at once, and the choice is kept on this Mac.
+  Picking a speaker needs WebKit's `setSinkId`; without it, macOS's own output is used. A voice is
+  only sent to a speaker by name when one was picked; otherwise it plays where macOS plays sound.
+- **Background noise** (BLG-744). WebKit ignores a page's `noiseSuppression` and
+  `autoGainControl`: only echo cancellation applies (macOS's voice processing, Standard Mic Mode),
+  and macOS lets no app turn Voice Isolation on for itself (only the user, in Control Center). So
+  the call has its own filter (call/noise-filter.ts): RNNoise (via @sapphi-red/web-noise-suppressor)
+  in an audio worklet at 48 kHz, between the microphone and everything that hears you (the lines,
+  the speaking ring, the notes). It's off until you turn on Noise Removal in the microphone menu,
+  then on in every call on this Mac until you turn it off; either way every line switches at once
+  (the sender's track is replaced, nothing renegotiated). It was on in every call at first, and
+  friends stopped hearing each other since: until a call between two Macs proves its Web Audio
+  track reaches the other side, the line sends the microphone itself. If the audio engine won't
+  start, or stops and won't resume, the plain microphone goes on instead and the menu says it can't run.
+- **The chat where it can't be seen.** Full Screen and Face to Face cover the chat, so what the
+  others write from then on pops up on the right, dissolves once there was time to read it, and a
+  line under it answers in the same chat (call/ChatPops.tsx). Messages that were already there
+  never pop up; timing counts from when each message reached this Mac, not its sender's clock.
+- **What can be shared.** Share opens macOS's own picker (WebKit's ScreenCaptureKit picker): one
+  window, or one whole display, any of them with several monitors. A whole app (all its windows)
+  isn't something WebKit's capture offers.
+- **The sharer.** Sharing, you're likely looking at another app, not Beluga. While you are, the
+  floating card says you're sharing, in the call's colour, with Stop, and tucks away for the rest
+  of that share (˄), leaving only the frame; a click-through window
+  covers the shared screen (src-tauri/src/call_overlay.rs) with a soft frame around it, the
+  others' sketches, pointers and clicks where they made them, and what they write in the chat
+  bottom right. Both ask macOS to leave them out of captures (`NSWindowSharingNone`), so the
+  others don't see them. Since macOS 15, ScreenCaptureKit doesn't always listen, so the overlay
+  first shows a few pixels of two colours in turn in its top-left corner and the sharer's window
+  looks for them in its own capture (call/leak-probe.ts, BLG-736). Found: the overlay still shows
+  (a screen whose owner can't see the pointers is no use, BLG-743), and the sharer says so
+  (`overlay` with `inPicture`): the others stop drawing pointers over that picture, since they're in
+  it, so nobody sees one twice. Ink lands on the same spot in both, so it stays. Sharing one window,
+  WebKit doesn't say where it is, so the shell looks it up in macOS's window list
+  (src-tauri/src/shared_window.rs): the window whose size in pixels is the picture's; several that
+  size in one place (maximized) are one place, in different places the title settles it, else
+  nothing. Found, the overlay covers just that window and follows it (looked up again every 400
+  ms); not found, the frame and the ink stay off and the chat still pops up. A window's capture
+  never has the overlay in it, so there's nothing to probe. In Beluga, the strip, the stage and the sidebar's pill say
+  you're sharing, and the pill can stop it. In full screen the stage's bar floats over the
+  bottom and steps aside after a couple of seconds without the pointer moving.
+- **Calls of 5–10.** Each Mac measures what it can send (WebRTC's own estimate per line) and says so
+  with `here`; the share tree puts the best uploads closest to the sharer, each feeding as many as
+  its upload carries (one to five), and weak connections only watch (`shareTreeBy`). Each window
+  says how big it shows each camera (face to face or a small collage: big; a tile: small; not on
+  screen: none), and each sender splits its upload by that, sending nothing to whoever doesn't look.
+- **Cameras** (BLG-714). Each camera goes to everyone in the call, smaller as it grows (full size
+  for two, about a third of the bitrate past four). A line says once on the data channel which of
+  its streams is the camera and which the screen. Faces show as a band under the strip, or a
+  filmstrip over a shared screen. Face to Face puts the call over the whole window, like FaceTime:
+  one other person fills it, a group is a collage, and you're a picture you drag to any corner.
+- **Notes** (BLG-715, BLG-718). Only once someone else is in the call: a call nobody picked up is
+  never written down and leaves no notes. Nobody records anyone else: each Mac records only its own
+  microphone (the call's echo-cancelled stream), cut at its pauses into phrases, keeping no sound
+  once a phrase is written down. Each phrase is written down by whichever Mac in the call will
+  finish it soonest (shared/scribe-plan.ts): every few seconds each Mac says whether it has a voice
+  model, how fast it writes down, how much waits for it, its CPU load and whether it's on battery
+  (`scribe` on the data channel). Its own Mac when that's close enough (no sound leaves it), else
+  the phrase's WAV goes in parts (`clip`) to the soonest one, which sends the words back
+  (`clip-text`). So someone with no model, or a slow or busy Mac, still gets notes.
+  **The best model, one language** (BLG-738): each Mac also says which voice models it has, and a
+  phrase goes to the best one in the call for its language (Whisper Turbo over Parakeet, which
+  doesn't know Turkish; a lesser model only when the best is far behind), its own Mac when that's
+  among the best. Each Mac counts how many seconds of its phrases came out in which language and
+  says so too (`langs`); once one language clearly leads across the call (8 s heard, 60% of it),
+  every phrase is written down in it (`lang` on `clip`), so a short Turkish phrase can't come out
+  as Russian, and the early phrases that came out in another language are written down again. A
+  language set in Settings › Voice always wins for your own words. The Notes button says which
+  model writes on which Mac, and the call's language once it settled. And not word
+  by word at any cost: with time to spare each phrase is written down at once; busy (load per
+  core over 0.7) or on battery, phrases wait and go together, up to 28 seconds of speech in one
+  go, never waiting more than a minute. As you leave, your words go to the others who were in
+  the call (`notes` frames, accepted only from someone who was in a call you were in); everyone keeps one merged transcript (`~/.beluga/call-notes/<call>.json`), a
+  one-line chip in the chat however long the call was. It opens in a reader beside the chat, made
+  for long calls: your words on the right and everyone else's on the left, search (⌘F), one
+  person's words only, and the call's timeline to jump along. Notes never go into a prompt:
+  agents look them up with tools (server `beluga_calls`, and inside a chat answer `beluga_chat`):
+  `call_notes_list`, `call_notes_search` and `call_notes_read`. Your own runs reach every call you
+  were in; an answer in a chat only that chat's calls, and its prompt only says they exist. Its
+  ••• › Talk About It opens a chat with your own agent that only you see, its message a
+  `call:<id>` chip, never the transcript. Notes need a voice model on at least one Mac in the
+  call: a call never downloads one.
+- **Rooms** (BLG-716). The same calls in a room's chat: `call` bodies sent through the hub to one
+  person at a time (never kept for latecomers), everyone connected and not a guest is in it, and
+  the media still goes Mac to Mac. Its latest notes sit folded on top of the room's chat.
+- **Wherever you are.** In the conversation, a strip under its header; elsewhere in Beluga, a pill
+  at the bottom of the sidebar; with Beluga behind other apps, a small floating card
+  (src-tauri/src/call_float.rs). Someone ringing you is a card at the top of the window with the
+  ringtone, a notification, and a Needs you item on the phone (Answer on Mac, Decline).
+
 ## Tasks between Claudes (the gateway)
 
 Code: `src/core/gateway/` (protocol, the gateway, the receiving side, files), `src/agent/gateway-tools.ts`
@@ -336,12 +591,18 @@ Code: `src/core/gateway/` (protocol, the gateway, the receiving side, files), `s
   cancelled, summary, data?, files[{name, size, b64? | ref + sha256, image?}], log, secret?}`, `task_cancel`,
   `task_question {id, qid, questions}` / `task_answer {id, qid, answers? | skip}`,
   `file_get {id, ref, offset}` / `file_chunk {id, ref, offset, b64, eof, error?}`, and `card` (your
-  trust in them, what your Beluga offers them, your projects, your "Ask me for…" note). Each rides in a frame `{f, m}` that
+  trust in them, what your Beluga offers them, your projects, your "Ask me for…" note, and how much
+  of your plans is left per provider, only to those Settings › Friends › Who sees your usage allows:
+  people you trust by default, never anyone blocked). Each rides in a frame `{f, m}` that
   the other side acknowledges (`{ack}`): over a mesh link as `gw`, in a room as a `gateway` body
   sent to one person. Requests, results and cancels wait in `~/.beluga/tasks/outbox.json` until
   acknowledged (resent every 20 s while reachable, 7 days at most); updates and cards are only
   sent to someone reachable now. Over the network only friends are heard; a result is only taken
-  from the person the task went to, and only once.
+  from the person the task went to, and only once. A request to a friend whose Mac is off waits for
+  them for those 7 days; the ack adds "Reached <name>'s Mac" to its steps, and only from then does
+  a day without word fail it (not in the 10 minutes after either Mac wakes, starts or links again,
+  so a waiting result arrives first). A request that ends on your Mac without their answer leaves
+  nothing in the outbox, and your Claude's conversation hears it like a result (BLG-705).
 - **Receiving**: your rules and capability settings decide (see *Approvals and rules* below):
   declined (with the reason), let in at once (you trust them, or a rule of yours covers it), or you
   are asked. It runs in the project it names (if there is one) or a scratch folder
@@ -556,8 +817,10 @@ in `~/.beluga/project-shares.json`.
 - `project {id, name, icon?, role, worktrees[{id, name, branch?}], members[{peerId, name, role}]}`: what they have of it
   now, sent whenever any of that changes (the newest replaces one still waiting). The icon goes when it's under 120 KB.
 - `unshare {id}` (you took it back), `leave {id}` (they left).
-- `history {ws, items}`: a worktree's last 60 messages and answers (4000 characters each), once, when it's first shared
-  with them; their Mac keeps it, and what's said after, with the project.
+- `history {ws, items}`: a worktree's last 60 messages and answers, once, when it's first shared
+  with them; their Mac keeps it, and what's said after, with the project. Each message goes whole up to 60,000
+  characters (a graph or a long answer) to a Beluga with `share.history.long`, and cut at 4,000 to one without it.
+  A page stays under 400 KB, so long messages make it shorter and the rest comes as they scroll back.
 - `body {b, as?}`: one of the room's own messages about a shared worktree or folder: `chat`, `agent_request`,
   `agent_event`, `agent_question`/`agent_answer`, the files' `fs_list`/`fs_read`/`fs_fetch`/`fs_search`/`ws_diff` and
   their answers. The sending Session hands it over instead of the room (`Session.meshRoute`); the receiving one checks
@@ -574,6 +837,14 @@ request for another project, or into a worktree not shared with them, is decline
 everyone in it (`agent_event`), and so does the owner's own chat. The owner's Mac passes each person's message on to
 the others (`as`), so people who aren't friends with each other still see it all. Someone who only follows along
 (`view`) reads but can't ask; their Mac refuses, and the owner's would too.
+
+**Your own agent in a friend's worktree.** There, "@claude …" is your agent, not theirs (`core/shared-guest.ts`): it
+runs on your Mac in a folder of its own (`~/.beluga/guest-work`), is told whose worktree it is, and reads it with
+`list_peer_files` / `read_peer_file` (the worktree's share, over the link); it can't change it. Your line goes to everyone
+as any message does, and its turn (`agent_event`, requested by you) goes to the owner, who takes it into the worktree's
+conversation (a contributor's own agent, for their own ask only: `WorkspaceSharing.agentMayWrite`) and passes it on
+(`as`). A plain line, or "@claude:<owner> …", is the owner's agent, as before. In a room-shared worktree it's the same,
+your Mac telling each person directly.
 
 The worktree's header shows each person in it, its owner first, with how they're doing (online, away, offline, "needs
 an update" when their Beluga can't link with yours; someone who isn't your friend isn't known), on the owner's Mac too
@@ -609,6 +880,16 @@ keeps the `hid` so only that answer is let through, and the bundle's share is fe
 `outgoing`/`incoming` maps). The offer waits for an offline friend, its bundle for an hour. Once they take it, their
 Mac shares the new worktree back to you over the network to follow along. Packs in an outbox (copies, forks,
 handoffs) are never offered as folders. A Beluga without `share.handoff` is told before anything is sent.
+
+**Checking first, and saying why (BLG-614).** Before a note is written or anything is committed or sent, the Mac
+handing off asks `ws_handoff_check` (just the origin URL): does their Mac have that repository, and do they take work
+from friends? Nobody approves it; the answer is only yes or a reason. The Hand Off sheet asks it of everyone online
+as it opens (`remote.canHandOff`) and shows who can't take it and why. It goes the same way the handoff would (room,
+or the friend's link via `FriendShares.routeHandoffCheck`, matched by `reqId`). No answer within 8 seconds (an older
+Beluga, or someone offline) lets the handoff go ahead as before. The receiving Mac also checks for the repository
+before asking you to approve. Its `ws_handoff_result` carries a `reason` (`declined`, `off`, `no_repo`,
+`bad_branch`, `failed`), and the sender says it in words (`handoffProblem`); from an older Beluga, the reason is read
+back out of its `error` text.
 
 **Folders, under Files.** A folder you share with only some people (**Share a Folder** › *Only…*, which lists your
 friends as well as the room's people) goes to those of them who are friends over the network as well, with no room

@@ -1,12 +1,15 @@
 import type { LinkTarget } from './links.js';
 import { type AppState, type LogItem, type ReviewState, type SharedTab, type WorkspaceTab, newShares } from '../core/store.js';
 import type { TrustLevel } from '../core/settings.js';
+import { notOnPr, notOnPrLabel } from '../core/branch-state.js';
 import { describePr } from '../shared/format.js';
+import { COMPUTER, type ComputerKind, FILE_MANAGER } from '../shared/assistant.js';
 import { formatBytes } from '../shared/format.js';
 import { fallbackFor, runtimeHere } from '../shared/runtime-fallbacks.js';
 import type { Project, Workspace } from '../workspaces/types.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { isRunning } from './format.js';
+import { steerWaiting } from '../shared/claude-notices.js';
 import { type Line, type Seg, formatDuration, lineWidth, pad, plain, truncate } from './text.js';
 import { SPINNER, glyph, theme } from './theme.js';
 import { handoffPeople, worktreeShareRows } from './worktree-share.js';
@@ -167,7 +170,8 @@ function indexActivity(log: readonly LogItem[]): ReadonlyMap<string, Activity> {
   const run = new Map<string, Extract<LogItem, { type: 'agent' }>>();
   for (const item of log) {
     last.set(item.channel, item);
-    if (item.type === 'agent' && isRunning(item.status)) run.set(item.channel, item);
+    // A steered message not read yet is a note in the turn already running: the turn's time and steps stay that turn's.
+    if (item.type === 'agent' && isRunning(item.status) && !(steerWaiting(item) && run.has(item.channel))) run.set(item.channel, item);
   }
   const out = new Map<string, Activity>();
   for (const [channel, latest] of last) out.set(channel, activity(latest, run.get(channel)));
@@ -224,6 +228,9 @@ export function stateOf(state: AppState, ws: Workspace, frame: number, now = Dat
   if (ws.archived) return { label: 'Archived', color: theme.muted, icon: glyph.ring, tone: 'muted' };
   if (ws.kind === 'chat') return { label: act.lastTs ? `Chat · ${ago(act.lastTs, now)}` : 'New chat', color: theme.muted, icon: '◇', tone: 'muted' };
   const st = ws.status;
+  // Committed here but not on its open PR (BLG-840): Merge on GitHub would leave it out, so it says so first.
+  const gap = ws.kind === 'worktree' ? notOnPr(state.prs[ws.id], ws) : undefined;
+  if (gap) return { label: `${notOnPrLabel(gap)}${st?.changed ? ` · ${st.changed} uncommitted change${st.changed > 1 ? 's' : ''}` : ''}`, color: theme.info, icon: glyph.dot, tone: 'info' };
   // Work in progress, not a problem: quiet, like the branch pill (no warning dot on the row).
   if (st?.changed) return { label: `${st.changed} uncommitted change${st.changed > 1 ? 's' : ''}`, color: theme.muted, icon: glyph.dot, tone: 'muted' };
   if (ws.kind === 'worktree' && state.prs[ws.id]?.state === 'MERGED') return { label: 'Merged on GitHub', color: theme.ok, icon: glyph.dot, tone: 'ok' };
@@ -340,7 +347,7 @@ export function projectsModel(state: AppState, toggled: ReadonlySet<string>, fra
       [
         { label: `+${BRANCH}`, color: theme.info, action: { type: 'new_worktree', projectId: p.id }, hint: `New worktree in ${p.name} from the latest origin` },
         { label: '+◇', color: theme.claude, action: { type: 'new_chat', projectId: p.id }, hint: `New agent chat in ${p.name}'s main folder` },
-        { label: '⋯', color: theme.muted, action: { type: 'project_menu', id: p.id }, hint: `More for ${p.name}: groups, hide, Finder` },
+        { label: '⋯', color: theme.muted, action: { type: 'project_menu', id: p.id }, hint: `More for ${p.name}: groups, hide, ${FILE_MANAGER}` },
       ],
       { type: 'toggle_project', id: p.id },
       open ? `Collapse ${p.name}` : `Expand ${p.name}`,
@@ -409,7 +416,7 @@ export function overviewNews(state: AppState): { count: number; urgent: boolean 
 }
 
 /** Option+N on a Mac, Alt+N elsewhere: the quick key for tab N, shown only in hover hints. */
-export const tabKey = (n: number, platform: string = typeof process === 'undefined' ? 'darwin' : process.platform): string => (platform === 'darwin' ? `⌥${n}` : `Alt+${n}`);
+export const tabKey = (n: number, computer: ComputerKind = COMPUTER): string => (computer === 'mac' ? `⌥${n}` : `Alt+${n}`);
 
 /** The six top tabs, in order (Option/Alt+1…6 jump to them). */
 export function topTabs(state: AppState): TopTab[] {
@@ -639,7 +646,7 @@ export function workspaceButtons(state: AppState, ws: Workspace): WorkspaceButto
           : []),
         ...(state.context[`ws:${ws.id}`] ? ([noCompact ? { label: 'Compact', action: 'compact', hint: noCompact, disabled: true } : { label: 'Compact', action: 'compact', hint: 'Shrink the conversation so your agent has room to keep going' }] as WorkspaceButton[]) : []),
         ...(ws.kind !== 'chat' && !ws.askOnly ? ([{ label: 'Fork', action: 'fork', hint: fallbackFor(runtime, 'fork') ?? 'Copy this workspace and its conversation into a new worktree' }] as WorkspaceButton[]) : []),
-        { label: 'Finder', action: 'finder', hint: 'Open this folder in Finder' },
+        { label: FILE_MANAGER, action: 'finder', hint: `Open this folder in ${FILE_MANAGER}` },
         ...(ws.kind !== 'main' ? ([{ label: 'Archive', action: 'archive', hint: 'Put it away; keeps the branch and conversation' }] as WorkspaceButton[]) : []),
         sharedButton(state, ws.id),
       ];
