@@ -25,7 +25,7 @@ import { ViewShelf } from '../../view-tools.js';
 import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
 import { ownerMcpServers } from './owner-mcp.js';
-import { McpConnect, claudeMcpSession, needsAuthServers } from './mcp-connect.js';
+import { McpConnect, claudeMcpSession } from './mcp-connect.js';
 import type { AgentBackend, AgentRunInput, FollowUp, LiveStatus, RoomBridge, RunProcess, Steer } from '../../types.js';
 import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
@@ -170,12 +170,9 @@ function reconnect(q: Query, name: string): void {
 export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
   let sessionId: string | undefined;
   const mcp = opts.mcp ?? new McpConnect(claudeMcpSession(opts.claudePath));
-  // Servers already reported as needing a sign-in, once per conversation and server.
-  const reported = new Set<string>();
   // Every Claude Code query running now: a sign-in that connects reaches each of them.
   const live = new Set<Query>();
   mcp.onSignedIn((name) => {
-    for (const key of reported) if (key.endsWith(`\0${name}`)) reported.delete(key);
     for (const q of live) reconnect(q, name);
   });
 
@@ -492,13 +489,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           lastEventAt = Date.now();
           background.observe(msg as Parameters<BackgroundAgents['observe']>[0]);
           watchQuiet();
-          if (msg.type === 'system' && msg.subtype === 'init') {
-            remember(msg.session_id);
-            // Servers that need a sign-in: said once per conversation, so the screens offer it (the run goes on without them).
-            const fresh = needsAuthServers(msg.mcp_servers).filter((s) => !reported.has(`${input.channel ?? ''}\0${s.name}`));
-            for (const s of fresh) reported.add(`${input.channel ?? ''}\0${s.name}`);
-            if (fresh.length) input.onMcpNeedsAuth?.(fresh);
-          }
+          if (msg.type === 'system' && msg.subtype === 'init') remember(msg.session_id);
           // Claude Code retrying the API (busy, a limit, no network): said on the working line, not a silent "Starting" (BLG-403).
           if (msg.type === 'system' && msg.subtype === 'api_retry') input.onEvent('progress', retryWords(msg.error_status, msg.attempt, msg.max_retries, Boolean(msg.no_response)));
           if (msg.type === 'rate_limit_event') {

@@ -43,18 +43,6 @@ describe('store reducer', () => {
     expect(reduce(s2, { type: 'clear', channel: 'room' }).log).toHaveLength(0);
   });
 
-  it('keeps the MCP servers that need a sign-in per chat, and merges by name', () => {
-    const ev = (channel: string, servers: unknown) => ({ type: 'agent_event', owner: 'me', requestId: 'r1', requester: 'me', event: 'mcp-auth', text: JSON.stringify(servers), ts: 1, channel }) as const;
-    const figma = { name: 'figma', label: 'figma', status: 'needs-auth' };
-    const linear = { name: 'linear', label: 'linear', status: 'needs-auth' };
-    let s = reduce(base(), ev('ws:a', [figma]));
-    s = reduce(s, ev('ws:a', [linear, figma]));
-    expect(s.mcpAuth['ws:a']?.map((m) => m.name)).toEqual(['figma', 'linear']);
-    expect(s.mcpAuth['ws:b']).toBeUndefined();
-    expect(s.log).toHaveLength(0);
-    expect(reduce(s, ev('ws:a', 'junk')).mcpAuth['ws:a']).toHaveLength(2);
-  });
-
   it('accumulates agent events into one log item', () => {
     let s = base();
     const ev = (event: 'started' | 'text' | 'tool' | 'done', text = '') =>

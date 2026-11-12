@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { type McpServerStatus, type Options, query } from '@anthropic-ai/claude-agent-sdk';
-import type { McpNeedsAuth, McpServerRow, McpSignIn } from '../../../shared/mcp.js';
+import type { McpServerRow, McpSignIn } from '../../../shared/mcp.js';
 import { type OwnerMcpEntry, ownerMcpEntries } from './owner-mcp.js';
 import { claudeExecutable } from '../../claude-code.js';
 
@@ -140,17 +140,6 @@ export class McpConnect {
     }
     return false;
   }
-}
-
-/** The name to show for a server Claude Code names (`plugin:figma:figma` → `figma`, `claude.ai Gmail` → `Gmail`). */
-export function mcpLabel(name: string): string {
-  if (name.startsWith('plugin:')) return name.split(':').slice(2).join(':') || name;
-  return name.replace(/^claude\.ai /, '');
-}
-
-/** The servers a run's init message says need a sign-in: name, label and status, nothing else of what Claude Code reports. */
-export function needsAuthServers(servers: ReadonlyArray<{ readonly name: string; readonly status: string }> | undefined): McpNeedsAuth[] {
-  return (servers ?? []).filter((s) => s.status === 'needs-auth').map((s) => ({ name: s.name, label: mcpLabel(s.name), status: 'needs-auth' as const }));
 }
 
 function toRow(st: McpServerStatus, entry: OwnerMcpEntry | undefined): McpServerRow {

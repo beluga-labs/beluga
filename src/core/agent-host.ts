@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { AgentBackend, AgentPlace, AgentRunInput, BoardTools, FollowUp, LiveStatus, MacTools, RunProcess, Steer, TerminalLaunch, TerminalSink } from '../agent/types.js';
 import { ALWAYS_ASK_YOU, writesCode } from '../agent/policy.js';
 import { type AgentRef, type BodyInput, type BodyOf, CLAUDE_AGENT, MAX_TEXT } from '../protocol.js';
+import { mcpSignInTools } from './mcp-sign-in.js';
 import type { People } from './people.js';
 import type { QuestionBroker } from './questions.js';
 import type { ShareService } from './shares.js';
@@ -20,7 +21,6 @@ import { withSentFiles } from './sent-files.js';
 import { sentFolder } from '../shared/scratch-dir.js';
 import { isImportedItem } from '../agent/transcript.js';
 import { PHONE_LOOK_TOOLS } from '../agent/phone-tools.js';
-import type { McpNeedsAuth } from '../shared/mcp.js';
 import type { StepPage, StepRecord } from '../shared/steps.js';
 import { READS_AFTER_STEP, STEERED_IN, STOPPING_FOR, TAKEN_BACK } from '../shared/claude-notices.js';
 import { span } from '../shared/clock.js';
@@ -91,6 +91,8 @@ export interface AgentHostDeps {
   /** "Your Mac" (core/assistant), your own runs in its conversation: where it runs, its tools, what Claude is told. */
   readonly assistant?: (channel: string, from: string) => { readonly place: AgentPlace; readonly tools: MacTools; readonly brief: string } | undefined;
   /** Your phone (core/phone, BLG-150), your own runs: tools to act on it, saving screenshots in `scratchDir`. `env` lets Bash use adb/scrcpy (BLG-174). */
+  /** Open a web page on your screen: an MCP sign-in your own run starts (core/mcp-sign-in.ts). */
+  readonly openPage?: (url: string) => Promise<void>;
   /** The notes of calls you were in (core/calls, BLG-715), as tools for your own runs. */
   readonly callNotes?: () => import('../agent/types.js').CallNotesTools | undefined;
   readonly phone?: (scratchDir?: string) => { readonly tools: import('../agent/types.js').PhoneTools; readonly brief: string; readonly env?: Record<string, string> } | undefined;
@@ -1272,6 +1274,9 @@ export class AgentHost {
       const phone = from === this.selfId ? this.deps.phone?.(scratch && place ? path.join(place.cwd, scratch) : undefined) : undefined;
       // Calls you were in (BLG-715): your own runs look up what was said, a page at a time.
       const callNotes = from === this.selfId ? this.deps.callNotes?.() : undefined;
+      // Your MCP servers: your own runs sign in to one from the chat; its page opens on your screen.
+      const openPage = this.deps.openPage;
+      const mcpTools = from === this.selfId && openPage && agent.mcpSignIn ? mcpSignInTools(agent, { roots: () => this.store.getState().projects.map((p) => p.root), openPage }) : undefined;
       // Live previews (Settings › Experimental): your own runs in a project's folder learn to show what they build.
       const previewBrief = from === this.selfId && place && experimentOn(this.store.getState().prefs.experiments, 'previews') ? buildPreviewAppend() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
@@ -1336,6 +1341,7 @@ export class AgentHost {
         ...(mac ? { macTools: mac.tools, macBrief: mac.brief } : {}),
         ...(phone ? { phoneTools: phone.tools, phoneBrief: phone.brief } : {}),
         ...(callNotes ? { callNotesTools: callNotes } : {}),
+        ...(mcpTools ? { mcpTools } : {}),
         ...(previewBrief ? { previewBrief } : {}),
         ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         prompt: this.promptOf(body, lane.sent),
@@ -1353,8 +1359,6 @@ export class AgentHost {
           this.compactor.observe(body.channel, kind, text);
           this.emitAgent(body.requestId, from, kind, text, body.channel);
         },
-        // Servers waiting for a sign-in: only your own Claude's, told to your screens (the sign-in is on this Mac).
-        ...(from === this.selfId ? { onMcpNeedsAuth: (servers: readonly McpNeedsAuth[]) => this.emitAgent(body.requestId, from, 'mcp-auth', JSON.stringify(servers), body.channel) } : {}),
         onStep: (record) => {
           if (worktree && record.tool === 'Bash' && mayLeaveProcesses(record.input?.command, record.input?.run_in_background)) {
             this.testRuns.add(worktree);

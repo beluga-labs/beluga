@@ -9,7 +9,6 @@ import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
 import type { EnvSendAsk } from '../shared/env-send.js';
 import type { PortForward, PortShare } from '../shared/forwards.js';
-import type { McpNeedsAuth } from '../shared/mcp.js';
 import type { Bitmap } from '../image/bitmap.js';
 import { type CollabAction, type CollabState, initialCollab, reduceCollab } from './collab-store.js';
 import { type SearchState, type WorkAction, type WorkState, initialWork, reduceWork } from './work-store.js';
@@ -549,8 +548,6 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly seenShares: readonly string[];
   /** Context usage per conversation (channel). */
   readonly context: Readonly<Record<string, ContextInfo>>;
-  /** MCP servers a run found waiting for a sign-in, per conversation (the screens offer it). */
-  readonly mcpAuth: Readonly<Record<string, readonly McpNeedsAuth[]>>;
   readonly compactions: Readonly<Record<string, Compaction>>;
   /** Side questions (/btw) per conversation, while they're open. */
   readonly btw: Readonly<Record<string, Btw>>;
@@ -802,7 +799,6 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     unread: {},
     seenShares: [],
     context: {},
-    mcpAuth: {},
     compactions: {},
     btw: {},
     envChanges: {},
@@ -1021,23 +1017,6 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
   return bumpUnread({ ...state, log }, updated.channel, !existing || finished);
 }
 
-/** Servers that need a sign-in, kept per conversation by name (what isn't a list of servers is ignored). */
-function reduceMcpAuth(state: DomainState, a: Extract<Action, { type: 'agent_event' }>): DomainState {
-  const channel = a.channel ?? 'room';
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(a.text);
-  } catch {
-    return state;
-  }
-  if (!Array.isArray(parsed)) return state;
-  const fresh = parsed.filter((m): m is McpNeedsAuth => typeof m?.name === 'string' && typeof m?.label === 'string');
-  if (!fresh.length) return state;
-  const kept = new Map((state.mcpAuth[channel] ?? []).map((m) => [m.name, m]));
-  for (const m of fresh) kept.set(m.name, { name: m.name, label: m.label, status: 'needs-auth' });
-  return { ...state, mcpAuth: { ...state.mcpAuth, [channel]: [...kept.values()] } };
-}
-
 /** Context meter updates and compactions: the meter's numbers, and a divider where Claude compacted (see context-log.ts). */
 function reduceContext(state: DomainState, a: Extract<Action, { type: 'agent_event' }>): DomainState {
   const data = parseContextEvent(a.text);
@@ -1207,7 +1186,6 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     }
     case 'agent_event':
       if (action.event === 'usage') return state;
-      if (action.event === 'mcp-auth') return reduceMcpAuth(state, action);
       if (action.event === 'context' || action.event === 'compact') return reduceContext(state, action);
       return reduceAgent(state, action);
     case 'approval_add':

@@ -117,6 +117,8 @@ export interface SessionOptions {
   readonly desktopNotify?: (n: import('./notify.js').DesktopNote) => void;
   /** Open a URL or file with the system (injected in tests). */
   readonly open?: (target: string) => void;
+  /** Open a web page on the screen in use (its `openExternal` capability), else with the system: an MCP sign-in's page. */
+  readonly openPage?: (url: string) => Promise<void>;
   /** Keep Claude Code current in the background (the Mac app's daemon; never in tests or the demo). */
   readonly updateAgent?: () => Promise<boolean>;
   /** Injected in tests: pull request lookups and the GitHub CLI check. */

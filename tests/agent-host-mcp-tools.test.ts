@@ -4,27 +4,28 @@ import { AgentHost } from '../src/core/agent-host.js';
 import { Store, initialState } from '../src/core/store.js';
 import { waitFor } from './helpers.js';
 
-/** A run that finds MCP servers waiting for a sign-in: the chat it ran in gets them (your own agent only). */
+/** Your own agent's runs get the MCP sign-in tools (beluga_mcp); a friend's request never does. */
 
 const ME = 'me';
-const SERVERS = [{ name: 'figma', label: 'figma', status: 'needs-auth' as const }];
 
-function setup() {
+function setup(opened: string[]) {
   const store = new Store(initialState('room', 'auto'));
   const runs: AgentRunInput[] = [];
   const agent: AgentBackend = {
     async run(input: AgentRunInput) {
       runs.push(input);
-      input.onMcpNeedsAuth?.(SERVERS);
       return 'ok';
     },
+    mcpServers: async () => [{ name: 'figma', label: 'figma', from: 'user', status: 'needs-auth', canSignIn: true }],
+    mcpSignIn: async () => ({ url: 'https://auth.example/authorize' }),
+    mcpSignedIn: async () => true,
   };
-  const sent: unknown[] = [];
   const host = new AgentHost({
     store,
     selfId: () => ME,
-    send: (body: unknown) => (sent.push(body), true),
+    send: () => true,
     agent: () => agent,
+    openPage: async (url: string) => void opened.push(url),
     shares: {} as never,
     sharing: { recipients: () => [], sharedFor: () => undefined, canPost: () => true } as never,
     people: { trustOf: () => 'full', isFriend: () => true } as never,
@@ -34,24 +35,24 @@ function setup() {
     approvalTimeoutMs: () => 60_000,
     refreshUsage: async () => undefined,
   } as never);
-  return { host, runs, store, sent };
+  return { host, runs };
 }
 
-describe('MCP servers that need a sign-in, from a run', () => {
-  it('your own agent’s run hands them to the chat as an mcp-auth event', async () => {
-    const { host, runs, sent } = setup();
+describe('MCP sign-in tools in a run', () => {
+  it('your own run can sign in: the page opens on your screen', async () => {
+    const opened: string[] = [];
+    const { host, runs } = setup(opened);
     await host.onAgentRequest(ME, { kind: 'agent_request', requestId: 'r1', prompt: 'hi', viaAgent: false, channel: 'room', urgent: false, plan: false });
     await waitFor(() => runs.length > 0);
-    await waitFor(() => sent.some((b) => (b as { event?: string }).event === 'mcp-auth'));
-    const body = sent.find((b) => (b as { event?: string }).event === 'mcp-auth') as { text: string; channel: string };
-    expect(JSON.parse(body.text)).toEqual(SERVERS);
-    expect(body.channel).toBe('room');
+    expect(await runs[0]!.mcpTools?.servers()).toContain('figma: needs sign-in');
+    expect((await runs[0]!.mcpTools!.signIn('figma')).text).toContain('Signed in to figma');
+    expect(opened).toEqual(['https://auth.example/authorize']);
   });
 
-  it('a friend’s request never gets the hook (their screens must not see your servers)', async () => {
-    const { host, runs } = setup();
+  it('a friend’s request never gets them (your servers and your browser are yours)', async () => {
+    const { host, runs } = setup([]);
     await host.onAgentRequest('friend', { kind: 'agent_request', requestId: 'r2', prompt: 'hi', viaAgent: false, channel: 'room', urgent: false, plan: false });
     await waitFor(() => runs.length > 0);
-    expect(runs[0]!.onMcpNeedsAuth).toBeUndefined();
+    expect(runs[0]!.mcpTools).toBeUndefined();
   });
 });

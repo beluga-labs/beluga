@@ -39,11 +39,6 @@ export interface AgentRunInput {
    * this computer only: kept beside the chat, never sent anywhere (see core/step-book.ts).
    */
   readonly onStep?: (record: StepRecord) => void;
-  /**
-   * MCP servers this run found unavailable until you sign in (name and label only), told once per
-   * conversation and server. The screens offer the sign-in; the run does not wait for it.
-   */
-  readonly onMcpNeedsAuth?: (servers: readonly import('../shared/mcp.js').McpNeedsAuth[]) => void;
   /** Model for this run (an alias like "sonnet" or a full id); unset: the default. */
   readonly model?: string;
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -138,6 +133,8 @@ export interface AgentRunInput {
   readonly dashboardTools?: DashboardTools;
   /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
   readonly callNotesTools?: CallNotesTools;
+  /** Your own runs: your MCP servers, and signing in to one from the chat (core/mcp-sign-in.ts). */
+  readonly mcpTools?: McpTools;
   /** Your own runs, when you turned agent threads on: tools to start and follow child threads (core/threads), bound to this run's chat. */
   readonly threadTools?: ThreadTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
@@ -618,6 +615,14 @@ export interface RoomBridge {
   readonly gateway?: import('./gateway-tools.js').GatewayBridge;
   /** The same tools bound to one conversation (a run's: chat, asks and their answers go there). */
   inChannel?(channel: string): RoomBridge;
+}
+
+/** Your MCP servers as tools (core/mcp-sign-in.ts): each answers in words an agent reads. */
+export interface McpTools {
+  /** Each server, how it is, and how to sign in to it. */
+  servers(): Promise<string>;
+  /** Sign in to one (by name or label): its page opens in your browser, and this waits a while for it. */
+  signIn(name: string): Promise<{ readonly ok: boolean; readonly text: string }>;
 }
 
 /** Call notes as tools (core/calls/notes-tools.ts): each answers in words an agent reads. */

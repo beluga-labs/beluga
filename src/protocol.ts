@@ -211,8 +211,6 @@ export const AgentEventKind = z.enum([
   'compact',
   /** Tokens and cost of a run; text is JSON {input, output, cacheRead, cacheWrite, cost, session}. */
   'usage',
-  /** MCP servers that need a sign-in (your own Claude only); text is JSON [{name, label, status}]. */
-  'mcp-auth',
 ]);
 export type AgentEventKind = z.infer<typeof AgentEventKind>;
 

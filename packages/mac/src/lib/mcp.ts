@@ -74,9 +74,6 @@ export async function signInMcp(client: SocketClient, row: McpServerRow, runtime
       toast(client, ok ? `Signed in to ${row.label}` : `Didn’t hear back from ${row.label}. Try again when you’re ready.`, ok ? 'success' : 'warn');
     }
     await checkMcp(client, runtime);
-  } catch (err) {
-    // A failed or cancelled sign-in: say why. The row stays, and the box stays usable.
-    toast(client, `Couldn’t sign in to ${row.label}: ${err instanceof Error ? err.message : String(err)}`, 'error');
   } finally {
     set(runtime, { signingIn: undefined });
   }
