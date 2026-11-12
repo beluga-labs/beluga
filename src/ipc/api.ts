@@ -115,6 +115,7 @@ export const PrefsPatch = z
     settleOnMerge: bool,
     settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
     pushToPr: bool,
+    prOnReview: bool,
     scratchFolder: bool,
     chatLinks: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
