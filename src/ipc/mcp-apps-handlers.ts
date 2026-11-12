@@ -17,8 +17,19 @@ type AppsHandlers = { readonly [M in AppsMethod]: (s: Session, ...args: Args<M>)
 /** The app host and its pages, made the first time an app is drawn (never while the experiment is off). */
 let frames: McpAppFrames | undefined;
 
-/** The app tools you said Always to (per server and tool, until Beluga quits). */
-const always = new AppAlways();
+/** Per session, until Beluga quits: what you said Always to (tools and messages, per server and tool), and the messages that wait for you. */
+interface AppAnswers {
+  readonly tools: AppAlways;
+  readonly messages: AppAlways;
+  readonly waiting: Set<string>;
+}
+const answers = new WeakMap<Session, AppAnswers>();
+
+function answersOf(s: Session): AppAnswers {
+  let a = answers.get(s);
+  if (!a) answers.set(s, (a = { tools: new AppAlways(), messages: new AppAlways(), waiting: new Set() }));
+  return a;
+}
 
 const projectRoots = (s: Session): string[] => s.store.getState().projects.map((p) => p.root);
 
@@ -37,7 +48,7 @@ function actDeps(s: Session): AppActDeps {
       read: (server, uri) => (backend?.mcpAppRead ? backend.mcpAppRead(projectRoots(s), server, uri) : missing()),
     },
     ask: (server, tool, channel) => s.host.ask('tool', `The ${server} app wants to run ${tool} (Always: this tool of ${server}, until Beluga quits)`, `An MCP App in your chat asked to call ${tool} on its server, ${server}.`, undefined, channel),
-    always,
+    always: answersOf(s).tools,
   };
 }
 
@@ -47,6 +58,11 @@ function talkDeps(s: Session): AppTalkDeps {
     on: () => on(s),
     step: (c, i, st) => s.host.stepFor(c, i, st),
     post: (text, channel, app) => s.askFromApp(text, channel, app),
+    busy: (channel) => s.host.runningIn(channel),
+    ask: (server, tool, channel, text) =>
+      s.host.ask('tool', `The ${server} app wants to send a message for you, and start a turn (Always: messages from ${tool}, until Beluga quits)`, text, undefined, channel),
+    always: answersOf(s).messages,
+    waiting: answersOf(s).waiting,
     contexts: appContextsOf(s),
   };
 }

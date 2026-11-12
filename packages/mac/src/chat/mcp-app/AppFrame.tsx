@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppActResult, AppReadResult, AppStepRef, AppToolResult, McpAppView } from '@beluga/shared/mcp-apps.js';
 import type { DisplayMode } from '@beluga/mcp-apps/domain/app-requests.js';
-import { useApi } from '../../lib/beluga.js';
+import { useApi, useApp } from '../../lib/beluga.js';
 import { openExternal } from '../../lib/system.js';
 import { AppBridge, type HostContext, MAX_APP_HEIGHT, type ToolResultParams } from './bridge.js';
 import s from './mcp-app.module.css';
@@ -39,6 +39,8 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
   const bridge = useRef<AppBridge | undefined>(undefined);
   const [height, setHeight] = useState(FIRST_HEIGHT);
   const [mode, setMode] = useState<DisplayMode>('inline');
+  // An approval waiting in this chat is drawn under the app: fullscreen gives way to it.
+  const asking = useApp((st) => st.approvals.some((a) => a.channel === at.channel));
   const result = useMemo(() => resultOf(view), [view]);
 
   // One bridge per frame address: it answers only the frame's own window.
@@ -78,7 +80,13 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
     if (result) bridge.current?.setResult(result);
   }, [result]);
 
-  // Esc leaves fullscreen, and the app is told.
+  useEffect(() => {
+    if (!asking || mode !== 'fullscreen') return;
+    setMode('inline');
+    bridge.current?.setDisplayMode('inline');
+  }, [asking, mode]);
+
+  // Esc leaves fullscreen, and the app is told (while the focus is outside the app: its frame takes its own keys).
   useEffect(() => {
     if (mode !== 'fullscreen') return;
     const onKey = (e: KeyboardEvent): void => {

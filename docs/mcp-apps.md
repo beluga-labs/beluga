@@ -61,10 +61,10 @@ Beluga refused or couldn't run gets `-32000` with the reason, so the app can say
 | `ping` | ✓ | Answers `{}` |
 | `tools/call` | ✓ | `apps.call`, through the tool gate (below) |
 | `resources/read` | ✓ | `apps.read`: `ui://` resources of the app's own server only |
-| `ui/message` | ✓ | `apps.message`: the text goes into the app's chat as yours, marked "Sent by the <tool> app", and starts a turn of your Claude (queued while one runs) |
+| `ui/message` | ✓ | `apps.message`: asks you first, with the words (Allow / Allow Always / Decline; Always per tool of a server). Refused while your Claude works in that chat, or while the app's last message waits for you. Allowed, the text goes into the app's chat as yours, marked "Sent by the <tool> app", and starts a turn of your Claude |
 | `ui/update-model-context` | ✓ | `apps.context`: kept per app instance (an update replaces the last one), added to your Claude's next turn in that chat, then dropped |
-| `ui/open-link` | ✓ | `http://` and `https://` only, in your browser (the Tauri opener); any other scheme is refused |
-| `ui/request-display-mode` | ✓ | `inline` and `fullscreen` (the same frame over the window: the app keeps its state). Answers the mode set and sends `ui/notifications/host-context-changed`; Esc or Exit Full Screen go back and tell the app. Other modes are refused |
+| `ui/open-link` | ✓ | `http://` and `https://` only, in your browser (the Tauri opener), one link per 2 s; any other scheme is refused |
+| `ui/request-display-mode` | ✓ | `inline` and `fullscreen` (the same frame over the window: the app keeps its state). Answers the mode set and sends `ui/notifications/host-context-changed`. Exit Full Screen (or Esc, while the focus is outside the app) goes back and tells the app, and so does an approval that waits in that chat (it would be under the app). Other modes are refused |
 | `ui/resource-teardown` | ✓ (host → app) | Sent when the frame goes away |
 | `ui/notifications/host-context-changed` | ✓ (host → app) | Display mode changes only |
 | `pip` display mode | ✗ | Refused |
@@ -93,8 +93,9 @@ An app calls tools as you, so `apps.call` checks each call (`src/mcp-apps/domain
 
 ## What an app tells your Claude
 
-An app is third-party code. Its message is posted as a line of yours only because you clicked in
-it; it shows "Sent by the <tool> app" and can't be edited as yours. Its model context is added to
+An app is third-party code, and nothing tells Beluga that you clicked in it. So a message it
+posts as you asks you first, shows "Sent by the <tool> app" and can't be edited as yours; one
+app can't queue turn after turn. Its model context is added to
 the next turn inside `<mcp_app_context>` blocks, with a note that it is data, not instructions;
 the app's text can't close the block. Only your own runs get it, never a friend's.
 
@@ -108,4 +109,6 @@ reads "Sent by the <tool> app". `apps.*` are Mac methods (`src/companion/coverag
 - A driven computer (Beluga › Computers): its app host's port isn't forwarded, so the frame
   doesn't load there.
 - Apps in a friend's shared worktree, or in a friend's Claude's answer: only your own Claude's.
-- Always for app tools is not kept across restarts, and not listed in Settings.
+- Always for app tools and messages is not kept across restarts, and not listed in Settings.
+- People you invited into a chat see an app's message as yours, without the app's mark (the
+  protocol has no field for it yet).

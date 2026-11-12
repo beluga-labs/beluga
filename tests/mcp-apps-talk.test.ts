@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONTEXT_MAX, MESSAGE_MAX, displayModeOf, isOpenableLink, messageTextOf, modelContextOf, withAppContext } from '../src/mcp-apps/domain/app-requests.js';
 import { AppContexts } from '../src/mcp-apps/contexts.js';
+import { AppAlways } from '../src/mcp-apps/call-tool.js';
 import { postAppMessage, setAppContext } from '../src/mcp-apps/talk.js';
 
 describe('messageTextOf (ui/message)', () => {
@@ -114,19 +115,59 @@ describe('postAppMessage and setAppContext (apps.message, apps.context)', () => 
       on: () => true,
       step: (c: string, i: string, s: string) => (c === 'ws:1' && i === 'i1' && s === 't1' ? STEP : undefined),
       post: (text: string, channel: string, app: string) => (posted.push([text, channel, app]), true),
+      busy: () => false,
+      ask: async () => 'yes' as const,
+      always: new AppAlways(),
+      waiting: new Set<string>(),
       ...over,
     };
   }
 
-  it('posts the app’s message in its own chat, marked with its tool', () => {
+  it('posts the app’s message in its own chat, marked with its tool, once you allowed it', async () => {
     const d = deps();
-    expect(postAppMessage(d, ref, { role: 'user', content: [{ type: 'text', text: 'Set an alarm' }] })).toEqual({ ok: true, result: {} });
+    expect(await postAppMessage(d, ref, { role: 'user', content: [{ type: 'text', text: 'Set an alarm' }] })).toEqual({ ok: true, result: {} });
     expect(d.posted).toEqual([['Set an alarm', 'ws:1', 'show_clock']]);
   });
 
-  it('refuses a message with no text, and says so when it could not go', () => {
-    expect(postAppMessage(deps(), ref, { role: 'user', content: [] })).toMatchObject({ ok: false, reason: 'refused' });
-    expect(postAppMessage(deps({ post: () => false }), ref, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'failed' });
+  it('refuses a message with no text, and says so when it could not go', async () => {
+    expect(await postAppMessage(deps(), ref, { role: 'user', content: [] })).toMatchObject({ ok: false, reason: 'refused' });
+    expect(await postAppMessage(deps({ post: () => false }), ref, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'failed' });
+  });
+
+  const msg = { role: 'user', content: [{ type: 'text', text: 'Set an alarm' }] };
+
+  it('asks you before an app speaks for you, and posts nothing when you decline', async () => {
+    const asks: unknown[][] = [];
+    const d = deps({ ask: async (...a: unknown[]) => (asks.push(a), 'no') });
+    expect(await postAppMessage(d, ref, msg)).toMatchObject({ ok: false, reason: 'declined' });
+    expect(asks).toEqual([['clock', 'show_clock', 'ws:1', 'Set an alarm']]);
+    expect(d.posted).toEqual([]);
+  });
+
+  it('keeps Always per server and tool: its next message goes without asking', async () => {
+    let asked = 0;
+    const d = deps({ ask: async () => (asked++, 'always') });
+    await postAppMessage(d, ref, msg);
+    await postAppMessage(d, ref, msg);
+    expect(asked).toBe(1);
+    expect(d.posted).toHaveLength(2);
+  });
+
+  it('refuses a message while your Claude works in that chat, so an app can’t queue turn after turn', async () => {
+    let asked = 0;
+    const d = deps({ busy: (c: string) => c === 'ws:1', ask: async () => (asked++, 'yes') });
+    expect(await postAppMessage(d, ref, msg)).toMatchObject({ ok: false, reason: 'refused' });
+    expect(asked).toBe(0);
+    expect(d.posted).toEqual([]);
+  });
+
+  it('refuses a second message while the first still waits for your answer', async () => {
+    let answer: (a: 'yes') => void = () => undefined;
+    const d = deps({ ask: () => new Promise((r) => (answer = r)) });
+    const first = postAppMessage(d, ref, msg);
+    expect(await postAppMessage(d, ref, msg)).toMatchObject({ ok: false, reason: 'refused' });
+    answer('yes');
+    expect(await first).toEqual({ ok: true, result: {} });
   });
 
   it('keeps the context for the app’s instance in its conversation', () => {
@@ -135,9 +176,9 @@ describe('postAppMessage and setAppContext (apps.message, apps.context)', () => 
     expect(d.contexts.take('ws:1')).toEqual([{ app: 'clock · show_clock', text: 'Alarm 7:30' }]);
   });
 
-  it('does nothing with the experiment off, or for a step with no app', () => {
+  it('does nothing with the experiment off, or for a step with no app', async () => {
     const d = deps({ on: () => false });
-    expect(postAppMessage(d, ref, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'off' });
+    expect(await postAppMessage(d, ref, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'off' });
     expect(setAppContext(d, ref, { content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'off' });
     expect(d.posted).toEqual([]);
     expect(d.contexts.take('ws:1')).toEqual([]);

@@ -13,6 +13,8 @@ import type { AppActResult, AppReadResult, AppToolResult } from '../../../../../
 export const PROTOCOL_VERSION = '2026-01-26';
 /** The tallest an app is drawn in the chat (px); it scrolls inside past that. */
 export const MAX_APP_HEIGHT = 720;
+/** The least time between two links an app opens (ms): it can't open tabs in a loop. */
+export const LINK_GAP_MS = 2_000;
 
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
@@ -59,6 +61,8 @@ export interface BridgeEffects {
   openLink?(url: string): void;
   /** ui/request-display-mode: draw the app this way now. */
   displayMode?(mode: DisplayMode): void;
+  /** The clock (tests). */
+  now?(): number;
 }
 
 const MODES: readonly DisplayMode[] = ['inline', 'fullscreen'];
@@ -76,6 +80,7 @@ export class AppBridge {
   private resultSent = false;
   private nextId = 1;
   private mode: DisplayMode;
+  private lastLink = -Infinity;
 
   constructor(
     private readonly init: BridgeInit,
@@ -133,6 +138,9 @@ export class AppBridge {
     if (method === 'ui/update-model-context' && this.fx.context) return this.answer(id, this.fx.context(params));
     if (method === 'ui/open-link' && this.fx.openLink) {
       if (!isOpenableLink(p?.url)) return this.error(id, INVALID_PARAMS, 'Only http and https links open.');
+      const now = this.fx.now?.() ?? Date.now();
+      if (now - this.lastLink < LINK_GAP_MS) return this.error(id, NOT_RUN, 'Links open one at a time. Try again in a moment.');
+      this.lastLink = now;
       this.fx.openLink(p.url);
       return this.fx.post({ jsonrpc: '2.0', id, result: {} });
     }

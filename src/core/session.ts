@@ -716,8 +716,11 @@ export class Session {
     if (channel === 'room' || this.sharing.sharedFor(channel)) return false;
     const requestId = randomUUID();
     const running = this.host.runningIn(channel);
-    const id = chatMessageId(this.selfId, randomUUID(), '');
-    this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent: false, channel, request: requestId, fromApp: app, ...(running ? { queued: true as const } : {}) });
+    const mid = randomUUID();
+    const words = text.slice(0, MAX_TEXT);
+    this.store.dispatch({ type: 'chat', id: chatMessageId(this.selfId, mid, ''), from: this.selfId, text: words, ts: Date.now(), byAgent: false, channel, request: requestId, fromApp: app, ...(running ? { queued: true as const } : {}) });
+    // People you invited into this chat see it too, as sendChat sends (without the app's mark: their Beluga has no field for it).
+    for (const to of this.sharing.recipients(channel)) this.send({ kind: 'chat', text: words, byAgent: false, channel, mid }, { to });
     return this.askOwnClaude(text, channel, false, false, requestId) !== undefined;
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AppBridge, MAX_APP_HEIGHT, PROTOCOL_VERSION, type BridgeInit } from '../packages/mac/src/chat/mcp-app/bridge.js';
+import { AppBridge, LINK_GAP_MS, MAX_APP_HEIGHT, PROTOCOL_VERSION, type BridgeInit } from '../packages/mac/src/chat/mcp-app/bridge.js';
 
 const FRAME = { name: 'the app window' };
 const OTHER = { name: 'another window' };
@@ -267,5 +267,21 @@ describe('AppBridge talks back: ui/message, ui/update-model-context, ui/open-lin
     bridge.receive(FRAME, FRAME, { jsonrpc: '2.0', id: 1, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } });
     bridge.setDisplayMode('inline');
     expect(posted.at(-1)).toEqual({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'inline' } });
+  });
+});
+
+describe('AppBridge link limit', () => {
+  it('opens one link per LINK_GAP_MS: an app can’t open tabs in a loop', () => {
+    let now = 1_000;
+    const links: string[] = [];
+    const posted: Array<Record<string, unknown>> = [];
+    const bridge = new AppBridge(INIT, { post: (m) => posted.push(m as Record<string, unknown>), size: () => undefined, openLink: (u) => void links.push(u), now: () => now });
+    const open = (id: number) => bridge.receive(FRAME, FRAME, { jsonrpc: '2.0', id, method: 'ui/open-link', params: { url: `https://example.com/${id}` } });
+    open(1);
+    open(2);
+    now += LINK_GAP_MS;
+    open(3);
+    expect(links).toEqual(['https://example.com/1', 'https://example.com/3']);
+    expect(posted[1]).toMatchObject({ id: 2, error: { code: -32000 } });
   });
 });
