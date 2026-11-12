@@ -366,11 +366,6 @@ export interface Prefs {
   readonly scratchFolder: boolean;
   /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
   readonly experiments: readonly string[];
-  /**
-   * Chat refs, chips and links (shared/chat-ref.ts). Owner: the plan "Communication between chats".
-   * Remove this flag, and turn the feature on for everyone, once that plan has shipped.
-   */
-  readonly chatLinks: boolean;
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -811,7 +806,6 @@ export const DEFAULT_PREFS: Prefs = {
   prOnReview: false,
   scratchFolder: true,
   experiments: [],
-  chatLinks: false,
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',

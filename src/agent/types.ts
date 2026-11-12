@@ -60,7 +60,7 @@ export interface AgentRunInput {
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */
   readonly scratchDir?: string;
-  /** This chat's address, with prefs.chatLinks on: the run learns the chat chip (view-prompt.ts). */
+  /** This chat's address: the run learns the chat chip (view-prompt.ts). */
   readonly chatLink?: ChatRef;
   /** Where to run: a workspace folder with its own Claude conversation. Defaults to the room's folder. */
   readonly place?: AgentPlace;
@@ -154,7 +154,7 @@ export interface AgentRunInput {
   readonly callNotesTools?: CallNotesTools;
   /** Your own runs: your MCP servers, and signing in to one from the chat (core/mcp-sign-in.ts). */
   readonly mcpTools?: McpTools;
-  /** Your own runs, with prefs.chatLinks on: find and read other chats (core/chat-links); never a friend's or a guest's. */
+  /** Your own runs: find and read other chats (core/chat-links); never a friend's or a guest's. */
   readonly chatTools?: ChatTools;
   /** Your own runs, when you turned agent threads on: tools to start and follow child threads (core/threads), bound to this run's chat. */
   readonly threadTools?: ThreadTools;

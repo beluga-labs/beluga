@@ -54,7 +54,7 @@ interface Lit {
   readonly box: Box;
 }
 
-/** Sidebar rows can be picked up, with prefs.chatLinks on. Mounted once, with the sidebar; draws what's carried. */
+/** Sidebar rows can be picked up. Mounted once, with the sidebar; draws what's carried. */
 export function useChatDrag(): ReactNode {
   const { client } = useBeluga();
   const x = useMotionValue(0);
@@ -67,7 +67,6 @@ export function useChatDrag(): ReactNode {
     const press = (e: PointerEvent): void => {
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || stop || !(e.target instanceof Element)) return;
       const state = client.store.getState();
-      if (!state.prefs.chatLinks) return;
       const row = e.target.closest<HTMLElement>('[data-chat-row]');
       if (!row || e.target.closest('button, input, a, [data-no-drag]')) return;
       const from = row.dataset.chatRow!;

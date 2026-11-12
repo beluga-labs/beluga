@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from './fixtures.js';
 /**
  * Dragging a chat's row onto a chat (layout/chat-drag.tsx): a chip goes in the target's draft and
  * nothing is sent. What's carried is the row itself; the chat that would take it lights up. Esc
- * cancels; the same chat, the room and a chat links off do nothing.
+ * cancels; the same chat and the room do nothing.
  */
 
 // A slower hand and a video for the proof (CHAT_DRAG_VIDEO=1).
@@ -29,10 +29,11 @@ async function daemon<T>(page: Page, fn: string): Promise<T> {
   ) as Promise<T>;
 }
 
-/** The sidebar's own rows for two worktrees (a plan's stay off it), with chat links set as asked. */
-async function setUp(page: Page, chatLinks = true): Promise<{ self: string; a: Worktree; b: Worktree }> {
+/** The sidebar's own rows for two worktrees (a plan's stay off it). */
+async function setUp(page: Page): Promise<{ self: string; a: Worktree; b: Worktree }> {
   await page.goto('/');
-  await daemon(page, `(c) => c.api.session.setPrefs({ chatLinks: ${chatLinks} })`);
+  // The projects drawn first: a fold button read before then is never found.
+  await expect(sidebar(page).getByRole('button', { name: /^(Show what's in|Fold) bob-api$/ }).first()).toBeVisible();
   for (const project of ['bob-api', 'landing']) {
     const unfold = sidebar(page).getByRole('button', { name: `Show what's in ${project}` }).first();
     if (await unfold.isVisible()) await unfold.click();
@@ -255,15 +256,4 @@ test('a press on a chat row in a project doesn’t move the project', async ({ p
   await lift(page, rowOf(page, a), first);
   await page.mouse.up();
   expect(await order()).toEqual(before);
-});
-
-test('with chat links off nothing starts a drag', async ({ page }) => {
-  const { a, b } = await setUp(page, false);
-  await rowOf(page, a).click();
-  const box = boxIn(page, a);
-  await box.fill('');
-  await lift(page, rowOf(page, b), box);
-  await expect(ghost(page)).toHaveCount(0);
-  await page.mouse.up();
-  await expect(box).toHaveValue('');
 });
