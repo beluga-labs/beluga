@@ -51,12 +51,12 @@ export function worktreeShareRows(state: ShareState, wsId: string): WorktreeShar
   return rows;
 }
 
-/** What one row's line under the name says. */
-export function shareRowDetail(row: WorktreeShareRow, inRoom: boolean): string {
+/** What one row's line under the name says, about a worktree's sheet or a chat's (`what`). */
+export function shareRowDetail(row: WorktreeShareRow, inRoom: boolean, what: 'worktree' | 'chat' = 'worktree'): string {
   if (row.access === 'contribute') return row.wholeProject ? 'Works with your agent across the whole project' : 'Chats and asks your agent here';
   if (row.access === 'view') return row.wholeProject ? 'Follows the whole project, read-only' : 'Follows along, read-only';
   if (row.guest) return 'Guest';
-  return inRoom ? 'In your room, not in this worktree' : 'Not in this worktree';
+  return inRoom ? `In your room, not in this ${what}` : `Not in this ${what}`;
 }
 
 /** Someone a worktree can be handed to (BLG-341): in your room with their Claude, or a friend over the network. */

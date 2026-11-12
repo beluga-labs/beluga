@@ -812,6 +812,14 @@ back. Each worktree also becomes a workspace shared with them (the state's `shar
 files and changes open as a room share's do; unlike those, it isn't wiped when a room ends. Your side keeps who has what
 in `~/.beluga/project-shares.json`.
 
+**A plain chat, shared with a friend.** A chat in no project is shared from its own **Share** sheet, one at a time
+(`shareWithFriend({ peerId, workspaceId, role })`; all your chats at once is refused). It travels as your `Chats`
+project with `chats: true`, so their Mac shows it under "Chats" with your avatar, as a chat (`shared[].chat`), and
+offers no Files, Diff, copy or fork. They follow its conversation and Scratch and ask your agent there, as in a
+worktree. It has no project folder: their `fs_*` requests reach only its Scratch folders
+(`friend-share/chat-files.ts`), and anything else (or `fs_search`) is answered "A chat has no project files: only its
+Scratch is shared".
+
 **What travels** (`protocol.ts`): each message rides in `{f, m}`, acknowledged with `{ack}`.
 
 - `project {id, name, icon?, role, worktrees[{id, name, branch?}], members[{peerId, name, role}]}`: what they have of it
