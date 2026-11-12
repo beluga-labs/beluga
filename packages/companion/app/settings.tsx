@@ -319,7 +319,7 @@ export default function Settings() {
                   ]}
                 />
                 <T v="caption" c={color.text3} style={{ paddingHorizontal: 6 }}>
-                  {share === 'off' ? 'Nothing is sent.' : share === 'limited' ? 'Only the very essential data.' : 'How you use Beluga and its statistics, including what you ask it, sent anonymously.'} Beluga is free and open source: this is how it gets better for you.
+                  {share === 'off' ? 'Nothing is sent.' : share === 'limited' ? 'Only the very essential data.' : 'How you use Beluga and its statistics, sent anonymously.'} Beluga is free and open source: this is how it gets better for you.
                 </T>
               </View>
             ) : null}
