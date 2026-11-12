@@ -31,6 +31,8 @@ export const BRANCH_PREFIX_RE = /^(?![./-])(?!.*\.\.)(?!.*\/\/)(?!.*\/[.-])[\w./
 /** How many days without activity settle a chat (core/triage); 0: never. */
 export const SETTLE_IDLE_DAYS_DEFAULT = 3;
 export const SETTLE_IDLE_DAYS_MAX = 365;
+export const ARCHIVE_SETTLED_DAYS_DEFAULT = 14;
+export const ARCHIVE_SETTLED_DAYS_MAX = 3650;
 
 /** Keep the Mac awake for your phone: never, only on power, or always (the display may still sleep). */
 export const KEEP_AWAKE = ['off', 'power', 'always'] as const;
@@ -161,6 +163,8 @@ export const Settings = z.object({
   settleOnMerge: z.boolean().catch(true),
   /** Days without activity before a chat settles; 0: never. */
   settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX).catch(SETTLE_IDLE_DAYS_DEFAULT),
+  /** Days a chat stays settled before it is archived by itself; 0: never. */
+  archiveSettledDays: z.number().int().min(0).max(ARCHIVE_SETTLED_DAYS_MAX).catch(ARCHIVE_SETTLED_DAYS_DEFAULT),
   /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
   pushToPr: z.boolean().catch(true),
   /** A worktree's task moving to In Review has its agent open a draft pull request there (BLG-927). */
