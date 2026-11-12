@@ -159,11 +159,16 @@ export class McpConnect {
     this.signIns.clear();
   }
 
-  /** A session of its own with your servers, once `server` is up (or as it is when that took too long); closed after. */
+  /**
+   * A session of its own with your servers, once `server` is up (or as it is when that took too
+   * long); closed after. A server that needs a sign-in is refused with words the chat can show.
+   */
   private async withServer<T>(cwds: readonly string[], server: string, use: (session: McpSession, statuses: McpServerStatus[]) => Promise<T>): Promise<T> {
     const session = this.openFor(cwds, this.entries(cwds));
     try {
-      return await use(session, await this.settle(session, server));
+      const statuses = await this.settle(session, server);
+      if (statuses.find((s) => s.name === server)?.status === 'needs-auth') throw new Error(`${server} needs you to sign in. Sign in to it, then open this chat again.`);
+      return await use(session, statuses);
     } finally {
       session.close();
     }

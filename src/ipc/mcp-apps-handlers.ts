@@ -66,7 +66,7 @@ export const MCP_APPS_HANDLERS = {
   'apps.get': (s, channel, itemId, stepId) =>
     getApp(
       {
-            step: (c, i, st) => s.host.stepFor(c, i, st),
+        step: (c, i, st) => s.host.stepFor(c, i, st),
         frame: (server, uri) => {
           const read = s.backend?.mcpReadUiResource;
           if (!read) return Promise.reject(new Error('Your agent can’t read MCP App views here.'));

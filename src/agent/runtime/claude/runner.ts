@@ -62,13 +62,13 @@ const STDERR_KEEP = 40;
  * friend with :rw access may write to, so they could plant hooks or permission rules there (its
  * skills and commands come in alone, see skill-plugins.ts). A friend's or a guest's run loads nothing of yours.
  */
+export function ownerSettings(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): { settingSources: Array<'user'>; skills?: 'all' } {
+  return input.ownerMcp && !input.guest ? { settingSources: ['user'], skills: 'all' } : { settingSources: [] };
+}
+
 /** MCP Apps follow your MCP servers: a run that loads them (yours, or Full trust; never a guest's) keeps apps on its steps. */
 export function tracksMcpApps(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): boolean {
   return Boolean(input.ownerMcp && !input.guest);
-}
-
-export function ownerSettings(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): { settingSources: Array<'user'>; skills?: 'all' } {
-  return input.ownerMcp && !input.guest ? { settingSources: ['user'], skills: 'all' } : { settingSources: [] };
 }
 
 export interface ClaudeBackendOptions {

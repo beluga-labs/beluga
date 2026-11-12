@@ -199,3 +199,22 @@ describe('McpConnect app calls (MCP Apps: apps.call, apps.read)', () => {
     expect(await mcp.appRead([dir], 'figma', 'ui://figma/x.png')).toEqual({ contents: [{ uri: 'ui://figma/x.png', blob: 'AA==' }] });
   });
 });
+
+describe('McpConnect: an MCP App whose server needs a sign-in', () => {
+  const st = (name: string, status: McpServerStatus['status']): McpServerStatus => ({ name, status }) as McpServerStatus;
+
+  it('says the server needs a sign-in, and never reads or calls it', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'needs-auth')]]);
+    const asked: string[] = [];
+    const open: OpenMcpSession = (cwd, servers) => ({
+      ...f.open(cwd, servers),
+      readMcpResource: async (_s: string, uri: string) => (asked.push(uri), { contents: [] }),
+      request: async () => (asked.push('call'), { response: { content: [] } }),
+    });
+    const mcp = new McpConnect(open, { home: dir, env: {}, pollMs: 1 });
+    await expect(mcp.readUiResource([dir], 'figma', 'ui://figma/app.html')).rejects.toThrow(/figma needs you to sign in/);
+    await expect(mcp.appCall([dir], 'figma', 'now', {})).rejects.toThrow(/sign in/);
+    expect(asked).toEqual([]);
+  });
+});

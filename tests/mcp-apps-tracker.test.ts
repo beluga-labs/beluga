@@ -108,4 +108,29 @@ describe('McpAppTracker', () => {
     await flush();
     expect(records.get('t1')?.app).toBeUndefined();
   });
+
+  it('keeps the list for the run: a listed tool without an app never lists the servers again', async () => {
+    const servers = vi.fn(async () => SERVERS);
+    const { records, observe } = rig(servers);
+    observe(toolUse('t1', 'mcp__basic__plain'));
+    await flush();
+    observe(toolUse('t2', 'mcp__basic__plain'));
+    observe(toolUse('t3', 'mcp__basic__get-time'));
+    await flush();
+    expect(records.get('t1')?.app).toBeUndefined();
+    expect(records.get('t3')?.app?.resourceUri).toBe('ui://get-time/app.html');
+    expect(servers).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists again after a failed list: one failure doesn’t stop the run’s later apps', async () => {
+    const servers = vi.fn<() => Promise<readonly CatalogServer[]>>().mockRejectedValueOnce(new Error('closed')).mockResolvedValue(SERVERS);
+    const { records, observe } = rig(servers);
+    observe(toolUse('t1', 'mcp__basic__get-time'));
+    await flush();
+    await flush();
+    observe(toolUse('t2', 'mcp__basic__get-time'));
+    await flush();
+    await flush();
+    expect(records.get('t2')?.app?.resourceUri).toBe('ui://get-time/app.html');
+  });
 });

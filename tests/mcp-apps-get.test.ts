@@ -91,3 +91,10 @@ describe('McpAppFrames', () => {
     expect(add.mock.calls[0]![1]).toContain('frame-ancestors tauri://localhost');
   });
 });
+
+describe('getApp: a server that needs a sign-in', () => {
+  it('shows unavailable, with the reason, so the chat says why there is no app', async () => {
+    const view = await getApp(deps({ frame: () => Promise.reject(new Error('basic needs you to sign in. Sign in to it, then open this chat again.')) }), 'ws:1', 'i1', 't1');
+    expect(view).toEqual({ ok: false, reason: 'unavailable', message: 'basic needs you to sign in. Sign in to it, then open this chat again.' });
+  });
+});
