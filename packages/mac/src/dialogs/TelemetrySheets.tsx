@@ -50,9 +50,6 @@ function AskSheet({ onAnswer }: { readonly onAnswer: (answer: 'share' | 'later' 
             }}
           >
             <div className={t.head}>
-              <span className={t.mark} aria-hidden="true">
-                <Icon name="chartBar" size={20} />
-              </span>
               <Dialog.Close className={t.close} aria-label="Later">
                 <Icon name="x" size={12} />
               </Dialog.Close>

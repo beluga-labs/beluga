@@ -1,18 +1,7 @@
 /* Usage statistics (TelemetrySheets.tsx): the ask after an update, and What's sent. Neutral, one accent. */
 .head {
   position: relative;
-  display: grid;
-  place-items: center;
-  padding: 26px 0 0;
-}
-.mark {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
+  height: 22px;
 }
 .close,
 .closeInline {

@@ -22,7 +22,7 @@ export interface LevelChoice {
 export const LEVELS: readonly LevelChoice[] = [
   { level: 'off', label: 'Off', detail: 'Nothing is sent.' },
   { level: 'limited', label: 'Limited', detail: 'Only the very essential data.' },
-  { level: 'on', label: 'On', detail: 'How you use Beluga and its statistics, with your conversations (keys and emails masked).' },
+  { level: 'on', label: 'On', detail: 'How you use Beluga and its statistics, with your conversations, sent anonymously.' },
 ];
 
 export const levelLabel = (level: TelemetryLevel | undefined): string => LEVELS.find((l) => l.level === level)?.label ?? 'Not chosen';
