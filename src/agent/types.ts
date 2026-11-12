@@ -220,6 +220,10 @@ export interface PlanTools {
   stop?(task: string): string;
   /** Pause the plan (nothing new starts) or resume it. */
   pause?(paused: boolean): string;
+  /** chatPlans: make this chat the home of a new draft plan (a follow-up turn writes it). */
+  open?(): string;
+  /** chatPlans: close this chat's current plan (kept, read-only). */
+  close?(): string;
 }
 
 /**

@@ -110,6 +110,8 @@ export const Settings = z.object({
   chatLimit: z.number().int().min(0).max(CHAT_LIMIT_MAX).catch(CHAT_LIMIT_DEFAULT),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
+  /** A project chat's agent can open and close plans of the chat's own (plan_open, plan_close). Off until you turn it on. */
+  chatPlans: z.boolean().default(false),
   /** How much of Claude's sub-agent work the chat shows. */
   subagents: z.enum(['full', 'compact', 'hidden']).default('full'),
   /** Workspace buttons you chose to hide from the top bar. */
