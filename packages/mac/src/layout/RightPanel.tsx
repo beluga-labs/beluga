@@ -6,8 +6,10 @@ import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsContext } from '../components/SpecMenu.js';
 import { IconButton, Segmented, cx } from '../components/ui.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
-import { currentTab, filesWsOf, focusFor, paneShowing, paneTabsOf, placeTab, resetPanelLayout, setPanelTab, setPhoneTab, showPanelTab, tabShowing, tabsOf, usePanelRuntime, useWorkspaceTabBridge } from '../lib/panel.js';
-import { PANEL_DEFAULT, PANEL_LABELS, type PaneId, type PanelTab, SPLIT_MAX, SPLIT_MIN, PANES_DEFAULT, clampPanelWidth, clampShare, paneKey, panelDigit, panelFits, slotOf, viewsOf } from '../lib/panel-model.js';
+import { currentTab, filesWsOf, focusFor, paneShowing, paneTabsOf, placeTab, resetPanelLayout, setPanelTab, setPhoneTab, setPlanTab, showPanelTab, tabShowing, tabsOf, usePanelRuntime, useWorkspaceTabBridge } from '../lib/panel.js';
+import { PANEL_DEFAULT, PANEL_LABELS, type PaneId, type PanelTab, SPLIT_MAX, SPLIT_MIN, PANES_DEFAULT, clampShare, paneKey, panelDigit, panelFits, panelWidthFor, panelWidthPatch, slotOf, viewsOf } from '../lib/panel-model.js';
+import { channelOf } from '@beluga/core/store.js';
+import { planForHome } from '@beluga/core/plans/model.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { useMaking } from '../lib/making.js';
 import { Inspector } from './Inspector.js';
@@ -21,6 +23,7 @@ import { BackgroundTab, useBackgroundRunning } from './panel/BackgroundTab.js';
 import s from './panel/panel.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 
+const ChatPlanPanel = lazy(() => import('../plans/ChatPlanPanel.js').then((m) => ({ default: m.ChatPlanPanel })));
 const PhonePanel = lazy(() => import('../phone/PhoneView.js').then((m) => ({ default: m.PhonePanel })));
 
 const ICONS: Record<PanelTab, IconName> = {
@@ -32,6 +35,7 @@ const ICONS: Record<PanelTab, IconName> = {
   scratch: 'pulse',
   background: 'play',
   phone: 'phone',
+  plan: 'flag',
 };
 const SLIDE_MS = 200;
 const STEP = 24;
@@ -319,8 +323,33 @@ const Body = memo(function Body({ tab, wsId, projectId, mainId, sharedWs }: { ta
     }
     case 'phone':
       return <PhonePanel />;
+    case 'plan':
+      return wsId ? <ChatPlanPanel key={wsId} channel={channelOf({ kind: 'workspace', id: wsId, tab: 'chat' })} /> : null;
   }
 });
+
+/**
+ * The Plan tab (chatPlans) is there while the chat on screen has plans of its own, and opens by
+ * itself when the chat becomes a plan home (its agent's plan_open, Plan with Tasks).
+ */
+function usePlanTabBridge(): void {
+  const { client } = useBeluga();
+  const view = useApp((st) => st.view);
+  const on = useApp((st) => st.prefs.chatPlans);
+  const channel = view.kind === 'workspace' ? channelOf(view) : undefined;
+  const has = useApp((st) => Boolean(on && channel && st.plans.plans.some((p) => p.home === channel)));
+  const current = useApp((st) => (on && channel ? planForHome(st.plans, channel)?.id : undefined));
+  const wsId = view.kind === 'workspace' ? view.id : undefined;
+  useEffect(() => setPlanTab(has ? wsId : undefined), [has, wsId]);
+  // Re-draw when it comes or goes (the tabs are worked out from it).
+  usePanelRuntime((r) => r.planChat);
+  const seen = useRef<{ channel?: string | undefined; plan?: string | undefined }>({});
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = { channel, plan: current };
+    if (current && was.channel === channel && was.plan !== current) showPanelTab(client.store.getState(), 'plan');
+  }, [client, channel, current]);
+}
 
 /** The Phone tab is there while an Android phone is paired (BLG-186). */
 function usePhoneTabBridge(): void {
@@ -395,6 +424,7 @@ export function RightPanel() {
   const { client } = useBeluga();
   useWorkspaceTabBridge(client);
   usePhoneTabBridge();
+  usePlanTabBridge();
   useFileFollow();
   const prefs = usePrefs();
   const view = useApp((st) => st.view);
@@ -405,7 +435,9 @@ export function RightPanel() {
   const inner = useRef<HTMLDivElement>(null);
   // The center keeps its room beside the sidebar (when it shows): the panel stops growing there.
   const sidebarWidth = prefs.sidebar ? prefs.sidebarWidth : 0;
-  const width = clampPanelWidth(drag ?? prefs.panelWidth, windowWidth, sidebarWidth);
+  // The Plan tab has a width of its own (first: the Plan page's proportions); every other tab shares panelWidth.
+  const planShowing = tabShowing(state, 'plan', prefs);
+  const width = drag !== undefined ? panelWidthFor(planShowing, { panelWidth: drag, planPanelWidth: drag }, windowWidth, sidebarWidth) : panelWidthFor(planShowing, prefs, windowWidth, sidebarWidth);
   // Not beside a plan: its chat is the page's right side (your choice stays for everywhere else).
   const open = prefs.inspector && panelFits(view);
   const presence = usePresence(open, SLIDE_MS);
@@ -425,18 +457,11 @@ export function RightPanel() {
             className={s.edge}
             onMove={(x) => setDrag(window.innerWidth - x)}
             onEnd={() => {
-              if (drag !== undefined)
-                setPrefs({
-                  panelWidth: clampPanelWidth(drag, window.innerWidth, sidebarWidth),
-                });
+              if (drag !== undefined) setPrefs(panelWidthPatch(planShowing, drag, window.innerWidth, sidebarWidth));
               setDrag(undefined);
             }}
-            onReset={() => setPrefs({ panelWidth: PANEL_DEFAULT })}
-            onStep={(dir) =>
-              setPrefs({
-                panelWidth: clampPanelWidth(width + dir * STEP, window.innerWidth, sidebarWidth),
-              })
-            }
+            onReset={() => setPrefs(planShowing ? { planPanelWidth: undefined } : { panelWidth: PANEL_DEFAULT })}
+            onStep={(dir) => setPrefs(panelWidthPatch(planShowing, width + dir * STEP, window.innerWidth, sidebarWidth))}
           />
           <Pane pane="top" lead badges={badges} settled={slide.settled} style={both ? { flex: `0 0 ${Math.round(split * 100)}%` } : undefined} />
           {both ? (
