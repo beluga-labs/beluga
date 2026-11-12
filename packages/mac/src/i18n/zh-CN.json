@@ -369,6 +369,7 @@
  "Not in this chat": "不在这个聊天中",
  "Only this chat: people you add see its conversation and Scratch, and can ask your agent here. Friends get it over the Beluga network, so nobody needs to be in your room.": "仅限这个聊天：你添加的人可以看到它的对话和草稿区，并可以在这里请求你的智能体。好友通过 Beluga 网络获得它，所以不需要任何人在你的房间里。",
  "Only this chat: people you add see its conversation, files and Scratch, and can ask your agent here. Friends get it over the Beluga network, so nobody needs to be in your room.": "仅限这个聊天：你添加的人可以看到它的对话、文件和草稿区，并可以在这里请求你的智能体。好友通过 Beluga 网络获得它，所以不需要任何人在你的房间里。",
+ "Share this chat": "共享这个聊天",
  "Share your chats one at a time": "请一次共享一个聊天",
  "{0} gets a copy of its commits, uncommitted changes, Scratch and conversation. It opens here in a moment.": "{0} 会得到它的提交、未提交的改动、草稿和对话的副本。马上会在这里打开。",
  "Forking {0} into {1}: copying its changes, Scratch and conversation. You can write here in a moment.": "正在把 {0} 分叉为 {1}：正在复制它的改动、草稿和对话。马上就可以在这里输入。",
