@@ -483,6 +483,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   'apps.get': 'drive',
   'apps.call': 'drive',
   'apps.read': 'drive',
+  'apps.message': 'drive',
+  'apps.context': 'drive',
   // ---- dialogues
   'dialogues.start': 'drive',
   'dialogues.confirm': 'drive',

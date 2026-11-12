@@ -1,6 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppActResult, AppReadResult, AppStepRef, AppToolResult, McpAppView } from '@beluga/shared/mcp-apps.js';
+import type { DisplayMode } from '@beluga/mcp-apps/domain/app-requests.js';
 import { useApi } from '../../lib/beluga.js';
+import { openExternal } from '../../lib/system.js';
 import { AppBridge, type HostContext, MAX_APP_HEIGHT, type ToolResultParams } from './bridge.js';
 import s from './mcp-app.module.css';
 
@@ -36,6 +38,7 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<AppBridge | undefined>(undefined);
   const [height, setHeight] = useState(FIRST_HEIGHT);
+  const [mode, setMode] = useState<DisplayMode>('inline');
   const result = useMemo(() => resultOf(view), [view]);
 
   // One bridge per frame address: it answers only the frame's own window.
@@ -51,6 +54,10 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
         // Beluga gates both (own server, 'app' visibility, readOnly or your Allow).
         call: (name, args) => api.apps.call(at.channel, at.itemId, at.stepId, name, args) as Promise<AppActResult<AppToolResult>>,
         read: (uri) => api.apps.read(at.channel, at.itemId, at.stepId, uri) as Promise<AppActResult<AppReadResult>>,
+        message: (params) => api.apps.message(at.channel, at.itemId, at.stepId, asParams(params)) as Promise<AppActResult<object>>,
+        context: (params) => api.apps.context(at.channel, at.itemId, at.stepId, asParams(params)) as Promise<AppActResult<object>>,
+        openLink: (url) => void openExternal(url),
+        displayMode: setMode,
       },
     );
     bridge.current = b;
@@ -71,8 +78,33 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
     if (result) bridge.current?.setResult(result);
   }, [result]);
 
+  // Esc leaves fullscreen, and the app is told.
+  useEffect(() => {
+    if (mode !== 'fullscreen') return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      setMode('inline');
+      bridge.current?.setDisplayMode('inline');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode]);
+
   return (
-    <div className={s.app} data-mcp-app={view.tool} data-border={view.prefersBorder === false ? 'none' : undefined}>
+    // Fullscreen is the same frame drawn over the window (never a new one: the app keeps its state).
+    <div className={s.app} data-mcp-app={view.tool} data-border={view.prefersBorder === false ? 'none' : undefined} data-mode={mode}>
+      {mode === 'fullscreen' ? (
+        <button
+          type="button"
+          className={s.exit}
+          onClick={() => {
+            setMode('inline');
+            bridge.current?.setDisplayMode('inline');
+          }}
+        >
+          Exit Full Screen
+        </button>
+      ) : null}
       <iframe
         ref={frame}
         className={s.frame}
@@ -80,7 +112,7 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
         title={`${view.tool} · ${view.server}`}
         sandbox="allow-scripts allow-same-origin allow-forms"
         referrerPolicy="no-referrer"
-        style={{ height: Math.min(height, MAX_APP_HEIGHT) }}
+        style={mode === 'fullscreen' ? undefined : { height: Math.min(height, MAX_APP_HEIGHT) }}
       />
     </div>
   );
@@ -91,6 +123,11 @@ function resultOf(view: OkView): ToolResultParams | undefined {
   const r = view.result;
   if (!r) return undefined;
   return { content: r.text !== undefined ? [{ type: 'text', text: r.text }] : [], ...(r.structuredContent !== undefined ? { structuredContent: r.structuredContent } : {}), ...(r.isError ? { isError: true } : {}) };
+}
+
+/** What the app sent, as the IPC's object (the bridge forwards only objects; anything else is an empty one, refused there). */
+function asParams(params: unknown): Record<string, unknown> {
+  return params && typeof params === 'object' && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
 }
 
 function hostContext(el: HTMLElement): HostContext {

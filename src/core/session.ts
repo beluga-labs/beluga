@@ -708,6 +708,20 @@ export class Session {
   }
 
   /**
+   * A message an MCP App in this conversation posts for you (ui/message, Settings › Experimental ›
+   * MCP Apps): said in the chat as yours, marked as the app's (`app`: its tool), and asked of your
+   * Claude like a line you typed. Only in a conversation of your own Claude (not the group chat).
+   */
+  askFromApp(text: string, channel: string, app: string): boolean {
+    if (channel === 'room' || this.sharing.sharedFor(channel)) return false;
+    const requestId = randomUUID();
+    const running = this.host.runningIn(channel);
+    const id = chatMessageId(this.selfId, randomUUID(), '');
+    this.store.dispatch({ type: 'chat', id, from: this.selfId, text: text.slice(0, MAX_TEXT), ts: Date.now(), byAgent: false, channel, request: requestId, fromApp: app, ...(running ? { queued: true as const } : {}) });
+    return this.askOwnClaude(text, channel, false, false, requestId) !== undefined;
+  }
+
+  /**
    * A turn a plan starts by itself. In a worktree an external agent started it stays at that agent's
    * level, and ends with its grant: a plan's brief must not lift it to yours.
    */

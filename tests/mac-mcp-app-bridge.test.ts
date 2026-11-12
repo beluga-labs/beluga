@@ -170,3 +170,102 @@ describe('AppBridge tools/call and resources/read', () => {
     expect(posted[0]).toMatchObject({ error: { code: -32601 } });
   });
 });
+
+describe('AppBridge talks back: ui/message, ui/update-model-context, ui/open-link, ui/request-display-mode', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  function talking(over: Partial<import('../packages/mac/src/chat/mcp-app/bridge.js').BridgeEffects> = {}) {
+    const posted: Array<Record<string, unknown>> = [];
+    const messages: unknown[] = [];
+    const contexts: unknown[] = [];
+    const links: string[] = [];
+    const modes: string[] = [];
+    const bridge = new AppBridge(INIT, {
+      post: (m) => posted.push(m as Record<string, unknown>),
+      size: () => undefined,
+      message: async (p) => (messages.push(p), { ok: true, result: {} }),
+      context: async (p) => (contexts.push(p), { ok: true, result: {} }),
+      openLink: (url) => void links.push(url),
+      displayMode: (mode) => void modes.push(mode),
+      ...over,
+    });
+    const send = (data: unknown) => bridge.receive(FRAME, FRAME, data);
+    return { posted, messages, contexts, links, modes, send };
+  }
+
+  it('advertises what it can do, and the display modes it has', () => {
+    const { posted, send } = talking();
+    send(initialize);
+    const result = posted[0]!.result as { hostCapabilities: Record<string, unknown>; hostContext: Record<string, unknown> };
+    expect(result.hostCapabilities).toMatchObject({ openLinks: {}, message: {}, updateModelContext: {} });
+    expect(result.hostContext.availableDisplayModes).toEqual(['inline', 'fullscreen']);
+  });
+
+  it('forwards ui/message and answers once it went', async () => {
+    const { posted, messages, send } = talking();
+    const params = { role: 'user', content: [{ type: 'text', text: 'Set an alarm' }] };
+    send({ jsonrpc: '2.0', id: 1, method: 'ui/message', params });
+    await tick();
+    expect(messages).toEqual([params]);
+    expect(posted[0]).toEqual({ jsonrpc: '2.0', id: 1, result: {} });
+  });
+
+  it('answers a ui/message Beluga refused with an error', async () => {
+    const { posted, send } = talking({ message: async () => ({ ok: false, reason: 'refused', message: 'no text' }) });
+    send({ jsonrpc: '2.0', id: 2, method: 'ui/message', params: {} });
+    await tick();
+    expect(posted[0]).toMatchObject({ id: 2, error: { message: 'no text' } });
+  });
+
+  it('forwards ui/update-model-context', async () => {
+    const { posted, contexts, send } = talking();
+    const params = { content: [{ type: 'text', text: 'Alarm 7:30' }] };
+    send({ jsonrpc: '2.0', id: 3, method: 'ui/update-model-context', params });
+    await tick();
+    expect(posted[0]).toEqual({ jsonrpc: '2.0', id: 3, result: {} });
+    expect(contexts).toEqual([params]);
+  });
+
+  it('opens http(s) links, and refuses any other scheme without opening it', () => {
+    const { posted, links, send } = talking();
+    send({ jsonrpc: '2.0', id: 4, method: 'ui/open-link', params: { url: 'https://example.com' } });
+    send({ jsonrpc: '2.0', id: 5, method: 'ui/open-link', params: { url: 'file:///etc/passwd' } });
+    send({ jsonrpc: '2.0', id: 6, method: 'ui/open-link', params: { url: 'javascript:alert(1)' } });
+    expect(links).toEqual(['https://example.com']);
+    expect(posted[0]).toEqual({ jsonrpc: '2.0', id: 4, result: {} });
+    expect(posted.slice(1).map((m) => (m.error as { code: number }).code)).toEqual([-32602, -32602]);
+  });
+
+  it('goes fullscreen and back: answers the mode set, and tells the app its context changed', () => {
+    const { posted, modes, send } = talking();
+    send({ jsonrpc: '2.0', id: 7, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } });
+    expect(modes).toEqual(['fullscreen']);
+    expect(posted[0]).toEqual({ jsonrpc: '2.0', id: 7, result: { mode: 'fullscreen' } });
+    expect(posted[1]).toEqual({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'fullscreen' } });
+    send({ jsonrpc: '2.0', id: 8, method: 'ui/request-display-mode', params: { mode: 'inline' } });
+    expect(modes).toEqual(['fullscreen', 'inline']);
+    expect(posted[2]).toEqual({ jsonrpc: '2.0', id: 8, result: { mode: 'inline' } });
+  });
+
+  it('refuses a display mode it doesn’t have, and stays as it is', () => {
+    const { posted, modes, send } = talking();
+    send({ jsonrpc: '2.0', id: 9, method: 'ui/request-display-mode', params: { mode: 'pip' } });
+    expect(modes).toEqual([]);
+    expect(posted[0]).toMatchObject({ id: 9, error: { code: -32602 } });
+  });
+
+  it('asking for the mode it is in already changes nothing, and says so', () => {
+    const { posted, modes, send } = talking();
+    send({ jsonrpc: '2.0', id: 10, method: 'ui/request-display-mode', params: { mode: 'inline' } });
+    expect(modes).toEqual([]);
+    expect(posted).toEqual([{ jsonrpc: '2.0', id: 10, result: { mode: 'inline' } }]);
+  });
+
+  it('tells the app when the host leaves fullscreen by itself (Esc)', () => {
+    const posted: Array<Record<string, unknown>> = [];
+    const bridge = new AppBridge(INIT, { post: (m) => posted.push(m as Record<string, unknown>), size: () => undefined, displayMode: () => undefined });
+    bridge.receive(FRAME, FRAME, { jsonrpc: '2.0', id: 1, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } });
+    bridge.setDisplayMode('inline');
+    expect(posted.at(-1)).toEqual({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: 'inline' } });
+  });
+});

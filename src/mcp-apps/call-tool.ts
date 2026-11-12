@@ -1,7 +1,7 @@
 import type { AppActResult, AppReadResult, AppStepRef, AppToolResult } from '../shared/mcp-apps.js';
-import type { StepRecord } from '../shared/steps.js';
 import { gateToolCall } from './domain/tool-gate.js';
 import type { McpAppServer } from './ports/app-server.js';
+import { type StepAppDeps, appOnStep } from './step-app.js';
 
 /**
  * `apps.call` and `apps.read`: an app acting on its own server (SEP-1865 tools/call and
@@ -12,10 +12,7 @@ import type { McpAppServer } from './ports/app-server.js';
 
 export type AskAnswer = 'yes' | 'no' | 'always';
 
-export interface AppActDeps {
-  /** The experiment is on. */
-  readonly on: () => boolean;
-  readonly step: (channel: string, itemId: string, stepId: string) => StepRecord | undefined;
+export interface AppActDeps extends StepAppDeps {
   readonly server: McpAppServer;
   /** Allow / Allow Always / Decline, in the app's chat. */
   readonly ask: (server: string, tool: string, channel: string) => Promise<AskAnswer>;
@@ -25,12 +22,10 @@ export interface AppActDeps {
 /** The most characters (as JSON) of arguments an app may send. */
 export const ARGS_MAX = 256_000;
 
-const OFF = 'MCP Apps are off. They’re an experimental feature: turn them on in Settings › Experimental.';
-
 export async function callAppTool(deps: AppActDeps, ref: AppStepRef, tool: string, args: Readonly<Record<string, unknown>>): Promise<AppActResult<AppToolResult>> {
-  const place = appOf(deps, ref);
+  const place = appOnStep(deps, ref);
   if (!place.ok) return place;
-  const server = place.result;
+  const server = place.result.server;
   if (!fits(args)) return { ok: false, reason: 'refused', message: 'Its arguments are too big.' };
   try {
     const listed = (await deps.server.tools(server)).find((t) => t.name === tool);
@@ -48,11 +43,11 @@ export async function callAppTool(deps: AppActDeps, ref: AppStepRef, tool: strin
 }
 
 export async function readAppResource(deps: AppActDeps, ref: AppStepRef, uri: string): Promise<AppActResult<AppReadResult>> {
-  const place = appOf(deps, ref);
+  const place = appOnStep(deps, ref);
   if (!place.ok) return place;
   if (!uri.startsWith('ui://')) return { ok: false, reason: 'refused', message: 'An app may only read ui:// resources.' };
   try {
-    return { ok: true, result: await deps.server.read(place.result, uri) };
+    return { ok: true, result: await deps.server.read(place.result.server, uri) };
   } catch (err) {
     return failed(err);
   }
@@ -69,13 +64,6 @@ export class AppAlways {
   add(server: string, tool: string): void {
     this.allowed.add(key(server, tool));
   }
-}
-
-/** The server of the app on that step. */
-function appOf(deps: AppActDeps, ref: AppStepRef): AppActResult<string> {
-  if (!deps.on()) return { ok: false, reason: 'off', message: OFF };
-  const app = deps.step(ref.channel, ref.itemId, ref.stepId)?.app;
-  return app ? { ok: true, result: app.server } : { ok: false, reason: 'missing', message: 'This step has no app on this computer.' };
 }
 
 function fits(args: unknown): boolean {

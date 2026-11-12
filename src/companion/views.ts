@@ -456,9 +456,9 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
   if (item.type === 'chat') {
     const who = item.byAgent ? 'claude' : item.from === me ? 'you' : 'friend';
     const prose = who === 'claude' ? pictures(proseOf(item.text)) : proseOf(item.text);
-    const edit = who === 'you' && !steer && !item.via ? editOf(state, item.channel, item.text, prose) : undefined;
+    const edit = who === 'you' && !steer && !item.via && !item.fromApp ? editOf(state, item.channel, item.text, prose) : undefined;
     const reactions = reactableChannel(item.channel) ? chipsView(state, chatReactions(item), me) : undefined;
-    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), ...(item.via ? { via: clip(item.via.name, 80) } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}), ...(reactableChannel(item.channel) ? { reactable: true } : {}), ...(reactions ? { reactions } : {}) };
+    return { id: item.id, who, name: clip(who === 'you' ? myName(state) : item.name, 100), ...(who === 'claude' ? { agent: item.agent ?? CLAUDE_AGENT } : {}), ...(item.via ? { via: clip(item.via.name, 80) } : item.fromApp ? { via: clip(`the ${item.fromApp} app`, 80) } : {}), prose, ts: item.ts, ...(steer && who === 'you' ? { steer: { request: clip(steer.request, 200), waiting: steer.waiting } } : {}), ...(edit ? { edit } : {}), ...(reactableChannel(item.channel) ? { reactable: true } : {}), ...(reactions ? { reactions } : {}) };
   }
   if (item.type === 'system') {
     // Earlier lines of a shared workspace's conversation ("bob: …") read as that person's turn.

@@ -1,5 +1,6 @@
 import type { McpAppView } from '../shared/mcp-apps.js';
 import type { StepRecord } from '../shared/steps.js';
+import { APPS_OFF } from './step-app.js';
 
 /**
  * `apps.get`: the app of one step of your Claude's work: the frame to draw it in, with the tool
@@ -15,7 +16,7 @@ export interface GetAppDeps {
 }
 
 export async function getApp(deps: GetAppDeps, channel: string, itemId: string, stepId: string): Promise<McpAppView> {
-  if (!deps.on()) return { ok: false, reason: 'off', message: 'MCP Apps are off. They’re an experimental feature: turn them on in Settings › Experimental.' };
+  if (!deps.on()) return { ok: false, reason: 'off', message: APPS_OFF };
   const step = deps.step(channel, itemId, stepId);
   const app = step?.app;
   if (!step || !app) return { ok: false, reason: 'missing', message: 'This step has no app on this computer.' };

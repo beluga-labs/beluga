@@ -2,7 +2,9 @@ import type { Session } from '../core/session.js';
 import { McpAppHost } from '../mcp-apps/adapters/app-host.js';
 import { McpAppFrames } from '../mcp-apps/frames.js';
 import { type AppActDeps, AppAlways, callAppTool, readAppResource } from '../mcp-apps/call-tool.js';
+import { appContextsOf } from '../mcp-apps/contexts.js';
 import { getApp } from '../mcp-apps/get-app.js';
+import { type AppTalkDeps, postAppMessage, setAppContext } from '../mcp-apps/talk.js';
 import { FRAME_ANCESTORS } from '../preview/server.js';
 import { experimentOn } from '../shared/experiments.js';
 import type { Args, Method } from './api.js';
@@ -39,6 +41,16 @@ function actDeps(s: Session): AppActDeps {
   };
 }
 
+/** What an app talks back through: your chat with your Claude, and the next turn's context. */
+function talkDeps(s: Session): AppTalkDeps {
+  return {
+    on: () => on(s),
+    step: (c, i, st) => s.host.stepFor(c, i, st),
+    post: (text, channel, app) => s.askFromApp(text, channel, app),
+    contexts: appContextsOf(s),
+  };
+}
+
 export const MCP_APPS_HANDLERS = {
   'apps.get': (s, channel, itemId, stepId) =>
     getApp(
@@ -58,4 +70,6 @@ export const MCP_APPS_HANDLERS = {
     ),
   'apps.call': (s, channel, itemId, stepId, tool, args) => callAppTool(actDeps(s), { channel, itemId, stepId }, tool, args),
   'apps.read': (s, channel, itemId, stepId, uri) => readAppResource(actDeps(s), { channel, itemId, stepId }, uri),
+  'apps.message': (s, channel, itemId, stepId, params) => postAppMessage(talkDeps(s), { channel, itemId, stepId }, params),
+  'apps.context': (s, channel, itemId, stepId, params) => setAppContext(talkDeps(s), { channel, itemId, stepId }, params),
 } satisfies AppsHandlers;

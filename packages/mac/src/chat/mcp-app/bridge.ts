@@ -1,11 +1,13 @@
+import { type DisplayMode, displayModeOf, isOpenableLink } from '../../../../../src/mcp-apps/domain/app-requests.js';
 import type { AppActResult, AppReadResult, AppToolResult } from '../../../../../src/shared/mcp-apps.js';
 
 /**
  * The host side of the MCP Apps bridge (SEP-1865): JSON-RPC 2.0 over postMessage with one app's
  * frame. It answers `ui/initialize`, hands the app the tool's input and result, follows its size,
- * and forwards the app's tools/call and resources/read to Beluga (apps.call, apps.read: gated
- * there). Every request it doesn't offer is answered method-not-found. Messages from any window
- * but the app's own are ignored. Pure: the frame and React wire it up.
+ * and forwards what the app asks of Beluga (tools/call, resources/read, ui/message,
+ * ui/update-model-context: checked there), opens its http(s) links and switches it between inline
+ * and fullscreen. Every request it doesn't offer is answered method-not-found. Messages from any
+ * window but the app's own are ignored. Pure: the frame and React wire it up.
  */
 
 export const PROTOCOL_VERSION = '2026-01-26';
@@ -19,7 +21,8 @@ const NOT_RUN = -32000;
 
 export interface HostContext {
   readonly theme: 'light' | 'dark';
-  readonly displayMode: 'inline';
+  readonly displayMode: DisplayMode;
+  readonly availableDisplayModes?: readonly DisplayMode[];
   readonly containerDimensions: { readonly maxHeight: number; readonly width?: number };
   readonly locale: string;
   readonly platform: 'desktop';
@@ -48,7 +51,17 @@ export interface BridgeEffects {
   call?(name: string, args: Readonly<Record<string, unknown>>): Promise<AppActResult<AppToolResult>>;
   /** resources/read on the app's own server (apps.read). */
   read?(uri: string): Promise<AppActResult<AppReadResult>>;
+  /** ui/message: said in the chat as the app's, and asked of your Claude (apps.message). */
+  message?(params: unknown): Promise<AppActResult<object>>;
+  /** ui/update-model-context: for your Claude's next turn (apps.context). */
+  context?(params: unknown): Promise<AppActResult<object>>;
+  /** ui/open-link, an http(s) URL already checked: open it in the browser. */
+  openLink?(url: string): void;
+  /** ui/request-display-mode: draw the app this way now. */
+  displayMode?(mode: DisplayMode): void;
 }
+
+const MODES: readonly DisplayMode[] = ['inline', 'fullscreen'];
 
 interface RpcMessage {
   readonly jsonrpc: '2.0';
@@ -62,12 +75,14 @@ export class AppBridge {
   private result: ToolResultParams | undefined;
   private resultSent = false;
   private nextId = 1;
+  private mode: DisplayMode;
 
   constructor(
     private readonly init: BridgeInit,
     private readonly fx: BridgeEffects,
   ) {
     this.result = init.result;
+    this.mode = init.hostContext.displayMode;
   }
 
   /** A message event: `source` is who sent it, `frame` the app's own window. */
@@ -83,6 +98,13 @@ export class AppBridge {
     this.sendResult();
   }
 
+  /** The host changed the app's display mode by itself (Esc left fullscreen): the app is told. */
+  setDisplayMode(mode: DisplayMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.fx.post({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: mode } });
+  }
+
   /** The app is going away: it may save what it holds. */
   teardown(): void {
     this.fx.post({ jsonrpc: '2.0', id: `teardown-${this.nextId++}`, method: 'ui/resource-teardown', params: {} });
@@ -93,7 +115,7 @@ export class AppBridge {
       return this.fx.post({
         jsonrpc: '2.0',
         id,
-        result: { protocolVersion: PROTOCOL_VERSION, hostInfo: { name: 'Beluga', version: '1' }, hostCapabilities: this.capabilities(), hostContext: this.init.hostContext },
+        result: { protocolVersion: PROTOCOL_VERSION, hostInfo: { name: 'Beluga', version: '1' }, hostCapabilities: this.capabilities(), hostContext: this.hostContext() },
       });
     }
     if (method === 'ping') return this.fx.post({ jsonrpc: '2.0', id, result: {} });
@@ -107,12 +129,41 @@ export class AppBridge {
       if (typeof p?.uri !== 'string' || !p.uri) return this.error(id, INVALID_PARAMS, 'resources/read needs a uri.');
       return this.answer(id, this.fx.read(p.uri));
     }
+    if (method === 'ui/message' && this.fx.message) return this.answer(id, this.fx.message(params));
+    if (method === 'ui/update-model-context' && this.fx.context) return this.answer(id, this.fx.context(params));
+    if (method === 'ui/open-link' && this.fx.openLink) {
+      if (!isOpenableLink(p?.url)) return this.error(id, INVALID_PARAMS, 'Only http and https links open.');
+      this.fx.openLink(p.url);
+      return this.fx.post({ jsonrpc: '2.0', id, result: {} });
+    }
+    if (method === 'ui/request-display-mode' && this.fx.displayMode) return this.requestMode(id, p?.mode);
     this.error(id, METHOD_NOT_FOUND, `Method not found: ${method}`);
   }
 
   /** What this host offers the app, as SEP-1865 names it. */
   private capabilities(): Record<string, object> {
-    return { ...(this.fx.call ? { serverTools: {} } : {}), ...(this.fx.read ? { serverResources: {} } : {}) };
+    return {
+      ...(this.fx.call ? { serverTools: {} } : {}),
+      ...(this.fx.read ? { serverResources: {} } : {}),
+      ...(this.fx.message ? { message: {} } : {}),
+      ...(this.fx.context ? { updateModelContext: {} } : {}),
+      ...(this.fx.openLink ? { openLinks: {} } : {}),
+    };
+  }
+
+  private hostContext(): HostContext {
+    return { ...this.init.hostContext, displayMode: this.mode, ...(this.fx.displayMode ? { availableDisplayModes: MODES } : {}) };
+  }
+
+  /** Answers with the mode it is in now, then tells the app its context changed (when it did). */
+  private requestMode(id: string | number, asked: unknown): void {
+    const mode = displayModeOf(asked);
+    if (!mode) return this.error(id, INVALID_PARAMS, `Display modes here: ${MODES.join(', ')}.`);
+    const changed = mode !== this.mode;
+    this.mode = mode;
+    if (changed) this.fx.displayMode!(mode);
+    this.fx.post({ jsonrpc: '2.0', id, result: { mode } });
+    if (changed) this.fx.post({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { displayMode: mode } });
   }
 
   private answer(id: string | number, pending: Promise<AppActResult<unknown>>): void {

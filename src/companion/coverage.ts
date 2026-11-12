@@ -531,6 +531,8 @@ export const PHONE: Record<Method, Side> = {
   'apps.get': 'mac',
   'apps.call': 'mac',
   'apps.read': 'mac',
+  'apps.message': 'mac',
+  'apps.context': 'mac',
   'files.searchContent': 'mac',
   'files.searchNames': 'mac',
   'files.save': 'mac',
