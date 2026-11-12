@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StepRecord, StepSummary } from '@beluga/shared/steps.js';
-import { useApi } from '../../lib/beluga.js';
+import { useApi, useScopedKey } from '../../lib/beluga.js';
 import { useWindowActive } from '../../lib/window-active.js';
+import { beat, usePowerSaving } from '../../lib/power.js';
 
 interface Loaded {
   readonly key: string;
@@ -27,7 +28,8 @@ function remember(loaded: Loaded): void {
  */
 export function useAgentSteps(channel: string, itemId: string, running: boolean, change: string, enabled = true): { steps: readonly StepSummary[] | undefined; missing: boolean } {
   const api = useApi();
-  const key = `${channel}/${itemId}`;
+  // A card's steps as its computer has them (BLG-784).
+  const key = useScopedKey(`${channel}/${itemId}`);
   const [state, setState] = useState<Loaded>(() => seen.get(key) ?? { key: '', missing: false });
   const version = useRef<number | undefined>(seen.get(key)?.version);
   const busy = useRef(false);
@@ -74,11 +76,12 @@ export function useAgentSteps(channel: string, itemId: string, running: boolean,
     if (looking) void load();
   }, [load, change, running, looking]);
 
+  const every = beat(1000, usePowerSaving());
   useEffect(() => {
     if (!running || !enabled || !looking) return;
-    const t = setInterval(() => void load(), 1000);
+    const t = setInterval(() => void load(), every);
     return () => clearInterval(t);
-  }, [load, running, enabled, looking]);
+  }, [load, running, enabled, looking, every]);
 
   return state.key === key ? { steps: state.steps, missing: state.missing } : { steps: undefined, missing: false };
 }

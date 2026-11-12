@@ -10,8 +10,17 @@ import { Group, Row, Select, Switch } from './settings-controls.js';
 import s from './settings.module.css';
 import t from './terminal-settings.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
+import { thisComputer } from '../lib/os-words.js';
+import { keyPlatform, type KeyPlatform } from '../lib/shortcuts-model.js';
 
 const OTHER = '__other';
+
+/** A shell's full path as this computer writes one, and an example (Homebrew's fish on a Mac). */
+const SHELL_PATH: Readonly<Record<KeyPlatform, { readonly full: RegExp; readonly start: string; readonly example: string }>> = {
+  mac: { full: /^\//, start: 'Start with /', example: '/opt/homebrew/bin/fish' },
+  linux: { full: /^\//, start: 'Start with /', example: '/usr/bin/fish' },
+  windows: { full: /^([a-z]:[\\/]|\\\\)/i, start: 'Start with the drive', example: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' },
+};
 
 /** Which shell new terminals run, and how it starts (Beluga's setting, not just this window's). */
 function ShellGroup() {
@@ -27,6 +36,7 @@ function ShellGroup() {
     setArgs(joinArgs(p.shellArgs));
   }, [p.shellArgs]);
   const picked = other ? OTHER : (p.shell ?? '');
+  const shellPath = SHELL_PATH[keyPlatform()];
   const savePath = (): void => {
     const next = path.trim();
     if (next && next !== p.shell) void api.session.setPrefs({ shell: next });
@@ -39,7 +49,8 @@ function ShellGroup() {
           value={picked}
           onChange={(v) => {
             setOther(v === OTHER);
-            if (v !== OTHER) void api.session.setPrefs({ shell: v || undefined });
+            // The login shell is "no shell set": null, since JSON drops undefined on the way to the daemon.
+            if (v !== OTHER) void api.session.setPrefs({ shell: v || null });
           }}
           options={[
             { value: '', label: login ? `Login shell (${login.name})` : 'Login shell' },
@@ -49,14 +60,14 @@ function ShellGroup() {
         />
       </Row>
       {other ? (
-        <Row label="Path" detail={path && !path.startsWith('/') ? 'Start with / (e.g. /opt/homebrew/bin/fish).' : path ? `Runs ${shellName(path)}.` : undefined}>
+        <Row label="Path" detail={path && !shellPath.full.test(path) ? `${shellPath.start} (e.g. ${shellPath.example}).` : path ? `Runs ${shellName(path)}.` : undefined}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               savePath();
             }}
           >
-            <input className={cx(s.text, t.mono)} aria-label="Shell path" value={path} placeholder="/opt/homebrew/bin/fish" spellCheck={false} onChange={(e) => setPath(e.target.value)} onBlur={savePath} />
+            <input className={cx(s.text, t.mono)} aria-label="Shell path" value={path} placeholder={shellPath.example} spellCheck={false} onChange={(e) => setPath(e.target.value)} onBlur={savePath} />
           </form>
         </Row>
       ) : null}
@@ -77,11 +88,11 @@ function ShellGroup() {
   );
 }
 
-/** How the terminal looks in this window (kept on this Mac). */
+/** How the terminal looks in this window (kept on this computer). */
 function LookGroup() {
   const prefs = usePrefs();
   return (
-    <Group title="Appearance on this Mac">
+    <Group title={`Appearance on ${thisComputer()}`}>
       <div className={t.previewRow}>
         <TermPreview prefs={prefs} />
       </div>
@@ -112,9 +123,12 @@ function LookGroup() {
       <Row label="Scrollback" detail="Lines you can scroll back through, per terminal.">
         <Select label="Scrollback" value={String(prefs.termScrollback)} onChange={(v) => setPrefs({ termScrollback: Number(v) })} options={SCROLLBACK_CHOICES.map((n) => ({ value: String(n), label: `${n.toLocaleString()} lines` }))} />
       </Row>
-      <Row label="Option key as Meta" detail={prefs.termOptionMeta ? 'Option+B and Option+F move by word in the shell.' : 'Option types special characters (é, ©, …).'}>
-        <Switch label="Option key as Meta" on={prefs.termOptionMeta} onChange={(v) => setPrefs({ termOptionMeta: v })} />
-      </Row>
+      {/* Only a Mac's Option key types special characters; Alt is already Meta elsewhere. */}
+      {keyPlatform() === 'mac' ? (
+        <Row label="Option key as Meta" detail={prefs.termOptionMeta ? 'Option+B and Option+F move by word in the shell.' : 'Option types special characters (é, ©, …).'}>
+          <Switch label="Option key as Meta" on={prefs.termOptionMeta} onChange={(v) => setPrefs({ termOptionMeta: v })} />
+        </Row>
+      ) : null}
     </Group>
   );
 }

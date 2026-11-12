@@ -1,16 +1,20 @@
-import type { AgentEventKind, AgentRef, FsEntry, PeerInfo } from '../protocol.js';
+import type { AgentEventKind, AgentRef, ChatOrigin, FsEntry, MessageVia, PeerInfo } from '../protocol.js';
 import { agentName } from '../shared/agent-label.js';
+import { isExternalRequester } from './trust.js';
 import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assistantChannel } from '../shared/assistant.js';
 import type { ConnectionStatus } from '../net/peer-client.js';
 import type { Effort, NotifySettings, Settings, ThemeName, TrustLevel } from './settings.js';
-import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema } from '../shared/settings-schema.js';
+import { BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema, SETTLE_IDLE_DAYS_DEFAULT } from '../shared/settings-schema.js';
 import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
+import type { EnvSendAsk } from '../shared/env-send.js';
+import type { PortForward, PortShare } from '../shared/forwards.js';
 import type { Bitmap } from '../image/bitmap.js';
 import { type CollabAction, type CollabState, initialCollab, reduceCollab } from './collab-store.js';
 import { type SearchState, type WorkAction, type WorkState, initialWork, reduceWork } from './work-store.js';
 import { type NetworkAction, type NetworkSlice, initialNetwork, reduceNetwork } from './network-store.js';
+import { type RevenueCatAction, type RevenueCatSlice, initialRevenueCat, reduceRevenueCat } from './revenuecat-store.js';
 import { type EarningsAction, type EarningsSlice, initialEarnings, reduceEarnings } from './earnings-store.js';
 import { type SupportAction, type SupportSlice, initialSupport } from './support-store.js';
 import { type ClaudeCodeAction, type ClaudeCodeSlice, initialClaudeCode, reduceClaudeCode } from './claude-code/model.js';
@@ -25,8 +29,12 @@ import { type CompactMark, type ContextInfo, applyContextEvent, parseContextEven
 import { AUTO_COMPACT_DEFAULT } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, type SlotWait } from '../shared/run-slots.js';
 import { CHAT_LIMIT_DEFAULT } from '../shared/chat-limit.js';
+import { THREAD_LIMITS_DEFAULT, type ThreadLimits } from '../shared/threads.js';
 import { READS_AFTER_STEP, STOPPING_FOR } from '../shared/claude-notices.js';
+import { type ChatTriage, triageKey } from './triage/model.js';
 import type { CompanionSlice } from '../companion/protocol.js';
+import type { ReactionEvent } from '../shared/reactions.js';
+import { type ChatReactAction, reactOnLog } from './chat-reactions.js';
 
 export type { CompactMark, ContextInfo } from './context-log.js';
 
@@ -71,14 +79,20 @@ export type LogItem =
       readonly byAgent: boolean;
       /** With `byAgent`: which agent wrote it (left out: Claude, from before agents were named). */
       readonly agent?: AgentRef;
+      /** An external agent sent it through its owner's Beluga: the words aren't the sender's. */
+      readonly via?: MessageVia;
       /** The request this message is to your Claude (its card's requestId): how its card's state shows on it (a steer Claude hasn't read yet). */
       readonly request?: string;
       /** Sent to steer the turn your Claude is on (⌥↩): sent but not read until Claude reads it (see shared/claude-notices.ts steeredMessages). */
       readonly steer?: true;
+      /** Sent while your agent works in this conversation (↩ queues it): it waits in the queue, not the chat, until its card says otherwise (see shared/claude-notices.ts asSent). */
+      readonly queued?: true;
       /** A turn of a chaired dialogue (core/dialogues): which one, and its number (0: a person's interjection). */
       readonly dialogue?: DialogueMark;
+      /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
+      readonly reacts?: readonly ReactionEvent[];
     }
-  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly dialogue?: DialogueMark }
+  | { readonly id: string; readonly type: 'system'; readonly channel: string; readonly text: string; readonly ts: number; readonly level: 'info' | 'warn' | 'error'; readonly said?: SaidBy; readonly compact?: CompactMark; readonly shipped?: ShippedMark; readonly merged?: MergedMark; readonly dialogue?: DialogueMark }
   | {
       readonly id: string;
       readonly type: 'agent';
@@ -94,6 +108,8 @@ export type LogItem =
       readonly agent?: AgentRef;
       /** What was asked, once known (sent with the "queued" event, for the queue). */
       readonly prompt?: string;
+      /** BLG-149: an agent in another chat asked, not a person. The chat shows `prompt` as a card with this source. */
+      readonly origin?: ChatOrigin;
       /** Queued only because your Claude works in as many other conversations as it may at once. */
       readonly slotWait?: SlotWait;
       /** When it left the queue (it waited its turn): where the chat draws it and the message it answers (see shared/claude-notices.ts asSent). */
@@ -114,8 +130,16 @@ export type LogItem =
       readonly between?: 'thinking' | 'writing';
       /** Since when it has been `between` that way. */
       readonly betweenAt?: number;
+      /** What it said before a later step: drawn quietly among its steps, not as its answer (see agentRemarks). */
+      readonly remarks?: readonly Remark[];
     }
   | ShellItem;
+
+/** Words Claude said between its steps, and when (a step came after them, so they aren't its answer). */
+export interface Remark {
+  readonly text: string;
+  readonly ts: number;
+}
 
 /**
  * Who wrote a line of a shared workspace's earlier conversation (it arrives as a system line,
@@ -133,6 +157,19 @@ export interface ShippedMark {
 
 /** A shipped divider's words, where it's drawn as plain text (the phone, a log). */
 export const shippedText = (number: number, into: string): string => `Above this line went to PR #${number}, merged into ${into}. New work starts here, for a new pull request.`;
+
+/**
+ * The worktree's work merged (Beluga's Merge, Merge When Ready, on GitHub, or into the main
+ * folder): `number` is its pull request (none: merged without one). Drawn as a divider.
+ */
+export interface MergedMark {
+  readonly into: string;
+  readonly number?: number;
+  readonly url?: string;
+}
+
+/** A merged divider's words, where it's drawn as plain text (the phone, a log). */
+export const mergedText = (m: MergedMark): string => `Above this line was merged into ${m.into}${m.number !== undefined ? ` in PR #${m.number}` : ''}.`;
 
 /** Where a dialogue shows in a conversation: its header card (a system line) and its turns (chat lines). */
 export interface DialogueMark {
@@ -178,8 +215,11 @@ export interface ShellItem {
 
 export interface Approval {
   readonly id: string;
-  /** 'secret': your own Claude wants a .env file (answers: once, always for `project`, always). */
-  readonly kind: 'request' | 'tool' | 'secret';
+  /**
+   * 'secret': your own Claude wants a .env file (answers: once, always for `project`, always).
+   * 'chain': agents in your chats hit a limit on messages to each other (yes: Continue; no: Stop).
+   */
+  readonly kind: 'request' | 'tool' | 'secret' | 'chain';
   readonly title: string;
   readonly detail: string;
   /** A secret's project, by name: "Always for <project>" is offered. */
@@ -193,6 +233,8 @@ export interface Approval {
   readonly task?: string;
   /** Only Allow once / Decline: a friend's request for a secret (trust, rules and Always never cover it). */
   readonly once?: boolean;
+  /** An external agent asks: its name, as NeedsYou shows who it's from. */
+  readonly asker?: string;
   /** The conversation it holds up (a workspace "ws:<id>", Your Mac "mac:assistant:<id>", a friends' chat "dm:<peerId>" / "group:<id>", the Sentinel chat…): the sidebar marks it as needing you, the chat shows it, and Review in Beluga opens it. */
   readonly channel?: string;
 }
@@ -230,6 +272,9 @@ export interface ViewerDomain extends Location {
   /** Decoded pixels when the file is an image. */
   readonly image?: Bitmap;
   readonly truncated: boolean;
+  /** A big file opened by its first piece (BLG-791): where the rest starts, and its size; the reader streams the rest as you scroll. */
+  readonly next?: number;
+  readonly total?: number;
   readonly loading: boolean;
   readonly error?: string;
   readonly by?: string;
@@ -268,6 +313,10 @@ export interface Prefs {
   readonly tunnel: Settings['tunnel'];
   /** Keep the Mac awake while a phone is paired (companion/awake.ts). */
   readonly keepAwake: Settings['keepAwake'];
+  /** Run New Work On (BLG-780): `here`, `best`, or one of your computers by id (src/machines/placement.ts). */
+  readonly runOn: Settings['runOn'];
+  /** Low Power mode: when Beluga saves power (core/power-saver.ts). */
+  readonly lowPower: Settings['lowPower'];
   /** 'never': your own Claude just works; 'ask': it asks before risky actions. */
   readonly selfApproval: 'never' | 'ask';
   readonly notify: NotifySettings;
@@ -285,22 +334,54 @@ export interface Prefs {
   /** Compact a conversation on its own when its context passes `autoCompactAt` percent. */
   readonly autoCompact: boolean;
   readonly autoCompactAt: number;
+  /** After your usage limit resets, the agent that stopped on it continues: off everywhere, in some chats, or this session (shared/auto-continue.ts). */
+  readonly autoContinue: boolean;
+  readonly autoContinueOff: readonly string[];
+  readonly autoContinueSkip: number;
   /** How many conversations your Claude works in at once (see shared/run-slots.ts). */
   readonly parallelRuns: number;
   /** How many chats Your Mac and Sentinel each keep open; 0: no limit (see shared/chat-limit.ts). */
   readonly chatLimit: number;
+  /** Your agents may start child threads (core/threads): off means your runs have no thread tools. */
+  readonly agentThreads: boolean;
+  /** How far those threads go (see shared/threads.ts). */
+  readonly threadLimits: ThreadLimits;
+  /** Sort chats into Inbox, Working, Later and Settled (core/triage). Off: nothing settles, and triage.json only keeps Remind Me Later. */
+  readonly chatCategories: boolean;
+  /** A merged PR settles its chat. */
+  readonly settleOnMerge: boolean;
+  /** Days without activity before a chat settles; 0: never. */
+  readonly settleIdleDays: number;
+  /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
+  readonly pushToPr: boolean;
+  /** A worktree's task moving to In Review has its agent open a draft pull request there (BLG-927). */
+  readonly prOnReview: boolean;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
+  /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
+  readonly experiments: readonly string[];
+  /**
+   * Chat refs, chips and links (shared/chat-ref.ts). Owner: the plan "Communication between chats".
+   * Remove this flag, and turn the feature on for everyone, once that plan has shipped.
+   */
+  readonly chatLinks: boolean;
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
   /** Who may call your Claude into a chat (core/chat/claude.ts). */
   readonly chatClaude: Settings['chatClaude'];
+  /** Who sees your plan usage on your profile (core/gateway: it rides on your card). */
+  readonly shareUsage: Settings['shareUsage'];
+  /** Friends see Seen under their direct messages once one was on your screen (BLG-798). */
+  readonly readReceipts: boolean;
   readonly shell?: string;
   /** Start the terminal's shell as a login shell. */
   readonly shellLogin: boolean;
   /** Extra arguments for the terminal's shell. */
   readonly shellArgs: readonly string[];
+  /** Your own flags for `claude` and `codex`, on your own runs (shared/agent-args.ts). */
+  readonly claudeArgs: readonly string[];
+  readonly codexArgs: readonly string[];
   /** The currency every earnings total is shown in (lowercase ISO code; undefined: the one most was earned in). */
   readonly earningsCurrency?: string;
 }
@@ -352,6 +433,8 @@ export type View =
   /** GitHub issues (Mac app): one project's issues (the one you were last in when unset), and one issue's page. */
   | { readonly kind: 'issues'; readonly projectId?: string }
   | { readonly kind: 'gh_issue'; readonly projectId: string; readonly number: number }
+  /** GitHub pull requests (Mac app): one project's open pull requests, anyone's (the one you were last in when unset). */
+  | { readonly kind: 'pulls'; readonly projectId?: string }
   /** GitHub Actions (Mac app): one project's workflow runs, or its workflows drawn as graphs; and one run's page (its jobs and steps, live). */
   | { readonly kind: 'actions'; readonly projectId?: string; readonly page?: 'workflows' }
   | { readonly kind: 'gh_run'; readonly projectId: string; readonly runId: number }
@@ -370,7 +453,13 @@ export type View =
   /** Sentinel › Dashboard (docs/sentinel.md §10): your dashboards, one open (none: the first). */
   | { readonly kind: 'dashboard'; readonly id?: string }
   /** The Sentinel chat (docs/sentinel.md §12), one of its conversations (none: the first), docked beside Sentinel's page, or beside a sentinel's own page (`about`, its id) when you asked from there. */
-  | { readonly kind: 'sentinel_chat'; readonly chat?: string; readonly about?: string };
+  | { readonly kind: 'sentinel_chat'; readonly chat?: string; readonly about?: string }
+  /**
+   * A page on one of your computers (BLG-784, Mac app): the app draws `view` itself, with that
+   * computer's state and calls (its screen over /machine/<id>). Only this window's screen has it;
+   * the computer's own screen shows `view`.
+   */
+  | { readonly kind: 'machine'; readonly machine: string; readonly view: View };
 
 /** Tabs of a workspace someone shared with you: the chat, its files, a read-only shell over them, and what changed. */
 export type SharedTab = 'chat' | 'files' | 'terminal' | 'diff';
@@ -425,6 +514,13 @@ export const channelOf = (view: View): string =>
           ? 'draft'
           : 'room';
 
+/** Conversations where a Claude is working right now. */
+export function busyChannels(log: readonly LogItem[]): Set<string> {
+  const last = new Map<string, string>();
+  for (const l of log) if (l.type === 'agent') last.set(l.channel, l.status);
+  return new Set([...last].filter(([, s]) => s === 'queued' || s === 'awaiting_approval' || s === 'started' || s === 'answered').map(([c]) => c));
+}
+
 /** The conversation a view shows, if any (Overview, Search, Terminal… show none, so the chat's unread count stays). */
 export const shownChannel = (view: View): string | undefined =>
   view.kind === 'conversation' ? view.id : view.kind === 'room' || view.kind === 'workspace' || view.kind === 'shared' || view.kind === 'assistant' || view.kind === 'sentinel_chat' ? channelOf(view) : undefined;
@@ -457,9 +553,11 @@ export interface MyShare {
  * Everything Beluga knows that isn't about a screen: the room, people, projects, conversations,
  * approvals… The core (the daemon) owns it and every client sees the same.
  */
-export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
+export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, RevenueCatSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
   readonly room: string;
   readonly projects: readonly Project[];
+  /** The first scan of the projects is done: a workspace that isn't in `projects` now is really gone. */
+  readonly projectsLoaded: boolean;
   readonly projectGroups: readonly ProjectGroup[];
   /** The sidebar's top level in the order you arranged it: project roots and `group:<name>` (see workspaces/arrange.ts). */
   readonly projectOrder: readonly string[];
@@ -483,6 +581,13 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly envChanges: Readonly<Record<string, readonly EnvChange[]>>;
   /** Worktrees whose env files changed and the main folder doesn't have it: copy it there, or keep it here (BLG-369). */
   readonly envAsks: Readonly<Record<string, readonly EnvChange[]>>;
+  /** Worktrees made on your computers whose project lacks .env files this Mac has: send them? Names only, never on the phone (BLG-800). */
+  readonly envSends: readonly EnvSendAsk[];
+  /** Your computers' dev servers open on this Mac at localhost (BLG-802). */
+  readonly forwards: readonly PortForward[];
+  /** Ports of this Mac shared with worktrees on your computers, and which worktrees are on which computer (BLG-804). */
+  readonly portShares: readonly PortShare[];
+  readonly onComputers: Readonly<Record<string, string>>;
   readonly hosting?: Hosting;
   readonly invite?: string;
   /** Your peer id on this computer (known before the room answers). */
@@ -503,6 +608,8 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   readonly approvals: readonly Approval[];
   readonly browser: BrowserDomain;
   readonly viewer?: ViewerDomain;
+  /** When each watched file was last written (fileKey), so a preview of it reads it again: a picture shows the new one. */
+  readonly written: Readonly<Record<string, number>>;
   readonly follow?: string;
   readonly focus: Readonly<Record<string, Focus>>;
   /** Your default for people you haven't picked a trust level for. */
@@ -516,8 +623,12 @@ export interface DomainState extends CollabState, WorkState, NetworkSlice, Earni
   /** Recent downloads (newest last). */
   readonly transfers: readonly Transfer[];
   readonly prefs: Prefs;
+  /** Saving power now: Low Power mode is on, always or on battery while on battery (core/power-saver.ts). */
+  readonly powerSaving: boolean;
   /** Your Mac's chats, as tabs (BLG-102, core/assistant): which there are and the one open. */
   readonly assistant: AssistantChats;
+  /** Each chat's category record, by channel (core/triage), for you only: it never leaves this computer. */
+  readonly triage: Readonly<Record<string, ChatTriage>>;
 }
 
 /** What one screen shows: where it is, its tabs and dialogs, and its own cursors and scroll positions. */
@@ -569,12 +680,13 @@ export type Action =
   | { type: 'hosting'; hosting: Hosting }
   | { type: 'welcome'; self: PeerInfo }
   | { type: 'peers'; peers: readonly PeerInfo[] }
-  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; agent?: AgentRef; dialogue?: DialogueMark }
+  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; via?: MessageVia; dialogue?: DialogueMark }
+  | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
-  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; dialogue?: DialogueMark }
+  | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
-  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef }
+  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef; via?: MessageVia; fromChat?: { origin: ChatOrigin; text: string } }
   /** One owner's waiting requests in a conversation, in their new order (see orderQueued). */
   | { type: 'queue_order'; owner: string; ids: readonly string[] }
   | { type: 'projects'; projects: readonly Project[]; groups?: readonly ProjectGroup[]; order?: readonly string[]; hidden?: readonly string[] }
@@ -587,6 +699,9 @@ export type Action =
   | { type: 'runs_interrupted'; owner: string }
   | { type: 'env_changes'; id: string; changes: readonly EnvChange[] }
   | { type: 'env_asks'; asks: Readonly<Record<string, readonly EnvChange[]>> }
+  | { type: 'env_sends'; asks: readonly EnvSendAsk[] }
+  | { type: 'forwards'; forwards: readonly PortForward[] }
+  | { type: 'port_shares'; shares: readonly PortShare[]; onComputers: Readonly<Record<string, string>> }
   | { type: 'approval_add'; approval: Approval }
   | { type: 'approval_remove'; id: string }
   | { type: 'browser_root' }
@@ -594,10 +709,12 @@ export type Action =
   | { type: 'browser_entries'; at: Location; entries: readonly FsEntry[] }
   | { type: 'browser_error'; error: string }
   | { type: 'viewer_open'; at: Location; by?: string }
-  | { type: 'viewer_content'; at: Location; content: string; truncated: boolean }
+  | { type: 'viewer_content'; at: Location; content: string; truncated: boolean; next?: number; total?: number }
   | { type: 'viewer_image'; at: Location; image: Bitmap }
   | { type: 'viewer_error'; at: Location; error: string }
   | { type: 'viewer_close' }
+  /** A watched file was written again (fs_changed). */
+  | { type: 'file_written'; at: Location; ts: number }
   | { type: 'focus'; actorKey: string; focus: Focus }
   | { type: 'follow'; peerId?: string }
   | { type: 'policy'; policy: Policy }
@@ -608,6 +725,7 @@ export type Action =
   | { type: 'dir_cache'; key: string; entries: readonly FsEntry[] }
   | { type: 'transfer'; transfer: Transfer }
   | { type: 'prefs'; prefs: { readonly [K in keyof Prefs]?: Prefs[K] | null } }
+  | { type: 'power_saving'; on: boolean }
   | { type: 'clear'; channel: string }
   | { type: 'context_reset'; channel: string }
   /** A conversation's side question (/btw) changed; none: it was closed. */
@@ -619,13 +737,17 @@ export type Action =
   /** Your paired phones (never keys) and the pairing open now (src/companion/host.ts). */
   | { type: 'companion'; companion: CompanionSlice['companion'] }
   /** Your Mac's chats changed (one made, opened or deleted; core/assistant). */
+  | { type: 'projects_loaded' }
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
+  /** One chat's category record changed (none: removed). `read`: the conversations whose unread count clears too (you settled it). */
+  | { type: 'triage_set'; channel: string; record?: ChatTriage; read?: readonly string[] }
   | CollabAction
   | WorkAction
   | NetworkAction
   | EarningsAction
+  | RevenueCatAction
   | ClaudeCodeAction
   | GatewayAction
   | FriendShareAction
@@ -643,13 +765,22 @@ const TRANSFER_LIMIT = 20;
 // eslint-disable-next-line no-control-regex
 /** Strip control characters (terminal escapes) and invisible bidi/zero-width marks from remote text. */
 export const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200D\u202A-\u202E\u2066-\u2069]/g, '');
+
+/** A client picks an agent's name and the wire allows line breaks: on one line, so it can't forge lines in a card or a prompt. */
+export const viaName = (via: { readonly name: string }): string => clean(via.name).replace(/\s+/g, ' ').trim() || 'An external agent';
+/** A friend's request from their agent: you trust the friend, and you see who is behind it. */
+export const viaRequester = (owner: string, via: { readonly name: string }): string => `${owner} (via ${viaName(via)})`;
 const MAX_STEPS = 6;
+/** What a card keeps of what Claude said between its steps (the newest). */
+const MAX_REMARKS = 40;
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'calm',
   mouse: true,
   tunnel: 'auto',
   keepAwake: 'off',
+  runOn: 'here',
+  lowPower: 'off',
   selfApproval: 'never',
   notify: NotifySchema.parse({}),
   autoSetup: true,
@@ -657,15 +788,31 @@ export const DEFAULT_PREFS: Prefs = {
   contextMeter: true,
   autoCompact: false,
   autoCompactAt: AUTO_COMPACT_DEFAULT,
+  autoContinue: true,
+  autoContinueOff: [],
+  autoContinueSkip: 0,
   parallelRuns: PARALLEL_RUNS_DEFAULT,
   chatLimit: CHAT_LIMIT_DEFAULT,
+  agentThreads: false,
+  threadLimits: THREAD_LIMITS_DEFAULT,
+  chatCategories: false,
+  settleOnMerge: true,
+  settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
+  pushToPr: true,
+  prOnReview: false,
   scratchFolder: true,
+  experiments: [],
+  chatLinks: false,
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',
   chatClaude: 'everyone',
+  shareUsage: 'trusted',
+  readReceipts: true,
   shellLogin: true,
   shellArgs: [],
+  claudeArgs: [],
+  codexArgs: [],
 };
 
 /** The preference fields out of saved settings. */
@@ -690,11 +837,16 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     btw: {},
     envChanges: {},
     envAsks: {},
+    envSends: [],
+    forwards: [],
+    portShares: [],
+    onComputers: {},
     status: 'connecting',
     peers: [],
     log: [],
     approvals: [],
     browser: { rows: [], loading: false },
+    written: {},
     focus: {},
     policy,
     levels: {},
@@ -702,7 +854,9 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     dirCache: {},
     transfers: [],
     prefs: { ...DEFAULT_PREFS, ...prefs },
+    powerSaving: (prefs.lowPower ?? DEFAULT_PREFS.lowPower) === 'always',
     selfId: '',
+    projectsLoaded: false,
     home: '',
     isHost: false,
     myShares: [],
@@ -711,6 +865,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialWork,
     ...initialNetwork,
     ...initialEarnings,
+    ...initialRevenueCat,
     ...initialSupport,
     ...initialClaudeCode,
     ...initialGateway,
@@ -722,6 +877,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     ...initialTeam,
     companion: { devices: [] },
     assistant: NO_ASSISTANT_CHATS,
+    triage: {},
   };
 }
 
@@ -747,11 +903,23 @@ export function stampAction<A extends Action>(action: A): A {
 }
 
 /** Someone's name: in the room, yourself, a friend, or someone in a project a friend shared with you. */
-export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects'] }, peerId: string): string =>
+export const peerName = (state: Pick<DomainState, 'peers' | 'self'> & { readonly network?: Pick<DomainState['network'], 'friends'>; readonly sharedProjects?: DomainState['sharedProjects']; readonly remembered?: DomainState['remembered'] }, peerId: string): string =>
   state.peers.find((p) => p.peerId === peerId)?.name ??
   (state.self?.peerId === peerId
     ? state.self.name
-    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? peerId.slice(0, 6)));
+    : (state.network?.friends.find((f) => f.peerId === peerId)?.name ?? state.sharedProjects?.flatMap((p) => p.members).find((m) => m.peerId === peerId)?.name ?? state.remembered?.[peerId]?.name ?? peerId.slice(0, 6)));
+
+/** One file, wherever it is: the key `written` is kept by. */
+export const fileKey = (at: Location): string => `${at.owner}\0${at.share}\0${at.path}`;
+
+/** How many files' last writes are kept (the most recent; as many as are watched). */
+export const WRITTEN_LIMIT = 200;
+
+function noteWritten(written: Readonly<Record<string, number>>, key: string, ts: number): Readonly<Record<string, number>> {
+  const { [key]: _old, ...rest } = written;
+  const kept = Object.entries(rest).slice(-(WRITTEN_LIMIT - 1));
+  return { ...Object.fromEntries(kept), [key]: ts };
+}
 
 const sameLoc = (a: Location | undefined, b: Location): boolean =>
   Boolean(a) && a?.owner === b.owner && a.share === b.share && a.path === b.path;
@@ -825,7 +993,7 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
     requestId: a.requestId,
     owner: a.owner,
     ownerName: peerName(state, a.owner),
-    requesterName: peerName(state, a.requester),
+    requesterName: !a.via ? peerName(state, a.requester) : isExternalRequester(a.requester) || (a.requester === a.owner && a.via.creationSource === 'mcp') ? viaName(a.via) : viaRequester(peerName(state, a.requester), a.via),
     requester: a.requester,
     status: a.event,
     text: '',
@@ -844,23 +1012,30 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
   const between = a.event === 'started' || (a.event === 'progress' && !a.text && !subOpen) ? 'thinking' : a.event === 'text' ? 'writing' : a.event === 'tool' || a.event === 'progress' ? undefined : wasBetween;
   const betweenAt = between === undefined ? undefined : between === wasBetween && wasAt !== undefined ? wasAt : a.ts;
   const noted = base.text === READS_AFTER_STEP || base.text === STOPPING_FOR;
+  const subagents = a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents;
+  // A step after its words (a tool, a sub-agent starting) makes them something it said on the way, not its answer.
+  const stepped = a.event === 'tool' || subagents.length > base.subagents.length;
+  const remark = stepped && base.text && !noted ? { text: base.text, ts: wasBetween === 'writing' && wasAt !== undefined ? wasAt : a.ts } : undefined;
   const updated = {
     ...rest,
     ...(progress ? { progress } : {}),
     ...(between ? { between, betweenAt } : {}),
+    ...(remark ? { remarks: [...(base.remarks ?? []), remark].slice(-MAX_REMARKS) } : {}),
     status: a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? 'started' : a.event,
     // The run ended: ones still running end with it; one that failed or was stopped stays so.
-    subagents: a.event === 'sub' ? applySub(base.subagents, a.text, a.ts) : a.event === 'done' || a.event === 'error' ? base.subagents.map((s) => (s.status === 'running' ? { ...s, status: 'done' as const } : s)) : base.subagents,
+    subagents,
     text:
       // A steered message's note ("reads this after its current step") isn't Claude's words: its own turn starting (or going back in line) ends it, a newer note replaces it.
       noted && (a.event === 'started' || a.event === 'text' || a.event === 'queued')
         ? a.event === 'text' ? a.text : ''
-        : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
-          a.event === 'text'
-        ? (base.text ? `${base.text}\n\n` : '') + a.text
-        : a.event === 'done' || a.event === 'error' || a.event === 'denied'
-          ? a.text || base.text
-          : base.text,
+        : remark
+          ? ''
+          : // Each thing Claude says between steps is its own paragraph (one newline would run them into one blob).
+            a.event === 'text'
+            ? (base.text ? `${base.text}\n\n` : '') + a.text
+            : a.event === 'done' || a.event === 'error' || a.event === 'denied'
+              ? a.text || base.text
+              : base.text,
     steps: a.event === 'tool' ? [...base.steps, a.text].slice(-MAX_STEPS) : base.steps,
     endTs: a.event === 'done' || a.event === 'error' || a.event === 'denied' ? a.ts : base.endTs,
     ...(a.event === 'started' || a.event === 'text' || a.event === 'tool' || a.event === 'sub' || a.event === 'progress' ? { lastAt: a.ts } : {}),
@@ -870,6 +1045,7 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
     ...(existing?.status === 'queued' && a.event !== 'queued' ? { queuedUntil: a.ts } : {}),
     // Any event may name the agent (the first one an older card saw may not have).
     ...(a.agent ? { agent: a.agent } : {}),
+    ...(a.fromChat ? { origin: a.fromChat.origin, prompt: clean(a.fromChat.text) } : {}),
   } satisfies LogItem;
   const log = existing ? state.log.map((l, i) => (i === idx ? updated : l)) : appendLog(state.log, updated);
   // A new message, or a run in a workspace finishing while no screen shows it (Claude's answer is news).
@@ -928,7 +1104,15 @@ function attend(state: DomainState, attention: Attention): DomainState {
   const unread = Object.fromEntries(Object.entries(state.unread).filter(([c]) => !fresh.includes(c)));
   // Opening (or leaving) Shared files counts every folder there as seen.
   const seenShares = attention.files !== state.attention.files ? shareKeys(state) : state.seenShares;
-  return { ...state, attention, unread, seenShares };
+  return { ...state, attention, unread, seenShares, triage: withoutBack(state, fresh) };
+}
+
+/** Opening a chat that woke from a snooze ends its Back state. `triage` is absent in a snapshot from an older daemon. */
+function withoutBack(state: DomainState, opened: readonly string[]): DomainState['triage'] {
+  const keys = new Set(opened.map((c) => triageKey(state, c)));
+  const back = Object.entries(state.triage ?? {}).filter(([key, record]) => record.backAt !== undefined && keys.has(key));
+  if (!back.length) return state.triage;
+  return { ...state.triage, ...Object.fromEntries(back.map(([key, { backAt: _gone, ...record }]) => [key, record])) };
 }
 
 /** The reducer itself: pure for stamped actions (no clock, no counters). */
@@ -971,15 +1155,21 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
           ts: action.ts,
           byAgent: action.byAgent,
           ...(action.byAgent && action.agent ? { agent: action.agent } : {}),
+          ...(action.via ? { via: action.via } : {}),
           ...(action.request ? { request: action.request } : {}),
           ...(action.steer ? { steer: true as const } : {}),
+          ...(action.queued ? { queued: true as const } : {}),
           ...(action.dialogue ? { dialogue: action.dialogue } : {}),
         }),
       }, action.channel ?? 'room', true);
+    case 'chat_react': {
+      const log = reactOnLog(state.log, action);
+      return log === state.log ? state : { ...state, log };
+    }
     case 'system':
       return {
         ...state,
-        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
+        log: appendLog(state.log, { id: action.id ?? '', type: 'system', channel: action.channel ?? 'room', text: clean(action.text), ts: action.ts ?? 0, level: action.level ?? 'info', ...(action.said ? { said: action.said } : {}), ...(action.shipped ? { shipped: action.shipped } : {}), ...(action.merged ? { merged: action.merged } : {}), ...(action.dialogue ? { dialogue: action.dialogue } : {}) }),
       };
     case 'conflicts': {
       const { [action.id]: _old, ...rest } = state.conflicts;
@@ -987,6 +1177,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     }
     case 'projects':
       return { ...state, projects: action.projects, projectGroups: action.groups ?? state.projectGroups, projectOrder: action.order ?? state.projectOrder, hiddenProjects: action.hidden ?? state.hiddenProjects };
+    case 'projects_loaded':
+      return state.projectsLoaded ? state : { ...state, projectsLoaded: true };
     case 'attention':
       return attend(state, action.attention);
     case 'my_shares':
@@ -1001,6 +1193,12 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, envChanges: { ...state.envChanges, [action.id]: action.changes } };
     case 'env_asks':
       return { ...state, envAsks: action.asks };
+    case 'env_sends':
+      return { ...state, envSends: action.asks };
+    case 'forwards':
+      return { ...state, forwards: action.forwards };
+    case 'port_shares':
+      return { ...state, portShares: action.shares, onComputers: action.onComputers };
     case 'runs_interrupted': {
       const log = state.log.map((l) => (l.type === 'agent' && l.owner === action.owner ? settleRun(l) : l));
       return log.every((l, i) => l === state.log[i]) ? state : { ...state, log };
@@ -1067,12 +1265,14 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, viewer: { ...state.viewer, image: action.image, content: '', truncated: false, loading: false, error: undefined } };
     case 'viewer_content':
       if (!state.viewer || !sameLoc(state.viewer, action.at)) return state;
-      return { ...state, viewer: { ...state.viewer, content: clean(action.content), truncated: action.truncated, loading: false, error: undefined } };
+      return { ...state, viewer: { ...state.viewer, content: clean(action.content), truncated: action.truncated, next: action.next, total: action.total, loading: false, error: undefined } };
     case 'viewer_error':
       if (!state.viewer || !sameLoc(state.viewer, action.at)) return state;
       return { ...state, viewer: { ...state.viewer, loading: false, error: action.error } };
     case 'viewer_close':
       return { ...state, viewer: undefined };
+    case 'file_written':
+      return { ...state, written: noteWritten(state.written, fileKey(action.at), action.ts) };
     case 'focus':
       return { ...state, focus: { ...state.focus, [action.actorKey]: action.focus } };
     case 'follow':
@@ -1092,6 +1292,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'trust':
       if (!action.trusted && state.levels[action.peerId] !== 'trusted') return state;
       return reduceDomain(state, { type: 'trust_level', peerId: action.peerId, level: action.trusted ? (state.levels[action.peerId] === 'full' ? 'full' : 'trusted') : 'ask' });
+    case 'power_saving':
+      return state.powerSaving === action.on ? state : { ...state, powerSaving: action.on };
     case 'prefs': {
       // A null clears a preference back to its default (an unset value can't travel as JSON).
       const prefs: Record<string, unknown> = { ...state.prefs };
@@ -1161,13 +1363,18 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'net_message':
     case 'net_messages':
     case 'net_unsent':
+    case 'net_reacted':
     case 'net_cleared':
     case 'net_files':
     case 'net_live':
     case 'net_main':
     case 'net_offer':
     case 'net_offer_gone':
+    case 'net_calls':
+    case 'net_call_notes':
+    case 'net_missed_calls':
     case 'net_off':
+    case 'net_mirror':
       return { ...state, ...reduceNetwork(state, action) };
     case 'support':
       return { ...state, support: action.support };
@@ -1175,6 +1382,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
       return { ...state, assistant: action.assistant };
     case 'needs_dismissed':
       return { ...state, dismissedNeeds: action.ids };
+    case 'triage_set':
+      return reduceTriage(state, action);
     case 'btw': {
       const { [action.channel]: _gone, ...rest } = state.btw ?? {};
       return { ...state, btw: action.btw ? { ...rest, [action.channel]: action.btw } : rest };
@@ -1182,6 +1391,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'earnings':
     case 'fx_rates':
       return { ...state, ...reduceEarnings(state, action) };
+    case 'revenuecat':
+      return { ...state, ...reduceRevenueCat(state, action) };
     case 'claude_code':
     case 'codex_sessions':
       return ccFinished(state, { ...state, ...reduceClaudeCode(state, action) });
@@ -1218,6 +1429,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     case 'sentinel_put':
     case 'sentinel_remove':
     case 'sentinel_run':
+    case 'sentinel_runs_gone':
     case 'sentinel_ask':
     case 'sentinel_trouble':
     case 'sentinel_webhook':
@@ -1253,6 +1465,14 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     default:
       return state;
   }
+}
+
+function reduceTriage(state: DomainState, action: Extract<Action, { type: 'triage_set' }>): DomainState {
+  const { [action.channel]: was, ...rest } = state.triage;
+  if (!action.record && !was) return state;
+  const read = action.read ?? [];
+  const unread = read.length ? Object.fromEntries(Object.entries(state.unread).filter(([c]) => !read.includes(c))) : state.unread;
+  return { ...state, triage: action.record ? { ...state.triage, [action.channel]: action.record } : rest, unread };
 }
 
 /**

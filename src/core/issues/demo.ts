@@ -1,6 +1,6 @@
 import type { GitHubRepo } from '../../workspaces/github.js';
 import type { IssueSource } from './gh.js';
-import type { GhComment, GhIssueFull, GhIssueState } from './model.js';
+import type { GhComment, GhIssueFull, GhIssueState, GhPull } from './model.js';
 
 /**
  * The demo's pretend GitHub: each demo project is acme/<its name>, with a few issues to try
@@ -66,7 +66,8 @@ const SEEDS: Readonly<Record<string, readonly Seed[]>> = {
       author: 'jules',
       labels: [FEATURE],
       ago: 5 * D,
-      body: 'For our dashboards we want keys that can only `GET`. Today every key can create charges.\n\nSomething like a `scope: "read"` on the key would do.',
+      // Pasted from a rich editor, as HTML (GitHub draws it, and so does the issue's page).
+      body: '<html>\n<body>\n<!--StartFragment--><p><span>For our dashboards we want keys that can only </span><code><span>GET</span></code><span>. Today every key can create charges.</span></p><ul><li><p><strong><span>Read:</span></strong><span> list and fetch</span></p></li><li><p><strong><span>Write:</span></strong><span> everything else</span></p></li></ul><p><span>Something like a </span><code><span>scope: "read"</span></code><span> on the key would do.</span></p><!--EndFragment-->\n</body>\n</html>',
       said: [
         ['bob', 'Makes sense. Would you also want per-resource scopes, or is read/write enough?', 4 * D],
         ['jules', 'Read/write is plenty for now.', 4 * D - 2 * H],
@@ -98,6 +99,20 @@ const SEEDS: Readonly<Record<string, readonly Seed[]>> = {
     { number: 11, title: 'Hero image is blurry on Retina screens', state: 'open', author: 'jules', labels: [UI], ago: 2 * D, body: 'The hero PNG is 1x only. A 2x (or an SVG) would look sharp.' },
     { number: 9, title: 'Typo in the footer: “Privcy”', state: 'closed', reason: 'completed', author: 'dev-ana', labels: [FIRST], ago: 9 * D, body: 'Footer says “Privcy policy”.' },
   ],
+};
+
+type PullSeed = Omit<GhPull, 'url' | 'createdAt' | 'updatedAt'> & { readonly ago: number };
+
+/** Open pull requests: a teammate's, a bot's, and one on a demo worktree's branch (it opens that worktree). */
+const PULL_SEEDS: Readonly<Record<string, readonly PullSeed[]>> = {
+  'bob-api': [
+    { number: 52, title: 'Retry webhooks with backoff', author: 'you', branch: 'beluga/webhook-retries', draft: false, checks: 'pending', ago: 40 * 60_000 },
+    { number: 51, title: 'Decode emails safely in the user lookup', author: 'sam-r', branch: 'fix/plus-in-email', base: 'main', draft: false, checks: 'passing', review: 'APPROVED', ago: 2 * H },
+    { number: 49, title: 'Read-only API keys', author: 'jules', branch: 'feat/read-only-keys', draft: true, checks: 'failing', ago: 2 * D },
+    { number: 46, title: 'Bump express from 4.19.2 to 4.21.0', author: 'dependabot', branch: 'dependabot/npm_and_yarn/express-4.21.0', draft: false, checks: 'passing', review: 'REVIEW_REQUIRED', ago: 4 * D },
+    { number: 44, title: 'Explain refunds in the README', author: 'dev-ana', branch: 'docs/refunds', fork: true, draft: false, checks: 'none', ago: 6 * D },
+  ],
+  landing: [{ number: 13, title: 'Keep the pricing cards still when switching to yearly', author: 'mia', branch: 'fix/pricing-jump', draft: false, checks: 'passing', ago: 3 * H }],
 };
 
 export function demoIssueSource(now: () => number = Date.now): IssueSource {
@@ -134,6 +149,10 @@ export function demoIssueSource(now: () => number = Date.now): IssueSource {
       const url = `${repo.url}/issues/${number}#issuecomment-demo${list.length + 1}`;
       extra.set(key, [...list, { author: 'you', body, createdAt: now(), url }]);
       return url;
+    },
+    async pulls(repo) {
+      const pulls = (PULL_SEEDS[repo.repo] ?? []).map(({ ago, ...p }): GhPull => ({ ...p, url: `${repo.url}/pull/${p.number}`, createdAt: born - ago - H, updatedAt: born - ago }));
+      return { pulls, total: pulls.length };
     },
   };
 }

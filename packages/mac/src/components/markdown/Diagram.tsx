@@ -15,7 +15,7 @@ let mermaid: Promise<MermaidApi> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
 let next = 0;
 
-const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif';
 
 /** Draw one diagram (one at a time: mermaid's settings are global). */
 export function renderDiagram(code: string, theme: DocTheme): Promise<string> {

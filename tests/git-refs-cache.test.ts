@@ -23,7 +23,7 @@ const shim = await vi.hoisted(async () => {
 import { REFS_RECOUNT_MS, refsMark, status } from '../src/workspaces/git.js';
 
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', ...args], { cwd, stdio: 'pipe' }).toString();
-const counts = (): number => readFileSync(shim.log, 'utf8').split('\n').filter((l) => l.startsWith('rev-list')).length;
+const counts = (): number => readFileSync(shim.log, 'utf8').split('\n').filter((l) => l.startsWith('rev-list --left-right')).length;
 /** Files changed this recently aren't trusted yet (a disk may keep whole seconds): wait them out. */
 const settle = () => new Promise((r) => setTimeout(r, 2_100));
 
@@ -55,13 +55,13 @@ afterAll(() => {
 describe.skipIf(process.platform === 'win32')('a worktree’s commits against its base, counted only when its refs moved (BLG-407)', () => {
   it('reuses the count while nothing git keeps refs in changed, and counts again the moment one does', async () => {
     await settle();
-    expect(await status(wt, 'main')).toEqual({ branch: 'beluga/x', changed: 0, ahead: 1, behind: 0 });
+    expect(await status(wt, 'main')).toEqual({ branch: 'beluga/x', changed: 0, ahead: 1, behind: 0, unpushed: 1 });
     const once = counts();
     expect(once).toBe(1);
     // Untracked and edited files never touch refs: git status still sees them on every look.
     writeFileSync(path.join(wt, 'new.txt'), 'n\n');
     writeFileSync(path.join(wt, 'b.txt'), 'edited\n');
-    expect(await status(wt, 'main')).toEqual({ branch: 'beluga/x', changed: 2, ahead: 1, behind: 0 });
+    expect(await status(wt, 'main')).toEqual({ branch: 'beluga/x', changed: 2, ahead: 1, behind: 0, unpushed: 1 });
     expect(counts()).toBe(once);
 
     // A commit on the base (from the main folder): counted again at once.

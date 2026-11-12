@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, promises as fs, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { claudeConfigDir, dropSession } from '../../agent/runtime/claude/claude-sessions.js';
+import { dropAgentSession } from '../../agent/runtime/drop-session.js';
 import type { AgentPlace, MacTools } from '../../agent/types.js';
 import { ASSISTANT_CHANNEL, ASSISTANT_TITLE, CHAT_ID, FIRST_CHAT, THIS_COMPUTER, type AssistantChats, assistantChannel, assistantChatOf } from '../../shared/assistant.js';
-import { SCRATCH_DIR, listScratch } from '../../workspaces/scratch.js';
+import { SCRATCH_DIR, type ScratchFile, type ScratchTotal, dropSent, listScratch, scratchTotal, tidyScratch } from '../../workspaces/scratch.js';
+import { isSentPath, sentFolder } from '../../shared/scratch-dir.js';
+import { moveToTrash } from '../../workspaces/trash.js';
 import { type SystemPort, captureScreen, describeDevice, deviceInfo, realSystem } from '../gateway/device.js';
 import { HistorySaver } from '../history-saver.js';
 import { tilde } from '../paths.js';
@@ -13,7 +15,7 @@ import { boardName, reposOf } from '../board/model.js';
 import { busyChannels } from '../board/work.js';
 import { type LogItem, type Store, settleRun } from '../store.js';
 import type { Workspace } from '../../workspaces/types.js';
-import { type AgentRef, CLAUDE_AGENT } from '../../protocol.js';
+import { AgentRef, CLAUDE_AGENT } from '../../protocol.js';
 import { chosenAgent } from '../settings.js';
 import { chatFits, chatLimitMessage } from '../../shared/chat-limit.js';
 
@@ -24,7 +26,8 @@ import { chatFits, chatLimitMessage } from '../../shared/chat-limit.js';
  * "what's using my CPU?", "start a worktree in beluga for the login bug".
  *
  * Where it lives: ~/.beluga/assistant/. Its Claude works in `work/` (its scratch folder is
- * `work/.beluga/scratch/`, where screenshots and files it sends you go); its chats (BLG-102, see
+ * `work/.beluga/scratch/`, where screenshots and files it sends you go: the Mac's Scratch tab beside its
+ * chat, and what nobody touched for a month goes to the Trash on its own, BLG-704); its chats (BLG-102, see
  * below) each keep their Claude session and history beside it (`chats/<id>/state.json`,
  * `history.json`, listed in `chats.json`). Everything in Beluga's home is secret
  * to the phone (isSecretPath) except a few folders Claude works in; `assistant/work` is one of
@@ -52,8 +55,17 @@ export interface AssistantDeps {
   readonly archiveWorktree?: (id: string) => Promise<boolean>;
   /** Claude Code's own folder (~/.claude): a deleted chat's transcript goes from there too. */
   readonly claudeDir?: string;
+  /** Codex's own folder (~/.codex): a deleted chat's thread goes from there too. */
+  readonly codexDir?: string;
   readonly now?: () => number;
+  /** Where old scratch files go (the Trash; the tests keep their own). */
+  readonly trash?: (abs: string) => Promise<void>;
+  /** How soon after starting, and how often after, old scratch files are tidied (false: never). */
+  readonly tidy?: { readonly firstMs: number; readonly everyMs: number } | false;
 }
+
+/** Your Mac's scratch is tidied a minute after Beluga starts, then once a day. */
+const TIDY = { firstMs: 60_000, everyMs: 86_400_000 };
 
 interface Saved {
   readonly sessionId?: string;
@@ -61,17 +73,29 @@ interface Saved {
   readonly runtime?: string;
 }
 
-/** One chat in chats.json; `auto`: Beluga opened it on its own (a sentinel's run or ask), not you. */
-interface ChatEntry {
-  readonly id: string;
-  readonly createdAt: number;
-  readonly auto?: true;
-}
-
 /** What chats.json holds: the chats in tab order, and the one open. */
 interface ChatsFile {
   readonly chats: readonly ChatEntry[];
   readonly active: string;
+}
+
+/**
+ * One chat in chats.json. `auto` (BLG-568): Beluga opened it on its own (a sentinel's run or ask), not
+ * you: it never takes the open tab, isn't counted in Open chats, isn't a tab (BLG-566) and only the
+ * newest AUTO_CHATS_KEPT stay; a sentinel puts its runs' away as it keeps their chats. `agent`: the
+ * agent a sentinel step chose for it (else your default).
+ */
+interface ChatEntry {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly auto?: true;
+  readonly agent?: AgentRef;
+}
+
+/** A chat as chats.json had it, checked (it's our file, but an older Beluga may have written it). */
+function entryOf(raw: { id: string; createdAt?: unknown; auto?: unknown; agent?: unknown }): ChatEntry {
+  const agent = raw.agent === undefined ? undefined : AgentRef.safeParse(raw.agent);
+  return { id: raw.id, createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : 0, ...(raw.auto === true ? { auto: true as const } : {}), ...(agent?.success ? { agent: agent.data } : {}) };
 }
 
 /** The most items kept of its history (as a worktree's). */
@@ -100,6 +124,7 @@ export class MacAssistant {
   private readonly saver: HistorySaver;
   private readonly unsubscribe: () => void;
   private lastLog: readonly LogItem[] | undefined;
+  private tidyTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly deps: AssistantDeps) {
     this.workDir = path.join(deps.dir, 'work');
@@ -135,11 +160,14 @@ export class MacAssistant {
       this.lastLog = log;
       this.saver.changed();
     });
+    this.tidySoon(deps.tidy === undefined ? TIDY : deps.tidy, 'first');
   }
 
   stop(): void {
     this.unsubscribe();
     this.saver.stop();
+    if (this.tidyTimer) clearTimeout(this.tidyTimer);
+    this.tidyTimer = undefined;
   }
 
   private get now(): number {
@@ -170,7 +198,7 @@ export class MacAssistant {
   private migrate(): ChatsFile {
     const listed = readJson<Partial<ChatsFile> | undefined>(this.file('chats.json'), undefined);
     const raw = Array.isArray(listed?.chats) ? listed.chats : [];
-    const chats = raw.filter((c, i) => typeof c?.id === 'string' && CHAT_ID.test(c.id) && raw.findIndex((x) => x?.id === c.id) === i).map((c): ChatEntry => ({ id: c.id, createdAt: typeof c.createdAt === 'number' ? c.createdAt : 0, ...(c.auto === true ? { auto: true } : {}) }));
+    const chats = raw.filter((c, i) => typeof c?.id === 'string' && CHAT_ID.test(c.id) && raw.findIndex((x) => x?.id === c.id) === i).map(entryOf);
     if (chats.length) return { chats, active: chats.some((c) => c.id === listed?.active) ? listed!.active! : chats[0]!.id };
     mkdirSync(this.chatDir(FIRST_CHAT), { recursive: true, mode: 0o700 });
     for (const name of ['state.json', 'history.json']) {
@@ -192,9 +220,22 @@ export class MacAssistant {
     this.saver.loaded(channel);
   }
 
+  /** What the chats outside `loaded` said, from disk (a search reads them; the log stays as it is). */
+  savedChats(loaded: ReadonlySet<string>): ReadonlyArray<{ readonly channel: string; readonly items: readonly LogItem[] }> {
+    return this.list.chats.flatMap((c) => {
+      const channel = assistantChannel(c.id);
+      return loaded.has(channel) ? [] : [{ channel, items: readJson<LogItem[]>(this.chatFile(c.id, 'history.json'), []).map((l) => ({ ...l, channel })) }];
+    });
+  }
+
+  /** Bring a chat's saved messages back into the log when it has none there (a search hit opens it). */
+  loadSaved(id: string): void {
+    if (this.has(id) && !this.deps.store.getState().log.some((l) => l.channel === assistantChannel(id))) this.load(id);
+  }
+
   /** The chats, as the screens see them (the shared state's `assistant`). */
   chats(): AssistantChats {
-    return { chats: this.list.chats.map((c) => ({ id: c.id, channel: assistantChannel(c.id), createdAt: c.createdAt })), active: this.list.active };
+    return { chats: this.list.chats.map((c) => ({ id: c.id, channel: assistantChannel(c.id), createdAt: c.createdAt, ...(c.auto ? { auto: true as const } : {}) })), active: this.list.active };
   }
 
   private save(list: ChatsFile): void {
@@ -218,8 +259,9 @@ export class MacAssistant {
    * Open chats; 0: no limit), which counts only the chats you opened. `auto` (BLG-568): Beluga's
    * own, for a sentinel's run or ask. It is never refused (a sentinel never fails on your tabs),
    * leaves the tab you have open alone, and only the newest AUTO_CHATS_KEPT of them are kept.
+   * `agent`: the agent a sentinel step chose for it (BLG-566), else your default.
    */
-  newChat(opts: { readonly auto?: boolean } = {}): string {
+  newChat(opts: { readonly auto?: boolean; readonly agent?: AgentRef } = {}): string {
     if (!opts.auto) {
       const limit = this.deps.store.getState().prefs.chatLimit;
       const yours = this.list.chats.filter((c) => !c.auto).length;
@@ -229,7 +271,7 @@ export class MacAssistant {
     do id = randomBytes(5).toString('hex');
     while (this.has(id) || id === FIRST_CHAT);
     this.fresh(id);
-    const chat: ChatEntry = { id, createdAt: this.now, ...(opts.auto ? { auto: true } : {}) };
+    const chat: ChatEntry = { id, createdAt: this.now, ...(opts.auto ? { auto: true as const } : {}), ...(opts.agent ? { agent: opts.agent } : {}) };
     this.save({ chats: [...this.list.chats, chat], active: opts.auto ? this.list.active : id });
     this.saver.loaded(assistantChannel(id));
     if (opts.auto) void this.dropOldAuto(id).catch(() => undefined);
@@ -262,7 +304,7 @@ export class MacAssistant {
     const at = this.list.chats.findIndex((c) => c.id === id);
     if (at < 0) return;
     const channel = assistantChannel(id);
-    const sessionId = this.saved.get(id)?.sessionId;
+    const { sessionId, runtime } = this.saved.get(id) ?? {};
     const rest = this.list.chats.filter((c) => c.id !== id);
     // The last one: a fresh first chat in its place (its channel is the phone's Ask your Mac).
     const chats = rest.length ? rest : [{ id: FIRST_CHAT, createdAt: this.now }];
@@ -272,20 +314,17 @@ export class MacAssistant {
     this.deps.store.dispatch({ type: 'clear', channel });
     this.deps.store.dispatch({ type: 'context_reset', channel });
     await fs.rm(this.chatDir(id), { recursive: true, force: true });
-    if (sessionId) await this.dropTranscript(sessionId);
+    // What you sent it (the folder Claude works in is shared, so only this chat's own copies).
+    await dropSent(this.workDir, sentFolder(channel, false)).catch(() => undefined);
+    if (sessionId) await dropAgentSession(this.workDir, sessionId, runtime, { ...(this.deps.claudeDir ? { claude: this.deps.claudeDir } : {}), ...(this.deps.codexDir ? { codex: this.deps.codexDir } : {}) });
     for (const c of chats) if (!this.saved.has(c.id)) this.fresh(c.id);
     this.save(this.list);
     for (const c of chats) this.saver.loaded(assistantChannel(c.id));
   }
 
-  /** Claude Code's own record of a deleted chat's conversation (~/.claude/projects/<its folder>/<session>.jsonl). */
-  private async dropTranscript(sessionId: string): Promise<void> {
-    await dropSession(this.workDir, sessionId, this.deps.claudeDir ?? claudeConfigDir());
-  }
-
-  /** Your default agent now (BLG-503): Your Mac's chats and "On Your Mac" steps run on it. */
-  private agent(): AgentRef {
-    return chosenAgent(this.deps.store.getState().prefs);
+  /** Your default agent now (BLG-503): Your Mac's chats run on it; an "On Your Mac" step's chat on the agent the step chose. */
+  private agent(id?: string): AgentRef {
+    return this.list.chats.find((c) => c.id === id)?.agent ?? chosenAgent(this.deps.store.getState().prefs);
   }
 
   /**
@@ -294,7 +333,7 @@ export class MacAssistant {
    */
   place(channel: string = ASSISTANT_CHANNEL): AgentPlace {
     const id = assistantChatOf(channel) ?? FIRST_CHAT;
-    const agent = this.agent();
+    const agent = this.agent(id);
     const was = this.saved.get(id);
     const sessionId = (was?.runtime ?? CLAUDE_AGENT.runtime) === agent.runtime ? was?.sessionId : undefined;
     return {
@@ -348,10 +387,38 @@ export class MacAssistant {
     return { place: { cwd: this.workDir, additionalDirectories: [], autoEdit: true, agent: this.agent(), onSession: () => undefined }, tools: this.tools(), brief: chatBrief() };
   }
 
+  private tidySoon(when: AssistantDeps['tidy'], next: 'first' | 'again'): void {
+    if (!when) return;
+    this.tidyTimer = setTimeout(
+      () => {
+        void this.tidyScratch().finally(() => {
+          if (this.tidyTimer) this.tidySoon(when, 'again');
+        });
+      },
+      next === 'first' ? when.firstMs : when.everyMs,
+    );
+    this.tidyTimer.unref?.();
+  }
+
+  /**
+   * What its Claude saved and nobody touched for a month goes to the Trash (SCRATCH_KEEP_MS): every
+   * chat shares this one folder and, unlike a worktree's, it's never archived, so it would only grow.
+   */
+  tidyScratch(): Promise<string[]> {
+    return tidyScratch(this.workDir, { now: this.now, trash: this.deps.trash ?? moveToTrash }).catch(() => []);
+  }
+
+  /** Its scratch folder for the Mac's Scratch tab: what's in it, newest first, and how much it holds. */
+  async scratch(): Promise<{ root: string; dir: string; files: ScratchFile[]; total: ScratchTotal }> {
+    const [files, total] = await Promise.all([listScratch(this.workDir), scratchTotal(this.workDir, this.now)]);
+    return { root: this.workDir, dir: path.join(this.workDir, SCRATCH_DIR), files, total };
+  }
+
   /** Its outputs (what's in its scratch folder), newest first: what the phone shows with it. */
   async outputs(): Promise<Array<{ path: string; size: number; ts: number; cwd: string }>> {
     const files = await listScratch(this.workDir).catch(() => []);
-    return files.map((f) => ({ path: path.join(this.workDir, f.path), size: f.size, ts: f.mtime, cwd: this.workDir })).sort((a, b) => b.ts - a.ts);
+    // What you sent it (sent/) is yours, not one of its outputs.
+    return files.filter((f) => !isSentPath(f.path)).map((f) => ({ path: path.join(this.workDir, f.path), size: f.size, ts: f.mtime, cwd: this.workDir })).sort((a, b) => b.ts - a.ts);
   }
 
   private project(name: string): { id: string; name: string } {
@@ -508,7 +575,7 @@ export function listWork(store: Store): string {
   const repoName = (id: string): string => state.projects.find((p) => p.id === id)?.name ?? id;
   const shared = Object.keys(state.board.projects).filter((id) => reposOf(state.board, id).length > 1);
   if (shared.length) lines.push('', 'Boards covering several repos:', ...shared.map((id) => `  - "${boardName(state.board, id, (r) => state.projects.find((p) => p.id === r)?.name)}" (keys ${state.board.projects[id]!.prefix}-…): ${reposOf(state.board, id).map(repoName).join(', ')}`));
-  const plans = state.plans.plans.filter((p) => p.status !== 'done');
+  const plans = state.plans.plans.filter((p) => p.status !== 'done' && !p.movedTo);
   if (plans.length) lines.push('', 'Plans:', ...plans.slice(0, 20).map((p) => `  - "${planTitle(p)}" · id ${p.id} · ${p.status}${p.paused ? ', paused' : ''}`));
   const running = [...busy].filter((c) => c.startsWith('ws:')).length;
   lines.push('', running ? `${running} conversation${running === 1 ? '' : 's'} with an agent working now.` : 'Nothing is running right now.');

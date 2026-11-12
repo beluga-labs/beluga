@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CodexEvents, toolCallOf, unwrapShell, usageEvent } from '../src/agent/runtime/codex/events.js';
 import { createCodexBackend, codexEffort, codexModel, toCodexModelChoices } from '../src/agent/runtime/codex/runner.js';
@@ -21,7 +22,7 @@ const backend = (codex: FakeCodex) => createCodexBackend({ cwd, autoEdit: true, 
 describe("Codex's items as Beluga's steps", () => {
   it('names each item as the tool Beluga already draws', () => {
     expect(toolCallOf({ type: 'commandExecution', id: 'c', command: "/bin/zsh -lc 'npm test'", cwd, status: 'inProgress', aggregatedOutput: null, exitCode: null, durationMs: null }, cwd)).toEqual({ name: 'Bash', input: { command: 'npm test' } });
-    expect(toolCallOf({ type: 'fileChange', id: 'f', status: 'inProgress', changes: [{ path: 'src/a.ts', kind: { type: 'add' }, diff: '+x' }] }, cwd)).toEqual({ name: 'Write', input: { file_path: `${cwd}/src/a.ts` } });
+    expect(toolCallOf({ type: 'fileChange', id: 'f', status: 'inProgress', changes: [{ path: 'src/a.ts', kind: { type: 'add' }, diff: '+x' }] }, cwd)).toEqual({ name: 'Write', input: { file_path: path.join(cwd, 'src/a.ts') } });
     expect(toolCallOf({ type: 'fileChange', id: 'f', status: 'inProgress', changes: [{ path: 'a.ts', kind: { type: 'update' }, diff: '' }] }, cwd)?.name).toBe('Edit');
     expect(toolCallOf({ type: 'mcpToolCall', id: 'm', server: 'beluga', tool: 'send_chat', status: 'inProgress', arguments: { text: 'hi' }, result: null, error: null }, cwd)).toEqual({ name: 'mcp__beluga__send_chat', input: { text: 'hi' } });
     expect(toolCallOf({ type: 'webSearch', id: 'w', query: 'codex' }, cwd)).toEqual({ name: 'WebSearch', input: { query: 'codex' } });
@@ -46,7 +47,7 @@ describe("Codex's items as Beluga's steps", () => {
     ev.handle('item/completed', { item: { type: 'mcpToolCall', id: 'm1', server: 'beluga', tool: 'list_peers', status: 'completed', arguments: {}, result: { content: [{ type: 'text', text: 'nobody' }] }, error: null } });
     ev.handle('item/completed', { item: { type: 'reasoning', id: 'r1', summary: ['Looking at the readme.'], content: [] } });
     ev.handle('item/completed', { item: { type: 'agentMessage', id: 'a1', text: 'Done.' } });
-    expect(touched).toEqual([`${cwd}/README.md`]);
+    expect(touched).toEqual([path.join(cwd, 'README.md')]);
     expect(steps.find((s) => s.id === 'f1' && s.status === 'done')).toMatchObject({ tool: 'Edit', output: '-a\n+b' });
     expect(steps.find((s) => s.id === 'm1' && s.status === 'done')).toMatchObject({ tool: 'mcp__beluga__list_peers', output: 'nobody' });
     expect(steps.find((s) => s.kind === 'thinking')).toMatchObject({ text: 'Looking at the readme.' });
@@ -76,7 +77,7 @@ describe('a Codex run', () => {
     expect(start!.sandbox).toBeUndefined();
     const profile = (start!.config as Record<string, { extends: string; filesystem: Record<string, string>; network: { enabled: boolean } }>)['permissions.beluga']!;
     expect(profile).toMatchObject({ extends: ':workspace', network: { enabled: true } });
-    expect(profile.filesystem).toMatchObject({ [cwd]: 'write', '/tmp/extra': 'write', [`${cwd}/**/.env*`]: 'deny' });
+    expect(profile.filesystem).toMatchObject({ [cwd]: 'write', [path.resolve('/tmp/extra')]: 'write', [`${cwd}/**/.env*`]: 'deny' });
     // A turn's own sandbox would replace the profile: none is sent.
     expect(codex.sent('turn/start')[0]!.sandboxPolicy).toBeUndefined();
     expect(run.events.some(([k]) => k === 'usage')).toBe(true);
@@ -158,18 +159,58 @@ describe('a Codex run', () => {
     const profile = config['permissions.beluga'] as { filesystem: Record<string, string>; network: { enabled: boolean } };
     expect(start.approvalPolicy).toBe('never');
     expect(profile.network.enabled).toBe(false);
-    expect(profile.filesystem[os.homedir()]).toBe('deny');
+    if (process.platform === 'linux') {
+      expect(profile.filesystem[':minimal']).toBe('read');
+      expect(profile.filesystem[os.homedir()]).toBeUndefined();
+    } else expect(profile.filesystem[os.homedir()]).toBe('deny');
     expect(profile.filesystem[`${cwd}/**/.env*`]).toBe('deny');
     expect(config).toMatchObject({ 'mcp_servers.figma.enabled': false, 'features.plugins': false, 'features.apps': false, 'shell_environment_policy.inherit': 'core' });
     // Beluga's own tools stay, gated by the friend's limits.
     expect(config['mcp_servers.beluga']).toBeDefined();
   });
 
+  describe("on Codex's unelevated Windows sandbox, which can't deny reads (#425)", () => {
+    const profileOf = (p: Record<string, unknown>) => (p.config as Record<string, { filesystem: Record<string, string> }>)['permissions.beluga']!;
+    const windows = (): FakeCodex => Object.assign(new FakeCodex(), { unelevatedWindows: true });
+
+    it('your own worktree run opens with writes still confined, and says what it can read', async () => {
+      const codex = windows();
+      const run = input('hello', { place: { cwd, additionalDirectories: [], autoEdit: true, onSession: () => undefined } });
+      expect(await backend(codex).run(run)).toBe('echo: hello');
+      const [first, second] = codex.sent('thread/start');
+      expect(Object.values(profileOf(first!).filesystem)).toContain('deny');
+      expect(Object.values(profileOf(second!).filesystem)).not.toContain('deny');
+      expect(profileOf(second!).filesystem[cwd]).toBe('write');
+      expect(second!.developerInstructions).toMatch(/can't hide \.env files/);
+      expect(run.events.some(([k, t]) => k === 'progress' && /can read your \.env files/.test(t))).toBe(true);
+    });
+
+    it('learns it once: the next run, and a resumed thread, open without the denials straight away', async () => {
+      const codex = windows();
+      const sessions: string[] = [];
+      const b = backend(codex);
+      const place = (resume?: string) => ({ cwd, additionalDirectories: [], autoEdit: true, ...(resume ? { resume } : {}), onSession: (id: string) => void sessions.push(id) });
+      await b.run(input('hello', { place: place() }));
+      await b.run(input('again', { place: place(sessions[0]) }));
+      expect(codex.sent('thread/start')).toHaveLength(2);
+      expect(codex.sent('thread/resume')).toHaveLength(1);
+      expect(sessions[1]).toBe(sessions[0]);
+    });
+
+    it("refuses a friend's task rather than run it without its denials", async () => {
+      const codex = windows();
+      const err = await backend(codex).run(input('hello', { vetTool: () => undefined, viaAgent: true, scope: 'full' })).catch((e: Error) => e);
+      expect((err as Error).message).toMatch(/can’t keep this task away from/);
+      expect(codex.sent('thread/start').every((s) => Object.values(profileOf(s).filesystem).includes('deny'))).toBe(true);
+      expect(codex.sent('turn/start')).toHaveLength(0);
+    });
+  });
+
   it("asks you before an edit outside the run's folders, in the same prompt as Claude's", async () => {
     const codex = new FakeCodex();
     const canUseTool = vi.fn(async () => true);
     await backend(codex).run(input('edit the hosts file', { canUseTool, scope: 'full' }));
-    expect(canUseTool).toHaveBeenCalledWith('Edit', { file_path: '/etc/hosts' });
+    expect(canUseTool).toHaveBeenCalledWith('Edit', { file_path: path.resolve('/etc/hosts') });
     expect(codex.approvals).toEqual([{ decision: 'accept' }]);
   });
 

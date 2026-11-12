@@ -4,7 +4,7 @@ import { ArrowLeftRight, Clock, Eraser, Lock, Pencil, SquareTerminal, Trash2, Tr
 import { AskClaudePicker, type AskTarget, askTargets } from '../../components/AskClaudePicker';
 import { agentBadge, agentLabel } from '../../../../src/shared/agent-label';
 import { type AgentMark, AgentMarkIcon, agentMark, modelMark } from '../../components/AgentMark';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet as RNStyleSheet, TextInput, View } from 'react-native';
 import Animated, { LinearTransition, FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import { Thumb } from '../../components/Outputs';
 import { TaskWords } from '../../components/render/TaskChip';
 import { Header, Screen, useScrolled } from '../../components/Screen';
 import { Options } from '../../components/Options';
+import { QuickReactions, ReactionChips } from '../../components/Reactions';
 import { Sheet } from '../../components/Sheet';
 import { Avatar, Button, More, Press, T, haptic, hueOf, toneBg, toneInk } from '../../components/ui';
 import { ago, useSupports, useView } from '../../lib/hooks';
@@ -21,6 +22,8 @@ import { calls } from '../../lib/link/calls';
 import type { ChatMemberView, ChatMessageView, ChatView, OutputView, Topic } from '../../lib/link/protocol';
 import { upload } from '../../lib/pick';
 import { runOf } from '../../lib/chat-runs';
+import { useUnreadOnOpen } from '../../lib/chat-unread';
+import { unreadLine } from '../../../../src/shared/unread';
 import { sends, useSends } from '../../lib/sends';
 import { store } from '../../lib/store';
 import { color, ink, tint } from '../../lib/theme';
@@ -50,15 +53,25 @@ export default function Chat() {
   const meName = c?.members?.find((m) => m.me)?.name;
   // 1.30 (BLG-429): in a direct chat, long-press a message to delete it (or edit your own); Clear chat in the •••.
   const changes = useSupports('chatEdits') && c?.kind === 'dm';
+  // 1.41 (BLG-702): long-press a message for the quick reactions; a chip under it adds or takes back yours.
+  const reacts = useSupports('reactions');
+  const react = (m: ChatMessageView, emoji: string, on: boolean): void => act(calls.react(topic, m.id, emoji, on));
   const [acting, setActing] = useState<ChatMessageView | undefined>();
   const [editing, setEditing] = useState<ChatMessageView | undefined>();
   const [menu, setMenu] = useState(false);
   const [clearing, setClearing] = useState(false);
   const act = (call: Parameters<typeof store.call>[0]): void => void store.call(call, { queue: false }).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
 
+  // What came in since you last read it is marked (BLG-574), so it's read only once that's known.
+  const { unread, ready } = useUnreadOnOpen(topic, view);
+  const firstUnread = c?.messages.find((m) => unread.has(m.id))?.id;
+  const lastUnread = c?.messages.findLast((m) => unread.has(m.id))?.id;
+  /** The first scroll to the end jumps (the chat opens at the bottom); later ones glide. */
+  const landed = useRef(false);
+
   useEffect(() => {
-    if (c) void store.call(calls.read(topic), { queue: false }).catch(() => undefined);
-  }, [c?.messages.length]);
+    if (c && ready) void store.call(calls.read(topic), { queue: false }).catch(() => undefined);
+  }, [c?.messages.length, ready]);
 
   return (
     <Screen>
@@ -73,19 +86,33 @@ export default function Chat() {
       {c?.members?.some((m) => m.claude) ? <People members={c.members} /> : null}
       {c?.waiting?.length ? <Waiting items={c.waiting} onPick={(task) => task && cards.current[task] !== undefined && scroll.current?.scrollTo({ y: Math.max(0, cards.current[task]! - 24), animated: true })} /> : null}
       <KeyboardLift>
-        <ScrollView onScroll={onScroll} scrollEventThrottle={32} ref={scroll} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} contentContainerStyle={{ padding: 14, gap: 4 }}>
+        <ScrollView onScroll={onScroll} scrollEventThrottle={32} ref={scroll} onContentSizeChange={() => {
+            scroll.current?.scrollToEnd({ animated: landed.current });
+            landed.current = true;
+          }} contentContainerStyle={{ padding: 14, gap: 4 }}>
           {c?.messages.map((m, i) => {
             const run = runOf(c.messages, i);
             return (
-              <Animated.View
-                key={m.id}
-                entering={i > c.messages.length - 3 ? FadeIn.duration(180) : undefined}
-                onLayout={m.task ? (e) => (cards.current[m.task!.id] = e.nativeEvent.layout.y) : undefined}
-              >
-                <Press onLongPress={changes ? () => (haptic.commit(), setActing(m)) : undefined} disabled={!changes} haptics={false}>
-                  <Bubble m={m} first={run.first} last={run.last} group={c.kind === 'group'} pics={pics} me={meName} />
-                </Press>
-              </Animated.View>
+              <Fragment key={m.id}>
+                {m.id === firstUnread ? <UnreadLine count={unread.size} /> : null}
+                <Animated.View
+                  entering={i > c.messages.length - 3 ? FadeIn.duration(180) : undefined}
+                  onLayout={m.task ? (e) => (cards.current[m.task!.id] = e.nativeEvent.layout.y) : undefined}
+                  style={unread.has(m.id) ? unreadBand(m.id === firstUnread, m.id === lastUnread) : undefined}
+                >
+                  <Press onLongPress={changes || reacts ? () => (haptic.commit(), setActing(m)) : undefined} disabled={!changes && !reacts} haptics={false}>
+                    <Bubble
+                      m={m}
+                      first={run.first}
+                      last={run.last}
+                      group={c.kind === 'group'}
+                      pics={pics}
+                      me={meName}
+                      chips={m.reactions?.length ? <ReactionChips reactions={m.reactions} mine={m.mine && !m.claude && !m.task} onToggle={(e, on) => react(m, e, on)} onWho={(text) => store.toast({ text, tone: 'info' })} /> : null}
+                    />
+                  </Press>
+                </Animated.View>
+              </Fragment>
             );
           })}
           {pending.map((p) => (
@@ -135,10 +162,23 @@ export default function Chat() {
       <Options
         visible={Boolean(acting)}
         onClose={() => setActing(undefined)}
+        head={
+          reacts && acting && !acting.task ? (
+            <QuickReactions
+              quick={c?.quick}
+              reactions={acting.reactions}
+              onPick={(e, on) => {
+                const m = acting;
+                setActing(undefined);
+                react(m, e, on);
+              }}
+            />
+          ) : undefined
+        }
         options={[
-          { Icon: Pencil, label: 'Edit', sub: `${c?.name ?? 'They'} sees it marked edited`, tone: 'sky', hidden: !acting?.editable, onPress: () => setEditing(acting) },
-          { Icon: Trash2, label: 'Delete for everyone', sub: `From your Mac and ${c?.name ?? 'theirs'}’s`, tone: 'rose', hidden: !acting?.mine, onPress: () => acting && act(calls.deleteMessage(topic, acting.id, true)) },
-          { Icon: Trash2, label: 'Delete for you', sub: acting?.mine ? 'From your Mac only' : `${c?.name ?? 'They'} still has it`, tone: 'rose', onPress: () => acting && act(calls.deleteMessage(topic, acting.id, false)) },
+          { Icon: Pencil, label: 'Edit', sub: `${c?.name ?? 'They'} sees it marked edited`, tone: 'sky', hidden: !changes || !acting?.editable, onPress: () => setEditing(acting) },
+          { Icon: Trash2, label: 'Delete for everyone', sub: `From your Mac and ${c?.name ?? 'theirs'}’s`, tone: 'rose', hidden: !changes || !acting?.mine, onPress: () => acting && act(calls.deleteMessage(topic, acting.id, true)) },
+          { Icon: Trash2, label: 'Delete for you', sub: acting?.mine ? 'From your Mac only' : `${c?.name ?? 'They'} still has it`, tone: 'rose', hidden: !changes, onPress: () => acting && act(calls.deleteMessage(topic, acting.id, false)) },
         ]}
       />
       <EditMessage m={editing} topic={topic} onClose={() => setEditing(undefined)} />
@@ -319,7 +359,24 @@ function ClaudeRow({ owner, label, badge, mark, badgeMark, first, children }: { 
   );
 }
 
-function Bubble({ m, first, last, group, pics, me }: { m: ChatMessageView; first: boolean; last: boolean; group: boolean; pics: OutputView[]; me?: string | undefined }) {
+/** Where what came in since you last read starts (BLG-574), as on the Mac: the accent, quiet. */
+function UnreadLine({ count }: { count: number }) {
+  const rule = { flex: 1, height: 1, backgroundColor: `${color.info}59` } as const;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, marginBottom: 2 }} accessibilityRole="text">
+      <View style={rule} />
+      <T v="caption" c={color.info} style={{ fontWeight: '600' }}>
+        {unreadLine(count)}
+      </T>
+      <View style={rule} />
+    </View>
+  );
+}
+
+/** The soft band under unread messages, edge to edge and unbroken by the list's gaps. */
+const unreadBand = (first: boolean, last: boolean) => ({ backgroundColor: `${color.info}12`, marginHorizontal: -14, paddingHorizontal: 14, ...(first ? { paddingTop: 4 } : {}), ...(last ? { paddingBottom: 8 } : { paddingBottom: 4, marginBottom: -4 }) });
+
+function Bubble({ m, first, last, group, pics, me, chips }: { m: ChatMessageView; first: boolean; last: boolean; group: boolean; pics: OutputView[]; me?: string | undefined; chips?: React.ReactNode }) {
   const mine = m.mine;
   const files = m.files ?? [];
   if (m.task) {
@@ -343,6 +400,7 @@ function Bubble({ m, first, last, group, pics, me }: { m: ChatMessageView; first
           </T>
         ) : null}
         {m.offer ? <Offer offer={m.offer} name={owner} /> : null}
+        {chips}
       </ClaudeRow>
     );
   }
@@ -378,9 +436,10 @@ function Bubble({ m, first, last, group, pics, me }: { m: ChatMessageView; first
             </T>
           </View>
         ) : null}
-        {last || m.edited ? (
+        {chips}
+        {last || m.edited || m.sentBy ? (
           <T v="caption" style={{ marginHorizontal: 4, fontSize: 11 }}>
-            {[m.edited ? 'Edited' : '', last ? ago(m.ts) : ''].filter(Boolean).join(' · ')}
+            {[m.sentBy ? `Sent by ${m.sentBy}` : '', m.edited ? 'Edited' : '', last ? ago(m.ts) : '', last && m.delivery ? (m.delivery === 'seen' ? 'Seen' : 'Delivered') : ''].filter(Boolean).join(' · ')}
           </T>
         ) : null}
       </View>

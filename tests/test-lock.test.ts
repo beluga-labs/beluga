@@ -20,12 +20,16 @@ async function deadPid(): Promise<number> {
 // Not on Windows: nice and ps.
 
 describe.skipIf(process.platform === 'win32')('how many workers and runs', () => {
-  it('gives each run half the cores, at least 2, unless KLAUD_TEST_WORKERS says otherwise', () => {
+  it('gives each run half the cores (all of them on CI), at least 2, unless KLAUD_TEST_WORKERS says otherwise', () => {
     expect(workerCount({}, 14)).toBe(7);
     expect(workerCount({}, 2)).toBe(2);
     expect(workerCount({}, 1)).toBe(2);
     expect(workerCount({ KLAUD_TEST_WORKERS: '3' }, 14)).toBe(3);
     expect(workerCount({ KLAUD_TEST_WORKERS: 'lots' }, 14)).toBe(7);
+    // CI's runner runs nothing else: every core.
+    expect(workerCount({ CI: 'true' }, 4)).toBe(4);
+    expect(workerCount({ CI: 'true' }, 1)).toBe(2);
+    expect(workerCount({ CI: 'true', KLAUD_TEST_WORKERS: '3' }, 4)).toBe(3);
   });
 
   it('lets 2 runs go at once unless KLAUD_TEST_SLOTS says otherwise (0: no limit)', () => {
@@ -134,7 +138,9 @@ describe.skipIf(process.platform === 'win32')("vitest's global setup", () => {
 
 describe.skipIf(process.platform === 'win32')("a worktree's Claude Code runs at lower priority", () => {
   it('nices a run that carries KLAUD_WORKTREE, and what it starts inherits it', async () => {
-    const child = spawn('/bin/sh', ['-c', "sleep 0.3; /bin/sh -c 'ps -o nice= -p $$'"], { stdio: ['ignore', 'pipe', 'ignore'] });
+    // What it starts reads its own niceness (macOS's ps once said -10 for a process niced to 10 on CI).
+    const own = `${JSON.stringify(process.execPath)} -e 'console.log(require("os").getPriority())'`;
+    const child = spawn('/bin/sh', ['-c', `sleep 0.3; ${own}`], { stdio: ['ignore', 'pipe', 'ignore'] });
     expect(niceForWorktree(child.pid!, { KLAUD_WORKTREE: '/w/kld-49' })).toBe(true);
     expect(os.getPriority(child.pid!)).toBe(10);
     let out = '';

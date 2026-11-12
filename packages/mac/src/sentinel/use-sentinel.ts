@@ -8,6 +8,7 @@ import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { copyText } from '../lib/copy.js';
 import { openSheet } from '../lib/sheets.js';
 import { type ChatPlace, chatPlaceOf, runsFolderOf } from './sentinel-model.js';
+import { openFolderThere } from '../lib/remote-open.js';
 
 /** What Sentinel's screens share: the slice, and acting on sentinels with errors as toasts. */
 
@@ -61,8 +62,22 @@ export function useSentinelActions() {
           destructive: true,
           run: () => void act(() => api.sentinel.remove(s.id), `Deleted ${s.name}`).then(() => after?.()),
         }),
+      /** Delete a run's chat, or the whole run (BLG-577), after asking. `after`: where to go once the run is gone. */
+      deleteRun: (run: Pick<RunSummary, 'id' | 'headline'>, what: 'chat' | 'run', after?: () => void): void =>
+        openSheet({
+          kind: 'confirm',
+          title: what === 'chat' ? 'Delete this run’s chat?' : 'Delete this run?',
+          message:
+            what === 'chat'
+              ? 'Its agent’s conversation goes for good. The run, its report and its steps’ outputs stay here.'
+              : 'Its agent’s conversation, its report, its steps’ outputs and its folder go for good. A worktree it made and numbers it kept stay.',
+          confirm: what === 'chat' ? 'Delete Chat' : 'Delete Run',
+          destructive: true,
+          run: () => void act(async () => (await api.sentinel.runDelete(run.id, what), true), what === 'chat' ? 'Deleted the run’s chat' : 'Deleted the run').then((done) => done && what === 'run' && after?.()),
+        }),
       copyJson: (s: Sentinel): void => void copyText(JSON.stringify(s, null, 2)).then(() => toast(client, `Copied ${s.name} as JSON`, 'success')),
-      openFolder: (path: string): void => void act(() => client.api.local.openFolder(path)),
+      // A sentinel on a computer: its runs folder over Remote-SSH, else its path copied; never opened over there (BLG-852).
+      openFolder: (path: string): void => void act(() => openFolderThere(client, path)),
     };
     return self;
   }, [api, client, actions]);

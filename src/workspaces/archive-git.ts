@@ -22,10 +22,10 @@ export class ArchiveError extends Error {}
  * Files byte for byte: no .gitattributes (line endings, filters like LFS) and no autocrlf, both
  * when the snapshot is made and when it's written back (attributes from git's empty tree).
  */
-export const RAW_ENV: NodeJS.ProcessEnv = { GIT_ATTR_SOURCE: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' };
+export const RAW_ENV: Partial<NodeJS.ProcessEnv> = { GIT_ATTR_SOURCE: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' };
 export const RAW_ARGS = ['-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false'] as const;
 
-export function run(cmd: string, args: readonly string[], opts: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; input?: string }): Promise<string> {
+export function run(cmd: string, args: readonly string[], opts: { cwd: string; env?: Partial<NodeJS.ProcessEnv>; timeoutMs?: number; input?: string }): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(cmd, [...args], { cwd: opts.cwd, timeout: opts.timeoutMs ?? 120_000, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...opts.env } }, (err, stdout, stderr) => {
       if (err) reject(new Error((stderr || err.message).trim()));
@@ -35,7 +35,7 @@ export function run(cmd: string, args: readonly string[], opts: { cwd: string; e
   });
 }
 
-export const git = (cwd: string, args: readonly string[], env?: NodeJS.ProcessEnv, timeoutMs?: number): Promise<string> => run('git', args, { cwd, ...(env ? { env } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
+export const git = (cwd: string, args: readonly string[], env?: Partial<NodeJS.ProcessEnv>, timeoutMs?: number): Promise<string> => run('git', args, { cwd, ...(env ? { env } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
 /** Paths given to git as they are (a "[" or "*" in a name is just a character). */
 export const gitLiteral = (cwd: string, args: readonly string[]): Promise<string> => git(cwd, ['--literal-pathspecs', ...args]);
 export const tryGit = (cwd: string, args: readonly string[]): Promise<string | undefined> => git(cwd, args).then((s) => s.trim(), () => undefined);
@@ -93,7 +93,7 @@ export async function assertSettled(dir: string): Promise<void> {
 }
 
 /** Folders that are git repos of their own, in a git index (mode 160000 entries). */
-async function gitlinks(dir: string, env?: NodeJS.ProcessEnv): Promise<string[]> {
+async function gitlinks(dir: string, env?: Partial<NodeJS.ProcessEnv>): Promise<string[]> {
   const out = await git(dir, ['ls-files', '--stage', '-z'], env, LONG_MS);
   return out
     .split('\0')
@@ -137,7 +137,7 @@ export function fingerprint(dir: string, rels: readonly string[]): string {
 }
 
 /** Your name for the snapshot commit when git has one, else Beluga's. */
-async function identity(dir: string): Promise<NodeJS.ProcessEnv> {
+async function identity(dir: string): Promise<Partial<NodeJS.ProcessEnv>> {
   const name = await tryGit(dir, ['config', 'user.name']);
   const email = await tryGit(dir, ['config', 'user.email']);
   return name && email ? {} : IDENTITY;
@@ -197,7 +197,13 @@ export async function unpackKeeping(file: string, dir: string): Promise<void> {
   await run('tar', ['-x', keep, '-p', '-f', file, '-C', dir], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS });
 }
 
-/** Pack these (relative) paths of `dir` into an xz file, as small as xz makes it, and check every one is in it. */
+/**
+ * xz's own default: within a few percent of its smallest (9), several times faster, and about
+ * 94 MB of memory to compress instead of 674 MB.
+ */
+const XZ_LEVEL = 6;
+
+/** Pack these (relative) paths of `dir` into an xz file, and check every one is in it. */
 export async function pack(dir: string, rels: readonly string[], file: string): Promise<void> {
   const names = rels.map((r) => r.replace(/\/$/, ''));
   const list = `${file}.list`;
@@ -205,8 +211,8 @@ export async function pack(dir: string, rels: readonly string[], file: string): 
   try {
     // bsdtar takes xz's level as an option; GNU tar runs xz, which reads it from XZ_OPT.
     const gnu = (await tarFlavor()) === 'gnu';
-    const level = gnu ? [] : ['--options', 'xz:compression-level=9'];
-    await run('tar', ['-c', '-J', ...level, '-f', file, '-C', dir, '--null', '-T', list], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS, ...(gnu ? { env: { XZ_OPT: '-9' } } : {}) });
+    const level = gnu ? [] : ['--options', `xz:compression-level=${XZ_LEVEL}`];
+    await run('tar', ['-c', '-J', ...level, '-f', file, '-C', dir, '--null', '-T', list], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS, ...(gnu ? { env: { XZ_OPT: `-${XZ_LEVEL}` } } : {}) });
     const listed = new Set((await run('tar', ['-t', '-f', file], { cwd: dir, timeoutMs: TAR_TIMEOUT_MS })).split(/\r?\n/).map((l) => l.replace(/\/$/, '')));
     const missing = names.find((n) => !listed.has(n));
     if (missing) throw new ArchiveError(`Couldn’t pack ${missing}`);

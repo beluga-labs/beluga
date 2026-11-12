@@ -3,6 +3,7 @@ import { useApp, useBeluga } from '../lib/beluga.js';
 import { openSettings } from '../lib/native-routes.js';
 import { EnvEditor } from './EnvironmentSettings.js';
 import e from './env-settings.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * A project's Environment… (BLG-369): its variables beside its main folder's .env, from the
@@ -17,7 +18,7 @@ export function EnvironmentSheet({ projectId, close }: { projectId: string; clos
     <FormSheet
       title={`Environment for ${name}`}
       icon="lock"
-      intro="Given to shells, setup and run commands in its workspaces, and your agent. They stay on this Mac."
+      intro={`Given to shells, setup and run commands in its workspaces, and your agent. They stay on ${thisComputer()}.`}
       submitLabel="Done"
       hideSubmit
       cancelLabel="Done"

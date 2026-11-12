@@ -11,15 +11,17 @@ import { fromRateLimitEvent, fromUsageResponse, toMs } from './usage.js';
 import { RunFailedError, classifyRun } from '../../../shared/run-failure.js';
 import { SubAgentTracker, withAgentScratch } from './subagents.js';
 import { type RecorderMessage, StepRecorder } from '../../step-recorder.js';
+import { type TrackedMessage, McpAppTracker } from '../../../mcp-apps/tracker.js';
 import { type ContextMessage, ContextReport, breakdownReader, isCompactCommand } from '../../context-report.js';
 import { compactEnv } from '../../../shared/context-usage.js';
 import { progressCount } from '../../../shared/progress-count.js';
 import { resultText } from '../../../shared/steps.js';
-import { BackgroundAgents, type PromptContent, PromptQueue, TurnRouter } from './live-run.js';
+import { BackgroundAgents, type PromptContent, PromptQueue, TurnRouter, startedPrompt } from './live-run.js';
 import { sideCalls } from '../../side-calls.js';
 import { claudeComplete } from './complete.js';
 import { askBtw } from './btw.js';
 import { claudeTerminal } from './terminal.js';
+import { claudeLaunch } from './launch-args.js';
 import { ViewShelf } from '../../view-tools.js';
 import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
@@ -30,7 +32,7 @@ import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
 import { SCRATCH_DIR } from '../../../shared/scratch-dir.js';
 import { type AgentRef, CLAUDE_AGENT, type ClaudeAnswer, ClaudeQuestion, type Usage } from '../../../protocol.js';
-import { claudeCodeReady } from '../../claude-code.js';
+import { claudeCodeReady, claudeExecutable } from '../../claude-code.js';
 import { claudeHome } from '../../../core/claude-code/launch.js';
 import { belugaHome } from '../../../core/home.js';
 import { expandCommand, mayBeCommand, skillOptions } from './skill-plugins.js';
@@ -73,6 +75,8 @@ export interface ClaudeBackendOptions {
   readonly claudePath?: string;
   /** Who the agent is told it is, when not the place's agent (a local model: its own name). */
   readonly agentOf?: (input: AgentRunInput) => AgentRef | undefined;
+  /** Your saved variables for Settings' MCP check in a folder (RuntimeOptions.ownEnv). */
+  readonly ownEnv?: (cwd: string) => Readonly<Record<string, string>>;
 }
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -152,7 +156,8 @@ function showThinking(q: unknown): void {
  */
 export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
   let sessionId: string | undefined;
-  const mcp = new McpConnect(claudeMcpSession(opts.claudePath));
+  // Settings' MCP list reads your saved variables as your runs do (#442).
+  const mcp = new McpConnect(claudeMcpSession(opts.claudePath), opts.ownEnv ? { ownEnv: opts.ownEnv } : {});
 
   return {
     async run(input: AgentRunInput): Promise<string> {
@@ -181,7 +186,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const syncMain = askOnly ? place?.syncMain : undefined;
       // A hidden worktree to fix a conflict in (a plan's head Claude, in its main-folder conversation).
       const fixup = place?.fixup;
-      const policy = { cwd, roots: [cwd, ...extraDirs, ...(fixup ? [fixup] : [])], autoEdit, scope: input.scope, guest: input.guest, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(syncMain ? { syncMain: syncProbes(cwd, syncMain) } : {}), ...(fixup ? { fixup } : {}), ...(place?.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
+      const policy = { cwd, roots: [cwd, ...extraDirs, ...(fixup ? [fixup] : [])], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(syncMain ? { syncMain: syncProbes(cwd, syncMain) } : {}), ...(fixup ? { fixup } : {}), ...(place?.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
       // How the run ends, when it fails: Claude Code's stderr, a limit that said no, an API error.
       const stderr: string[] = [];
       const keepStderr = (data: string): void => keepLines(stderr, data, STDERR_KEEP);
@@ -209,6 +214,8 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         const build = (prompt: string): PromptContent => imageContent(buildPrompt({ ...msg, prompt }), linkedImages(msg.prompt));
         return own && mayBeCommand(msg.prompt) ? expandCommand(msg.prompt, cwd, home).then(build) : build(msg.prompt);
       };
+      // Your `claude` flags (Settings › Agents): how it asks, in the SDK's words; the rest as they are.
+      const launch = claudeLaunch(input.launchArgs?.claude ?? [], { plan: Boolean(input.plan), autoEdit });
       const options: Options = {
         cwd,
         additionalDirectories: [...extraDirs, ...(fixup ? [fixup] : [])],
@@ -216,7 +223,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         ...(place?.forkSession && place.resume ? { forkSession: true } : {}),
         abortController,
         ...(input.maxTurns ? { maxTurns: input.maxTurns } : {}),
-        permissionMode: input.plan ? 'plan' : autoEdit ? 'acceptEdits' : 'default',
+        permissionMode: launch.permissionMode,
+        ...(launch.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {}),
+        ...(Object.keys(launch.extraArgs).length ? { extraArgs: launch.extraArgs } : {}),
         // Your own MCP servers first, so a name of Beluga's always means Beluga's.
         mcpServers: { ...(input.ownerMcp && !input.guest ? ownerMcpServers(cwd, { ...process.env, ...input.env }) : {}), ...sdkServers(runToolSuites(input, bridge, shelf, cwd)) },
         // The hook runs before Claude Code's own permission logic, even for commands it would
@@ -240,7 +249,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
                   const kept = input.env?.KLAUD_WORKTREE ? keptBashInput(hookInput.tool_name, scratched ?? toolInput, keptLog) : undefined;
                   const patched = kept ?? scratched;
                   const allow = (reason: string) => (patched ? { hookSpecificOutput: { ...verdict('allow', reason).hookSpecificOutput, updatedInput: patched } } : verdict('allow', reason));
-                  if (decision === 'allow') return patched ? allow('Allowed by Beluga.') : {};
+                  if (decision === 'allow' && !input.asksFirst?.(hookInput.tool_name)) return patched ? allow('Allowed by Beluga.') : {};
                   if (decision === 'secret') return (await input.canUseSecret?.(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', SECRET_DECLINED);
                   return (await input.canUseTool(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', 'The machine owner declined this action.');
                 },
@@ -267,7 +276,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
         ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
-        ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}),
+        ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),
         canUseTool: async (toolName, toolInput) => {
@@ -299,7 +308,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         if (answer.kind === 'plan' && answer.approve) {
           input.planTask?.approved();
           // Approved: leave plan mode so Claude can do the work.
-          await q.setPermissionMode(autoEdit ? 'acceptEdits' : 'default').catch(() => undefined);
+          await q.setPermissionMode(claudeLaunch(input.launchArgs?.claude ?? [], { plan: false, autoEdit }).permissionMode).catch(() => undefined);
           return { behavior: 'allow' as const, updatedInput: toolInput };
         }
         const feedback = answer.kind === 'plan' && answer.feedback ? `The user wants changes to the plan: ${answer.feedback}` : 'The user did not approve the plan yet. Ask what they would like to change.';
@@ -316,7 +325,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const turns = new TurnRouter({ onEvent: input.onEvent, ...(input.onStep ? { onStep: input.onStep } : {}), ...(input.onAnswered ? { onDone: input.onAnswered } : {}) });
       // Steps in detail go to the request whose turn it is (a follow-up's turn: the follow-up).
       let stepTo = input.onStep;
-      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(record) });
+      // MCP Apps (Settings › Experimental): a UI tool's step carries its app; the tools' _meta comes from this session.
+      const apps = input.mcpApps ? new McpAppTracker({ servers: () => q.mcpServerStatus() }, (record) => stepTo?.(record)) : undefined;
+      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(apps ? apps.decorate(record) : record) });
       recorder.begin();
       let limit: NodeJS.Timeout | undefined;
       let quiet: NodeJS.Timeout | undefined;
@@ -435,7 +446,23 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         if (turns.between) interrupting = undefined;
         return true;
       };
-      input.onSteer?.(Object.assign(steerIn, { status, interrupt, force }) satisfies Steer);
+      /**
+       * Take back (see Steer.cancel): not handed to Claude Code yet, it never goes; in its queue,
+       * cancel_async_message drops it there. Being read (folded in, or Send now's): too late.
+       */
+      const cancel = async (followUp: FollowUp): Promise<boolean> => {
+        const uuid = steered.get(followUp);
+        if (!uuid || prompts.closed || forced?.uuid === uuid) return false;
+        if (!prompts.remove(uuid)) {
+          const drop = (q as unknown as { cancelAsyncMessage?: (uuid: string) => Promise<boolean> }).cancelAsyncMessage;
+          if (!drop) throw new Error('this Claude Code can’t take a message back');
+          if (!(await drop.call(q, uuid))) return false;
+        }
+        steered.delete(followUp);
+        turns.drop(uuid);
+        return true;
+      };
+      input.onSteer?.(Object.assign(steerIn, { status, interrupt, force, cancel }) satisfies Steer);
 
       const ends = () => ({ stderr, ...(rejectedUntil !== undefined ? { rejectedUntil } : {}), ...(apiError ? { apiError } : {}) });
       const q = query({ prompt: prompts, options });
@@ -466,6 +493,10 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           if (route) stepTo = route.onStep;
           // A message steered in, read now (not only once the turn ends).
           if (route && msg.type === 'assistant' && msg.user_message_uuids?.length) turns.read(msg.user_message_uuids);
+          // Claude Code took it off its queue into the running turn (between turns, read ignores it: it's a turn of its own).
+          const started = startedPrompt(msg);
+          if (started) turns.read([started]);
+          apps?.observe(msg as TrackedMessage);
           recorder.observe(msg as RecorderMessage);
           if (msg.type === 'user' && msg.parent_tool_use_id === null) {
             for (const e of subagents.user(msg.message.content as never)) input.onEvent('sub', JSON.stringify(e));
@@ -565,13 +596,14 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
     mcpServers: (projects) => mcp.list([opts.cwd, ...projects]),
     mcpSignIn: (projects, name) => mcp.signIn([opts.cwd, ...projects], name),
     mcpSignedIn: (name) => mcp.signedIn(name),
+    mcpReadUiResource: (projects, server, uri) => mcp.readUiResource([opts.cwd, ...projects], server, uri),
 
     /** Ask Claude Code which models it offers (no prompt is sent). */
     async listModels() {
       const idle = (async function* () {
         await new Promise(() => undefined);
       })() as AsyncIterable<never>;
-      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) } });
+      const q = query({ prompt: idle, options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) } });
       try {
         const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), USAGE_TIMEOUT_MS).unref());
         const models = await Promise.race([q.supportedModels(), timeout]);
@@ -594,7 +626,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       })() as AsyncIterable<never>;
       const q = query({
         prompt: idle,
-        options: { cwd: opts.cwd, settingSources: [], ...(opts.claudePath ? { pathToClaudeCodeExecutable: opts.claudePath } : {}) },
+        options: { cwd: opts.cwd, settingSources: [], ...claudeExecutable(opts.claudePath) },
       });
       const getUsage = (q as unknown as Record<string, unknown>).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
       try {

@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon.js';
 import { ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Empty, IconButton, Tip, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { useApi, useApp } from '../lib/beluga.js';
+import { useApi, useApp, useBeluga, useMachine } from '../lib/beluga.js';
 import { runtimeMark } from '@beluga/shared/agent-marks.js';
 import { agentPicker, pickedAgent } from '@beluga/shared/agent-picker.js';
 import { agentName } from '@beluga/shared/agent-label.js';
@@ -35,6 +35,8 @@ import { AssignedToYou, WaitingFor, WorkingOn } from '../team/Team.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { ProjectIcon } from '../components/ProjectIcon.js';
 import { RepoPicker, useSeveralRepos } from './boards.js';
+import { showWorktreeFolder } from '../lib/remote-open.js';
+import { revealThereLabel } from '@beluga/machines/open.js';
 
 /**
  * One task: its title (click to rename), what to do next (start a worktree with Claude on it, or
@@ -164,13 +166,16 @@ function Title({ issue }: { issue: Issue }) {
     setDraft(undefined);
     if (next && next !== issue.title) void act(() => api.update(issue.id, { title: next }));
   };
+  // While its agent writes the task, the title is its stand-in and theirs to replace (BLG-598).
+  const writing = Boolean(issue.drafting);
   return (
     <textarea
       ref={input}
-      className={t.pageTitle}
+      className={cx(t.pageTitle, writing && t.pageTitleWriting)}
       value={draft ?? issue.title}
       rows={1}
       aria-label="Title"
+      readOnly={writing}
       spellCheck={false}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={save}
@@ -298,6 +303,9 @@ function useTaskWorktree(issue: Issue): { readonly ws: Workspace | undefined; re
 /** Where a task's work is: its worktree (open it, reveal its folder in Finder), or what became of it. `secondary`: something else is the main action (Fix It). */
 function WorktreeLinks({ issue, ws, live, secondary }: { issue: Issue; ws: Workspace | undefined; live: Workspace | undefined; secondary?: boolean }) {
   const { openWorktree } = useTaskActions();
+  const { client } = useBeluga();
+  // On a computer's page: Copy Path, never Finder over there (BLG-852).
+  const revealWords = useMachine() ? revealThereLabel('folder') : 'Reveal Folder';
   const api = useApi();
   // An epic across repos (BLG-561): the repos of its sub-tasks' worktrees it works in too.
   const also = useApp((s) =>
@@ -311,8 +319,8 @@ function WorktreeLinks({ issue, ws, live, secondary }: { issue: Issue; ws: Works
         <Button variant={secondary ? 'plain' : 'primary'} size="small" icon="branch" onClick={() => openWorktree(live.id)}>
           Open Worktree
         </Button>
-        <Button size="small" variant="quiet" icon="folder" onClick={() => void api.workspaces.openInFinder(live.id)}>
-          Reveal Folder
+        <Button size="small" variant="quiet" icon="folder" onClick={() => void showWorktreeFolder(client, live.id)}>
+          {revealWords}
         </Button>
         <span className={t.nextInfo}>
           <span className={t.mono}>{live.name}</span>
@@ -364,6 +372,8 @@ function NextStep({ issue }: { issue: Issue }) {
   };
   if (isFinished(issue.status)) return <Outcome issue={issue} ws={ws} live={live} />;
   if (!STATUS_INFO[issue.status].open && !live) return null;
+  // Its agent is still writing it: Start waits for the brief (BLG-598).
+  const writing = Boolean(issue.drafting);
   return (
     <div className={t.nextStep}>
       {had || live ? (
@@ -373,13 +383,15 @@ function NextStep({ issue }: { issue: Issue }) {
         </>
       ) : (
         <>
-          <SplitButton label="Start with another agent" disabled={starting} items={items((a) => void start(a))}>
-            <Button variant="primary" size="small" icon="play" disabled={starting} onClick={() => void start()}>
+          <SplitButton label="Start with another agent" disabled={starting || writing} items={items((a) => void start(a))}>
+            <Button variant="primary" size="small" icon="play" disabled={starting || writing} onClick={() => void start()}>
               {starting ? 'Starting…' : 'Start'}
             </Button>
           </SplitButton>
           <span className={t.nextInfo}>
-            {others.length
+            {writing
+              ? 'You can start it once its brief is written'
+              : others.length
               ? `A worktree in ${[repo, ...others].slice(0, -1).join(', ')} and ${others.at(-1)} from the latest origin, with ${who} working on ${issue.key} across them`
               : `A new worktree from the latest origin, with ${who} working on ${issue.key}${issue.brief.goal ? ' from this brief' : ''}`}
           </span>
@@ -398,6 +410,9 @@ function NextStep({ issue }: { issue: Issue }) {
  */
 function Outcome({ issue, ws, live }: { issue: Issue; ws: Workspace | undefined; live: Workspace | undefined }) {
   const { openWorktree } = useTaskActions();
+  const { client } = useBeluga();
+  // On a computer's page: Copy Path, never Finder over there (BLG-852).
+  const revealWords = useMachine() ? revealThereLabel('folder') : 'Reveal Folder';
   const api = useApi();
   const plan = useApp((s) => (issue.plan ? s.plans.plans.find((p) => p.id === issue.plan!.id) : undefined));
   const { open: openPlan } = usePlanActions();
@@ -424,8 +439,8 @@ function Outcome({ issue, ws, live }: { issue: Issue; ws: Workspace | undefined;
       ) : null}
       {live ? (
         <>
-          <Button size="small" variant="quiet" icon="folder" onClick={() => void api.workspaces.openInFinder(live.id)}>
-            Reveal Folder
+          <Button size="small" variant="quiet" icon="folder" onClick={() => void showWorktreeFolder(client, live.id)}>
+            {revealWords}
           </Button>
           <Button size="small" icon="branch" onClick={() => openWorktree(live.id)}>
             Open Worktree

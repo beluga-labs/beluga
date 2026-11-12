@@ -9,10 +9,11 @@ import { useActions } from '../lib/actions.js';
 import { useApi, useBeluga } from '../lib/beluga.js';
 import { goToCode } from '../lib/go-to-code.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { agoWords } from '../issues/issues-model.js';
 import type { ConversationItem } from './use-pr-conversation.js';
 import s from './pr-conversation.module.css';
+import { openCodeThere } from '../lib/remote-open.js';
 
 /**
  * The pieces a PR's conversation is drawn with: someone's words, a review's verdict, and a thread
@@ -61,7 +62,7 @@ export function WriteBox({ placeholder, label, busyLabel, onSend, onCancel, auto
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   const ready = !busy && Boolean(body.trim());
   useLayoutEffect(() => {
     const el = box.current;
@@ -144,7 +145,7 @@ export function Said({ c, what = 'commented', compact }: { c: PrComment; what?: 
       </header>
       {c.body.trim() ? (
         <div className={s.body}>
-          <Markdown text={c.body} />
+          <Markdown text={c.body} html />
         </div>
       ) : null}
     </article>
@@ -207,7 +208,7 @@ export function ThreadCard({ wsId, thread, folded = thread.resolved, children }:
           <span className={s.grow} />
         )}
         <span className={s.count}>{thread.comments.length > 1 ? `${thread.comments.length} comments` : ''}</span>
-        <IconButton icon="external" label="Open in Editor" className={s.small} onClick={() => void api.workbench.openCode(wsId, thread.path, line)} />
+        <IconButton icon="external" label="Open in Editor" className={s.small} onClick={() => void openCodeThere(client, wsId, thread.path, line)} />
       </header>
       {open ? (
         <>

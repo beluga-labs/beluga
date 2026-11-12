@@ -143,11 +143,11 @@ let rgFound: string | null | undefined;
 /** Where ripgrep is on this Mac (the app's PATH is short, so the usual places are looked in too), or undefined. */
 export function findRipgrep(): string | undefined {
   if (rgFound !== undefined) return rgFound ?? undefined;
-  const dirs = [...(process.env.PATH ?? '').split(path.delimiter), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
+  const dirs = [...(process.env.PATH ?? '').split(path.delimiter), ...(process.platform === 'win32' ? [] : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'])];
   rgFound = null;
   for (const d of dirs) {
     if (!d) continue;
-    const p = path.join(d, 'rg');
+    const p = path.join(d, process.platform === 'win32' ? 'rg.exe' : 'rg');
     try {
       accessSync(p, constants.X_OK);
       rgFound = p;
@@ -429,7 +429,7 @@ export function resolveInWorkspace(root: string, rel: string): string {
   const parts = cleaned.split('/').filter((p) => p && p !== '.');
   if (!parts.length) throw new FileEditError('No file given');
   if (parts.includes('..')) throw new FileEditError('Only files inside the workspace can be changed');
-  if (parts[0] === '.git') throw new FileEditError('Git’s own files can’t be changed here');
+  if (parts[0]?.toLowerCase() === '.git') throw new FileEditError('Git’s own files can’t be changed here');
   let realRoot: string;
   try {
     realRoot = realpathSync(root);

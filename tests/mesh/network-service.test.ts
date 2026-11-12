@@ -11,7 +11,7 @@ import type { Session } from '../../src/core/session.js';
 import { HANDLERS } from '../../src/ipc/handlers.js';
 import { parseArgs } from '../../src/ipc/api.js';
 import type { MessageView } from '../../src/net/mesh/views.js';
-import { FAST, settle } from './helpers.js';
+import { FAST, LOSES_A_MESSAGE_ON_WINDOWS, settle } from './helpers.js';
 
 let testnet: Testnet;
 const services: NetworkService[] = [];
@@ -31,7 +31,7 @@ async function person(name: string): Promise<{ store: Store; service: NetworkSer
   const dir = mkdtempSync(path.join(os.tmpdir(), `klaud-net-${name}-`));
   const service = await startNetwork({ store, identity: generateIdentity(), name, dir, bootstrap: testnet.bootstrap, host: '127.0.0.1', timing: FAST });
   services.push(service);
-  const session = {} as Session;
+  const session = { store } as unknown as Session;
   attachNetwork(session, service);
   return { store, service, session, dir };
 }
@@ -43,7 +43,9 @@ const call = async (session: Session, method: keyof typeof HANDLERS, ...args: un
 };
 
 describe('the network as a core service', () => {
-  it('mirrors friends, presence, groups and messages into the shared state, through the API', async () => {
+  // Windows' runners now and then never see the two come online (a link lost while both dial, BLG-728): skipped
+  // there like the other network tests that wait on it (tests/mesh/helpers.ts); macOS and Linux still run it.
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('mirrors friends, presence, groups and messages into the shared state, through the API', async () => {
     const ann = await person('ann');
     const bob = await person('bob');
     expect(await call(ann.session, 'network.status')).toMatchObject({ enabled: true, peerId: ann.service.mesh.peerId });
@@ -53,9 +55,10 @@ describe('the network as a core service', () => {
     await settle(() => ann.store.getState().network.friends[0]?.online && bob.store.getState().network.friends[0]?.online);
     expect(ann.store.getState().network).toMatchObject({ enabled: true, self: { name: 'ann' }, invitations: [] });
 
-    await call(bob.session, 'network.presence.set', { state: 'dnd', note: 'focus' });
+    await call(bob.session, 'network.presence.set', { state: 'dnd', note: 'focus', emoji: '🎧' });
     await settle(() => ann.store.getState().network.friends[0]?.presence.state === 'dnd');
-    expect(await call(bob.session, 'network.presence.get')).toEqual({ state: 'dnd', note: 'focus' });
+    expect(await call(bob.session, 'network.presence.get')).toEqual({ state: 'dnd', note: 'focus', emoji: '🎧' });
+    expect(ann.store.getState().network.friends[0]?.presence).toEqual({ state: 'dnd', note: 'focus', emoji: '🎧' });
 
     const bobId = bob.service.mesh.peerId;
     await call(ann.session, 'network.dm.send', bobId, 'hello bob');
@@ -80,6 +83,48 @@ describe('the network as a core service', () => {
     const shared = JSON.stringify(ann.store.getState().network);
     expect(shared).not.toMatch(/PRIVATE KEY|"sig"|"box"|"secretKey"|"card"/);
     expect(shared).not.toContain(ann.service.mesh.address);
+  }, 60_000);
+
+  it.skipIf(LOSES_A_MESSAGE_ON_WINDOWS)('says Seen only for a chat on a screen in front, or opened on the phone, and never when you turned it off (BLG-798)', async () => {
+    const ann = await person('ann');
+    const bob = await person('bob');
+    const invite = (await call(ann.session, 'network.friends.invite')) as { code: string };
+    await call(bob.session, 'network.friends.accept', invite.code);
+    await settle(() => ann.store.getState().network.friends[0]?.online && bob.store.getState().network.friends[0]?.online);
+    const bobId = bob.service.mesh.peerId;
+    const conv = `dm:${ann.service.mesh.peerId}`;
+    const last = (): string | undefined => ann.store.getState().network.messages[`dm:${bobId}`]?.at(-1)?.status;
+    const send = async (text: string): Promise<void> => {
+      await call(ann.session, 'network.dm.send', bobId, text);
+      await settle(() => bob.store.getState().network.messages[conv]?.some((m) => m.text === text));
+      await settle(() => last() === 'delivered');
+    };
+    const wait = (): Promise<void> => new Promise((r) => setTimeout(r, 400));
+
+    // Shown behind other windows: read, not Seen.
+    await send('one');
+    bob.store.dispatch({ type: 'attention', attention: { shown: [conv], visible: [conv], files: false, front: false } });
+    await wait();
+    expect(last()).toBe('delivered');
+    // In front: Seen.
+    bob.store.dispatch({ type: 'attention', attention: { shown: [conv], visible: [conv], files: false, front: true } });
+    await settle(() => last() === 'seen');
+
+    // Turned off: in front, still only Delivered; the phone opening it neither.
+    bob.store.dispatch({ type: 'attention', attention: { shown: [], visible: [], files: false, front: true } });
+    bob.store.dispatch({ type: 'prefs', prefs: { readReceipts: false } });
+    await send('two');
+    bob.store.dispatch({ type: 'attention', attention: { shown: [conv], visible: [conv], files: false, front: true } });
+    await call(bob.session, 'network.read', conv);
+    await wait();
+    expect(last()).toBe('delivered');
+
+    // On again: the phone opening the chat says it.
+    bob.store.dispatch({ type: 'attention', attention: { shown: [], visible: [], files: false, front: false } });
+    bob.store.dispatch({ type: 'prefs', prefs: { readReceipts: true } });
+    await send('three');
+    await call(bob.session, 'network.read', conv);
+    await settle(() => last() === 'seen');
   }, 60_000);
 
   it('refuses bad arguments, and says clearly when the network is off', async () => {

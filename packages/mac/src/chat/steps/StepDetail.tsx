@@ -1,3 +1,4 @@
+import { baseName, isAbsolutePath, joinPath } from '@beluga/shared/os-path.js';
 import { type ReactNode, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Location } from '@beluga/core/store.js';
 import type { StepRecord } from '@beluga/shared/steps.js';
@@ -140,7 +141,7 @@ function LocalPdf({ path }: { path: string }) {
 /** What Claude looked at, when it's a picture or a PDF: the thing itself (its "lines" are just "[image]"). */
 function Seen({ file }: { file: string }) {
   const src = imageSource(file);
-  const name = file.split('/').pop() ?? file;
+  const name = baseName(file) || file;
   if (src.kind === 'local') {
     const image = localImage(src.path, name);
     return (
@@ -151,7 +152,7 @@ function Seen({ file }: { file: string }) {
       </Section>
     );
   }
-  if (file.startsWith('/') && isPdfFile(file)) {
+  if (isAbsolutePath(file) && isPdfFile(file)) {
     return (
       <Section label="PDF">
         <LocalPdf path={file} />
@@ -172,7 +173,7 @@ function ReadDetail({ record }: { record: StepRecord }) {
         <PathLink path={file} {...(from ? { line: from } : {})} />
         {from || count ? <span className={s.quiet}>{from ? `from line ${from}` : ''}{from && count ? ', ' : ''}{count ? `${count} lines` : ''}</span> : null}
       </div>
-      {file.startsWith('/') && (imageSource(file).kind === 'local' || isPdfFile(file)) && !record.isError ? <Seen file={file} /> : <Output record={record} label="Lines read" ansi={false} />}
+      {isAbsolutePath(file) && (imageSource(file).kind === 'local' || isPdfFile(file)) && !record.isError ? <Seen file={file} /> : <Output record={record} label="Lines read" ansi={false} />}
     </>
   );
 }
@@ -220,9 +221,9 @@ function Matches({ text, base }: { text: string; base?: string }) {
   return (
     <div className={cx(s.matches, 'selectable')}>
       {lines.slice(0, 500).map((line, i) => {
-        const m = /^((?:\/|[\w.@-]+\/)[^\s:]*[^\s:/])(?::(\d+))?(?::(.*))?$/.exec(line);
+        const m = /^((?:[A-Za-z]:[\\/]|\/|[\w.@-]+[\\/])[^\s:]*[^\s:\\/])(?::(\d+))?(?::(.*))?$/.exec(line);
         const p = m?.[1];
-        const abs = p ? (p.startsWith('/') ? p : base ? `${base.replace(/\/$/, '')}/${p}` : undefined) : undefined;
+        const abs = p ? (isAbsolutePath(p) ? p : base ? joinPath(base, p) : undefined) : undefined;
         if (!m || !abs) return <div key={i}>{line}</div>;
         return (
           <div key={i} className={s.match}>
@@ -256,7 +257,7 @@ function SearchDetail({ record }: { record: StepRecord }) {
         <Section label={record.isError ? 'Failed' : 'Matches'} tone={record.isError ? 'error' : undefined}>
           {out ? (
             <Capped>
-              <Matches text={out} {...(where.startsWith('/') ? { base: where } : {})} />
+              <Matches text={out} {...(isAbsolutePath(where) ? { base: where } : {})} />
             </Capped>
           ) : (
             <div className={s.quiet}>No matches</div>

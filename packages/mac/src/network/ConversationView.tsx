@@ -16,10 +16,16 @@ import { plainText } from '../chat/message-menu.js';
 import { GroupAvatar, PersonAvatar } from './Avatars.js';
 import { ASK_EVENT, NetComposer, type Outgoing, QUOTE_EVENT, useChannelTasks } from './NetComposer.js';
 import { MessageFiles } from './ChatFiles.js';
+import { ReactButton, ReactionChips, useNetReact } from './Reactions.js';
+import r from './reactions.module.css';
 import { ChatTabs } from './ChatTabs.js';
+import { CallRoom } from '../call/CallRoom.js';
+import { NotesBox } from '../call/NotesBox.js';
+import { MissedCall } from '../call/MissedCall.js';
+import type { CallNotesView, MissedCallView } from '@beluga/shared/calls.js';
 import { addBlobs, addPaths } from './attachments.js';
 import { type RunPlace, askedLine, authorLabel, channelName, channelWorld, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
-import { conversationOf, dayLabel, membersLine, mergeMessages, presenceLine, sameDay, shownState } from './net-model.js';
+import { conversationOf, dayLabel, keepsFollowing, membersLine, mergeMessages, presenceLine, sameDay, shownState, unreadLine, unreadSince } from './net-model.js';
 import { showWaiting, useChatPeople } from './use-chat-people.js';
 import { openNet } from './net-sheets.js';
 import { errorText, quietly, useNetwork, useSay } from './use-net.js';
@@ -29,6 +35,7 @@ import { agentBadge, useMyAgent } from '../lib/agent-words.js';
 import { agentMark } from '@beluga/shared/agent-marks.js';
 import { PersonButton } from './PersonProfile.js';
 import s from './network.module.css';
+import { computerTitle, thisComputer, yourComputer } from '../lib/os-words.js';
 
 /** Messages the shared state keeps per conversation; with that many, there may be earlier ones. */
 const KEPT = 200;
@@ -161,25 +168,33 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
       ...(dm ? { remove: () => openNet({ kind: 'delete_message', conversation: m.conversation, id: m.id, mine: m.mine }) } : {}),
     });
   const edited = m.edited ? <span title={`Edited ${fullTime(m.edited)}`}>Edited</span> : null;
+  // Emoji reactions (BLG-702): the chips under it, and the button a hover shows (on the bubble's top corner, `on`).
+  const react = useNetReact(m);
+  const chips = <ReactionChips reactions={m.reactions} nameOf={nameOf} mine={m.mine && !m.claude} me={me?.peerId} onReact={react} />;
+  const reactButton = (on?: 'start' | 'end') => <ReactButton reactions={m.reactions} me={me?.peerId} onReact={react} {...(on ? { on } : {})} />;
   // Your own words (not your Claude's): your colour, on the right; the time (and Delivered) under the run.
   if (m.mine && !m.claude && !locked)
     return (
       <ActionsContext items={items}>
-        <div className={cx(s.row, s.rowMine, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} data-mine="true" style={tintOf(author)}>
+        <div className={cx(s.row, s.rowMine, r.reactable, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} data-mine="true" style={tintOf(author)}>
           <div className={s.stack} title={fullTime(m.ts)}>
-            {editing ? (
-              <EditBubble m={m} done={() => setEditing(false)} />
-            ) : m.text.trim() ? (
-              <div className={cx(s.bubble, s.bubbleMine, place.last && s.tailMine)}>
-                <Markdown text={m.text} mentions={world} />
-              </div>
-            ) : null}
-            {m.files?.length ? <MessageFiles files={m.files} conversation={m.conversation} mine /> : null}
+            <div className={r.onMessage}>
+              {editing ? (
+                <EditBubble m={m} done={() => setEditing(false)} />
+              ) : m.text.trim() ? (
+                <div className={cx(s.bubble, s.bubbleMine, place.last && s.tailMine)}>
+                  <Markdown text={m.text} mentions={world} />
+                </div>
+              ) : null}
+              {m.files?.length ? <MessageFiles files={m.files} conversation={m.conversation} mine /> : null}
+              {editing ? null : reactButton('start')}
+            </div>
+            {chips}
             {askedChip}
             {deliveryState ??
               (place.last || edited ? (
                 <div className={s.under}>
-                  {[edited, place.last ? time(m.ts) : null, place.last && dm && last && m.status === 'delivered' ? 'Delivered' : null]
+                  {[edited, place.last ? time(m.ts) : null, place.last && dm && last && m.status === 'seen' ? 'Seen' : place.last && dm && last && m.status === 'delivered' ? 'Delivered' : null]
                     .filter(Boolean)
                     .map((part, i) => (
                       <span key={i}>
@@ -197,7 +212,7 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
   if (!m.claude && !locked)
     return (
       <ActionsContext items={items}>
-        <div className={cx(s.row, s.rowTheirs, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} style={tintOf(author)}>
+        <div className={cx(s.row, s.rowTheirs, r.reactable, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} style={tintOf(author)}>
           <div className={s.side}>
             {place.last ? (
               <PersonButton peerId={m.from} name={m.name}>
@@ -214,13 +229,18 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
                 {prefs.timestamps ? <span className={s.runTime}>{time(m.ts)}</span> : null}
               </div>
             ) : null}
-            {m.text.trim() ? (
-              <div className={cx(s.bubble, s.bubbleTheirs, place.last && s.tailTheirs)}>
-                <Markdown text={m.text} mentions={world} />
-              </div>
-            ) : null}
-            {m.files?.length ? <MessageFiles files={m.files} conversation={m.conversation} mine={false} /> : null}
+            <div className={r.onMessage}>
+              {m.text.trim() ? (
+                <div className={cx(s.bubble, s.bubbleTheirs, place.last && s.tailTheirs)}>
+                  <Markdown text={m.text} mentions={world} />
+                </div>
+              ) : null}
+              {m.files?.length ? <MessageFiles files={m.files} conversation={m.conversation} mine={false} /> : null}
+              {reactButton('end')}
+            </div>
+            {chips}
             {edited ? <div className={s.under}>{edited}</div> : null}
+            {m.via ? <div className={s.under} data-sent-by={m.via.id}>Sent by {m.via.name}</div> : null}
             {askedChip}
           </div>
         </div>
@@ -229,7 +249,8 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
   // A Claude (yours or a friend's), or a message this Mac can't read: full width, under its name.
   return (
     <ActionsContext items={items}>
-      <div className={cx(s.row, s.rowClaude, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} data-claude={m.claude ? 'true' : undefined}>
+      <div className={cx(s.row, s.rowClaude, !locked && r.reactable, !place.first && s.rowCont, m.status === 'waiting' && s.waiting)} data-message={m.id} data-claude={m.claude ? 'true' : undefined}>
+        {locked ? null : reactButton()}
         <div className={s.side}>{place.first ? <Avatar name={m.mine && me ? me.name : m.name} id={author} size={28} claude={Boolean(m.claude)} agent={m.claude?.agent} /> : null}</div>
         <div className={s.claudeBody} title={fullTime(m.ts)}>
           {place.first ? (
@@ -243,19 +264,20 @@ const Message = memo(function Message({ m, place, dm, last, resend, me, nameOf, 
                   {agentBadge(m.claude.agent)}
                 </span>
               ) : null}
-              {m.claude ? <span className={s.claudeTag}>on {m.mine ? 'your' : `${m.name}’s`} Mac</span> : null}
+              {m.claude ? <span className={s.claudeTag}>on {m.mine ? yourComputer() : `${m.name}’s computer`}</span> : null}
               {prefs.timestamps ? <span className={s.runTime}>{time(m.ts)}</span> : null}
             </div>
           ) : null}
           {locked ? (
             <div className={s.locked}>
               <Icon name="lock" size={12} />
-              Can’t be read on this Mac
+              Can’t be read on {thisComputer()}
             </div>
           ) : (
             <>
               {m.text.trim() ? <Markdown text={m.text} mentions={world} /> : null}
               {m.files?.length ? <MessageFiles files={m.files} conversation={m.conversation} mine={m.mine} /> : null}
+              {chips}
               {askedChip}
               {offer ? <RequestOffer m={m} /> : null}
             </>
@@ -278,7 +300,7 @@ function TaskRow({ task, me }: { task: TaskView; me?: { name: string; peerId: st
   const owner = sent ? (me?.peerId ?? 'me') : task.peerId;
   const ownerName = sent ? (me?.name ?? 'You') : task.peerName;
   const label = agent ? (sent ? 'Your agent' : `${task.peerName}’s agent`) : sent ? 'You' : task.peerName;
-  const asked = sent ? `asked ${targetLabel(task)}` : `asked ${task.kind === 'ask' ? 'your agent' : 'your Mac'}`;
+  const asked = sent ? `asked ${targetLabel(task)}` : `asked ${task.kind === 'ask' ? 'your agent' : yourComputer()}`;
   return (
     <div className={cx(s.row, s.rowClaude)} data-task-row={task.id}>
       <div className={s.side}>
@@ -322,7 +344,7 @@ function RequestOffer({ m }: { m: MessageView }) {
   const request = m.claude?.request;
   if (!request) return null;
   if (task) return <TaskCard task={task} inChat />;
-  if (taskId) return <div className={s.asked}>Sent as a request to {m.name}’s Mac</div>;
+  if (taskId) return <div className={s.asked}>Sent as a request to {m.name}’s computer</div>;
   const send = (): void => {
     setSending(true);
     void client.api.gateway
@@ -338,7 +360,7 @@ function RequestOffer({ m }: { m: MessageView }) {
         {request.ask}
       </span>
       <Button size="small" variant="primary" disabled={sending} onClick={send}>
-        {sending ? 'Sending…' : `Ask on ${m.name}’s Mac`}
+        {sending ? 'Sending…' : `Ask on ${m.name}’s computer`}
       </Button>
     </div>
   );
@@ -384,7 +406,7 @@ function Intro({ friend, group }: { friend?: FriendView; group?: GroupView }) {
         <div className={s.introLine}>{presenceLine(friend)}</div>
         <div className={s.introPrivacy}>
           <Icon name="lock" size={12} />
-          End-to-end encrypted, straight to {friend.name}’s Mac
+          End-to-end encrypted, straight to {friend.name}’s computer
         </div>
       </div>
     );
@@ -397,10 +419,10 @@ function Intro({ friend, group }: { friend?: FriendView; group?: GroupView }) {
       <div className={s.introLine}>{isMain(net, group) ? `Your main channel: all your friends, and everyone you add later · ${membersLine(group.members)}` : membersLine(group.members)}</div>
       <div className={s.introPrivacy}>
         <Icon name="lock" size={12} />
-        End-to-end encrypted, kept on each member’s Mac
+        End-to-end encrypted, kept on each member’s computer
       </div>
       <div className={s.introHint}>
-        Drop files here to share them straight from your Mac. Your agent answers only when you ask: type <b>@claude</b> (whichever agent you run), or click <b>Ask: your agent</b> under the message box.
+        Drop files here to share them straight from {yourComputer()}. Your agent answers only when you ask: type <b>@claude</b> (whichever agent you run), or click <b>Ask: your agent</b> under the message box.
       </div>
       {group.admin && group.active ? (
         <div className={s.introActions}>
@@ -416,24 +438,30 @@ function Intro({ friend, group }: { friend?: FriendView; group?: GroupView }) {
 /**
  * Keeps the log at the bottom while you're there; leaves it alone while you read further up.
  * Opening a conversation starts at the bottom, and stays there while what's drawn after the first
- * paint (pictures, code, task cards, the log's own height) grows under it.
+ * paint (pictures, code, task cards, the log's own height) grows under it. Only scrolling up lets
+ * go: what grows under the bottom moves no scroll position, so it never reads as you leaving it.
  */
 function useStickToBottom(dep: unknown, key: string) {
   const [log, ref] = useState<HTMLDivElement | null>(null);
   const stick = useRef(true);
   const shown = useRef(key);
+  const top = useRef(0);
+  const toBottom = (el: HTMLDivElement): void => {
+    el.scrollTop = el.scrollHeight;
+    top.current = el.scrollTop;
+  };
   useLayoutEffect(() => {
     // A new conversation starts at the bottom (reset here, before scrolling, not in a later effect).
     if (shown.current !== key) {
       shown.current = key;
       stick.current = true;
     }
-    if (log && stick.current) log.scrollTop = log.scrollHeight;
+    if (log && stick.current) toBottom(log);
   }, [dep, key, log]);
   useEffect(() => {
     if (!log || typeof ResizeObserver === 'undefined') return;
     const pin = (): void => {
-      if (stick.current) log.scrollTop = log.scrollHeight;
+      if (stick.current) toBottom(log);
     };
     const sizes = new ResizeObserver(pin);
     sizes.observe(log);
@@ -448,7 +476,9 @@ function useStickToBottom(dep: unknown, key: string) {
     };
   }, [log]);
   const onScroll = (): void => {
-    if (log) stick.current = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+    if (!log) return;
+    stick.current = keepsFollowing(stick.current, top.current, { top: log.scrollTop, height: log.scrollHeight, client: log.clientHeight });
+    top.current = log.scrollTop;
   };
   return { ref, onScroll };
 }
@@ -542,7 +572,10 @@ export function ConversationView({ id }: { id: string }) {
   return (
     <div className={s.chatArea}>
       <ChatTabs shown={id} />
-      <Conversation id={id} />
+      {/* Its call (BLG-706): the strip on top and, while someone shares, their screen beside this same chat. */}
+      <CallRoom id={id}>
+        <Conversation id={id} />
+      </CallRoom>
     </div>
   );
 }
@@ -564,6 +597,12 @@ function Conversation({ id }: { id: string }) {
   }, [latest.length]);
   const messages = useMemo(() => mergeMessages(older.list, latest), [older.list, latest]);
   const more = latest.length >= KEPT && older.more;
+  // What was new when you came in, kept from the first look: the count goes to 0 as soon as the
+  // daemon sees this conversation shown (BLG-573).
+  const unreadNow = friend ? friend.unread : group?.active ? group.unread : 0;
+  const [entry, setEntry] = useState({ id, count: unreadNow, upTo: latest.at(-1)?.id });
+  if (entry.id !== id) setEntry({ id, count: unreadNow, upTo: latest.at(-1)?.id });
+  const unread = useMemo(() => (entry.id === id ? unreadSince(messages, entry.count, entry.upTo) : new Set<string>()), [messages, entry, id]);
   const { ref, onScroll } = useStickToBottom(messages, id);
   const writable = Boolean(friend || group?.active);
   const drop = useFileDrop(id, writable);
@@ -580,6 +619,12 @@ function Conversation({ id }: { id: string }) {
   const tasks = useApp((st) => st.gateway.tasks);
   const asking = useMemo(() => tasks.filter((t) => t.direction === 'sent' && t.conversation === id && t.chat !== id && !isFinal(t.state)), [tasks, id]);
   const places = useMemo(() => runPlaces(messages), [messages]);
+  // Calls' notes (BLG-715) sit in the timeline where each call ended.
+  const callNotes = useApp((st) => st.network.callNotes?.[id]);
+  const notesBefore = (ts: number, after: number | undefined): readonly CallNotesView[] => (callNotes ?? []).filter((n) => n.endedAt <= ts && (after === undefined || n.endedAt > after));
+  // Calls you missed sit where they rang.
+  const missedCalls = useApp((st) => st.network.missedCalls?.[id]);
+  const missedBefore = (ts: number, after: number | undefined): readonly MissedCallView[] => (missedCalls ?? []).filter((m) => m.at <= ts && (after === undefined || m.at > after));
   const { people: here, waiting } = useChatPeople(id);
 
   if (!net.enabled) {
@@ -597,7 +642,7 @@ function Conversation({ id }: { id: string }) {
     );
   }
   if (!target || (!friend && !group)) {
-    return <Empty icon="people" title={target?.kind === 'group' ? 'This channel isn’t here any more' : 'Not a friend any more'} detail="Its messages stay on this Mac, but you can’t write here." />;
+    return <Empty icon="people" title={target?.kind === 'group' ? 'This channel isn’t here any more' : 'Not a friend any more'} detail={`Its messages stay on ${thisComputer()}, but you can’t write here.`} />;
   }
 
   const loadEarlier = async (): Promise<void> => {
@@ -621,6 +666,8 @@ function Conversation({ id }: { id: string }) {
   const nameOf = (peerId: string): string => net.friends.find((f) => f.peerId === peerId)?.name ?? group?.members.find((m) => m.peerId === peerId)?.name ?? 'someone';
   const title = group ? channelName(net, group) : (friend?.name ?? '');
   const note = offlineNote(here);
+  const firstUnread = messages.find((m) => unread.has(m.id))?.id;
+  const lastUnread = messages.findLast((m) => unread.has(m.id))?.id;
 
   return (
     <div ref={drop.ref} className={cx(s.conversation, drop.over && s.dropping)} {...drop.html}>
@@ -642,11 +689,28 @@ function Conversation({ id }: { id: string }) {
           const plain = <Message m={m} place={place} dm={target.kind === 'dm'} last={m.id === lastMine} resend={resend} nameOf={nameOf} world={world} offer={Boolean(m.claude?.request && !m.mine && mineIds.has(m.claude.for))} {...(me ? { me } : {})} />;
           return (
             <div key={m.id}>
+              {notesBefore(m.ts, prev?.ts).map((n) => (
+                <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
+              ))}
+              {missedBefore(m.ts, prev?.ts).map((x) => (
+                <MissedCall key={`missed-${x.id}`} missed={x} />
+              ))}
               {newDay ? <div className={s.day}>{dayLabel(m.ts)}</div> : null}
-              {m.task ? offered.has(m.task.id) ? null : <TaskMessage id={m.task.id} plain={plain} {...(me ? { me } : {})} /> : plain}
+              {m.id === firstUnread ? <div className={s.unreadLine}>{unreadLine(unread.size)}</div> : null}
+              <div className={cx(unread.has(m.id) && s.unread, m.id === lastUnread && s.unreadEnd)}>{m.task ? offered.has(m.task.id) ? null : <TaskMessage id={m.task.id} plain={plain} {...(me ? { me } : {})} /> : plain}</div>
             </div>
           );
         })}
+        {(callNotes ?? [])
+          .filter((n) => !messages.length || n.endedAt > messages[messages.length - 1]!.ts)
+          .map((n) => (
+            <NotesBox key={n.id} notes={n} place={group ? `#${title}` : `your chat with ${title}`} />
+          ))}
+        {(missedCalls ?? [])
+          .filter((x) => !messages.length || x.at > messages[messages.length - 1]!.ts)
+          .map((x) => (
+            <MissedCall key={`missed-${x.id}`} missed={x} />
+          ))}
         {asking.filter((t) => !offered.has(t.id)).map((t) => (
           <TaskRow key={t.id} task={t} {...(me ? { me } : {})} />
         ))}
@@ -664,7 +728,7 @@ function Conversation({ id }: { id: string }) {
             <Icon name="lock" size={13} />
             <span>You’re no longer in {group.name}. Its messages stay here, read-only.</span>
             <Button size="small" onClick={() => openNet({ kind: 'delete_group', groupId: group.id })}>
-              Delete from This Mac…
+              Delete from This {computerTitle()}…
             </Button>
           </div>
         </div>

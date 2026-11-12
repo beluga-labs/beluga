@@ -1,3 +1,4 @@
+import { TriageLine } from "../chat/TriageLine.js";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { queueIn } from "@beluga/ui/compose.js";
 import { activityOf } from "@beluga/ui/workspace-models.js";
@@ -6,6 +7,9 @@ import { PaneLook } from "../chat/Items.js";
 import { QueueTray } from "../chat/QueueTray.js";
 import { MentionHighlighter } from "../chat/MentionHighlighter.js";
 import { useMentionWorld } from "../chat/Mention.js";
+import { caretAfterDraw, useDraftChips } from "../chat/draft-chips.js";
+import { boxChats } from "../chat/chat-box.js";
+import { withChatWords } from "@beluga/shared/chat-ref.js";
 import { useSuggestions } from "../chat/Suggestions.js";
 import { suggest } from "@beluga/ui/suggest.js";
 import { MaxFire } from "../chat/MaxFire.js";
@@ -16,7 +20,7 @@ import { useAttachments } from "../chat/use-attachments.js";
 import { Icon } from "../components/Icon.js";
 import { Empty, IconButton, Tip, Working, cx } from "../components/ui.js";
 import { useActions } from "../lib/actions.js";
-import { useApi, useApp, useBeluga } from "../lib/beluga.js";
+import { useApi, useApp, useBeluga, useScopedKey } from "../lib/beluga.js";
 import { useMyAgentName } from "../lib/agent-words.js";
 import { LiveDot } from "./marks.js";
 import { PlanAsk } from "./PlanAsk.js";
@@ -27,6 +31,7 @@ import s from "../chat/composer.module.css";
 import k from "./plan-ask.module.css";
 import p from "./plans.module.css";
 import { shortcutKeys } from "../lib/shortcuts.js";
+import { chordLabel } from "../lib/shortcuts-model.js";
 
 const FOLD = { fold: true };
 const FOLD_QUIET = { fold: true, quietWorking: true };
@@ -46,7 +51,7 @@ const unsent = new Map<string, { message: PlanMessage; error: string }>();
  * plans and runs it there), and a box to say what to change. The plan updates as Claude writes.
  * The box takes pasted, dropped and path-named images and files as every message box does. This
  * is where you run the whole plan from, so the box never waits: what you send while Claude works
- * reaches it now (at its next step, or a long command is interrupted for it; ⌥↩ queues it
+ * reaches it at its next step, without stopping what it's on (⌥↩ queues it
  * instead), Stop ends its turn, and what it asks you (a decision of yours in the plan, its
  * question) is answered right here. A send that fails says so here, with Retry.
  */
@@ -67,15 +72,29 @@ export function PlanChat({
   const api = useApi();
   const { client } = useBeluga();
   const actions = useActions();
-  const [text, setTextState] = useState(() => typed.get(channel) ?? "");
+  // Unsent words and a message that didn't go, per plan chat on its computer (BLG-784).
+  const kept = useScopedKey(channel);
+  const [text, setTextState] = useState(() => typed.get(kept) ?? "");
   const words = useRef(text);
   const setText = (next: string): void => {
     words.current = next;
-    if (next) typed.set(channel, next);
-    else typed.delete(channel);
+    if (next) typed.set(kept, next);
+    else typed.delete(kept);
     setTextState(next);
   };
   const box = useRef<HTMLTextAreaElement>(null);
+  // A chat's row dropped here: its chip at the cursor. It never sends.
+  useDraftChips(channel, (chips) => {
+    const at = box.current?.value === words.current ? box.current.selectionStart : words.current.length;
+    const next = withChatWords(words.current, at, boxChats(chips));
+    setText(next.text);
+    caretAfterDraw(box, next.caret);
+  });
+  useEffect(() => {
+    const focus = (): void => box.current?.focus();
+    document.addEventListener("beluga:focus-composer", focus);
+    return () => document.removeEventListener("beluga:focus-composer", focus);
+  }, []);
   // The box burns here as in every message box (Settings › Fire & Confetti).
   const form = useRef<HTMLFormElement>(null);
   const fire = usePrefs().maxFire;
@@ -141,10 +160,10 @@ export function PlanChat({
   const [failed, setFailedState] = useState<{
     message: PlanMessage;
     error: string;
-  } | undefined>(() => unsent.get(channel));
+  } | undefined>(() => unsent.get(kept));
   const setFailed = (next: { message: PlanMessage; error: string } | undefined): void => {
-    if (next) unsent.set(channel, next);
-    else unsent.delete(channel);
+    if (next) unsent.set(kept, next);
+    else unsent.delete(kept);
     setFailedState(next);
   };
   const att = useAttachments({
@@ -305,10 +324,12 @@ export function PlanChat({
           </button>
         </div>
       ) : null}
+      <TriageLine channel={channel} />
       <div className={p.chatCompose}>
       {sug.list}
       <form
         ref={form}
+        data-chat-box={channel}
         className={cx(
           p.chatBox,
           burning ? (fire.border ? m.max : m.maxPlain) : effects && m.fxOnly,
@@ -382,7 +403,7 @@ export function PlanChat({
           <Tip
             label={
               busy
-                ? "Send now: your agent reads it at its next step (a long command is interrupted for it) · ⌥↩ queues it instead"
+                ? `Send now: your agent reads it at its next step, without stopping · ${chordLabel("Alt+Enter")} queues it instead`
                 : "Send"
             }
             keys="↩"

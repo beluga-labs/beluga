@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Location } from '@beluga/core/store.js';
 import type { LinkTarget } from '@beluga/shared/link-target.js';
 import { ATTACHMENT_SHARE } from '@beluga/core/attachment-share.js';
+import { shareNameOf } from '@beluga/shared/share-names.js';
 import type { UiState } from '@beluga/ui/keymap.js';
 import { type MenuKind, menuSpec } from '@beluga/ui/menus.js';
 import { type MenuContext, runMenu as runSharedMenu } from '@beluga/ui/menu-actions.js';
@@ -13,12 +14,14 @@ import type { UiAction } from '@beluga/ui/workspace-models.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { type UiStore, useBeluga } from './beluga.js';
 import { openExternal } from './system.js';
+import { chordLabel } from './shortcuts-model.js';
 import { asksFirst, routeOption, routeTyped } from './native-routes.js';
 import { newGroupFor } from './group-edit.js';
 import { openSheet } from './sheets.js';
 import { askBeforeWork, asksBeforeWork } from './work-confirm.js';
 import { mergeNeedsWarning } from './plan-merge.js';
 import { isPlanAction, runPlanAction } from './plan-task.js';
+import { openFolderThere } from './remote-open.js';
 
 export interface Actions {
   /** Do what a clicked row, button or card means (the shared actions, some done this window's way). */
@@ -63,7 +66,9 @@ export function makeActions(client: SocketClient, ui: UiStore): Actions {
         }
         return;
       }
-      if (view.kind !== 'room' && view.kind !== 'files' && view.kind !== 'workspace' && view.kind !== 'shared') client.store.dispatch({ type: 'view', view: { kind: 'files' } });
+      // A worktree shows only its own files, and a room none: anything else opens in Files.
+      const ownWorktree = view.kind === 'workspace' && at.owner === client.store.getState().selfId && at.share === shareNameOf(view.id);
+      if (view.kind !== 'files' && view.kind !== 'shared' && !ownWorktree) client.store.dispatch({ type: 'view', view: { kind: 'files' } });
       void client.api.files.open(at);
     };
     switch (link.kind) {
@@ -93,7 +98,8 @@ export function makeActions(client: SocketClient, ui: UiStore): Actions {
       if (kind === 'group') newGroupFor(projectId);
       else actions.run(kind === 'worktree' ? { type: 'new_worktree', projectId } : { type: 'new_chat', projectId });
     },
-    openFolder: (dir) => void client.api.local.openFolder(dir),
+    // On a computer's page: over Remote-SSH, else its path copied (BLG-852).
+    openFolder: (dir) => void openFolderThere(client, dir),
     runUiAction: (a) => actions.run(a),
     write: () => undefined,
   };
@@ -116,7 +122,7 @@ export function makeActions(client: SocketClient, ui: UiStore): Actions {
     menuCtx: () => menuCtx,
     runMenu: (m, i) => actions.pick(m, i),
     openLink,
-    pasteImage: () => client.store.dispatch({ type: 'toast', text: 'Paste an image with ⌘V in the message box' }),
+    pasteImage: () => client.store.dispatch({ type: 'toast', text: `Paste an image with ${chordLabel('Cmd+V')} in the message box` }),
   };
   const actions: Actions = {
     run: (action) => {

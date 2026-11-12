@@ -4,6 +4,7 @@ import { useApp, useBeluga } from '../lib/beluga.js';
 import { Group, Row, Select, Switch } from '../dialogs/settings-controls.js';
 import { openNet } from './net-sheets.js';
 import { errorText, quietly, useNetwork } from './use-net.js';
+import { upFirst, yourComputer } from '../lib/os-words.js';
 
 /** Settings › People & access: talking with friends directly (the Beluga network), on or off. */
 export function NetworkSettings() {
@@ -25,6 +26,8 @@ export function NetworkSettings() {
   const friends = net.friends.length;
   const groups = net.groups.filter((g) => g.active).length;
   const chatClaude = useApp((st) => st.prefs.chatClaude);
+  const shareUsage = useApp((st) => st.prefs.shareUsage);
+  const readReceipts = useApp((st) => st.prefs.readReceipts);
   return (
     <Group title="Friends">
       <Row
@@ -35,9 +38,9 @@ export function NetworkSettings() {
           ) : busy ? (
             'Turning it on…'
           ) : net.enabled ? (
-            `Your Mac connects straight to your friends’ Macs, end-to-end encrypted. ${friends} friend${friends === 1 ? '' : 's'}, ${groups} channel${groups === 1 ? '' : 's'}.`
+            `${upFirst(yourComputer())} connects straight to your friends’ computers, end-to-end encrypted. ${friends} friend${friends === 1 ? '' : 's'}, ${groups} channel${groups === 1 ? '' : 's'}.`
           ) : (
-            'Messages, channels and files go from Mac to Mac, end-to-end encrypted. No server, no account.'
+            'Messages, channels and files go from computer to computer, end-to-end encrypted. No server, no account.'
           )
         }
       >
@@ -67,6 +70,25 @@ export function NetworkSettings() {
             ]}
             onChange={(v) => void client.api.session.setPrefs({ chatClaude: v })}
           />
+        </Row>
+      ) : null}
+      {net.enabled ? (
+        <Row label="Who sees your usage" detail="How much of your Claude Code, Codex and other plans you have left, and when it resets, on your profile. Never your conversations or code.">
+          <Select<'trusted' | 'everyone' | 'off'>
+            label="Who sees your usage"
+            value={shareUsage}
+            options={[
+              { value: 'trusted', label: 'People I trust' },
+              { value: 'everyone', label: 'All my friends' },
+              { value: 'off', label: 'No one' },
+            ]}
+            onChange={(v) => void client.api.session.setPrefs({ shareUsage: v })}
+          />
+        </Row>
+      ) : null}
+      {net.enabled ? (
+        <Row label="Say when you’ve seen a message" detail="Friends see Seen under their message once it was on your screen here or on your phone. Off, they only see Delivered.">
+          <Switch label="Say when you’ve seen a message" on={readReceipts} onChange={(v) => void client.api.session.setPrefs({ readReceipts: v })} />
         </Row>
       ) : null}
     </Group>

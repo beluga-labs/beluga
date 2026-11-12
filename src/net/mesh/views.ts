@@ -1,3 +1,4 @@
+import type { MessageVia } from '../../protocol.js';
 /**
  * What the Beluga network looks like to a screen: people, groups, messages and invitations.
  * Plain data only (no keys, no secrets): this is what goes into the shared state.
@@ -5,6 +6,8 @@
  */
 
 import type { AgentRef } from '../../protocol.js';
+import type { Reaction } from '../../shared/reactions.js';
+import type { CallNotesView, CallsView, MissedCallView } from '../../shared/calls.js';
 
 export type PresenceState = 'online' | 'away' | 'dnd' | 'offline';
 
@@ -13,6 +16,8 @@ export interface Presence {
   readonly state: PresenceState;
   /** A short note ("at lunch"). */
   readonly note?: string;
+  /** An emoji that goes with it, shown next to your name ("🌮"). */
+  readonly emoji?: string;
   /** When it goes back to online by itself (ms since epoch). */
   readonly until?: number;
 }
@@ -83,6 +88,8 @@ export interface ChatExtras {
   readonly task?: ChatTaskRef;
   /** This message is the author's Claude answering message `for`. */
   readonly claude?: ClaudeReply;
+  /** An external agent wrote it for its author: "Sent by <name>". */
+  readonly via?: MessageVia;
 }
 
 /** One message in a conversation with a friend (`dm:<peerId>`) or in a group (`group:<id>`). */
@@ -95,12 +102,15 @@ export interface MessageView extends ChatExtras {
   readonly ts: number;
   readonly mine: boolean;
   /**
-   * Your direct messages: waiting (in your outbox until they're online), delivered, or expired.
+   * Your direct messages: waiting (in your outbox until they're online), delivered, seen (it was on
+   * their screen, BLG-798; a friend on an older Beluga never says), or expired.
    * Group messages that can't be read (no key for them yet) are 'locked'.
    */
-  readonly status?: 'waiting' | 'delivered' | 'expired' | 'locked';
+  readonly status?: 'waiting' | 'delivered' | 'seen' | 'expired' | 'locked';
   /** When its author last changed its text (direct messages). */
   readonly edited?: number;
+  /** Emoji reactions under it (BLG-702), in the order they were first put there; none: left out. */
+  readonly reactions?: readonly Reaction[];
 }
 
 export interface FriendView extends PersonView {
@@ -231,6 +241,12 @@ export interface NetworkState extends NetworkSummary {
   readonly main?: string;
   /** Friend requests with people in your room, both ways (BLG-202). */
   readonly offers?: readonly FriendOfferView[];
+  /** Calls going on (or ringing) in your conversations, by conversation (BLG-706). */
+  readonly calls?: CallsView;
+  /** Notes of the calls in your conversations (BLG-715), by conversation, oldest first. */
+  readonly callNotes?: Readonly<Record<string, readonly CallNotesView[]>>;
+  /** Calls that rang for you and stopped before you answered, by conversation, oldest first. */
+  readonly missedCalls?: Readonly<Record<string, readonly MissedCallView[]>>;
 }
 
 export const dmConversation = (peerId: string): string => `dm:${peerId}`;

@@ -14,6 +14,7 @@ import {
   type Autonomy,
   type Combining,
   DEFAULT_AUTONOMY,
+  type DraftReview,
   DEFAULT_PARALLEL,
   type GateCheck,
   KEEP_PLAN_ACTIVITY,
@@ -28,6 +29,7 @@ import {
   type PlanEventKind,
   type PlanMainMerge,
   type PlanMerge,
+  type PlanMove,
   type PlanPr,
   type PlanShipped,
   type PlansState,
@@ -181,7 +183,7 @@ export class Plans {
 
   private setDraft(plan: Plan, draft: PlanBody, by: Actor, text: string): Plan {
     // Back to exactly what was approved: no changes are waiting.
-    const same = plan.body && isEmptyDiff(diffBodies(plan.body, draft)) && plan.body.title === draft.title && plan.body.goal === draft.goal;
+    const same = plan.body && isEmptyDiff(diffBodies(plan.body, draft)) && plan.body.title === draft.title && plan.body.goal === draft.goal && JSON.stringify(plan.body.decisions ?? []) === JSON.stringify(draft.decisions ?? []);
     const last = plan.activity.at(-1);
     const quick = last && last.kind === 'drafted' && sameActor(last.by, by) && this.now() - last.at < DRAFT_NOTE_MS;
     const activity = same ? [] : [event(by, 'drafted', text, this.now())];
@@ -343,6 +345,13 @@ export class Plans {
     return this.change(plan, { rescue }, []);
   }
 
+  /** The draft's review by a fresh agent (see draft-review.ts); undefined: none. */
+  setReview(id: string, review: DraftReview | undefined): Plan {
+    const plan = this.need(id);
+    if (JSON.stringify(plan.review) === JSON.stringify(review)) return plan;
+    return this.change(plan, { review }, []);
+  }
+
   /** Its epics on the board (see epics.ts). */
   setEpics(id: string, epics: PlanEpics): Plan {
     const plan = this.need(id);
@@ -425,6 +434,29 @@ export class Plans {
   note(id: string, kind: PlanEventKind, text: string, by: Actor): Plan {
     const plan = this.need(id);
     return this.change(plan, {}, [event(by, kind, text.replace(/\s+/g, ' ').trim().slice(0, 300), this.now())]);
+  }
+
+  /** A plan that moved here from another computer (BLG-806), as move.ts made it ready: in place of the record of an earlier move away. */
+  adopt(plan: Plan): Plan {
+    const there = this.get(plan.id);
+    if (there && !there.movedTo) throw new PlanError('A plan with that id is here already');
+    const next = { ...plan, updatedAt: this.now() };
+    this.plans = [...this.plans.filter((p) => p.id !== plan.id), next];
+    this.publish(next);
+    return next;
+  }
+
+  /** It moved to another computer: this copy is its record from now on, paused, off the lists. */
+  movedAway(id: string, to: PlanMove, by: Actor): Plan {
+    const plan = this.need(id);
+    return this.change(plan, { movedTo: to, paused: true }, [event(by, 'note', `moved the plan to ${to.name}: it runs there now`, to.at)]);
+  }
+
+  /** A moved milestone's next agent started from its branch: it isn't resumed from there again. */
+  resumed(id: string, milestone: string): Plan {
+    const plan = this.need(id);
+    const { resumeFrom: was, ...rest } = plan.runs[milestone] ?? {};
+    return was ? this.change(plan, { runs: { ...plan.runs, [milestone]: rest } }, []) : plan;
   }
 
   remove(id: string): void {
@@ -535,4 +567,4 @@ function milestoneName(plan: Plan, id: string): string {
   return m ? `“${m.title}”` : 'a milestone';
 }
 
-const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner : true);
+const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner && a.external?.id === (b as typeof a).external?.id : true);

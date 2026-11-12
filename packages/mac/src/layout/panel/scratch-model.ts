@@ -117,3 +117,57 @@ export function stepViewable(paths: readonly string[], current: string | undefin
   for (i += dir; i >= 0 && i < paths.length; i += dir) if (isViewable(paths[i]!)) return paths[i];
   return undefined;
 }
+
+/** How much a scratch folder holds, all of it (the list shows only the newest few hundred). */
+export interface ScratchTotal {
+  readonly files: number;
+  readonly bytes: number;
+}
+
+/**
+ * How much it holds: the listed files' sizes while the list has them all (they're current), else the
+ * count of everything (kept a moment, so a file just written may be missing from it).
+ */
+export function scratchBytes(files: readonly ScratchEntry[], total?: ScratchTotal): number | undefined {
+  if (!total) return undefined;
+  return total.files > files.length ? total.bytes : files.reduce((n, f) => n + f.size, 0);
+}
+
+/** The summary's title: "68 files", "300 of 5,578 files" when the list shows only the newest. */
+export function scratchCount(listed: number, total?: ScratchTotal): string {
+  const all = Math.max(listed, total?.files ?? 0);
+  const word = all === 1 ? 'file' : 'files';
+  return all > listed ? `${listed.toLocaleString('en-US')} of ${all.toLocaleString('en-US')} ${word}` : `${all.toLocaleString('en-US')} ${word}`;
+}
+
+// ---- what you sent, kept apart from what Claude saves (BLG-771)
+
+/** Which of the folder's files the tab lists: what Claude saved, or the copies of what you sent it. */
+export type ScratchView = 'claude' | 'sent';
+
+/** The folder split in two: Claude's files and yours (`.beluga/scratch/sent/`), and which the tab lists. */
+export interface ScratchSplit<T> {
+  readonly view: ScratchView;
+  readonly mine: readonly T[];
+  readonly sent: readonly T[];
+  /** The ones listed. */
+  readonly shown: readonly T[];
+}
+
+/**
+ * What the tab lists for the view you asked for: Claude's files, unless you picked what you sent (and
+ * there is some), or Claude saved nothing yet and you sent something.
+ */
+export function splitSent<T extends Pick<ScratchEntry, 'path'>>(files: readonly T[], wanted: ScratchView, isSent: (path: string) => boolean): ScratchSplit<T> {
+  const sent = files.filter((f) => isSent(f.path));
+  const mine = files.filter((f) => !isSent(f.path));
+  const view: ScratchView = sent.length && (wanted === 'sent' || !mine.length) ? 'sent' : 'claude';
+  return { view, mine, sent, shown: view === 'sent' ? sent : mine };
+}
+
+/** How much the listed view holds: what you sent is all in the listing; Claude's is the rest of the count. */
+export function viewTotal(split: ScratchSplit<ScratchEntry>, total?: ScratchTotal): ScratchTotal | undefined {
+  const sentBytes = split.sent.reduce((n, f) => n + f.size, 0);
+  if (split.view === 'sent') return { files: split.sent.length, bytes: sentBytes };
+  return total ? { files: Math.max(split.mine.length, total.files - split.sent.length), bytes: Math.max(0, total.bytes - sentBytes) } : undefined;
+}

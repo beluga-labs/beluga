@@ -1,3 +1,4 @@
+import { asActingAgent } from '../acting-agent.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import type { Store } from '../store.js';
 import { pretendSystem } from './demo-system.js';
 import { Gateway, type MeshNode } from './gateway.js';
 import { attachGateway, detachGateway } from './registry.js';
+import { boardOf } from '../board/registry.js';
 import type { ApproveOpts, Pending } from './serve.js';
 
 /**
@@ -106,7 +108,8 @@ export function launchGateway(host: GatewayHost): () => void {
     runFolder: (from) => session.peerRun.defaultFolder(from),
     // The demo never looks at your real screen.
     ...(host.demo ? { system: pretendSystem() } : {}),
-    resume: (channel, prompt) => {
+    resume: (channel, prompt, via) => {
+      if (via) return asActingAgent(via, () => session.runFor(session.selfId, channel, prompt));
       // Your Claude asked from a friends' chat (BLG-207): it carries on there, and answers in the chat.
       const chat = /^(dm|group):/.test(channel) ? chatIn(session) : undefined;
       if (chat?.claude.acts()) return chat.claude.continueWith(channel, prompt);
@@ -115,13 +118,15 @@ export function launchGateway(host: GatewayHost): () => void {
       session.runFor(session.selfId, channel, prompt);
     },
     projectRoot: (name) => projects().find((p) => p.name === name)?.root,
+    board: (project, friend) => boardOf(session)?.forFriendIn(project, friend),
     projects: () => (store.getState().prefs.friendWorktrees === 'ask' ? projects().map((p) => p.name) : []),
-    loadNote: () => note,
+    // From disk each time: your Always On taking your network, or this Mac standing in, writes it (BLG-848).
+    loadNote: () => (host.demo ? note : (loadSettings().askMeFor ?? '')),
     saveNote: (text) => {
       note = text;
       if (!host.demo) saveSettings({ askMeFor: text || undefined });
     },
-    loadAskFreely: () => freely,
+    loadAskFreely: () => (host.demo ? freely : (loadSettings().askFreely ?? [])),
     saveAskFreely: (peers) => {
       freely = peers;
       if (!host.demo) saveSettings({ askFreely: peers.length ? [...peers] : undefined });

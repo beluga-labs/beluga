@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from 'react';
+import { onPowerSaving, powerSaving } from './power.js';
 import { DEFAULT_FIRE, type FireLook, fireLookOf } from '../chat/fire-look.js';
 import { DEFAULT_MENU_BAR, type MenuBarLook, menuBarLookOf } from '../menubar/menubar-look.js';
 import { type TermKeysPref, type TermThemePref, termKeysOf, themeOf } from './terminal-import-model.js';
 import { type ConvoMode, clampBoth, isConvoMode } from './convo-mode.js';
 import { type ShortcutOverrides, keyPlatform, overridesOf } from './shortcuts-model.js';
+import { type ThemeBase, allThemesCss, isSolid, themeFor, themeIdOf, themePatch } from './themes.js';
 import { DEFAULT_LAYOUT, DRAWER_DEFAULT, PANEL_DEFAULT, PANES_DEFAULT, type PanelLayout, type PanelTab, SPLIT_DEFAULT, type TerminalPlace, migratePrefs, normalizeLayout } from './panel-model.js';
+import type { DuringTurnAction } from '../chat/send-action.js';
+import { type RowColors, rowColorsOf } from './row-colors.js';
 
 /**
  * How this window looks and behaves: kept on this Mac only (Beluga's shared settings, like the
@@ -12,12 +16,17 @@ import { DEFAULT_LAYOUT, DRAWER_DEFAULT, PANEL_DEFAULT, PANES_DEFAULT, type Pane
  */
 export interface UiPrefs {
   readonly appearance: 'system' | 'light' | 'dark';
+  /** The theme for light and the one for dark (lib/themes.ts): Match the System switches between them. */
+  readonly lightTheme: string;
+  readonly darkTheme: string;
   readonly accent: Accent;
   /** Text size: 12–16 px for body text. */
   readonly textSize: number;
   readonly density: 'compact' | 'comfortable';
   /** How wide the conversation can get (characters, roughly). */
   readonly chatWidth: 'narrow' | 'wide' | 'full';
+  /** You picked chatWidth in Settings (before, Wide was saved as the default without you choosing it: BLG-697). */
+  readonly chatWidthPicked: boolean;
   /** The right panel (Changes, Files, Terminal, Info) is showing. */
   readonly inspector: boolean;
   /** How wide the right panel is (px; never more than 60% of the window). */
@@ -36,12 +45,16 @@ export interface UiPrefs {
   readonly sidebarWidth: number;
   /** Sidebar sections you've folded. */
   readonly folded: readonly string[];
+  /** Your folds from before Sidebar categories went on: turning it off gives them back. */
+  readonly foldedBeforeCategories: readonly string[];
   /** Projects you unfolded in the sidebar (by id): the rest start folded. */
   readonly openProjects: readonly string[];
   /** The sidebar's Unread section: conversations that finished or need you, at the top (only while there are some). */
   readonly unreadSection: boolean;
   /** Enter sends and Shift+Enter makes a new line, or the other way round with ⌘Enter. */
   readonly sendWith: 'enter' | 'cmd-enter';
+  /** The main send action during a running turn. */
+  readonly sendDuringTurn: DuringTurnAction;
   readonly timestamps: boolean;
   /** A finished answer's steps: folded away once Claude answers (one click shows them), or left showing. */
   readonly doneSteps: 'fold' | 'show';
@@ -91,6 +104,8 @@ export interface UiPrefs {
   readonly chatTabs: readonly string[];
   /** A changed file shows its diff, or the file as itself (Markdown formatted). Pictures and PDFs always as themselves. */
   readonly changeLook: 'diff' | 'file';
+  /** The Changes tab lists its files under their folders (BLG-739), not as one list. */
+  readonly changesByFolder: boolean;
   /** The panel has a Scratch tab: the workspace's .beluga/scratch/ folder, live. */
   readonly scratchTab: boolean;
   /** Your phone shows its live screen (BLG-196). Off: Claude still uses the phone, you just don't watch. */
@@ -99,6 +114,8 @@ export interface UiPrefs {
   readonly scratchSort: 'newest' | 'viewable';
   /** The icon you picked for each sidebar group (by name; unset: a folder). */
   readonly groupIcons: Readonly<Record<string, string>>;
+  /** Colours you gave projects, chats and worktrees in the sidebar (lib/row-colors.ts; none: everything plain). */
+  readonly rowColors: RowColors;
   /** Plans (by id) whose task chats you asked to see in the sidebar under them (a plan is one row otherwise). */
   readonly planTaskChats: readonly string[];
   /** How the message box burns on Max effort (Settings › Max Fire). */
@@ -115,12 +132,16 @@ export interface UiPrefs {
   readonly voiceSend: boolean;
   /** The shortcut works from any app: Beluga comes forward and listens. */
   readonly voiceAnyApp: boolean;
+  /** The microphone dictation listens to (a device id; '' : the one macOS uses). Calls pick their own. */
+  readonly voiceMic: string;
   /** Settings › Keyboard (BLG-289): the shortcuts you gave other keys (the rest keep theirs). */
   readonly shortcuts: ShortcutOverrides;
 }
 
 export const ACCENTS = {
   system: 'AccentColor',
+  /** The theme's own (lib/themes.ts), or the system's for a theme without one. */
+  theme: 'var(--theme-accent, AccentColor)',
   blue: '#3b82f6',
   indigo: '#6366f1',
   violet: '#8b5cf6',
@@ -134,10 +155,13 @@ export type Accent = keyof typeof ACCENTS;
 
 export const DEFAULT_PREFS: UiPrefs = {
   appearance: 'system',
+  lightTheme: 'light',
+  darkTheme: 'dark',
   accent: 'system',
   textSize: 13,
   density: 'comfortable',
-  chatWidth: 'wide',
+  chatWidth: 'full',
+  chatWidthPicked: false,
   inspector: true,
   panelWidth: PANEL_DEFAULT,
   panelTabs: {},
@@ -148,9 +172,11 @@ export const DEFAULT_PREFS: UiPrefs = {
   sidebar: true,
   sidebarWidth: 248,
   folded: [],
+  foldedBeforeCategories: [],
   openProjects: [],
   unreadSection: true,
   sendWith: 'enter',
+  sendDuringTurn: 'queue',
   timestamps: true,
   doneSteps: 'fold',
   reduceMotion: false,
@@ -177,10 +203,12 @@ export const DEFAULT_PREFS: UiPrefs = {
   readerWrap: false,
   chatTabs: [],
   changeLook: 'diff',
+  changesByFolder: false,
   scratchTab: true,
   phoneScreen: false,
   scratchSort: 'newest',
   groupIcons: {},
+  rowColors: {},
   planTaskChats: [],
   maxFire: DEFAULT_FIRE,
   menuBar: DEFAULT_MENU_BAR,
@@ -189,17 +217,25 @@ export const DEFAULT_PREFS: UiPrefs = {
   voiceShortcut: 'Alt+Space',
   voiceSend: false,
   voiceAnyApp: false,
+  voiceMic: '',
   shortcuts: {},
 };
 
 const KEY = 'beluga.prefs.v1';
 const listeners = new Set<() => void>();
 
+/** The width you chose; a Narrow is always a choice, a Wide only once picked (it used to be the default). */
+export function chatWidthOf(saved: UiPrefs): UiPrefs['chatWidth'] {
+  const w = saved.chatWidth;
+  if (w === 'narrow' || w === 'full') return w;
+  return w === 'wide' && saved.chatWidthPicked === true ? 'wide' : 'full';
+}
+
 function load(): UiPrefs {
   try {
     // Older versions docked the terminal beside or under the chat: see migratePrefs.
     const saved = { ...DEFAULT_PREFS, ...(migratePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>) as Partial<UiPrefs>) };
-    return { ...saved, panelLayout: normalizeLayout(saved.panelLayout), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true };
+    return { ...saved, sendDuringTurn: saved.sendDuringTurn === 'steer' ? 'steer' : 'queue', panelLayout: normalizeLayout(saved.panelLayout), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system', rowColors: rowColorsOf(saved.rowColors) };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -207,16 +243,32 @@ function load(): UiPrefs {
 
 let current = load();
 
-export const getPrefs = (): UiPrefs => current;
+/**
+ * Low Power mode is saving now (the daemon says, BLG-621): motion and the window's blur are off
+ * whatever's chosen. `getPrefs` gives what's in effect; Settings shows what you chose.
+ */
+const inEffect = (p: UiPrefs): UiPrefs => (powerSaving() ? { ...p, reduceMotion: true, reduceTransparency: true } : p);
+let shown = inEffect(current);
+
+export const getPrefs = (): UiPrefs => shown;
+/** The choices as made, before Low Power mode (for Settings' own switches). */
+export const getChosenPrefs = (): UiPrefs => current;
+
+onPowerSaving(() => {
+  shown = inEffect(current);
+  apply(shown);
+  for (const l of [...listeners]) l();
+});
 
 export function setPrefs(patch: Partial<UiPrefs>): void {
   current = { ...current, ...patch };
+  shown = inEffect(current);
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
     // storage full or unavailable: the change still applies until the app quits
   }
-  apply(current);
+  apply(shown);
   for (const l of [...listeners]) l();
 }
 
@@ -230,7 +282,28 @@ export function usePrefs(): UiPrefs {
   return useSyncExternalStore(subscribePrefs, getPrefs);
 }
 
+export function useChosenPrefs(): UiPrefs {
+  return useSyncExternalStore(subscribePrefs, getChosenPrefs);
+}
+
 const dark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+/** Light or dark, as the window shows it now. */
+export const baseNow = (p: UiPrefs = shown): ThemeBase => (p.appearance === 'system' ? (dark() ? 'dark' : 'light') : p.appearance);
+
+/** Pick a theme (Settings › Appearance, the palette): it shows at once, with its own accent if you had the system's. */
+export function pickTheme(id: string): void {
+  setPrefs(themePatch(id, current, baseNow(current)));
+}
+
+/** The themes' CSS, put on the page once (lib/themes.ts makes it from the same table Settings previews). */
+function themeSheet(): void {
+  if (document.getElementById('beluga-themes')) return;
+  const style = document.createElement('style');
+  style.id = 'beluga-themes';
+  style.textContent = allThemesCss();
+  document.head.append(style);
+}
 
 /** The window's blur, on or off, told to the app once per change (nothing outside the app). */
 let vibrancyOn: boolean | undefined;
@@ -241,13 +314,19 @@ function vibrancy(on: boolean): void {
 }
 
 /** Put the preferences on the document (CSS variables and data attributes do the rest). */
-export function apply(p: UiPrefs = current): void {
+export function apply(p: UiPrefs = shown): void {
   const root = document.documentElement;
-  root.dataset.theme = p.appearance === 'system' ? (dark() ? 'dark' : 'light') : p.appearance;
+  const base = baseNow(p);
+  const theme = themeFor(base, p);
+  themeSheet();
+  root.dataset.theme = base;
+  root.dataset.palette = theme.id;
+  root.dataset.edges = theme.lit ? 'lit' : 'soft';
   root.dataset.density = p.density;
   root.dataset.motion = p.reduceMotion ? 'reduce' : 'full';
-  // Only a Mac's window blurs what's behind it: Linux and Windows get the solid look.
-  const blur = !p.reduceTransparency && keyPlatform() === 'mac';
+  // Only a Mac's window blurs what's behind it: Linux and Windows get the solid look. A theme's own
+  // sidebar is opaque (its colours, true black on OLED), so the blur under it would only cost.
+  const blur = !p.reduceTransparency && keyPlatform() === 'mac' && !isSolid(theme);
   root.dataset.os = keyPlatform();
   root.dataset.transparency = blur ? 'full' : 'reduce';
   vibrancy(blur);

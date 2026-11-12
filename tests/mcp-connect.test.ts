@@ -61,6 +61,26 @@ describe('McpConnect', () => {
     expect(f.closed()).toBe(1);
   });
 
+  it('reads ${VAR} in your servers from the variables you saved in Beluga, and gives Claude Code them too (#442)', async () => {
+    const h = home();
+    writeFileSync(path.join(h.home, '.claude.json'), JSON.stringify({ mcpServers: { github: { type: 'http', url: 'https://g', headers: { Authorization: 'Bearer ${GITHUB_PAT_TOKEN}' } } } }));
+    const servers: Array<Record<string, unknown>> = [];
+    const envs: Array<Readonly<Record<string, string | undefined>> | undefined> = [];
+    const open: OpenMcpSession = (cwd, s, env) => {
+      servers.push(s as Record<string, unknown>);
+      envs.push(env);
+      return fake([[http('github', 'connected')]]).open(cwd, s);
+    };
+    const ownEnv = (dir: string): Record<string, string> => (dir === '/room' ? { GITHUB_PAT_TOKEN: 'saved-token' } : {});
+    await new McpConnect(open, { ...quick, env: { PATH: '/bin' }, ownEnv, home: h.home }).list(['/room']);
+    expect(servers[0]?.github).toMatchObject({ headers: { Authorization: 'Bearer saved-token' } });
+    expect(envs[0]).toEqual({ PATH: '/bin', GITHUB_PAT_TOKEN: 'saved-token' });
+    // Without saved variables, Claude Code keeps Beluga's own environment, as before.
+    envs.length = 0;
+    await new McpConnect(open, { ...quick, env: {}, home: h.home }).list(['/room']);
+    expect(envs[0]).toBeUndefined();
+  });
+
   it('signs in: gives the page, keeps Claude Code waiting until the server connects, then lets it go', async () => {
     const h = home();
     const f = fake([[http('figma', 'needs-auth')], [http('figma', 'needs-auth')], [http('figma', 'connected')]], 'https://figma.com/oauth?x=1');
@@ -89,6 +109,41 @@ describe('McpConnect', () => {
     expect(await mcp.signIn(['/room'], 'planted')).toEqual({ error: 'No MCP server named planted.' });
     expect(f.opened).toHaveLength(0);
     expect(await mcp.signIn(['/room'], 'figma')).toEqual({ connected: true });
+    expect(f.closed()).toBe(1);
+  });
+});
+
+describe('McpConnect.readUiResource (MCP Apps)', () => {
+  const st = (name: string, status: McpServerStatus['status']): McpServerStatus => ({ name, status }) as McpServerStatus;
+
+  it('reads the page once its server is up, without waiting for the others, and closes the session', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'pending'), st('linear', 'pending')], [st('figma', 'connected'), st('linear', 'pending')]]);
+    const read: Array<[string, string]> = [];
+    let closed = 0;
+    const open: OpenMcpSession = (cwd, servers) => {
+      const s = f.open(cwd, servers);
+      return {
+        ...s,
+        readMcpResource: async (server: string, uri: string) => {
+          read.push([server, uri]);
+          return { contents: [{ uri, mimeType: 'text/html;profile=mcp-app', text: '<p>app</p>', _meta: { ui: { csp: { connectDomains: ['https://api.example.com'] } } } }] };
+        },
+        close: () => void closed++,
+      };
+    };
+    const mcp = new McpConnect(open, { home: dir, env: {}, settleMs: 60_000, pollMs: 1 });
+    const page = await mcp.readUiResource([dir], 'figma', 'ui://figma/app.html');
+    expect(page).toEqual({ html: '<p>app</p>', meta: { ui: { csp: { connectDomains: ['https://api.example.com'] } } } });
+    expect(read).toEqual([['figma', 'ui://figma/app.html']]);
+    expect(closed).toBe(1);
+  });
+
+  it('says so when Claude Code cannot read resources', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'connected')]]);
+    const mcp = new McpConnect(f.open, { home: dir, env: {}, pollMs: 1 });
+    await expect(mcp.readUiResource([dir], 'figma', 'ui://figma/app.html')).rejects.toThrow(/can’t read MCP App views/);
     expect(f.closed()).toBe(1);
   });
 });

@@ -9,6 +9,7 @@ import { Group, Row, Select, Switch } from './settings-controls.js';
 import { NotifyStatusLine } from './sound/NotifyStatus.js';
 import { SoundSettings } from './sound/SoundSettings.js';
 import { TestNotification } from './sound/TestNotification.js';
+import { keyPlatform } from '../lib/shortcuts-model.js';
 
 type Toggle = 'desktop' | 'onlyAway' | 'planMilestones' | 'needsYou' | 'done' | 'doneHere' | 'mentions' | 'people' | 'background' | 'sentinels' | 'problems' | 'pr';
 
@@ -35,7 +36,7 @@ export function NotificationSettings() {
   const save = (patch: Partial<NotifySettings>): void => void api.session.setPrefs({ notify: { ...n, ...patch } });
   const quiet = dndActive(n);
   const { access, recheck } = useNotificationAccess();
-  const status = notifyStatus(access, { desktop: n.desktop, quietUntil: quiet ? dndLabel(n) : null });
+  const status = notifyStatus(access, { desktop: n.desktop, quietUntil: quiet ? dndLabel(n) : null }, keyPlatform());
   // Opening System Settings: checked again when you come back (window focus). Asking: right away.
   const act = (action: AccessAction): void => void runAccessAction(action).then((a) => a && recheck(a)).catch(() => undefined);
   return (

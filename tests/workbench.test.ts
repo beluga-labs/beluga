@@ -4,8 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
+import { MacAssistant } from '../src/core/assistant/assistant.js';
+import { attachAssistant } from '../src/core/assistant/registry.js';
+import { pretendSystem } from '../src/core/gateway/demo-system.js';
 import { Session } from '../src/core/session.js';
 import { ShareService } from '../src/core/shares.js';
+import { sentinelChatChannel } from '../src/core/sentinel/model.js';
 import { Store, initialState } from '../src/core/store.js';
 import type { PullRequest } from '../src/core/work-store.js';
 import { deriveKeys, generateSecret } from '../src/net/crypto.js';
@@ -14,7 +18,8 @@ import { PeerClient } from '../src/net/peer-client.js';
 import { TerminalManager } from '../src/terminal/index.js';
 import { WorkspaceManager } from '../src/workspaces/manager.js';
 import { WorkspaceStore } from '../src/workspaces/store.js';
-import { runId, setupId } from '../src/core/workbench.js';
+import { endedWords, runId, setupId } from '../src/core/workbench.js';
+import { ASSISTANT_TITLE, assistantChannel } from '../src/shared/assistant.js';
 import { attach, waitFor } from './helpers.js';
 import { posixSh } from '../src/terminal/pty.js';
 
@@ -101,12 +106,20 @@ async function solo(dir: string, opts: { findPr?: (d: string, b: string) => Prom
   session.start();
   sessions.push(session);
   await waitFor(() => store.getState().self, 4000);
-  return { session, state: store.getState, screen: screen.store, runs, workspaces, desktop, opened, bench: session.workbench! };
+  return { session, store, state: store.getState, screen: screen.store, runs, workspaces, desktop, opened, bench: session.workbench! };
 }
 
 const projectOf = (w: WorkspaceManager) => w.list.find((p) => p.root)!;
 
 describe('setup and run scripts', () => {
+  it('says how a setup ended: its exit code, or the signal that stopped it', () => {
+    expect(endedWords(2)).toBe('exit code 2');
+    expect(endedWords(0, 1)).toBe('exit code 0');
+    expect(endedWords(null, os.constants.signals.SIGHUP)).toBe('stopped by SIGHUP');
+    expect(endedWords(null, 999)).toBe('stopped by signal 999');
+    expect(endedWords(null)).toBe('exit code ?');
+  });
+
   it('runs the setup command in every new worktree, in its terminal, and reports the result', async () => {
     hub = await startHub({ keys });
     const dir = repo({ 'klaud.json': JSON.stringify({ scripts: { setup: 'echo installing && touch .ready', run: 'echo serving; sleep 30' } }) });
@@ -117,8 +130,12 @@ describe('setup and run scripts', () => {
     await waitFor(() => kay.state().approvals.length === 1, 4000);
     expect(kay.state().approvals[0]?.title).toBe("app's klaud.json wants to run its setup in new worktrees");
     kay.session.answerApproval('always');
-    // A new worktree and a login shell can take a while on a busy CI runner: generous waits.
-    await waitFor(() => kay.state().setup[ws!.id]?.status === 'done', SLOW * 20_000);
+    // A new worktree and a login shell can take a while on a busy CI runner: generous waits. Flaky on
+    // CI's Linux runner only (its shell stopped with no output): if it hangs again, say how it ended.
+    await waitFor(() => kay.state().setup[ws!.id]?.status === 'done', SLOW * 20_000).catch((err: unknown) => {
+      const term = terminals.get(setupId(ws!.id));
+      throw new Error(`${String(err)}: ${JSON.stringify({ setup: kay.state().setup[ws!.id], exited: term?.exited, terminal: term?.backlog().slice(-300) })}`);
+    });
     const next = await kay.session.workspaces!.newWorktree(projectOf(kay.workspaces).id, 'second');
     await waitFor(() => kay.state().setup[next!.id]?.status === 'done', SLOW * 20_000);
     expect(kay.state().approvals).toHaveLength(0);
@@ -216,7 +233,7 @@ describe('setup and run scripts', () => {
     kay.session.answerApproval('always');
     // Flaky on CI's runners only (BLG-268 PR): if it hangs again, say how far each worktree got.
     await waitFor(() => kay.state().setup[one!.id]?.status === 'done' && kay.state().setup[two!.id]?.status === 'done', 20_000).catch((err: unknown) => {
-      const at = (id: string) => ({ setup: kay.state().setup[id], listed: Boolean(kay.workspaces.find(id)), terminal: terminals.get(setupId(id))?.backlog().slice(-300) });
+      const at = (id: string) => ({ setup: kay.state().setup[id], listed: Boolean(kay.workspaces.find(id)), exited: terminals.get(setupId(id))?.exited, terminal: terminals.get(setupId(id))?.backlog().slice(-300) });
       throw new Error(`${String(err)}: ${JSON.stringify({ one: at(one!.id), two: at(two!.id), approvals: kay.state().approvals.map((a) => a.title) })}`);
     });
     // Remembered: the next worktree just sets up, without asking Claude again.
@@ -356,6 +373,19 @@ describe('pull requests', () => {
     expect(kay.opened).toEqual(['https://github.com/x/app/pull/7']);
   });
 
+  it('one Beluga asks for by itself (a task reached In Review, BLG-927) runs the same instructions and leaves the screen where you are', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const ws = await kay.session.workspaces!.newWorktree(projectOf(kay.workspaces).id, 'auth');
+    kay.screen.dispatch({ type: 'view', view: { kind: 'overview' } });
+    kay.bench.createPr(ws!.id, 'open it as a draft (gh pr create --draft)', { auto: true });
+    await waitFor(() => kay.runs.length === 1, 4000);
+    expect(kay.runs[0]?.prompt).toContain('gh pr create --base main --head beluga/auth');
+    expect(kay.runs[0]?.prompt).toContain('For this pull request, also: open it as a draft (gh pr create --draft)');
+    expect(kay.screen.getState().view).toEqual({ kind: 'overview' });
+    expect(kay.screen.getState().toast?.text).toContain('is opening a draft pull request');
+  });
+
   it("stays quiet about PRs you didn't ask for, and ignores worktrees other tools made", async () => {
     hub = await startHub({ keys });
     const dir = repo();
@@ -383,7 +413,7 @@ describe('pull requests', () => {
     const main = projectOf(kay.workspaces).workspaces.find((w) => w.kind === 'main')!;
     kay.bench.createPr(main.id);
     expect(kay.screen.getState().toast?.text).toContain('Pull requests are for worktrees');
-    kay.session.store.dispatch({ type: 'gh', ok: false });
+    kay.store.dispatch({ type: 'gh', ok: false });
     const ws = await kay.session.workspaces!.newWorktree(projectOf(kay.workspaces).id, 'x');
     kay.bench.createPr(ws!.id);
     expect(kay.screen.getState().toast?.text).toContain('Install the GitHub CLI');
@@ -465,6 +495,146 @@ describe('models, usage, space and search', () => {
     expect(kay.screen.getState().view).toMatchObject({ kind: 'workspace', id: b!.id });
     kay.bench.search('nothing like this');
     expect(kay.state().search.hits).toEqual([]);
+  });
+
+  it("doesn't find a deleted workspace's conversation, even one still open", async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const ws = await kay.session.workspaces!.newWorktree(projectOf(kay.workspaces).id, 'gone');
+    kay.session.askOwnClaude('the Roberto handoff', `ws:${ws!.id}`);
+    await waitFor(() => kay.runs.length === 1, 4000);
+    kay.bench.search('roberto');
+    expect(kay.state().search.hits.length).toBeGreaterThan(0);
+    await kay.session.workspaces!.remove(ws!.id);
+    expect(kay.state().log.some((l) => l.channel === `ws:${ws!.id}`)).toBe(false);
+    // What comes back late through the room (the hub's echo of your message, its run's last words),
+    // as it does on a slow computer: it never brings the conversation back.
+    const late = kay.session as unknown as { handle(msg: { id: string; from: string; ts: number; sentAt: number; body: object }): Promise<void> };
+    const self = kay.state().self!.peerId;
+    await late.handle({ id: 'late-1', from: self, ts: Date.now(), sentAt: Date.now(), body: { kind: 'chat', mid: 'm-late', text: 'the Roberto handoff', channel: `ws:${ws!.id}`, byAgent: false } });
+    await late.handle({ id: 'late-2', from: self, ts: Date.now(), sentAt: Date.now(), body: { kind: 'agent_event', requestId: 'r-late', requester: self, event: 'done', text: 'Roberto, done', channel: `ws:${ws!.id}` } });
+    expect(kay.state().log.some((l) => l.channel === `ws:${ws!.id}`)).toBe(false);
+    kay.bench.search('roberto');
+    expect(kay.state().search.hits).toEqual([]);
+    // Words left behind for one that's gone some other way (its project removed): not listed either.
+    kay.store.dispatch({ type: 'log_upsert', channel: 'ws:wt-vanished', items: [{ id: 'y', type: 'chat', channel: 'ws:wt-vanished', from: 'z', name: 'bob', text: 'Roberto again', ts: 6, byAgent: false }] });
+    kay.bench.search('roberto');
+    expect(kay.state().search.hits).toEqual([]);
+  });
+
+  it("finds the room's chat only while someone else is in the room: alone it's no place to open (BLG-871)", async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    kay.store.dispatch({ type: 'log_upsert', channel: 'room', items: [{ id: 'r1', type: 'chat', channel: 'room', from: 'z', name: 'kay', text: 'the quince ledger', ts: 5, byAgent: false }] });
+    kay.bench.search('quince');
+    expect(kay.state().search.hits).toEqual([]);
+    const me = kay.state().self!;
+    kay.store.dispatch({ type: 'peers', peers: [me, { ...me, peerId: 'bob-id', name: 'bob' }] });
+    kay.bench.search('quince');
+    expect(kay.state().search.hits.map((h) => [h.channel, h.place])).toEqual([['room', 'Group chat']]);
+  });
+
+  it('deleting or archiving a worktree stops the Claude working in it, and nothing lands in its conversation after', async () => {
+    hub = await startHub({ keys });
+    // A Claude that works until it's stopped (a slow one: Windows' runners showed it, BLG-728).
+    const stopped: string[] = [];
+    const kay = await solo(repo(), {
+      script: (i) =>
+        new Promise((resolve) => {
+          const t = setTimeout(() => resolve('finished anyway'), 20_000);
+          i.signal.addEventListener('abort', () => (clearTimeout(t), stopped.push(i.prompt), resolve('stopped')));
+        }),
+    });
+    const p = projectOf(kay.workspaces);
+    for (const [name, leave] of [
+      ['deleted', (id: string) => kay.session.workspaces!.remove(id)],
+      ['archived', (id: string) => kay.session.workspaces!.archive(id)],
+    ] as const) {
+      const ws = await kay.session.workspaces!.newWorktree(p.id, name);
+      kay.session.askOwnClaude(`work in ${name}`, `ws:${ws!.id}`);
+      await waitFor(() => kay.runs.some((r) => r.prompt.includes(`work in ${name}`)), 4000);
+      await leave(ws!.id);
+      expect(stopped.some((x) => x.includes(`work in ${name}`))).toBe(true);
+      expect(kay.session.host.runningIn(`ws:${ws!.id}`)).toBe(false);
+      if (name === 'deleted') {
+        await new Promise((r) => setTimeout(r, 100));
+        expect(kay.state().log.filter((l) => l.channel === `ws:${ws!.id}`)).toEqual([]);
+        // Its run's last words, echoed back by the hub after the clear (on a slow computer): they don't land either.
+        const self = kay.session.selfId;
+        kay.session.send({ kind: 'agent_event', requestId: 'late', requester: self, event: 'error', text: 'Stopped: its worktree was deleted', channel: `ws:${ws!.id}` }, { to: self });
+        kay.session.send({ kind: 'agent_event', requestId: 'marker', requester: self, event: 'error', text: 'after', channel: 'room' }, { to: self });
+        await waitFor(() => kay.state().log.some((l) => l.channel === 'room' && 'text' in l && l.text === 'after'), 4000);
+        expect(kay.state().log.some((l) => l.channel === `ws:${ws!.id}`)).toBe(false);
+      }
+    }
+  });
+
+  it('finds a word that only a Your Mac chat not in memory has, and opens that chat', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const dir = path.join(base, 'assistant');
+    const mac = new MacAssistant({ store: kay.store, dir, selfId: () => 'me', system: pretendSystem() });
+    attachAssistant(kay.session, mac);
+    const chat = mac.newChat();
+    const channel = assistantChannel(chat);
+    const said = (id: string, text: string, ts: number) => ({ id, type: 'chat', channel, from: 'me', name: 'kay', text, ts, byAgent: false });
+    writeFileSync(path.join(dir, 'chats', chat, 'history.json'), JSON.stringify([said('1', 'plan my trip', 5), said('2', 'the kumquat invoice', 6)]));
+    expect(kay.state().log.some((l) => l.channel === channel)).toBe(false);
+
+    kay.bench.search('kumquat');
+    expect(kay.state().search.hits).toEqual([{ channel, place: `${ASSISTANT_TITLE} › plan my trip`, who: 'kay', text: 'the kumquat invoice', at: 4, ts: 6, id: '2' }]);
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'assistant', chat });
+    expect(kay.state().log.filter((l) => l.channel === channel).map((l) => l.id)).toEqual(['1', '2']);
+    mac.stop();
+  });
+
+  it('names a Your Mac chat in memory by its title and opens it, once per chat', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const dir = path.join(base, 'assistant');
+    const mac = new MacAssistant({ store: kay.store, dir, selfId: () => 'me', system: pretendSystem() });
+    attachAssistant(kay.session, mac);
+    const chat = mac.newChat();
+    const channel = assistantChannel(chat);
+    kay.store.dispatch({ type: 'chat', id: 'a', from: 'me', text: 'the loaded quince', ts: 7, byAgent: false, channel });
+    writeFileSync(path.join(dir, 'chats', chat, 'history.json'), JSON.stringify([{ id: 'a', type: 'chat', channel, from: 'me', name: 'kay', text: 'the loaded quince', ts: 7, byAgent: false }]));
+
+    kay.bench.search('quince');
+    expect(kay.state().search.hits.map((h) => [h.channel, h.place])).toEqual([[channel, `${ASSISTANT_TITLE} › the loaded quince`]]);
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'assistant', chat });
+    mac.stop();
+  });
+
+  it('routes a hit in a Sentinel chat, and leaves the view alone for a channel it cannot open', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const say = (id: string, channel: string, text: string): void => kay.store.dispatch({ type: 'chat', id, from: 'me', text, ts: 8, byAgent: false, channel });
+    say('s', sentinelChatChannel('c1'), 'a damson alert');
+    kay.bench.search('damson');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'sentinel_chat', chat: 'c1' });
+
+    say('x', 'somewhere:else', 'a medlar note');
+    kay.bench.search('medlar');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'sentinel_chat', chat: 'c1' });
+  });
+
+  it('opens a hit in a chat with a friend or a group as that conversation, as the sidebar does', async () => {
+    hub = await startHub({ keys });
+    const kay = await solo(repo());
+    const say = (id: string, channel: string, text: string): void => kay.store.dispatch({ type: 'chat', id, from: 'me', text, ts: 8, byAgent: false, channel });
+    say('d', 'dm:peer123', 'a quince recipe');
+    kay.bench.search('quince');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'conversation', id: 'dm:peer123' });
+
+    say('g', 'group:g7', 'a loquat tree');
+    kay.bench.search('loquat');
+    kay.bench.openHit(0);
+    expect(kay.screen.getState().view).toEqual({ kind: 'conversation', id: 'group:g7' });
   });
 
   it('saves your own templates', async () => {

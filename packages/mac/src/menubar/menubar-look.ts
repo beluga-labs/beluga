@@ -1,3 +1,5 @@
+import { dockName } from '../lib/os-words.js';
+
 /**
  * Settings › Menu Bar (BLG-280): what the number beside the menu-bar whale counts, how it reads,
  * and when the whale spouts. Kept on this Mac (UiPrefs.menuBar).
@@ -22,7 +24,7 @@ export interface MenuBarLook {
 
 /** Each count: its name, what it means (said in Settings), and its word in the menu bar. */
 export const COUNTS: ReadonlyArray<{ readonly id: MenuBarCount; readonly label: string; readonly means: string; readonly word: string }> = [
-  { id: 'new', label: 'What’s New for You', means: 'Conversations in Unread, unread notifications, and what waits on you (the Dock badge counts the same).', word: 'new' },
+  { id: 'new', label: 'What’s New for You', means: `Conversations in Unread, unread notifications, and what waits on you (the ${dockName()} badge counts the same).`, word: 'new' },
   { id: 'waiting', label: 'Waiting for You', means: 'Only what needs your answer: approvals, your agent’s questions and people at the door.', word: 'waiting' },
   { id: 'working', label: 'Agents Working', means: 'Conversations where your agent is at work right now.', word: 'working' },
   { id: 'room', label: 'People in the Room', means: 'Everyone in your room besides you.', word: 'here' },

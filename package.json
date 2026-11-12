@@ -3,17 +3,20 @@
   "private": true,
   "version": "0.6.2",
   "description": "Beluga's engine: what the Mac app (packages/mac) runs in the background. Not published.",
-  "homepage": "https://github.com/kayraucklnc/beluga#readme",
+  "homepage": "https://github.com/beluga-labs/beluga#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kayraucklnc/beluga.git"
+    "url": "git+https://github.com/beluga-labs/beluga.git"
   },
   "bugs": {
-    "url": "https://github.com/kayraucklnc/beluga/issues"
+    "url": "https://github.com/beluga-labs/beluga/issues"
   },
   "author": "Kayra Uckilinc",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "beluga": "dist/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -36,11 +39,13 @@
     "b4a": "^1.9.0",
     "chokidar": "^5.0.0",
     "cloudflared": "^0.7.3",
+    "esbuild": "^0.28.2",
     "hyperdht": "^6.34.1",
     "jpeg-js": "^0.4.4",
     "mathjax-full": "^3.2.2",
     "omggif": "^1.0.10",
     "pngjs": "^7.0.0",
+    "qrcode-generator": "^2.0.4",
     "sodium-universal": "^5.0.1",
     "string-width": "^8.3.0",
     "ws": "^8.22.0",

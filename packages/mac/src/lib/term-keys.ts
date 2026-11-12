@@ -113,7 +113,7 @@ export function termKeyRows(keys: readonly TermKey[]): Array<{ label: string; ke
     .sort(([a], [b]) => order(a) - order(b))
     .map(([action, list]) => ({
       label: action === 'tab:1' ? 'Tab 1 to 9' : actionLabel(action as TermAction),
-      keys: action === 'tab:1' ? '⌘1 … ⌘9' : list.map((k) => chordLabel(k.chord)).join('  '),
+      keys: action === 'tab:1' ? `${chordLabel('Cmd+1')} … ${chordLabel('Cmd+9')}` : list.map((k) => chordLabel(k.chord)).join('  '),
       ...(list.some((k) => k.from) ? { from: list.find((k) => k.from)!.from! } : {}),
     }));
 }

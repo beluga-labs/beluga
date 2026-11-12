@@ -58,7 +58,7 @@ function memberItems(g: GroupView, m: MemberView, ctx: { friend: boolean; messag
             label: `Remove ${m.name}…`,
             danger: true,
             separate: true,
-            onSelect: () => ctx.confirm({ title: `Remove ${m.name} from ${g.name}?`, message: `${m.name} stops getting new messages. What was said before stays on their Mac.`, confirm: 'Remove', run: () => void 0 }),
+            onSelect: () => ctx.confirm({ title: `Remove ${m.name} from ${g.name}?`, message: `${m.name} stops getting new messages. What was said before stays on their computer.`, confirm: 'Remove', run: () => void 0 }),
           },
         ]
       : []),
@@ -233,7 +233,7 @@ export function GroupInfo({ g, children }: { g: GroupView; children: ReactNode }
             <div className={s.infoHead}>
               <GroupAvatar name={g.name} id={g.id} size={56} muted={!g.active} />
               <Name g={g} />
-              <div className={s.infoSub}>{g.active ? (g.admin ? 'You’re an admin' : 'Kept on each member’s Mac') : 'You’re no longer in this group'}</div>
+              <div className={s.infoSub}>{g.active ? (g.admin ? 'You’re an admin' : 'Kept on each member’s computer') : 'You’re no longer in this group'}</div>
             </div>
             <Requests g={g} />
             <Members g={g} confirm={setConfirm} />

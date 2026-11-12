@@ -1,0 +1,26 @@
+/* An MCP App under its Claude card (see AppFrame.tsx). */
+.app {
+  margin: 6px 0 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface, transparent);
+}
+
+.app[data-border='none'] {
+  border-color: transparent;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  transition: height 160ms ease;
+}
+
+.note {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--text-muted, inherit);
+}

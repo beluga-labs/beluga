@@ -65,8 +65,12 @@ import {
   firstLine,
   isLive,
   keepRuns,
+  keepsChat,
+  DEFAULT_KEEP_CHATS,
+  RUN_STATES,
   lastRunOf,
   scheduleSentence,
+  frequentAgentNote,
   sentinelLabel,
   toSummary,
 } from './model.js';
@@ -81,6 +85,7 @@ import type { ToolDraft, ToolPatch, ToolStep } from './tool-draft.js';
 import { Triggers, isEventTrigger } from './triggers/index.js';
 import type { TriggerDeps, TriggerEvent } from './triggers/types.js';
 import { newSecret } from './triggers/webhook.js';
+import { SentinelMover, type SentinelMovePort } from './move-work.js';
 
 /**
  * Sentinels (docs/sentinel.md): the sentinels and their runs, kept in ~/.beluga/sentinel.json and
@@ -403,6 +408,7 @@ export class Sentinels {
       steps,
       access,
       limits: limitsOf({ ...DEFAULT_LIMITS, ...draft.limits }),
+      ...(draft.keepChats && draft.keepChats !== DEFAULT_KEEP_CHATS ? { keepChats: draft.keepChats } : {}),
       notify: draft.notify ?? 'mac',
       paused: true,
       failures: 0,
@@ -433,6 +439,7 @@ export class Sentinels {
       steps,
       access,
       limits: limitsOf({ ...was.limits, ...patch.limits }),
+      ...(patch.keepChats ? { keepChats: patch.keepChats } : {}),
       ...(patch.notify ? { notify: patch.notify } : {}),
       // A new schedule starts from now: nothing it would have run before is caught up.
       ...(triggerChanged ? { lastScheduledAt: this.now() } : {}),
@@ -442,6 +449,8 @@ export class Sentinels {
     if (triggerChanged || projectId !== was.projectId) this.forgetCursor(next.id);
     this.replace(next);
     if (patch.steps) this.relabelNumbers(next);
+    // Keeping fewer chats puts the ones it no longer keeps away now, not at its next run.
+    if (patch.keepChats && patch.keepChats !== (was.keepChats ?? DEFAULT_KEEP_CHATS)) this.tidyChats(next);
     return next;
   }
 
@@ -501,6 +510,48 @@ export class Sentinels {
     this.triggers?.sync(this.items);
     this.deps.store.dispatch({ type: 'sentinel_remove', id: s.id });
     this.save();
+  }
+
+  // ------------------------------------------------------------------ moving to another computer (BLG-807)
+
+  private moving: SentinelMover | undefined;
+  /** Moving a sentinel to another computer of yours: this daemon's part. */
+  get mover(): SentinelMover {
+    return (this.moving ??= new SentinelMover(this.movePort(), this.deps.store, this.now));
+  }
+
+  /** What moving a sentinel to another computer reaches inside it here (see move-work.ts). */
+  private movePort(): SentinelMovePort {
+    return {
+      get: (id) => this.items.find((i) => i.id === id),
+      count: () => this.items.length,
+      max: MAX_SENTINELS,
+      runsOf: (id) => this.runs.filter((r) => r.sentinelId === id),
+      running: (id) => this.active.has(id) || this.queued.has(id),
+      folders: this.folders,
+      metricFiles: this.metricFiles,
+      dashboards: this.dashboards,
+      cursor: (id) => this.cursors[id],
+      env: (projectId) => {
+        const own = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string'));
+        return { ...own, ...(this.deps.envFor?.(this.cwdOfProject(projectId)) ?? {}), ...(this.deps.serviceEnv?.(projectId) ?? {}) };
+      },
+      adopt: (item, runs, cursor) => {
+        this.items = [...this.items, item];
+        this.runs = [...this.runs, ...runs.filter((r) => !isLive(r.state))];
+        if (cursor !== undefined) this.cursors = { ...this.cursors, [item.id]: cursor };
+        this.put(item);
+        this.loadMetrics(false);
+        this.syncOutputs(item.id);
+        this.deps.store.dispatch({ type: 'sentinel_init', state: this.state() });
+      },
+      test: (id) => this.test(id, 'you'),
+      setWhy: (id, why) => {
+        const was = this.items.find((i) => i.id === id);
+        if (was) this.replace({ ...was, pausedWhy: why, updatedAt: this.now() });
+      },
+      remove: (id) => this.remove(id),
+    };
   }
 
   // ------------------------------------------------------------------ webhooks
@@ -765,6 +816,11 @@ export class Sentinels {
     // The Sentinel chat (§12): how Sentinel works, and all of it as it is now.
     if (isSentinelChat(channel)) return { tools: this.toolsFor(undefined), dashboard: this.dashboardTools(undefined), brief: sentinelChatBrief(this.items, this.dashboards.list(), this.metricList(), RECIPES, (sn) => this.lastLine(sn)), inRun: false };
     return { tools: this.toolsFor(undefined), dashboard: this.dashboardTools(undefined), brief: sentinelNote(), inRun: false };
+  }
+
+  /** An external agent's sentinel and dashboard tools: the lists show only what `visible` holds. They have the same limits as your own agent's: never turning one on. */
+  toolsForAgent(visible: (sentinel: Sentinel) => boolean): { readonly tools: SentinelTools; readonly dashboard: DashboardTools } {
+    return { tools: this.toolsFor(undefined, undefined, undefined, visible), dashboard: this.dashboardTools(undefined, undefined, visible) };
   }
 
   /** Where the Sentinel chat's Claude runs (its own folder and session), your runs only. */
@@ -1094,6 +1150,7 @@ export class Sentinels {
     this.tell(next, run, pausing);
     this.follow(next, run);
     this.extra.delete(sid);
+    this.tidyChats(next);
     this.prune();
     const waiting = this.active.has(sid) ? undefined : this.queued.get(sid);
     if (waiting) {
@@ -1215,6 +1272,7 @@ export class Sentinels {
       ...(p.access ? { access: p.access } : {}),
       ...(p.limits ? { limits: p.limits } : {}),
       ...(p.notify ? { notify: p.notify } : {}),
+      ...(p.keepChats ? { keepChats: p.keepChats } : {}),
     };
   }
 
@@ -1294,9 +1352,71 @@ export class Sentinels {
     }
   }
 
+  /**
+   * Put away the conversations of a sentinel's ended runs it doesn't keep (BLG-566, `keepChats`): an
+   * hourly sentinel's chats don't pile up, and a run's report and outputs stay on its page. The run
+   * says so (`putAway`), so its page doesn't offer a chat that's gone.
+   */
+  private tidyChats(s: Sentinel): void {
+    const putAway = this.deps.places?.putAway;
+    if (!putAway) return;
+    const keep = s.keepChats ?? DEFAULT_KEEP_CHATS;
+    const mine = this.runs.filter((r) => r.sentinelId === s.id && !r.putAway && chatsOf(r).length);
+    const latest = [...mine].reverse().find((r) => !isLive(r.state))?.id;
+    for (const r of mine) if (!keepsChat(keep, r, latest)) this.putAwayChats(r);
+  }
+
+  private putAwayChats(run: RunSummary): void {
+    const putAway = this.deps.places?.putAway;
+    if (!putAway) return;
+    for (const channel of chatsOf(run)) void putAway(channel).catch(() => undefined);
+    const now = this.runs.find((r) => r.id === run.id);
+    if (now) this.recordSummary({ ...now, putAway: true });
+  }
+
+  /**
+   * Delete what a run left, as you asked (BLG-577). `chat`: its agents' conversations, for good (the
+   * run, its report and outputs stay). `run`: those, and the run itself: its folder (report, outputs,
+   * documents) and its line in the history. A worktree it made stays (it's work, archived or not on
+   * its own); numbers it kept stay on their charts. Not while it runs: stop it first.
+   */
+  async runDelete(runId: string, what: RunDeleteWhat): Promise<void> {
+    const run = this.runs.find((r) => r.id === runId);
+    if (!run) throw new Error('That run is gone (only the last 200 of each sentinel are kept)');
+    if (isLive(run.state)) throw new Error(run.state === 'needs-you' ? 'This run waits for you: Merge it or Not Now first' : 'This run is still going: stop it first');
+    const deleteChat = this.deps.places?.deleteChat;
+    for (const channel of run.chatDeleted ? [] : chatsOf(run)) await deleteChat?.(channel).catch(() => undefined);
+    if (what === 'chat') {
+      const now = this.runs.find((r) => r.id === runId);
+      if (now && !now.chatDeleted) this.recordSummary({ ...now, putAway: true, chatDeleted: true });
+      return;
+    }
+    this.runs = this.runs.filter((r) => r.id !== runId);
+    this.folders.remove(runId);
+    this.deps.store.dispatch({ type: 'sentinel_runs_gone', ids: [runId] });
+    this.save();
+  }
+
+  /**
+   * Delete several of a sentinel's runs at once (your agent's sentinel_delete_runs, always through your
+   * approval): by id, or those that ended in a state and/or started before a time → how many.
+   */
+  async runsDelete(ref: string, which: RunsWhich, what: RunDeleteWhat): Promise<number> {
+    const s = this.need(ref);
+    const ids = which.runs ? new Set(which.runs) : undefined;
+    const picked = this.runs.filter((r) => r.sentinelId === s.id && !isLive(r.state) && (!ids || ids.has(r.id)) && (!which.state || r.state === which.state) && (which.before === undefined || r.startedAt < which.before) && (what === 'run' || (!r.chatDeleted && chatsOf(r).length > 0)));
+    for (const r of picked) await this.runDelete(r.id, what);
+    return picked.length;
+  }
+
   private prune(): void {
     const { kept, gone } = pruneRuns(this.runs);
     if (!gone.length) return;
+    // A run that goes takes its conversations with it: else they'd show up as anyone's chats.
+    for (const id of gone) {
+      const r = this.runs.find((x) => x.id === id);
+      if (r && !r.putAway) for (const channel of chatsOf(r)) void this.deps.places?.putAway?.(channel).catch(() => undefined);
+    }
     this.runs = kept;
     for (const id of gone) this.folders.remove(id);
     this.save();
@@ -1359,7 +1479,7 @@ export class Sentinels {
     const tasks = st.board.enabled ? describeList(filterIssues(st.board, { scope: 'all', selfId: this.deps.selfId(), ...(projectId ? { repos: [projectId] } : {}) }).filter((i) => isOpen(i.status))) : '';
     const projects = st.projects.filter((p) => !projectId || p.id === projectId);
     const worktrees = projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree' && !w.archived).map((w) => `${p.name}/${w.name}${w.branch ? ` (${w.branch})` : ''}`)).join('\n');
-    const plans = st.plans.plans.filter((p) => (!projectId || p.projectId === projectId) && p.status !== 'done').map((p) => `${planTitle(p)} · ${p.status}`).join('\n');
+    const plans = st.plans.plans.filter((p) => (!projectId || p.projectId === projectId) && p.status !== 'done' && !p.movedTo).map((p) => `${planTitle(p)} · ${p.status}`).join('\n');
     return { tasks, worktrees, plans };
   }
 
@@ -1719,11 +1839,11 @@ export class Sentinels {
   }
 
   /** metric_list: each sentinel's numbers, with their last value. */
-  private metricList(): string {
+  private metricList(visible: (sentinel: Sentinel) => boolean = () => true): string {
     const all = this.allMetrics();
     if (!all.length) return 'No numbers kept yet: a sentinel keeps them with a Keep the numbers step.';
     return this.items
-      .filter((i) => this.metrics[i.id])
+      .filter((i) => this.metrics[i.id] && visible(i))
       .map((i) => {
         const lines = Object.values(this.metrics[i.id]!).map((m) => {
           const last = m.points.at(-1);
@@ -1892,7 +2012,7 @@ export class Sentinels {
   }
 
   /** Dashboards and numbers as Claude's tools: sentinels by id or name; sentinel_measure inside a run only. */
-  private dashboardTools(active: ActiveRun | undefined, building?: string): DashboardTools {
+  private dashboardTools(active: ActiveRun | undefined, building?: string, visible?: (sentinel: Sentinel) => boolean): DashboardTools {
     const ref = (sentinel: string, metric: string): MetricRef => {
       const s = this.need(sentinel);
       const name = this.metrics[s.id]?.[metric] ? metric : (Object.values(this.metrics[s.id] ?? {}).find((m) => m.label.toLowerCase() === metric.trim().toLowerCase())?.name ?? metricName(metric));
@@ -1984,7 +2104,7 @@ export class Sentinels {
         const d = this.dashboards.removeTile(dashboard, tileId);
         return `Removed tile ${tileId} from “${d.name}”.`;
       },
-      metricList: () => this.metricList(),
+      metricList: () => this.metricList(visible),
       metricRead: (sentinel: string, name: string, since?: string) => {
         const from = since ? sinceOf(since, this.now()) : undefined;
         if (since && from === undefined) throw new Error('since is a date (2026-09-01) or a time back (7d, 4w, 3 months)');
@@ -1996,7 +2116,7 @@ export class Sentinels {
 
   // ------------------------------------------------------------------ Claude's tools
 
-  private toolsFor(active: ActiveRun | undefined, asking?: string, onMade?: (sentinelId: string) => void): SentinelTools {
+  private toolsFor(active: ActiveRun | undefined, asking?: string, onMade?: (sentinelId: string) => void, visible: (sentinel: Sentinel) => boolean = () => true): SentinelTools {
     const line = (s: Sentinel): string => {
       const last = lastRunOf(this.state(), s.id);
       const next = this.nextAtOf(s);
@@ -2012,11 +2132,11 @@ export class Sentinels {
             },
           }
         : {}),
-      list: () => describeSentinels(this.items, line),
+      list: () => describeSentinels(this.items.filter(visible), line),
       create: (d: ToolDraft) => {
         const { name: _n, ...refs } = this.fromToolPatch({ trigger: d.trigger, steps: d.steps });
         const draft: SentinelDraft = { ...fromToolDraft(d), ...refs };
-        const made = (s: Sentinel): string => `Made “${s.name}” (${scheduleSentence(s.trigger)}), paused: \`sentinel:${s.id}\`. Its steps: ${s.steps.map((st) => `${st.name} (step ${st.id})`).join(', ') || 'none'}. It runs once the user turns it on from its page (you can’t).`;
+        const made = (s: Sentinel): string => `Made “${s.name}” (${scheduleSentence(s.trigger)}), paused: \`sentinel:${s.id}\`. Its steps: ${s.steps.map((st) => `${st.name} (step ${st.id})`).join(', ') || 'none'}. It runs once the user turns it on from its page (you can’t).${heedPlan(s)}`;
         if (!(draft.steps ?? []).some(isSourceStep)) {
           const s = this.create(draft);
           onMade?.(s.id);
@@ -2070,7 +2190,7 @@ export class Sentinels {
         if (active?.sentinel.id === this.get(ref)?.id) throw new Error('This run is that sentinel’s: it can’t change itself while it runs');
         const said = (s: Sentinel, paused: boolean): string => {
           const changed = Object.keys(patch).filter((k) => patch[k as keyof ToolPatch] !== undefined);
-          return `Changed “${s.name}” (${changed.join(', ') || 'nothing'}): ${scheduleSentence(s.trigger, (id) => this.get(id)?.name)}; ${s.steps.length} ${s.steps.length === 1 ? 'step' : 'steps'}.${paused ? ' It changed what it can do, so it is paused now: the user turns it on again from its page (say so).' : s.paused ? ' It is paused: the user turns it on from its page.' : ''} \`sentinel:${s.id}\``;
+          return `Changed “${s.name}” (${changed.join(', ') || 'nothing'}): ${scheduleSentence(s.trigger, (id) => this.get(id)?.name)}; ${s.steps.length} ${s.steps.length === 1 ? 'step' : 'steps'}.${paused ? ' It changed what it can do, so it is paused now: the user turns it on again from its page (say so).' : s.paused ? ' It is paused: the user turns it on from its page.' : ''}${heedPlan(s)} \`sentinel:${s.id}\``;
         };
         const was = this.need(ref);
         const next = this.fromToolPatch(patch);
@@ -2098,8 +2218,42 @@ export class Sentinels {
         this.remove(s.id);
         return `Deleted “${s.name}”. Its past runs’ reports go with the next clean-up.`;
       },
+      runs: (ref: string) => {
+        const s = this.need(ref);
+        const mine = this.runs.filter((r) => r.sentinelId === s.id).sort((a, b) => b.startedAt - a.startedAt);
+        if (!mine.length) return `“${s.name}” hasn’t run yet.`;
+        const lines = mine.slice(0, 100).map((r) => `- ${r.id} · ${new Date(r.startedAt).toLocaleString()} · ${r.state}${r.headline ? ` · ${firstLine(r.headline, 120)}` : ''} · ${chatsOf(r).length && !r.putAway ? 'chat kept' : 'no chat kept'}`);
+        return [`“${s.name}”: ${mine.length} run${mine.length === 1 ? '' : 's'}, newest first${mine.length > 100 ? ' (the newest 100)' : ''}. Each has its page and folder (report, outputs).`, ...lines].join('\n');
+      },
+      deleteRuns: async (ref, which, what) => {
+        const s = this.need(ref);
+        const before = which.before !== undefined ? sinceOf(which.before, this.now()) : undefined;
+        if (which.before !== undefined && before === undefined) throw new Error(`“${which.before}” isn’t a time: say a date (2026-10-01) or how long ago (7d, 2 weeks)`);
+        if (which.state !== undefined && !(RUN_STATES as readonly string[]).includes(which.state)) throw new Error(`A run’s state is one of ${RUN_STATES.join(', ')}`);
+        if (!which.runs?.length && which.state === undefined && before === undefined) throw new Error('Say which runs: their ids, a state, or before when (all of them: before "0d")');
+        if (active?.sentinel.id === s.id) throw new Error('This run is that sentinel’s: ask from another conversation');
+        const n = await this.runsDelete(s.id, { ...(which.runs ? { runs: which.runs } : {}), ...(which.state ? { state: which.state as RunSummary['state'] } : {}), ...(before !== undefined ? { before } : {}) }, what);
+        if (!n) return 'No run matched (one still going is never deleted).';
+        return what === 'chat' ? `Deleted the agent chats of ${n} run${n === 1 ? '' : 's'} of “${s.name}”. Their reports and outputs stay on their pages.` : `Deleted ${n} run${n === 1 ? '' : 's'} of “${s.name}”: their chats, reports and outputs. Worktrees they made and numbers they kept stay.`;
+      },
     };
   }
+}
+
+/** What deleting a run takes: its agents' chats only, or the whole run (BLG-577). */
+export type RunDeleteWhat = 'chat' | 'run';
+/** Which of a sentinel's runs: these ids, those that ended so, those that started before then. */
+export interface RunsWhich {
+  readonly runs?: readonly string[];
+  readonly state?: RunSummary['state'];
+  readonly before?: number;
+}
+
+/** A run's own chats (a project chat, a Your Mac chat): never its worktree, which keeps its work. */
+function chatsOf(run: Pick<RunSummary, 'channel' | 'steps' | 'worktreeId'>): string[] {
+  const worktree = run.worktreeId ? `ws:${run.worktreeId}` : undefined;
+  const all = [run.channel, ...run.steps.map((s) => s.channel)].filter((c): c is string => Boolean(c) && c !== worktree);
+  return [...new Set(all)];
 }
 
 /** Runs per day 0 is no limit, the same as none: kept as none. */
@@ -2191,7 +2345,14 @@ export function fromToolDraft(d: ToolDraft): SentinelDraft {
     steps: d.steps.map(toolStep),
     ...(d.access ? { access: d.access } : {}),
     ...(d.notify ? { notify: d.notify } : {}),
+    ...(d.keepChats ? { keepChats: d.keepChats } : {}),
   };
+}
+
+/** sentinel_create/update's word about a frequent schedule with an agent step (frequentAgentNote): for Claude to tell the user. */
+function heedPlan(s: Sentinel): string {
+  const note = frequentAgentNote(s);
+  return note ? ` Tell the user: ${note}` : '';
 }
 
 /** Claude's answer, its first lines (the page's box shows it). */

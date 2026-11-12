@@ -2,8 +2,11 @@ import { sideCalls } from '../side-calls.js';
 import type { AgentBackend, AgentRunInput, TerminalSink } from '../types.js';
 import type { Complete, RuntimeId } from './types.js';
 
+/** Runtimes' names, for the words a routed call says when one can't do something. */
+const RUNTIME_LABELS: Readonly<Record<string, string>> = { codex: 'Codex', opencode: 'OpenCode', copilot: 'Copilot' };
+
 /** The side calls a backend may offer (agent/side-calls.ts). */
-export type SideCallBackend = Pick<AgentBackend, 'nameTask' | 'titlePlan' | 'answerChat' | 'fixSetup' | 'fixRun' | 'workOutScripts' | 'draftTask' | 'describeProject' | 'reviewPr'>;
+export type SideCallBackend = Pick<AgentBackend, 'nameTask' | 'titlePlan' | 'titleChat' | 'answerChat' | 'fixSetup' | 'fixRun' | 'workOutScripts' | 'draftTask' | 'describeProject' | 'reviewPr'>;
 
 /**
  * Where a side call goes (BLG-503): `own`, your default agent's runtime's one-shot call (Codex's),
@@ -73,7 +76,7 @@ export function routedBackend(fallback: AgentBackend, fallbackRuntime: RuntimeId
     btw: (req: Parameters<NonNullable<AgentBackend['btw']>>[0]) => {
       const id = req.runtime ?? fallbackRuntime;
       const backend = pick(id);
-      if (!backend?.btw) return Promise.reject(new Error(`Side questions aren’t available on ${id === 'codex' ? 'Codex' : 'this agent'} yet`));
+      if (!backend?.btw) return Promise.reject(new Error(`Side questions aren’t available on ${RUNTIME_LABELS[id] ?? 'this agent'} yet`));
       return backend.btw(req);
     },
     // Usage: the default's comes back (Claude's, filed by the session); the others in `alsoUsage`
@@ -84,8 +87,13 @@ export function routedBackend(fallback: AgentBackend, fallbackRuntime: RuntimeId
     },
     // MCP servers (Settings, BLG-518): the asked runtime's own (Codex's from its config.toml), else the default's.
     mcpServers: async (projects: readonly string[], runtime?: RuntimeId) => (await pick(runtime ?? fallbackRuntime)?.mcpServers?.(projects)) ?? [],
-    mcpSignIn: async (projects: readonly string[], name: string, runtime?: RuntimeId) => (await pick(runtime ?? fallbackRuntime)?.mcpSignIn?.(projects, name)) ?? { error: `${runtime === 'codex' ? 'Codex' : 'Your agent'} isn’t running here.` },
+    mcpSignIn: async (projects: readonly string[], name: string, runtime?: RuntimeId) => (await pick(runtime ?? fallbackRuntime)?.mcpSignIn?.(projects, name)) ?? { error: `${(runtime && RUNTIME_LABELS[runtime]) ?? 'Your agent'} isn’t running here.` },
     mcpSignedIn: (name: string, runtime?: RuntimeId) => pick(runtime ?? fallbackRuntime)?.mcpSignedIn?.(name) ?? Promise.resolve(undefined),
+    // MCP Apps: a `ui://` resource is read through Claude Code (the only runtime that records apps).
+    mcpReadUiResource: (projects: readonly string[], server: string, uri: string) => {
+      const claude = pick('claude');
+      return claude?.mcpReadUiResource ? claude.mcpReadUiResource(projects, server, uri) : Promise.reject(new Error('Claude Code isn’t running here.'));
+    },
     mcpSetEnabled: async (projects: readonly string[], name: string, enabled: boolean, runtime?: RuntimeId) =>
       (await pick(runtime ?? fallbackRuntime)?.mcpSetEnabled?.(projects, name, enabled)) ?? { error: 'This agent’s servers are turned on and off in its own settings.' },
   });

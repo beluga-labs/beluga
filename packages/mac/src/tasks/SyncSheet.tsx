@@ -10,6 +10,7 @@ import { openExternal } from '../lib/system.js';
 import { ago } from './tasks-model.js';
 import { useBoard } from './use-tasks.js';
 import s from './SyncSheet.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 interface Team {
   readonly id: string;
@@ -46,7 +47,7 @@ function ConnectForm({ projectId, name, close, onBack }: { projectId: string; na
     <FormSheet
       title={onBack ? `Change how ${name} syncs` : `Sync ${name} with Linear`}
       icon="refresh"
-      intro={<p>Issues in a Linear team show up here as tasks, and tasks made here show up in Linear. A change on either side follows to the other. The key stays on this Mac.</p>}
+      intro={<p>Issues in a Linear team show up here as tasks, and tasks made here show up in Linear. A change on either side follows to the other. The key stays on {thisComputer()}.</p>}
       submitLabel={found ? 'Connect' : 'Check Key'}
       canSubmit={Boolean(trimmed) && !problem && (!found || Boolean(team))}
       cancelLabel={onBack ? 'Back' : 'Cancel'}

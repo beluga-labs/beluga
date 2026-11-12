@@ -1,5 +1,5 @@
 import { ESTIMATES, PRIORITIES, type Priority } from '../board/model.js';
-import { AUTONOMIES, type Autonomy, MAX_MILESTONES, MAX_PLAN_TASKS, type PlanBody, type PlanDecision, type PlanMilestone, type PlanTask, allTasks } from './model.js';
+import { AUTONOMIES, type Autonomy, type Decided, type PlanBody, type PlanDecision, type PlanMilestone, type PlanTask, allTasks } from './model.js';
 
 /**
  * Writing a plan: a whole one (Claude's plan_write), or a change at a time (Claude's plan_update,
@@ -65,6 +65,8 @@ export interface BodyInput {
   readonly title: string;
   readonly goal: string;
   readonly milestones: readonly MilestoneInput[];
+  /** Left out: the plan's decisions stay as they were. */
+  readonly decisions?: readonly DecisionInput[];
 }
 
 export type PlanOp =
@@ -76,7 +78,10 @@ export type PlanOp =
   | { readonly op: 'update_task'; readonly id: string; readonly patch: Partial<TaskInput> }
   | { readonly op: 'remove_task'; readonly id: string }
   | { readonly op: 'move_task'; readonly id: string; readonly milestone: string; readonly before?: string }
-  | { readonly op: 'block'; readonly id: string; readonly by: string; readonly on: boolean };
+  | { readonly op: 'block'; readonly id: string; readonly by: string; readonly on: boolean }
+  | { readonly op: 'decide'; readonly decision: DecisionInput }
+  | { readonly op: 'update_decision'; readonly id: string; readonly text?: string; readonly terms?: readonly string[]; readonly retires?: readonly string[] }
+  | { readonly op: 'remove_decision'; readonly id: string };
 
 const oneLine = (text: string, max: number): string => text.replace(/\s+/g, ' ').trim().slice(0, max);
 const block = (text: string | undefined, max: number): string | undefined => {
@@ -105,13 +110,77 @@ export function lines(input: readonly string[] | string | undefined): string[] {
     .slice(0, MAX_LINES);
 }
 
-/** An id that's free (`taken` grows with it). */
-function freeId(wanted: string | undefined, fallback: string, taken: Set<string>): string {
-  const base = slugId(wanted?.trim() || fallback);
-  let id = base;
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+/**
+ * A new item's id (`taken` grows with it). One that's taken is refused, never renamed: a silent
+ * "-2" kept a stale task beside its replacement (BLG-772). `held` says what holds an id, for the error.
+ */
+function newId(wanted: string | undefined, fallback: string, taken: Set<string>, what: 'task' | 'milestone' | 'decision', held: (id: string) => string | undefined): string {
+  const id = slugId(wanted?.trim() || fallback);
+  if (taken.has(id)) {
+    const holder = held(id);
+    const change = what === 'task' ? 'update_task' : what === 'milestone' ? 'update_milestone' : 'update_decision';
+    const remove = what === 'task' ? 'remove_task' : what === 'milestone' ? 'remove_milestone' : 'remove_decision';
+    const named = wanted?.trim() ? '' : ' (its id comes from its title)';
+    throw new PlanError(`There's already a ${what} "${id}"${holder ? `: ${holder}` : ''}. Change that one with ${change}, take it out first with ${remove}, or give the new ${what} an id of its own${named}`);
+  }
   taken.add(id);
   return id;
+}
+
+const taskHolder = (body: PlanBody) => (id: string): string | undefined => {
+  const hit = allTasks(body).find((t) => t.task.id === id);
+  return hit ? `“${hit.task.title}”, in milestone “${hit.milestone.title}”` : undefined;
+};
+const milestoneHolder = (body: PlanBody) => (id: string): string | undefined => {
+  const m = body.milestones.find((x) => x.id === id);
+  return m ? `“${m.title}”` : undefined;
+};
+const decisionHolder = (list: readonly Decided[]) => (id: string): string | undefined => {
+  const d = list.find((x) => x.id === id);
+  return d ? `“${oneLine(d.text, 120)}”` : undefined;
+};
+
+export interface DecisionInput {
+  readonly id?: string;
+  readonly text: string;
+  readonly terms?: readonly string[];
+  readonly retires?: readonly string[];
+  /** The decision it replaces (its id). */
+  readonly supersedes?: string;
+}
+
+const MAX_DECISION = 1000;
+const MAX_DECISIONS = 60;
+const MAX_TERMS = 8;
+
+const termList = (input: readonly string[] | undefined): string[] => [...new Set((input ?? []).map((t) => oneLine(t, 60)).filter((t) => t.length >= 2))].slice(0, MAX_TERMS);
+
+function decided(input: DecisionInput, id: string, keep?: Decided): Decided {
+  const text = block(input.text, MAX_DECISION);
+  if (!text) throw new PlanError('A decision needs its text');
+  const terms = termList(input.terms ?? keep?.terms);
+  const retires = termList(input.retires ?? keep?.retires);
+  const supersedes = input.supersedes?.trim() || keep?.supersedes;
+  return { id, text, ...(terms.length ? { terms } : {}), ...(retires.length ? { retires } : {}), ...(supersedes ? { supersedes } : {}), ...(keep?.supersededBy ? { supersededBy: keep.supersededBy } : {}) };
+}
+
+/** A decision added: the one it supersedes is marked (kept for the record). */
+function addDecision(list: readonly Decided[], made: Decided): Decided[] {
+  if (made.supersedes) {
+    const old = list.find((d) => d.id === made.supersedes);
+    if (!old) throw new PlanError(`Decision "${made.id}" supersedes "${made.supersedes}", which isn't one of the plan's decisions (${list.map((d) => d.id).join(', ') || 'none yet'})`);
+    if (old.supersededBy) throw new PlanError(`Decision "${old.id}" was already superseded by "${old.supersededBy}": supersede that one instead`);
+  }
+  if (list.length >= MAX_DECISIONS) throw new PlanError(`A plan keeps up to ${MAX_DECISIONS} decisions: remove ones that no longer matter`);
+  return [...list.map((d) => (d.id === made.supersedes ? { ...d, supersededBy: made.id } : d)), made];
+}
+
+/** Decisions from a whole plan: ids made where missing, superseding in order. */
+function decisionsOf(input: readonly DecisionInput[]): Decided[] {
+  const taken = new Set<string>();
+  let list: Decided[] = [];
+  for (const d of input) list = addDecision(list, decided(d, newId(d.id, d.text, taken, 'decision', decisionHolder(list)), undefined));
+  return list;
 }
 
 function task(input: TaskInput, id: string, keep?: PlanTask): PlanTask {
@@ -168,17 +237,23 @@ export function normalizeBody(input: BodyInput, previous?: readonly (PlanBody | 
   for (const body of previous ?? []) for (const { task: t } of allTasks(body)) if (!known.has(t.id) || t.issueId) known.set(t.id, t);
   const milestoneIds = new Set<string>();
   const taskIds = new Set<string>();
+  // What holds each id so far, for a clear error when two would share one.
+  const held = new Map<string, string>();
   // Ids as written first, so a task's blockers can name tasks further down.
   const milestones = (input.milestones ?? []).map((m) => {
-    const id = freeId(m.id, m.title, milestoneIds);
+    const id = newId(m.id, m.title, milestoneIds, 'milestone', (x) => held.get(`m:${x}`));
+    held.set(`m:${id}`, `“${oneLine(m.title ?? '', 120)}”`);
     const tasks = (m.tasks ?? []).map((t) => {
-      const tid = freeId(t.id, t.title, taskIds);
+      const tid = newId(t.id, t.title, taskIds, 'task', (x) => held.get(`t:${x}`));
+      held.set(`t:${tid}`, `“${oneLine(t.title ?? '', 120)}”, in milestone “${oneLine(m.title ?? '', 120)}”`);
       return task(t, tid, known.get(tid));
     });
     return milestone(m, id, tasks);
   });
   const goal = block(input.goal, MAX_GOAL) ?? '';
-  return checkBody({ title, goal, milestones });
+  // Decisions are the plan's: a whole new plan that says none keeps the ones it had.
+  const decisions = input.decisions ? decisionsOf(input.decisions) : (previous?.find((b) => b?.decisions)?.decisions ?? []);
+  return checkBody({ title, goal, milestones, ...(decisions.length ? { decisions } : {}) });
 }
 
 /** Changes, one after another; the result is checked as a whole. */
@@ -212,8 +287,8 @@ function applyOp(body: PlanBody, op: PlanOp): PlanBody {
       return { ...body, title, goal: op.goal !== undefined ? (block(op.goal, MAX_GOAL) ?? '') : body.goal };
     }
     case 'add_milestone': {
-      const id = freeId(op.milestone.id, op.milestone.title, milestoneIds);
-      const tasks = (op.milestone.tasks ?? []).map((t) => task(t, freeId(t.id, t.title, taskIds)));
+      const id = newId(op.milestone.id, op.milestone.title, milestoneIds, 'milestone', milestoneHolder(body));
+      const tasks = (op.milestone.tasks ?? []).map((t) => task(t, newId(t.id, t.title, taskIds, 'task', taskHolder(body))));
       const made = milestone(op.milestone, id, tasks);
       const at = op.after ? body.milestones.findIndex((m) => m.id === op.after) : -2;
       if (op.after && at < 0) needMilestone(op.after);
@@ -244,7 +319,7 @@ function applyOp(body: PlanBody, op: PlanOp): PlanBody {
     }
     case 'add_task': {
       const m = needMilestone(op.milestone);
-      const made = task(op.task, freeId(op.task.id, op.task.title, taskIds));
+      const made = task(op.task, newId(op.task.id, op.task.title, taskIds, 'task', taskHolder(body)));
       const at = op.after ? m.tasks.findIndex((t) => t.id === op.after) : -1;
       const tasks = [...m.tasks];
       tasks.splice(at >= 0 ? at + 1 : tasks.length, 0, made);
@@ -301,6 +376,38 @@ function applyOp(body: PlanBody, op: PlanOp): PlanBody {
       const blockedBy = op.on ? [...new Set([...t.blockedBy, op.by])] : t.blockedBy.filter((b) => b !== op.by);
       return mapTasks((x) => (x.id === t.id ? { ...x, blockedBy } : x));
     }
+    case 'decide': {
+      const list = body.decisions ?? [];
+      const made = decided(op.decision, newId(op.decision.id, op.decision.text, new Set(list.map((d) => d.id)), 'decision', decisionHolder(list)));
+      return { ...body, decisions: addDecision(list, made) };
+    }
+    case 'update_decision': {
+      const list = body.decisions ?? [];
+      const was = list.find((d) => d.id === op.id);
+      if (!was) throw new PlanError(`There's no decision "${op.id}" (decisions: ${list.map((d) => d.id).join(', ') || 'none yet'})`);
+      const next = decided({ text: op.text ?? was.text, ...(op.terms ? { terms: op.terms } : {}), ...(op.retires ? { retires: op.retires } : {}) }, was.id, was);
+      return { ...body, decisions: list.map((d) => (d.id === was.id ? next : d)) };
+    }
+    case 'remove_decision': {
+      const list = body.decisions ?? [];
+      if (!list.some((d) => d.id === op.id)) throw new PlanError(`There's no decision "${op.id}" (decisions: ${list.map((d) => d.id).join(', ') || 'none yet'})`);
+      // The one it had replaced is in force again; one that replaced it stands on its own.
+      const rest = list
+        .filter((d) => d.id !== op.id)
+        .map((d) => {
+          if (d.supersededBy === op.id) {
+            const { supersededBy: _s, ...kept } = d;
+            return kept;
+          }
+          if (d.supersedes === op.id) {
+            const { supersedes: _s, ...kept } = d;
+            return kept;
+          }
+          return d;
+        });
+      const { decisions: _d, ...without } = body;
+      return rest.length ? { ...body, decisions: rest } : without;
+    }
   }
 }
 
@@ -330,9 +437,7 @@ function descendants(body: PlanBody, id: string): string[] {
 
 /** The rules a plan keeps (a clear message for Claude when one is broken). */
 export function checkBody(body: PlanBody): PlanBody {
-  if (body.milestones.length > MAX_MILESTONES) throw new PlanError(`A plan has at most ${MAX_MILESTONES} milestones`);
   const tasks = allTasks(body);
-  if (tasks.length > MAX_PLAN_TASKS) throw new PlanError(`A plan has at most ${MAX_PLAN_TASKS} tasks: split it into two plans, or make tasks bigger`);
   const mids = new Set<string>();
   for (const m of body.milestones) {
     if (mids.has(m.id)) throw new PlanError(`Two milestones are called "${m.id}"`);

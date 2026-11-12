@@ -1,4 +1,8 @@
-/** Syntax colors load on demand (shiki is big), then stay: for code blocks, repo excerpts and PR diffs. */
+import type { BundledLanguage } from 'shiki';
+import { languageOf } from '../components/markdown/highlight.js';
+import { THEMES, loadShiki } from './shiki.js';
+
+/** Syntax colors load on demand (shiki is big, one for the whole window), then stay: for code blocks, repo excerpts and PR diffs. */
 
 export interface Token {
   readonly content: string;
@@ -7,25 +11,23 @@ export interface Token {
 }
 
 export interface Highlighter {
-  codeToHtml: (code: string, opts: { lang: string; themes: { light: string; dark: string } }) => string;
+  codeToHtml: (code: string, lang: string) => string;
   /** Each line's tokens, both themes' colors. */
   tokens: (code: string, lang: string) => Token[][];
-  langs: Set<string>;
+  /** The language shiki knows it as, its colors loaded; undefined when it has none. */
+  language: (lang: string) => Promise<string | undefined>;
 }
 
 let highlighter: Promise<Highlighter> | undefined;
 
-const THEMES = { light: 'github-light', dark: 'github-dark-dimmed' };
-
 export function loadHighlighter(): Promise<Highlighter> {
-  highlighter ??= import('shiki').then(async ({ createHighlighter }) => {
-    const langs = ['ts', 'tsx', 'js', 'jsx', 'json', 'bash', 'sh', 'python', 'go', 'rust', 'css', 'html', 'md', 'yaml', 'sql', 'diff', 'swift', 'java', 'kotlin', 'c', 'cpp', 'ruby', 'toml'];
-    const h = await createHighlighter({ themes: [THEMES.light, THEMES.dark], langs });
-    return {
-      codeToHtml: (code, opts) => h.codeToHtml(code, opts),
-      tokens: (code, lang) => h.codeToTokens(code, { lang: lang as never, themes: THEMES }).tokens.map((line) => line.map((t) => ({ content: t.content, ...(t.htmlStyle ? { style: t.htmlStyle as Record<string, string> } : {}) }))),
-      langs: new Set(h.getLoadedLanguages() as string[]),
-    };
-  });
+  highlighter ??= loadShiki().then(({ h, load }) => ({
+    codeToHtml: (code, lang) => h.codeToHtml(code, { lang: lang as BundledLanguage, themes: THEMES }),
+    tokens: (code, lang) => h.codeToTokens(code, { lang: lang as BundledLanguage, themes: THEMES }).tokens.map((line) => line.map((t) => ({ content: t.content, ...(t.htmlStyle ? { style: t.htmlStyle as Record<string, string> } : {}) }))),
+    language: async (lang) => {
+      const id = languageOf(lang);
+      return id && id !== 'text' && (await load(id)) ? id : undefined;
+    },
+  }));
   return highlighter;
 }

@@ -1,12 +1,18 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '../components/Icon.js';
-import { inApp } from '../lib/boot.js';
-import { toast, useApi, useBeluga } from '../lib/beluga.js';
+import { inApp, webServed } from '../lib/boot.js';
+import { toast, useApi, useBeluga, useMachine, useScopedKey } from '../lib/beluga.js';
+import { cx } from '../components/ui.js';
+import { type DropVerdict, type Sending, envAsk, planDrop, sendFiles, sentShare } from './attachments.js';
+import { openSheet } from '../lib/sheets.js';
+import { currentMachines } from '../machines/use-machines.js';
 import { type Box, MAX_DROPPED, dropHits, droppedFiles, sameBox } from './drop-model.js';
 import { imageLinksIn } from '@beluga/shared/attachment-links.js';
 import { type RefKey, boxRef, plainRefs, refKey, referencedImages, withoutRef } from './image-refs.js';
 import { keepPreview, openLightbox, pendingImage, previewOf } from './images.js';
+import { toBox, worktreeNamesOf } from './worktree-box.js';
+import { boxChats, plainWords } from './chat-box.js';
 import { type ImageInText, type PathInfo, insertText, usePastePaths } from './paste-paths.js';
 import s from './composer.module.css';
 import img from './images.module.css';
@@ -27,8 +33,12 @@ import img from './images.module.css';
 
 /** Images waiting to be sent, per conversation. */
 const waitingImages = new Map<string, readonly number[]>();
-/** Other files (their paths were pasted) waiting to go with the message, per conversation. */
-const waitingFiles = new Map<string, readonly PathInfo[]>();
+/**
+ * Other files (their paths were pasted) waiting to go with the message, per conversation. A copy
+ * of a chat (`copy`, BLG-152) goes as its words: the computer it goes to can't read a path here.
+ */
+type WaitingFile = PathInfo & { readonly copy?: string };
+const waitingFiles = new Map<string, readonly WaitingFile[]>();
 /** The file name each image came with (the end of it shows on its chip in the words). */
 const imageNames = new Map<number, string>();
 /** The name Beluga saved each image under (for opening it full size before it goes). */
@@ -59,12 +69,17 @@ function numberIn(channel: string, n: number, words: string): number {
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** Files that aren't images (a served page uploads them, web-files.ts). */
+const othersOf = (files: FileList | undefined): File[] => [...(files ?? [])].filter((f) => !f.type.startsWith('image/'));
+
 const imagesOf = (items: DataTransferItemList | undefined): File[] =>
   [...(items ?? [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/')).map((i) => i.getAsFile()).filter((f): f is File => Boolean(f));
 
 export interface Attachments {
   readonly images: readonly number[];
-  readonly files: readonly PathInfo[];
+  readonly files: readonly WaitingFile[];
+  /** A copy of a chat, waiting as a file chip; it goes with the message as its text. */
+  readonly addCopy: (copy: { readonly name: string; readonly text: string }) => void;
   /** Something is being dragged over the box (or, from Finder, over the conversation). */
   readonly dropping: boolean;
   /** Over the conversation while files from Finder are dragged on it: where they'll go. */
@@ -99,36 +114,42 @@ export interface Attachments {
  * `text`/`setText`: the words in the box (the composer keeps them in the window's UI state, the
  * plan chat in its own).
  */
-export function useAttachments({ channel, box, text, setText }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void }): Attachments {
+export function useAttachments({ channel, box, text, setText, chipLinks }: { channel: string; box: RefObject<HTMLTextAreaElement | null>; text: () => string; setText: (text: string, cursor: number) => void; chipLinks?: (text: string) => string | undefined }): Attachments {
+  // What waits in the box is kept per computer too (BLG-784): `channel` stays what the computer calls it.
+  const memo = useScopedKey(channel);
   const { client } = useBeluga();
   const api = useApi();
   const selfId = client.store.getState().selfId;
-  const [images, setImagesState] = useState<readonly number[]>(() => waitingImages.get(channel) ?? []);
-  useEffect(() => setImagesState(waitingImages.get(channel) ?? []), [channel]);
+  const [images, setImagesState] = useState<readonly number[]>(() => waitingImages.get(memo) ?? []);
+  useEffect(() => setImagesState(waitingImages.get(memo) ?? []), [memo]);
   const setImages = (next: readonly number[]): void => {
-    waitingImages.set(channel, next);
+    waitingImages.set(memo, next);
     setImagesState(next);
   };
   const pendingImages = images.filter((n) => previewOf(n));
-  const [files, setFilesState] = useState<readonly PathInfo[]>(() => waitingFiles.get(channel) ?? []);
-  useEffect(() => setFilesState(waitingFiles.get(channel) ?? []), [channel]);
-  const setFiles = (next: readonly PathInfo[]): void => {
-    if (next.length) waitingFiles.set(channel, next);
-    else waitingFiles.delete(channel);
+  const [files, setFilesState] = useState<readonly WaitingFile[]>(() => waitingFiles.get(memo) ?? []);
+  useEffect(() => setFilesState(waitingFiles.get(memo) ?? []), [memo]);
+  const setFiles = (next: readonly WaitingFile[]): void => {
+    if (next.length) waitingFiles.set(memo, next);
+    else waitingFiles.delete(memo);
     setFilesState(next);
   };
   const [dropping, setDropping] = useState(false);
+  // A chat on one of your computers (BLG-793): files dropped from this Mac go there, this one on its way.
+  const machine = useMachine();
+  const { home } = useBeluga();
+  const [sending, setSending] = useState<Sending>();
 
   /** The number image `n` has in this box. */
-  const shownOf = (n: number): number => numbersOf(channel).get(n) ?? n;
+  const shownOf = (n: number): number => numbersOf(memo).get(n) ?? n;
   /** How the words refer to a waiting image (it becomes a link to it when sent). */
   const imageRef = (n: number): string => boxRef(shownOf(n), imageNames.get(n));
   /** The image whose "[image N]" says `shown` (undefined: none waits with that number). */
-  const imageShown = (shown: number): number | undefined => (waitingImages.get(channel) ?? []).find((n) => shownOf(n) === shown);
+  const imageShown = (shown: number): number | undefined => (waitingImages.get(memo) ?? []).find((n) => shownOf(n) === shown);
   /** Image `n` waits too, numbered in this box (before its reference goes in the words). */
   const addWaiting = (n: number): void => {
-    numberIn(channel, n, text());
-    const waiting = waitingImages.get(channel) ?? [];
+    numberIn(memo, n, text());
+    const waiting = waitingImages.get(memo) ?? [];
     if (!waiting.includes(n)) setImages([...waiting, n]);
   };
 
@@ -187,7 +208,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
   /** Files on this Mac: images wait as thumbnails (referenced at `at`, else where the cursor is), others as chips. */
   const addPaths = async (picked: readonly PathInfo[], at?: number): Promise<void> => {
     const others = picked.filter((f) => !f.image);
-    if (others.length) setFiles([...(waitingFiles.get(channel) ?? []), ...others.filter((f) => !(waitingFiles.get(channel) ?? []).some((w) => w.path === f.path))]);
+    if (others.length) setFiles([...(waitingFiles.get(memo) ?? []), ...others.filter((f) => !(waitingFiles.get(memo) ?? []).some((w) => w.path === f.path))]);
     let cursor = at;
     for (const f of picked.filter((x) => x.image)) {
       const n = await addImageFile(f);
@@ -195,8 +216,66 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     }
   };
 
+  /**
+   * Files dropped in a page the web port served: uploaded to the computer Beluga runs on, then
+   * waiting as chips with their path there (the agent reads them from there).
+   */
+  const uploadOthers = async (picked: readonly File[]): Promise<void> => {
+    const { uploadFiles } = await import('../lib/web-files.js');
+    const sent = await uploadFiles(picked.slice(0, MAX_DROPPED), (file, err) => toast(client, `Couldn't upload ${file.name}: ${errorText(err)}`, 'error'));
+    if (sent.length) await addPaths(sent.map((u) => ({ path: u.path, name: u.name, kind: 'file' as const, size: u.size, image: false })));
+    box.current?.focus();
+  };
+
+  /** A chat's copy (chats.snapshot), in a fence longer than any run of backticks in it, so it stays one block. */
+  const addCopy = (copy: { readonly name: string; readonly text: string }): void => {
+    const fence = '`'.repeat(Math.max(3, ...[...copy.text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+    const words = `${copy.name}:\n${fence}text\n${copy.text.trimEnd()}\n${fence}`;
+    const now = (waitingFiles.get(memo) ?? []).filter((f) => f.name !== copy.name);
+    setFiles([...now, { path: `copy:${copy.name}`, name: copy.name, kind: 'file', size: copy.text.length, image: false, copy: words }]);
+  };
+
+  /**
+   * Paths dropped from Finder on a chat that runs on one of your computers (BLG-793): the files
+   * are on this Mac, so each goes there first, then waits by its path there.
+   */
+  const sendThere = async (there: string, paths: readonly string[]): Promise<void> => {
+    let infos: readonly PathInfo[];
+    try {
+      infos = await home.call('local.statFiles', paths.slice(0, MAX_DROPPED));
+    } catch (err) {
+      return toast(client, `Couldn't add what you dropped: ${errorText(err)}`, 'error');
+    }
+    const { files: picked, skipped } = droppedFiles(infos);
+    if (skipped) toast(client, picked.length ? `Only files go with a message: ${skipped} left out` : 'Only files go with a message (not folders)', 'warn');
+    if (!picked.length) return;
+    // The env send's rules (BLG-854): keys and credential folders stay here; an env file asks first.
+    let checks: readonly DropVerdict[];
+    try {
+      checks = await home.call('machines.upload.check', picked.map((f) => f.path));
+    } catch (err) {
+      return toast(client, `Couldn't add what you dropped: ${errorText(err)}`, 'error');
+    }
+    const plan = planDrop(picked, checks);
+    for (const r of plan.refused) toast(client, `${r.name} stays on this Mac: ${r.reason}`, 'warn');
+    const go = async (files: readonly PathInfo[], env: boolean): Promise<void> => {
+      const arrived = await sendFiles(
+        (machine, n, file, off) => home.call('machines.upload.send', machine, n, file, off, env ? { env: true } : undefined),
+        there,
+        files,
+        setSending,
+        (f, err) => toast(client, `Couldn't send ${f.name}: ${errorText(err)}`, 'error'),
+      );
+      if (arrived.length) await addPaths(arrived);
+      box.current?.focus();
+    };
+    if (plan.send.length) await go(plan.send, false);
+    if (plan.ask.length) openSheet(envAsk(plan.ask, currentMachines().find((m) => m.id === there)?.name ?? 'that computer', () => void go(plan.ask, true)));
+  };
+
   /** Paths dropped from Finder: the files among them go as a paste of their paths would. */
   const dropPaths = async (paths: readonly string[]): Promise<void> => {
+    if (machine) return sendThere(machine, paths);
     let infos: readonly PathInfo[];
     try {
       infos = await api.local.statFiles(paths.slice(0, MAX_DROPPED));
@@ -244,7 +323,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
       off?.();
       setDragOver(undefined);
     };
-  }, [channel]);
+  }, [memo]);
 
   const pastePaths = usePastePaths(
     box,
@@ -262,6 +341,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
       words += pasted.slice(from);
       if (box.current) insertText(box.current, words, at);
     },
+    chipLinks,
   );
 
   /** The waiting images full size (the lightbox: Esc or a click outside closes), from image `n`. */
@@ -298,7 +378,7 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
     insertText(el, '', { start: edit.start, end: edit.end });
     const left = referencedImages(el.value);
     const gone = edit.images.filter((k) => !left.includes(k)).map(imageShown);
-    if (gone.length) setImages((waitingImages.get(channel) ?? []).filter((n) => !gone.includes(n)));
+    if (gone.length) setImages((waitingImages.get(memo) ?? []).filter((n) => !gone.includes(n)));
     return true;
   };
 
@@ -321,8 +401,8 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
           keepPreview(n, new Blob([Uint8Array.from(atob(shown.data), (c) => c.charCodeAt(0))], { type: shown.mime }));
         }
         // Numbered against what's in the box and what this message has put back so far.
-        numberIn(channel, n, text() + out);
-        const waiting = waitingImages.get(channel) ?? [];
+        numberIn(memo, n, text() + out);
+        const waiting = waitingImages.get(memo) ?? [];
         if (!waiting.includes(n)) setImages([...waiting, n]);
         out += imageRef(n);
       } catch {
@@ -330,19 +410,23 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
         out += sent.slice(link.start, link.end);
       }
     }
-    return out + sent.slice(at);
+    // Worktrees' links and chats' mentions back short, as they were typed.
+    return boxChats(toBox(out + sent.slice(at), worktreeNamesOf(client.store.getState().projects)));
   };
 
-  const take = (typed: string): { text: string; images: readonly number[]; shown: readonly number[]; putBack: () => void } => {
+  const take = (boxed: string): { text: string; images: readonly number[]; shown: readonly number[]; putBack: () => void } => {
+    // Worktrees' links and chats' mentions written short in the box go out whole ("worktree:wt-…", "@Title (chat: …)").
+    const typed = plainWords(boxed, client.store.getState());
     if (typed.startsWith('/')) return { text: typed, images: [], shown: [], putBack: () => undefined };
     const pictures = pendingImages;
     const placed = referencedImages(typed);
     const unplaced = pictures.filter((n) => !placed.includes(shownOf(n)));
-    // Other files go as their paths (Claude reads them from this Mac).
-    const others = files;
+    // Other files go as their paths (Claude reads them from this Mac), a chat's copy as its words.
+    // From the map, not this render's state: a copy added just before Send is there.
+    const others = waitingFiles.get(memo) ?? [];
     // The chips' names stay in the box: out they go as "[image N]".
     const words = plainRefs(typed);
-    const out = pictures.length || others.length ? [words, unplaced.map((n) => boxRef(shownOf(n))).join(' '), others.map((f) => `\`${f.path}\``).join('\n')].filter(Boolean).join('\n\n') : words;
+    const out = pictures.length || others.length ? [words, unplaced.map((n) => boxRef(shownOf(n))).join(' '), [others.filter((f) => !f.copy).map((f) => `\`${f.path}\``).join('\n'), ...others.flatMap((f) => (f.copy ? [f.copy] : []))].filter(Boolean).join('\n\n')].filter(Boolean).join('\n\n') : words;
     if (pictures.length) setImages([]);
     if (others.length) setFiles([]);
     return {
@@ -371,6 +455,15 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
               </button>
             </div>
           ))}
+        </div>
+      ) : null}
+      {sending ? (
+        <div className={s.fileChips} role="status" aria-label={`Sending ${sending.name}`}>
+          <span className={cx(s.fileChip, s.fileSending)} title={`Sending ${sending.name} to the computer this chat runs on`}>
+            <Icon name="up" size={11} />
+            <span className={s.fileName}>{sending.name}</span>
+            <span className={s.fileProgress}>{sentShare(sending)}</span>
+          </span>
         </div>
       ) : null}
       {files.length ? (
@@ -404,11 +497,12 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
   return {
     images: pendingImages,
     files,
+    addCopy,
     dropping: dropping || Boolean(dragOver),
     dropTarget,
     dropProps: {
       onDragOver: (e) => {
-        if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) {
+        if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/')) || (webServed() && [...e.dataTransfer.types].includes('Files'))) {
           e.preventDefault();
           setDropping(true);
         }
@@ -416,13 +510,18 @@ export function useAttachments({ channel, box, text, setText }: { channel: strin
       onDragLeave: () => setDropping(false),
       onDrop: (e) => {
         const dropped = imagesOf(e.dataTransfer.items);
+        const others = webServed() ? othersOf(e.dataTransfer.files) : [];
         setDropping(false);
-        if (!dropped.length) return;
+        if (!dropped.length && !others.length) return;
         e.preventDefault();
-        void attach(dropped);
+        if (dropped.length) void attach(dropped);
+        if (others.length) void uploadOthers(others);
       },
     },
     onPaste: (e) => {
+      // For your stats (the Usage tab): how much text you pasted, never what.
+      const chars = e.clipboardData.getData('text/plain').length;
+      if (chars) void api.stats.note({ kind: 'paste', chars: Math.min(chars, 10_000_000), channel }).catch(() => undefined);
       const pasted = imagesOf(e.clipboardData.items);
       if (!pasted.length) return void pastePaths(e);
       e.preventDefault();

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ACCESS, ACCESS_INFO, type Access, CLAUDE_CHANGED, CLAUDE_CHANGED_BANNER, FIRST_SENTINEL_CHAT, sentinelChatChannel, NOTIFY_WHERE, type RunSummary, type Sentinel, type SentinelPatch, TIME_LIMITS, accessRank, runsOf, scheduleSentence } from '@beluga/core/sentinel/model.js';
+import { ACCESS, ACCESS_INFO, type Access, CLAUDE_CHANGED, CLAUDE_CHANGED_BANNER, DEFAULT_KEEP_CHATS, KEEP_CHATS, KEEP_CHATS_INFO, type KeepChats, FIRST_SENTINEL_CHAT, sentinelChatChannel, NOTIFY_WHERE, type RunSummary, type Sentinel, type SentinelPatch, TIME_LIMITS, accessRank, runsOf, scheduleSentence } from '@beluga/core/sentinel/model.js';
 import { activityOf } from '@beluga/ui/workspace-models.js';
 import { recipeById } from '@beluga/core/sentinel/recipes.js';
 import { Icon } from '../components/Icon.js';
@@ -8,6 +8,8 @@ import { useAgentEntries } from '../components/agent-options.js';
 import { type ActionItem, ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Empty, IconButton, Tip, cx } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
+import { RunsOnLabel } from '../chat/RunsOn.js';
+import { useSentinelMoveTo } from './move-to.js';
 import { useActions } from '../lib/actions.js';
 import { AskPanel, SentinelChat } from './SentinelChat.js';
 import { Attention } from '../chat/Attention.js';
@@ -47,6 +49,7 @@ import s from './sentinel.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { primaryKey } from '../lib/shortcuts-model.js';
 import { ASSISTANT_TITLE } from '@beluga/shared/assistant.js';
+import { useOpenFolderLabel } from '../lib/remote-open.js';
 
 /**
  * A sentinel's page: the editor and its history in one. The name is renamed in place, When and
@@ -123,10 +126,15 @@ function Header({ item, save }: { item: Sentinel; save: (patch: SentinelPatch) =
     const next = v.replace(/\s+/g, ' ').trim();
     if (next && next !== item.name) save({ name: next });
   });
+  // A sentinel on a computer: its runs folder in your editor over Remote-SSH, else its path copied (BLG-852).
+  const runsFolder = useOpenFolderLabel('Open the Runs Folder', 'Copy the Runs Folder’s Path');
+  // Move To ▸ another computer of yours (BLG-807): Pause and Move To while it runs.
+  const moveTo = useSentinelMoveTo(item);
   const more: ActionItem[] = [
     { label: 'Duplicate', icon: 'copy', onSelect: () => void a.duplicate(item) },
     { label: 'Copy as JSON', icon: 'copy', onSelect: () => a.copyJson(item) },
-    ...(folder ? [{ label: 'Open the Runs Folder', icon: 'folder' as const, onSelect: () => a.openFolder(folder) }] : []),
+    ...(folder ? [{ label: runsFolder, icon: 'folder' as const, onSelect: () => a.openFolder(folder) }] : []),
+    ...(moveTo ? [moveTo] : []),
     { label: 'Delete…', danger: true, separate: true, onSelect: () => a.remove(item, () => a.openList()) },
   ];
   return (
@@ -147,6 +155,8 @@ function Header({ item, save }: { item: Sentinel; save: (patch: SentinelPatch) =
         <span className={s.subtitle}>{scheduleSentence(item.trigger, (id) => items.find((x) => x.id === id)?.name)}</span>
       </div>
       <div className={s.headActions}>
+        {/* Where it runs (BLG-786): the computer it was made on. Only with a computer paired. */}
+        <RunsOnLabel tip="It runs on the computer it was made on until you move it." />
         <Tip label={item.paused ? 'Once now, even though it’s paused' : 'Once now, whatever its schedule'}>
           <Button size="small" icon="play" variant={item.paused ? 'plain' : 'primary'} onClick={() => void a.runNow(item)}>
             Run Now
@@ -389,6 +399,17 @@ function Properties({ item, save }: { item: Sentinel; save: (patch: SentinelPatc
       <Prop label="Pause after">
         <Select label="Pause after" size="small" value={String(item.limits.pauseAfter)} options={pauseAfter.map((n) => ({ value: String(n), label: pauseAfterLabel(n) }))} onChange={(v) => save({ limits: { pauseAfter: Number(v) } })} />
       </Prop>
+      {claudeSteps ? (
+        <Prop label="Keep chats">
+          <Select<KeepChats>
+            label="Which runs’ chats to keep"
+            size="small"
+            value={item.keepChats ?? DEFAULT_KEEP_CHATS}
+            options={KEEP_CHATS.map((k) => ({ value: k, label: KEEP_CHATS_INFO[k].label, description: KEEP_CHATS_INFO[k].description }))}
+            onChange={(keepChats) => save({ keepChats })}
+          />
+        </Prop>
+      ) : null}
       <Prop label="Notify">
         <Select label="Notify" size="small" value={item.notify} options={NOTIFY_WHERE.map((n) => ({ value: n, label: NOTIFY_LABEL[n], description: n === 'off' ? 'Only failures and pausing still tell you' : 'When a run ends (a Notify step says more)' }))} onChange={(notify) => save({ notify })} />
       </Prop>

@@ -15,6 +15,7 @@ import { presenceOf } from '@beluga/core/friend-share-people.js';
 import side from './Sidebar.module.css';
 import g from './project-groups.module.css';
 import s from './shared-projects.module.css';
+import { computerTitle, thisComputer } from '../lib/os-words.js';
 
 /**
  * What friends shared with you, apart from your own projects: a section per friend ("Ata's
@@ -68,7 +69,7 @@ function SharedProjectBlock({ p, room = false }: { p: SharedProject; room?: bool
   const copyAgain = (): void => void api.sharing.copyProject(p.owner, p.id).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
   const items: ActionItem[] = [
     ...(copy?.state === 'ready' && copy.projectId ? [{ label: 'Open Your Copy', icon: 'folder' as const, onSelect: () => actions.run({ type: 'view', view: { kind: 'project', id: copy.projectId! } }) }] : []),
-    ...(copy?.state === 'failed' ? [{ label: 'Copy to This Mac Again', icon: 'download' as const, onSelect: copyAgain }] : []),
+    ...(copy?.state === 'failed' ? [{ label: `Copy to This ${computerTitle()} Again`, icon: 'download' as const, onSelect: copyAgain }] : []),
     { label: 'Leave Project', icon: 'x', danger: true, onSelect: leave },
   ];
   const detail = room
@@ -78,7 +79,7 @@ function SharedProjectBlock({ p, room = false }: { p: SharedProject; room?: bool
       : owner.state === 'update'
         ? `${p.ownerName}'s Beluga needs an update`
         : copy?.state === 'copying'
-          ? 'Copying to this Mac…'
+          ? `Copying to ${thisComputer()}…`
           : copy?.state === 'failed'
             ? 'Couldn’t copy it here'
             : copy?.state === 'ready'

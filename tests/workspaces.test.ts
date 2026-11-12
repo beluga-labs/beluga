@@ -149,6 +149,46 @@ describe('worktree lifecycle', () => {
     expect(again.id).not.toBe(ws.id);
   });
 
+  it('forks the whole worktree: uncommitted changes and Scratch too, the source untouched', async () => {
+    const ws = await mgr.createWorktree(repos()[0]!.id, 'whole');
+    commitIn(ws.path, 'kept.txt', 'v1', 'kept v1');
+    writeFileSync(path.join(ws.path, 'kept.txt'), 'v2 unsaved'); // changed, not staged
+    writeFileSync(path.join(ws.path, 'staged.txt'), 'staged');
+    sh(ws.path, 'add', 'staged.txt');
+    writeFileSync(path.join(ws.path, 'new.txt'), 'brand new'); // untracked
+    sh(ws.path, 'rm', '-q', 'README.md'); // deleted
+    mkdirSync(path.join(ws.path, '.beluga', 'scratch', 'shots'), { recursive: true });
+    writeFileSync(path.join(ws.path, '.beluga', 'scratch', 'shots', 'home.png'), 'png');
+    writeFileSync(path.join(ws.path, '.beluga', 'scratch', 'notes.md'), 'notes');
+    const before = sh(ws.path, 'status', '--porcelain');
+
+    const fork = await mgr.fork(ws.id, 'whole 2', { id: 'chosen-id' });
+    expect(fork.id).toBe('chosen-id');
+    expect(readFileSync(path.join(fork.path, 'kept.txt'), 'utf8')).toBe('v2 unsaved');
+    expect(readFileSync(path.join(fork.path, 'staged.txt'), 'utf8')).toBe('staged');
+    expect(readFileSync(path.join(fork.path, 'new.txt'), 'utf8')).toBe('brand new');
+    expect(existsSync(path.join(fork.path, 'README.md'))).toBe(false);
+    // Still uncommitted there: the fork's branch is where the source's is.
+    expect(sh(fork.path, 'rev-parse', 'HEAD')).toBe(sh(ws.path, 'rev-parse', 'HEAD'));
+    expect(sh(fork.path, 'status', '--porcelain')).not.toBe('');
+    expect(readFileSync(path.join(fork.path, '.beluga', 'scratch', 'shots', 'home.png'), 'utf8')).toBe('png');
+    expect(readFileSync(path.join(fork.path, '.beluga', 'scratch', 'notes.md'), 'utf8')).toBe('notes');
+    // Scratch stays out of git in the fork too.
+    expect(sh(fork.path, 'status', '--porcelain')).not.toContain('.beluga');
+    // The source is exactly as it was, and no ref of the copy is left behind.
+    expect(sh(ws.path, 'status', '--porcelain')).toBe(before);
+    expect(sh(repo, 'for-each-ref', 'refs/beluga/fork')).toBe('');
+  });
+
+  it('forks a clean worktree with nothing to carry', async () => {
+    const ws = await mgr.createWorktree(repos()[0]!.id, 'tidy');
+    commitIn(ws.path, 'a.txt', 'a', 'a');
+    const fork = await mgr.fork(ws.id, 'tidy 2');
+    expect(readFileSync(path.join(fork.path, 'a.txt'), 'utf8')).toBe('a');
+    expect(sh(fork.path, 'status', '--porcelain')).toBe('');
+    expect(existsSync(path.join(fork.path, '.beluga', 'scratch'))).toBe(false);
+  });
+
   it('deleting an archived worktree for good deletes its archive too', async () => {
     const ws = await mgr.createWorktree(repos()[0]!.id, 'gone');
     writeFileSync(path.join(ws.path, 'wip.txt'), 'x');
@@ -209,6 +249,36 @@ describe('worktree lifecycle', () => {
       mgr.rememberSession(chat.id, 't2', 'codex');
       await mgr.remove(chat.id);
       expect(existsSync(elsewhere)).toBe(false);
+    } finally {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    }
+  });
+
+  it('forgets the Claude Code sessions worktrees deleted before BLG-532 left behind, never an archived one’s', async () => {
+    const claude = path.join(base, 'claude');
+    process.env.CLAUDE_CONFIG_DIR = claude;
+    const fileSession = (cwd: string, id: string): string => {
+      const filed = path.join(claude, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+      mkdirSync(path.join(filed, id), { recursive: true });
+      writeFileSync(path.join(filed, `${id}.jsonl`), `${JSON.stringify({ type: 'user', cwd })}\n`);
+      return filed;
+    };
+    try {
+      const live = await mgr.createWorktree(repos()[0]!.id, 'live');
+      const archived = await mgr.createWorktree(repos()[0]!.id, 'shelved');
+      const liveFiled = fileSession(live.path, 'a');
+      const archivedFiled = fileSession(archived.path, 'b');
+      await mgr.archive(archived.id);
+      // Deleted by an older Beluga: no folder, no workspace, its sessions still filed (one ran in a sub-folder).
+      const gone = path.join(path.dirname(live.path), 'old-task');
+      const goneFiled = fileSession(gone, 'c');
+      const goneSub = fileSession(path.join(gone, 'packages', 'mac'), 'd');
+      // Outside Beluga's worktrees: not ours to judge.
+      const outside = fileSession(path.join(base, 'elsewhere', 'gone'), 'e');
+      expect(await mgr.sweepLeftoverSessions()).toBe(2);
+      expect([goneFiled, goneSub].map(existsSync)).toEqual([false, false]);
+      expect([liveFiled, archivedFiled, outside].map(existsSync)).toEqual([true, true, true]);
+      expect(await mgr.sweepLeftoverSessions()).toBe(0);
     } finally {
       delete process.env.CLAUDE_CONFIG_DIR;
     }

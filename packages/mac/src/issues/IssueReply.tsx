@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { Tip, cx } from '../components/ui.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { useIssueActions } from './use-issues.js';
 import h from '../views/project-home.module.css';
 import d from '../chat/draft.module.css';
@@ -20,7 +20,7 @@ export function IssueReply({ projectId, number, posted }: { projectId: string; n
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
   const ready = !busy && Boolean(body.trim());
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
 
   useLayoutEffect(() => {
     const el = box.current;

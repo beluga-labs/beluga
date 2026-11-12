@@ -78,7 +78,7 @@ function Items({ index, onRemove, onRun }: { index: number; onRemove: (r: { name
     : [
         { label: 'Message', run: () => addressTo(ui, actions, state.view, { peerId: peer.peerId, name: peer.name, claude: false }) },
         ...(peer.agent ? [{ label: `Ask ${peer.name}’s ${agentName(defaultAgentOf(peer))}`, run: () => addressTo(ui, actions, state.view, { peerId: peer.peerId, name: peer.name, claude: true }) }] : []),
-        ...(!guest && canRunOn(grant?.level) ? [{ label: `Run a Command on ${peer.name}’s Mac…`, run: onRun }] : []),
+        ...(!guest && canRunOn(grant?.level) ? [{ label: `Run a Command on ${peer.name}’s Computer…`, run: onRun }] : []),
         ...(guest ? [] : [{ label: state.follow === peer.peerId ? `Stop Following ${peer.name}` : `Follow ${peer.name}`, run: () => pick(state.follow === peer.peerId ? 'unfollow' : 'follow') }]),
         ...(!guest && peer.shares[0] ? [{ label: `Browse ${peer.name}’s Files`, run: () => pick('browse') }] : []),
         ...(guest ? [] : [{ label: 'Invite to a Workspace…', run: () => pick('person-invite-ws') }]),
