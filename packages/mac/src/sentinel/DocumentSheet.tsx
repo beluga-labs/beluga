@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { type DocumentRead, documentLook, kindWords, quietHtml, sizeWords } from '@beluga/core/sentinel/columns.js';
+import { type DocumentLook, type DocumentRead, documentLook, documentMime, kindWords, quietHtml, sizeWords } from '@beluga/core/sentinel/columns.js';
 import { Markdown } from '../chat/Markdown.js';
 import { FormSheet } from '../components/FormSheet.js';
 import { Icon } from '../components/Icon.js';
@@ -13,6 +13,9 @@ import n from './numbers.module.css';
 import { fileManager, revealLabel } from '../lib/os-words.js';
 
 type Read = DocumentRead & { readonly bucket?: string; readonly path?: string };
+
+/** Kinds shown in a tall sheet: a preview you read or watch, not a few lines. */
+const TALL: ReadonlySet<DocumentLook> = new Set(['html', 'image', 'pdf', 'video']);
 
 // PDF.js, loaded with the first PDF opened (the web view leaves a PDF in an iframe blank).
 const PdfView = lazy(() => import('../views/reader/PdfView.js').then((m) => ({ default: m.PdfView })));
@@ -54,6 +57,8 @@ export function DocumentSheet({ source, sentinelId, metric, column, name, close 
       actions.openLink({ kind: 'url', url });
     });
   const shown = doc ? body(doc, look, title, blob) : undefined;
+  // A page, a picture, a PDF or a video gets most of the window; while it loads, its name says which.
+  const tall = !error && (doc ? shown !== undefined && TALL.has(look ?? 'other') : TALL.has(documentLook(documentMime(name))));
   const buttons = (
     <>
       <Button size="small" icon="external" onClick={() => open('open')}>
@@ -65,8 +70,8 @@ export function DocumentSheet({ source, sentinelId, metric, column, name, close 
     </>
   );
   return (
-    <FormSheet title={title} icon="file" submitLabel="Close" hideSubmit cancelLabel="Close" width={820} onSubmit={close} onCancel={close} footer={shown && doc ? <span className={n.docButtons}>{buttons}</span> : null}>
-      <div className={n.docView} data-look={look ?? (doc ? 'info' : 'wait')}>
+    <FormSheet title={title} icon="file" submitLabel="Close" hideSubmit cancelLabel="Close" width={tall ? 1080 : 820} tall={tall} onSubmit={close} onCancel={close} footer={shown && doc ? <span className={n.docButtons}>{buttons}</span> : null}>
+      <div className={n.docView} data-look={look ?? (doc ? 'info' : 'wait')} data-tall={tall || undefined}>
         {error ? (
           <div className={n.docInfo}>
             <p className={n.docNote}>{error}</p>
