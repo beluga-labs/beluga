@@ -5,6 +5,7 @@ import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assist
 import type { ConnectionStatus } from '../net/peer-client.js';
 import type { Effort, NotifySettings, Settings, ThemeName, TrustLevel } from './settings.js';
 import { ARCHIVE_SETTLED_DAYS_DEFAULT, BRANCH_PREFIX_DEFAULT, NotifySettings as NotifySchema, SETTLE_IDLE_DAYS_DEFAULT } from '../shared/settings-schema.js';
+import { FETCH_EVERY_DEFAULT } from '../shared/background-fetch.js';
 import type { Review } from '../workspaces/git.js';
 import type { Project, ProjectGroup } from '../workspaces/types.js';
 import type { EnvChange } from '../workspaces/env.js';
@@ -357,6 +358,8 @@ export interface Prefs {
   readonly archiveSettledDays: number;
   /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
   readonly pushToPr: boolean;
+  /** Minutes between Beluga's own fetches of each project (core/main-sync.ts); 0: never on its own. */
+  readonly fetchEvery: number;
   /** A worktree's task moving to In Review has its agent open a draft pull request there (BLG-927). */
   readonly prOnReview: boolean;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
@@ -804,6 +807,7 @@ export const DEFAULT_PREFS: Prefs = {
   settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
   archiveSettledDays: ARCHIVE_SETTLED_DAYS_DEFAULT,
   pushToPr: true,
+  fetchEvery: FETCH_EVERY_DEFAULT,
   prOnReview: false,
   scratchFolder: true,
   experiments: [],

@@ -73,6 +73,8 @@ export const LOCAL_SETTINGS = [
   'tunnel',
   'keepAwake',
   'lowPower',
+  // Whether a background fetch is welcome depends on this computer's git keys (#479: a vault that asks each time).
+  'fetchEvery',
   'shell',
   'shellLogin',
   'shellArgs',

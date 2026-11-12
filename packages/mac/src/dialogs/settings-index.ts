@@ -167,6 +167,7 @@ export const SETTINGS: readonly Entry[] = [
   ...rows('workspaces', undefined, [
     ['Run setup in new worktrees', 'The project’s setup command runs in each new worktree.', 'npm install setup command auto setup'],
     ['Branch prefix', 'What new worktrees’ branches start with.', 'git branch name prefix'],
+    ['Fetch in the background', 'How often Beluga fetches each project’s remote on its own, or never.', 'git fetch remote origin interval minutes ssh key vault password prompt popup off'],
     ['Keep open pull requests current', 'Your agent pushes its commits to an open pull request when its turn ends.', 'push pr pull request git agent commits'],
     ['Open a pull request when work is ready', 'When a worktree’s task moves to In Review, your agent opens a draft pull request.', 'auto pr pull request draft create review task automatic'],
     ['Friends may start work here', 'They ask to start a worktree or hand work to you.', 'friend worktrees'],
