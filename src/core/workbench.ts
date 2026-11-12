@@ -187,7 +187,7 @@ export function fixFailedPrompt(kind: 'setup' | 'run', command: string, code: nu
   return [
     `${what} didn't work: \`${command}\` stopped with exit code ${code ?? '?'}.`,
     tail ? `The end of its output:\n\n\`\`\`\n${tail}\n\`\`\`` : '',
-    `Find out why and fix it, so \`${command}\` works here. If the command itself is wrong, say which one is right: it can be set in the project's ⋯ menu (Setup and run commands), or in its beluga.json under "scripts" for everyone.`,
+    `Find out why and fix it, so \`${command}\` works here. If the command itself is wrong, say which one is right: it can be set in the project's ⋯ menu (Project Settings…), or in its beluga.json under "scripts" for everyone.`,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -1683,7 +1683,7 @@ export class Workbench {
           said.push(`run \`${found.run.command}\``);
         } else if (found.run) said.push('nothing to run');
         this.remember(project.id, learned, mine);
-        if (said.length) this.deps.toast(`${project.name}: ${said.join(', ')}. Change them in its ⋯ menu (Setup and run commands)`, 'success');
+        if (said.length) this.deps.toast(`${project.name}: ${said.join(', ')}. Change them in its ⋯ menu (Project Settings…)`, 'success');
       })
       .catch(() => undefined)
       .finally(() => this.workingOut.delete(project.id));
@@ -1715,11 +1715,11 @@ export class Workbench {
       if (looking && ws) {
         void looking.then(() => {
           if (this.manager.find(wsId) && project && this.manager.scripts(project.id).run) this.run(wsId);
-          else this.deps.toast(`${this.agent()} couldn't find a way to run this project. Set one in its ⋯ menu (Setup and run commands)`, 'warn');
+          else this.deps.toast(`${this.agent()} couldn't find a way to run this project. Set one in its ⋯ menu (Project Settings…)`, 'warn');
         });
         return undefined;
       }
-      this.deps.toast("This project has no run command. Set one in its ⋯ menu (Setup and run commands)", 'warn');
+      this.deps.toast("This project has no run command. Set one in its ⋯ menu (Project Settings…)", 'warn');
       return undefined;
     }
     const current = this.deps.terminals?.get(runId(wsId));

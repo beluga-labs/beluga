@@ -110,7 +110,12 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         onWorktreeCreated: (ws) => workbench?.onWorktreeCreated(ws),
         onWorkspaceGoing: (id) => workbench?.closeTerminals(id),
         onWorktreeRestored: (ws, remake) => workbench?.onWorktreeRestored(ws, remake),
-        env: { newKeysBack: (projectId) => env.newKeysBack(projectId), merge: (projectId, vars) => env.merge(projectId, vars) },
+        env: {
+          newKeysBack: (projectId) => env.newKeysBack(projectId),
+          merge: (projectId, vars) => env.merge(projectId, vars),
+          syncExample: (id, noteOnly) => env.syncWorktreeExample(id, noteOnly),
+          forgetWorktree: (id) => env.forgetWorktree(id),
+        },
       });
     }
     if (workspaces) {

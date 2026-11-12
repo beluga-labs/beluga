@@ -83,7 +83,14 @@ export interface ControllerDeps {
   /** An archived worktree is back; `remake` makes again what the archive threw away (npm install…). */
   readonly onWorktreeRestored?: (ws: Workspace, remake: readonly string[]) => void;
   /** A project's own variables in Beluga (BLG-369): whether keys a worktree adds go back on their own, and Save in Beluga. */
-  readonly env?: { readonly newKeysBack: (projectId: string) => boolean; readonly merge: (projectId: string, vars: Readonly<Record<string, string>>) => number };
+  readonly env?: {
+    readonly newKeysBack: (projectId: string) => boolean;
+    readonly merge: (projectId: string, vars: Readonly<Record<string, string>>) => number;
+    /** A worktree's added or removed .env keys into its .env.example (BLG-925); `noteOnly`: just note its keys now. */
+    readonly syncExample?: (id: string, noteOnly?: boolean) => { readonly file: string; readonly added: readonly string[]; readonly removed: readonly string[] } | undefined;
+    /** A deleted worktree's own variables go with it (BLG-924). */
+    readonly forgetWorktree?: (id: string) => void;
+  };
   /** Claude Code's folder, where its sub-agents' worktrees are found (default: ~/.claude). */
   readonly claudeHome?: string;
   /** Move a folder to the Trash (Delete Project; default: the system's Trash, see workspaces/trash.ts). */
@@ -395,6 +402,8 @@ export class WorkspaceController {
         listed.set(w.id, files);
         return files;
       };
+      // Before anything moves keys between folders: what each worktree added or removed itself reaches its .env.example.
+      for (const w of worktrees) this.syncExample(w, false);
       // New keys first: the main folder gets them, then the other worktrees' untouched copies follow below.
       if (this.deps.env?.newKeysBack(p.id)) {
         for (const w of worktrees) {
@@ -420,10 +429,24 @@ export class WorkspaceController {
         } catch {
           // gone meanwhile
         }
+        // What the main folder's .env brought in is noted, not listed: it isn't this worktree's change.
+        this.syncExample(w, true);
       }
     }
     if (!isDeepStrictEqual(asks, state.envAsks)) this.deps.store.dispatch({ type: 'env_asks', asks });
     if (followed.length) this.deps.toast(`The main folder’s env changed: updated ${followed.length === 1 ? followed[0] : `${followed.length} worktrees`} too`, 'info');
+  }
+
+  /** A worktree's own .env.example follows the keys it added or removed (a toast says which). */
+  private syncExample(w: Workspace, noteOnly: boolean): void {
+    try {
+      const done = this.deps.env?.syncExample?.(w.id, noteOnly);
+      if (!done) return;
+      const what = [...done.added.map((k) => `+${k}`), ...done.removed.map((k) => `−${k}`)].join(' ');
+      this.deps.toast(`${w.name}: ${done.file} updated (${what}), so it goes with this work`, 'info');
+    } catch {
+      // gone meanwhile, or the file couldn't be written: asked again next look
+    }
   }
 
   /**
@@ -1410,9 +1433,10 @@ export class WorkspaceController {
     this.deps.store.dispatch({ type: 'env_changes', id, changes });
   }
 
-  applyEnvBack(id: string): void {
+  /** `removed`: keys taken out in the worktree go from the main folder's file too (you ticked it). */
+  applyEnvBack(id: string, removed = false): void {
     try {
-      const n = this.deps.manager.applyEnvBack(id);
+      const n = this.deps.manager.applyEnvBack(id, { removed });
       this.deps.toast(n ? `Copied env changes from ${n} file(s) into the main folder` : 'No env changes to copy', 'success');
     } catch (err) {
       this.deps.toast(`Couldn't copy env changes: ${errorText(err)}`, 'error');
@@ -1498,6 +1522,7 @@ export class WorkspaceController {
     );
     settle();
     if (done) {
+      this.deps.env?.forgetWorktree?.(id);
       this.loaded.delete(`${WS_PREFIX}${id}`);
       // Its conversation went with it on disk; the copy loaded here goes too, or search still finds it.
       this.deps.store.dispatch({ type: 'history', channel: `${WS_PREFIX}${id}`, items: [] });
