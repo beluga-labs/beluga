@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
+import type { AgentRunInput } from '../agent/types.js';
 import type { Store } from '../core/store.js';
 import {
   type TelemetryAnswer,
@@ -9,6 +10,8 @@ import {
   answerAsk,
   chooseLevel,
   effectiveLevel,
+  excludeProject,
+  projectOfFolder,
   telemetryView,
 } from '../core/telemetry-store.js';
 import { ClaudeOtel } from './claude-otel.js';
@@ -109,6 +112,7 @@ export class TelemetryService {
   observeDeps(): ObserveDeps {
     return {
       level: () => this.level,
+      excluded: (input) => this.excludedRun(input),
       // The level now, not when the run started: off drops it, anything but on drops its text.
       turn: (f) => this.level !== 'off' && this.exporter?.turn(this.level === 'on' ? f : withoutText(f)),
       env: (rt) => (rt === 'claude' || rt === 'local' ? this.otel?.env() : undefined),
@@ -120,6 +124,28 @@ export class TelemetryService {
   choose(level: TelemetryLevel, via: Exclude<TelemetryVia, 'ask'>): void {
     this.record = chooseLevel(this.record, level, via, this.now());
     this.changed(via);
+  }
+
+  /** A project left out of usage statistics, or back in (its Settings). */
+  exclude(root: string, excluded: boolean): void {
+    this.record = excludeProject(this.record, root, excluded);
+    if (this.deps.file !== null) {
+      try {
+        saveTelemetryRecord(this.record, ...(this.deps.file ? [this.deps.file] : []));
+      } catch {
+        // Kept in memory until the next save.
+      }
+    }
+    this.publish();
+  }
+
+  /** Whether a run is in a project you left out. */
+  private excludedRun(input: AgentRunInput): boolean {
+    const left = this.record.excluded;
+    const cwd = input.place?.cwd;
+    if (!left?.length || !cwd) return false;
+    const root = projectOfFolder(this.deps.store.getState().projects, cwd);
+    return Boolean(root && left.includes(root));
   }
 
   /** The ask answered: Share (at `level`), Later, No thanks. */

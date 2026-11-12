@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
-import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askDue, chooseLevel, effectiveLevel, telemetryView } from '../src/core/telemetry-store.js';
+import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askDue, chooseLevel, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
 import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { releaseConfig } from '../src/telemetry/config.js';
 import { Exporter } from '../src/telemetry/exporter.js';
@@ -91,6 +91,60 @@ describe('the choice and the ask', () => {
     expect(() => parseArgs('telemetry.mark', ['anything', undefined])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['preview_opened', undefined])).toThrow();
     expect(parseArgs('telemetry.answer', ['later', 'limited'])).toEqual(['later', 'limited']);
+  });
+});
+
+describe('leaving a project out', () => {
+  const projects = [
+    { root: '/code/app', workspaces: [{ path: '/Users/k/.beluga/workspaces/app-1/fix-login' }] },
+    { root: '/code/app-admin', workspaces: [] },
+  ];
+
+  it('finds a folder\'s project: its main folder, a worktree, a folder inside; never a neighbour with the same start', () => {
+    expect(projectOfFolder(projects, '/code/app')).toBe('/code/app');
+    expect(projectOfFolder(projects, '/code/app/src')).toBe('/code/app');
+    expect(projectOfFolder(projects, '/Users/k/.beluga/workspaces/app-1/fix-login')).toBe('/code/app');
+    expect(projectOfFolder(projects, '/code/app-admin')).toBe('/code/app-admin');
+    expect(projectOfFolder(projects, '/elsewhere')).toBeUndefined();
+  });
+
+  it('keeps the list as you change it, and keeps it when the level changes', () => {
+    const fresh: TelemetryRecord = { installId: ID };
+    const out = excludeProject(excludeProject(fresh, '/code/app', true), '/code/b', true);
+    expect(out.excluded).toEqual(['/code/app', '/code/b']);
+    expect(excludeProject(out, '/code/app', false).excluded).toEqual(['/code/b']);
+    expect(excludeProject(excludeProject(out, '/code/app', false), '/code/b', false).excluded).toBeUndefined();
+    expect(chooseLevel(out, 'on', 'settings', 1).excluded).toEqual(['/code/app', '/code/b']);
+    expect(telemetryView(out, ctx()).excluded).toEqual(['/code/app', '/code/b']);
+  });
+
+  it('a run in a project left out sends nothing and gets no telemetry settings; others still do', async () => {
+    const s = new Store(initialState('test', 'ask'));
+    s.dispatch({ type: 'projects', projects: [{ id: 'p1', name: 'app', root: '/code/app', base: 'origin/main', workspaces: [] }, { id: 'p2', name: 'b', root: '/code/b', base: 'origin/main', workspaces: [] }] as never });
+    const service = new TelemetryService({ store: s, version: '1', file: null, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
+    service.choose('limited', 'settings');
+    service.exclude('/code/app', true);
+    expect(s.getState().telemetry.excluded).toEqual(['/code/app']);
+    const facts: TurnFacts[] = [];
+    const deps = { ...service.observeDeps(), turn: (f: TurnFacts) => facts.push(f), env: () => ({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' }) };
+    const seen: Array<Readonly<Record<string, string>> | undefined> = [];
+    const inner = { run: async (i: AgentRunInput) => (seen.push(i.env), 'ok') } as unknown as AgentBackend;
+    const place = (cwd: string) => ({ cwd, additionalDirectories: [], autoEdit: true, onSession: () => undefined }) as unknown as AgentRunInput['place'];
+    const run = (cwd: string) => observedBackend(inner, 'claude', deps).run({ prompt: 'x', requesterName: 'k', viaAgent: false, context: [], scope: 'folder', onEvent: () => undefined, onFileTouched: () => undefined, place: place(cwd) } as unknown as AgentRunInput);
+    await run('/code/app/src');
+    await run('/code/b');
+    expect(facts).toHaveLength(1);
+    expect(seen[0]).toBeUndefined();
+    expect(seen[1]).toEqual({ CLAUDE_CODE_ENABLE_TELEMETRY: '1' });
+    service.exclude('/code/app', false);
+    await run('/code/app');
+    expect(facts).toHaveLength(2);
+    await service.stop();
+  });
+
+  it('only screens leave a project out (the API checks it)', () => {
+    expect(parseArgs('telemetry.exclude', ['/code/app', true])).toEqual(['/code/app', true]);
+    expect(() => parseArgs('telemetry.exclude', ['', true])).toThrow();
   });
 });
 

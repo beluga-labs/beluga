@@ -35,6 +35,13 @@ Nothing is sent before a level is chosen.
 
 You can change the level any time in **Settings › General › Usage statistics**, or in the phone's **Settings**. Turning it off clears anything not sent yet.
 
+**Leaving a project out.** In a project's **Settings** (General), uncheck **Send usage statistics from this project**:
+
+- **Nothing from its runs is sent:** no turns, no tool calls, no text. Its main folder and all its worktrees count.
+- **Claude Code's own telemetry** isn't turned on for those runs either.
+- **The level in Settings › General** still applies to every other project, and changing it keeps your exclusions.
+- **Feature counts and this computer's kind** aren't tied to a project, so they're still sent at Limited and On.
+
 ## What Limited sends
 
 - **Each turn of an agent,** for every runtime (Claude, Codex, OpenCode, Copilot, local models):

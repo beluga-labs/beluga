@@ -15,6 +15,7 @@ export const TelemetryFile = z.object({
   chosenAt: z.number().optional(),
   via: z.enum(['onboarding', 'ask', 'settings']).optional(),
   ask: Asked.optional(),
+  excluded: z.array(z.string().min(1).max(4096)).max(1000).optional(),
 });
 
 /** The record, or a fresh one (a new random id, nothing chosen) when there's none or it doesn't read. */

@@ -55,6 +55,24 @@ export interface TelemetryRecord {
   readonly chosenAt?: number;
   readonly via?: TelemetryVia;
   readonly ask?: TelemetryAsked;
+  /** Projects (their folders) whose runs send nothing, whatever the level (each project's Settings). */
+  readonly excluded?: readonly string[];
+}
+
+/** The record with a project left out of usage statistics, or back in. */
+export function excludeProject(record: TelemetryRecord, root: string, excluded: boolean): TelemetryRecord {
+  const others = (record.excluded ?? []).filter((r) => r !== root);
+  const next = excluded ? [...others, root] : others;
+  const { excluded: _old, ...rest } = record;
+  return next.length ? { ...rest, excluded: next } : rest;
+}
+
+/** The project a folder belongs to: its main folder or one of its worktrees (longest match wins). */
+export function projectOfFolder(projects: ReadonlyArray<{ readonly root: string; readonly workspaces: ReadonlyArray<{ readonly path: string }> }>, dir: string): string | undefined {
+  const inside = (base: string): boolean => Boolean(base) && (dir === base || dir.startsWith(base.endsWith('/') ? base : `${base}/`));
+  let best: { root: string; len: number } | undefined;
+  for (const p of projects) for (const base of [p.root, ...p.workspaces.map((w) => w.path)]) if (inside(base) && (!best || base.length > best.len)) best = { root: p.root, len: base.length };
+  return best?.root;
 }
 
 /** What the ask's timing depends on. */
@@ -103,10 +121,12 @@ export interface TelemetryView {
   readonly level?: TelemetryLevel;
   /** The ask to show now (the Mac shows it when nothing else is in the way). */
   readonly due: boolean;
+  /** Projects (their folders) left out (each project's Settings). */
+  readonly excluded?: readonly string[];
 }
 
 export function telemetryView(record: TelemetryRecord, ctx: AskContext): TelemetryView {
-  return { available: ctx.available, ...(record.level ? { level: record.level } : {}), due: askDue(record, ctx) };
+  return { available: ctx.available, ...(record.level ? { level: record.level } : {}), due: askDue(record, ctx), ...(record.excluded?.length ? { excluded: record.excluded } : {}) };
 }
 
 /** The level that counts now: nothing is sent before a choice, nor from a build that can't send. */

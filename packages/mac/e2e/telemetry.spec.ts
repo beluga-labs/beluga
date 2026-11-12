@@ -51,3 +51,23 @@ test('the ask after an update: Limited picked, Later closes it', async ({ page }
   await page.waitForTimeout(3000);
   await expect(page.getByRole('dialog', { name: 'Help make Beluga better' })).toHaveCount(0);
 });
+
+test('a project can be left out of usage statistics in its Settings', async ({ page }) => {
+  test.skip(process.env.BELUGA_DEMO_ASKS === 'telemetry', 'the ask is forced on');
+  await page.goto('/');
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar' });
+  await expect(sidebar.getByRole('button', { name: 'bob-api' }).first()).toBeVisible();
+  await sidebar.getByRole('button', { name: 'bob-api', exact: true }).first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Project Settings…' }).click();
+  const sheet = page.getByRole('dialog', { name: 'bob-api Settings' });
+  const share = sheet.getByRole('checkbox', { name: /Send usage statistics from this project/ });
+  await expect(share).toBeChecked();
+  await share.uncheck();
+  await both(page, sheet, 'telemetry-project');
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(sheet).toBeHidden();
+  // Opened again, it remembers.
+  await sidebar.getByRole('button', { name: 'bob-api', exact: true }).first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Project Settings…' }).click();
+  await expect(sheet.getByRole('checkbox', { name: /Send usage statistics from this project/ })).not.toBeChecked();
+});

@@ -15,6 +15,8 @@ export interface ObserveDeps {
   readonly level: () => TelemetryLevel;
   /** A turn ended (queued, sent later: the level is checked again then). */
   readonly turn: (facts: TurnFacts) => void;
+  /** A run in a project left out of usage statistics: it goes straight through, as at off. */
+  readonly excluded?: (input: AgentRunInput) => boolean;
   /** Extra environment for the agent's process (Claude Code's own telemetry, to this daemon only). */
   readonly env?: (runtime: string) => Readonly<Record<string, string>> | undefined;
   /** The model requests Claude Code reported for a session in a time window (claude-otel.ts). */
@@ -58,7 +60,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
   return Object.assign(Object.create(backend) as AgentBackend, {
     run: (input: AgentRunInput): Promise<string> => {
       const level = deps.level();
-      if (level === 'off') return backend.run(input);
+      if (level === 'off' || deps.excluded?.(input)) return backend.run(input);
       const now = deps.now ?? Date.now;
       const startedAt = now();
       // Yours: you asked for it on this computer (only then does the run carry the words you typed).

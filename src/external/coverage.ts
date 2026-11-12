@@ -287,6 +287,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   // Consent to usage statistics is the person's own, made at a screen: never an agent's.
   'telemetry.choose': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.answer': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
+  'telemetry.exclude': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.mark': { refused: 'Only Beluga\'s own screens report these.' },
   'claudeCode.steps': 'gated',
   'claudeCode.step': 'gated',
