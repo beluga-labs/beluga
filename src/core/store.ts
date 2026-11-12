@@ -1,4 +1,4 @@
-import type { AgentEventKind, AgentRef, FsEntry, MessageVia, PeerInfo } from '../protocol.js';
+import type { AgentEventKind, AgentRef, ChatOrigin, FsEntry, MessageVia, PeerInfo } from '../protocol.js';
 import { agentName } from '../shared/agent-label.js';
 import { isExternalRequester } from './trust.js';
 import { type AssistantChats, NO_ASSISTANT_CHATS, activeAssistantChannel, assistantChannel } from '../shared/assistant.js';
@@ -108,6 +108,8 @@ export type LogItem =
       readonly agent?: AgentRef;
       /** What was asked, once known (sent with the "queued" event, for the queue). */
       readonly prompt?: string;
+      /** BLG-149: an agent in another chat asked, not a person. The chat shows `prompt` as a card with this source. */
+      readonly origin?: ChatOrigin;
       /** Queued only because your Claude works in as many other conversations as it may at once. */
       readonly slotWait?: SlotWait;
       /** When it left the queue (it waited its turn): where the chat draws it and the message it answers (see shared/claude-notices.ts asSent). */
@@ -213,8 +215,11 @@ export interface ShellItem {
 
 export interface Approval {
   readonly id: string;
-  /** 'secret': your own Claude wants a .env file (answers: once, always for `project`, always). */
-  readonly kind: 'request' | 'tool' | 'secret';
+  /**
+   * 'secret': your own Claude wants a .env file (answers: once, always for `project`, always).
+   * 'chain': agents in your chats hit a limit on messages to each other (yes: Continue; no: Stop).
+   */
+  readonly kind: 'request' | 'tool' | 'secret' | 'chain';
   readonly title: string;
   readonly detail: string;
   /** A secret's project, by name: "Always for <project>" is offered. */
@@ -353,6 +358,11 @@ export interface Prefs {
   readonly scratchFolder: boolean;
   /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
   readonly experiments: readonly string[];
+  /**
+   * Chat refs, chips and links (shared/chat-ref.ts). Owner: the plan "Communication between chats".
+   * Remove this flag, and turn the feature on for everyone, once that plan has shipped.
+   */
+  readonly chatLinks: boolean;
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -502,6 +512,13 @@ export const channelOf = (view: View): string =>
           ? 'draft'
           : 'room';
 
+/** Conversations where a Claude is working right now. */
+export function busyChannels(log: readonly LogItem[]): Set<string> {
+  const last = new Map<string, string>();
+  for (const l of log) if (l.type === 'agent') last.set(l.channel, l.status);
+  return new Set([...last].filter(([, s]) => s === 'queued' || s === 'awaiting_approval' || s === 'started' || s === 'answered').map(([c]) => c));
+}
+
 /** The conversation a view shows, if any (Overview, Search, Terminal… show none, so the chat's unread count stays). */
 export const shownChannel = (view: View): string | undefined =>
   view.kind === 'conversation' ? view.id : view.kind === 'room' || view.kind === 'workspace' || view.kind === 'shared' || view.kind === 'assistant' || view.kind === 'sentinel_chat' ? channelOf(view) : undefined;
@@ -537,6 +554,8 @@ export interface MyShare {
 export interface DomainState extends CollabState, WorkState, NetworkSlice, EarningsSlice, RevenueCatSlice, SupportSlice, ClaudeCodeSlice, GatewaySlice, BoardSlice, SentinelSlice, PlansSlice, DialoguesSlice, CompanionSlice, FriendShareSlice, TeamSlice {
   readonly room: string;
   readonly projects: readonly Project[];
+  /** The first scan of the projects is done: a workspace that isn't in `projects` now is really gone. */
+  readonly projectsLoaded: boolean;
   readonly projectGroups: readonly ProjectGroup[];
   /** The sidebar's top level in the order you arranged it: project roots and `group:<name>` (see workspaces/arrange.ts). */
   readonly projectOrder: readonly string[];
@@ -665,7 +684,7 @@ export type Action =
   | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
   | { type: 'shell'; item: ShellItem }
   /** `itemId` (stamped before reducing) names the chat item a new run creates. */
-  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef; via?: MessageVia }
+  | { type: 'agent_event'; owner: string; requestId: string; requester: string; event: AgentEventKind; text: string; ts: number; channel?: string; itemId?: string; slotWait?: SlotWait; agent?: AgentRef; via?: MessageVia; fromChat?: { origin: ChatOrigin; text: string } }
   /** One owner's waiting requests in a conversation, in their new order (see orderQueued). */
   | { type: 'queue_order'; owner: string; ids: readonly string[] }
   | { type: 'projects'; projects: readonly Project[]; groups?: readonly ProjectGroup[]; order?: readonly string[]; hidden?: readonly string[] }
@@ -716,6 +735,7 @@ export type Action =
   /** Your paired phones (never keys) and the pairing open now (src/companion/host.ts). */
   | { type: 'companion'; companion: CompanionSlice['companion'] }
   /** Your Mac's chats changed (one made, opened or deleted; core/assistant). */
+  | { type: 'projects_loaded' }
   | { type: 'assistant_chats'; assistant: AssistantChats }
   /** The needs-you items you dismissed (all of them: on start, and after a Dismiss). */
   | { type: 'needs_dismissed'; ids: readonly string[] }
@@ -779,6 +799,7 @@ export const DEFAULT_PREFS: Prefs = {
   pushToPr: true,
   scratchFolder: true,
   experiments: [],
+  chatLinks: false,
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',
@@ -832,6 +853,7 @@ export function initialState(room: string, policy: Policy = 'ask', prefs: Partia
     prefs: { ...DEFAULT_PREFS, ...prefs },
     powerSaving: (prefs.lowPower ?? DEFAULT_PREFS.lowPower) === 'always',
     selfId: '',
+    projectsLoaded: false,
     home: '',
     isHost: false,
     myShares: [],
@@ -1020,6 +1042,7 @@ function reduceAgent(state: DomainState, raw: Extract<Action, { type: 'agent_eve
     ...(existing?.status === 'queued' && a.event !== 'queued' ? { queuedUntil: a.ts } : {}),
     // Any event may name the agent (the first one an older card saw may not have).
     ...(a.agent ? { agent: a.agent } : {}),
+    ...(a.fromChat ? { origin: a.fromChat.origin, prompt: clean(a.fromChat.text) } : {}),
   } satisfies LogItem;
   const log = existing ? state.log.map((l, i) => (i === idx ? updated : l)) : appendLog(state.log, updated);
   // A new message, or a run in a workspace finishing while no screen shows it (Claude's answer is news).
@@ -1151,6 +1174,8 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
     }
     case 'projects':
       return { ...state, projects: action.projects, projectGroups: action.groups ?? state.projectGroups, projectOrder: action.order ?? state.projectOrder, hiddenProjects: action.hidden ?? state.hiddenProjects };
+    case 'projects_loaded':
+      return state.projectsLoaded ? state : { ...state, projectsLoaded: true };
     case 'attention':
       return attend(state, action.attention);
     case 'my_shares':

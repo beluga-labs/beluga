@@ -165,6 +165,8 @@ export const Settings = z.object({
   pushToPr: z.boolean().catch(true),
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder. */
   scratchFolder: z.boolean().default(true),
+  /** Chat refs, chips and links. Owner: the plan "Communication between chats"; goes once it has shipped. */
+  chatLinks: z.boolean().default(false),
   /** How much of Claude's sub-agent work the chat shows. */
   subagents: z.enum(['full', 'compact', 'hidden']).default('full'),
   /** Workspace buttons you chose to hide from the top bar. */

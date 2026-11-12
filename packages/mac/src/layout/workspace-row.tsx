@@ -13,6 +13,7 @@ import { workspaceSignal } from './attention-model.js';
 import { DotMark, LaterMark, SignalMark, nameClass, signalClass } from './signal-marks.js';
 import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
+import { chatLinkItems } from '../lib/chat-links.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { Row } from './sidebar-parts.js';
 import type { RowColor } from '../lib/row-colors.js';
@@ -42,6 +43,7 @@ export function workspaceItems(state: AppState, ws: Workspace, run: ReturnType<t
     // Remind Me Later (and, with the categories on, Settle and the rest).
     ...triageItems(state, `ws:${ws.id}`, run, client),
     ...(renamable(ws) && rename ? [{ label: 'Rename…', icon: 'pencil' as const, onSelect: rename }] : []),
+    ...(ws.kind === 'main' ? [] : chatLinkItems(state, client, `ws:${ws.id}`)),
     ...(ws.kind === 'chat' && regenerate ? [{ label: regenerate.pending ? 'Regenerating title…' : 'Regenerate title', icon: 'refresh' as const, disabled: regenerate.pending, onSelect: regenerate.run }] : []),
     // Its colour in the sidebar (a project's, unless it has its own).
     ...(color ? [color] : []),
@@ -159,6 +161,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
         className={cx(signalClass(signal, selected), row.className)}
         data-signal-row={signal.level}
         data-kind={ws.kind}
+        data-chat-row={ws.kind === 'main' ? undefined : `ws:${ws.id}`}
         // Named for itself alone (so it's found by name whatever it waits on); the tooltip says the rest.
         aria-label={ws.name}
         aria-expanded={fold ? fold.open : undefined}

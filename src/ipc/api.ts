@@ -36,6 +36,7 @@ import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { MACHINE_API } from './machine-api.js';
 import { ASSISTANT_API } from './assistant-api.js';
+import { CHATS_API } from './chats-api.js';
 import { VOICE_API } from './voice-api.js';
 import { CALLS_API } from './calls-api.js';
 import { TERMINAL_IMPORT_API } from './terminal-import-api.js';
@@ -115,6 +116,7 @@ export const PrefsPatch = z
     settleIdleDays: z.number().int().min(0).max(SETTLE_IDLE_DAYS_MAX),
     pushToPr: bool,
     scratchFolder: bool,
+    chatLinks: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),
     friendWorktrees: z.enum(['ask', 'off']),
@@ -555,6 +557,8 @@ export const API = {
   ...MACHINE_API,
   // ---- Your Mac's chats, as tabs on the Mac (assistant-api.ts)
   ...ASSISTANT_API,
+  // ---- a chat's address: what it is now (chats-api.ts)
+  ...CHATS_API,
   // ---- speaking instead of typing: the Mac writes it down (voice-api.ts)
   ...VOICE_API,
   // ---- calls in a conversation with friends: voice, screen sharing (calls-api.ts)

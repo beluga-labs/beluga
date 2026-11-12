@@ -635,4 +635,6 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'workspaces.moveReceive': { refused: COMPUTERS },
   'workspaces.moveUndo': { refused: COMPUTERS },
   'workspaces.ports': { refused: NO_TOOL },
+  'chats.resolve': { refused: NO_TOOL },
+  'chats.snapshot': { refused: NO_TOOL },
 };

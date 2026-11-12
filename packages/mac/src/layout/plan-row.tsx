@@ -5,6 +5,7 @@ import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { Badge } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
+import { chatLinkItems } from '../lib/chat-links.js';
 import { sameDeep } from '../lib/stable.js';
 import { ProgressRing } from '../plans/PlansNav.js';
 import { nextWords, planStatus, titleOf } from '../plans/plans-model.js';
@@ -47,8 +48,10 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
   const signal = { level: needs ? 'needs' : unread ? 'unread' : working ? 'working' : 'idle', unread, working, tip } as const;
   const actions = useActions();
   const { client } = useBeluga();
+  // Built when the menu opens, as a workspace row's: a pick with a new onSelect each time never settles (#185).
   const items = (): ActionItem[] => [
     { label: 'Open Plan', icon: 'chevronRight', onSelect: () => open(plan.id) },
+    ...chatLinkItems(client.store.getState(), client, plan.home),
     ...triageItems(client.store.getState(), `plan:${plan.id}`, actions.run, client),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     { label: 'All Plans', separate: true, onSelect: () => openList(plan.projectId) },
@@ -62,6 +65,7 @@ export function PlanRow({ plan, indent }: { plan: Plan; indent: number }) {
         className={signalClass(signal, selected)}
         aria-label={title}
         data-plan-row={plan.id}
+        data-chat-row={plan.home}
         data-signal-row={signal.level}
         icon={<Icon name="flag" size={14} />}
         label={<span className={nameClass(signal)}>{title}</span>}
