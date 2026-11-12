@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures.js';
 
 /**
- * Usage statistics (BLG-922): Off, Limited, On in Settings › General, What's sent, and the ask
+ * Usage statistics (BLG-922): Off, Limited, On in Settings › General, and the ask
  * after an update. The demo shows them as a release would and never sends anything.
  */
 
@@ -17,7 +17,7 @@ async function both(page: import('@playwright/test').Page, el: import('@playwrig
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
 }
 
-test('Settings › General has the level, and What’s sent shows what leaves', async ({ page }) => {
+test('Settings › General has the level', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_ASKS === 'telemetry', 'the ask is forced on');
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.goto('/');
@@ -31,13 +31,7 @@ test('Settings › General has the level, and What’s sent shows what leaves', 
   await expect(level).toBeVisible();
   await expect(level).toContainText('Limited');
   await both(page, dialog, 'telemetry-settings');
-  await dialog.getByRole('button', { name: 'See What’s Sent' }).click();
-  const preview = page.getByRole('dialog', { name: 'What’s sent' });
-  await expect(preview).toBeVisible();
-  await expect(preview.locator('pre')).toContainText('"waiting"');
-  await both(page, preview, 'telemetry-preview');
-  await preview.getByRole('button', { name: 'Close' }).click();
-  await expect(preview).toBeHidden();
+  await expect(dialog.getByRole('button', { name: /See What/ })).toHaveCount(0);
 });
 
 // With BELUGA_DEMO_ASKS=telemetry the demo has updated and not answered: the ask comes by itself.

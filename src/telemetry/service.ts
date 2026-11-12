@@ -14,7 +14,7 @@ import {
 import { ClaudeOtel } from './claude-otel.js';
 import type { ReleaseConfig } from './config.js';
 import { deviceFacts } from './device.js';
-import { Exporter, type SentPayload } from './exporter.js';
+import { Exporter } from './exporter.js';
 import { featureCounter } from './features.js';
 import { Masker } from './mask.js';
 import type { ObserveDeps } from './observe.js';
@@ -29,7 +29,7 @@ import type { TurnFacts } from './turn.js';
  */
 
 /** App moments the screens report (the onboarding, the ask): names from this list only. */
-export const MARKS = ['onboarding_step', 'onboarding_done', 'ask_shown', 'preview_opened'] as const;
+export const MARKS = ['onboarding_step', 'onboarding_done', 'ask_shown'] as const;
 export type Mark = (typeof MARKS)[number];
 
 export interface TelemetryDeps {
@@ -134,10 +134,6 @@ export class TelemetryService {
     this.exporter?.log(event(name, this.now(), { ...(detail ? { detail: detail.slice(0, 40) } : {}) }));
   }
 
-  /** "See what's sent": what went lately and what's waiting, exactly as sent (masked). */
-  preview(): { readonly level: TelemetryLevel; readonly sent: readonly SentPayload[]; readonly pending: unknown } {
-    return { level: this.level, sent: this.exporter?.recent() ?? [], pending: this.exporter?.pending() ?? {} };
-  }
 
   /** Whether screens offer it: a build that can send (or the demo, pretending). */
   private get available(): boolean {

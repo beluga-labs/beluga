@@ -3,7 +3,7 @@ import type { TelemetryLevel } from '@beluga/core/telemetry-store.js';
 /**
  * Usage statistics in words: the same three choices everywhere (the end of the onboarding, the ask
  * after an update, Settings › General). What each level sends exactly is in the code
- * (src/telemetry) and in docs/telemetry.md; "See what's sent" shows it.
+ * (src/telemetry) and in docs/telemetry.md.
  */
 
 export const TELEMETRY_TITLE = 'Help make Beluga better';

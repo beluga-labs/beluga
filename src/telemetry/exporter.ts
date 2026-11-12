@@ -30,18 +30,7 @@ const MAX_SPANS = 20_000;
 const PER_REQUEST = 1_000;
 const TIMEOUT_MS = 15_000;
 const MAX_BACKOFF_MS = 30 * 60_000;
-/** Payloads kept for "See what's sent". */
-const KEEP_SENT = 12;
-/** Turns shown waiting in "See what's sent". */
-const PREVIEW_TURNS = 10;
 
-export interface SentPayload {
-  readonly at: number;
-  readonly kind: 'traces' | 'logs';
-  readonly items: number;
-  readonly status: 'sent' | 'failed';
-  readonly body: unknown;
-}
 
 export class Exporter {
   private turns: TurnFacts[] = [];
@@ -52,7 +41,6 @@ export class Exporter {
   private refused = false;
   private failures = 0;
   private waitUntil = 0;
-  private readonly sent: SentPayload[] = [];
 
   constructor(private readonly deps: ExporterDeps) {}
 
@@ -92,18 +80,6 @@ export class Exporter {
     this.logs.push(record);
     if (this.logs.length > MAX_LOGS) this.logs.splice(0, this.logs.length - MAX_LOGS);
     if (this.logs.length >= SOON * 5) void this.flush();
-  }
-
-  /** What was sent last (newest first): "See what's sent". */
-  recent(): readonly SentPayload[] {
-    return [...this.sent].reverse();
-  }
-
-  /** What's waiting to go, as it would be sent (masked), for "See what's sent" before the first batch. */
-  pending(): { readonly traces: unknown; readonly logs: unknown } {
-    const sender = this.deps.sender();
-    // The last few turns only: masking all of them at once would hold the daemon up.
-    return { traces: tracesRequest(sender, [...this.unsent.slice(-200), ...this.turns.slice(-PREVIEW_TURNS).flatMap((t) => turnSpans(this.deps.prepare(t), sender.installId))]), logs: logsRequest(sender, this.logs.slice(-200)) };
   }
 
   flush(): Promise<void> {
@@ -151,7 +127,6 @@ export class Exporter {
       const part = items.slice(0, PER_REQUEST);
       const payload = body(part);
       const status = await this.request(kind, payload);
-      this.keep({ at: this.deps.now?.() ?? Date.now(), kind, items: part.length, status: status === 'ok' ? 'sent' : 'failed', body: payload });
       if (status === 'refused') {
         this.refused = true;
         this.clear();
@@ -181,8 +156,4 @@ export class Exporter {
     }
   }
 
-  private keep(p: SentPayload): void {
-    this.sent.push(p);
-    if (this.sent.length > KEEP_SENT) this.sent.shift();
-  }
 }

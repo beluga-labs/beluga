@@ -288,7 +288,6 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'telemetry.choose': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.answer': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.mark': { refused: 'Only Beluga\'s own screens report these.' },
-  'telemetry.preview': { refused: 'What usage statistics send is shown in Beluga itself.' },
   'claudeCode.steps': 'gated',
   'claudeCode.step': 'gated',
   'claudeCode.findAgent': 'gated',

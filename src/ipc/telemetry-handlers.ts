@@ -11,5 +11,4 @@ export const TELEMETRY_HANDLERS = {
   'telemetry.choose': (s, level, via) => telemetryOf(s).choose(level, via),
   'telemetry.answer': (s, answer, level) => telemetryOf(s).answer(answer, level),
   'telemetry.mark': (s, name, detail) => telemetryOf(s).mark(name, detail),
-  'telemetry.preview': (s) => telemetryOf(s).preview(),
 } satisfies TelemetryHandlers;

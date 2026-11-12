@@ -89,6 +89,7 @@ describe('the choice and the ask', () => {
     expect(() => parseArgs('telemetry.choose', ['loud', 'settings'])).toThrow();
     expect(() => parseArgs('telemetry.choose', ['on', 'ask'])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['anything', undefined])).toThrow();
+    expect(() => parseArgs('telemetry.mark', ['preview_opened', undefined])).toThrow();
     expect(parseArgs('telemetry.answer', ['later', 'limited'])).toEqual(['later', 'limited']);
   });
 });
@@ -246,7 +247,6 @@ describe('sending', () => {
     expect(calls[0]!.body).not.toContain('secret words');
     expect(calls[0]!.body).toContain('MASKED');
     expect(calls[1]!.body).toContain('ratel.beluga.feature');
-    expect(exporter.recent()).toHaveLength(2);
   });
 
   it('a revoked key stops everything until Beluga starts again', async () => {
@@ -432,7 +432,6 @@ describe('the service', () => {
     service.choose('on', 'settings');
     service.observeDeps().turn(turn({ text: { prompt: 'my words', answer: 'its words' } }));
     service.choose('limited', 'settings');
-    expect(JSON.stringify(service.preview().pending)).not.toContain('my words');
     service.observeDeps().turn(turn({ text: { prompt: 'late words', answer: 'x' } }));
     service.choose('off', 'settings');
     service.observeDeps().turn(turn());

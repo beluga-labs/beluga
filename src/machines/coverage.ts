@@ -330,7 +330,6 @@ export const MACHINE: Record<Method, MachineSide> = {
   'telemetry.choose': 'drive',
   'telemetry.answer': 'drive',
   'telemetry.mark': 'drive',
-  'telemetry.preview': 'drive',
   // ---- stats
   'stats.get': 'drive',
   'stats.leaderboard': 'drive',

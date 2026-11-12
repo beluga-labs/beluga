@@ -1,6 +1,6 @@
 # Usage statistics
 
-Beluga is free and open source. We can't see how it's used, so people who choose to share usage statistics are how we learn what to fix and build next. This page says exactly what is sent at each level. The code that does it is in `src/telemetry/`. **Settings › General › Usage statistics › See What's Sent** shows the real data, as it leaves your computer.
+Beluga is free and open source. We can't see how it's used, so people who choose to share usage statistics are how we learn what to fix and build next. This page says exactly what is sent at each level. The code that does it is in `src/telemetry/`.
 
 ## Who can send
 
@@ -54,7 +54,7 @@ You can change the level any time in **Settings › General › Usage statistics
 
   Claude Code adds your email, organization and account ids, and those are always dropped. So are prompts, answers, commands, file paths and error messages. Only events and counters named `claude_code.*` are kept. Beluga never turns on Claude Code's prompt or tool-detail logging. If you already send Claude Code's telemetry somewhere yourself, in your environment, your Beluga variables or Claude Code's `settings.json`, Beluga leaves that alone.
 - **Features used:** the name of each action a screen takes, i.e. an API method such as `session.submit`, with how often, how many failed and how long they took, summed per minute. Never what was in it.
-- **App moments:** the onboarding's steps, the ask being shown, What's sent being opened. Names only.
+- **App moments:** the onboarding's steps and the ask being shown. Names only.
 - **This computer's kind,** once a day: the operating system and its version, the chip, the number of cores, memory rounded to a gigabyte, the language, the Beluga and Node versions, and which agents are installed. No name, no address, no time zone, no screen size.
 
 Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. It counts installs and isn't linked to anything else. Conversations are identified by a hash of that id and the agent's session id, never the session id itself.
