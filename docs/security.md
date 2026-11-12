@@ -20,6 +20,7 @@ Inviting someone exposes your agent, with your permissions, to other people. Bel
 - **Work from friends is yours to approve.** Starting a worktree on your computer or taking over someone's work asks you first (unless you fully trust them); turn it off in Settings → Workspaces.
 - **Direct connections are pinned.** A direct (peer-to-peer) connection is encrypted with Noise, has forward secrecy, and only completes with the host whose key is in the invite. The relay and the DHT see IP addresses, never content. See [docs/p2p.md](p2p.md).
 - **Untrusted files are handled carefully.** Images from friends are size-checked before decoding, and SVGs can't load files from your disk.
+- **MCP Apps stay in their frame** (Settings › Experimental). A tool's view runs in a sandboxed frame on a loopback origin of its own, with a CSP that lets it reach only the domains its server declared. It calls only tools of its own server that are meant for apps; a tool that isn't read-only asks you first (**Allow / Allow Always / Decline**). It opens only http(s) links, and what it tells your agent reaches the next turn as data, never instructions. See [docs/mcp-apps.md](mcp-apps.md).
 - **Be aware:** a friend's message can try to talk your agent into things (prompt injection). Keep approvals on for people you don't fully trust.
 
 ## Codex runs

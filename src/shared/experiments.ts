@@ -43,6 +43,7 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
       'A tool that declares an MCP App (the standard Claude, ChatGPT and VS Code apps use) shows its view under its step in the chat.',
       'The view gets the tool’s input and result, and it’s drawn in a sealed frame: it reaches only the sites its server named.',
       'A chat you open again shows the same view again, from what the step kept.',
+      'The view can call tools of its own server (one that changes something asks you first), post a message for you, tell your agent what it shows, open web links and go full screen.',
     ],
     keywords: 'mcp apps ui widget view tool server sep-1865 openai apps sdk iframe',
     cost: 'Each view is fetched from its MCP server on this computer the first time it shows, which can start that server for a moment. While this is off nothing of it runs at all.',
