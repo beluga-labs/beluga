@@ -591,6 +591,8 @@ export interface AgentBackend {
   mcpSignIn?(projects: readonly string[], name: string, runtime?: string): Promise<import('../shared/mcp.js').McpSignIn>;
   /** Waits for that sign-in: true once connected, false when it gave up, undefined when none is waiting. */
   mcpSignedIn?(name: string, runtime?: string): Promise<boolean | undefined>;
+  /** A sign-in to it is waiting for the browser now (started from Settings, the MCP chip or a run's mcp_sign_in). */
+  mcpSigningIn?(name: string, runtime?: string): boolean;
   /** Turn one on or off where its agent keeps it (Codex: config.toml). Only rows with canTurnOff. */
   mcpSetEnabled?(projects: readonly string[], name: string, enabled: boolean, runtime?: string): Promise<import('../shared/mcp.js').McpTurned>;
 }

@@ -174,7 +174,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
   let sessionId: string | undefined;
   // Settings' MCP list reads your saved variables as your runs do (#442).
   const mcp = opts.mcp ?? new McpConnect(claudeMcpSession(opts.claudePath), opts.ownEnv ? { ownEnv: opts.ownEnv } : {});
-  // Every Claude Code query running now: a sign-in that connects reaches each of them.
+  // Every Claude Code query running now with your servers: a sign-in that connects reaches each of them.
   const live = new Set<Query>();
   mcp.onSignedIn((name) => {
     for (const q of live) reconnect(q, name);
@@ -492,7 +492,8 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
 
       const ends = () => ({ stderr, ...(rejectedUntil !== undefined ? { rejectedUntil } : {}), ...(apiError ? { apiError } : {}) });
       const q = query({ prompt: prompts, options });
-      live.add(q);
+      // Only runs that have your MCP servers (never a friend's or a guest's) reload one you signed in to.
+      if (input.ownerMcp && !input.guest) live.add(q);
       showThinking(q);
       let failed = true;
       try {
@@ -623,6 +624,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
     mcpServers: (projects) => mcp.list([opts.cwd, ...projects]),
     mcpSignIn: (projects, name) => mcp.signIn([opts.cwd, ...projects], name),
     mcpSignedIn: (name) => mcp.signedIn(name),
+    mcpSigningIn: (name) => mcp.signingIn(name),
 
     /** Ask Claude Code which models it offers (no prompt is sent). */
     async listModels() {

@@ -4,7 +4,7 @@ import { decideTool } from '../src/agent/policy.js';
 import { runToolSuites } from '../src/agent/run-tools.js';
 import type { AgentBackend, AgentRunInput, McpTools } from '../src/agent/types.js';
 import { ViewShelf } from '../src/agent/view-tools.js';
-import { mcpSignInTools } from '../src/core/mcp-sign-in.js';
+import { type McpBackend, mcpSignInTools } from '../src/core/mcp-sign-in.js';
 import { CLAUDE_AI_CONNECTORS_URL, type McpServerRow, type McpSignIn } from '../src/shared/mcp.js';
 import { room } from './runtime-conformance.js';
 
@@ -19,20 +19,21 @@ const ROWS: McpServerRow[] = [
   { name: 'broken', label: 'broken', from: 'user', status: 'failed', error: 'timed out', canSignIn: false },
 ];
 
-/** A fake agent backend: `finish(name, ok)` ends the sign-in the browser is on. */
+/** A fake agent backend, like McpConnect: one sign-in per server at a time; `finish(name, ok)` ends the one the browser is on. */
 function backend(start: (name: string) => McpSignIn = () => ({ url: PAGE })) {
   const started: Array<{ projects: readonly string[]; name: string }> = [];
   const waiting = new Map<string, (ok: boolean) => void>();
   const done = new Map<string, Promise<boolean>>();
-  const agent: Pick<AgentBackend, 'mcpServers' | 'mcpSignIn' | 'mcpSignedIn'> = {
+  const agent: McpBackend = {
     mcpServers: async () => ROWS,
     mcpSignIn: async (projects, name) => {
       started.push({ projects, name });
       const res = start(name);
-      if ('url' in res) done.set(name, new Promise((resolve) => waiting.set(name, resolve)));
+      if ('url' in res) done.set(name, new Promise<boolean>((resolve) => waiting.set(name, resolve)).finally(() => done.delete(name)));
       return res;
     },
     mcpSignedIn: (name) => done.get(name) ?? Promise.resolve(undefined),
+    mcpSigningIn: (name) => done.has(name),
   };
   return { agent, started, finish: (name: string, ok = true) => waiting.get(name)?.(ok) };
 }
@@ -86,6 +87,29 @@ describe('mcp_sign_in', () => {
     expect((await second).text).toContain('Signed in to figma');
     expect(started).toHaveLength(1);
     expect(opened).toEqual([PAGE]);
+  });
+
+  it('a later run waits on the sign-in an earlier run opened: no new sign-in, no new page', async () => {
+    const { agent, started, finish } = backend();
+    const opened: string[] = [];
+    // Each run gets tools of its own (core/agent-host.ts); the open sign-in is the backend's.
+    expect((await tools(agent, opened).signIn('figma')).text).toMatch(/call mcp_sign_in again/);
+    const later = tools(agent, opened, 1_000).signIn('figma');
+    setTimeout(() => finish('figma'), 5);
+    expect((await later).text).toContain('Signed in to figma');
+    expect(started).toHaveLength(1);
+    expect(opened).toEqual([PAGE]);
+  });
+
+  it('waits on a sign-in started from the MCP chip or Settings instead of starting over', async () => {
+    const { agent, started, finish } = backend();
+    await agent.mcpSignIn!(['/p/a'], 'figma');
+    const opened: string[] = [];
+    const answer = tools(agent, opened, 1_000).signIn('figma');
+    setTimeout(() => finish('figma'), 5);
+    expect((await answer).text).toContain('Signed in to figma');
+    expect(started).toHaveLength(1);
+    expect(opened).toEqual([]);
   });
 
   it('says so when the sign-in gave up', async () => {

@@ -73,6 +73,7 @@ function input(extra: Partial<AgentRunInput> = {}): AgentRunInput {
     onFileTouched: () => undefined,
     canUseTool: async () => true,
     channel: 'ws:1',
+    ownerMcp: true,
     place: { cwd: os.tmpdir(), additionalDirectories: [], autoEdit: true, onSession: () => undefined },
     ...extra,
   };
@@ -121,6 +122,31 @@ describe('a sign-in that connects', () => {
       }),
     ).resolves.toBeUndefined();
     expect(sdk.reconnects).toEqual(['figma']);
+  });
+
+  it('leaves a friend’s or a guest’s run alone: they never get your servers', async () => {
+    for (const extra of [{ ownerMcp: false }, { guest: true }] as const) {
+      sdk.reconnects = [];
+      const { mcp, connect } = signIn();
+      const backend = createClaudeBackend({ cwd: os.tmpdir(), autoEdit: true, additionalDirectories: [], bridge: room, mcp });
+      await turn(backend, input(extra), async () => {
+        await mcp.signIn([os.tmpdir()], 'figma');
+        connect();
+        await mcp.signedIn('figma');
+        await settle();
+      });
+      expect(sdk.reconnects).toEqual([]);
+    }
+  });
+
+  it('says whether a sign-in is waiting for the browser', async () => {
+    const { mcp, connect } = signIn();
+    expect(mcp.signingIn('figma')).toBe(false);
+    await mcp.signIn([os.tmpdir()], 'figma');
+    expect(mcp.signingIn('figma')).toBe(true);
+    connect();
+    await mcp.signedIn('figma');
+    expect(mcp.signingIn('figma')).toBe(false);
   });
 
   it('leaves a turn that already ended alone', async () => {

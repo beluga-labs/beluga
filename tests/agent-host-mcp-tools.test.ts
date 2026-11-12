@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { AgentHost } from '../src/core/agent-host.js';
 import { Store, initialState } from '../src/core/store.js';
+import { externalRequester } from '../src/core/trust.js';
 import { waitFor } from './helpers.js';
 
 /** Your own agent's runs get the MCP sign-in tools (beluga_mcp); a friend's request never does. */
@@ -47,6 +48,14 @@ describe('MCP sign-in tools in a run', () => {
     expect(await runs[0]!.mcpTools?.servers()).toContain('figma: needs sign-in');
     expect((await runs[0]!.mcpTools!.signIn('figma')).text).toContain('Signed in to figma');
     expect(opened).toEqual(['https://auth.example/authorize']);
+  });
+
+  it('an external agent’s run never gets them (the page would open on your screen for it)', async () => {
+    const { host, runs } = setup([]);
+    host.setExternalAgents((requester) => (requester === externalRequester('ext1') ? { name: 'Cursor', level: 'full' } : undefined));
+    await host.onAgentRequest(ME, { kind: 'agent_request', requestId: 'r3', prompt: 'hi', viaAgent: false, channel: 'room', urgent: false, plan: false, via: { id: 'ext1', name: 'Cursor', creationSource: 'mcp' } } as never);
+    await waitFor(() => runs.length > 0);
+    expect(runs[0]!.mcpTools).toBeUndefined();
   });
 
   it('a friend’s request never gets them (your servers and your browser are yours)', async () => {

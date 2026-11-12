@@ -11,7 +11,7 @@ import { CLAUDE_AI_CONNECTORS_URL, type McpServerRow } from '../shared/mcp.js';
 /** How long one tool call waits for you in the browser: under a stdio tool call's usual limit (60 s). */
 const WAIT_MS = 45_000;
 
-export type McpBackend = Pick<AgentBackend, 'mcpServers' | 'mcpSignIn' | 'mcpSignedIn'>;
+export type McpBackend = Pick<AgentBackend, 'mcpServers' | 'mcpSignIn' | 'mcpSignedIn' | 'mcpSigningIn'>;
 
 export interface McpSignInDeps {
   /** Your projects' folders: a server set for one of them is signed in to there. */
@@ -24,8 +24,6 @@ export interface McpSignInDeps {
 type Answer = Awaited<ReturnType<McpTools['signIn']>>;
 
 export function mcpSignInTools(agent: McpBackend, deps: McpSignInDeps): McpTools {
-  // Sign-ins whose page is open: a second call waits on it again instead of opening a new one.
-  const open = new Set<string>();
   const rows = async (): Promise<readonly McpServerRow[]> => (await agent.mcpServers?.(deps.roots())) ?? [];
 
   return {
@@ -38,7 +36,8 @@ export function mcpSignInTools(agent: McpBackend, deps: McpSignInDeps): McpTools
       const list = await rows();
       const row = list.find((r) => r.name === name) ?? list.find((r) => r.label === name);
       if (!row) return { ok: false, text: `No MCP server named ${name}. Yours: ${list.map((r) => r.name).join(', ') || 'none'}.` };
-      if (open.has(row.name)) return wait(agent, row, open, deps);
+      // A sign-in already waiting for the browser (an earlier call, run, or the MCP chip): wait on it, never start over.
+      if (agent.mcpSigningIn?.(row.name)) return wait(agent, row, deps);
       if (row.status === 'connected') return { ok: true, text: `${row.label} is already connected.` };
       if (row.from === 'claude.ai') {
         const shown = await show(deps, CLAUDE_AI_CONNECTORS_URL);
@@ -48,9 +47,8 @@ export function mcpSignInTools(agent: McpBackend, deps: McpSignInDeps): McpTools
       const started = await agent.mcpSignIn(deps.roots(), row.name);
       if ('error' in started) return { ok: false, text: `Couldn’t start the sign-in to ${row.label}: ${started.error}` };
       if ('connected' in started) return signedIn(row);
-      open.add(row.name);
       const shown = await show(deps, started.url);
-      const res = await wait(agent, row, open, deps);
+      const res = await wait(agent, row, deps);
       return res.ok && !res.text.startsWith('Signed in') ? { ...res, text: `${shown} ${res.text}` } : res;
     },
   };
@@ -63,12 +61,11 @@ function describe(r: McpServerRow): string {
 }
 
 /** Waits for the sign-in in the browser, up to waitMs: connected, given up, or still waiting. */
-async function wait(agent: McpBackend, row: McpServerRow, open: Set<string>, deps: McpSignInDeps): Promise<Answer> {
+async function wait(agent: McpBackend, row: McpServerRow, deps: McpSignInDeps): Promise<Answer> {
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<'waiting'>((resolve) => (timer = setTimeout(() => resolve('waiting'), deps.waitMs ?? WAIT_MS)));
   const done = await Promise.race([agent.mcpSignedIn?.(row.name) ?? Promise.resolve(undefined), late]).finally(() => clearTimeout(timer));
   if (done === 'waiting') return { ok: true, text: `The sign-in page is open in the browser. Still waiting for the user to finish signing in to ${row.label}: ask them to, then call mcp_sign_in again.` };
-  open.delete(row.name);
   if (done) return signedIn(row);
   return { ok: false, text: `The sign-in to ${row.label} didn’t finish (it timed out or was closed). Call mcp_sign_in again to start over.` };
 }

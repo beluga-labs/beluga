@@ -104,6 +104,11 @@ export class McpConnect {
     return this.signIns.get(name)?.done ?? Promise.resolve(undefined);
   }
 
+  /** A sign-in started with signIn is waiting for the browser now. */
+  signingIn(name: string): boolean {
+    return this.signIns.has(name);
+  }
+
   /** Told the name of each server a sign-in connected (the name only: never a token or a page). Returns how to stop listening. */
   onSignedIn(listener: (name: string) => void): () => void {
     this.listeners.add(listener);
