@@ -38,7 +38,7 @@ const slug = (name: string): string =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
 
-/** Fork a workspace: a copy with its committed work and its conversation, under a new name. */
+/** Fork a workspace: a copy of all of it (commits, uncommitted changes, Scratch, conversation), under a new name. */
 function ForkSheet({ wsId, close }: { wsId: string; close: () => void }) {
   const api = useApi();
   const ws = useApp((st) => findWorkspace(st.projects, wsId));
@@ -50,7 +50,7 @@ function ForkSheet({ wsId, close }: { wsId: string; close: () => void }) {
     <FormSheet
       title={`Fork “${ws.name}”`}
       icon="branch"
-      intro="A new worktree that starts from this one’s commits, with a copy of its conversation, so you can try another direction. Uncommitted changes stay here."
+      intro="A new worktree that starts exactly where this one is: its commits, uncommitted changes, Scratch and conversation, so you can try another direction. This one stays as it is."
       submitLabel="Fork"
       canSubmit={Boolean(slug(name)) && !taken}
       onSubmit={() => {

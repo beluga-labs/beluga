@@ -1,6 +1,6 @@
 import type { AppState } from '@beluga/core/store.js';
 import type { Workspace } from '@beluga/workspaces/types.js';
-import { stateOf } from '@beluga/ui/workspace-models.js';
+import { findWorkspace, stateOf } from '@beluga/ui/workspace-models.js';
 import { notOnPr, notOnPrLabel } from '@beluga/core/branch-state.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
@@ -135,7 +135,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
         aria-busy
         icon={<Icon name={icon} size={14} />}
         label={ws.name}
-        detail={`${ws.name}: making the worktree from ${ws.base ?? 'the latest origin'}…`}
+        detail={ws.forkedFrom ? `${ws.name}: forking ${findWorkspace(client.store.getState().projects, ws.forkedFrom)?.name ?? 'its parent'}…` : `${ws.name}: making the worktree from ${ws.base ?? 'the latest origin'}…`}
         onClick={() => client.store.dispatch({ type: 'view', view: { kind: 'workspace', id: ws.id, tab: 'chat' } })}
         trailing={
           <>
