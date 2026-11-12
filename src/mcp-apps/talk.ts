@@ -35,7 +35,7 @@ export async function postAppMessage(deps: AppTalkDeps, ref: AppStepRef, params:
   const text = messageTextOf(params);
   if (!text) return { ok: false, reason: 'refused', message: 'ui/message needs a user message with text.' };
   const { server, tool } = app.result;
-  if (deps.busy(ref.channel)) return { ok: false, reason: 'refused', message: 'Claude is working in this chat. Send it again when its turn ends.' };
+  if (deps.busy(ref.channel)) return { ok: false, reason: 'refused', message: 'Your agent is working in this chat. Send it again when its turn ends.' };
   const instance = `${ref.channel}\n${ref.itemId}\n${ref.stepId}`;
   const pending = deps.waiting;
   if (pending.has(instance)) return { ok: false, reason: 'refused', message: 'This app’s last message still waits for your answer.' };
