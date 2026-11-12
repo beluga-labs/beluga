@@ -15,3 +15,22 @@ export function wakeRefusal(state: DomainState, to: string): string | undefined 
   const roles = ws ? Object.values(state.members[ws] ?? {}) : [];
   return roles.includes('contribute') ? 'that chat is shared with a contributor, and a sentinel wakes only a chat that is yours alone' : undefined;
 }
+
+/** What an agent writes in a chat step's `to` for the chat it is in (sentinel_create, sentinel_update). */
+export const THIS_CHAT = 'this chat';
+
+/** Why `to: "this chat"` fails where no chat can take it. */
+export const NO_THIS_CHAT = 'The "this chat" target needs a chat that has a ref. The room, a DM, a group, a draft and a sentinel run have no ref. Give the ref of one of the user’s chats ("<owner>/ws:<id>").';
+
+/**
+ * Steps whose chat step says `to: "this chat"`, with the ref of `here` (the calling chat) in its
+ * place. Throws NO_THIS_CHAT when there is no calling chat, or it has no ref.
+ */
+export function withThisChat<S extends { readonly kind: string; readonly to?: string }>(steps: readonly S[], self: string, here: string | undefined): S[] {
+  return steps.map((st) => {
+    if (st.kind !== 'chat' || st.to?.trim().toLowerCase() !== THIS_CHAT) return st;
+    const ref = here ? `${self}/${here}` : undefined;
+    if (!ref || !parseChatRef(ref)) throw new Error(NO_THIS_CHAT);
+    return { ...st, to: ref };
+  });
+}

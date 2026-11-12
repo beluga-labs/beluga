@@ -81,6 +81,7 @@ import { dashboardAskBrief, describeSentinels, sentinelAskBrief, sentinelChatBri
 import { RECIPES } from './recipes.js';
 import { type ActiveRun, CHAT_SCHEDULES_OFF, OUTPUT_KEPT, type SentinelChat, type SentinelClaude, type SentinelWake, type SentinelFriends, type SentinelGitHub, type SentinelPlaces, type SentinelShell, type SourceFetch, SentinelRunner, type YourAnswer, mergePinned, runSentinelShell } from './runner.js';
 import { MetricUnitSchema, StepInputSchema, pastOnce } from './schema.js';
+import { withThisChat } from './wake.js';
 import type { ToolDraft, ToolPatch, ToolStep } from './tool-draft.js';
 import { Triggers, isEventTrigger } from './triggers/index.js';
 import type { TriggerDeps, TriggerEvent } from './triggers/types.js';
@@ -830,15 +831,15 @@ export class Sentinels {
     // A conversation where your Claude changes a sentinel (sentinel.ask): the sentinel as material.
     const asked = this.askChannels.get(channel);
     const sentinel = asked ? this.items.find((i) => i.id === asked) : undefined;
-    if (sentinel) return { tools: this.toolsFor(undefined, sentinel.id), dashboard: this.dashboardTools(undefined), brief: sentinelAskBrief(sentinel, this.items, RECIPES), inRun: false };
+    if (sentinel) return { tools: this.toolsFor(undefined, sentinel.id, undefined, undefined, false, channel), dashboard: this.dashboardTools(undefined), brief: sentinelAskBrief(sentinel, this.items, RECIPES), inRun: false };
     // One where it builds a dashboard (Add a Tile by description): the dashboard, the numbers and the
     // sentinels as material; a sentinel it makes to fetch what nothing keeps yet is noted as the ask's.
     const building = this.dashboardChannels.get(channel);
     const dashboard = building ? this.dashboards.get(building) : undefined;
-    if (dashboard) return { tools: this.toolsFor(undefined, undefined, (id) => this.madeFor(dashboard.id, id)), dashboard: this.dashboardTools(undefined, dashboard.id), brief: dashboardAskBrief(dashboard, this.metricList(), this.items, RECIPES), inRun: false };
+    if (dashboard) return { tools: this.toolsFor(undefined, undefined, (id) => this.madeFor(dashboard.id, id), undefined, false, channel), dashboard: this.dashboardTools(undefined, dashboard.id), brief: dashboardAskBrief(dashboard, this.metricList(), this.items, RECIPES), inRun: false };
     // The Sentinel chat (§12): how Sentinel works, and all of it as it is now.
-    if (isSentinelChat(channel)) return { tools: this.toolsFor(undefined), dashboard: this.dashboardTools(undefined), brief: sentinelChatBrief(this.items, this.dashboards.list(), this.metricList(), RECIPES, (sn) => this.lastLine(sn)), inRun: false };
-    return { tools: this.toolsFor(undefined), dashboard: this.dashboardTools(undefined), brief: sentinelNote(), inRun: false };
+    if (isSentinelChat(channel)) return { tools: this.toolsFor(undefined, undefined, undefined, undefined, false, channel), dashboard: this.dashboardTools(undefined), brief: sentinelChatBrief(this.items, this.dashboards.list(), this.metricList(), RECIPES, (sn) => this.lastLine(sn)), inRun: false };
+    return { tools: this.toolsFor(undefined, undefined, undefined, undefined, false, channel), dashboard: this.dashboardTools(undefined), brief: sentinelNote(), inRun: false };
   }
 
   /** An external agent's sentinel and dashboard tools: the lists show only what `visible` holds. They have the same limits as your own agent's: never turning one on. */
@@ -2143,7 +2144,9 @@ export class Sentinels {
 
   // ------------------------------------------------------------------ Claude's tools
 
-  private toolsFor(active: ActiveRun | undefined, asking?: string, onMade?: (sentinelId: string) => void, visible: (sentinel: Sentinel) => boolean = () => true, external = false): SentinelTools {
+  /** `here`: the chat that calls the tools (a chat step's `to: "this chat"` is its ref); none inside a sentinel run or for an external agent. */
+  private toolsFor(active: ActiveRun | undefined, asking?: string, onMade?: (sentinelId: string) => void, visible: (sentinel: Sentinel) => boolean = () => true, external = false, here?: string): SentinelTools {
+    const thisChat = <S extends { readonly kind: string; readonly to?: string }>(steps: readonly S[]): S[] => withThisChat(steps, this.deps.selfId(), here);
     // Changes nobody watches (a sentinel run's, an external agent's) pause a sentinel they widen.
     const unwatched = Boolean(active) || external;
     const line = (s: Sentinel): string => {
@@ -2162,7 +2165,8 @@ export class Sentinels {
           }
         : {}),
       list: () => describeSentinels(this.items.filter(visible), line),
-      create: (d: ToolDraft) => {
+      create: (given: ToolDraft) => {
+        const d: ToolDraft = { ...given, steps: thisChat(given.steps) };
         const { name: _n, ...refs } = this.fromToolPatch({ trigger: d.trigger, steps: d.steps });
         const draft: SentinelDraft = { ...fromToolDraft(d), ...refs };
         const made = (s: Sentinel): string => `Made “${s.name}” (${scheduleSentence(s.trigger)}), paused: \`sentinel:${s.id}\`. Its steps: ${s.steps.map((st) => `${st.name} (step ${st.id})`).join(', ') || 'none'}. It runs once the user turns it on from its page (you can’t).${heedPlan(s)}`;
@@ -2215,7 +2219,8 @@ export class Sentinels {
         const s = this.need(ref);
         return `“${s.name}” (${scheduleSentence(s.trigger, (id) => this.get(id)?.name)}) ${s.paused ? 'is paused' : 'is on'}${line(s)}. As material:\n${sentinelMaterial(s)}`;
       },
-      update: (ref: string, patch: ToolPatch) => {
+      update: (ref: string, given: ToolPatch) => {
+        const patch: ToolPatch = given.steps ? { ...given, steps: thisChat(given.steps) } : given;
         if (active?.sentinel.id === this.get(ref)?.id) throw new Error('This run is that sentinel’s: it can’t change itself while it runs');
         const said = (s: Sentinel, paused: boolean): string => {
           const changed = Object.keys(patch).filter((k) => patch[k as keyof ToolPatch] !== undefined);
