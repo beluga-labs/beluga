@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ProseView } from '../src/companion/protocol.js';
-import { humanizeDoing, humanizeStep, plainLine, stepWords, stripCode } from '../src/companion/strip.js';
+import { humanizeDoing, humanizeStep, plainLine, stepWords, stripCode, summaryWords } from '../src/companion/strip.js';
 
 describe('stripCode', () => {
   it('takes fenced blocks out, leaving a marker with the language and line count', () => {
@@ -74,7 +74,13 @@ describe('humanizeStep', () => {
 });
 
 describe('an MCP App step on the phone', () => {
-  it('reads as the one line its step has, with no app in it', () => {
-    expect(stepWords('mcp__basic__get-time')).toEqual({ did: 'Used get time', doing: 'Using get time', tool: 'tool' });
+  it('reads "<tool> app, on your Mac" for a step with an app', () => {
+    expect(summaryWords({ title: 'mcp__basic__get-time', hasApp: true })).toEqual({ did: 'Get time app, on your Mac', doing: 'Get time app, on your Mac', tool: 'tool' });
+    expect(summaryWords({ title: 'mcp__claude_ai_Slack__slack_send_message_draft {"x":1}', hasApp: true }).did).toBe('Slack send message draft app, on your Mac');
+  });
+
+  it('keeps today’s line for a step without an app', () => {
+    expect(summaryWords({ title: 'mcp__basic__get-time' })).toEqual({ did: 'Used get time', doing: 'Using get time', tool: 'tool' });
+    expect(summaryWords({ title: 'Edit src/core/store.ts' })).toEqual(stepWords('Edit src/core/store.ts'));
   });
 });

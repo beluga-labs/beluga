@@ -71,7 +71,7 @@ function Frame({ view }: { view: OkView }) {
         className={s.frame}
         src={view.url}
         title={`${view.tool} · ${view.server}`}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-same-origin allow-forms"
         referrerPolicy="no-referrer"
         style={{ height: Math.min(height, MAX_APP_HEIGHT) }}
       />
