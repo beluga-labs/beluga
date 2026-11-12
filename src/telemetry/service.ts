@@ -64,7 +64,7 @@ const SECRETS_MS = 60_000;
 export class TelemetryService {
   private record: TelemetryRecord;
   private readonly exporter?: Exporter;
-  private readonly otel?: ClaudeOtel;
+  private otel?: ClaudeOtel;
   private readonly masker = new Masker(os.homedir());
   private secretsAt = 0;
   private timer?: ReturnType<typeof setInterval>;
@@ -76,7 +76,8 @@ export class TelemetryService {
     if (deps.config) {
       const config = deps.config;
       this.exporter = new Exporter({ config, sender: () => ({ installId: this.record.installId, version: deps.version }), prepare: (t) => this.prepare(t), ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.now ? { now: deps.now } : {}) });
-      this.otel = new ClaudeOtel({ emit: (r) => this.level !== 'off' && this.exporter?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
+      // Claude Code's own telemetry only in a real release (the demo runs no Claude).
+      if (!deps.pretend) this.otel = new ClaudeOtel({ emit: (r) => this.level !== 'off' && this.exporter?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
     }
     this.publish();
     // The ask counts merges: told again when the count changes.
