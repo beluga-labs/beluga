@@ -17,9 +17,9 @@ export interface Ahead {
 
 export const nothingAhead = (): { leaving: Map<string, 'archive' | 'delete'>; projects: Set<string>; making: Map<string, Workspace> } => ({ leaving: new Map(), projects: new Set(), making: new Map() });
 
-/** The worktree's row while it's being made: its name and project, nothing on disk yet. */
-export function pendingWorktree(o: { id: string; project: Pick<Project, 'id' | 'root' | 'base'>; name: string; base?: string; now?: number }): Workspace {
-  return { id: o.id, projectId: o.project.id, projectRoot: o.project.root, name: o.name, path: '', kind: 'worktree', base: o.base ?? o.project.base, createdAt: o.now ?? Date.now(), external: false, pending: true };
+/** The worktree's row while it's being made: its name and project, nothing on disk yet. `forkedFrom`: a fork of that workspace. */
+export function pendingWorktree(o: { id: string; project: Pick<Project, 'id' | 'root' | 'base'>; name: string; base?: string; forkedFrom?: string; now?: number }): Workspace {
+  return { id: o.id, projectId: o.project.id, projectRoot: o.project.root, name: o.name, path: '', kind: 'worktree', base: o.base ?? o.project.base, createdAt: o.now ?? Date.now(), external: false, pending: true, ...(o.forkedFrom ? { forkedFrom: o.forkedFrom } : {}) };
 }
 
 /** The projects as they'll be once the work running now is done. */
