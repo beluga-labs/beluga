@@ -100,7 +100,8 @@ export class HostChatLinks {
   received(from: string, request: BodyOf<'agent_request'>): BodyOf<'agent_request'> {
     const { origin, chain, ...rest } = request;
     const on = this.on();
-    const keep = origin && on && (from === this.self || request.channel !== 'room');
+    // One of your sentinels' prompts keeps its origin with chat links off too: its card and the chain guard need it.
+    const keep = origin && ((on && (from === this.self || request.channel !== 'room')) || (origin.sentinel && from === this.self));
     const keepChain = chain && on && from === this.self;
     return { ...rest, ...(keep ? { origin } : {}), ...(keepChain ? { chain } : {}) };
   }

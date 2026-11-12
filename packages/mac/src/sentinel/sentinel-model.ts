@@ -89,6 +89,7 @@ export const STEP_ICON: Readonly<Record<StepKind, IconName>> = {
   pr: 'pr',
   merge: 'merge',
   message: 'chat',
+  chat: 'chat',
   friend: 'people',
   trigger: 'play',
   measure: 'gauge',
@@ -644,7 +645,8 @@ export interface StepChoice {
 
 /** Add a step: the ten kinds, each with why it can't be added when it can't (a later update, or the access). */
 export function stepChoices(access: Access): StepChoice[] {
-  return (Object.keys(STEP_INFO) as StepKind[]).map((kind) => {
+  // Wake one of your chats is set by your agent for now (sentinel_create): the Mac shows it, and has no form for it yet.
+  return (Object.keys(STEP_INFO) as StepKind[]).filter((kind) => kind !== 'chat').map((kind) => {
     const info = STEP_INFO[kind];
     const later = !stepAvailable(kind);
     const refused = later ? undefined : stepRefusal(access, kind);
@@ -669,6 +671,8 @@ export function newStep(kind: StepKind): StepDraft {
       return { kind: 'merge', name: 'Merge if acceptable', require: { checks: true, approval: true }, method: 'squash' };
     case 'message':
       return { kind: 'message', name: 'Message a chat', to: '', text: '{{sentinel}}: {{previous}}' };
+    case 'chat':
+      return { kind: 'chat', name: 'Wake one of your chats', to: '', text: '' };
     case 'friend':
       return { kind: 'friend', name: 'Ask a friend’s agent', peerId: '', prompt: '' };
     case 'trigger':

@@ -27,8 +27,10 @@ export interface Delivered {
 /** A prompt from one of your sentinels, for one of its runs (see deliverFromSentinel). */
 export interface SentinelDelivery {
   readonly sentinel: { readonly id: string; readonly name: string };
-  /** The run's id: the same run delivers once. */
+  /** The sentinel's run: the claude-finished trigger knows the turn came from it (the chain guard). */
   readonly run: string;
+  /** The step in that run: the same run and step deliver once. */
+  readonly step: string;
   /** One of your own chats: a ref (`<owner>/<channel>`) or a channel of yours. */
   readonly channel: string;
   readonly text: string;
@@ -234,7 +236,7 @@ export class ChatSendService {
     const chainId = `${source}:${delivery.run}`;
     if (this.stopped.has(chainId)) throw refused('chain_stopped');
     const asked = randomUUID();
-    const ask = { requestId: delivery.run, messageId: asked, source, target, chainId, hop: 0, queued: this.deps.queuedFromChats(target), now: this.now() };
+    const ask = { requestId: `${delivery.run}:${delivery.step}`, messageId: asked, source, target, chainId, hop: 0, queued: this.deps.queuedFromChats(target), now: this.now() };
     const { state: guard, decision } = checkSend(this.guard, ask);
     this.guard = guard;
     if (!decision.allow) throw refused(decision.code, decision.retryAt);
@@ -250,7 +252,7 @@ export class ChatSendService {
       channel: target,
       urgent: false,
       plan: state.planMode[target] === true,
-      origin: { ref: `${self}/${source}`, title: name, agent: SENTINEL_AGENT, chainId, hop: decision.hop, messageId: decision.messageId, sentinel: { id: delivery.sentinel.id, name } },
+      origin: { ref: `${self}/${source}`, title: name, agent: SENTINEL_AGENT, chainId, hop: decision.hop, messageId: decision.messageId, sentinel: { id: delivery.sentinel.id, name, run: delivery.run } },
     };
     const message: SentMessage = { source, owner: self, target, title: chat.title ?? target, fromSentinel: true, delivered: { delivery: 'queued' } };
     this.keep(decision.messageId, message);
@@ -261,6 +263,14 @@ export class ChatSendService {
     }
     message.delivered = delivered;
     return { messageId: decision.messageId, channel: target, delivery: delivered.delivery };
+  }
+
+  /** A sentinel's prompt, until its turn ends, `ms` pass, or `signal` aborts: its state, and its answer once it ended. */
+  async outcome(messageId: string, ms: number, signal: AbortSignal): Promise<{ readonly state: MessageState; readonly answer?: string }> {
+    const done = (): boolean => signal.aborted || isFinal(this.stateOf(messageId));
+    if (!done()) await this.until(done, ms, signal);
+    const answer = this.answerOf(messageId);
+    return { state: this.stateOf(messageId), ...(answer !== undefined ? { answer } : {}) };
   }
 
   /**

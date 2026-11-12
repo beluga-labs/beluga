@@ -54,6 +54,9 @@ const TOOL_STEP = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('pr'), id: stepId, name: stepName, draft: z.boolean().optional() }).describe('Opens a pull request from the worktree an earlier agent step (where: worktree) made; needs work access'),
   z.object({ kind: z.literal('merge'), id: stepId, name: stepName, require: z.object({ checks: z.literal(true), approval: z.boolean() }).optional(), method: z.enum(['squash', 'merge']).optional() }).describe('Merges that pull request once the checks pass, a review says ship and the user approves; needs ship access'),
   z.object({ kind: z.literal('message'), id: stepId, name: stepName, to: z.string().regex(/^(dm|group):[\w-]{1,80}$/).describe('dm:<peerId> or group:<id>'), text: z.string().min(1).max(8000) }),
+  z
+    .object({ kind: z.literal('chat'), id: stepId, name: stepName, to: z.string().min(1).max(400).describe('One of the user’s own chats, as its ref: "<owner>/ws:<id>" (chats_list gives refs)'), text: z.string().min(1).max(20_000).describe('The prompt the chat’s agent gets, as if the user sent it') })
+    .describe('Wake one of the user’s own chats: send the prompt there, wait for that turn, keep the first line of its answer. A chat shared with a contributor is refused. Needs the Chat schedules experiment (Settings › Experimental)'),
   z.object({ kind: z.literal('friend'), id: stepId, name: stepName, peerId: z.string().min(1).max(80), prompt: z.string().min(1).max(20_000), project: z.string().max(200).optional() }),
   z.object({ kind: z.literal('trigger'), id: stepId, name: stepName, sentinelId: z.string().min(1).max(80) }),
   z

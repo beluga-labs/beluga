@@ -113,6 +113,8 @@ export const StepInputSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('merge'), id: stepId, name: stepName, require: z.object({ checks: z.literal(true).default(true), approval: z.boolean().default(true) }).default({ checks: true, approval: true }), method: z.enum(['squash', 'merge']).default('squash') }),
   // Who it messages, asks or runs may be picked later (empty: a run says to pick one).
   z.object({ kind: z.literal('message'), id: stepId, name: stepName, to: z.string().regex(/^((dm|group):[\w-]{1,80})?$/, 'A chat: dm:<peer> or group:<id>').default(''), text: text(8000).default('') }),
+  // One of your own chats, by its ref (<you>/ws:<id>); empty until it's picked: a run says so.
+  z.object({ kind: z.literal('chat'), id: stepId, name: stepName, to: text(400).default(''), text: text(20_000).default('') }),
   z.object({ kind: z.literal('friend'), id: stepId, name: stepName, peerId: z.string().max(80).default(''), prompt: text(20_000).default(''), project: text(200).optional() }),
   z.object({ kind: z.literal('trigger'), id: stepId, name: stepName, sentinelId: z.string().max(80).default('') }),
   // Its source may be filled in later (none: a run says to pick one).

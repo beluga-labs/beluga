@@ -116,7 +116,7 @@ export type Trigger = ScheduleTrigger | OnceTrigger | ManualTrigger | AfterTrigg
 
 // ---------------------------------------------------------------- steps
 
-export const STEP_KINDS = ['claude', 'script', 'notify', 'http', 'pr', 'merge', 'message', 'friend', 'trigger', 'measure'] as const;
+export const STEP_KINDS = ['claude', 'script', 'notify', 'http', 'pr', 'merge', 'message', 'chat', 'friend', 'trigger', 'measure'] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
 interface StepBase {
@@ -221,6 +221,18 @@ export interface MessageStep extends StepBase {
   readonly text: string;
 }
 
+/**
+ * Wake one of your own chats (BLG-397): the prompt goes in as from the sentinel, the step waits for
+ * that turn and keeps the first line of its answer. Only a chat that is yours alone: one shared with
+ * a contributor is refused, and the sentinel pauses. Behind the chat-schedules experiment.
+ */
+export interface ChatStep extends StepBase {
+  readonly kind: 'chat';
+  /** One of your chats, as its ref ("<you>/ws:<id>"). */
+  readonly to: string;
+  readonly text: string;
+}
+
 /** Phase 2. */
 export interface FriendStep extends StepBase {
   readonly kind: 'friend';
@@ -298,7 +310,7 @@ export interface MeasureStep extends StepBase {
   readonly filesKeepDays?: number;
 }
 
-export type Step = ClaudeStep | ScriptStep | NotifyStep | HttpStep | PrStep | MergeStep | MessageStep | FriendStep | TriggerStep | MeasureStep;
+export type Step = ClaudeStep | ScriptStep | NotifyStep | HttpStep | PrStep | MergeStep | MessageStep | ChatStep | FriendStep | TriggerStep | MeasureStep;
 
 // ---------------------------------------------------------------- a sentinel
 
@@ -937,6 +949,7 @@ export const STEP_INFO: Readonly<Record<StepKind, { readonly label: string; read
   pr: { label: 'Open a pull request', hint: 'From the worktree the run’s agent step made', needs: 'work', phase: 2 },
   merge: { label: 'Merge if acceptable', hint: 'When the checks pass and you’ve approved', needs: 'ship', phase: 2 },
   message: { label: 'Message a chat', hint: 'A friend or a group, as you', needs: 'look', phase: 2 },
+  chat: { label: 'Wake one of your chats', hint: 'Sends a prompt into one of your own chats and keeps the answer’s first line', needs: 'look', phase: 5 },
   friend: { label: 'Ask a friend’s agent', hint: 'As you; their trust applies', needs: 'look', phase: 2 },
   trigger: { label: 'Run another sentinel', hint: 'Starts it with this run’s last output', needs: 'look', phase: 2 },
   measure: { label: 'Keep the numbers', hint: 'Numbers or rows from the step before, a source, or the agent, kept over time', needs: 'look', phase: 5 },
@@ -969,7 +982,7 @@ export function pausedWords(s: Pick<Sentinel, 'paused' | 'pausedWhy'>): string |
 export const CLAUDE_CHANGED_BANNER = 'Your agent changed what this sentinel can do. Turn On to let it run.';
 
 /** Steps whose change by Claude pauses the sentinel (they run things, call out, or ship). */
-export const GUARDED_STEPS: ReadonlySet<StepKind> = new Set(['script', 'http', 'pr', 'merge']);
+export const GUARDED_STEPS: ReadonlySet<StepKind> = new Set(['script', 'http', 'pr', 'merge', 'chat']);
 
 /** A guarded step, or a Keep the numbers step that runs a source (a query, a command, a request). */
 const isGuarded = (st: Step): boolean => GUARDED_STEPS.has(st.kind) || (st.kind === 'measure' && st.from === 'source');
@@ -988,6 +1001,8 @@ const stable = (v: unknown): string =>
 const stepTargets = (st: Step): string[] =>
   st.kind === 'message'
     ? [`message:${st.to}`]
+    : st.kind === 'chat'
+      ? [`chat:${st.to}`]
     : st.kind === 'friend'
       ? [`friend:${st.peerId}`]
       : st.kind === 'trigger'
@@ -1269,6 +1284,10 @@ export function stepSentence(step: Step, nameOf: (id: string) => string | undefi
     case 'message': {
       const name = nameOf(step.to);
       return name ? `Messages ${name}` : `Messages ${step.to.startsWith('group:') ? 'a group' : 'a friend'}`;
+    }
+    case 'chat': {
+      const name = nameOf(step.to);
+      return name ? `Wakes your chat “${name}”` : 'Wakes one of your chats';
     }
     case 'friend': {
       const name = nameOf(step.peerId);

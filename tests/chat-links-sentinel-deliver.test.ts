@@ -43,8 +43,8 @@ function setup(opts: { state?: Record<string, unknown>; deliver?: (body: BodyOf<
     now: () => now,
   };
   const service = new ChatSendService(deps);
-  const deliver = (channel: string, run = `run-${now}`) => service.deliverFromSentinel({ sentinel: SENTINEL, run, channel, text: 'Check the build' });
-  return { service, delivered, deliver, tick: (ms: number) => void (now += ms) };
+  const deliver = (channel: string, run = `run-${now}`) => service.deliverFromSentinel({ sentinel: SENTINEL, run, step: 'st-1', channel, text: 'Check the build' });
+  return { service, store, delivered, deliver, tick: (ms: number) => void (now += ms) };
 }
 
 describe('ChatSendService.deliverFromSentinel', () => {
@@ -53,7 +53,7 @@ describe('ChatSendService.deliverFromSentinel', () => {
     const receipt = await deliver(`${ME}/ws:tgt`);
     expect(receipt).toMatchObject({ channel: 'ws:tgt', delivery: 'started' });
     expect(delivered).toHaveLength(1);
-    expect(delivered[0]).toMatchObject({ channel: 'ws:tgt', prompt: 'Check the build', requestId: receipt.messageId, origin: { title: 'Morning nudge', hop: 1, sentinel: SENTINEL, agent: { runtime: 'beluga', label: 'Sentinel' } } });
+    expect(delivered[0]).toMatchObject({ channel: 'ws:tgt', prompt: 'Check the build', requestId: receipt.messageId, origin: { title: 'Morning nudge', hop: 1, sentinel: { ...SENTINEL, run: 'run-1000000' }, agent: { runtime: 'beluga', label: 'Sentinel' } } });
   });
 
   it('takes a bare channel of yours too', async () => {
@@ -114,6 +114,24 @@ describe('ChatSendService.deliverFromSentinel', () => {
     }
     await expect(deliver('ws:tgt', 'run-more')).rejects.toThrow(/^pair_rate:.*Try again after/);
     expect(delivered).toHaveLength(MAX_PAIR_MESSAGES);
+  });
+});
+
+describe('ChatSendService.outcome', () => {
+  it('waits for the turn the prompt started, and gives its answer', async () => {
+    const { service, store, deliver } = setup();
+    const { messageId } = await deliver('ws:tgt', 'run-w');
+    const event = (e: 'started' | 'done', text: string) => store.dispatch({ type: 'agent_event', owner: ME, requestId: messageId, requester: ME, event: e, text, ts: Date.now(), channel: 'ws:tgt' });
+    event('started', '');
+    const waiting = service.outcome(messageId, 5000, new AbortController().signal);
+    setTimeout(() => event('done', 'All green.'), 5);
+    await expect(waiting).resolves.toEqual({ state: 'answered', answer: 'All green.' });
+  });
+
+  it('says how far it got when the time is up', async () => {
+    const { service, deliver } = setup();
+    const { messageId } = await deliver('ws:tgt', 'run-t');
+    await expect(service.outcome(messageId, 10, new AbortController().signal)).resolves.toEqual({ state: 'working' });
   });
 });
 

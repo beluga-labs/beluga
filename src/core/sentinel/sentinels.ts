@@ -79,7 +79,7 @@ import { agentLabel, agentName } from '../../shared/agent-label.js';
 import { defaultAgentOf } from '../../protocol.js';
 import { dashboardAskBrief, describeSentinels, sentinelAskBrief, sentinelChatBrief, sentinelMaterial, sentinelNote } from './prompt.js';
 import { RECIPES } from './recipes.js';
-import { type ActiveRun, OUTPUT_KEPT, type SentinelChat, type SentinelClaude, type SentinelFriends, type SentinelGitHub, type SentinelPlaces, type SentinelShell, type SourceFetch, SentinelRunner, type YourAnswer, mergePinned, runSentinelShell } from './runner.js';
+import { type ActiveRun, CHAT_SCHEDULES_OFF, OUTPUT_KEPT, type SentinelChat, type SentinelClaude, type SentinelWake, type SentinelFriends, type SentinelGitHub, type SentinelPlaces, type SentinelShell, type SourceFetch, SentinelRunner, type YourAnswer, mergePinned, runSentinelShell } from './runner.js';
 import { MetricUnitSchema, StepInputSchema, pastOnce } from './schema.js';
 import type { ToolDraft, ToolPatch, ToolStep } from './tool-draft.js';
 import { Triggers, isEventTrigger } from './triggers/index.js';
@@ -118,6 +118,8 @@ export interface SentinelsDeps {
   readonly fetch?: typeof fetch;
   readonly github?: SentinelGitHub;
   readonly chat?: SentinelChat;
+  /** Your own chats, for Wake one of your chats (BLG-397). Without it, such a step fails. */
+  readonly wake?: SentinelWake;
   readonly friends?: SentinelFriends;
   /** How often pending checks are looked at again (15 s). */
   readonly pollMs?: number;
@@ -269,6 +271,11 @@ export class Sentinels {
       ...(deps.fetch ? { fetch: deps.fetch } : {}),
       ...(deps.github ? { github: deps.github } : {}),
       ...(deps.chat ? { chat: deps.chat } : {}),
+      ...(deps.wake ? { wake: deps.wake } : {}),
+      pause: (id, why) => {
+        const was = this.items.find((i) => i.id === id);
+        if (was && !was.paused) this.replace({ ...was, paused: true, pausedWhy: why, updatedAt: this.now() });
+      },
       ...(deps.friends ? { friends: deps.friends } : {}),
       ...(deps.pollMs !== undefined ? { pollMs: deps.pollMs } : {}),
       startOther: (id, from, output) => this.startFrom(id, from, output),
@@ -401,6 +408,7 @@ export class Sentinels {
     const access = draft.access ?? 'look';
     const projectId = this.projectIdOf(draft.projectId ?? undefined);
     const steps = this.stepsOf(draft.steps ?? [], access);
+    this.checkChats(steps);
     const item: Sentinel = {
       id: short('sn'),
       name: oneLine(draft.name, 80) || 'New sentinel',
@@ -423,11 +431,22 @@ export class Sentinels {
     return item;
   }
 
+  /** Wake one of your chats: refused while the experiment is off, and for a chat that is not yours alone. */
+  private checkChats(steps: readonly Step[]): void {
+    for (const st of steps) {
+      if (st.kind !== 'chat') continue;
+      if (!this.deps.wake?.on()) throw new Error(capitalFirst(CHAT_SCHEDULES_OFF));
+      const refusal = st.to ? this.deps.wake.refusal(st.to) : undefined;
+      if (refusal) throw new Error(capitalFirst(refusal));
+    }
+  }
+
   /** Change a sentinel; it saves at once (the page has no Save button). */
   update(ref: string, patch: SentinelPatch): Sentinel {
     const was = this.need(ref);
     const access = patch.access ?? was.access;
     const steps = patch.steps ? this.stepsOf(patch.steps, access) : was.steps;
+    if (patch.steps) this.checkChats(steps);
     if (patch.access && !patch.steps) this.checkAccess(steps, access);
     const projectId = patch.projectId === null ? undefined : patch.projectId !== undefined ? this.projectIdOf(patch.projectId) : was.projectId;
     const { projectId: _p, ...rest } = was;
