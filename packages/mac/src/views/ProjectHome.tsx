@@ -15,7 +15,7 @@ import { EarningsPill } from "../components/EarningsPill.js";
 import { Icon } from "../components/Icon.js";
 import { ProjectIcon } from "../components/ProjectIcon.js";
 import { Select } from "../components/Select.js";
-import { Button, Dot, Empty, Segmented, Tip, cx } from "../components/ui.js";
+import { Button, Dot, Empty, IconButton, Segmented, Tip, cx } from "../components/ui.js";
 import { useActions } from "../lib/actions.js";
 import { toast, useApi, useApp, useBeluga } from "../lib/beluga.js";
 import { useMyAgentName } from "../lib/agent-words.js";
@@ -196,6 +196,15 @@ function Header({ model }: { model: HomeModel }) {
           <GitHubRow projectId={project.id} />
         </div>
       </div>
+      {/* Its settings (General, Environment, Worktrees), in one sheet (BLG-926). */}
+      {project.root ? (
+        <IconButton
+          icon="gear"
+          label="Project Settings…"
+          className={s.settingsButton}
+          onClick={() => openSheet({ kind: "project_env", projectId: project.id, tab: "general" })}
+        />
+      ) : null}
     </header>
   );
 }

@@ -515,3 +515,9 @@ button.rowPr:focus-visible {
 .envAsks {
   padding: 2px 10px 8px;
 }
+/* The project's settings, top right of its header. */
+.settingsButton {
+  flex: none;
+  margin-top: 4px;
+  color: var(--text-3);
+}
