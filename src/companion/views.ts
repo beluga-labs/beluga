@@ -820,7 +820,7 @@ function queueOf(state: DomainState, channel: string): NonNullable<ConvView['que
     .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}) }));
 }
 
-const planState = (plan: Plan, progress: PlanProgress): string => (plan.status === 'active' && plan.paused ? 'paused' : plan.status === 'active' && progress.next.kind === 'done' ? 'done' : plan.status);
+const planState = (plan: Plan, progress: PlanProgress): string => (plan.closedAt ? 'closed' : plan.status === 'active' && plan.paused ? 'paused' : plan.status === 'active' && progress.next.kind === 'done' ? 'done' : plan.status);
 
 export function plansView(state: DomainState): PlansView {
   return {
@@ -844,6 +844,8 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
     title: clip(planTitle(plan), 300),
     ...(goal ? { goal: clip(plainLine(goal, 4000), 4000) } : {}),
     state: planState(plan, progress),
+    // 1.38 (BLG-419): closed in its chat: read-only, nothing to pick or run.
+    ...(plan.closedAt ? { closedAt: plan.closedAt } : {}),
     ...(home ? { topic: home } : {}),
     milestones: progress.milestones.slice(0, 50).map((m) => ({
       id: clip(m.milestone.id, 200),
@@ -880,7 +882,7 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
 
     // 1.35 (BLG-498): who works its milestones and tasks (none: your default), and the list to change it from.
     ...(plan.agent ? { agent: agentRefView(plan.agent) } : {}),
-    ...(plan.status !== 'done' ? { agents: workPicker(state, plan.agent) } : {}),
+    ...(plan.status !== 'done' && !plan.closedAt ? { agents: workPicker(state, plan.agent) } : {}),
   };
 }
 

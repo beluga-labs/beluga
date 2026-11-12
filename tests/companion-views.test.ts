@@ -544,6 +544,11 @@ describe('the views of a known Mac', () => {
     const closed = { ...plan, id: 'pl_old', createdAt: 1, closedAt: 2 } as unknown as Plan;
     const again = { ...state, plans: { ...state.plans, plans: [closed, ...state.plans.plans] } };
     expect(ConvView.parse(viewOf(again, ctx, 'conv:ws:w1')).plan).toMatchObject({ topic: 'plan:pl_auth', earlier: 1 });
+    // 1.38 (BLG-419): a closed plan reads as closed, says when, and offers no agent to pick.
+    const old = PlanView.parse(viewOf(again, ctx, 'plan:pl_old'));
+    expect(old).toMatchObject({ state: 'closed', closedAt: 2 });
+    expect(old.agents).toBeUndefined();
+    expect(PlanView.parse(viewOf(again, ctx, 'plan:pl_auth')).closedAt).toBeUndefined();
     const chat =ChatView.parse(viewOf(state, ctx, `chat:dm:${BOB}`));
     // Whose Claude a message can ask: you, then them.
     expect(chat.members?.map((m) => ({ peerId: m.peerId, name: m.name, me: m.me }))).toEqual([
