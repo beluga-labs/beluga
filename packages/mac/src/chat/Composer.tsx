@@ -56,6 +56,8 @@ import { isPlanHome, planForHome } from '@beluga/core/plans/model.js';
 import { MaxFire } from './MaxFire.js';
 import { effectsOn, fireVars } from './fire-look.js';
 import { handleInvite } from '../lib/invite-command.js';
+import { experimentOn } from '@beluga/shared/experiments.js';
+import { canSchedule, scheduleCommand } from './schedule-model.js';
 import s from './composer.module.css';
 import m from './max.module.css';
 import d from './draft.module.css';
@@ -298,6 +300,9 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // Only where its agent has one (it forks the conversation's session: Claude's, OpenCode's; not Codex's).
   const btwHere = useApp((st) => runtimeHas(runtimeHere(st.projects.flatMap((p) => p.workspaces).find((w) => `ws:${w.id}` === channel)?.agent, st.self), 'btw'));
   const canBtw = channel.startsWith('ws:') && !shared && btwHere;
+  // A schedule for this chat (BLG-400): '/schedule' opens its sheet, behind the chat-schedules experiment.
+  const schedulesOn = useApp((st) => experimentOn(st.prefs.experiments, 'chat-schedules'));
+  const canScheduleHere = schedulesOn && canSchedule(channel, Boolean(shared));
   const [asideIn, setAsideIn] = useState<string | undefined>(undefined);
   const aside = canBtw && asideIn === channel;
   const btwOpen = useApp((st) => Boolean(st.btw?.[channel]));
@@ -348,10 +353,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             chats,
             skills,
             skillsOn,
-            ...(canBtw ? {} : { without: ['btw'] }),
+            ...(canBtw && canScheduleHere ? {} : { without: [...(canBtw ? [] : ['btw']), ...(canScheduleHere ? [] : ['schedule'])] }),
             ...(claudeHere ? { claudeHere } : {}),
           }),
-    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, chats, skills, skillsOn, canBtw, runtimes, claudeHere?.hint],
+    [buffer, state.peers, state.selfId, state.dirCache, state.view.kind, state.projects, state.friends, wsId, mentionWorld.tasks, chats, skills, skillsOn, canBtw, canScheduleHere, runtimes, claudeHere?.hint],
   );
   const sug = useSuggestions(suggestions, buffer, (picked) => accept(picked));
 
@@ -445,6 +450,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     }
     // /invite adds a friend, or adds friends to what's on screen (BLG-203): done here, where the view is known.
     if (handleInvite(client, ui, text)) return;
+    const scheduled = canScheduleHere ? scheduleCommand(text) : undefined;
+    if (scheduled !== undefined) return openSheet({ kind: 'schedule', channel, ...(scheduled ? { prompt: scheduled } : {}) });
     if (draftProject && !text.startsWith('/')) return createWorktree(draftProject, text);
     // A new chat (in a project, outside one, or in a folder), Runs on one of your computers (BLG-788,
     // BLG-841): started there; held, never here instead, when the computer named can't take it.
@@ -577,7 +584,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     if (picked.enter === 'submit') {
       ui.patch({ buffer: '', cursor: 0 });
       // A friend picked for "/invite": handled here like a typed one (BLG-340), not by the daemon.
-      if (!handleInvite(client, ui, picked.value)) actions.submit(picked.value);
+      if (handleInvite(client, ui, picked.value)) return;
+      const scheduled = canScheduleHere ? scheduleCommand(picked.value) : undefined;
+      if (scheduled !== undefined) return openSheet({ kind: 'schedule', channel, ...(scheduled ? { prompt: scheduled } : {}) });
+      actions.submit(picked.value);
       return;
     }
     // A chat picked: its mention written short, a chip with its title.

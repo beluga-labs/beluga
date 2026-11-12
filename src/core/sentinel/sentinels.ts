@@ -23,6 +23,8 @@ import { safeName } from '../../net/mesh/files.js';
 import { type Measured, type MetricLine, COMPARE_WORDS, cellRows, describePoints, formatMetric, keptWords, labelOf, measureFrom, metricName, pointOf, readOutput, toNumber } from './metrics.js';
 import { type SentinelTest, type SourcePreview, describePreviews, previewBroken, previewFailed, previewOf } from './preview.js';
 import {
+  type ChatSchedule,
+  chatSchedules,
   type MeasureStep,
   type ScriptStep,
   APPROVAL_MS,
@@ -361,6 +363,20 @@ export class Sentinels {
     const s = this.get(ref);
     if (!s) throw new Error(`There's no sentinel ${ref}`);
     return s;
+  }
+
+  /**
+   * A chat's schedules (BLG-399): the sentinels with a chat step that wakes it, given as its channel
+   * (one of yours) or its ref. In the order they were made.
+   */
+  forChat(chat: string): ChatSchedule[] {
+    const ref = chat.includes('/') ? chat : `${this.deps.selfId()}/${chat}`;
+    const nextAt: Record<string, number> = {};
+    for (const s of this.items) {
+      const at = this.nextAtOf(s);
+      if (at !== undefined) nextAt[s.id] = at;
+    }
+    return chatSchedules({ items: this.items, nextAt, runs: this.runs }, ref);
   }
 
   /** A sentinel's whole index, newest first. */

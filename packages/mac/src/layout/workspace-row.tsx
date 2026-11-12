@@ -11,7 +11,9 @@ import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { workspaceSignal } from './attention-model.js';
-import { DotMark, LaterMark, SignalMark, nameClass, signalClass } from './signal-marks.js';
+import { DotMark, LaterMark, ScheduledMark, SignalMark, nameClass, signalClass } from './signal-marks.js';
+import { chatSchedules } from '@beluga/core/sentinel/model.js';
+import { experimentOn } from '@beluga/shared/experiments.js';
 import { inSections, isPrStep, toolbarActions } from './toolbar-actions.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { chatLinkItems } from '../lib/chat-links.js';
@@ -109,7 +111,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
   const { client } = useBeluga();
   const row = useWorkspaceRowActions(ws);
   // Only what the row shows: another conversation streaming doesn't draw it again (KLD-48).
-  const { selected, st, signal, where, archiving, gap } = useApp(
+  const { selected, st, signal, where, archiving, gap, scheduled } = useApp(
     (state) => ({
       selected: state.view.kind === 'workspace' && state.view.id === ws.id,
       st: stateOf(state, ws, 0),
@@ -120,6 +122,8 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
       archiving: state.archiving[ws.id],
       // Commits its open PR doesn't have yet (BLG-840): a chip, since merging now would leave them out.
       gap: ws.kind === 'worktree' && !ws.archived ? notOnPr(state.prs[ws.id], ws) : undefined,
+      // Woken by a sentinel on a schedule (BLG-401): how many, and whether all are off. Behind chat-schedules.
+      scheduled: experimentOn(state.prefs.experiments, 'chat-schedules') && state.selfId ? scheduledOf(chatSchedules(state.sentinel, `${state.selfId}/ws:${ws.id}`)) : undefined,
     }),
     sameDeep,
   );
@@ -234,6 +238,7 @@ export const WorkspaceRow = memo(function WorkspaceRow({ ws, indent, fold, inFam
                 <FamilyEnd row={family} now={now} />
               ) : (
                 <>
+                  {scheduled ? <ScheduledMark count={scheduled.count} paused={scheduled.paused} /> : null}
                   <SignalMark signal={signal} fallback={gap ? null : quiet} working={ws.kind === 'worktree' ? 'worktree' : 'claude'} />
                   {mark}
                 </>
@@ -362,4 +367,9 @@ function WorkspaceNameField({ initial, kind, onDone }: { initial: string; kind: 
       }}
     />
   );
+}
+
+/** A chat's schedules as its row's mark says them; none: no mark. */
+function scheduledOf(rows: ReadonlyArray<{ readonly paused: boolean }>): { readonly count: number; readonly paused: boolean } | undefined {
+  return rows.length ? { count: rows.length, paused: rows.every((r) => r.paused) } : undefined;
 }

@@ -40,6 +40,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: 'shell', args: '<path>|default|login on|off|args …', desc: 'the shell for the built-in terminal, and how it starts' },
   { name: 'env', args: '[project] KEY=value', desc: 'set an environment variable for your shells, scripts and your agent (KEY= removes it)' },
   { name: 'visualize', args: '[what]', desc: 'your agent draws it as an interactive graph: architecture, a flow, what changed' },
+  { name: 'schedule', args: '[prompt]', desc: 'send a prompt into this chat on a schedule, as from Sentinel (the Mac app; chat-schedules experiment)' },
   { name: 'btw', args: '<question>', desc: 'a side question: Claude answers beside the chat, without stopping or remembering it' },
   { name: 'compact', args: '[focus]', desc: "shrink this conversation's context (your agent keeps what matters)" },
   { name: 'merge', desc: 'merge this worktree into the main folder' },
@@ -138,6 +139,9 @@ export function runCommand(session: Session, name: string, args: readonly string
       return;
     case 'invite':
       return inviteCommand(session, args, channel);
+    // The Mac's message box opens its Schedule sheet itself (BLG-400); typed anywhere else it says where.
+    case 'schedule':
+      return session.toast('/schedule opens its sheet in the Mac app, in a worktree, project or Your Mac chat', 'info');
     case 'btw': {
       const question = args.join(' ').trim();
       if (!question) return session.toast('Usage: /btw <question>', 'warn');

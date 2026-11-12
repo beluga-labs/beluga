@@ -18,7 +18,8 @@ import { type Plan, planForHome, planTitle, reviewState } from '../core/plans/mo
 import { verifyProgress } from '../core/plans/verify-progress.js';
 import { planOwnerOf } from '../core/plans/owner.js';
 import { branchState, notOnPr } from '../core/branch-state.js';
-import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
+import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, chatSchedules, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
+import { experimentOn } from '../shared/experiments.js';
 import { type Dashboard, type Tile, metricOf, outputLook, tileColumns, tileCompare, tileMetrics, tileOutput, tileStateIn, tileTitle } from '../core/sentinel/dashboard-model.js';
 import { documentMime, isDocumentKind, storageName, storageSources } from '../core/sentinel/columns.js';
 import { sentinelGraph } from '../core/sentinel/workflow.js';
@@ -762,7 +763,16 @@ export function convView(state: DomainState, ctx: ViewContext, topic: Topic): Co
     ...tagsOf(state, channel),
     ...terminalOf(state, channel),
     ...(reactableChannel(channel) ? { quick: quickRow(state) } : {}),
+    ...schedulesOf(state, channel),
   };
+}
+
+/** The sentinels that send into this chat on a schedule (BLG-401), behind chat-schedules: run and pause only. */
+function schedulesOf(state: DomainState, channel: string): Pick<ConvView, 'schedules'> {
+  if (!experimentOn(state.prefs.experiments, 'chat-schedules') || !state.selfId) return {};
+  const rows = chatSchedules(state.sentinel, `${state.selfId}/${channel}`).slice(0, 20);
+  const nameOf = (id: string): string | undefined => state.sentinel.items.find((i) => i.id === id)?.name;
+  return rows.length ? { schedules: rows.map((r) => ({ id: r.id, name: clip(r.name, 200), sentence: clip(scheduleSentence(r.trigger, nameOf), 200), ...(r.nextAt !== undefined ? { nextAt: r.nextAt } : {}), paused: r.paused, running: r.running })) } : {};
 }
 
 /** The Mac's terminal view drives this conversation (BLG-534): who, so the phone can say so and take it back. */
