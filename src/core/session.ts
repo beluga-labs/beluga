@@ -397,7 +397,7 @@ export class Session {
       this.projectsTimer.unref();
       this.workspaceTimer = setInterval(paced(WORKSPACE_REFRESH_MS, saving, () => void this.workspaces?.refresh()), WORKSPACE_REFRESH_MS);
       this.workspaceTimer.unref();
-      // A quiet fetch of each project's remote every ~15 minutes (the project home's "fetched … ago").
+      // A quiet fetch of each project's remote as often as Settings › Workspaces says (the project home's "fetched … ago").
       this.workspaces.mainSync.start();
     }
   }

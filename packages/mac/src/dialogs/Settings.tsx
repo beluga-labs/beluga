@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { TRUST_INFO, trustOf } from '@beluga/core/trust.js';
 import { BRANCH_PREFIX_RE, EFFORTS, type LowPower } from '@beluga/shared/settings-schema.js';
+import { FETCH_EVERY_CHOICES, FETCH_EVERY_DEFAULT, fetchEveryWords } from '@beluga/shared/background-fetch.js';
 import { agentChoices, agentForChoice, choiceForAgent } from '@beluga/ui/agent-choice.js';
 import { EFFORT_INFO, agentEntries, modelInfo, myModel, myRuntime, setMyAgent } from '../chat/ModelPicker.js';
 import { HIDEABLE_BUTTONS, TUNNEL_LABELS, TUNNEL_ORDER } from '@beluga/ui/settings-menus.js';
@@ -513,6 +514,24 @@ function BranchPrefixRow() {
   );
 }
 
+/** How often Beluga fetches each project on its own (#479): presets, plus a pace set some other way. */
+function FetchEveryRow() {
+  const api = useApi();
+  const every = useApp((st) => st.prefs.fetchEvery ?? FETCH_EVERY_DEFAULT);
+  const choices = FETCH_EVERY_CHOICES.includes(every) ? FETCH_EVERY_CHOICES : [...FETCH_EVERY_CHOICES, every].sort((a, b) => a - b);
+  const detail = every === 0 ? 'Off: projects fetch only when you click Fetch or Update main. Handy when your git keys ask each time they’re used.' : 'Keeps each project’s “behind main” current. Slower or off if your git keys ask each time they’re used; Fetch still works.';
+  return (
+    <Row label="Fetch in the background" detail={detail}>
+      <Select
+        label="Fetch in the background"
+        value={String(every)}
+        onChange={(v) => void api.session.setPrefs({ fetchEvery: Number(v) })}
+        options={choices.map((m) => ({ value: String(m), label: m === FETCH_EVERY_DEFAULT ? `${fetchEveryWords(m)} (default)` : fetchEveryWords(m) }))}
+      />
+    </Row>
+  );
+}
+
 function Workspaces() {
   const api = useApi();
   const p = useApp((st) => st.prefs);
@@ -523,6 +542,7 @@ function Workspaces() {
           <Switch label="Auto setup" on={p.autoSetup} onChange={(v) => void api.session.setPrefs({ autoSetup: v })} />
         </Row>
         <BranchPrefixRow />
+        <FetchEveryRow />
         <Row label="Keep open pull requests current" detail="When your agent commits in a worktree whose pull request is open, it pushes there as its turn ends. Off: it commits here, and you push from the toolbar.">
           <Switch label="Keep open pull requests current" on={p.pushToPr} onChange={(v) => void api.session.setPrefs({ pushToPr: v })} />
         </Row>

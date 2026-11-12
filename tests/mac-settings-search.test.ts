@@ -145,7 +145,7 @@ const PANE_SOURCES: Record<string, string> = {
   claude: [s('AgentPane', 'AgentsGroup'), ...['LaunchFlagsSettings', 'McpSettings', 'LocalModelsSettings', 'ContextSettings', 'UsageLimitSettings', 'ParallelSettings', 'ChatLimitSettings'].map((f) => read(`dialogs/${f}.tsx`)), fn(read('dialogs/AgentThreadsSettings.tsx'), 'ThreadLimitsSettings'), ...THREAD_LIMIT_ROWS.map(({ label }) => `'${label}'`)].join('\n'),
   notifications: ['dialogs/NotificationSettings.tsx', 'dialogs/sound/SoundSettings.tsx', 'dialogs/sound/TestNotification.tsx'].map(read).join('\n'),
   // Its toolbar buttons' rows are made from HIDEABLE_BUTTONS, and so are their entries.
-  workspaces: [s('Workspaces', 'HiddenProjectsGroup', 'BranchPrefixRow'), ...HIDEABLE_BUTTONS.map(([, label]) => `'${label}'`)].join('\n'),
+  workspaces: [s('Workspaces', 'HiddenProjectsGroup', 'BranchPrefixRow', 'FetchEveryRow'), ...HIDEABLE_BUTTONS.map(([, label]) => `'${label}'`)].join('\n'),
   terminal: ['dialogs/TerminalSettings.tsx', 'dialogs/TerminalThemes.tsx', 'dialogs/TerminalImport.tsx'].map(read).join('\n'),
   fire: read('dialogs/FireSettings.tsx'),
   menubar: read('dialogs/MenuBarSettings.tsx'),
