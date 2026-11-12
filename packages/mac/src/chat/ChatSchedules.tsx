@@ -4,6 +4,7 @@ import { experimentOn } from '@beluga/shared/experiments.js';
 import { Button, Dot, Tip } from '../components/ui.js';
 import { Switch } from '../dialogs/settings-controls.js';
 import { useApp } from '../lib/beluga.js';
+import { openSheet } from '../lib/sheets.js';
 import { sameDeep } from '../lib/stable.js';
 import { Panel } from '../layout/inspector-parts.js';
 import { nextText } from '../sentinel/sentinel-model.js';
@@ -26,7 +27,14 @@ export function ChatSchedules({ channel }: { channel: string }) {
   if (!on || !rows.length) return null;
   const nameOf = (id: string): string | undefined => names.find((n) => n.id === id)?.name;
   return (
-    <Panel title={rows.length > 1 ? `Schedules · ${rows.length}` : 'Schedules'}>
+    <Panel
+      title={rows.length > 1 ? `Schedules · ${rows.length}` : 'Schedules'}
+      action={
+        <Tip label="Schedule a message in this chat (/schedule)">
+          <Button size="small" variant="quiet" icon="plus" aria-label="New schedule" onClick={() => openSheet({ kind: 'schedule', channel })} />
+        </Tip>
+      }
+    >
       <div className={s.list} role="list" aria-label="Schedules">
         {rows.map((row) => (
           <ScheduleRow key={row.id} row={row} sentence={scheduleSentence(row.trigger, nameOf)} />

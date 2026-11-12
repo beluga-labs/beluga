@@ -114,7 +114,7 @@ export function WhenCard({ item, save }: { item: Sentinel; save: Save }) {
             }}
           />
         </div>
-        {t.kind === 'schedule' ? <ScheduleControls t={t} item={item} save={save} /> : null}
+        {t.kind === 'schedule' ? <ScheduleControls t={t} set={(trigger) => save({ trigger })} note={frequentAgentNote({ trigger: t, steps: item.steps, limits: item.limits })} /> : null}
         {t.kind === 'manual' ? <p className={s.hint}>It runs only when you press Run Now: here, on its row, or from your phone.</p> : null}
         {t.kind === 'after' ? <AfterControls t={t} item={item} items={items} save={save} /> : null}
         {t.kind !== 'schedule' && t.kind !== 'manual' && t.kind !== 'after' ? <EventControls item={item} save={save} /> : null}
@@ -144,10 +144,9 @@ function AfterControls({ t, item, items, save }: { t: AfterTrigger; item: Sentin
   );
 }
 
-function ScheduleControls({ t, item, save }: { t: ScheduleTrigger; item: Sentinel; save: Save }) {
-  const set = (next: ScheduleTrigger): void => save({ trigger: next });
+/** A schedule's controls: how often, at what time, which days, and a missed run. The sentinel page and the chat's /schedule sheet (BLG-400) use them. */
+export function ScheduleControls({ t, set, note: heavy }: { t: ScheduleTrigger; set: (next: ScheduleTrigger) => void; note?: string | undefined }) {
   const often = t.every === 'hours' || t.every === 'minutes';
-  const heavy = frequentAgentNote({ trigger: t, steps: item.steps, limits: item.limits });
   return (
     <>
       <div className={s.every}>
