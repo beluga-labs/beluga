@@ -157,6 +157,7 @@ export class PlansWork {
 
   /** Plan in the conversation you're in (the composer's Plan with Tasks): an empty draft, written from what you say next. */
   here(channel: string, autonomy?: Autonomy): Plan {
+    // A closed plan is skipped (planForHome): the conversation gets a new draft.
     const existing = planForHome(this.plans.state(), channel);
     if (existing && existing.status !== 'done') return existing;
     const ws = channel.startsWith(WS) ? this.deps.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === channel.slice(WS.length)) : undefined;
