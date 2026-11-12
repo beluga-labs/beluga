@@ -25,6 +25,7 @@ export const SYNCED_SETTINGS = [
   'theme',
   // How you work, and which experimental features you turned on (a computer then runs them too).
   'pushToPr',
+  'prOnReview',
   'experiments',
   'agentThreads',
   'chatLinks',
@@ -95,6 +96,7 @@ export const LOCAL_SETTINGS = [
 export const SETTING_LABELS: Readonly<Record<SyncedSetting, string>> = {
   theme: 'Theme',
   pushToPr: 'Keep open pull requests current',
+  prOnReview: 'Open a pull request when work is ready',
   experiments: 'Experimental features',
   agentThreads: 'Agent threads',
   chatLinks: 'Chat links',

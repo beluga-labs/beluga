@@ -354,6 +354,8 @@ export interface Prefs {
   readonly settleIdleDays: number;
   /** An agent in a worktree whose pull request is open pushes its commits there when its turn ends (BLG-840). */
   readonly pushToPr: boolean;
+  /** A worktree's task moving to In Review has its agent open a draft pull request there (BLG-927). */
+  readonly prOnReview: boolean;
   /** Claude keeps screenshots and scratch output in the workspace's git-ignored `.beluga/scratch/` folder (watched live in the Mac app). */
   readonly scratchFolder: boolean;
   /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
@@ -797,6 +799,7 @@ export const DEFAULT_PREFS: Prefs = {
   settleOnMerge: true,
   settleIdleDays: SETTLE_IDLE_DAYS_DEFAULT,
   pushToPr: true,
+  prOnReview: false,
   scratchFolder: true,
   experiments: [],
   chatLinks: false,
