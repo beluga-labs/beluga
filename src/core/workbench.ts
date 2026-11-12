@@ -1531,7 +1531,7 @@ export class Workbench {
         this.deps.toast(`${ws.name} is set up`, 'success');
         return;
       }
-      if (learn && this.deps.fixSetup) return void this.retrySetup(ws, command, code, session.backlog());
+      if (learn && this.deps.fixSetup) return void this.retrySetup(ws, command, code, session.backlog(), session.exited?.signal);
       this.setupFailed(ws, command, code, session.backlog(), session.exited?.signal);
     });
   }
@@ -1592,11 +1592,11 @@ export class Workbench {
   }
 
   /** Setup failed: ask what it should be, remember the answer, and run that (once). */
-  private async retrySetup(ws: Workspace, command: string, code: number | null, output: string): Promise<void> {
+  private async retrySetup(ws: Workspace, command: string, code: number | null, output: string, signal?: number): Promise<void> {
     this.deps.toast(`Setup failed in ${ws.name}. Looking for the right one…`);
     const fix = await this.deps.fixSetup!(ws.path, command, output);
     const project = this.manager.find(ws.id) && this.manager.list.find((p) => p.id === ws.projectId);
-    if (!project || !fix || ('command' in fix && fix.command === command)) return this.setupFailed(ws, command, code, output);
+    if (!project || !fix || ('command' in fix && fix.command === command)) return this.setupFailed(ws, command, code, output, signal);
     if ('none' in fix) {
       this.deps.store.dispatch({ type: 'setup', id: ws.id });
       return this.learnSetup(project.id, fix, `${project.name} needs no setup. New worktrees skip it from now on`);
