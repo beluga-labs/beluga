@@ -503,7 +503,7 @@ function turnOf(state: DomainState, item: LogItem, outputs: readonly OutputView[
     agent: item.agent ?? CLAUDE_AGENT,
     prose: pictures(proseOf(item.text)),
     ts: item.ts,
-    ...(item.origin ? { origin: { ref: clip(item.origin.ref, 400), title: clip(item.origin.title, 200), agent: clip(item.origin.agent.label, 64), prose: proseOf(item.prompt ?? '') } } : {}),
+    ...(item.origin ? { origin: { ref: clip(item.origin.ref, 400), title: clip(item.origin.title, 200), agent: clip(item.origin.agent.label, 64), ...(item.origin.sentinel ? { sentinel: clip(item.origin.sentinel.name, 200) } : {}), prose: proseOf(item.prompt ?? '') } } : {}),
     ...(status ? { status } : {}),
     ...(step ? { step } : {}),
     steps: item.steps.length,
@@ -873,7 +873,7 @@ function queueOf(state: DomainState, channel: string): NonNullable<ConvView['que
   return state.log
     .filter((l): l is AgentItem => l.type === 'agent' && l.channel === channel && l.status === 'queued' && l.owner === me && (l.requester !== undefined ? l.requester === me : l.requesterName === l.ownerName))
     .slice(0, 20)
-    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}), ...(l.origin ? { origin: { ref: clip(l.origin.ref, 400), title: clip(l.origin.title, 200), agent: clip(l.origin.agent.label, 64) } } : {}) }));
+    .map((l) => ({ id: clip(l.requestId, 200), text: plainLine(l.prompt ?? '', 300) || 'A message', ...(l.slotWait ? { waiting: clip(slotWaitDetail(l.slotWait), 300) } : {}), ...(l.origin ? { origin: { ref: clip(l.origin.ref, 400), title: clip(l.origin.title, 200), agent: clip(l.origin.agent.label, 64), ...(l.origin.sentinel ? { sentinel: clip(l.origin.sentinel.name, 200) } : {}) } } : {}) }));
 }
 
 const planState = (plan: Plan, progress: PlanProgress): string => (plan.status === 'active' && plan.paused ? 'paused' : plan.status === 'active' && progress.next.kind === 'done' ? 'done' : plan.status);

@@ -4,7 +4,7 @@
  * that explains each one). Browser-safe: data only.
  */
 
-export const EXPERIMENTS = ['previews'] as const;
+export const EXPERIMENTS = ['previews', 'chat-schedules'] as const;
 export type Experiment = (typeof EXPERIMENTS)[number];
 
 export interface ExperimentInfo {
@@ -35,11 +35,28 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
     keywords: 'preview component react render storybook page html props live',
     cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away, and while this is off nothing of it runs at all.',
   },
+  'chat-schedules': {
+    id: 'chat-schedules',
+    title: 'Chat schedules',
+    summary: 'Let a sentinel send a prompt into one of your own chats on a schedule, or once at a time you pick.',
+    changes: [
+      'A sentinel can have a chat step: it sends your prompt into one of your chats, waits for the answer and keeps its first line in the run.',
+      'The message in the chat says which sentinel sent it.',
+      'Only your own chats: a chat shared with a contributor is refused, and the sentinel pauses with the reason.',
+    ],
+    keywords: 'schedule chat prompt every day later once remind wake sentinel',
+    cost: 'Each run starts a turn of your agent, so it uses your subscription as if you sent the prompt yourself. While this is off no chat step runs.',
+  },
 };
 
 /** Whether an experiment is on in a list of enabled ones (unknown ids from a newer Beluga are kept, never on). */
 export function experimentOn(enabled: readonly string[] | undefined, id: Experiment): boolean {
   return Boolean(enabled?.includes(id));
+}
+
+/** A live check of one experiment, for the daemon to hand to the code it gates (reads the prefs at each call). */
+export function experimentGate(enabled: () => readonly string[] | undefined, id: Experiment): () => boolean {
+  return () => experimentOn(enabled(), id);
 }
 
 /** The list with `id` turned on or off (a new list; order kept). */

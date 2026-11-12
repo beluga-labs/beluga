@@ -15,7 +15,7 @@ import { chatMentionsAsTitles } from '../../shared/chat-ref.js';
 
 // ---------------------------------------------------------------- triggers
 
-export const TRIGGER_KINDS = ['schedule', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
+export const TRIGGER_KINDS = ['schedule', 'once', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const SCHEDULE_EVERY = ['minutes', 'hours', 'day', 'other-day', 'week', 'month'] as const;
@@ -41,6 +41,15 @@ export interface ScheduleTrigger {
   /** For `month`: 1…28. */
   readonly day?: number;
   /** A slot that passed while the Mac slept or Beluga was closed: run once when it's back, or skip it. */
+  readonly missed: 'catch-up' | 'skip';
+}
+
+/** One time, at a moment ('in 5 hours'). After it ran it has no next time: the sentinel stays. */
+export interface OnceTrigger {
+  readonly kind: 'once';
+  /** The moment, as an ISO date and time with its offset ("2026-11-12T14:00:00+01:00"). */
+  readonly at: string;
+  /** The moment passed while the Mac slept or Beluga was closed: run when it's back, or skip it. */
   readonly missed: 'catch-up' | 'skip';
 }
 
@@ -103,11 +112,11 @@ export interface WebhookTrigger {
   readonly signature?: 'github' | 'stripe';
 }
 
-export type Trigger = ScheduleTrigger | ManualTrigger | AfterTrigger | BelugaTrigger | GitHubTrigger | StripeTrigger | UptimeTrigger | SentryTrigger | WebhookTrigger;
+export type Trigger = ScheduleTrigger | OnceTrigger | ManualTrigger | AfterTrigger | BelugaTrigger | GitHubTrigger | StripeTrigger | UptimeTrigger | SentryTrigger | WebhookTrigger;
 
 // ---------------------------------------------------------------- steps
 
-export const STEP_KINDS = ['claude', 'script', 'notify', 'http', 'pr', 'merge', 'message', 'friend', 'trigger', 'measure'] as const;
+export const STEP_KINDS = ['claude', 'script', 'notify', 'http', 'pr', 'merge', 'message', 'chat', 'friend', 'trigger', 'measure'] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
 interface StepBase {
@@ -212,6 +221,18 @@ export interface MessageStep extends StepBase {
   readonly text: string;
 }
 
+/**
+ * Wake one of your own chats (BLG-397): the prompt goes in as from the sentinel, the step waits for
+ * that turn and keeps the first line of its answer. Only a chat that is yours alone: one shared with
+ * a contributor is refused, and the sentinel pauses. Behind the chat-schedules experiment.
+ */
+export interface ChatStep extends StepBase {
+  readonly kind: 'chat';
+  /** One of your chats, as its ref ("<you>/ws:<id>"). */
+  readonly to: string;
+  readonly text: string;
+}
+
 /** Phase 2. */
 export interface FriendStep extends StepBase {
   readonly kind: 'friend';
@@ -289,7 +310,7 @@ export interface MeasureStep extends StepBase {
   readonly filesKeepDays?: number;
 }
 
-export type Step = ClaudeStep | ScriptStep | NotifyStep | HttpStep | PrStep | MergeStep | MessageStep | FriendStep | TriggerStep | MeasureStep;
+export type Step = ClaudeStep | ScriptStep | NotifyStep | HttpStep | PrStep | MergeStep | MessageStep | ChatStep | FriendStep | TriggerStep | MeasureStep;
 
 // ---------------------------------------------------------------- a sentinel
 
@@ -909,6 +930,7 @@ export const sentinelLabel = (s: Pick<Sentinel, 'name'>): string => `sentinel:${
 
 export const TRIGGER_INFO: Readonly<Record<TriggerKind, { readonly label: string; readonly phase: 1 | 2 | 3 }>> = {
   schedule: { label: 'On a schedule', phase: 1 },
+  once: { label: 'One time', phase: 1 },
   manual: { label: 'Only when you press Run', phase: 1 },
   after: { label: 'After another sentinel', phase: 2 },
   beluga: { label: 'When something happens in Beluga', phase: 3 },
@@ -927,6 +949,7 @@ export const STEP_INFO: Readonly<Record<StepKind, { readonly label: string; read
   pr: { label: 'Open a pull request', hint: 'From the worktree the run’s agent step made', needs: 'work', phase: 2 },
   merge: { label: 'Merge if acceptable', hint: 'When the checks pass and you’ve approved', needs: 'ship', phase: 2 },
   message: { label: 'Message a chat', hint: 'A friend or a group, as you', needs: 'look', phase: 2 },
+  chat: { label: 'Wake one of your chats', hint: 'Sends a prompt into one of your own chats and keeps the answer’s first line', needs: 'look', phase: 5 },
   friend: { label: 'Ask a friend’s agent', hint: 'As you; their trust applies', needs: 'look', phase: 2 },
   trigger: { label: 'Run another sentinel', hint: 'Starts it with this run’s last output', needs: 'look', phase: 2 },
   measure: { label: 'Keep the numbers', hint: 'Numbers or rows from the step before, a source, or the agent, kept over time', needs: 'look', phase: 5 },
@@ -959,7 +982,7 @@ export function pausedWords(s: Pick<Sentinel, 'paused' | 'pausedWhy'>): string |
 export const CLAUDE_CHANGED_BANNER = 'Your agent changed what this sentinel can do. Turn On to let it run.';
 
 /** Steps whose change by Claude pauses the sentinel (they run things, call out, or ship). */
-export const GUARDED_STEPS: ReadonlySet<StepKind> = new Set(['script', 'http', 'pr', 'merge']);
+export const GUARDED_STEPS: ReadonlySet<StepKind> = new Set(['script', 'http', 'pr', 'merge', 'chat']);
 
 /** A guarded step, or a Keep the numbers step that runs a source (a query, a command, a request). */
 const isGuarded = (st: Step): boolean => GUARDED_STEPS.has(st.kind) || (st.kind === 'measure' && st.from === 'source');
@@ -978,6 +1001,8 @@ const stable = (v: unknown): string =>
 const stepTargets = (st: Step): string[] =>
   st.kind === 'message'
     ? [`message:${st.to}`]
+    : st.kind === 'chat'
+      ? [`chat:${st.to}`]
     : st.kind === 'friend'
       ? [`friend:${st.peerId}`]
       : st.kind === 'trigger'
@@ -994,6 +1019,7 @@ const stepTargets = (st: Step): string[] =>
 const triggerTarget = (t: Trigger): string => {
   switch (t.kind) {
     case 'schedule':
+    case 'once':
     case 'manual':
       return t.kind;
     case 'after':
@@ -1107,6 +1133,15 @@ export const RUN_STATE_INFO: Readonly<Record<RunState, { readonly label: string;
 
 export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/** A one-time trigger's moment, in the Mac's local time: "Once, Thu 12 Nov 14:00". */
+function onceSentence(at: string): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return 'Once';
+  return `Once, ${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 /** "07:00" → "7:00". */
 export function clockText(at: string): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec(at);
@@ -1172,6 +1207,8 @@ export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => strin
       }
       return at;
     }
+    case 'once':
+      return onceSentence(trigger.at);
     case 'manual':
       return 'Only when you press Run';
     case 'after': {
@@ -1247,6 +1284,10 @@ export function stepSentence(step: Step, nameOf: (id: string) => string | undefi
     case 'message': {
       const name = nameOf(step.to);
       return name ? `Messages ${name}` : `Messages ${step.to.startsWith('group:') ? 'a group' : 'a friend'}`;
+    }
+    case 'chat': {
+      const name = nameOf(step.to);
+      return name ? `Wakes your chat “${name}”` : 'Wakes one of your chats';
     }
     case 'friend': {
       const name = nameOf(step.peerId);

@@ -513,8 +513,14 @@ function FromChatCard({ origin, topic, turn, chats }: { origin: NonNullable<Turn
         <T v="caption" style={{ fontWeight: '600' }}>
           From
         </T>
-        {on && ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
-        <T v="caption">· {origin.agent}, an agent</T>
+        {origin.sentinel ? (
+          <T v="caption">Sentinel {origin.sentinel}</T>
+        ) : (
+          <>
+            {on && ref ? <InlineThing el={{ kind: 'chat', ref }} /> : <T v="caption">{origin.title}</T>}
+            <T v="caption">· {origin.agent}, an agent</T>
+          </>
+        )}
       </View>
       <Prose prose={origin.prose} at={{ topic, turn }} chats={chats} />
     </View>

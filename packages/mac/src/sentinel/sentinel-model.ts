@@ -70,6 +70,7 @@ export const iconOf = (name: string | undefined): IconName => (name && SENTINEL_
 
 export const TRIGGER_ICON: Readonly<Record<TriggerKind, IconName>> = {
   schedule: 'clock',
+  once: 'clock',
   manual: 'hand',
   after: 'refresh',
   beluga: 'claude',
@@ -88,6 +89,7 @@ export const STEP_ICON: Readonly<Record<StepKind, IconName>> = {
   pr: 'pr',
   merge: 'merge',
   message: 'chat',
+  chat: 'chat',
   friend: 'people',
   trigger: 'play',
   measure: 'gauge',
@@ -387,12 +389,14 @@ export function withInterval(t: ScheduleTrigger, value: string): ScheduleTrigger
 
 /** "What starts it": a schedule, by hand, after another sentinel, or an event (each kind this Beluga runs). */
 export function triggerChoices(): Array<{ readonly value: TriggerKind; readonly label: string; readonly disabled: boolean; readonly description?: string }> {
-  return (Object.keys(TRIGGER_INFO) as TriggerKind[]).map((k) => ({ value: k, label: k === 'schedule' ? 'On a schedule' : TRIGGER_INFO[k].label, disabled: !triggerAvailable(k), ...(triggerAvailable(k) ? { description: TRIGGER_HINT[k] } : { description: LATER }) }));
+  // A one-time trigger is set by your agent for now (sentinel_create): the Mac shows it, and has no form for it yet.
+  return (Object.keys(TRIGGER_INFO) as TriggerKind[]).filter((k) => k !== 'once').map((k) => ({ value: k, label: k === 'schedule' ? 'On a schedule' : TRIGGER_INFO[k].label, disabled: !triggerAvailable(k), ...(triggerAvailable(k) ? { description: TRIGGER_HINT[k] } : { description: LATER }) }));
 }
 
 /** The menu's one line under each kind. */
 const TRIGGER_HINT: Readonly<Record<TriggerKind, string>> = {
   schedule: 'Every few minutes or hours, every day, week or month',
+  once: 'One time, at a moment you pick',
   manual: 'Run Now, here or from your phone',
   after: 'When another sentinel’s run ends',
   beluga: 'A task is done, a pull request opens, an agent finishes…',
@@ -641,7 +645,8 @@ export interface StepChoice {
 
 /** Add a step: the ten kinds, each with why it can't be added when it can't (a later update, or the access). */
 export function stepChoices(access: Access): StepChoice[] {
-  return (Object.keys(STEP_INFO) as StepKind[]).map((kind) => {
+  // Wake one of your chats is set by your agent for now (sentinel_create): the Mac shows it, and has no form for it yet.
+  return (Object.keys(STEP_INFO) as StepKind[]).filter((kind) => kind !== 'chat').map((kind) => {
     const info = STEP_INFO[kind];
     const later = !stepAvailable(kind);
     const refused = later ? undefined : stepRefusal(access, kind);
@@ -666,6 +671,8 @@ export function newStep(kind: StepKind): StepDraft {
       return { kind: 'merge', name: 'Merge if acceptable', require: { checks: true, approval: true }, method: 'squash' };
     case 'message':
       return { kind: 'message', name: 'Message a chat', to: '', text: '{{sentinel}}: {{previous}}' };
+    case 'chat':
+      return { kind: 'chat', name: 'Wake one of your chats', to: '', text: '' };
     case 'friend':
       return { kind: 'friend', name: 'Ask a friend’s agent', peerId: '', prompt: '' };
     case 'trigger':

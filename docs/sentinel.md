@@ -26,6 +26,7 @@ Sentinel
 | Kind | Window says | Fields | Phase |
 |---|---|---|---|
 | `schedule` | Every day at 7:00 · Every other day at 9:00 · Every week on Mon, Wed at 7:00 · Every month on the 1st at 9:00 · Every 3 hours · Every 15 minutes | `every: 'minutes' \| 'hours' \| 'day' \| 'other-day' \| 'week' \| 'month'`, `at: 'HH:MM'`, `minutes?: 1 \| 5 \| 10 \| 15 \| 30` (on the clock, `at` not used), `hours?: 1 \| 2 \| 3 \| 6 \| 12`, `days?: number[]` (0 Sunday … 6 Saturday, for week), `day?: 1…28` (for month), `missed: 'catch-up' \| 'skip'` | 1 |
+| `once` | Once, Thu 12 Nov 14:00 | `at` (an ISO date and time with its offset), `missed: 'catch-up' \| 'skip'`; runs one time, then has no next time (the sentinel stays). A past `at` is refused at create and update. Set by your agent for now: the window has no form for it | 5 |
 | `manual` | Only when you press Run | — | 1 |
 | `after` | After "Nightly tests" fails | `sentinelId`, `on: 'success' \| 'failure' \| 'always'` | 2 |
 | `beluga` | When a task is done · a pull request opens · a pull request merges · a milestone passes · a worktree's agent finishes · a friend asks something | `what`, `projectId?` | 3 |
@@ -58,6 +59,7 @@ Each step has an `id`, a `name` the window shows ("Read what changed"), and its 
 | `pr` | Open a pull request | `draft?: boolean`; uses the project's PR instructions (`buildPrPrompt`, `beluga.json` `prPrompt`) and the worktree the run's agent step made | 2 |
 | `merge` | Merge if acceptable | `require: { checks: true, approval: boolean }`, `method: 'squash' \| 'merge'`; see §5 | 2 |
 | `message` | Message a chat | `to: 'dm:<peerId>' \| 'group:<id>'`, `text` (templates; `@name` tags people and tells them) | 2 |
+| `chat` | Wake one of your chats | `to` (your own chat's ref, `<you>/ws:<id>`), `text`; sends the prompt as from the sentinel (the card says "From Sentinel <name>"), waits for that turn within the time limit, and keeps its answer's first line. Only a chat that is yours alone: one shared with a contributor is refused, and at run time the sentinel pauses with the reason. Its turn never becomes the run's conversation (it stays in Unread and auto-continue), and a `claude-finished` sentinel never wakes itself again (the chain guard). Behind the Chat schedules experiment. Set by your agent for now | 5 |
 | `friend` | Ask a friend's agent | `peerId`, `prompt`, `project?`; the gateway's `ask` as you; their trust applies | 2 |
 | `trigger` | Run another sentinel | `sentinelId`; the other sentinel's run says `by: after:<this run>` | 2 |
 

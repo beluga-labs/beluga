@@ -442,7 +442,8 @@ export const TurnView = z.object({
    * 1.45 (BLG-149): the agent in another chat, not you, asked for this turn: its chat's ref and
    * title, the agent, and its words. Drawn above the turn as a card, never as your message.
    */
-  origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), prose: ProseView }).optional(),
+  /** `sentinel`: one of your sentinels sent it (its name); the card says "From Sentinel <name>". An older phone shows the title. */
+  origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), sentinel: z.string().max(200).optional(), prose: ProseView }).optional(),
   /** 1.3: what it's doing now (a running turn), and its steps in words with their tools, newest last. */
   live: LiveView.optional(),
   trail: z.array(StepView).max(40).optional(),
@@ -694,7 +695,7 @@ export const ConvView = z.object({
         text: z.string().max(300),
         waiting: z.string().max(300).optional(),
         /** 1.46: an agent in another chat sent it, not you: its chat's ref and title, and the agent. */
-        origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64) }).optional(),
+        origin: z.object({ ref: z.string().max(400), title: z.string().max(200), agent: z.string().max(64), sentinel: z.string().max(200).optional() }).optional(),
       }),
     )
     .max(20)
