@@ -147,3 +147,55 @@ describe('McpConnect.readUiResource (MCP Apps)', () => {
     expect(f.closed()).toBe(1);
   });
 });
+
+describe('McpConnect app calls (MCP Apps: apps.call, apps.read)', () => {
+  const st = (name: string, status: McpServerStatus['status'], tools?: unknown[]): McpServerStatus => ({ name, status, ...(tools ? { tools } : {}) }) as McpServerStatus;
+
+  it('lists one server’s tools with their annotations and _meta, once it is up', async () => {
+    const { home: dir } = home();
+    const tools = [{ name: 'now', annotations: { readOnly: true }, _meta: { ui: { resourceUri: 'ui://f/a.html' } } }];
+    const f = fake([[st('figma', 'pending')], [st('figma', 'connected', tools)]]);
+    const mcp = new McpConnect(f.open, { home: dir, env: {}, settleMs: 60_000, pollMs: 1 });
+    expect(await mcp.appTools([dir], 'figma')).toEqual(tools);
+    expect(await mcp.appTools([dir], 'linear')).toEqual([]);
+    expect(f.closed()).toBe(2);
+  });
+
+  it('calls a tool with mcp_call over the session’s control channel, and closes it', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'connected')]]);
+    const sent: unknown[] = [];
+    let closed = 0;
+    const open: OpenMcpSession = (cwd, servers) => ({
+      ...f.open(cwd, servers),
+      request: async (req: Record<string, unknown>) => {
+        sent.push(req);
+        return { response: { content: [{ type: 'text', text: 'ok' }] } };
+      },
+      close: () => void closed++,
+    });
+    const mcp = new McpConnect(open, { home: dir, env: {}, pollMs: 1 });
+    expect(await mcp.appCall([dir], 'figma', 'now', { a: 1 })).toEqual({ content: [{ type: 'text', text: 'ok' }] });
+    expect(sent).toEqual([{ subtype: 'mcp_call', tool: 'mcp__figma__now', arguments: { a: 1 }, result_not_for_model: true }]);
+    expect(closed).toBe(1);
+  });
+
+  it('says so when Claude Code cannot call tools for apps', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'connected')]]);
+    const mcp = new McpConnect(f.open, { home: dir, env: {}, pollMs: 1 });
+    await expect(mcp.appCall([dir], 'figma', 'now', {})).rejects.toThrow(/can’t call MCP App tools/);
+    expect(f.closed()).toBe(1);
+  });
+
+  it('reads a resource whole for the app', async () => {
+    const { home: dir } = home();
+    const f = fake([[st('figma', 'connected')]]);
+    const open: OpenMcpSession = (cwd, servers) => ({
+      ...f.open(cwd, servers),
+      readMcpResource: async (_s: string, uri: string) => ({ contents: [{ uri, blob: 'AA==' }] }),
+    });
+    const mcp = new McpConnect(open, { home: dir, env: {}, pollMs: 1 });
+    expect(await mcp.appRead([dir], 'figma', 'ui://figma/x.png')).toEqual({ contents: [{ uri: 'ui://figma/x.png', blob: 'AA==' }] });
+  });
+});

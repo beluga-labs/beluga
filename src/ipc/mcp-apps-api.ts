@@ -11,4 +11,9 @@ export const MCP_APPS_API = {
   // A step's app → McpAppView (shared/mcp-apps.ts): its frame URL on this computer's app host, the
   // tool call's input and result, or why there's none (off, missing, unavailable). (channel, itemId, stepId)
   'apps.get': { args: z.tuple([id, id, id]) },
+  // The app on a step calls a tool of its own server (SEP-1865 tools/call) → AppActResult: gated
+  // (own server, visibility 'app', readOnly or you allowed it). (channel, itemId, stepId, tool, arguments)
+  'apps.call': { args: z.tuple([id, id, id, id, z.record(z.string(), z.unknown())]) },
+  // The app on a step reads a ui:// resource of its own server (resources/read) → AppActResult. (channel, itemId, stepId, uri)
+  'apps.read': { args: z.tuple([id, id, id, z.string().min(1).max(2048)]) },
 } as const;

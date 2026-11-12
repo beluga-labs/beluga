@@ -529,6 +529,8 @@ export const PHONE: Record<Method, Side> = {
   'preview.snapshot': 'mac',
   // An MCP App runs a server's page in the Mac window's frame; the phone shows the step's one line.
   'apps.get': 'mac',
+  'apps.call': 'mac',
+  'apps.read': 'mac',
   'files.searchContent': 'mac',
   'files.searchNames': 'mac',
   'files.save': 'mac',

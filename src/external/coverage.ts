@@ -567,6 +567,8 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'preview.open': { refused: PREVIEW },
   'preview.snapshot': { refused: PREVIEW },
   'apps.get': { refused: MCP_APP },
+  'apps.call': { refused: MCP_APP },
+  'apps.read': { refused: MCP_APP },
   'files.readRange': { refused: NO_TOOL },
   'machines.alwaysOn': { refused: COMPUTERS },
   'machines.alwaysOn.status': { refused: COMPUTERS },

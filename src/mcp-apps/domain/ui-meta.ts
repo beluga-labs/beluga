@@ -40,9 +40,19 @@ export function toolUiOf(meta: unknown): ToolUi | undefined {
   const ui = asRecord(m.ui);
   const resourceUri = [ui?.resourceUri, m['ui/resourceUri'], m['openai/outputTemplate']].find(isUiUri);
   if (!resourceUri) return undefined;
-  const listed = Array.isArray(ui?.visibility) ? (ui.visibility as unknown[]) : undefined;
-  const visibility = listed ? AUDIENCES.filter((a) => listed.includes(a)) : AUDIENCES;
-  return { resourceUri, visibility };
+  return { resourceUri, visibility: toolVisibility(m) };
+}
+
+/**
+ * Who may call a tool: the audiences its `_meta.ui.visibility` lists. No `ui` declared: both
+ * (SEP-1865's default). A listed visibility is taken as is, so `[]` (Claude Code's answer for a
+ * `ui` that failed its checks) is neither.
+ */
+export function toolVisibility(meta: unknown): readonly Audience[] {
+  const ui = asRecord(asRecord(meta)?.ui);
+  if (!ui || !Array.isArray(ui.visibility)) return AUDIENCES;
+  const listed = ui.visibility as unknown[];
+  return AUDIENCES.filter((a) => listed.includes(a));
 }
 
 /** What a resource's `_meta.ui` asks for; nothing declared means no network at all. */

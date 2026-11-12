@@ -597,6 +597,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
     mcpSignIn: (projects, name) => mcp.signIn([opts.cwd, ...projects], name),
     mcpSignedIn: (name) => mcp.signedIn(name),
     mcpReadUiResource: (projects, server, uri) => mcp.readUiResource([opts.cwd, ...projects], server, uri),
+    mcpAppTools: (projects, server) => mcp.appTools([opts.cwd, ...projects], server),
+    mcpAppCall: (projects, server, tool, args) => mcp.appCall([opts.cwd, ...projects], server, tool, args),
+    mcpAppRead: (projects, server, uri) => mcp.appRead([opts.cwd, ...projects], server, uri),
 
     /** Ask Claude Code which models it offers (no prompt is sent). */
     async listModels() {

@@ -1,8 +1,11 @@
+import type { AppActResult, AppReadResult, AppToolResult } from '../../../../../src/shared/mcp-apps.js';
+
 /**
  * The host side of the MCP Apps bridge (SEP-1865): JSON-RPC 2.0 over postMessage with one app's
- * frame. For now it only displays: it answers `ui/initialize`, then hands the app the tool's input
- * and result, and follows its size. Every request it doesn't offer is answered method-not-found.
- * Messages from any window but the app's own are ignored. Pure: the frame and React wire it up.
+ * frame. It answers `ui/initialize`, hands the app the tool's input and result, follows its size,
+ * and forwards the app's tools/call and resources/read to Beluga (apps.call, apps.read: gated
+ * there). Every request it doesn't offer is answered method-not-found. Messages from any window
+ * but the app's own are ignored. Pure: the frame and React wire it up.
  */
 
 export const PROTOCOL_VERSION = '2026-01-26';
@@ -10,6 +13,9 @@ export const PROTOCOL_VERSION = '2026-01-26';
 export const MAX_APP_HEIGHT = 720;
 
 const METHOD_NOT_FOUND = -32601;
+const INVALID_PARAMS = -32602;
+/** Beluga didn't run it: refused, declined, off, or it could not run. */
+const NOT_RUN = -32000;
 
 export interface HostContext {
   readonly theme: 'light' | 'dark';
@@ -38,6 +44,10 @@ export interface BridgeEffects {
   post(message: object): void;
   /** The app asked for this height (already capped). */
   size(height: number): void;
+  /** tools/call on the app's own server (apps.call). Absent: the app can't call tools. */
+  call?(name: string, args: Readonly<Record<string, unknown>>): Promise<AppActResult<AppToolResult>>;
+  /** resources/read on the app's own server (apps.read). */
+  read?(uri: string): Promise<AppActResult<AppReadResult>>;
 }
 
 interface RpcMessage {
@@ -64,7 +74,7 @@ export class AppBridge {
   receive(source: unknown, frame: unknown, data: unknown): void {
     if (!source || source !== frame || !isRpc(data) || !data.method) return;
     if (data.id === undefined) return this.notification(data.method, data.params);
-    this.request(data.id, data.method);
+    this.request(data.id, data.method, data.params);
   }
 
   /** The tool's result arrived (it was running when the app opened): sent once the app is ready. */
@@ -78,16 +88,42 @@ export class AppBridge {
     this.fx.post({ jsonrpc: '2.0', id: `teardown-${this.nextId++}`, method: 'ui/resource-teardown', params: {} });
   }
 
-  private request(id: string | number, method: string): void {
+  private request(id: string | number, method: string, params: unknown): void {
     if (method === 'ui/initialize') {
       return this.fx.post({
         jsonrpc: '2.0',
         id,
-        result: { protocolVersion: PROTOCOL_VERSION, hostInfo: { name: 'Beluga', version: '1' }, hostCapabilities: {}, hostContext: this.init.hostContext },
+        result: { protocolVersion: PROTOCOL_VERSION, hostInfo: { name: 'Beluga', version: '1' }, hostCapabilities: this.capabilities(), hostContext: this.init.hostContext },
       });
     }
     if (method === 'ping') return this.fx.post({ jsonrpc: '2.0', id, result: {} });
-    this.fx.post({ jsonrpc: '2.0', id, error: { code: METHOD_NOT_FOUND, message: `Method not found: ${method}` } });
+    const p = asRecord(params);
+    if (method === 'tools/call' && this.fx.call) {
+      const args = p?.arguments ?? {};
+      if (typeof p?.name !== 'string' || !p.name || !asRecord(args)) return this.error(id, INVALID_PARAMS, 'tools/call needs a tool name and an arguments object.');
+      return this.answer(id, this.fx.call(p.name, args as Record<string, unknown>));
+    }
+    if (method === 'resources/read' && this.fx.read) {
+      if (typeof p?.uri !== 'string' || !p.uri) return this.error(id, INVALID_PARAMS, 'resources/read needs a uri.');
+      return this.answer(id, this.fx.read(p.uri));
+    }
+    this.error(id, METHOD_NOT_FOUND, `Method not found: ${method}`);
+  }
+
+  /** What this host offers the app, as SEP-1865 names it. */
+  private capabilities(): Record<string, object> {
+    return { ...(this.fx.call ? { serverTools: {} } : {}), ...(this.fx.read ? { serverResources: {} } : {}) };
+  }
+
+  private answer(id: string | number, pending: Promise<AppActResult<unknown>>): void {
+    pending.then(
+      (r) => (r.ok ? this.fx.post({ jsonrpc: '2.0', id, result: r.result }) : this.error(id, NOT_RUN, r.message)),
+      (err: unknown) => this.error(id, NOT_RUN, err instanceof Error ? err.message : String(err)),
+    );
+  }
+
+  private error(id: string | number, code: number, message: string): void {
+    this.fx.post({ jsonrpc: '2.0', id, error: { code, message } });
   }
 
   private notification(method: string, params: unknown): void {
@@ -108,6 +144,10 @@ export class AppBridge {
     this.resultSent = true;
     this.fx.post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: this.result });
   }
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 }
 
 function isRpc(data: unknown): data is RpcMessage {

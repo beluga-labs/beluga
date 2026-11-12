@@ -481,6 +481,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   'preview.snapshot': 'drive',
   // MCP Apps: served on that computer's loopback app host (its port isn't forwarded the way previews' is, yet).
   'apps.get': 'drive',
+  'apps.call': 'drive',
+  'apps.read': 'drive',
   // ---- dialogues
   'dialogues.start': 'drive',
   'dialogues.confirm': 'drive',

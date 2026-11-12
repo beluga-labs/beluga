@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { type McpServerStatus, type Options, query } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerRow, McpSignIn } from '../../../shared/mcp.js';
+import type { AppReadResult, AppToolResult } from '../../../shared/mcp-apps.js';
+import { type ControlChannel, sdkMcpCall } from '../../../mcp-apps/adapters/sdk-mcp-call.js';
+import type { CatalogTool } from '../../../mcp-apps/ports/tool-catalog.js';
 import { type OwnerMcpEntry, ownerMcpEntries } from './owner-mcp.js';
 import { claudeExecutable } from '../../claude-code.js';
 
@@ -16,7 +19,9 @@ export interface McpSession {
   /** Claude Code's own sign-in: the page to open, while it waits on localhost for the browser to come back. */
   mcpAuthenticate?(serverName: string): Promise<{ authUrl?: string; requiresUserAction?: boolean } | undefined>;
   /** MCP Apps: a `ui://` resource of a connected server (Claude Code's mcp_read_resource_v1). */
-  readMcpResource?(serverName: string, uri: string): Promise<{ contents: ReadonlyArray<{ uri: string; mimeType?: string; text?: string; _meta?: Record<string, unknown> }> }>;
+  readMcpResource?(serverName: string, uri: string): Promise<AppReadResult>;
+  /** MCP Apps: Query's control channel, for the `mcp_call` request the SDK has no method for yet. */
+  request?: ControlChannel['request'];
   close(): void;
 }
 
@@ -100,17 +105,30 @@ export class McpConnect {
    * that called the tool may be over): its HTML and the content item's `_meta` (its csp).
    */
   async readUiResource(cwds: readonly string[], server: string, uri: string): Promise<{ html: string; meta?: Record<string, unknown> }> {
-    const entries = this.entries(cwds);
-    const session = this.open(cwds[0] ?? process.cwd(), Object.fromEntries(entries.map((e) => [e.name, e.config])));
-    try {
+    const item = (await this.appRead(cwds, server, uri)).contents.find((c) => typeof c.text === 'string');
+    if (!item?.text) throw new Error('That MCP App has no page to show.');
+    return { html: item.text, ...(item._meta ? { meta: item._meta } : {}) };
+  }
+
+  /** MCP Apps: resources/read of one `ui://` resource, whole, for an app (apps.read). */
+  appRead(cwds: readonly string[], server: string, uri: string): Promise<AppReadResult> {
+    return this.withServer(cwds, server, (session) => {
       if (typeof session.readMcpResource !== 'function') throw new Error('This Claude Code can’t read MCP App views. Update Claude Code.');
-      await this.settle(session, server);
-      const item = (await session.readMcpResource(server, uri)).contents.find((c) => typeof c.text === 'string');
-      if (!item?.text) throw new Error('That MCP App has no page to show.');
-      return { html: item.text, ...(item._meta ? { meta: item._meta } : {}) };
-    } finally {
-      session.close();
-    }
+      return session.readMcpResource(server, uri);
+    });
+  }
+
+  /** MCP Apps: one server's tools now, with their annotations and `_meta` (for the app tool gate). */
+  appTools(cwds: readonly string[], server: string): Promise<readonly CatalogTool[]> {
+    return this.withServer(cwds, server, async (_session, statuses) => (statuses.find((s) => s.name === server)?.tools ?? []) as readonly CatalogTool[]);
+  }
+
+  /** MCP Apps: an app's tools/call, its result for the app and never a model (apps.call; gated by the caller). */
+  appCall(cwds: readonly string[], server: string, tool: string, args: Readonly<Record<string, unknown>>): Promise<AppToolResult> {
+    return this.withServer(cwds, server, (session) => {
+      if (typeof session.request !== 'function') throw new Error('This Claude Code can’t call MCP App tools. Update Claude Code.');
+      return sdkMcpCall({ request: (req) => session.request!(req) }, server, tool, args);
+    });
   }
 
   /** Waits for a sign-in started with signIn: true once the server is connected, false when it gave up; undefined when none is waiting. */
@@ -122,6 +140,16 @@ export class McpConnect {
   close(): void {
     for (const { session } of this.signIns.values()) session.close();
     this.signIns.clear();
+  }
+
+  /** A session of its own with your servers, once `server` is up (or as it is when that took too long); closed after. */
+  private async withServer<T>(cwds: readonly string[], server: string, use: (session: McpSession, statuses: McpServerStatus[]) => Promise<T>): Promise<T> {
+    const session = this.openFor(cwds, this.entries(cwds));
+    try {
+      return await use(session, await this.settle(session, server));
+    } finally {
+      session.close();
+    }
   }
 
   private entries(cwds: readonly string[]): OwnerMcpEntry[] {

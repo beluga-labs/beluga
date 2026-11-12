@@ -5,6 +5,8 @@
 
 export interface CatalogTool {
   readonly name: string;
+  /** Claude Code says `readOnly`; MCP itself says `readOnlyHint`. A hint from the server, never proof. */
+  readonly annotations?: { readonly readOnly?: boolean; readonly readOnlyHint?: boolean };
   readonly _meta?: Record<string, unknown>;
 }
 

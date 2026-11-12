@@ -32,3 +32,30 @@ export type McpAppView =
       readonly prefersBorder?: boolean;
     }
   | { readonly ok: false; readonly reason: 'off' | 'missing' | 'unavailable'; readonly message: string };
+
+/** MCP's CallToolResult as a server sent it, for its app: untrusted data, drawn only in the app's frame. */
+export interface AppToolResult {
+  readonly content: ReadonlyArray<Readonly<Record<string, unknown>> & { readonly type: string }>;
+  readonly structuredContent?: unknown;
+  readonly isError?: boolean;
+}
+
+/** MCP's ReadResourceResult, for an app. */
+export interface AppReadResult {
+  readonly contents: ReadonlyArray<{ readonly uri: string; readonly mimeType?: string; readonly text?: string; readonly blob?: string; readonly _meta?: Record<string, unknown> }>;
+}
+
+/** Where an app was drawn: the step of your Claude's work that called its tool. */
+export interface AppStepRef {
+  readonly channel: string;
+  readonly itemId: string;
+  readonly stepId: string;
+}
+
+/**
+ * `apps.call` / `apps.read`: what the server answered, or why nothing ran: off (the experiment),
+ * missing (no app on that step), refused (Beluga's gate), declined (you said no), failed (it could not run).
+ */
+export type AppActResult<T> =
+  | { readonly ok: true; readonly result: T }
+  | { readonly ok: false; readonly reason: 'off' | 'missing' | 'refused' | 'declined' | 'failed'; readonly message: string };

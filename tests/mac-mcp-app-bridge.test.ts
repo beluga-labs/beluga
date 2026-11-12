@@ -102,3 +102,71 @@ describe('AppBridge', () => {
     expect(posted[0]!.id).toBeDefined();
   });
 });
+
+describe('AppBridge tools/call and resources/read', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  function acting(answer: { call?: unknown; read?: unknown } = {}) {
+    const posted: Array<Record<string, unknown>> = [];
+    const calls: unknown[][] = [];
+    const reads: string[] = [];
+    const bridge = new AppBridge(INIT, {
+      post: (m) => posted.push(m as Record<string, unknown>),
+      size: () => undefined,
+      call: async (name, args) => {
+        calls.push([name, args]);
+        return (answer.call ?? { ok: true, result: { content: [{ type: 'text', text: '12:00' }] } }) as never;
+      },
+      read: async (uri) => {
+        reads.push(uri);
+        return (answer.read ?? { ok: true, result: { contents: [{ uri, text: 'x' }] } }) as never;
+      },
+    });
+    const send = (data: unknown) => bridge.receive(FRAME, FRAME, data);
+    return { posted, calls, reads, send };
+  }
+
+  it('advertises serverTools and serverResources when it can act', () => {
+    const { posted, send } = acting();
+    send(initialize);
+    expect((posted[0]!.result as { hostCapabilities: Record<string, unknown> }).hostCapabilities).toMatchObject({ serverTools: {}, serverResources: {} });
+  });
+
+  it('forwards tools/call and answers the app with the result', async () => {
+    const { posted, calls, send } = acting();
+    send({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'now', arguments: { zone: 'UTC' } } });
+    await tick();
+    expect(calls).toEqual([['now', { zone: 'UTC' }]]);
+    expect(posted).toEqual([{ jsonrpc: '2.0', id: 5, result: { content: [{ type: 'text', text: '12:00' }] } }]);
+  });
+
+  it('answers a refused or declined call with an error, its message for the app', async () => {
+    const { posted, send } = acting({ call: { ok: false, reason: 'declined', message: 'You declined set_alarm.' } });
+    send({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'set_alarm' } });
+    await tick();
+    expect(posted[0]).toMatchObject({ jsonrpc: '2.0', id: 6, error: { message: 'You declined set_alarm.' } });
+  });
+
+  it('refuses a tools/call with no tool name, and sends nothing on', async () => {
+    const { posted, calls, send } = acting();
+    send({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { arguments: {} } });
+    send({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'now', arguments: 'nope' } });
+    await tick();
+    expect(calls).toEqual([]);
+    expect(posted.map((m) => (m.error as { code: number }).code)).toEqual([-32602, -32602]);
+  });
+
+  it('forwards resources/read and answers the app', async () => {
+    const { posted, reads, send } = acting();
+    send({ jsonrpc: '2.0', id: 9, method: 'resources/read', params: { uri: 'ui://clock/x.html' } });
+    await tick();
+    expect(reads).toEqual(['ui://clock/x.html']);
+    expect(posted[0]).toEqual({ jsonrpc: '2.0', id: 9, result: { contents: [{ uri: 'ui://clock/x.html', text: 'x' }] } });
+  });
+
+  it('answers method-not-found for tools/call when it can’t act', () => {
+    const { posted, send } = rig();
+    send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'now' } });
+    expect(posted[0]).toMatchObject({ error: { code: -32601 } });
+  });
+});

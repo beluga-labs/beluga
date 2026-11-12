@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import type { McpAppView } from '@beluga/shared/mcp-apps.js';
+import type { AppActResult, AppReadResult, AppStepRef, AppToolResult, McpAppView } from '@beluga/shared/mcp-apps.js';
 import { useApi } from '../../lib/beluga.js';
 import { AppBridge, type HostContext, MAX_APP_HEIGHT, type ToolResultParams } from './bridge.js';
 import s from './mcp-app.module.css';
@@ -28,10 +28,11 @@ export const AppFrame = memo(function AppFrame({ channel, itemId, stepId, done }
   }, [api, channel, itemId, stepId, done]);
   if (!view) return <div className={s.app} data-mcp-app="loading" style={{ height: FIRST_HEIGHT }} />;
   if (!view.ok) return view.reason === 'off' ? null : <div className={s.note}>This app can’t be shown: {view.message}</div>;
-  return <Frame view={view} />;
+  return <Frame view={view} at={{ channel, itemId, stepId }} />;
 });
 
-function Frame({ view }: { view: OkView }) {
+function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
+  const api = useApi();
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<AppBridge | undefined>(undefined);
   const [height, setHeight] = useState(FIRST_HEIGHT);
@@ -44,7 +45,13 @@ function Frame({ view }: { view: OkView }) {
     const origin = new URL(view.url).origin;
     const b = new AppBridge(
       { hostContext: hostContext(el), input: view.input, result },
-      { post: (m) => el.contentWindow?.postMessage(m, origin), size: setHeight },
+      {
+        post: (m) => el.contentWindow?.postMessage(m, origin),
+        size: setHeight,
+        // Beluga gates both (own server, 'app' visibility, readOnly or your Allow).
+        call: (name, args) => api.apps.call(at.channel, at.itemId, at.stepId, name, args) as Promise<AppActResult<AppToolResult>>,
+        read: (uri) => api.apps.read(at.channel, at.itemId, at.stepId, uri) as Promise<AppActResult<AppReadResult>>,
+      },
     );
     bridge.current = b;
     const onMessage = (e: MessageEvent): void => {
