@@ -20,6 +20,7 @@ import type { Action, LogItem, Store } from '../store.js';
 import { clean, peerName } from '../store.js';
 import { trustOf } from '../trust.js';
 import { type FriendShareInput, type FriendSharing, historyFor, saidBy } from '../workspace-sharing.js';
+import { NO_CHAT_FILES, inChatScratch } from './chat-files.js';
 import { COPY_TTL_MS, cloneFrom, cloneFromBundle, cloneUrl, copiesHome, copyTarget, packProject } from './copy.js';
 import { ShareCourier, type ShareMesh } from './courier.js';
 import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } from './fork.js';
@@ -102,6 +103,11 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message 
 const keyOf = (owner: string, id: string): string => `${owner}/${id}`;
 /** A repository's address as people say it: github.com/owner/repo. */
 const bareUrl = (url: string | undefined): string => (url ?? 'Its repository').replace(/^https:\/\//, '');
+/** The answer that refuses a request for a friend's files, in the kind of answer it waits for. */
+const refusal = (body: Extract<Body, { kind: 'fs_list' | 'fs_read' | 'fs_fetch' | 'fs_search' }>, error: string): BodyInput => {
+  const kind = body.kind === 'fs_list' ? 'fs_list_result' : body.kind === 'fs_read' ? 'fs_read_result' : body.kind === 'fs_fetch' ? 'fs_chunk' : 'fs_search_result';
+  return { kind, reqId: body.reqId, ok: false, error };
+};
 const liveWorktrees = (p: Project) => p.workspaces.filter((w) => !w.archived && !w.pending && !w.external && w.kind !== 'main');
 
 export interface FriendSharesOptions {
@@ -265,11 +271,12 @@ export class FriendShares implements FriendSharing {
     return name;
   }
 
-  private projectFor(share: { projectId?: string; workspaceId?: string }, needRoot = true): Project {
+  /** `whole`: sharing it all at once, which your plain chats (a project with no folder) never are: they go one at a time. */
+  private projectFor(share: { projectId?: string; workspaceId?: string }, whole = !share.workspaceId): Project {
     const projects = this.state.projects;
     const project = share.projectId ? projects.find((p) => p.id === share.projectId) : projects.find((p) => p.workspaces.some((w) => w.id === share.workspaceId));
     if (!project) throw new Error(share.projectId || share.workspaceId ? 'There’s no such project on this Mac' : 'Say which project or worktree to share');
-    if (needRoot && !project.root) throw new Error('Chats aren’t part of a project, so they can’t be shared this way');
+    if (whole && !project.root) throw new Error('Share your chats one at a time');
     return project;
   }
 
@@ -315,7 +322,7 @@ export class FriendShares implements FriendSharing {
           // Each with the agent that runs it (BLG-448): yours for it, else your default.
           worktrees: worktrees.map((w) => ({ id: w.id, name: w.name.slice(0, 200), ...(w.branch ? { branch: w.branch.slice(0, 200) } : {}), agent: placeAgent(w, defaultAgentOf(this.state.self)) })),
           members,
-          ...(grant.only ? this.repoFor(project) : this.copyFor(project)),
+          ...(!project.root ? { chats: true as const } : grant.only ? this.repoFor(project) : this.copyFor(project)),
         };
         const sig = JSON.stringify(msg);
         const fresh = worktrees.filter((w) => !had?.ws.includes(w.id));
@@ -628,6 +635,8 @@ export class FriendShares implements FriendSharing {
       } else if (!this.shareBetween(body.share, from) || !session.shareService.isPrivate(body.share)) {
         // Only what's shared with them by name: never a folder you share with a room.
         return;
+      } else if (!this.chatFileAllowed(body)) {
+        return void this.courier.send(from, { k: 'body', b: refusal(body, NO_CHAT_FILES) }, { reliable: false });
       }
       this.inbound.add(`${from}:${body.reqId}`);
       if (this.inbound.size > INBOUND_KEPT) this.inbound.delete(this.inbound.values().next().value!);
@@ -645,6 +654,13 @@ export class FriendShares implements FriendSharing {
       const reliable = KEPT_EVENTS.has(body.event);
       for (const peer of Object.keys(session.sharing.members(ws!))) if (peer !== from) this.courier.send(peer, { k: 'body', b: body, as: from }, { reliable });
     }
+  }
+
+  /** A plain chat of yours gives its friends only its Scratch (chat-files.ts); a worktree's folder is theirs to browse. */
+  private chatFileAllowed(body: Extract<Body, { kind: 'fs_list' | 'fs_read' | 'fs_fetch' | 'fs_search' }>): boolean {
+    const chat = this.state.projects.filter((p) => !p.root).flatMap((p) => p.workspaces).find((w) => shareNameOf(w.id) === body.share);
+    if (!chat) return true;
+    return body.kind !== 'fs_search' && inChatScratch(chat.path, body.path);
   }
 
   /** A friend offers you a worktree to take over: remember it to answer them, and its bundle to fetch. */
@@ -681,6 +697,7 @@ export class FriendShares implements FriendSharing {
       ...(before?.copy ? { copy: before.copy } : {}),
       ...(m.copy ? { whole: true } : {}),
       ...(m.copy?.url || m.repo ? { url: (m.copy?.url ?? m.repo)! } : {}),
+      ...(m.chats ? { chats: true as const } : {}),
       history: Object.fromEntries(Object.entries(before?.history ?? {}).filter(([ws]) => worktrees.some((w) => w.id === ws))),
     };
     this.received = { ...this.received, [key]: next };
@@ -796,6 +813,7 @@ export class FriendShares implements FriendSharing {
   async fork(owner: string, wsId: string, name?: string): Promise<void> {
     const rec = this.receivedWs(wsId);
     if (!rec || rec.owner !== owner || !rec.worktrees.some((w) => w.id === wsId)) throw new Error('That worktree isn’t shared with you');
+    if (rec.chats) throw new Error('A chat has no project to fork');
     if (rec.role !== 'contribute') throw new Error(`${rec.ownerName} shared it for you to follow along: forking it needs “Can work here”`);
     const now = this.state.forks[wsId]?.state;
     if (now === 'preparing' || now === 'asking' || now === 'copying') return;
@@ -1067,7 +1085,7 @@ export class FriendShares implements FriendSharing {
     for (const p of all) {
       for (const w of p.worktrees) {
         const known = this.state.shared.find((s) => s.id === w.id && s.owner === p.owner);
-        const ws = { owner: p.owner, id: w.id, name: w.name, project: p.name, ...(w.branch ? { branch: w.branch } : {}), role: p.role, share: shareNameOf(w.id), via: 'mesh' as const, projectId: p.id, ...(p.more?.[w.id] ? { earlier: true } : {}), ...(w.agent ? { agent: w.agent } : {}) };
+        const ws = { owner: p.owner, id: w.id, name: w.name, project: p.name, ...(w.branch ? { branch: w.branch } : {}), role: p.role, share: shareNameOf(w.id), via: 'mesh' as const, projectId: p.id, ...(p.more?.[w.id] ? { earlier: true } : {}), ...(w.agent ? { agent: w.agent } : {}), ...(p.chats ? { chat: true as const } : {}) };
         if (!known || JSON.stringify(known) !== JSON.stringify(ws)) this.dispatch({ type: 'shared_add', ws });
         this.dispatch({ type: 'roster', id: w.id, members: p.members.map((m) => ({ peerId: m.peerId, role: m.role })) });
         const items = p.history[w.id];
