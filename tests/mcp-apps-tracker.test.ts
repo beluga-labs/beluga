@@ -11,8 +11,11 @@ const SERVERS: CatalogServer[] = [
 const toolUse = (id: string, name: string, input: Record<string, unknown> = {}) => ({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id, name, input }] } });
 const toolResult = (id: string, text: string, toolUseResult?: unknown) => ({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: id, content: text }] }, ...(toolUseResult !== undefined ? { tool_use_result: toolUseResult } : {}) });
 
-/** A recorder and a tracker wired as the runner wires them; `records`: the last record per step. */
-function rig(servers: () => Promise<readonly CatalogServer[]>) {
+const init = (capabilities?: string[]) => ({ type: 'system', subtype: 'init', ...(capabilities ? { capabilities } : {}) });
+const CAPS = ['interrupt_receipt_v1', 'mcp_tool_ui_meta_v1', 'mcp_read_resource_v1'];
+
+/** A recorder and a tracker wired as the runner wires them; `records`: the last record per step. `caps`: what the turn's system/init says (undefined: no init). */
+function rig(servers: () => Promise<readonly CatalogServer[]>, caps: string[] | null = CAPS) {
   const records = new Map<string, StepRecord>();
   const put = (r: StepRecord) => records.set(r.id, r);
   const tracker = new McpAppTracker({ servers }, put);
@@ -21,10 +24,39 @@ function rig(servers: () => Promise<readonly CatalogServer[]>) {
     tracker.observe(msg as never);
     recorder.observe(msg as never);
   };
+  if (caps) observe(init(caps));
   return { records, observe };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe('McpAppTracker on a Claude Code without MCP Apps', () => {
+  for (const [name, caps] of [
+    ['no system/init yet', null],
+    ['an init with no capabilities', []],
+    ['no mcp_read_resource_v1', ['mcp_tool_ui_meta_v1']],
+    ['no mcp_tool_ui_meta_v1', ['mcp_read_resource_v1']],
+  ] as const) {
+    it(`records no app, and never asks for the tool list: ${name}`, async () => {
+      const servers = vi.fn(async () => SERVERS);
+      const { records, observe } = rig(servers, caps === null ? null : [...caps]);
+      observe(toolUse('t1', 'mcp__basic__get-time'));
+      observe(toolResult('t1', 'now', { content: 'now', structuredContent: { time: 'now' } }));
+      await flush();
+      expect(records.get('t1')).toMatchObject({ status: 'done', output: 'now' });
+      expect(records.get('t1')?.app).toBeUndefined();
+      expect(servers).not.toHaveBeenCalled();
+    });
+  }
+
+  it('follows each turn’s init: a later init without them stops recording', async () => {
+    const { records, observe } = rig(async () => SERVERS);
+    observe(init(['mcp_tool_ui_meta_v1']));
+    observe(toolUse('t2', 'mcp__basic__get-time'));
+    await flush();
+    expect(records.get('t2')?.app).toBeUndefined();
+  });
+});
 
 describe('McpAppTracker', () => {
   it('puts the app and its structured content on a UI tool step', async () => {

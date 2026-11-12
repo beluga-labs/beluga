@@ -1,5 +1,6 @@
 import type { StepApp } from '../shared/mcp-apps.js';
 import type { StepRecord } from '../shared/steps.js';
+import { appsSupported } from './domain/capabilities.js';
 import { boundStructured } from './domain/result.js';
 import { splitMcpToolName } from './domain/tool-name.js';
 import { toolUiOf } from './domain/ui-meta.js';
@@ -9,7 +10,9 @@ import type { CatalogServer, McpToolCatalog } from './ports/tool-catalog.js';
  * Follows a run's SDK messages beside the StepRecorder and puts on each step of a UI tool what its
  * app needs (shared/mcp-apps.ts): the server, the `ui://` resource and the result's structured
  * content. The lookup of a tool's `_meta` is async: a step recorded before it came back is sent
- * again, with its app, through `emit`.
+ * again, with its app, through `emit`. It records apps only while the turn's `system/init` says
+ * Claude Code has both MCP Apps capabilities (domain/capabilities.ts): without them the chat looks
+ * as it did before MCP Apps.
  */
 
 type AppPlace = Omit<StepApp, 'structuredContent'>;
@@ -24,6 +27,9 @@ interface Block {
 /** The parts of an SDK message the tracker reads. */
 export interface TrackedMessage {
   readonly type: string;
+  readonly subtype?: string;
+  /** On `system/init`: what this Claude Code can do. */
+  readonly capabilities?: unknown;
   readonly message?: { readonly content?: unknown };
   readonly tool_use_result?: unknown;
 }
@@ -37,6 +43,8 @@ export class McpAppTracker {
   /** Tools listed again once already (a server that connected after the first list). */
   private readonly askedAgain = new Set<string>();
   private catalog?: Promise<readonly CatalogServer[]>;
+  /** The turn's system/init listed both MCP Apps capabilities. */
+  private supported = false;
 
   constructor(
     private readonly source: McpToolCatalog,
@@ -44,6 +52,11 @@ export class McpAppTracker {
   ) {}
 
   observe(msg: TrackedMessage): void {
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      this.supported = appsSupported(msg.capabilities);
+      return;
+    }
+    if (!this.supported) return;
     const blocks = blocksOf(msg.message?.content);
     if (msg.type === 'assistant') {
       for (const b of blocks) if (b.type === 'tool_use' && b.id && b.name?.startsWith('mcp__')) this.lookUp(b.id, b.name);

@@ -1669,8 +1669,6 @@ export class AgentHost {
         ...this.modelFor(place?.model, place?.agent ?? named, place?.effort),
         // Your MCP servers (your logins: Figma, Linear…) are for runs you asked for, never a friend's.
         ...(yours ? { ownerMcp: true } : {}),
-        // MCP Apps (Settings › Experimental): your own runs keep what a UI tool's app needs on its step.
-        ...(yours && experimentOn(this.store.getState().prefs.experiments, 'mcp-apps') ? { mcpApps: true } : {}),
         // Your own flags for `claude` and `codex` (Settings › Agents), never on a friend's run or an agent's below full.
         ...(yours ? this.launchArgs() : {}),
         // Your variables can hold secrets: only runs you asked for get them, never a friend's.

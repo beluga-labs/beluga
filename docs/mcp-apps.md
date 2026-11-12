@@ -1,20 +1,23 @@
-# MCP Apps (experimental)
+# MCP Apps
 
 Beluga is an MCP Apps host (SEP-1865, the open standard Claude, ChatGPT and VS Code apps use).
 When your Claude calls a tool of one of your own MCP servers, and the tool declares
 `_meta.ui.resourceUri` (or the older `_meta["ui/resourceUri"]`, or ChatGPT's
 `_meta["openai/outputTemplate"]`), the Mac chat draws the server's `ui://` page under the tool's
-step. The page talks to Beluga over the standard `ui/*` JSON-RPC bridge on `postMessage`. It's
-off until you turn it on in **Settings › Experimental › MCP Apps** (`src/shared/experiments.ts`,
-id `mcp-apps`).
+step. The page talks to Beluga over the standard `ui/*` JSON-RPC bridge on `postMessage`. There is
+no setting to turn on.
 
-## Off costs nothing
+## When there are apps
 
-- No step is looked at for apps: the run's tracker (`src/mcp-apps/tracker.ts`) is made only while
-  it's on.
-- Every `apps.*` method refuses with `off` and touches nothing: no server is asked, no page is
-  served, no message is posted, no context is kept.
-- The window draws no frame (`chat/mcp-app/McpApps.tsx` checks the experiment first).
+- **Only runs that load your MCP servers.** Your own runs, and runs at Full trust, load them; a
+  friend's run (a guest run) never does, so it records no app (`tracksMcpApps` in
+  `src/agent/runtime/claude/runner.ts`).
+- **Only a Claude Code that can host them.** Each turn's `system/init` lists the CLI's
+  capabilities. Without both `mcp_tool_ui_meta_v1` (each tool's `_meta.ui`) and
+  `mcp_read_resource_v1` (reading `ui://` resources), the run's tracker records no app and never
+  asks for the tool list (`src/mcp-apps/domain/capabilities.ts`). A step with no app is a step as
+  before: `apps.*` answer `missing` and touch nothing, and the window draws no frame.
+- **Codex, OpenCode and Copilot runs** have none: Claude Code is the MCP client.
 
 ## How a view gets to the chat
 

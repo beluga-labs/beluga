@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { hostName } from '../../daemon/web.js';
 
 /**
- * Where MCP App frames load from (Settings › Experimental › MCP Apps): a server of its own on
+ * Where MCP App frames load from: a server of its own on
  * 127.0.0.1, apart from the daemon's socket and the previews' server, that serves nothing but app
  * pages. Each page is at /a/<id>/, an id nobody can guess, with its own CSP; only the Beluga window
  * may frame it (the CSP's frame-ancestors), and only under a loopback host name (no DNS rebinding).

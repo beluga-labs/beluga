@@ -49,8 +49,6 @@ export interface AgentRunInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Your own runs: your own MCP servers from Claude Code (agent/owner-mcp.ts); never a friend's or a guest's. */
   readonly ownerMcp?: boolean;
-  /** Settings › Experimental › MCP Apps: steps of tools with an app keep what it needs (src/mcp-apps). */
-  readonly mcpApps?: boolean;
   /** Auto-compact threshold (percent) for Claude Code's own compaction; unset: auto-compact is off. */
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */

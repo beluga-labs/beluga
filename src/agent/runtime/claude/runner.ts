@@ -61,6 +61,11 @@ const STDERR_KEEP = 40;
  * friend with :rw access may write to, so they could plant hooks or permission rules there (its
  * skills and commands come in alone, see skill-plugins.ts). A friend's or a guest's run loads nothing of yours.
  */
+/** MCP Apps follow your MCP servers: a run that loads them (yours, or Full trust; never a guest's) keeps apps on its steps. */
+export function tracksMcpApps(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): boolean {
+  return Boolean(input.ownerMcp && !input.guest);
+}
+
 export function ownerSettings(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): { settingSources: Array<'user'>; skills?: 'all' } {
   return input.ownerMcp && !input.guest ? { settingSources: ['user'], skills: 'all' } : { settingSources: [] };
 }
@@ -325,8 +330,8 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const turns = new TurnRouter({ onEvent: input.onEvent, ...(input.onStep ? { onStep: input.onStep } : {}), ...(input.onAnswered ? { onDone: input.onAnswered } : {}) });
       // Steps in detail go to the request whose turn it is (a follow-up's turn: the follow-up).
       let stepTo = input.onStep;
-      // MCP Apps (Settings › Experimental): a UI tool's step carries its app; the tools' _meta comes from this session.
-      const apps = input.mcpApps ? new McpAppTracker({ servers: () => q.mcpServerStatus() }, (record) => stepTo?.(record)) : undefined;
+      // MCP Apps: a UI tool's step carries its app (when this Claude Code can host them); the tools' _meta comes from this session.
+      const apps = tracksMcpApps(input) ? new McpAppTracker({ servers: () => q.mcpServerStatus() }, (record) => stepTo?.(record)) : undefined;
       const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(apps ? apps.decorate(record) : record) });
       recorder.begin();
       let limit: NodeJS.Timeout | undefined;

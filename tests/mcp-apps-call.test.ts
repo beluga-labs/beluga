@@ -24,7 +24,6 @@ function deps(over: Partial<AppActDeps> = {}): AppActDeps & { calls: unknown[][]
   const calls: unknown[][] = [];
   const asks: unknown[][] = [];
   return {
-    on: () => true,
     step: (c, i, s) => (c === 'ws:1' && i === 'i1' && s === 't1' ? STEP : undefined),
     server: {
       tools: async (server) => (server === 'clock' ? TOOLS : []),
@@ -92,11 +91,6 @@ describe('callAppTool (apps.call)', () => {
     expect(tools).toHaveBeenCalledWith('clock');
   });
 
-  it('is refused with the experiment off, and touches nothing', async () => {
-    const d = deps({ on: () => false });
-    expect(await callAppTool(d, step, 'now', {})).toMatchObject({ ok: false, reason: 'off' });
-    expect(d.calls).toEqual([]);
-  });
 
   it('is refused for a step with no app', async () => {
     expect(await callAppTool(deps(), { ...step, stepId: 'zz' }, 'now', {})).toMatchObject({ ok: false, reason: 'missing' });
@@ -123,7 +117,7 @@ describe('readAppResource (apps.read)', () => {
     expect(await readAppResource(deps(), step, 'file:///etc/passwd')).toMatchObject({ ok: false, reason: 'refused' });
   });
 
-  it('is refused with the experiment off', async () => {
-    expect(await readAppResource(deps({ on: () => false }), step, 'ui://clock/app.html')).toMatchObject({ ok: false, reason: 'off' });
+  it('is refused for a step with no app', async () => {
+    expect(await readAppResource(deps(), { ...step, stepId: 'zz' }, 'ui://clock/app.html')).toMatchObject({ ok: false, reason: 'missing' });
   });
 });

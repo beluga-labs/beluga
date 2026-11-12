@@ -10,7 +10,7 @@ import { type StepAppDeps, appOnStep } from './step-app.js';
  * Decline) and is refused while your Claude works in that chat or while the app's last one waits for
  * you: an app can't queue turn after turn. Allowed, it goes into the app's own chat as yours, marked
  * as sent by the app, and starts a turn. A context waits for your Claude's next turn there, as data.
- * Refused while Settings › Experimental › MCP Apps is off.
+ *
  */
 
 export interface AppTalkDeps extends StepAppDeps {

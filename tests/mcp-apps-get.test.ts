@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { McpAppFrames } from '../src/mcp-apps/frames.js';
+import { StepRecorder } from '../src/agent/step-recorder.js';
 import { type GetAppDeps, getApp } from '../src/mcp-apps/get-app.js';
+import { McpAppTracker } from '../src/mcp-apps/tracker.js';
 import type { StepRecord } from '../src/shared/steps.js';
 
 const STEP: StepRecord = {
@@ -16,7 +18,6 @@ const STEP: StepRecord = {
 };
 
 const deps = (over: Partial<GetAppDeps> = {}): GetAppDeps => ({
-  on: () => true,
   step: (channel, itemId, stepId) => (channel === 'ws:1' && itemId === 'i1' && stepId === 't1' ? STEP : undefined),
   frame: async () => ({ url: 'http://127.0.0.1:47792/a/x/' }),
   ...over,
@@ -35,13 +36,26 @@ describe('getApp (apps.get)', () => {
     });
   });
 
-  it('is refused with the experiment off, and reads nothing', async () => {
+  it('gives no app on a Claude Code without the MCP Apps capabilities, and reads nothing', async () => {
+    // The run as the runner wires it: this CLI's system/init lacks mcp_read_resource_v1.
+    let kept: StepRecord | undefined;
+    const servers = vi.fn(async () => [{ name: 'basic', tools: [{ name: 'get-time', _meta: { ui: { resourceUri: 'ui://get-time/app.html' } } }] }]);
+    const tracker = new McpAppTracker({ servers }, (r) => (kept = r));
+    const recorder = new StepRecorder({ emit: (r) => (kept = tracker.decorate(r)) });
+    for (const msg of [
+      { type: 'system', subtype: 'init', capabilities: ['mcp_tool_ui_meta_v1'] },
+      { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__basic__get-time', input: {} }] } },
+      { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'now' }] }, tool_use_result: { content: 'now', structuredContent: { time: 'now' } } },
+    ]) {
+      tracker.observe(msg as never);
+      recorder.observe(msg as never);
+    }
+    await new Promise((r) => setTimeout(r, 0));
     const frame = vi.fn();
-    const step = vi.fn();
-    const view = await getApp(deps({ on: () => false, frame, step }), 'ws:1', 'i1', 't1');
-    expect(view).toMatchObject({ ok: false, reason: 'off' });
+    expect(kept?.app).toBeUndefined();
+    expect(await getApp(deps({ step: () => kept, frame }), 'ws:1', 'i1', 't1')).toMatchObject({ ok: false, reason: 'missing' });
     expect(frame).not.toHaveBeenCalled();
-    expect(step).not.toHaveBeenCalled();
+    expect(servers).not.toHaveBeenCalled();
   });
 
   it('says missing for a step without an app', async () => {

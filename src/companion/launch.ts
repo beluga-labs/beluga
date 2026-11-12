@@ -1,4 +1,3 @@
-import { experimentOn } from '../shared/experiments.js';
 import { EnvSend, attachEnvSend } from '../machines/env-send.js';
 import { Forwarder, attachForwarder, serveTunnels } from '../machines/forward.js';
 import { execFileSync } from 'node:child_process';
@@ -310,9 +309,8 @@ export function launchCompanion(opts: CompanionLaunch): () => Promise<void> {
     thumbsDir: path.join(dir, 'companion', 'thumbs'),
     macrosFile: path.join(dir, 'phone-macros.json'),
     outputs: outputs.get,
-    // MCP Apps (Settings › Experimental): a step whose tool has an app says so on the phone; off, no step book is read.
-    appSteps: (channel, itemId) =>
-      experimentOn(opts.store.getState().prefs.experiments, 'mcp-apps') ? new Set(opts.session.host.stepsFor(channel, itemId).steps.filter((x) => x.hasApp).map((x) => x.title)) : new Set<string>(),
+    // MCP Apps: a step whose tool has an app says so on the phone (the step book is read only for turns with MCP steps: views.ts).
+    appSteps: (channel, itemId) => new Set(opts.session.host.stepsFor(channel, itemId).steps.filter((x) => x.hasApp).map((x) => x.title)),
     // A kept table's documents and storage objects, streamed to the phone from memory (BLG-386).
     documents: (d) => {
       const sn = needSentinel(opts.session);

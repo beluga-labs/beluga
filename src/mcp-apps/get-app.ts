@@ -1,22 +1,18 @@
 import type { McpAppView } from '../shared/mcp-apps.js';
 import type { StepRecord } from '../shared/steps.js';
-import { APPS_OFF } from './step-app.js';
 
 /**
  * `apps.get`: the app of one step of your Claude's work: the frame to draw it in, with the tool
- * call's input and result. Refused while Settings › Experimental › MCP Apps is off.
+ * call's input and result, or why there is none.
  */
 
 export interface GetAppDeps {
-  /** The experiment is on. */
-  readonly on: () => boolean;
   readonly step: (channel: string, itemId: string, stepId: string) => StepRecord | undefined;
   /** The frame for a server's `ui://` resource (read and served the first time). */
   readonly frame: (server: string, resourceUri: string) => Promise<{ readonly url: string; readonly prefersBorder?: boolean }>;
 }
 
 export async function getApp(deps: GetAppDeps, channel: string, itemId: string, stepId: string): Promise<McpAppView> {
-  if (!deps.on()) return { ok: false, reason: 'off', message: APPS_OFF };
   const step = deps.step(channel, itemId, stepId);
   const app = step?.app;
   if (!step || !app) return { ok: false, reason: 'missing', message: 'This step has no app on this computer.' };

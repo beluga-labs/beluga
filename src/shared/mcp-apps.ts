@@ -1,5 +1,5 @@
 /**
- * MCP Apps in a chat (Settings › Experimental › MCP Apps; src/mcp-apps): a tool call whose tool
+ * MCP Apps in a chat (src/mcp-apps): a tool call whose tool
  * declares a `ui://` resource keeps what its app needs on its step, and `apps.get` gives the Mac
  * the frame to draw it in. Browser-safe: types only.
  */
@@ -31,7 +31,7 @@ export type McpAppView =
       readonly result?: { readonly text?: string; readonly structuredContent?: unknown; readonly isError?: boolean };
       readonly prefersBorder?: boolean;
     }
-  | { readonly ok: false; readonly reason: 'off' | 'missing' | 'unavailable'; readonly message: string };
+  | { readonly ok: false; readonly reason: 'missing' | 'unavailable'; readonly message: string };
 
 /** MCP's CallToolResult as a server sent it, for its app: untrusted data, drawn only in the app's frame. */
 export interface AppToolResult {
@@ -53,9 +53,8 @@ export interface AppStepRef {
 }
 
 /**
- * `apps.call` / `apps.read`: what the server answered, or why nothing ran: off (the experiment),
- * missing (no app on that step), refused (Beluga's gate), declined (you said no), failed (it could not run).
+ * `apps.call` / `apps.read`: what the server answered, or why nothing ran: missing (no app on that step), refused (Beluga's gate), declined (you said no), failed (it could not run).
  */
 export type AppActResult<T> =
   | { readonly ok: true; readonly result: T }
-  | { readonly ok: false; readonly reason: 'off' | 'missing' | 'refused' | 'declined' | 'failed'; readonly message: string };
+  | { readonly ok: false; readonly reason: 'missing' | 'refused' | 'declined' | 'failed'; readonly message: string };

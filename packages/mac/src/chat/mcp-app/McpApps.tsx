@@ -1,6 +1,5 @@
 import { memo, useMemo } from 'react';
 import type { LogItem } from '@beluga/core/store.js';
-import { experimentOn } from '@beluga/shared/experiments.js';
 import { useApp } from '../../lib/beluga.js';
 import { useAgentSteps } from '../steps/use-steps.js';
 import { AppFrame } from './AppFrame.js';
@@ -8,14 +7,13 @@ import { AppFrame } from './AppFrame.js';
 type AgentItem = Extract<LogItem, { type: 'agent' }>;
 
 /**
- * The MCP Apps of a Claude card (Settings › Experimental › MCP Apps): each step of a tool with an
+ * The MCP Apps of a Claude card: each step of a tool with an
  * app draws the server's page here, under the steps, so it stays in sight when they fold away.
- * Only your own Claude's work has them; off, nothing of it is asked.
+ * Only your own Claude's work has them (a Claude Code without MCP Apps records none).
  */
 export function McpApps({ item, running }: { item: AgentItem; running: boolean }) {
-  const on = useApp((st) => experimentOn(st.prefs.experiments, 'mcp-apps'));
   const mine = useApp((st) => st.selfId === item.owner);
-  if (!on || !mine) return null;
+  if (!mine) return null;
   return <AppList item={item} running={running} />;
 }
 

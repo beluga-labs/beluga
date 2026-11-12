@@ -6,7 +6,6 @@ import { appContextsOf } from '../mcp-apps/contexts.js';
 import { getApp } from '../mcp-apps/get-app.js';
 import { type AppTalkDeps, postAppMessage, setAppContext } from '../mcp-apps/talk.js';
 import { FRAME_ANCESTORS } from '../preview/server.js';
-import { experimentOn } from '../shared/experiments.js';
 import type { Args, Method } from './api.js';
 
 /** What each `apps.*` method does (see mcp-apps-api.ts). */
@@ -14,7 +13,7 @@ import type { Args, Method } from './api.js';
 type AppsMethod = Extract<Method, `apps.${string}`>;
 type AppsHandlers = { readonly [M in AppsMethod]: (s: Session, ...args: Args<M>) => unknown };
 
-/** The app host and its pages, made the first time an app is drawn (never while the experiment is off). */
+/** The app host and its pages, made the first time an app is drawn. */
 let frames: McpAppFrames | undefined;
 
 /** Per session, until Beluga quits: what you said Always to (tools and messages, per server and tool), and the messages that wait for you. */
@@ -33,14 +32,11 @@ function answersOf(s: Session): AppAnswers {
 
 const projectRoots = (s: Session): string[] => s.store.getState().projects.map((p) => p.root);
 
-const on = (s: Session): boolean => experimentOn(s.store.getState().prefs.experiments, 'mcp-apps');
-
 /** What an app acts through: your Claude Code, and your Allow / Allow Always / Decline. */
 function actDeps(s: Session): AppActDeps {
   const backend = s.backend;
   const missing = (): Promise<never> => Promise.reject(new Error('Your agent can’t run MCP App tools here.'));
   return {
-    on: () => on(s),
     step: (c, i, st) => s.host.stepFor(c, i, st),
     server: {
       tools: (server) => (backend?.mcpAppTools ? backend.mcpAppTools(projectRoots(s), server) : missing()),
@@ -55,7 +51,6 @@ function actDeps(s: Session): AppActDeps {
 /** What an app talks back through: your chat with your Claude, and the next turn's context. */
 function talkDeps(s: Session): AppTalkDeps {
   return {
-    on: () => on(s),
     step: (c, i, st) => s.host.stepFor(c, i, st),
     post: (text, channel, app) => s.askFromApp(text, channel, app),
     busy: (channel) => s.host.runningIn(channel),
@@ -71,8 +66,7 @@ export const MCP_APPS_HANDLERS = {
   'apps.get': (s, channel, itemId, stepId) =>
     getApp(
       {
-        on: () => on(s),
-        step: (c, i, st) => s.host.stepFor(c, i, st),
+            step: (c, i, st) => s.host.stepFor(c, i, st),
         frame: (server, uri) => {
           const read = s.backend?.mcpReadUiResource;
           if (!read) return Promise.reject(new Error('Your agent can’t read MCP App views here.'));

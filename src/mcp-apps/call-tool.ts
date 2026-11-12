@@ -7,7 +7,7 @@ import { type StepAppDeps, appOnStep } from './step-app.js';
  * `apps.call` and `apps.read`: an app acting on its own server (SEP-1865 tools/call and
  * resources/read from its frame). The server is the one of the app's step, never one the app
  * names. Each call passes the tool gate (domain/tool-gate.ts); a tool that isn't readOnly asks you
- * first. Refused while Settings › Experimental › MCP Apps is off.
+ * first.
  */
 
 export type AskAnswer = 'yes' | 'no' | 'always';

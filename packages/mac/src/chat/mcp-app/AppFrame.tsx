@@ -29,7 +29,7 @@ export const AppFrame = memo(function AppFrame({ channel, itemId, stepId, done }
     };
   }, [api, channel, itemId, stepId, done]);
   if (!view) return <div className={s.app} data-mcp-app="loading" style={{ height: FIRST_HEIGHT }} />;
-  if (!view.ok) return view.reason === 'off' ? null : <div className={s.note}>This app can’t be shown: {view.message}</div>;
+  if (!view.ok) return <div className={s.note}>This app can’t be shown: {view.message}</div>;
   return <Frame view={view} at={{ channel, itemId, stepId }} />;
 });
 

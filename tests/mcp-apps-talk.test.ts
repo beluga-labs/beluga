@@ -112,7 +112,6 @@ describe('postAppMessage and setAppContext (apps.message, apps.context)', () => 
     return {
       posted,
       contexts,
-      on: () => true,
       step: (c: string, i: string, s: string) => (c === 'ws:1' && i === 'i1' && s === 't1' ? STEP : undefined),
       post: (text: string, channel: string, app: string) => (posted.push([text, channel, app]), true),
       busy: () => false,
@@ -176,12 +175,12 @@ describe('postAppMessage and setAppContext (apps.message, apps.context)', () => 
     expect(d.contexts.take('ws:1')).toEqual([{ app: 'clock · show_clock', text: 'Alarm 7:30' }]);
   });
 
-  it('does nothing with the experiment off, or for a step with no app', async () => {
-    const d = deps({ on: () => false });
-    expect(await postAppMessage(d, ref, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'off' });
-    expect(setAppContext(d, ref, { content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'off' });
+  it('does nothing for a step with no app', async () => {
+    const d = deps();
+    const none = { ...ref, stepId: 'zz' };
+    expect(await postAppMessage(d, none, { role: 'user', content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'missing' });
+    expect(setAppContext(d, none, { content: [{ type: 'text', text: 'x' }] })).toMatchObject({ ok: false, reason: 'missing' });
     expect(d.posted).toEqual([]);
     expect(d.contexts.take('ws:1')).toEqual([]);
-    expect(setAppContext(deps(), { ...ref, stepId: 'zz' }, {})).toMatchObject({ ok: false, reason: 'missing' });
   });
 });
