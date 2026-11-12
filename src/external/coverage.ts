@@ -361,6 +361,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'sentinel.test': 'covered',
   'sentinel.stop': 'covered',
   'sentinel.pause': 'gated',
+  'sentinel.forChat': 'covered',
   'sentinel.runs': 'covered',
   'sentinel.runGet': 'covered',
   'sentinel.ask': 'covered',

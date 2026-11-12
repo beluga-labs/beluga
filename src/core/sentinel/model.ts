@@ -388,6 +388,22 @@ export interface Sentinel {
   readonly updatedAt: number;
 }
 
+/** One of a chat's schedules (BLG-399): a sentinel whose chat step wakes that chat, as its Info panel lists it. */
+export interface ChatSchedule {
+  readonly id: string;
+  readonly name: string;
+  readonly icon: string;
+  readonly trigger: Trigger;
+  readonly paused: boolean;
+  readonly pausedWhy?: string;
+  /** When it runs next (on, with a schedule or a once trigger). */
+  readonly nextAt?: number;
+  /** What its first chat step to that chat sends. */
+  readonly prompt: string;
+  /** A run of it is going. */
+  readonly running: boolean;
+}
+
 /** A step as given: without an id or a name, it gets them. */
 export type StepDraft = Step extends infer S ? (S extends Step ? Omit<S, 'id' | 'name'> & { readonly id?: string; readonly name?: string } : never) : never;
 
@@ -542,6 +558,21 @@ function cutTo(text: string, room: number): string {
 }
 
 export const isLive = (state: RunState): boolean => state === 'queued' || state === 'running' || state === 'needs-you';
+
+/**
+ * A chat's schedules (BLG-399): the sentinels with a chat step that wakes it, given as its ref
+ * ("<owner>/<channel>"), in the order they were made. The daemon's sentinel.forChat and the Mac's
+ * Info panel both read it.
+ */
+export function chatSchedules(state: Pick<SentinelState, 'items' | 'nextAt' | 'runs'>, ref: string): ChatSchedule[] {
+  return state.items.flatMap((s) => {
+    const step = s.steps.find((st) => st.kind === 'chat' && st.to === ref);
+    if (step?.kind !== 'chat') return [];
+    const next = state.nextAt[s.id];
+    const running = state.runs.some((r) => r.sentinelId === s.id && isLive(r.state));
+    return [{ id: s.id, name: s.name, icon: s.icon, trigger: s.trigger, paused: s.paused, ...(s.pausedWhy ? { pausedWhy: s.pausedWhy } : {}), ...(next !== undefined && !s.paused ? { nextAt: next } : {}), prompt: step.text, running }];
+  });
+}
 
 // ---------------------------------------------------------------- the state
 
