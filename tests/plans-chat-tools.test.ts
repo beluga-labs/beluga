@@ -110,3 +110,16 @@ describe('chatPlans off', () => {
     expect(run.opener).toBeUndefined();
   });
 });
+
+describe('plans.close and plans.ofHome (BLG-416)', () => {
+  it('close by you, and the chat’s plans listed newest first', () => {
+    const t = setup();
+    const old = t.work.here('ws:chat');
+    expect(t.work.close(old.id).closedBy).toEqual(t.me);
+    const now = t.work.here('ws:chat');
+    expect(t.work.ofHome('ws:chat')).toEqual([
+      { id: now.id, title: 'New plan', status: 'draft', createdAt: now.createdAt, current: true },
+      { id: old.id, title: 'New plan', status: 'draft', createdAt: old.createdAt, closedAt: expect.any(Number), current: false },
+    ]);
+  });
+});

@@ -169,6 +169,7 @@ export default function Conversation() {
                     </T>
                     <T v="caption" numberOfLines={1}>
                       {c.plan.milestones ? `${c.plan.milestones} ${c.plan.milestones === 1 ? 'milestone' : 'milestones'} · ${c.plan.done} of ${c.plan.total} tasks` : 'Your agent is writing the plan'}
+                      {c.plan.earlier ? ` · ${c.plan.earlier} earlier ${c.plan.earlier === 1 ? 'plan' : 'plans'}` : ''}
                     </T>
                   </View>
                   <Pill label={c.plan.state} tone={toneOf(c.plan.state)} />

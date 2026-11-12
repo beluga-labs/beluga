@@ -55,6 +55,16 @@ export interface PlansWorkDeps {
   readonly rescueMs?: number;
 }
 
+/** One plan of a chat, as its list shows it (plans.ofHome). `current`: the chat's plan now (planForHome). */
+export interface HomePlan {
+  readonly id: string;
+  readonly title: string;
+  readonly status: Plan['status'];
+  readonly createdAt: number;
+  readonly closedAt?: number;
+  readonly current: boolean;
+}
+
 const WS = 'ws:';
 
 export class PlansWork {
@@ -186,6 +196,19 @@ export class PlansWork {
 
   discard(id: string): Plan | undefined {
     return this.plans.discard(id, this.me());
+  }
+
+  /** Close a plan (you, or its chat's agent): kept, read-only; its chat can open a new one. */
+  close(id: string, by: Actor = this.me()): Plan {
+    const plan = this.plans.close(id, by);
+    this.pilot.schedule();
+    return plan;
+  }
+
+  /** Every plan of a chat, closed and done ones too, newest first: what a list of them shows (a screen opens one by id). */
+  ofHome(channel: string): readonly HomePlan[] {
+    const current = planForHome(this.plans.state(), channel)?.id;
+    return plansOfHome(this.plans.state(), channel).map((p) => ({ id: p.id, title: planTitle(p), status: p.status, createdAt: p.createdAt, current: p.id === current, ...(p.closedAt ? { closedAt: p.closedAt } : {}) }));
   }
 
   /** Your changes: an approved plan without waiting changes takes them at once (you're the one approving). */
@@ -398,8 +421,7 @@ export class PlansWork {
 
   /** plan_close: the chat's current plan is closed (kept, read-only). */
   private closeHere(planId: string): string {
-    const plan = this.plans.close(planId, this.claude());
-    this.pilot.schedule();
+    const plan = this.close(planId, this.claude());
     return `Closed the plan “${planTitle(plan)}”. It stays in this chat as a record that you can read but not change. plan_open starts a new plan in this chat.`;
   }
 
