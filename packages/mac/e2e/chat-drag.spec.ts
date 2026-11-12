@@ -95,10 +95,11 @@ test('a row dropped on the open composer: a chip at the cursor, nothing sent', a
   const before = await sent(page, a, b);
   await pause(page);
   await lift(page, rowOf(page, b), box);
-  // The row itself is carried, as wide as it is in the sidebar, swinging as it goes.
+  // The row itself is carried, as wide as it is in the sidebar less its nesting, swinging as it goes.
   await expect(ghost(page)).toContainText(b.name);
+  const nesting = await rowOf(page, b).evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft) - 8);
   const [carried, row] = await Promise.all([ghost(page).boundingBox(), rowOf(page, b).boundingBox()]);
-  expect(Math.abs(carried!.width - row!.width)).toBeLessThan(row!.width * 0.06);
+  expect(Math.abs(carried!.width - (row!.width - nesting))).toBeLessThan(row!.width * 0.06);
   await expect(glow(page)).toBeVisible();
   await expect(veil(page)).toBeVisible();
   await page.mouse.up();
@@ -111,6 +112,25 @@ test('a row dropped on the open composer: a chip at the cursor, nothing sent', a
   // Still where it was: the drop opens nothing.
   await expect(box).toBeVisible();
   await box.fill('');
+});
+
+test('the carried row starts at its icon, and nothing is selected on the way (BLG-939)', async ({ page }) => {
+  const { a, b } = await setUp(page);
+  await rowOf(page, a).click();
+  await expect(boxIn(page, a)).toBeVisible();
+  const iconAt = (el: Element): number => el.querySelector('svg')!.getBoundingClientRect().left - el.getBoundingClientRect().left;
+  const inRow = await rowOf(page, b).evaluate(iconAt);
+  // Across the open chat's words, as a hand would go, and back over the sidebar.
+  await lift(page, rowOf(page, b), page.locator('main').first());
+  const inGhost = await ghost(page).evaluate(iconAt);
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/chat-drag-carried.png` });
+  expect(inRow).toBeGreaterThan(inGhost);
+  expect(inGhost).toBeLessThan(16);
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(ghost(page)).toHaveCount(0);
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 });
 
 test('a row dropped on the open chat’s log: the same', async ({ page }) => {
