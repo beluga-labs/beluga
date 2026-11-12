@@ -11,6 +11,7 @@ import { fromRateLimitEvent, fromUsageResponse, toMs } from './usage.js';
 import { RunFailedError, classifyRun } from '../../../shared/run-failure.js';
 import { SubAgentTracker, withAgentScratch } from './subagents.js';
 import { type RecorderMessage, StepRecorder } from '../../step-recorder.js';
+import { type TrackedMessage, McpAppTracker } from '../../../mcp-apps/tracker.js';
 import { type ContextMessage, ContextReport, breakdownReader, isCompactCommand } from '../../context-report.js';
 import { compactEnv } from '../../../shared/context-usage.js';
 import { progressCount } from '../../../shared/progress-count.js';
@@ -324,7 +325,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const turns = new TurnRouter({ onEvent: input.onEvent, ...(input.onStep ? { onStep: input.onStep } : {}), ...(input.onAnswered ? { onDone: input.onAnswered } : {}) });
       // Steps in detail go to the request whose turn it is (a follow-up's turn: the follow-up).
       let stepTo = input.onStep;
-      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(record) });
+      // MCP Apps (Settings › Experimental): a UI tool's step carries its app; the tools' _meta comes from this session.
+      const apps = input.mcpApps ? new McpAppTracker({ servers: () => q.mcpServerStatus() }, (record) => stepTo?.(record)) : undefined;
+      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(apps ? apps.decorate(record) : record) });
       recorder.begin();
       let limit: NodeJS.Timeout | undefined;
       let quiet: NodeJS.Timeout | undefined;
@@ -493,6 +496,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           // Claude Code took it off its queue into the running turn (between turns, read ignores it: it's a turn of its own).
           const started = startedPrompt(msg);
           if (started) turns.read([started]);
+          apps?.observe(msg as TrackedMessage);
           recorder.observe(msg as RecorderMessage);
           if (msg.type === 'user' && msg.parent_tool_use_id === null) {
             for (const e of subagents.user(msg.message.content as never)) input.onEvent('sub', JSON.stringify(e));
@@ -592,6 +596,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
     mcpServers: (projects) => mcp.list([opts.cwd, ...projects]),
     mcpSignIn: (projects, name) => mcp.signIn([opts.cwd, ...projects], name),
     mcpSignedIn: (name) => mcp.signedIn(name),
+    mcpReadUiResource: (projects, server, uri) => mcp.readUiResource([opts.cwd, ...projects], server, uri),
 
     /** Ask Claude Code which models it offers (no prompt is sent). */
     async listModels() {

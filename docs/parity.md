@@ -711,6 +711,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `agent.step` | ✓ opening a step on an agent card: Bash's command and output (colours kept), the file read, an edit's diff, a search's matches, a page fetched, an MCP tool's input and output as JSON, the thinking |
 | `view.fetch` | ✓ a live table, chart, stats or code view in a conversation fetching its next page, sorted or searched, or refreshing it (docs/views.md) |
 | `preview.open` | ✓ a live preview in a conversation (Settings › Experimental › Live previews, docs/previews.md) as it scrolls into view, and a component file's Preview in Files: built on this computer, drawn in its frame with props from its types; off, it says so with Turn On… |
+| `apps.get` | ✓ a step of a tool with an MCP App (Settings › Experimental › MCP Apps) draws the server's page under it in the chat, fed the tool's input and result; off, it isn't asked · phone: the step's one line · a driven computer: its app host's port isn't forwarded yet, so the frame doesn't load there |
 | `preview.snapshot` | ✓ a live preview's ••• › Save as Picture (a PNG in the worktree's .beluga/scratch/previews); with a phone paired, each preview's newest picture is kept there too, for the phone to show |
 | `git.fetch` | ✓ Fetch on a project's home (“fetched 3 min ago”, or why it couldn't: sign-in needed, offline) |
 | `git.fetchIfStale` | ✓ opening a project's home fetches quietly when the last fetch is a few minutes old (the daemon also fetches every project every ~15 min) |

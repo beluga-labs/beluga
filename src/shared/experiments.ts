@@ -4,7 +4,7 @@
  * that explains each one). Browser-safe: data only.
  */
 
-export const EXPERIMENTS = ['previews'] as const;
+export const EXPERIMENTS = ['previews', 'mcp-apps'] as const;
 export type Experiment = (typeof EXPERIMENTS)[number];
 
 export interface ExperimentInfo {
@@ -34,6 +34,18 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
     ],
     keywords: 'preview component react render storybook page html props live',
     cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away, and while this is off nothing of it runs at all.',
+  },
+  'mcp-apps': {
+    id: 'mcp-apps',
+    title: 'MCP Apps',
+    summary: 'When your agent calls a tool of one of your MCP servers that comes with its own view, that view shows in the chat.',
+    changes: [
+      'A tool that declares an MCP App (the standard Claude, ChatGPT and VS Code apps use) shows its view under its step in the chat.',
+      'The view gets the tool’s input and result, and it’s drawn in a sealed frame: it reaches only the sites its server named.',
+      'A chat you open again shows the same view again, from what the step kept.',
+    ],
+    keywords: 'mcp apps ui widget view tool server sep-1865 openai apps sdk iframe',
+    cost: 'Each view is fetched from its MCP server on this computer the first time it shows, which can start that server for a moment. While this is off nothing of it runs at all.',
   },
 };
 

@@ -49,6 +49,8 @@ export interface AgentRunInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Your own runs: your own MCP servers from Claude Code (agent/owner-mcp.ts); never a friend's or a guest's. */
   readonly ownerMcp?: boolean;
+  /** Settings › Experimental › MCP Apps: steps of tools with an app keep what it needs (src/mcp-apps). */
+  readonly mcpApps?: boolean;
   /** Auto-compact threshold (percent) for Claude Code's own compaction; unset: auto-compact is off. */
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */
@@ -585,6 +587,8 @@ export interface AgentBackend {
   mcpSignIn?(projects: readonly string[], name: string, runtime?: string): Promise<import('../shared/mcp.js').McpSignIn>;
   /** Waits for that sign-in: true once connected, false when it gave up, undefined when none is waiting. */
   mcpSignedIn?(name: string, runtime?: string): Promise<boolean | undefined>;
+  /** MCP Apps: one `ui://` resource of one of your servers (its HTML and the content item's `_meta`), read with no model turn. */
+  mcpReadUiResource?(projects: readonly string[], server: string, uri: string): Promise<{ readonly html: string; readonly meta?: Record<string, unknown> }>;
   /** Turn one on or off where its agent keeps it (Codex: config.toml). Only rows with canTurnOff. */
   mcpSetEnabled?(projects: readonly string[], name: string, enabled: boolean, runtime?: string): Promise<import('../shared/mcp.js').McpTurned>;
 }

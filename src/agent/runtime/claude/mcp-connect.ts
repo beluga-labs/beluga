@@ -15,6 +15,8 @@ export interface McpSession {
   mcpServerStatus(): Promise<McpServerStatus[]>;
   /** Claude Code's own sign-in: the page to open, while it waits on localhost for the browser to come back. */
   mcpAuthenticate?(serverName: string): Promise<{ authUrl?: string; requiresUserAction?: boolean } | undefined>;
+  /** MCP Apps: a `ui://` resource of a connected server (Claude Code's mcp_read_resource_v1). */
+  readMcpResource?(serverName: string, uri: string): Promise<{ contents: ReadonlyArray<{ uri: string; mimeType?: string; text?: string; _meta?: Record<string, unknown> }> }>;
   close(): void;
 }
 
@@ -90,6 +92,24 @@ export class McpConnect {
     } catch (err) {
       session.close();
       return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * MCP Apps: one `ui://` resource of one of your servers, read in a session of its own (the run
+   * that called the tool may be over): its HTML and the content item's `_meta` (its csp).
+   */
+  async readUiResource(cwds: readonly string[], server: string, uri: string): Promise<{ html: string; meta?: Record<string, unknown> }> {
+    const entries = this.entries(cwds);
+    const session = this.open(cwds[0] ?? process.cwd(), Object.fromEntries(entries.map((e) => [e.name, e.config])));
+    try {
+      if (typeof session.readMcpResource !== 'function') throw new Error('This Claude Code can’t read MCP App views. Update Claude Code.');
+      await this.settle(session);
+      const item = (await session.readMcpResource(server, uri)).contents.find((c) => typeof c.text === 'string');
+      if (!item?.text) throw new Error('That MCP App has no page to show.');
+      return { html: item.text, ...(item._meta ? { meta: item._meta } : {}) };
+    } finally {
+      session.close();
     }
   }
 

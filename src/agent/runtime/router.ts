@@ -89,6 +89,11 @@ export function routedBackend(fallback: AgentBackend, fallbackRuntime: RuntimeId
     mcpServers: async (projects: readonly string[], runtime?: RuntimeId) => (await pick(runtime ?? fallbackRuntime)?.mcpServers?.(projects)) ?? [],
     mcpSignIn: async (projects: readonly string[], name: string, runtime?: RuntimeId) => (await pick(runtime ?? fallbackRuntime)?.mcpSignIn?.(projects, name)) ?? { error: `${(runtime && RUNTIME_LABELS[runtime]) ?? 'Your agent'} isn’t running here.` },
     mcpSignedIn: (name: string, runtime?: RuntimeId) => pick(runtime ?? fallbackRuntime)?.mcpSignedIn?.(name) ?? Promise.resolve(undefined),
+    // MCP Apps: a `ui://` resource is read through Claude Code (the only runtime that records apps).
+    mcpReadUiResource: (projects: readonly string[], server: string, uri: string) => {
+      const claude = pick('claude');
+      return claude?.mcpReadUiResource ? claude.mcpReadUiResource(projects, server, uri) : Promise.reject(new Error('Claude Code isn’t running here.'));
+    },
     mcpSetEnabled: async (projects: readonly string[], name: string, enabled: boolean, runtime?: RuntimeId) =>
       (await pick(runtime ?? fallbackRuntime)?.mcpSetEnabled?.(projects, name, enabled)) ?? { error: 'This agent’s servers are turned on and off in its own settings.' },
   });
