@@ -304,9 +304,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         ...(input.effort ? { effort: input.effort } : {}),
         // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
-        // Set, this replaces Claude Code's whole environment, so it starts from ours. zsh-compat.sh makes a
-        // zsh login shell take the bash Claude writes (zsh-compat.ts).
-        env: { ...process.env, ...zshCompatEnv({ ...process.env, ...input.env }), ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } as Record<string, string>,
+        ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
         ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),
@@ -318,6 +316,10 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           return denied ? { behavior: 'deny', message: denied } : { behavior: 'allow', updatedInput: toolInput };
         },
       };
+      // zsh-compat.sh makes a zsh login shell take the bash Claude writes (zsh-compat.ts): added to the
+      // env the run is given, or to the daemon's own when it's given none.
+      const zsh = zshCompatEnv({ ...process.env, ...input.env });
+      if (Object.keys(zsh).length) options.env = { ...(options.env ?? process.env), ...zsh };
 
       let lastText = '';
       const ask = async (question: ClaudeQuestion): Promise<ClaudeAnswer> => (input.askUser ? input.askUser(question) : { kind: 'skip' });
