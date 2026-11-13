@@ -131,6 +131,28 @@ describe('the board on disk', () => {
   });
 });
 
+describe('names from before the rename', () => {
+  it('a board written as Klaud reads with Beluga’s name, in board.json and in its journal (and only then is it walked)', async () => {
+    const dir = home();
+    const board = open(dir);
+    const t = board.create({ projectId: 'api', title: 'Old one' }, me);
+    const u = board.create({ projectId: 'api', title: 'Old two' }, me);
+    board.flush();
+    // As Klaud wrote them: the first task's line in board.json, the second's in the journal.
+    const file = path.join(dir, 'board.json');
+    const snap = JSON.parse(readFileSync(file, 'utf8')) as { seq: number; issues: Array<{ id: string; activity: Array<{ by: unknown }> }> };
+    snap.issues.find((i) => i.id === t.id)!.activity[0]!.by = { kind: 'klaud' };
+    writeFileSync(file, JSON.stringify(snap));
+    const two = { ...snap.issues.find((i) => i.id === u.id)!, title: 'Old two, changed' };
+    two.activity = [{ ...two.activity[0]!, by: { kind: 'klaud' } }];
+    writeFileSync(path.join(dir, 'board.log'), `${JSON.stringify({ s: snap.seq + 1, u: two })}\n`);
+    const back = open(dir);
+    expect(back.get(t.id)!.activity[0]!.by).toEqual({ kind: 'beluga' });
+    expect(back.get(u.id)!.activity[0]!.by).toEqual({ kind: 'beluga' });
+    expect(back.get(u.id)!.title).toBe('Old two, changed');
+  });
+});
+
 describe('a brief’s history as written', () => {
   it('leaves out each version’s “after” it can work out, and reads back every one', async () => {
     const dir = home();

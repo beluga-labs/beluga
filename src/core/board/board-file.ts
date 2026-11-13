@@ -67,19 +67,22 @@ export class BoardFile {
    * board.json would hold it (for the board to check). undefined: nothing saved yet; `{ raw: undefined }`:
    * a snapshot is there but can't be read.
    */
-  read(): { readonly raw: unknown } | undefined {
+  read(): { readonly raw: unknown; readonly oldNames: boolean } | undefined {
     const journals = this.journals();
     let snap: Record<string, unknown> | undefined;
+    // Names from before the rename (Klaud): only a board written before then has them.
+    let oldNames = false;
     try {
       const text = readFileText(this.snapshot);
       if (text !== undefined) {
+        oldNames = text.includes('"klaud"');
         this.snapshotBytes = text.length;
         const parsed: unknown = JSON.parse(text);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { raw: undefined };
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { raw: undefined, oldNames };
         snap = parsed as Record<string, unknown>;
       }
     } catch {
-      return { raw: undefined };
+      return { raw: undefined, oldNames };
     }
     if (!snap && !journals.length) return undefined;
     const covered = typeof snap?.seq === 'number' ? snap.seq : 0;
@@ -88,6 +91,7 @@ export class BoardFile {
     let meta: Record<string, unknown> = {};
     const at = new Map<string, number>(issues.map((i, n) => [String(i?.id), n]));
     const lines = journals.flatMap((f) => readLines(f) as Line[]).filter((l) => l && typeof l.s === 'number' && l.s > covered);
+    if (!oldNames && lines.some((l) => JSON.stringify(l).includes('"klaud"'))) oldNames = true;
     lines.sort((a, b) => a.s - b.s);
     this.seq = Math.max(covered, lines.at(-1)?.s ?? 0);
     for (const l of lines) {
@@ -105,7 +109,7 @@ export class BoardFile {
       }
     }
     this.journalBytes = lines.reduce((sum, l) => sum + JSON.stringify(l).length + 1, 0);
-    return { raw: { ...base, ...meta, issues: issues.filter(Boolean).map(unpack) } };
+    return { raw: { ...base, ...meta, issues: issues.filter(Boolean).map(unpack) }, oldNames };
   }
 
   /** What the board holds now is what's on disk (after reading it): only changes from here are written. */
