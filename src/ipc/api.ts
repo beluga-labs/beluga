@@ -33,6 +33,7 @@ import { TEAM_API } from './team-api.js';
 import { GIT_API } from './git-api.js';
 import { VIEWS_API } from './views-api.js';
 import { PREVIEW_API } from './preview-api.js';
+import { MCP_APPS_API } from './mcp-apps-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { MACHINE_API } from './machine-api.js';
@@ -58,6 +59,8 @@ const id = z.string().min(1).max(200);
 const channel = z.string().min(1).max(200);
 const path = z.string().max(4096);
 const bool = z.boolean();
+/** A worktree id a screen chose (wt- and 12 of a UUID's characters, as the core makes them). */
+export const WorktreeId = z.string().regex(/^wt-[0-9a-f-]{12}$/);
 const opt = <T extends z.ZodType>(t: T) => t.optional();
 function args(): { args: z.ZodTuple<[], null> };
 function args<T extends [z.ZodType, ...z.ZodType[]]>(...items: T): { args: z.ZodTuple<T, null> };
@@ -68,7 +71,7 @@ function args(...items: z.ZodType[]): { args: z.ZodTuple } {
 export const Location = z.object({ owner: id, share: z.string().min(1).max(200), path });
 
 /** A project (all its worktrees, now and later) or one worktree, shared with a friend over the network. */
-const FriendShare = z.object({ peerId: id, projectId: opt(id), workspaceId: opt(id), role: WsRole }).refine((x) => x.projectId || x.workspaceId, 'Say which project or worktree');
+const FriendShare = z.object({ peerId: id, projectId: opt(id), workspaceId: opt(id), role: WsRole, whole: opt(bool) }).refine((x) => x.projectId || x.workspaceId, 'Say which project or worktree');
 const FriendUnshare = z.object({ peerId: id, projectId: opt(id), workspaceId: opt(id) }).refine((x) => x.projectId || x.workspaceId, 'Say which project or worktree');
 
 /** Your flags for one agent's command line, refused when Beluga sets one of them itself (shared/agent-args.ts). */
@@ -122,7 +125,6 @@ export const PrefsPatch = z
     fetchEvery: z.union([z.literal(0), z.number().int().min(FETCH_EVERY_MIN).max(FETCH_EVERY_MAX)]),
     prOnReview: bool,
     scratchFolder: bool,
-    chatLinks: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),
     friendWorktrees: z.enum(['ask', 'off']),
@@ -304,7 +306,8 @@ export const API = {
   'workspaces.startChat': args(id, str, opt(path.nullable()), opt(z.object({ terminal: opt(bool), plan: opt(bool) }))),
   // → the new worktree's id. `plan`: its Claude plans first. `tasks`: Plan with Tasks, its conversation is a
   // draft plan's home, written from the first message. `quiet`: started from the phone, the Mac's window stays put.
-  'workspaces.startWorktree': args(id, str, opt(z.object({ base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), plan: opt(bool), tasks: opt(bool), quiet: opt(bool), agent: opt(AgentRef), terminal: opt(bool) }))),
+  // `id`: the id it gets, chosen by the screen that shows it as being made already (BLG-942; taken only when free).
+  'workspaces.startWorktree': args(id, str, opt(z.object({ base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), plan: opt(bool), tasks: opt(bool), quiet: opt(bool), agent: opt(AgentRef), terminal: opt(bool), id: opt(WorktreeId) }))),
   // What a new worktree can start from: → { base: the default, branches: default first, then newest }.
   'workspaces.branches': args(id),
   'workspaces.fork': args(id, z.string().max(200)),
@@ -568,6 +571,8 @@ export const API = {
   ...GIT_API,
   ...VIEWS_API,
   ...PREVIEW_API,
+  // ---- MCP Apps: a UI tool's app in the chat (mcp-apps-api.ts)
+  ...MCP_APPS_API,
   // ---- your workspace's files: searching their contents, editing, formatting (files-api.ts)
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)

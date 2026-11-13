@@ -66,9 +66,47 @@ beforeEach(async () => {
 const pid = () => mgr.list.find((p) => p.root)!.id;
 const said = (id: string) => store.getState().log.filter((l) => l.channel === `ws:${id}` && l.type === 'system').map((l) => (l.type === 'system' ? l.text : ''));
 
+describe('a pull request in a worktree, shown at once (BLG-942)', () => {
+  const pending = (id: string) => store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
+
+  it('its row is there under the id the screen chose before GitHub has said which branch it is on', async () => {
+    let answer!: (pull: { number: number; branch: string; title: string; base: string }) => void;
+    const asked = new Promise<{ number: number; branch: string; title: string; base: string }>((r) => (answer = r));
+    const job = ctl.openPull(pid(), 12, () => asked, { id: 'wt-0123456789ab' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pending('wt-0123456789ab')).toMatchObject({ pending: true, name: 'pr-12' });
+    answer({ number: 12, branch: 'fix/email', title: 'Decode emails', base: 'main' });
+    const ws = await job;
+    expect(ws!.id).toBe('wt-0123456789ab');
+    expect(pending(ws!.id)?.pending).toBeUndefined();
+  });
+
+  it('GitHub failing takes its row away again, and says why', async () => {
+    const job = ctl.openPull(pid(), 12, () => Promise.reject(new Error('gh is not signed in')), { id: 'wt-0123456789ac' });
+    await expect(job).rejects.toThrow('gh is not signed in');
+    expect(pending('wt-0123456789ac')).toBeUndefined();
+  });
+
+  it('the worktree already on its branch opens, once GitHub says which that is', async () => {
+    const first = await ctl.openPull(pid(), 12, { number: 12, branch: 'fix/email' });
+    const again = await ctl.openPull(pid(), 12, async () => ({ number: 12, branch: 'fix/email' }), { id: 'wt-0123456789ad' });
+    expect(again!.id).toBe(first!.id);
+    expect(pending('wt-0123456789ad')).toBeUndefined();
+  });
+
+  it('an id that is taken is not used', async () => {
+    const first = await ctl.openPull(pid(), 12, { number: 12, branch: 'fix/email' }, { id: 'wt-0123456789ae' });
+    expect(first!.id).toBe('wt-0123456789ae');
+    // Another asking for the same id (a screen's mistake) gets one of its own: never the same worktree twice.
+    const other = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true }, { id: 'wt-0123456789ae' });
+    expect(other!.id).not.toBe('wt-0123456789ae');
+    expect(other!.id).toMatch(/^wt-[0-9a-f-]{12}$/);
+  });
+});
+
 describe('a pull request in a worktree', () => {
   it('checks out its own branch, tracking origin’s, compared with the branch it merges into', async () => {
-    const ws = await ctl.openPull(pid(), { number: 12, branch: 'fix/email', title: 'Decode emails', base: 'main' });
+    const ws = await ctl.openPull(pid(), 12, { number: 12, branch: 'fix/email', title: 'Decode emails', base: 'main' });
     expect(ws).toMatchObject({ kind: 'worktree', branch: 'fix/email', base: 'origin/main', name: 'pr-12-decode-emails' });
     expect(readFileSync(path.join(ws!.path, 'email.ts'), 'utf8')).toBe('decode\n');
     // A push there goes to the pull request's branch.
@@ -79,9 +117,9 @@ describe('a pull request in a worktree', () => {
 
   it('opens the worktree already on its branch instead of making another, and a double click makes one', async () => {
     const pull = { number: 12, branch: 'fix/email', title: 'Decode emails' };
-    const [a, b] = await Promise.all([ctl.openPull(pid(), pull), ctl.openPull(pid(), pull)]);
+    const [a, b] = await Promise.all([ctl.openPull(pid(), pull.number, pull), ctl.openPull(pid(), pull.number, pull)]);
     expect(a!.id).toBe(b!.id);
-    const again = await ctl.openPull(pid(), pull);
+    const again = await ctl.openPull(pid(), pull.number, pull);
     expect(again!.id).toBe(a!.id);
     expect(mgr.list.find((p) => p.root)!.workspaces.filter((w) => w.kind === 'worktree')).toHaveLength(1);
   });
@@ -89,19 +127,19 @@ describe('a pull request in a worktree', () => {
   it('uses a local branch of that name as it is, caught up with origin when it can be', async () => {
     git(repo, 'fetch', '-q', 'origin');
     git(repo, 'branch', '-q', 'fix/email', 'main');
-    const ws = await ctl.openPull(pid(), { number: 12, branch: 'fix/email' });
+    const ws = await ctl.openPull(pid(), 12, { number: 12, branch: 'fix/email' });
     expect(git(ws!.path, 'rev-parse', 'HEAD').trim()).toBe(git(repo, 'rev-parse', 'origin/fix/email').trim());
   });
 
   it('says where its branch is when it is checked out outside Beluga', async () => {
     git(repo, 'fetch', '-q', 'origin');
     git(repo, 'switch', '-q', '-c', 'fix/email', '--track', 'origin/fix/email');
-    expect(await ctl.openPull(pid(), { number: 12, branch: 'fix/email' })).toBeUndefined();
+    expect(await ctl.openPull(pid(), 12, { number: 12, branch: 'fix/email' })).toBeUndefined();
     expect(toasts.at(-1)).toMatch(/Couldn't open #12 in a worktree: fix\/email is already checked out in/);
   });
 
   it('gets a fork’s from GitHub’s pull ref, on its branch’s name, and git pull keeps it current', async () => {
-    const ws = await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
     expect(ws).toMatchObject({ branch: 'their-fork-branch', name: 'pr-7-from-a-fork' });
     expect(readFileSync(path.join(ws!.path, 'fork.ts'), 'utf8')).toBe('from a fork\n');
     expect(git(repo, 'config', 'branch.their-fork-branch.merge').trim()).toBe('refs/pull/7/head');
@@ -115,11 +153,11 @@ describe('a pull request in a worktree', () => {
     expect(readFileSync(path.join(ws!.path, 'fork.ts'), 'utf8')).toBe('more\n');
     expect(said(ws!.id).join(' ')).toMatch(/from a fork, so pushing here doesn’t change it/);
     // Opening it again finds that worktree.
-    expect((await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', fork: true }))!.id).toBe(ws!.id);
+    expect((await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true }))!.id).toBe(ws!.id);
   });
 
   it('a fork’s commits are on GitHub, so deleting it loses none of them; yours on top it warns about (BLG-746)', async () => {
-    const ws = await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
     expect(await mgr.deletePlan(ws!.id)).toBeUndefined();
     await mgr.refresh();
     expect(mgr.find(ws!.id)?.status).toMatchObject({ ahead: 1 });
@@ -133,7 +171,7 @@ describe('a pull request in a worktree', () => {
   });
 
   it('a fork’s worktree made before its head was kept fetches it before warning', async () => {
-    const ws = await ctl.openPull(pid(), { number: 7, branch: 'their-fork-branch', fork: true });
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true });
     git(repo, 'update-ref', '-d', 'refs/beluga/pulls/7');
     expect(await mgr.deletePlan(ws!.id)).toBeUndefined();
     expect(git(repo, 'rev-parse', 'refs/beluga/pulls/7').trim()).toBe(git(repo, 'rev-parse', 'their-fork-branch').trim());
@@ -141,7 +179,7 @@ describe('a pull request in a worktree', () => {
 
   it('puts a fork’s on pr-<n> when its branch’s name is taken here', async () => {
     git(repo, 'branch', '-q', 'patch-1');
-    const ws = await ctl.openPull(pid(), { number: 7, branch: 'patch-1', fork: true });
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'patch-1', fork: true });
     expect(ws).toMatchObject({ branch: 'pr-7', name: 'pr-7' });
     expect(readFileSync(path.join(ws!.path, 'fork.ts'), 'utf8')).toBe('from a fork\n');
   });
@@ -152,7 +190,7 @@ describe('a pull request in a worktree', () => {
   });
 
   it('says so when its branch is gone from origin, and leaves nothing behind', async () => {
-    expect(await ctl.openPull(pid(), { number: 9, branch: 'deleted/branch' })).toBeUndefined();
+    expect(await ctl.openPull(pid(), 9, { number: 9, branch: 'deleted/branch' })).toBeUndefined();
     expect(toasts.at(-1)).toMatch(/deleted\/branch isn’t on origin/);
     expect(mgr.list.find((p) => p.root)!.workspaces.filter((w) => w.kind === 'worktree')).toHaveLength(0);
   });

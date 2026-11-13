@@ -91,6 +91,8 @@ export type LogItem =
       readonly queued?: true;
       /** A turn of a chaired dialogue (core/dialogues): which one, and its number (0: a person's interjection). */
       readonly dialogue?: DialogueMark;
+      /** An MCP App in this chat sent it for you (ui/message): its tool's name. Only on this computer. */
+      readonly fromApp?: string;
       /** Emoji reactions on it (BLG-702): each person's latest change per emoji (core/chat-reactions.ts draws the chips). */
       readonly reacts?: readonly ReactionEvent[];
     }
@@ -366,11 +368,6 @@ export interface Prefs {
   readonly scratchFolder: boolean;
   /** Experimental features that are on (shared/experiments.ts), off until you turn each on. */
   readonly experiments: readonly string[];
-  /**
-   * Chat refs, chips and links (shared/chat-ref.ts). Owner: the plan "Communication between chats".
-   * Remove this flag, and turn the feature on for everyone, once that plan has shipped.
-   */
-  readonly chatLinks: boolean;
   readonly subagents: Settings['subagents'];
   readonly hiddenButtons: readonly string[];
   readonly friendWorktrees: Settings['friendWorktrees'];
@@ -686,7 +683,7 @@ export type Action =
   | { type: 'hosting'; hosting: Hosting }
   | { type: 'welcome'; self: PeerInfo }
   | { type: 'peers'; peers: readonly PeerInfo[] }
-  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; via?: MessageVia; dialogue?: DialogueMark }
+  | { type: 'chat'; id: string; from: string; text: string; ts: number; byAgent: boolean; channel?: string; request?: string; steer?: true; queued?: true; agent?: AgentRef; via?: MessageVia; dialogue?: DialogueMark; fromApp?: string }
   | ChatReactAction
   /** `id`/`ts` are stamped before reducing (see stampAction). */
   | { type: 'system'; text: string; level?: 'info' | 'warn' | 'error'; channel?: string; id?: string; ts?: number; said?: SaidBy; shipped?: ShippedMark; merged?: MergedMark; dialogue?: DialogueMark }
@@ -811,7 +808,6 @@ export const DEFAULT_PREFS: Prefs = {
   prOnReview: false,
   scratchFolder: true,
   experiments: [],
-  chatLinks: false,
   subagents: 'full',
   hiddenButtons: [],
   friendWorktrees: 'ask',
@@ -1170,6 +1166,7 @@ export function reduceDomain(state: DomainState, action: Action): DomainState {
           ...(action.steer ? { steer: true as const } : {}),
           ...(action.queued ? { queued: true as const } : {}),
           ...(action.dialogue ? { dialogue: action.dialogue } : {}),
+          ...(action.fromApp ? { fromApp: action.fromApp.slice(0, 80) } : {}),
         }),
       }, action.channel ?? 'room', true);
     case 'chat_react': {

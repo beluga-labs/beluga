@@ -3466,6 +3466,8 @@
  "It runs there now, with its chat and tasks; this is its record.": "它现在在那里运行，带着它的聊天和任务；这里是它的记录。",
  "It runs this in Beluga’s terminal, where you answer it:": "它会在 Beluga 的终端中运行这个，由你来回答：",
  "It runs without asking: {0}": "它无需询问即可运行：{0}",
+ "It says: “{0}”": "它说：“{0}”",
+ "It says: “{0}” Do what it asks, then Resume it": "它说：“{0}” 照它说的做完，再点“继续”",
  "It shows as the right panel’s Terminal tab, beside the conversation.": "它显示为右侧面板的“终端”标签页，在对话旁边。",
  "It shows in its worktree’s conversation.": "它显示在所属工作树的对话中。",
  "It shows in one place at a time.": "它一次只在一个地方显示。",
@@ -5885,6 +5887,7 @@
  "Resume the plan: it’s paused, nothing starts": "继续计划：它已暂停，什么都不会开始",
  "Resume {0}": "继续 {0}",
  "Resume {0} Tasks": "继续 {0} 个任务",
+ "Resume {0} once you’ve done what it asks: “{1}”": "照它说的做完后，继续 {0}：“{1}”",
  "Resume {0}: its agent stopped again without finishing": "继续 {0}：它的智能体又没做完就停下了",
  "Resumed {0}": "已继续 {0}",
  "Resumed: ready tasks start again": "已继续：就绪的任务重新开始",
@@ -11643,6 +11646,7 @@
  "{0}: as of the last fetch": "{0}：截至上次获取",
  "{0}: click for its checks and to merge": "{0}：点击查看它的检查并合并",
  "{0}: continue, or stop": "{0}：继续，或停止",
+ "{0}: do what it asks (or answer in its chat), then Resume it. It said: “{1}”": "{0}：照它说的做完（或在它的聊天里回复），再点“继续”。它说：“{1}”",
  "{0}: fewer than {1} items": "{0}：少于 {1} 项",
  "{0}: it holds secrets, so Beluga never sends it": "{0}：它包含机密，所以 Beluga 绝不会发送它",
  "{0}: its last run failed": "{0}：上次运行失败了",
@@ -11929,6 +11933,7 @@
  "“{0}” isn’t a plan branch name": "“{0}”不是计划分支名称",
  "“{0}” keeps no rows called {1}": "“{0}”没有保存叫 {1} 的行",
  "“{0}” needs more than {1}: remove it first": "“{0}”需要高于“{1}”的权限：请先移除它",
+ "“{0}” needs you": "“{0}”需要你处理",
  "“{0}” needs {1} access; this sentinel has {2}": "“{0}”需要{1}权限；这个哨兵只有{2}",
  "“{0}” needs {1}, which {2} doesn’t have. Keep My Secrets in Sync sends your variables (Settings › Environment) there and keeps them in step; then its sources are tested again. It stays paused until you turn it on.": "“{0}”需要 {1}，而 {2} 上没有。“保持我的密钥同步”会把你的变量（设置 › 环境）发送到那里并保持同步；然后会重新测试它的数据源。在你打开之前它会保持暂停。",
  "“{0}” passed.": "“{0}”已通过。",
@@ -11970,5 +11975,9 @@
  "● {0} new": "● {0} 条新的",
  "✳ Asked Claude to read the conversation": "✳ 已请 Claude 阅读这段对话",
  "✻ Thinking…": "✻ 思考中…",
- "📎 image {0} ({1}, {2})": "📎 图片 {0}（{1}，{2}）"
+ "📎 image {0} ({1}, {2})": "📎 图片 {0}（{1}，{2}）",
+ "Checking for commits that were never pushed…": "正在检查从未推送的提交…",
+ "Beluga couldn’t finish checking for commits that were never pushed.": "Beluga 没能完成对从未推送的提交的检查。",
+ "Keep it archived if you’re not sure.": "如果不确定，请保持归档。",
+ "If you’re not sure, Archive keeps the branch and the conversation.": "如果不确定，归档会保留分支和对话。"
 }

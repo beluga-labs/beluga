@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 54 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 55 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -138,13 +138,16 @@ export const COMPANION_PROTO = { major: 1, minor: 54 } as const;
  * without it. External agents from the phone: `external.agents`, `stopAgent`, `stopAll`, `revoke`, `activity` (SINCE.externalAgents).
  * 1.51 (BLG-140): a chat's address (`chats.resolve`): its chip's current title and whether it opens.
  * An older Mac has no such call: the phone shows the token as code. `ConvView.chatLinks`: the Mac has
- * chat links on; with them off the phone shows a chat mention as its title, with no chip.
+ * chat links (always on a Mac newer than 3.3.0; before, a setting off by default); without it the
+ * phone shows a chat mention as its title, with no chip.
  * 1.52 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
  * 1.53 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
  * 1.54 (BLG-922): usage statistics' level on the phone's Settings (`HomeView.mac.telemetry`, `telemetry.choose`). An older phone
  * shows no such row; an older Mac sends no `telemetry`.
+ * 1.55 (BLG-940): a worktree of yours shared with someone says how many (`ConvSummary.shared`), for the
+ * Mac sidebar's green dot. An older Mac sends none; an older phone shows none.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54, sharedMark: 55 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -520,6 +523,8 @@ export const ConvSummary = z.object({
   harness: AgentRefView.optional(),
   /** 1.47: the chat it sits under in Work. Only a live parent in the same project; a kept child has none. */
   parent: Topic.optional(),
+  /** 1.55 (BLG-940): a worktree of yours shared with this many people (friends, or your room), the Mac row's green dot. */
+  shared: z.number().int().min(1).max(1000).optional(),
 });
 export type ConvSummary = z.infer<typeof ConvSummary>;
 
@@ -640,6 +645,8 @@ export const AgentPickerView = z.object({
         isDefault: z.boolean(),
         current: z.boolean(),
         models: z.array(z.object({ value: z.string().max(80), label: z.string().max(80), description: z.string().max(200), on: z.boolean() })).max(30),
+        /** BLG-945: how many more models this runtime has on the Mac than `models` holds (the picked one is always in it). */
+        more: z.number().int().min(0).optional(),
       }),
     )
     .max(8),
@@ -676,7 +683,7 @@ export const ConvView = z.object({
   turns: z.array(TurnView).max(200),
   /** Older turns exist (companion.older). */
   more: z.boolean(),
-  /** 1.51: the Mac has chat links on: each "@Title (chat: …)" of yours is a chip. Without it, the phone shows "@Title". */
+  /** 1.51: the Mac has chat links (always on a Mac newer than 3.3.0): each "@Title (chat: …)" of yours is a chip. Without it, the phone shows "@Title". */
   chatLinks: z.literal(true).optional(),
   needsYou: z.array(NeedsYou).max(20),
   /** You may write here (it's yours, or shared with you to work in). */
