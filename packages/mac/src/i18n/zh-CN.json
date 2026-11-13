@@ -12114,5 +12114,11 @@
  "Checking for commits that were never pushed…": "正在检查从未推送的提交…",
  "Beluga couldn’t finish checking for commits that were never pushed.": "Beluga 没能完成对从未推送的提交的检查。",
  "Keep it archived if you’re not sure.": "如果不确定，请保持归档。",
- "If you’re not sure, Archive keeps the branch and the conversation.": "如果不确定，归档会保留分支和对话。"
+ "If you’re not sure, Archive keeps the branch and the conversation.": "如果不确定，归档会保留分支和对话。",
+ "Open Your Own PR": "创建你自己的 PR",
+ "Own PR": "自己的 PR",
+ "A new pull request into {0} with {1}’s commits and your {2}, on a branch of its own{3}": "一个合并到 {0} 的新拉取请求，包含 {1} 的提交和你的 {2}，放在它自己的分支上{3}",
+ "A new pull request into {0} with {1}’s commits and yours, instead": "改为创建一个合并到 {0} 的新拉取请求，包含 {1} 的提交和你的提交",
+ "{0} here {1} on {2}, and {3}’s fork doesn’t let maintainers push to it": "这里的 {0} {1} 在 {2} 上，而且 {3} 的分叉不允许维护者推送",
+ "{0} here {1} on {2} yet: {3}’s fork lets maintainers push to it": "这里的 {0} {1} 在 {2} 上：{3} 的分叉允许维护者推送"
 }

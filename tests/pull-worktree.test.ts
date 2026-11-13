@@ -170,6 +170,53 @@ describe('a pull request in a worktree', () => {
     expect(git(repo, 'for-each-ref', 'refs/beluga/pulls').trim()).toBe('');
   });
 
+  it('git pull keeps a fork’s kept head current, so the pull request’s new commits never read as not on it', async () => {
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true });
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch')).toContain('+refs/pull/7/head:refs/beluga/pulls/7');
+    writeFileSync(path.join(mate, 'fork.ts'), 'more\n');
+    git(mate, 'commit', '-q', '-am', 'more');
+    git(mate, 'push', '-q', 'origin', 'HEAD:refs/pull/7/head');
+    git(ws!.path, 'pull', '-q', '--ff-only');
+    expect(git(repo, 'rev-parse', 'refs/beluga/pulls/7').trim()).toBe(git(ws!.path, 'rev-parse', 'HEAD').trim());
+    await mgr.refresh();
+    expect(mgr.find(ws!.id)?.status).toMatchObject({ ahead: 2 });
+    expect(mgr.find(ws!.id)?.status?.unpushed).toBeUndefined();
+    // Gone with its branch: no fetch keeps bringing a pull request nothing here follows.
+    await mgr.remove(ws!.id);
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch')).not.toContain('refs/pull/7/head');
+  });
+
+  it('a fork’s worktree made before it followed its head gets it on the next refresh', async () => {
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true });
+    git(repo, 'config', '--unset', 'remote.origin.fetch', '^\\+refs/pull/7/head:');
+    // As a daemon started after it was made finds it.
+    const fresh = new WorkspaceManager(new WorkspaceStore(path.join(base, 'home')));
+    await fresh.refresh();
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch').trim().split('\n')).toEqual(['+refs/heads/*:refs/remotes/origin/*', '+refs/pull/7/head:refs/beluga/pulls/7']);
+    // Once only, however often it's read.
+    await fresh.refresh();
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch').trim().split('\n')).toHaveLength(2);
+    expect(ws).toBeTruthy();
+  });
+
+  it('a fork’s that can’t be pushed to becomes a branch of your own, with every commit kept (BLG-948)', async () => {
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
+    writeFileSync(path.join(ws!.path, 'mine.ts'), 'mine\n');
+    git(ws!.path, 'add', '.');
+    git(ws!.path, 'commit', '-q', '-m', 'mine');
+    const head = git(ws!.path, 'rev-parse', 'HEAD').trim();
+    expect(await mgr.leavePull(ws!.id)).toBe('beluga/pr-7-from-a-fork');
+    expect(git(ws!.path, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('beluga/pr-7-from-a-fork');
+    expect(git(ws!.path, 'rev-parse', 'HEAD').trim()).toBe(head);
+    expect(pullOfBranch(ws!.path, 'beluga/pr-7-from-a-fork')).toBeUndefined();
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch')).not.toContain('refs/pull/7/head');
+    expect(mgr.find(ws!.id)?.branch).toBe('beluga/pr-7-from-a-fork');
+    // The fork's commit and yours: nothing on origin has them yet.
+    expect(mgr.find(ws!.id)?.status?.unpushed).toBe(2);
+    // Already yours: asked again, it stays as it is.
+    expect(await mgr.leavePull(ws!.id)).toBe('beluga/pr-7-from-a-fork');
+  });
+
   it('a fork’s worktree made before its head was kept fetches it before warning', async () => {
     const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true });
     git(repo, 'update-ref', '-d', 'refs/beluga/pulls/7');

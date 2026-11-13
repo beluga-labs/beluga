@@ -404,7 +404,7 @@ export const API = {
   'workbench.createPr': args(id, opt(str)),
   // Create PR without Claude: commit what's left, push, open it titled from the commits → { ok, message, trouble? }.
   // https: push this once over HTTPS with gh's login (the SSH key isn't working; origin stays as it is).
-  'workbench.quickPr': args(id, opt(z.object({ draft: opt(bool), https: opt(bool), original: opt(bool) }).strict())),
+  'workbench.quickPr': args(id, opt(z.object({ draft: opt(bool), https: opt(bool), original: opt(bool), own: opt(bool) }).strict())),
   // Merge into its base with no PR (BLG-265): commit what's left, land the branch on origin/<base> and push it there → { ok, message, trouble? }.
   'workbench.mergeToBase': args(id, opt(z.object({ https: opt(bool) }).strict())),
   // A fix from a GitHub trouble card (BLG-213), then Create PR again ('pr', 'pr_draft'), Merge into its base ('merge_base') or nothing ('none') → { ok, message, trouble? }.
