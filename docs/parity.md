@@ -424,8 +424,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workbench.editPrPrompt` | ✓ |
 | `workbench.resetPrPrompt` | ✓ |
 | `workbench.measureDisk` | ✓ |
-| `workbench.checkAgents` | ✓ Check Again on onboarding's Your agents step and in Settings › Agent › Your agents |
-| `workbench.agentSignIn` | ✓ Sign In beside an agent that isn't signed in (onboarding, Settings › Agent) |
+| `workbench.checkAgents` | ✓ Check Again on onboarding's Your agents step and in Settings › Agent › Your agents; Look Again under OpenCode's models in the agent picker, after adding a provider |
+| `workbench.agentSignIn` | ✓ Sign In beside an agent that isn't signed in (onboarding, Settings › Agent); Add a provider under OpenCode's models in the agent picker (DeepSeek, Kimi…) |
 | `workbench.search` | ✓ |
 | `workbench.openHit` | ✓ |
 | `workbench.saveTemplate` | ✓ |

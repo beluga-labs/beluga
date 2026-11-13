@@ -645,6 +645,8 @@ export const AgentPickerView = z.object({
         isDefault: z.boolean(),
         current: z.boolean(),
         models: z.array(z.object({ value: z.string().max(80), label: z.string().max(80), description: z.string().max(200), on: z.boolean() })).max(30),
+        /** BLG-945: how many more models this runtime has on the Mac than `models` holds (the picked one is always in it). */
+        more: z.number().int().min(0).optional(),
       }),
     )
     .max(8),
