@@ -74,10 +74,9 @@ function belugaHomes(): string[] {
  * Inside Beluga's home, what stays usable: worktrees, chat folders, files put in the outbox, and
  * friends' tasks (the scratch folders they run in, and the files their results brought), and the
  * folder "Your Mac"'s Claude works in (core/assistant: its screenshots and the files it sends you;
- * its session and history beside it stay secret), and the images you attach (an answer to an agent's
- * question links them there: core/attachments.ts `withImagePaths`).
+ * its session and history beside it stay secret).
  */
-const OPEN_IN_HOME = [['workspaces'], ['chats'], ['outbox'], ['tasks', 'work'], ['tasks', 'files'], ['assistant', 'work'], ['attachments']];
+const OPEN_IN_HOME = [['workspaces'], ['chats'], ['outbox'], ['tasks', 'work'], ['tasks', 'files'], ['assistant', 'work']];
 
 function secretInHome(abs: string): boolean {
   for (const candidate of new Set([fold(abs), fold(realOf(abs))])) {

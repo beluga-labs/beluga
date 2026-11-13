@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { isOwnImageFile } from '../core/attachments.js';
 import { isDotenvPath, isReceivedTaskFile, isSecretPath, realOf } from '../core/shares.js';
 import { expandHome } from '../core/home-path.js';
 import { isReadOnlyCommand } from './read-only.js';
@@ -138,7 +139,16 @@ export interface PolicyContext {
   readonly dotenv?: boolean;
   /** A friend's run with the board (BLG-701): its changes ('writes') or every board tool ('all') ask you first. */
   readonly boardAsks?: 'writes' | 'all';
+  /**
+   * Your own run: you asked, on this computer (never a friend's, a guest's or an external agent's).
+   * It may Read an image you attached (an answer to its question links one: core/attachments.ts
+   * withImagePaths), though Beluga's own folder stays secret otherwise.
+   */
+  readonly yourRun?: boolean;
 }
+
+/** `yourRun` for a run's policy: only you asked (a friend's run has no canUseSecret; an external agent's is asOwner). */
+export const isYourRun = (input: { readonly canUseSecret?: unknown; readonly guest?: boolean; readonly asOwner?: boolean }): boolean => Boolean(input.canUseSecret) && !input.guest && !input.asOwner;
 
 /**
  * `target` is `root` or inside it. Windows paths match without regard to letter case, as Windows
@@ -577,6 +587,8 @@ function decideToolPlain(toolName: string, input: Record<string, unknown>, ctx: 
   const readField = READ_TOOLS[toolName];
   if (readField) {
     const target = resolveTarget(ctx.cwd, input[readField]);
+    // An image you attached, read by your own run: one file right in the attachments folder, where it really is.
+    if (toolName === 'Read' && ctx.yourRun && isOwnImageFile(target)) return 'allow';
     // A secret a friend approved sending you (BLG-209) is your user's file now: your own Claude may read it, once you say so.
     if (ctx.dotenv && isReceivedTaskFile(target) && !namesOf(toolName, input).some(isSecretPath)) return 'ask';
     const real = realOf(target);

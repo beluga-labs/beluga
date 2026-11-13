@@ -6,7 +6,7 @@ import { pathVariants } from './claude-sessions.js';
 import { belugaHome } from '../../../core/home.js';
 import type { AgentRef } from '../../../protocol.js';
 import { claudeCodeCommand, claudeCodeReady } from '../../claude-code.js';
-import type { PolicyContext } from '../../policy.js';
+import { type PolicyContext, isYourRun } from '../../policy.js';
 import { runInstructions } from '../../run-instructions.js';
 import { runToolSuites } from '../../run-tools.js';
 import { GATE_TOKEN_ENV, GATE_URL_ENV, gateHookFile, gateHookSettings, terminalHookAnswer } from '../../terminal-hook.js';
@@ -125,7 +125,7 @@ export async function claudeTerminal(input: AgentRunInput, sink: TerminalSink, o
   const askOnly = place.askOnly;
   const autoEdit = !askOnly && place.autoEdit;
   const extraDirs = place.additionalDirectories;
-  const policy: PolicyContext = { cwd, roots: [cwd, ...extraDirs], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(place.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
+  const policy: PolicyContext = { cwd, roots: [cwd, ...extraDirs], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, yourRun: isYourRun(input), askOnly: Boolean(askOnly), ...(place.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
   const bridge = input.channel && opts.bridge.inChannel ? opts.bridge.inChannel(input.channel) : opts.bridge;
   const mounted = await (opts.toolHost ?? toolHost()).mount(
     runToolSuites(input, bridge, new TerminalShelf(sink), cwd),

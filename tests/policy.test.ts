@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { confineSearch, decideTool, limitSearchScanForTest, scanSearch, writesCode } from '../src/agent/policy.js';
+import { confineSearch, decideTool, isYourRun, limitSearchScanForTest, scanSearch, writesCode } from '../src/agent/policy.js';
+import { attachmentsDir } from '../src/core/attachments.js';
 
 const ctx = { cwd: '/work/proj', roots: ['/work/proj', '/work/docs'], autoEdit: false };
 const rw = { ...ctx, autoEdit: true };
@@ -319,5 +320,62 @@ describe('a directory search, judged on what it finds', () => {
     } finally {
       undo();
     }
+  });
+});
+
+describe('an image you attached (an answer to a question links it)', () => {
+  const dir = attachmentsDir();
+  mkdirSync(path.join(dir, 'received'), { recursive: true });
+  mkdirSync(path.join(dir, 'room'), { recursive: true });
+  for (const f of ['shot.png', 'notes.txt', path.join('received', 'f-shot.png'), path.join('room', 'shot.png')]) writeFileSync(path.join(dir, f), 'x');
+  const outside = mkdtempSync(path.join(tmpdir(), 'policy-img-'));
+  writeFileSync(path.join(outside, 'private.png'), 'x');
+  const own = { cwd: '/work/proj', roots: ['/work/proj'], autoEdit: false, scope: 'full' as const, dotenv: true, yourRun: true };
+  const friend = { cwd: '/work/proj', roots: ['/work/proj'], autoEdit: false, scope: 'full' as const };
+
+  it('your own run reads it, without a new question even at folder reach', () => {
+    expect(decideTool('Read', { file_path: path.join(dir, 'shot.png') }, own)).toBe('allow');
+    expect(decideTool('Read', { file_path: path.join(dir, 'shot.png') }, { ...own, scope: 'folder' })).toBe('allow');
+  });
+
+  it("a friend's, a guest's or an external agent's run doesn't: the folder stays Beluga's own", () => {
+    expect(decideTool('Read', { file_path: path.join(dir, 'shot.png') }, friend)).toBe('deny');
+    expect(decideTool('Read', { file_path: path.join(dir, 'shot.png') }, { ...friend, guest: true })).toBe('deny');
+    // An external agent at full trust has dotenv, never yourRun.
+    expect(decideTool('Read', { file_path: path.join(dir, 'shot.png') }, { ...friend, dotenv: true })).toBe('deny');
+    expect(isYourRun({ canUseSecret: () => true })).toBe(true);
+    expect(isYourRun({ canUseSecret: () => true, asOwner: true })).toBe(false);
+    expect(isYourRun({ canUseSecret: () => true, guest: true })).toBe(false);
+    expect(isYourRun({})).toBe(false);
+  });
+
+  it('only an image right in the folder: not received/, room/, another file, or a way out', () => {
+    expect(decideTool('Read', { file_path: path.join(dir, 'received', 'f-shot.png') }, own)).toBe('deny');
+    expect(decideTool('Read', { file_path: path.join(dir, 'room', 'shot.png') }, own)).toBe('deny');
+    expect(decideTool('Read', { file_path: path.join(dir, 'notes.txt') }, own)).toBe('deny');
+    expect(decideTool('Read', { file_path: `${dir}/received/../../identity.png` }, own)).toBe('deny');
+    expect(decideTool('Read', { file_path: `${dir}/../attachments-x.png` }, own)).toBe('deny');
+    expect(decideTool('NotebookRead', { notebook_path: path.join(dir, 'shot.png') }, own)).toBe('deny');
+  });
+
+  // Symlinks need privileges on Windows.
+  it.skipIf(process.platform === 'win32')('a link named like an image is judged where it really points', () => {
+    const out = path.join(dir, 'linked-out.png');
+    rmSync(out, { force: true });
+    symlinkSync(path.join(outside, 'private.png'), out);
+    expect(decideTool('Read', { file_path: out }, own)).toBe('deny');
+    const down = path.join(dir, 'linked-down.png');
+    rmSync(down, { force: true });
+    symlinkSync(path.join(dir, 'received', 'f-shot.png'), down);
+    expect(decideTool('Read', { file_path: down }, own)).toBe('deny');
+  });
+
+  it('no search, listing, writing or sending there', () => {
+    expect(decideTool('Grep', { pattern: 'x', path: dir }, own)).toBe('deny');
+    expect(decideTool('Glob', { pattern: '*.png', path: dir }, own)).toBe('deny');
+    expect(decideTool('LS', { path: dir }, own)).toBe('deny');
+    expect(decideTool('Write', { file_path: path.join(dir, 'shot.png') }, own)).toBe('deny');
+    expect(decideTool('Write', { file_path: path.join(dir, 'room', 'new.png') }, own)).toBe('deny');
+    expect(decideTool('mcp__beluga__send_file', { path: path.join(dir, 'shot.png') }, own)).toBe('deny');
   });
 });
