@@ -20,6 +20,7 @@ import { Icon } from '../components/Icon.js';
 import { Kbd, Tip, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { recipientLabel, recipientPrefix, toast, useApi, useApp, useBeluga, useUi, useMachine, useScopedKey } from '../lib/beluga.js';
+import { makeAhead } from '../lib/make-ahead.js';
 import { agentName, useAgentNameIn, useMyAgentName } from '../lib/agent-words.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import { getPrefs, usePrefs } from '../lib/prefs.js';
@@ -429,7 +430,15 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     setWorktreeState({ name: '' });
     arm(false);
     if (sent === 'sent') return;
-    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode }).catch((err: unknown) => toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error'));
+    // Its row and "Making…" page show at once (BLG-942), whatever the daemon is busy with; a failure takes them away again.
+    // The draft's words went with it: forgotten now, as the page changes in this same moment (no render in between to do it).
+    drafts.delete(boxKey);
+    const ahead = makeAhead(client, projectId, name || text || 'worktree', { ...(worktree.base ? { base: worktree.base } : {}), asked: text });
+    void api.workspaces.startWorktree(projectId, text, { ...(worktree.base ? { base: worktree.base } : {}), ...(name ? { name } : {}), ...(worktree.agent ? { agent: worktree.agent } : {}), ...mode, ...(ahead ? { id: ahead.id } : {}) }).catch((err: unknown) => {
+      ahead?.drop();
+      keepWords(text);
+      toast(client, `Couldn't create the worktree: ${errorText(err)}`, 'error');
+    });
   };
   /** Held for a computer that can't take it now: the words go back in the box, nothing was sent. */
   const keepWords = (text: string): void => {

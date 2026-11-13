@@ -58,6 +58,8 @@ const id = z.string().min(1).max(200);
 const channel = z.string().min(1).max(200);
 const path = z.string().max(4096);
 const bool = z.boolean();
+/** A worktree id a screen chose (wt- and 12 of a UUID's characters, as the core makes them). */
+export const WorktreeId = z.string().regex(/^wt-[0-9a-f-]{12}$/);
 const opt = <T extends z.ZodType>(t: T) => t.optional();
 function args(): { args: z.ZodTuple<[], null> };
 function args<T extends [z.ZodType, ...z.ZodType[]]>(...items: T): { args: z.ZodTuple<T, null> };
@@ -303,7 +305,8 @@ export const API = {
   'workspaces.startChat': args(id, str, opt(path.nullable()), opt(z.object({ terminal: opt(bool), plan: opt(bool) }))),
   // → the new worktree's id. `plan`: its Claude plans first. `tasks`: Plan with Tasks, its conversation is a
   // draft plan's home, written from the first message. `quiet`: started from the phone, the Mac's window stays put.
-  'workspaces.startWorktree': args(id, str, opt(z.object({ base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), plan: opt(bool), tasks: opt(bool), quiet: opt(bool), agent: opt(AgentRef), terminal: opt(bool) }))),
+  // `id`: the id it gets, chosen by the screen that shows it as being made already (BLG-942; taken only when free).
+  'workspaces.startWorktree': args(id, str, opt(z.object({ base: opt(z.string().min(1).max(250)), name: opt(z.string().max(200)), plan: opt(bool), tasks: opt(bool), quiet: opt(bool), agent: opt(AgentRef), terminal: opt(bool), id: opt(WorktreeId) }))),
   // What a new worktree can start from: → { base: the default, branches: default first, then newest }.
   'workspaces.branches': args(id),
   'workspaces.fork': args(id, z.string().max(200)),

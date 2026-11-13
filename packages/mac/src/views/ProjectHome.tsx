@@ -18,6 +18,7 @@ import { Select } from "../components/Select.js";
 import { Button, Dot, Empty, IconButton, Segmented, Tip, cx } from "../components/ui.js";
 import { useActions } from "../lib/actions.js";
 import { toast, useApi, useApp, useBeluga } from "../lib/beluga.js";
+import { makeAhead } from "../lib/make-ahead.js";
 import { useMyAgentName } from "../lib/agent-words.js";
 import { RunsOnPicker } from "../chat/RunsOn.js";
 import { type WorkToStart, sendToComputer, useStartDeps } from "../machines/start-there.js";
@@ -375,9 +376,10 @@ function HomeComposer({ project }: { project: Project }) {
       return;
     }
     if (worktree) {
-      // The worktree is made in the background (it opens when ready): you can go on right away.
+      // The worktree is made in the background, its row and "Making…" page there at once (BLG-942): you can go on right away.
       setText("");
       setName("");
+      const ahead = makeAhead(client, project.id, named || message || "worktree", { ...(base ? { base } : {}), asked: message });
       void api.workspaces
         .startWorktree(project.id, message, {
           ...(base ? { base } : {}),
@@ -385,14 +387,16 @@ function HomeComposer({ project }: { project: Project }) {
           ...(agent ? { agent } : {}),
           // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
           ...(message.trim() && sendsToTerminal(client.store.getState(), getPrefs(), "draft", agent?.runtime) ? { terminal: true } : {}),
+          ...(ahead ? { id: ahead.id } : {}),
         })
-        .catch((err: unknown) =>
+        .catch((err: unknown) => {
+          ahead?.drop();
           toast(
             client,
             `Couldn’t create the worktree: ${errorText(err)}`,
             "error",
-          ),
-        );
+          );
+        });
       return;
     }
     setBusy(true);

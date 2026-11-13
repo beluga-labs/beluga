@@ -5,6 +5,7 @@ import { useApp, useBeluga } from '../lib/beluga.js';
 import { groupChatOpen } from '../lib/group-chat.js';
 import { ViewBoundary, lazyView } from '../lib/lazy-view.js';
 import { useMaking } from '../lib/making.js';
+import { askedAhead } from '../lib/make-ahead.js';
 import { ChatView } from '../views/ChatView.js';
 import { ChatLog } from '../chat/ChatLog.js';
 import views from '../views/views.module.css';
@@ -58,12 +59,14 @@ function MakingWorktree() {
   // A fork (BLG-921): a copy of another worktree, its conversation shown already.
   const fork = ws.forkedFrom ? (parent ?? 'its parent') : undefined;
   if (!asked) {
+    // What you asked, said back while only this window knows of it (BLG-942): your words went somewhere.
+    const words = askedAhead(ws.id);
     return (
       <Empty
         icon="branch"
         mark={<span className={side.making} style={{ width: 18, height: 18 }} aria-hidden="true" />}
         title={fork ? `Forking ${fork}…` : `Making ${ws.name}…`}
-        detail={fork ? `${ws.name} gets a copy of its commits, uncommitted changes, Scratch and conversation. It opens here in a moment.` : `A new worktree from ${from}. Its conversation opens here in a moment; anything you asked your agent starts then.`}
+        detail={fork ? `${ws.name} gets a copy of its commits, uncommitted changes, Scratch and conversation. It opens here in a moment.` : words ? `A new worktree from ${from}. Your agent gets “${words.length > 160 ? `${words.slice(0, 160)}…` : words}” as soon as its folder is ready.` : `A new worktree from ${from}. Its conversation opens here in a moment; anything you asked your agent starts then.`}
       />
     );
   }
