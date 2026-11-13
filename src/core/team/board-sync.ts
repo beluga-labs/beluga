@@ -36,6 +36,8 @@ export interface BoardSyncDeps {
   readonly running?: (workspaceId: string) => boolean;
   /** Where team-board.json lives; null: memory only. */
   readonly dir: string | null;
+  /** A task went round too fast and is held for a moment (for the log: a loop to look into). */
+  readonly onBrake?: (issueId: string, sends: number) => void;
 }
 
 /** What other parts hear: a teammate's change won here (assignment, BLG-223; issues, BLG-224). */
@@ -47,6 +49,9 @@ export interface TeamChange {
 }
 
 /** A delta that only says who's on a task now (`working.*`, `running.*`): nothing of the task itself. */
+/** A task as the team has it, whole, as one frame: its fields, its newest lines, and (so a Mac that missed a drop stops passing that line on) the lines taken back. */
+const whole = (t: SharedTask): TaskDelta => ({ id: t.id, fields: { ...t.fields }, acts: t.acts.slice(-SNAPSHOT_ACTS) as TaskDelta['acts'], ...(t.gone?.length ? { drop: [...t.gone] } : {}), ...(t.born ? { born: t.born } : {}) });
+
 const presenceOnly = (d: TaskDelta): boolean => !d.acts.length && !d.drop?.length && !d.born && Object.keys(d.fields).length > 0 && Object.keys(d.fields).every(isPresence);
 
 const BATCH_TASKS = 40;
@@ -56,6 +61,18 @@ const BATCH_BYTES = 700_000;
 const SNAPSHOT_ACTS = 60;
 /** A linked teammate who hasn't acknowledged for this long counts as not having it. */
 const SLOW_ACK_MS = 30_000;
+/**
+ * The brake: one task sent on more than BRAKE_SENDS times within BRAKE_WINDOW_MS is going round
+ * (a loop between Macs, BLG-942), not being edited. Its changes are still merged and written here,
+ * but held, and after BRAKE_HOLD_MS it goes once, whole, to every teammate (a whole task merges
+ * the same as its pieces, so nothing is lost). A loop then costs one frame per task every few
+ * seconds instead of freezing the daemon. (Sixty edits from three Macs at once, far faster than
+ * people or their Claudes edit, send the busiest task on 37 times in the window; the loop that
+ * froze a daemon on 2026-11-13 sent it on about 180.)
+ */
+export const BRAKE_SENDS = 80;
+export const BRAKE_WINDOW_MS = 10_000;
+export const BRAKE_HOLD_MS = 5_000;
 
 export class TeamBoardSync implements TeamPart {
   private clocks: Record<string, number> = {};
@@ -66,6 +83,11 @@ export class TeamBoardSync implements TeamPart {
   private readonly locals: Array<(issue: Issue, changed: Readonly<Record<string, Field>>) => void> = [];
   /** My worktrees whose Claude was at work when last told (only a change goes out). */
   private runs = new Set<string>();
+  /** When each task was last sent on (the brake's window). */
+  private readonly sends = new Map<string, number[]>();
+  /** Tasks held by the brake, and their project. */
+  private readonly held = new Map<string, string>();
+  private brakeTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly team: TeamBoards,
@@ -201,7 +223,47 @@ export class TeamBoardSync implements TeamPart {
   }
 
   stop(): void {
+    // What the brake held is in the team's copy: the digest on the next link brings it.
+    clearTimeout(this.brakeTimer);
+    this.brakeTimer = undefined;
     if (this.saveTimer) this.saveNow();
+  }
+
+  // ------------------------------------------------------------------ the brake
+
+  /** A task's change to the project's teammates (but `except`), unless the brake holds it. */
+  private pass(projectId: string, d: TaskDelta, except?: string, key?: string): void {
+    if (this.braked(projectId, d.id)) return;
+    for (const link of this.team.linksOf(projectId)) if (link.peerId !== except) this.team.send(link.peerId, { k: 'ops', link: link.id, tasks: [d] }, key);
+  }
+
+  private braked(projectId: string, id: string): boolean {
+    if (this.held.has(id)) return true;
+    const now = Date.now();
+    const times = [...(this.sends.get(id) ?? []).filter((t) => now - t < BRAKE_WINDOW_MS), now];
+    this.sends.set(id, times);
+    if (times.length <= BRAKE_SENDS) return false;
+    this.held.set(id, projectId);
+    this.deps.onBrake?.(id, times.length);
+    if (!this.brakeTimer) {
+      this.brakeTimer = setTimeout(() => this.release(), BRAKE_HOLD_MS);
+      this.brakeTimer.unref?.();
+    }
+    return true;
+  }
+
+  /** The held tasks go once, whole, to every teammate. */
+  private release(): void {
+    this.brakeTimer = undefined;
+    const held = [...this.held];
+    this.held.clear();
+    for (const [id, projectId] of held) {
+      this.sends.delete(id);
+      const task = this.tasks[projectId]?.[id];
+      if (!task) continue;
+      const d = whole(task);
+      for (const link of this.team.linksOf(projectId)) this.team.send(link.peerId, { k: 'ops', link: link.id, tasks: [d] });
+    }
   }
 
   // ------------------------------------------------------------------ my changes
@@ -253,7 +315,7 @@ export class TeamBoardSync implements TeamPart {
     const delta: TaskDelta = { id: issue.id, fields: changed, acts: [...added] as TaskDelta['acts'], ...(drop.length ? { drop } : {}), ...(rec ? {} : { born }) };
     // Only who's on it now (no change of the task's own): the newest replaces what still waits for them.
     const key = presenceOnly(delta) ? `presence:${issue.id}` : undefined;
-    for (const link of this.team.linksOf(issue.projectId)) this.team.send(link.peerId, { k: 'ops', link: link.id, tasks: [delta] }, key);
+    this.pass(issue.projectId, delta, undefined, key);
     this.team.publish();
     if (Object.keys(changed).length) for (const fn of this.locals) fn(issue, changed);
   }
@@ -305,7 +367,7 @@ export class TeamBoardSync implements TeamPart {
     if (!changed) return;
     // Passed on to teammates who may not have it (each skips what it already has).
     const pass: TaskDelta = { id: d.id, fields: won, acts: [...added] as TaskDelta['acts'], ...(dropped.length ? { drop: [...dropped] } : {}), ...(merged.task.born ? { born: merged.task.born } : {}) };
-    for (const l of this.team.linksOf(projectId)) if (l.peerId !== link.peerId) this.team.send(l.peerId, { k: 'ops', link: l.id, tasks: [pass] });
+    this.pass(projectId, pass, link.peerId);
     this.team.publish();
     if (issue) for (const fn of this.listeners) fn({ link, issue, won, fresh: !rec });
   }
@@ -388,8 +450,7 @@ export class TeamBoardSync implements TeamPart {
       bytes = 0;
     };
     for (const t of all) {
-      // With the lines taken back, so a Mac that missed a drop stops passing that line on.
-      const d: TaskDelta = { id: t.id, fields: { ...t.fields }, acts: t.acts.slice(-SNAPSHOT_ACTS) as TaskDelta['acts'], ...(t.gone?.length ? { drop: [...t.gone] } : {}), ...(t.born ? { born: t.born } : {}) };
+      const d = whole(t);
       const size = JSON.stringify(d).length;
       if (batch.length >= BATCH_TASKS || bytes + size > BATCH_BYTES) flush();
       batch.push(d);

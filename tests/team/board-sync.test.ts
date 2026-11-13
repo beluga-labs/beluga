@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { TeamBoardSync } from '../../src/core/team/board-sync.js';
-import { merge, newer } from '../../src/core/team/crdt.js';
+import { BRAKE_HOLD_MS, TeamBoardSync } from '../../src/core/team/board-sync.js';
+import type { Issue } from '../../src/core/board/model.js';
+import { LOCAL_ACTS, canon, merge, newer } from '../../src/core/team/crdt.js';
 import { type Crowd, befriend, crowd, settle } from '../mesh/helpers.js';
 import { type PartsFor, type TeamMac, personOf, teamMac } from './helpers.js';
 
@@ -18,7 +19,9 @@ afterEach(async () => {
 /** Worktrees that count as live on a Mac (the rest are gone). */
 const liveWs = new Set<string>();
 const runWs = new Set<string>();
-const withSync: PartsFor = ({ team, board, dir }) => [new TeamBoardSync(team, { board, live: (id) => liveWs.has(id), running: (id) => runWs.has(id), dir })];
+/** Tasks the brake held (BLG-942): only ever a loop, so none in any of these. */
+const braked: string[] = [];
+const withSync: PartsFor = ({ team, board, dir }) => [new TeamBoardSync(team, { board, live: (id) => liveWs.has(id), running: (id) => runWs.has(id), dir, onBrake: (id) => braked.push(id) })];
 
 async function teamUp(a: TeamMac, pa: string, b: TeamMac, pb: string): Promise<void> {
   await settle(() => a.store.getState().team.offers.find((o) => o.peerId === b.id && o.projectId === pa) && b.store.getState().team.offers.find((o) => o.peerId === a.id && o.projectId === pb));
@@ -206,19 +209,7 @@ describe('a team board over the network', () => {
   }, 90_000);
 
   it('three teammates all linked: a status line folded into the next settles, and nothing keeps going round', async () => {
-    net = await crowd();
-    const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], withSync);
-    const kay = await teamMac(net, 'kay', [{ id: 'pk', name: 'api', repo: 'acme/api' }], withSync);
-    const mia = await teamMac(net, 'mia', [{ id: 'pm', name: 'api', repo: 'acme/api' }], withSync);
-    macs.push(ata, kay, mia);
-    await befriend(ata.person, kay.person);
-    await befriend(kay.person, mia.person);
-    await befriend(ata.person, mia.person);
-    await teamUp(ata, 'pa', kay, 'pk');
-    await teamUp(kay, 'pk', mia, 'pm');
-    // Ata and mia are friends on the same team: they link up by themselves, so every Mac passes changes on to two.
-    const direct = (m: TeamMac, p: string, other: TeamMac) => m.store.getState().team.teams[p]?.mates.some((x) => x.peerId === other.id && !x.indirect);
-    await settle(() => direct(ata, 'pa', mia) && direct(mia, 'pm', ata));
+    const [ata, kay, mia] = await linkedTrio();
     const t = ata.board.create({ projectId: 'pa', title: 'Shared' }, personOf(ata));
     await settle(() => issue(kay, t.id) && issue(mia, t.id));
 
@@ -228,18 +219,99 @@ describe('a team board over the network', () => {
     const lines = (m: TeamMac) => issue(m, t.id)!.activity.filter((a) => a.kind === 'status').map((a) => a.id);
     await settle(() => [kay, mia].every((m) => issue(m, t.id)?.status === 'in_review' && lines(m).join() === lines(ata).join()));
 
-    // Settled: no Mac is still sending this task's lines around.
-    let sent = 0;
-    for (const m of [ata, kay, mia]) {
-      const send = m.team.send.bind(m.team);
-      m.team.send = (...args: Parameters<typeof send>) => {
-        sent += 1;
-        return send(...args);
-      };
-    }
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(sent).toBe(0);
+    expect(await sendsWhileQuiet([ata, kay, mia])).toBe(0);
     for (const m of [ata, kay, mia]) expect(lines(m)).toEqual(lines(ata));
     expect(lines(ata)).toHaveLength(1);
   }, 90_000);
+
+  it('three teammates all linked, many edits from everyone at once: every board agrees, then nothing is sent (BLG-942)', async () => {
+    const trio = await linkedTrio();
+    const home: Record<string, string> = { ata: 'pa', kay: 'pk', mia: 'pm' };
+    const ids: string[] = [];
+    const rand = seeded(942);
+    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
+    const statuses = ['todo', 'in_progress', 'in_review', 'done', 'backlog'] as const;
+    for (let n = 0; n < 4; n++) ids.push(trio[n % 3]!.board.create({ projectId: home[trio[n % 3]!.name]!, title: `Task ${n}` }, personOf(trio[n % 3]!)).id);
+    await settle(() => trio.every((m) => ids.every((id) => issue(m, id))));
+
+    for (let n = 0; n < 60; n++) {
+      const m = pick(trio);
+      const id = pick(ids);
+      if (!issue(m, id)) continue;
+      const by = personOf(m);
+      const op = pick(['status', 'twice', 'twice', 'title', 'priority', 'comment', 'brief', 'child', 'parent'] as const);
+      try {
+        if (op === 'status') m.board.update(id, { status: pick(statuses) }, by);
+        // Moved twice in a moment: the first line is taken back and folded into the second.
+        else if (op === 'twice') {
+          m.board.update(id, { status: pick(statuses) }, by);
+          m.board.update(id, { status: pick(statuses) }, by);
+        }
+        else if (op === 'title') m.board.update(id, { title: `Title ${n} by ${m.name}` }, by);
+        else if (op === 'priority') m.board.update(id, { priority: pick(['high', 'low', 'urgent', 'none'] as const) }, by);
+        else if (op === 'comment') m.board.comment(id, `note ${n}`, by);
+        else if (op === 'brief') m.board.editBrief(id, pick(['goal', 'context', 'acceptance'] as const), `brief ${n}`, by);
+        else if (op === 'child') ids.push(m.board.create({ projectId: home[m.name]!, title: `Sub ${n}`, parent: id }, by).id);
+        else m.board.update(id, { parent: pick(ids.filter((x) => x !== id && issue(m, x))) ?? null }, by);
+      } catch {
+        // A move the board refuses (a sub-task of its own sub-task): a person would be told no too.
+      }
+      if (n % 5 === 4) await new Promise((r) => setTimeout(r, 15));
+    }
+
+    await settle(() => trio.every((m) => ids.every((id) => same(issue(m, id), issue(trio[0]!, id)))));
+    expect(await sendsWhileQuiet(trio)).toBe(0);
+  }, 120_000);
 });
+
+/** Ata, kay and mia, all friends, on one team, each linked straight to the other two. */
+async function linkedTrio(): Promise<[TeamMac, TeamMac, TeamMac]> {
+  braked.length = 0;
+  net = await crowd();
+  const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], withSync);
+  const kay = await teamMac(net, 'kay', [{ id: 'pk', name: 'api', repo: 'acme/api' }], withSync);
+  const mia = await teamMac(net, 'mia', [{ id: 'pm', name: 'api', repo: 'acme/api' }], withSync);
+  macs.push(ata, kay, mia);
+  await befriend(ata.person, kay.person);
+  await befriend(kay.person, mia.person);
+  await befriend(ata.person, mia.person);
+  await teamUp(ata, 'pa', kay, 'pk');
+  await teamUp(kay, 'pk', mia, 'pm');
+  // Ata and mia are friends on the same team: they link up by themselves, so every Mac passes changes on to two.
+  const direct = (m: TeamMac, p: string, other: TeamMac) => m.store.getState().team.teams[p]?.mates.some((x) => x.peerId === other.id && !x.indirect);
+  await settle(() => direct(ata, 'pa', mia) && direct(mia, 'pm', ata));
+  return [ata, kay, mia];
+}
+
+/** How many team frames the Macs send in a quiet moment after they agree (a loop never stops sending). */
+async function sendsWhileQuiet(all: readonly TeamMac[]): Promise<number> {
+  let sent = 0;
+  for (const m of all) {
+    const send = m.team.send.bind(m.team);
+    m.team.send = (...args: Parameters<typeof send>) => {
+      sent += 1;
+      return send(...args);
+    };
+  }
+  // Longer than the brake holds a task, so a loop it slows down still shows.
+  await new Promise((r) => setTimeout(r, BRAKE_HOLD_MS + 1000));
+  // Nothing went round at any point (the brake settles a loop, but only a loop ever needs it).
+  expect(braked).toEqual([]);
+  return sent;
+}
+
+/** Two Macs' copies of a task agree on what the team shares (keys and local lines are each Mac's own). */
+function same(x: Issue | undefined, y: Issue | undefined): boolean {
+  if (!x || !y) return false;
+  const shared = (i: Issue) => ({ title: i.title, status: i.status, priority: i.priority, parent: i.parent ?? null, brief: i.brief, lines: i.activity.filter((a) => !LOCAL_ACTS.has(a.kind)).map((a) => a.id).sort() });
+  return canon(shared(x)) === canon(shared(y));
+}
+
+/** The same "random" edits on every run. */
+function seeded(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return s / 2_147_483_648;
+  };
+}
