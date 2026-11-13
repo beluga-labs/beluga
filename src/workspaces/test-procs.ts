@@ -181,6 +181,9 @@ export function e2eLockedIn(dir: string): boolean {
   return lockedRun(path.resolve(dir)) !== undefined;
 }
 
+/** How long the process listing may take before it's given up on (a full one takes well under a second). */
+export const PS_DEADLINE_MS = 3000;
+
 function ps(args: readonly string[]): Promise<string> {
   return new Promise((resolve) => {
     // On macOS, reading a stuck process's environment can leave ps waiting even after a
@@ -194,8 +197,10 @@ function ps(args: readonly string[]): Promise<string> {
       child.stdout?.destroy();
       child.stderr?.destroy();
       child.unref();
+      // Nothing is stopped this time: say so, or test runs left behind pile up with no trace why.
+      console.warn(`[test-procs] ps didn't answer within ${PS_DEADLINE_MS / 1000} s: left-behind test runs weren't stopped this time`);
       resolve('');
-    }, 3000);
+    }, PS_DEADLINE_MS);
   });
 }
 
