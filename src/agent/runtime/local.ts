@@ -2,6 +2,7 @@ import type { AgentBackend, AgentRunInput, FollowUp, Steer, TerminalSink } from 
 import { CLAUDE_CAPABILITIES, claudeRuntime } from './claude/index.js';
 import { createClaudeBackend } from './claude/runner.js';
 import { askBtw } from './claude/btw.js';
+import { endpointClaudeHome, prepareEndpointHome, type EndpointHome } from './endpoint-home.js';
 import { tokensPerSecond } from '../../shared/local-endpoints.js';
 import type { AgentRuntime } from './types.js';
 import type { BtwRequest } from '../btw.js';
@@ -21,11 +22,14 @@ export interface LocalTarget {
  * request goes to `baseUrl`, every model alias (and sub-agents, and the small fast model) is the
  * endpoint's model, and Claude Code's own traffic (telemetry, error reports, updates) stays off.
  * The key is the endpoint's, never your Claude login: without one, a placeholder (Ollama takes any),
- * so your Anthropic sign-in never goes to someone else's server.
+ * so your Anthropic sign-in never goes to someone else's server. Claude Code runs in a folder of
+ * its own (`configDir`, see endpoint-home.ts): signed in to Claude, it would send that sign-in
+ * over any of these variables.
  */
-export function endpointEnv(t: LocalTarget): Record<string, string> {
+export function endpointEnv(t: LocalTarget, configDir: string = endpointClaudeHome()): Record<string, string> {
   const m = t.model;
   return {
+    CLAUDE_CONFIG_DIR: configDir,
     ANTHROPIC_BASE_URL: t.baseUrl,
     ANTHROPIC_AUTH_TOKEN: t.key || 'ollama',
     ANTHROPIC_API_KEY: '',
@@ -117,8 +121,12 @@ export function usageMeter(now: () => number = Date.now): { begin: () => void; m
   };
 }
 
-/** The run, on the endpoint: its env over yours, its model's own name, no effort (endpoints don't take it), free usage with its speed. */
-export function onEndpoint(input: AgentRunInput, target: LocalTarget, resolve: (value: string | undefined) => LocalTarget | undefined, meter = usageMeter()): AgentRunInput {
+/**
+ * The run, on the endpoint: its env over yours, its model's own name, no effort (endpoints don't take it), free usage with its speed.
+ * What of your Claude Code folder didn't come along (endpoint-home.ts) is said on the run, never left to guess.
+ */
+export function onEndpoint(input: AgentRunInput, target: LocalTarget, resolve: (value: string | undefined) => LocalTarget | undefined, meter = usageMeter(), home: EndpointHome = prepareEndpointHome()): AgentRunInput {
+  if (home.missed.length) input.onEvent('progress', missedWords(home.missed));
   const onEvent = (to: AgentRunInput['onEvent']): AgentRunInput['onEvent'] => (kind, text) => to(kind, kind === 'usage' ? meter.map(text) : text);
   // A model picked mid-run on the same endpoint switches; one elsewhere waits for the next run.
   const mapFollowUp = (f: FollowUp): FollowUp => {
@@ -134,10 +142,15 @@ export function onEndpoint(input: AgentRunInput, target: LocalTarget, resolve: (
     ...rest,
     model: target.model,
     onEvent: onEvent(input.onEvent),
-    env: { ...input.env, ...endpointEnv(target) },
+    env: { ...input.env, ...endpointEnv(target, home.dir) },
     ...(input.onFollowUps ? { onFollowUps: (send) => input.onFollowUps!(send && ((f) => send(mapFollowUp(f)))) } : {}),
     ...(input.onSteer ? { onSteer: (steer) => input.onSteer!(steer && wrapSteer(steer, mapFollowUp)) } : {}),
   };
+}
+
+/** What the run says when part of your Claude Code folder couldn't come along to the endpoint. */
+export function missedWords(missed: readonly string[]): string {
+  return `This local model runs without some of your Claude Code setup (${missed.join(', ')}): it couldn't be brought along.`;
 }
 
 function wrapSteer(steer: Steer, map: (f: FollowUp) => FollowUp): Steer {
