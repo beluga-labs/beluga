@@ -244,7 +244,7 @@ export function EnvEditor({ projectId, worktreeId }: EnvPlaceProps) {
               <Icon name="eye" size={13} />
             </button>
             {below && changed ? (
-              <Tip label={`Changed here. Click to use ${fromWords(below.from)} value again${below.from.startsWith('.env') ? '; the file is never changed' : ''}.`}>
+              <Tip label={below.from.startsWith('.env') ? 'Changed here. Click for the .env value (the file stays as it is)' : `Changed here. Click for ${fromWords(below.from)} value`}>
                 <button type="button" className={e.reset} aria-label={`Use ${below.from} for ${r.key}`} onClick={() => remove(r.id, false)}>
                   <Icon name="refresh" size={11} />
                 </button>

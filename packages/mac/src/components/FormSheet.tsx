@@ -81,6 +81,10 @@ export function FormSheet({ title, intro, icon, submitLabel, onSubmit, onCancel,
               e.preventDefault();
               first.focus();
               if (first instanceof HTMLInputElement) first.select();
+            } else if (scrolls && root) {
+              // Its list still loading: the sheet itself, not the first tab (whose tip would pop up over it).
+              e.preventDefault();
+              root.focus();
             }
           }}
         >
