@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -148,6 +148,10 @@ describe('local endpoints: a run', () => {
     mkdirSync(path.join(mine, 'skills', 'review'), { recursive: true });
     writeFileSync(path.join(mine, 'settings.json'), '{"hooks":{}}');
     writeFileSync(path.join(mine, '.credentials.json'), '{"claudeAiOauth":{"accessToken":"sk-ant-oat"}}');
+    writeFileSync(path.join(mine, '.claude.json'), '{"primaryApiKey":"sk-ant-api"}');
+    // A link to your .claude.json from before is taken out too.
+    mkdirSync(into, { recursive: true });
+    if (process.platform !== 'win32') symlinkSync(path.join(mine, '.claude.json'), path.join(into, '.claude.json'));
     expect(endpointClaudeHome(mine, into)).toBe(into);
     expect(readdirSync(into).sort()).toEqual(['projects', 'settings.json', 'skills']);
     expect(lstatSync(path.join(into, 'projects')).isSymbolicLink()).toBe(true);
@@ -160,6 +164,11 @@ describe('local endpoints: a run', () => {
     writeFileSync(path.join(into, '.credentials.json'), '{}');
     endpointClaudeHome(mine, into);
     expect(readdirSync(into).sort()).toEqual(['projects', 'settings.json']);
+    // The .claude.json Claude Code writes there is its own, and stays.
+    writeFileSync(path.join(into, '.claude.json'), '{"numStartups":1}');
+    endpointClaudeHome(mine, into);
+    expect(readFileSync(path.join(into, '.claude.json'), 'utf8')).toBe('{"numStartups":1}');
+    rmSync(path.join(into, '.claude.json'));
     // A settings file Claude Code rewrote there (a file of its own now) is linked to yours again.
     rmSync(path.join(into, 'settings.json'));
     writeFileSync(path.join(into, 'settings.json'), '{"stale":true}');

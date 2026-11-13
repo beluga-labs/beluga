@@ -14,16 +14,21 @@ import { belugaHome } from '../../core/home.js';
  * Everything else is yours, linked from ~/.claude: settings, skills, plugins, agents and commands,
  * and `projects`, so the conversations land where Beluga reads and resumes them. Only the sign-in
  * stays out. Rebuilt on each run, so what you add to ~/.claude shows up; a link to something gone
- * goes. Claude Code's own .claude.json here is its own (it holds no token).
+ * goes. Its .claude.json here is its own, never yours (see OWN).
  */
 
 /** What never comes along: your Claude sign-in. */
 const KEPT_OUT = new Set(['.credentials.json']);
+/**
+ * What Claude Code keeps here on its own, never linked to yours: its .claude.json can hold an API
+ * key (`primaryApiKey`) it would send to the endpoint. A link to yours is taken out.
+ */
+const OWN = new Set(['.claude.json']);
 
 export function endpointClaudeHome(from: string = claudeHome(), into: string = path.join(belugaHome(), 'claude-endpoint')): string {
   try {
     mkdirSync(into, { recursive: true, mode: 0o700 });
-    const yours = existsSync(from) ? readdirSync(from).filter((name) => !KEPT_OUT.has(name)) : [];
+    const yours = existsSync(from) ? readdirSync(from).filter((name) => !KEPT_OUT.has(name) && !OWN.has(name)) : [];
     const wanted = new Set(yours);
     // Links that point somewhere else, or at something gone, go (and a sign-in that got in somehow).
     for (const name of readdirSync(into)) {
