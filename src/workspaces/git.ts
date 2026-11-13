@@ -133,10 +133,30 @@ async function followedPull(repo: string, branch: string): Promise<{ remote: str
   return { remote, number: Number(n) };
 }
 
+/** The fetch refspec that keeps a fork pull request's head current here: `git pull` and every fetch of its remote update it. */
+const pullRefspec = (n: number): string => `+refs/pull/${n}/head:${pullHeadRef(n)}`;
+/** git config's value-pattern for that refspec (a regex). */
+const pullRefspecPattern = (n: number): string => `^\\+refs/pull/${n}/head:`;
+
+/**
+ * Keep the head of the fork pull request `branch` follows current (BLG-948): its remote fetches
+ * refs/pull/<n>/head into the kept head too, so commits `git pull` brings from the pull request
+ * never read as pushed nowhere ("3 commits not on PR", a Push that can't reach a fork). A branch
+ * that follows no pull request is left alone.
+ */
+export async function followPullHead(repo: string, branch: string): Promise<void> {
+  const pull = await followedPull(repo, branch);
+  if (!pull) return;
+  const specs = (await tryGit(repo, ['config', '--get-all', `remote.${pull.remote}.fetch`]))?.split('\n').map((s) => s.trim()) ?? [];
+  if (!specs.includes(pullRefspec(pull.number))) await git(repo, ['config', '--add', `remote.${pull.remote}.fetch`, pullRefspec(pull.number)]);
+}
+
 export async function deleteBranch(repo: string, branch: string): Promise<void> {
   const pull = await followedPull(repo, branch);
   await git(repo, ['branch', '-D', branch]);
-  if (pull) await tryGit(repo, ['update-ref', '-d', pullHeadRef(pull.number)]);
+  if (!pull) return;
+  await tryGit(repo, ['update-ref', '-d', pullHeadRef(pull.number)]);
+  await tryGit(repo, ['config', '--unset-all', `remote.${pull.remote}.fetch`, pullRefspecPattern(pull.number)]);
 }
 
 /**

@@ -134,6 +134,8 @@ export class WorkspaceManager {
   private forks = new Map<string, ForkOf>();
   /** A remote's default branch learned while fetching, for repos without origin/HEAD (by root). */
   private remoteDefaults = new Map<string, string>();
+  /** Worktree branches (root and branch) already checked for a fork pull request's head to follow: git asked once each. */
+  private readonly pullHeadsChecked = new Set<string>();
 
   /** What new branches start with (Settings › Workspaces; the session points this at your choice). */
   branchPrefix: () => string = () => BRANCH_PREFIX;
@@ -559,6 +561,7 @@ export class WorkspaceManager {
         if (rec.kind === 'chat') workspaces.push({ ...rec, projectId: id, external: false, ...(real(rec.path) === real(root) || rec.thread?.readOnly ? { askOnly: true } : {}) });
         else if (rec.archived && rec.kind === 'worktree') workspaces.push({ ...rec, projectId: id, external: false });
       }
+      await this.followPullHeads(root, workspaces);
       const withStatus = await Promise.all(
         workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base, shippedOf(w)).catch(() => undefined) })),
       );
@@ -888,6 +891,9 @@ export class WorkspaceManager {
       // `git pull` there brings the pull request's new commits.
       await g.git(root, ['config', `branch.${branch}.remote`, 'origin']);
       await g.git(root, ['config', `branch.${branch}.merge`, `refs/pull/${pull.number}/head`]);
+      // And keeps its head here current (BLG-948): what git pull brings is never "not on the PR".
+      await g.followPullHead(root, branch).catch(() => undefined);
+      this.pullHeadsChecked.add(`${root}\0${branch}`);
     }
     await g.excludeProjectDir(dir);
     await copyEnvFiles(root, dir);
@@ -896,6 +902,18 @@ export class WorkspaceManager {
     this.saveRecord(record);
     const status = await g.status(dir, base).catch(() => undefined);
     return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
+  }
+
+  /**
+   * Fork pull requests' worktrees made before their heads were followed (BLG-948) get the fetch
+   * refspec that keeps them current: once per branch while the daemon runs, never in a refresh's way.
+   */
+  private async followPullHeads(root: string, workspaces: readonly Workspace[]): Promise<void> {
+    const fresh = workspaces.filter((w) => w.kind === 'worktree' && !w.archived && w.branch && !this.pullHeadsChecked.has(`${root}\0${w.branch}`));
+    for (const w of fresh) {
+      this.pullHeadsChecked.add(`${root}\0${w.branch}`);
+      await g.followPullHead(root, w.branch!).catch(() => undefined);
+    }
   }
 
   /**
