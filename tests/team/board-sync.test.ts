@@ -42,6 +42,22 @@ describe('the CRDT', () => {
     expect(one.fields.title).toEqual(z);
     expect(two.fields.title).toEqual(z);
   });
+
+  it('a line its author took back stays gone, whichever teammate passes it on again later', () => {
+    const line = { id: 'a_x', at: 1, by: { kind: 'beluga' as const }, kind: 'status' as const, text: 'moved this to In Progress' };
+    const had = merge(undefined, { id: 't', fields: {}, acts: [line] }).task;
+    const taken = merge(had, { id: 't', fields: {}, acts: [], drop: ['a_x'] });
+    expect(taken.dropped).toEqual(['a_x']);
+    // The add still on its way through another Mac arrives after the drop: not new here.
+    const late = merge(taken.task, { id: 't', fields: {}, acts: [line] });
+    expect(late.added).toEqual([]);
+    expect(late.task.acts).toEqual([]);
+    // The drop again (another Mac passing it on): nothing to take back, so nothing to pass on.
+    expect(merge(late.task, { id: 't', fields: {}, acts: [], drop: ['a_x'] }).dropped).toEqual([]);
+    // A drop that came before the line: it never shows.
+    const early = merge(merge(undefined, { id: 't', fields: {}, acts: [], drop: ['a_x'] }).task, { id: 't', fields: {}, acts: [line] });
+    expect(early.added).toEqual([]);
+  });
 });
 
 describe('a team board over the network', () => {
@@ -187,5 +203,43 @@ describe('a team board over the network', () => {
     await settle(() => issue(mia, t.id));
     mia.board.update(t.id, { status: 'done' }, personOf(mia));
     await settle(() => issue(ata, t.id)?.status === 'done');
+  }, 90_000);
+
+  it('three teammates all linked: a status line folded into the next settles, and nothing keeps going round', async () => {
+    net = await crowd();
+    const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], withSync);
+    const kay = await teamMac(net, 'kay', [{ id: 'pk', name: 'api', repo: 'acme/api' }], withSync);
+    const mia = await teamMac(net, 'mia', [{ id: 'pm', name: 'api', repo: 'acme/api' }], withSync);
+    macs.push(ata, kay, mia);
+    await befriend(ata.person, kay.person);
+    await befriend(kay.person, mia.person);
+    await befriend(ata.person, mia.person);
+    await teamUp(ata, 'pa', kay, 'pk');
+    await teamUp(kay, 'pk', mia, 'pm');
+    // Ata and mia are friends on the same team: they link up by themselves, so every Mac passes changes on to two.
+    const direct = (m: TeamMac, p: string, other: TeamMac) => m.store.getState().team.teams[p]?.mates.some((x) => x.peerId === other.id && !x.indirect);
+    await settle(() => direct(ata, 'pa', mia) && direct(mia, 'pm', ata));
+    const t = ata.board.create({ projectId: 'pa', title: 'Shared' }, personOf(ata));
+    await settle(() => issue(kay, t.id) && issue(mia, t.id));
+
+    // Two quick moves by ata: the first line is taken back and folded into the second.
+    ata.board.update(t.id, { status: 'in_progress' }, personOf(ata));
+    ata.board.update(t.id, { status: 'in_review' }, personOf(ata));
+    const lines = (m: TeamMac) => issue(m, t.id)!.activity.filter((a) => a.kind === 'status').map((a) => a.id);
+    await settle(() => [kay, mia].every((m) => issue(m, t.id)?.status === 'in_review' && lines(m).join() === lines(ata).join()));
+
+    // Settled: no Mac is still sending this task's lines around.
+    let sent = 0;
+    for (const m of [ata, kay, mia]) {
+      const send = m.team.send.bind(m.team);
+      m.team.send = (...args: Parameters<typeof send>) => {
+        sent += 1;
+        return send(...args);
+      };
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(sent).toBe(0);
+    for (const m of [ata, kay, mia]) expect(lines(m)).toEqual(lines(ata));
+    expect(lines(ata)).toHaveLength(1);
   }, 90_000);
 });

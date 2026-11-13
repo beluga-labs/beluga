@@ -236,8 +236,8 @@ export class TeamBoardSync implements TeamPart {
       if (cur && canon(v) === canon(cur.v)) continue;
       changed[name] = { v, l: this.tick(issue.projectId), a: this.self };
     }
-    // New lines (never this Mac's own kinds); a line I took back (folded into the next) goes for everyone.
-    const known = new Set((rec?.acts ?? []).map((a) => a.id));
+    // New lines (never this Mac's own kinds, never one taken back); a line I took back (folded into the next) goes for everyone.
+    const known = new Set([...(rec?.acts ?? []).map((a) => a.id), ...(rec?.gone ?? [])]);
     const added = issue.activity.filter((a) => !known.has(a.id) && !LOCAL_ACTS.has(a.kind));
     const present = new Set(issue.activity.map((a) => a.id));
     const oldest = issue.activity[0]?.at ?? 0;
@@ -296,8 +296,13 @@ export class TeamBoardSync implements TeamPart {
     this.clocks[projectId] = Math.max(this.clocks[projectId] ?? 0, maxClock(fields));
     byId[d.id] = merged.task;
     const { won, added, dropped } = merged;
-    if (!Object.keys(won).length && !added.length && !dropped.length) return;
-    const issue = this.write(projectId, merged.task, won, added, dropped);
+    // A line taken back that this board still shows (it came back before the drop was remembered): off the board too.
+    const gone = new Set(merged.task.gone ?? []);
+    const stale = (other?.activity ?? []).filter((a) => gone.has(a.id) && !dropped.includes(a.id)).map((a) => a.id);
+    const changed = Object.keys(won).length > 0 || added.length > 0 || dropped.length > 0;
+    if (!changed && !stale.length) return;
+    const issue = this.write(projectId, merged.task, won, added, [...dropped, ...stale]);
+    if (!changed) return;
     // Passed on to teammates who may not have it (each skips what it already has).
     const pass: TaskDelta = { id: d.id, fields: won, acts: [...added] as TaskDelta['acts'], ...(dropped.length ? { drop: [...dropped] } : {}), ...(merged.task.born ? { born: merged.task.born } : {}) };
     for (const l of this.team.linksOf(projectId)) if (l.peerId !== link.peerId) this.team.send(l.peerId, { k: 'ops', link: l.id, tasks: [pass] });
@@ -383,7 +388,8 @@ export class TeamBoardSync implements TeamPart {
       bytes = 0;
     };
     for (const t of all) {
-      const d: TaskDelta = { id: t.id, fields: { ...t.fields }, acts: t.acts.slice(-SNAPSHOT_ACTS) as TaskDelta['acts'], ...(t.born ? { born: t.born } : {}) };
+      // With the lines taken back, so a Mac that missed a drop stops passing that line on.
+      const d: TaskDelta = { id: t.id, fields: { ...t.fields }, acts: t.acts.slice(-SNAPSHOT_ACTS) as TaskDelta['acts'], ...(t.gone?.length ? { drop: [...t.gone] } : {}), ...(t.born ? { born: t.born } : {}) };
       const size = JSON.stringify(d).length;
       if (batch.length >= BATCH_TASKS || bytes + size > BATCH_BYTES) flush();
       batch.push(d);

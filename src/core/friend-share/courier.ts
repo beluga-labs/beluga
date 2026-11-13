@@ -56,6 +56,11 @@ export const RESEND_MS = 20_000;
 export const OUTBOX_DAYS = 7;
 const MAX_WAITING = 2_000;
 const SEEN_FRAMES = 1_000;
+/**
+ * The outbox is written at most this often: a busy team sends many frames a second, and a full
+ * outbox is megabytes, so writing it for each one froze everything else the daemon does.
+ */
+export const SAVE_MS = 1_000;
 
 const newId = (): string => randomBytes(12).toString('base64url');
 
@@ -67,6 +72,7 @@ export class Courier<M> {
   private waiting: Waiting<M>[] = [];
   private readonly seen = new Map<string, Set<string>>();
   private timer: NodeJS.Timeout | undefined;
+  private saveTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly link: CourierLink<M>,
@@ -89,8 +95,10 @@ export class Courier<M> {
     this.timer.unref();
   }
 
+  /** Stops resending, and writes what waits now if a write was still to come. */
   stop(): void {
     clearInterval(this.timer);
+    if (this.saveTimer) this.saveNow();
   }
 
   /**
@@ -191,7 +199,16 @@ export class Courier<M> {
     if (this.waiting.length !== before) this.save();
   }
 
+  /** Written soon (once for every change in the meantime); stop() writes it at once. */
   private save(): void {
+    if (!this.file || this.saveTimer) return;
+    this.saveTimer = setTimeout(() => this.saveNow(), SAVE_MS);
+    this.saveTimer.unref?.();
+  }
+
+  private saveNow(): void {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
     if (!this.file) return;
     try {
       writeJson(this.file, this.waiting.map(({ to, frame, at, key, mailedAt }) => ({ to, frame, at, ...(key ? { key } : {}), ...(mailedAt ? { mailedAt } : {}) })));
