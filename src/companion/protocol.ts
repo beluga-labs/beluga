@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 55 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 56 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -146,6 +146,8 @@ export const COMPANION_PROTO = { major: 1, minor: 55 } as const;
  * shows no such row; an older Mac sends no `telemetry`.
  * 1.55 (BLG-940): a worktree of yours shared with someone says how many (`ConvSummary.shared`), for the
  * Mac sidebar's green dot. An older Mac sends none; an older phone shows none.
+ * 1.56 (BLG-952): a task held for its checks says so (`TaskSummary.needsChecks`): how many criteria are
+ * neither ticked nor explained, and whether its work already merged. An older Mac sends none; an older phone shows none.
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54, sharedMark: 55 } as const;
 
@@ -834,6 +836,11 @@ export const TaskSummary = z.object({
   onBoard: z.string().max(200).optional(),
   /** Only you see it (BLG-501): it never reaches teammates or Linear. */
   private: z.literal(true).optional(),
+  /**
+   * 1.56 (BLG-952): held for its checks, as the Mac's "Needs its checks": `open` criteria are neither
+   * ticked nor explained, so it stays out of review; `merged`: its work merged, so it stays out of Done.
+   */
+  needsChecks: z.object({ open: z.number().int().min(1), merged: z.literal(true).optional() }).optional(),
   updatedAt: ts,
 });
 export type TaskSummary = z.infer<typeof TaskSummary>;
