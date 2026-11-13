@@ -84,6 +84,20 @@ export function pathHref(ref: PathRef): string {
   return `${PATH_LINK_SCHEME}${encodeURIComponent(ref.path)}${ref.line ? `#${ref.line}` : ''}`;
 }
 
+/** The folder in a worktree where Beluga keeps an agent's scratch and reports. */
+const BELUGA_DIR = '.beluga';
+
+/**
+ * Where a relative path may be in a worktree, in order: from its root, then from its .beluga
+ * folder, since an agent that says "files are in .beluga/" often names them from there
+ * ("scratch/pr-498/" for .beluga/scratch/pr-498/). Without the leading "./" or trailing "/".
+ */
+export function relativeCandidates(path: string): readonly string[] {
+  const rel = path.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  if (rel.startsWith('../') || rel === BELUGA_DIR || rel.startsWith(`${BELUGA_DIR}/`)) return [rel];
+  return [rel, `${BELUGA_DIR}/${rel}`];
+}
+
 /** A path link back (from pathHref), or undefined for any other link. */
 export function parsePathHref(href: string): PathRef | undefined {
   if (!href.startsWith(PATH_LINK_SCHEME)) return undefined;
