@@ -81,6 +81,42 @@ describe('each person’s share of the thread', () => {
     expect(log.filter((x) => x.startsWith('a'))).toEqual(Array.from({ length: 10 }, (_, n) => `a${n}`));
   });
 
+  it('an urgent frame (a call ringing) goes at once, ahead of theirs that wait, and still costs their share (BLG-950)', () => {
+    const { budget, frame, pass } = rig({ maxWaiting: 5 });
+    const log: string[] = [];
+    // A teammate's board backlog: past their share, and past the cap.
+    for (let n = 0; n < 30; n++) budget.take('loop', frame(log, `l${n}`, 30));
+    const waiting = budget.waitingFor('loop');
+    expect(waiting).toBe(5);
+
+    budget.urgent('loop', frame(log, 'ring', 0.5));
+    expect(log.at(-1)).toBe('ring');
+    // Not added to their queue, and theirs keep their order behind it.
+    expect(budget.waitingFor('loop')).toBe(waiting);
+    pass(10_000);
+    const after = log.slice(log.indexOf('ring') + 1);
+    expect(after).toEqual([...after].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))));
+    expect(budget.waitingFor('loop')).toBe(0);
+  });
+
+  it('an urgent frame costs their share like any other', () => {
+    const { budget, frame } = rig();
+    const log: string[] = [];
+    // Their whole burst (50 ms) spent by urgent frames: the next ordinary one waits.
+    budget.urgent('ata', frame(log, 'sig', 60));
+    budget.take('ata', frame(log, 'ops', 1));
+    expect(log).toEqual(['sig']);
+    expect(budget.waitingFor('ata')).toBe(1);
+  });
+
+  it('nothing is handled once stopped, urgent or not', () => {
+    const { budget, frame } = rig();
+    const log: string[] = [];
+    budget.stop();
+    budget.urgent('ata', frame(log, 'ring', 1));
+    expect(log).toEqual([]);
+  });
+
   it('lets go of what passes the cap, and says so', () => {
     const { budget, frame, busy } = rig({ maxWaiting: 5 });
     const log: string[] = [];
