@@ -4,6 +4,7 @@ import type { McpServerRow, McpSignIn } from '../../../shared/mcp.js';
 import type { AppReadResult, AppToolResult } from '../../../shared/mcp-apps.js';
 import { type ControlChannel, sdkMcpCall } from '../../../mcp-apps/adapters/sdk-mcp-call.js';
 import type { CatalogTool } from '../../../mcp-apps/ports/tool-catalog.js';
+import { KeptSessions } from './kept-sessions.js';
 import { type OwnerMcpEntry, ownerMcpEntries } from './owner-mcp.js';
 import { claudeExecutable } from '../../claude-code.js';
 
@@ -12,6 +13,8 @@ const SETTLE_MS = 12_000;
 /** How long a sign-in waits for you in the browser. */
 const SIGN_IN_MS = 5 * 60_000;
 const POLL_MS = 1_500;
+/** How long an app's session stays open after its last use (BLG-391): the next tools/call opens none. */
+const KEEP_MS = 60_000;
 
 /** The parts of a Claude Code session this uses (a fake one in tests). */
 export interface McpSession {
@@ -48,6 +51,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 export class McpConnect {
   private readonly signIns = new Map<string, { readonly session: McpSession; readonly done: Promise<boolean> }>();
   private readonly listeners = new Set<(name: string) => void>();
+  /** MCP Apps: one session per server, kept for a short time after its last use. */
+  private readonly kept: KeptSessions<McpSession>;
 
   constructor(
     private readonly open: OpenMcpSession,
@@ -60,8 +65,12 @@ export class McpConnect {
       readonly settleMs?: number;
       readonly signInMs?: number;
       readonly pollMs?: number;
+      /** How long an app's session stays open after its last use. */
+      readonly keepMs?: number;
     } = {},
-  ) {}
+  ) {
+    this.kept = new KeptSessions(opts.keepMs ?? KEEP_MS);
+  }
 
   /** Your servers for these folders (the first is where Claude Code starts), with how each is now. */
   async list(cwds: readonly string[]): Promise<McpServerRow[]> {
@@ -153,25 +162,27 @@ export class McpConnect {
     return () => void this.listeners.delete(listener);
   }
 
-  /** Stop every sign-in still waiting (the daemon is going away). */
+  /** Stop every sign-in still waiting, and close the apps' sessions (the daemon is going away). */
   close(): void {
     for (const { session } of this.signIns.values()) session.close();
     this.signIns.clear();
+    this.kept.closeAll();
   }
 
   /**
-   * A session of its own with your servers, once `server` is up (or as it is when that took too
-   * long); closed after. A server that needs a sign-in is refused with words the chat can show.
+   * The session kept for `server` with your servers (opened now when there is none), once `server`
+   * is up (or as it is when that took too long). It stays open for the next call only while the
+   * server is connected and the call did not fail. A server that needs a sign-in is refused with
+   * words the chat can show.
    */
-  private async withServer<T>(cwds: readonly string[], server: string, use: (session: McpSession, statuses: McpServerStatus[]) => Promise<T>): Promise<T> {
-    const session = this.openFor(cwds, this.entries(cwds));
-    try {
+  private withServer<T>(cwds: readonly string[], server: string, use: (session: McpSession, statuses: McpServerStatus[]) => Promise<T>): Promise<T> {
+    return this.kept.use(JSON.stringify([cwds, server]), () => this.openFor(cwds, this.entries(cwds)), async (session, forget) => {
       const statuses = await this.settle(session, server);
-      if (statuses.find((s) => s.name === server)?.status === 'needs-auth') throw new Error(`${server} needs you to sign in. Sign in to it, then open this chat again.`);
-      return await use(session, statuses);
-    } finally {
-      session.close();
-    }
+      const status = statuses.find((s) => s.name === server)?.status;
+      if (status === 'needs-auth') throw new Error(`${server} needs you to sign in. Sign in to it, then open this chat again.`);
+      if (status !== 'connected') forget();
+      return use(session, statuses);
+    });
   }
 
   private announce(name: string): void {

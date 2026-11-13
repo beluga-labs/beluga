@@ -28,7 +28,7 @@ and sign-ins as your runs.
    server, the tool, the resource and the result's `structuredContent`, bounded). Claude Code's
    `mcpServerStatus()` gives each tool's `_meta.ui`.
 2. `apps.get` reads the resource once through `readMcpResource` (in an idle Claude Code session
-   of its own: the run may be over) and serves it on the app host: a loopback server of its own
+   of its own, kept for the app's calls: the run may be over) and serves it on the app host: a loopback server of its own
    (`127.0.0.1:47792`, or any free port), one page per id nobody can guess.
 3. The Mac draws it in an iframe with `sandbox="allow-scripts allow-same-origin allow-forms"` on
    that origin (never the window's), with no referrer, and hands it the tool's input and result.
@@ -92,7 +92,9 @@ An app calls tools as you, so `apps.call` checks each call (`src/mcp-apps/domain
   server you installed.
 - Arguments over 256 KB are refused. The call goes through Claude Code's `mcp_call` with
   `result_not_for_model`: the server's own content comes back for the app, and no model reads it.
-  Each call opens a short Claude Code session of its own (a few seconds).
+  The calls of one server share one Claude Code session: the first call opens it (a few seconds),
+  the next ones reuse it. It closes 60 s after its last use, when a call fails, and when Beluga
+  stops.
 
 ## What an app tells your Claude
 
