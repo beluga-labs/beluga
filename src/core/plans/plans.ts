@@ -37,6 +37,7 @@ import {
   TESTS_AT,
   type TestsAt,
   diffBodies,
+  NOTE_MAX,
   isEmptyDiff,
   planById,
 } from './model.js';
@@ -435,7 +436,7 @@ export class Plans {
 
   note(id: string, kind: PlanEventKind, text: string, by: Actor): Plan {
     const plan = this.need(id);
-    return this.change(plan, {}, [event(by, kind, text.replace(/\s+/g, ' ').trim().slice(0, 300), this.now())]);
+    return this.change(plan, {}, [event(by, kind, text.replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX), this.now())]);
   }
 
   /** A plan that moved here from another computer (BLG-806), as move.ts made it ready: in place of the record of an earlier move away. */
