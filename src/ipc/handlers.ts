@@ -47,6 +47,7 @@ import { TRIAGE_HANDLERS } from './triage-handlers.js';
 import { GIT_HANDLERS } from './git-handlers.js';
 import { VIEWS_HANDLERS } from './views-handlers.js';
 import { PREVIEW_HANDLERS } from './preview-handlers.js';
+import { MCP_APPS_HANDLERS } from './mcp-apps-handlers.js';
 import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
 import { MACHINE_HANDLERS } from './machine-handlers.js';
@@ -481,6 +482,7 @@ export const HANDLERS = {
   ...GIT_HANDLERS,
   ...VIEWS_HANDLERS,
   ...PREVIEW_HANDLERS,
+  ...MCP_APPS_HANDLERS,
   ...FILES_EDIT_HANDLERS,
   ...COMPANION_HANDLERS,
   ...MACHINE_HANDLERS,

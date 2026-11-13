@@ -33,6 +33,7 @@ import { TEAM_API } from './team-api.js';
 import { GIT_API } from './git-api.js';
 import { VIEWS_API } from './views-api.js';
 import { PREVIEW_API } from './preview-api.js';
+import { MCP_APPS_API } from './mcp-apps-api.js';
 import { FILES_EDIT_API } from './files-api.js';
 import { COMPANION_API } from './companion-api.js';
 import { MACHINE_API } from './machine-api.js';
@@ -570,6 +571,8 @@ export const API = {
   ...GIT_API,
   ...VIEWS_API,
   ...PREVIEW_API,
+  // ---- MCP Apps: a UI tool's app in the chat (mcp-apps-api.ts)
+  ...MCP_APPS_API,
   // ---- your workspace's files: searching their contents, editing, formatting (files-api.ts)
   ...FILES_EDIT_API,
   // ---- your phone: pairing it, removing it, what it asks for (companion-api.ts)
