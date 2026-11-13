@@ -5541,7 +5541,6 @@
  "Prettier doesn’t format this kind of file": "Prettier 不能格式化这类文件",
  "Prettier isn’t available": "Prettier 不可用",
  "Prettier isn’t installed in this project": "这个项目没有安装 Prettier",
- "Prettier isn’t installed in this project (add it to its devDependencies to format here)": "这个项目没有安装 Prettier（把它加到 devDependencies 即可在这里格式化）",
  "Prettier took too long": "Prettier 耗时太长",
  "Prettier: {0}": "Prettier：{0}",
  "Preview": "预览",
