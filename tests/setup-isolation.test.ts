@@ -6,7 +6,9 @@ import { DEFAULT_ROOTS, WorkspaceStore } from '../src/workspaces/store.js';
 
 it('a fresh workspace store discovers only projects in the temporary test home', async () => {
   const home = os.homedir();
-  expect(path.basename(home)).toMatch(/^beluga-test-os-home-/);
+  expect(path.basename(path.dirname(home))).toMatch(/^beluga-test-/);
+  expect(process.env.GIT_CONFIG_GLOBAL).toBe(path.join(home, '.gitconfig'));
+  expect(process.env.XDG_CONFIG_HOME).toBe(path.join(home, '.config'));
   expect(DEFAULT_ROOTS.every((root) => path.dirname(root) === home)).toBe(true);
 
   // No projects.json yet: exercise default discovery, as a daemon or an old saved chat does.
