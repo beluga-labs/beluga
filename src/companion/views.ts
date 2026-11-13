@@ -1028,6 +1028,8 @@ function taskSummary(state: DomainState, i: Issue, listedOn?: string): TaskSumma
   const topic = taskTopic(i.id);
   if (!topic) return undefined;
   const t = tally(i.brief.acceptance);
+  // Held for its checks, shown as the Mac does (TaskPage's ChecksBanner): only while open, with one open.
+  const held = i.needsChecks && STATUS_INFO[i.status].open && t.open ? { open: t.open, ...(i.mergedHeld ? { merged: true as const } : {}) } : undefined;
   const conv = taskConv(state, i);
   const who = assigneeWords(state, i);
   const working = workingWords(workingOn(state.team, i.id).map((p) => p.name));
@@ -1054,6 +1056,7 @@ function taskSummary(state: DomainState, i: Issue, listedOn?: string): TaskSumma
     ...(repo && !onBoard ? { repo: clip(repo, 200) } : {}),
     ...(onBoard ? { onBoard: clip(onBoard, 200) } : {}),
     ...(i.private ? { private: true as const } : {}),
+    ...(held ? { needsChecks: held } : {}),
     updatedAt: Math.round(i.updatedAt),
   };
 }

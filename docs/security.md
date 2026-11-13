@@ -36,6 +36,7 @@ On Linux, runs that keep your home private (a friend's task below Full trust, an
 - Writes go only to the run's own folders. A project's main folder, and a plan while it's being made, are read only.
 - `.env` files, keys and credential stores (`.ssh`, `.aws`, the GitHub CLI's token, the keychains, Beluga's own files in `~/.beluga`, Codex's and Claude's logins) can't be read at all, so no command reaches them however it's written. Templates like `.env.example` are hidden too: the sandbox can't tell them apart.
 - A friend's task runs with the network off, without your own Codex MCP servers, plugins, hooks and sub-agents (Codex's multi-agent), and without your environment's tokens. It can never ask to go past the sandbox. Beluga's own tools (the room, the board) still check each call against the friend's limits.
+- Beluga's own tools (the room, the board, a plan's) go through the same gate as on Claude, for every run: the friend's limits, then Beluga's rules, then you. Your own Codex MCP servers keep Codex's own approvals.
 - Your own run may ask to go past the sandbox (a command that needs more): you get the same approval prompt as for Claude.
 - Your own run may start Codex sub-agents. They work under the same run, in the same sandbox, and what they ask to go past it comes to you the same way. Stopping the run stops them.
 - Guests can't use Codex.
