@@ -57,10 +57,10 @@
 }
 
 /* The chat's rows are moved with transforms (virtual list), and a transform traps position: fixed
-   in its row. While an app is fullscreen its ancestors drop theirs, so the same frame (never a new
-   one: the app keeps its state) covers the window. */
-:global(*:has(> * [data-mcp-app][data-mode='fullscreen'])),
-:global(*:has(> [data-mcp-app][data-mode='fullscreen'])) {
+   in its row. While an app is fullscreen its ancestors drop theirs (fullscreen.ts marks them), so
+   the same frame (never a new one: the app keeps its state) covers the window. No :has(): WebKit
+   checks it on each style recalculation (BLG-392). */
+:global(html[data-mcp-app-fullscreen] [data-mcp-app-lift]) {
   transform: none !important;
   contain: none !important;
   will-change: auto !important;

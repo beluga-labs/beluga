@@ -4,6 +4,7 @@ import type { DisplayMode } from '@beluga/mcp-apps/domain/app-requests.js';
 import { useApi, useApp } from '../../lib/beluga.js';
 import { openExternal } from '../../lib/system.js';
 import { AppBridge, type HostContext, MAX_APP_HEIGHT, type ToolResultParams } from './bridge.js';
+import { liftForFullscreen } from './fullscreen.js';
 import s from './mcp-app.module.css';
 
 /** How tall an app is drawn until it says its size. */
@@ -36,6 +37,7 @@ export const AppFrame = memo(function AppFrame({ channel, itemId, stepId, done }
 function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
   const api = useApi();
   const frame = useRef<HTMLIFrameElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const bridge = useRef<AppBridge | undefined>(undefined);
   const [height, setHeight] = useState(FIRST_HEIGHT);
   const [mode, setMode] = useState<DisplayMode>('inline');
@@ -86,6 +88,12 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
     bridge.current?.setDisplayMode('inline');
   }, [asking, mode]);
 
+  // Fullscreen covers the window: its rows drop their transforms until it ends or the app goes.
+  useEffect(() => {
+    if (mode !== 'fullscreen' || !box.current) return;
+    return liftForFullscreen(box.current);
+  }, [mode]);
+
   // Esc leaves fullscreen, and the app is told (while the focus is outside the app: its frame takes its own keys).
   useEffect(() => {
     if (mode !== 'fullscreen') return;
@@ -100,7 +108,7 @@ function Frame({ view, at }: { view: OkView; at: AppStepRef }) {
 
   return (
     // Fullscreen is the same frame drawn over the window (never a new one: the app keeps its state).
-    <div className={s.app} data-mcp-app={view.tool} data-border={view.prefersBorder === false ? 'none' : undefined} data-mode={mode}>
+    <div ref={box} className={s.app} data-mcp-app={view.tool} data-border={view.prefersBorder === false ? 'none' : undefined} data-mode={mode}>
       {mode === 'fullscreen' ? (
         <button
           type="button"
