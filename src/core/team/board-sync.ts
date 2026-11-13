@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readJson, writeJson } from '../../net/mesh/files.js';
+import { JsonFile, readJson } from '../../net/mesh/files.js';
 import type { Board } from '../board/board.js';
 import { type Activity, type Actor, type Assignee, BRIEF_SECTIONS, type BriefSection, type Issue, isArchived, worktreeDoing } from '../board/model.js';
 import type { Action } from '../store.js';
@@ -71,13 +71,16 @@ const SLOW_ACK_MS = 30_000;
  * froze a daemon on 2026-11-13 sent it on about 180.)
  */
 export const BRAKE_SENDS = 80;
+/** How soon after a change the team's copy is written. */
+const SAVE_MS = 1000;
 export const BRAKE_WINDOW_MS = 10_000;
 export const BRAKE_HOLD_MS = 5_000;
 
 export class TeamBoardSync implements TeamPart {
   private clocks: Record<string, number> = {};
   private tasks: Record<string, Record<string, SharedTask>> = {};
-  private saveTimer: NodeJS.Timeout | undefined;
+  /** team-board.json: megabytes for a busy team, so written in the background (BLG-942). */
+  private readonly file: JsonFile | undefined;
   private readonly listeners: Array<(c: TeamChange) => void> = [];
   private readonly reconciled = new Set<string>();
   private readonly locals: Array<(issue: Issue, changed: Readonly<Record<string, Field>>) => void> = [];
@@ -93,6 +96,7 @@ export class TeamBoardSync implements TeamPart {
     private readonly team: TeamBoards,
     private readonly deps: BoardSyncDeps,
   ) {
+    this.file = deps.dir ? new JsonFile(path.join(deps.dir, 'team-board.json'), () => ({ clocks: this.clocks, tasks: Object.fromEntries(Object.entries(this.tasks).map(([p, byId]) => [p, Object.values(byId)])) }), SAVE_MS) : undefined;
     this.load();
   }
 
@@ -226,7 +230,11 @@ export class TeamBoardSync implements TeamPart {
     // What the brake held is in the team's copy: the digest on the next link brings it.
     clearTimeout(this.brakeTimer);
     this.brakeTimer = undefined;
-    if (this.saveTimer) this.saveNow();
+    try {
+      this.file?.flush();
+    } catch {
+      // Best effort: it's in memory, and written on the next change.
+    }
   }
 
   // ------------------------------------------------------------------ the brake
@@ -475,19 +483,6 @@ export class TeamBoardSync implements TeamPart {
   }
 
   private save(): void {
-    if (!this.deps.dir || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => this.saveNow(), 300);
-    this.saveTimer.unref?.();
-  }
-
-  private saveNow(): void {
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    if (!this.deps.dir) return;
-    try {
-      writeJson(path.join(this.deps.dir, 'team-board.json'), { clocks: this.clocks, tasks: Object.fromEntries(Object.entries(this.tasks).map(([p, byId]) => [p, Object.values(byId)])) });
-    } catch {
-      // Best effort: it's in memory, and written on the next change.
-    }
+    this.file?.changed();
   }
 }

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +8,8 @@ import { Store, initialState } from '../src/core/store.js';
 import { BRAKE_HOLD_MS, BRAKE_SENDS, TeamBoardSync } from '../src/core/team/board-sync.js';
 import type { TaskDelta, TeamMsg } from '../src/core/team/protocol.js';
 import type { TeamBoards, TeamLink } from '../src/core/team/service.js';
-import { readJson } from '../src/net/mesh/files.js';
+import { JsonFile, readJson } from '../src/net/mesh/files.js';
+import { waitFor } from './helpers.js';
 import { ASLEEP_MS, isFrozen } from '../src/daemon/lag.js';
 import type { Project } from '../src/workspaces/types.js';
 
@@ -39,17 +40,64 @@ describe('the courier’s outbox', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('is written once for a burst of frames, not once per frame, and at once on stop', () => {
+  it('is written once for a burst of frames, not once per frame, and at once on stop', async () => {
     const file = path.join(dir, 'team-outbox.json');
     const courier = new Courier<{ n: number }>({ isLinked: () => true, send: () => true, parse: (raw) => raw as { f: string; m: { n: number } } }, file);
     for (let n = 0; n < 500; n++) courier.send('kay', { n }, { reliable: true });
     expect(existsSync(file)).toBe(false);
     vi.advanceTimersByTime(SAVE_MS);
-    expect(readJson(file)).toHaveLength(500);
+    // Written in the background: there a moment later, all 500 in one write.
+    vi.useRealTimers();
+    await waitFor(() => (readJson(file) as unknown[] | undefined)?.length === 500);
 
     courier.send('kay', { n: 500 }, { reliable: true });
     courier.stop();
     expect(readJson(file)).toHaveLength(501);
+  });
+});
+
+describe('a big JSON file written in the background', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'json-file-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('writes once for many changes, never holds the thread for the disk, and ends with the newest', async () => {
+    const file = path.join(dir, 'board.json');
+    let value = { n: 0, big: 'x'.repeat(2_000_000) };
+    const json = new JsonFile(file, () => value, 10);
+    for (let n = 1; n <= 100; n++) {
+      value = { ...value, n };
+      json.changed();
+    }
+    expect(json.pending).toBe(true);
+    await waitFor(() => !json.pending);
+    expect((readJson(file) as { n: number }).n).toBe(100);
+    // A change while a write is on its way is written right after it: the newest always wins.
+    value = { ...value, n: 101 };
+    json.changed();
+    await new Promise((r) => setTimeout(r, 12));
+    value = { ...value, n: 102 };
+    json.changed();
+    await waitFor(() => !json.pending);
+    expect((readJson(file) as { n: number }).n).toBe(102);
+    expect(readdirSync(dir)).toEqual(['board.json']);
+  });
+
+  it('flush writes now, and a write still on its way can’t land over it', async () => {
+    const file = path.join(dir, 'plans.json');
+    let value = { n: 1 };
+    const json = new JsonFile(file, () => value, 0);
+    json.changed();
+    await new Promise((r) => setTimeout(r, 1));
+    value = { n: 2 };
+    json.changed();
+    json.flush();
+    expect(readJson(file)).toEqual({ n: 2 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(readJson(file)).toEqual({ n: 2 });
+    expect(json.pending).toBe(false);
   });
 });
 

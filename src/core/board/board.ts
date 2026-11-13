@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { readJson, writeJson } from '../../net/mesh/files.js';
+import { JsonFile, readJson, writeJson } from '../../net/mesh/files.js';
 import { AgentRef } from '../../protocol.js';
 import { agentName } from '../../shared/agent-label.js';
 import type { Store } from '../store.js';
@@ -263,13 +263,15 @@ export class Board {
   private cascading = 0;
   /** A merge is moving tasks to Done (see shipping): only their sub-tasks under way go with them. */
   private merging = 0;
-  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** board.json: megabytes on a busy board, so written in the background (BLG-942). */
+  private readonly file: JsonFile | undefined;
   /** board.json couldn't be read nor moved aside: changes stay in memory rather than overwrite it. */
   private readOnly = false;
   private readonly now: () => number;
 
   constructor(private readonly deps: BoardDeps) {
     this.now = deps.now ?? Date.now;
+    this.file = deps.dir ? new JsonFile(path.join(deps.dir, 'board.json'), () => ({ version: 1, worktreeTasks: this.autoTasks, projects: this.projects, issues: this.issues }), deps.saveDelayMs ?? 300) : undefined;
     this.load();
     // Proof saved before files were kept (still in a worktree): kept now, while it's there.
     if (deps.dir) {
@@ -1151,10 +1153,11 @@ export class Board {
 
   /** Write anything waiting now (on the way out). */
   flush(): void {
-    if (!this.saveTimer) return;
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    this.write();
+    try {
+      this.file?.flush();
+    } catch {
+      // A full disk or a permission problem: the next change tries again.
+    }
   }
 
   // ------------------------------------------------------------------ inside
@@ -1352,21 +1355,7 @@ export class Board {
   }
 
   private save(): void {
-    if (!this.deps.dir || this.readOnly || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = undefined;
-      this.write();
-    }, this.deps.saveDelayMs ?? 300);
-    this.saveTimer.unref?.();
-  }
-
-  private write(): void {
-    if (!this.deps.dir) return;
-    try {
-      writeJson(path.join(this.deps.dir, 'board.json'), { version: 1, worktreeTasks: this.autoTasks, projects: this.projects, issues: this.issues });
-    } catch {
-      // A full disk or a permission problem: the next change tries again.
-    }
+    if (!this.readOnly) this.file?.changed();
   }
 }
 
