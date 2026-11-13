@@ -128,7 +128,6 @@ export function taskTestsNote(plan: Pick<Plan, 'testsAt'>): string {
   ].join('\n');
 }
 
-/** What a milestone's check runs, by the plan's test timing (and whether it's the last milestone). */
 /**
  * What a task's agent does when only the user can unblock it (a step on their server or an account,
  * a secret, a choice): ask, with a card that waits for them (their phone too) and whose answer comes
@@ -145,6 +144,7 @@ export const ASK_YOU =
 export const WAIT_IN_TURN =
   'Everything you start ends with your turn, and nothing wakes you afterwards (no ScheduleWakeup, no waiting for a notification): run each command to the end inside this turn. In the foreground (Bash timeout up to 600000 ms); a longer one in the background with a log, waited on in foreground steps of under 10 minutes until it is done.';
 
+/** What a milestone's check runs, by the plan's test timing (and whether it's the last milestone). */
 export function checkTestsNote(plan: Pick<Plan, 'testsAt'>, last: boolean): string {
   if (plan.testsAt === 'end' && !last) return 'This plan runs its test suites only at the end: don\'t run them for this check. Check by reading the code, the diffs, the tests the tasks wrote and their typecheck.';
   return [

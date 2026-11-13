@@ -398,6 +398,8 @@ export interface PlansSlice {
 }
 
 export const KEEP_PLAN_ACTIVITY = 200;
+/** A line in the plan's feed (`Plans.note`), at most: what's longer is cut. */
+export const NOTE_MAX = 300;
 export const DEFAULT_PARALLEL = 3;
 export const MAX_PARALLEL = 8;
 
