@@ -11959,5 +11959,9 @@
  "● {0} new": "● {0} 条新的",
  "✳ Asked Claude to read the conversation": "✳ 已请 Claude 阅读这段对话",
  "✻ Thinking…": "✻ 思考中…",
- "📎 image {0} ({1}, {2})": "📎 图片 {0}（{1}，{2}）"
+ "📎 image {0} ({1}, {2})": "📎 图片 {0}（{1}，{2}）",
+ "Checking for commits that were never pushed…": "正在检查从未推送的提交…",
+ "Beluga couldn’t finish checking for commits that were never pushed.": "Beluga 没能完成对从未推送的提交的检查。",
+ "Keep it archived if you’re not sure.": "如果不确定，请保持归档。",
+ "If you’re not sure, Archive keeps the branch and the conversation.": "如果不确定，归档会保留分支和对话。"
 }
