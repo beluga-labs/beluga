@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -62,6 +63,30 @@ describe('a plain chat shared over the network', () => {
     await expect(kay.session.readFile({ owner: ata.id, share, path: 'private.txt' })).rejects.toThrow(noFiles);
     await expect(kay.session.listFiles({ owner: ata.id, share, path: '' })).rejects.toThrow(noFiles);
     await expect(kay.session.readFile({ owner: ata.id, share, path: '.beluga/scratch/../../private.txt' })).rejects.toThrow(noFiles);
+  }, 60_000 * SLOW);
+
+  it('follows no link in its Scratch out of it, and finds nothing for the friend', async () => {
+    const { ata, kay, chatId, dir } = await sharedChat();
+    mkdirSync(path.join(dir, '.beluga', 'scratch'), { recursive: true });
+    symlinkSync(path.join(dir, 'private.txt'), path.join(dir, '.beluga', 'scratch', 'link.txt'));
+    const share = kay.store.getState().shared.find((w) => w.id === chatId)!.share;
+    const noFiles = 'A chat has no project files: only its Scratch is shared';
+    await expect(kay.session.readFile({ owner: ata.id, share, path: '.beluga/scratch/link.txt' })).rejects.toThrow(noFiles);
+    await expect(kay.session.readFile({ owner: ata.id, share, path: '/.beluga/scratch/link.txt' })).rejects.toThrow(noFiles);
+    await expect(kay.session.diff.search({ owner: ata.id, share, path: '' }, 'grep', 'not for')).rejects.toThrow(noFiles);
+  }, 60_000 * SLOW);
+
+  it('gives no diff of the folder it was started in', async () => {
+    const { ata, kay, chatId, dir } = await sharedChat();
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=a@b.c', '-c', 'user.name=a', ...args], { cwd: dir });
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-qm', 'init');
+    writeFileSync(path.join(dir, 'taxes.txt'), 'not for friends either');
+    await kay.session.diff.load(chatId);
+    const review = kay.store.getState().review;
+    expect(review?.data?.files.map((f) => f.path) ?? []).not.toContain('taxes.txt');
+    expect(review?.error).toContain('A chat has no project files: only its Scratch is shared');
   }, 60_000 * SLOW);
 
   it('shows on the friend’s Mac as a chat, which has nothing to fork', async () => {

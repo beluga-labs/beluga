@@ -62,6 +62,7 @@ import { type PeerRun, type ShellRunner, describeShellResult } from './peer-run.
 import type { GuestControl, ProjectInvites } from './project-invites.js';
 import type { GuestShell } from './guest-shell.js';
 import { type SharedDiff, guestMayDo } from './shared-diff.js';
+import { chatFilesRefusal } from './plain-chat-files.js';
 import { coalesce } from './coalesce.js';
 import { PowerSaver, paced } from './power-saver.js';
 import type { EnvVars } from './env-vars.js';
@@ -1272,6 +1273,9 @@ export class Session {
     if (GUARDED.has(body.kind) && !this.replay.admit(id, sentAt)) return;
     // Someone invited by link to a project only reaches that project.
     if (from !== this.selfId && this.invites.isRestricted(from) && !guestMayDo(body, this.opts.shares)) return;
+    // A plain chat shared with someone, in your room or over the network, gives only its Scratch.
+    const refused = from === this.selfId ? undefined : chatFilesRefusal(this.store.getState().projects, body);
+    if (refused) return void this.send(refused, { to: from });
     switch (body.kind) {
       case 'fs_search':
         if (!this.opts.shares.canAccess(body.share, from, this.selfId) || !this.opts.shares.isPrivate(body.share)) {

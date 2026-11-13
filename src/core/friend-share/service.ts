@@ -20,7 +20,6 @@ import type { Action, LogItem, Store } from '../store.js';
 import { clean, peerName } from '../store.js';
 import { trustOf } from '../trust.js';
 import { type FriendShareInput, type FriendSharing, historyFor, saidBy } from '../workspace-sharing.js';
-import { NO_CHAT_FILES, inChatScratch } from './chat-files.js';
 import { COPY_TTL_MS, cloneFrom, cloneFromBundle, cloneUrl, copiesHome, copyTarget, packProject } from './copy.js';
 import { ShareCourier, type ShareMesh } from './courier.js';
 import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } from './fork.js';
@@ -103,11 +102,6 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message 
 const keyOf = (owner: string, id: string): string => `${owner}/${id}`;
 /** A repository's address as people say it: github.com/owner/repo. */
 const bareUrl = (url: string | undefined): string => (url ?? 'Its repository').replace(/^https:\/\//, '');
-/** The answer that refuses a request for a friend's files, in the kind of answer it waits for. */
-const refusal = (body: Extract<Body, { kind: 'fs_list' | 'fs_read' | 'fs_fetch' | 'fs_search' }>, error: string): BodyInput => {
-  const kind = body.kind === 'fs_list' ? 'fs_list_result' : body.kind === 'fs_read' ? 'fs_read_result' : body.kind === 'fs_fetch' ? 'fs_chunk' : 'fs_search_result';
-  return { kind, reqId: body.reqId, ok: false, error };
-};
 const liveWorktrees = (p: Project) => p.workspaces.filter((w) => !w.archived && !w.pending && !w.external && w.kind !== 'main');
 
 export interface FriendSharesOptions {
@@ -635,8 +629,6 @@ export class FriendShares implements FriendSharing {
       } else if (!this.shareBetween(body.share, from) || !session.shareService.isPrivate(body.share)) {
         // Only what's shared with them by name: never a folder you share with a room.
         return;
-      } else if (!this.chatFileAllowed(body)) {
-        return void this.courier.send(from, { k: 'body', b: refusal(body, NO_CHAT_FILES) }, { reliable: false });
       }
       this.inbound.add(`${from}:${body.reqId}`);
       if (this.inbound.size > INBOUND_KEPT) this.inbound.delete(this.inbound.values().next().value!);
@@ -654,13 +646,6 @@ export class FriendShares implements FriendSharing {
       const reliable = KEPT_EVENTS.has(body.event);
       for (const peer of Object.keys(session.sharing.members(ws!))) if (peer !== from) this.courier.send(peer, { k: 'body', b: body, as: from }, { reliable });
     }
-  }
-
-  /** A plain chat of yours gives its friends only its Scratch (chat-files.ts); a worktree's folder is theirs to browse. */
-  private chatFileAllowed(body: Extract<Body, { kind: 'fs_list' | 'fs_read' | 'fs_fetch' | 'fs_search' }>): boolean {
-    const chat = this.state.projects.filter((p) => !p.root).flatMap((p) => p.workspaces).find((w) => shareNameOf(w.id) === body.share);
-    if (!chat) return true;
-    return body.kind !== 'fs_search' && inChatScratch(chat.path, body.path);
   }
 
   /** A friend offers you a worktree to take over: remember it to answer them, and its bundle to fetch. */

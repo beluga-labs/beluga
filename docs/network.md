@@ -816,9 +816,9 @@ in `~/.beluga/project-shares.json`.
 (`shareWithFriend({ peerId, workspaceId, role })`; all your chats at once is refused). It travels as your `Chats`
 project with `chats: true`, so their Mac shows it under "Chats" with your avatar, as a chat (`shared[].chat`), and
 offers no Files, Diff, copy or fork. They follow its conversation and Scratch and ask your agent there, as in a
-worktree. It has no project folder: their `fs_*` requests reach only its Scratch folders
-(`friend-share/chat-files.ts`), and anything else (or `fs_search`) is answered "A chat has no project files: only its
-Scratch is shared".
+worktree. It has no project folder: their `fs_*` requests reach only its Scratch folders (`core/plain-chat-files.ts`,
+checked in `Session.handle`, so a person in your room it's shared with gets the same), and anything else (`fs_search`,
+`ws_diff`, a link out of Scratch) is answered "A chat has no project files: only its Scratch is shared".
 
 **What travels** (`protocol.ts`): each message rides in `{f, m}`, acknowledged with `{ack}`.
 
