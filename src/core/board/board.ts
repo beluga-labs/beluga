@@ -1325,7 +1325,8 @@ export class Board {
     const file = path.join(this.deps.dir, 'board.json');
     const saved = this.file.read();
     if (!saved) return;
-    const raw = renamedActors(saved.raw);
+    // Renamed only when it has old names: walking all of a big board for nothing took ~50 ms on every start (BLG-942).
+    const raw = saved.oldNames ? renamedActors(saved.raw) : saved.raw;
     const parsed = BoardShape.safeParse(raw);
     if (!parsed.success) {
       // Never written over: kept aside (a newer Beluga's board, or a damaged file), and this one starts fresh.

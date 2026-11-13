@@ -80,8 +80,9 @@ So each person's frames take at most 200 ms of every second (400 ms for everyone
 in a queue of their own, in order, worked through in 8 ms slices between everything else. A queue
 past 5,000 frames takes no more until it eases; what matters is resent by its sender, since it
 wasn't acknowledged. The black box notes whose frames were waiting, once a minute per person.
-The daemon's own big files (the board, the team's copy of it, the outboxes, the plans) are written
-in the background (`JsonFile` in `net/mesh/files.ts`), never with a write that holds the thread.
+The daemon's own big files never hold the thread: the board and the team's copy of it write only
+the tasks a change touched to a journal (`core/journal-file.ts`), and the outboxes and the plans are
+written in the background (`JsonFile` in `net/mesh/files.ts`).
 
 **Delivered, then Seen** (BLG-798). A direct message is Delivered once the install that is them on the network
 (their Mac, or their Always On) acks it with `dm_ack`. `dm_seen { id }` says their messages up to that one were on
