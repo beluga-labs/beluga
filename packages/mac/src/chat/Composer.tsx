@@ -545,7 +545,11 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     ui.patch({ buffer: '', cursor: 0, history: [...ui.get().history, typed].slice(-200), historyIndex: -1 });
     // Image chips become links to the images (Beluga keeps them) before the message goes.
     if (text.includes('[image ') && !text.startsWith('/')) {
-      api.attachments.expand(text, channel, [...images], [...shown]).then(
+      // An image still being saved is waited for (it showed in the box at once).
+      att
+        .saved(images)
+        .then((real) => api.attachments.expand(text, channel, [...real], [...shown]))
+        .then(
         (expanded) => deliver(expanded, urgent),
         (err: unknown) => {
           // Put the message and its images back so nothing is lost.

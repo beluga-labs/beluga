@@ -339,7 +339,7 @@ function HomeComposer({ project }: { project: Project }) {
         message = await api.attachments.expand(
           typed,
           `home:${project.id}`,
-          [...images],
+          [...(await att.saved(images))],
           [...shown],
         );
       } catch (err) {
