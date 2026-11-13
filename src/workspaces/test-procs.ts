@@ -158,9 +158,11 @@ export const keepsRunning = (command: unknown): boolean => typeof command === 's
  * A Bash call that asks to keep what it starts, made to: the mark exported, so whatever the command line runs
  * carries it (`BELUGA_KEEP=1 cd app && npm run dev &` too); and, run in Claude Code's background (which
  * Claude Code stops when it exits, at the turn's end), run detached instead, its output in `log`.
+ * `envFile`: Beluga's zsh-compat.sh (agent/runtime/claude/zsh-compat.ts), which Claude Code runs ahead
+ * of its own commands but the detached shell would skip: it runs it first too, when that shell is zsh.
  * Undefined when there's nothing to change.
  */
-export function keptBashInput(tool: string, input: Readonly<Record<string, unknown>>, log: string): Record<string, unknown> | undefined {
+export function keptBashInput(tool: string, input: Readonly<Record<string, unknown>>, log: string, envFile?: string): Record<string, unknown> | undefined {
   const command = input.command;
   if (tool !== 'Bash' || !keepsRunning(command) || typeof command !== 'string') return undefined;
   const marked = `export ${KEEP_MARK}; `;
@@ -169,10 +171,11 @@ export function keptBashInput(tool: string, input: Readonly<Record<string, unkno
   // worktree tag would be lost and nothing could stop it when the worktree goes. And on one line: ps shows a
   // command's newlines as they are, which would split its row in two.
   const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+  const compat = envFile ? `[ -n "$ZSH_VERSION" ] && [ -f ${q(envFile)} ] && . ${q(envFile)}; ` : '';
   return {
     ...input,
     run_in_background: false,
-    command: `${marked}mkdir -p "$(dirname ${q(log)})"; nohup "\${SHELL:-/bin/sh}" -c ${q(command)} > ${q(log)} 2>&1 < /dev/null & echo ${q(`Started, kept running past the turn. Its output: ${log}`)}`,
+    command: `${marked}mkdir -p "$(dirname ${q(log)})"; nohup "\${SHELL:-/bin/sh}" -c ${q(compat + command)} > ${q(log)} 2>&1 < /dev/null & echo ${q(`Started, kept running past the turn. Its output: ${log}`)}`,
   };
 }
 

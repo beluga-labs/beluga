@@ -3,6 +3,7 @@ import { agentLabel } from '../shared/agent-label.js';
 import type { AgentRunInput, OpenPr } from './types.js';
 import { underPart } from '../shared/path-inside.js';
 import { chatLinkOf, formatChatRef, parseChatRef } from '../shared/chat-ref.js';
+import { shellName } from '../shared/shells.js';
 
 /** `agent`: the agent this prompt is for ("You are kay's Codex"); default Claude, the runner's. */
 export function buildSystemAppend(ownerName: string, agent: AgentRef = CLAUDE_AGENT): string {
@@ -124,6 +125,43 @@ export function buildKeepAppend(agent: AgentRef = CLAUDE_AGENT): string {
     ...how,
     'started to check something yourself, and never a test run (vitest, playwright, an e2e run): always stopped.',
   ].join('\n');
+}
+
+/**
+ * The shell an agent's commands run in, as its prompt words it: zsh, or zsh with zsh-compat.sh
+ * (`zsh-compat`: Claude Code only, runtime/claude/zsh-compat.ts), or `other`: bash or anything else.
+ */
+export type ShellSetup = 'zsh' | 'zsh-compat' | 'other';
+
+/** An agent that runs its commands in your login shell (Codex's `zsh -lc`): plain zsh when that's zsh. */
+export function loginShellSetup(shell: string | undefined, platform: NodeJS.Platform = process.platform): ShellSetup {
+  return platform !== 'win32' && shell && shellName(shell) === 'zsh' ? 'zsh' : 'other';
+}
+
+/** The bash habits zsh still reads its own way, with or without zsh-compat.sh. */
+const ZSH_STILL = [
+  'compare with `[[ $a == b ]]` or `[ "$a" = b ]`; an unquoted `$list` stays one word and arrays count from 1',
+  '(loop over an array: `for f in "${files[@]}"`); print text with backslashes (JSON, Windows paths) with',
+  '`printf \'%s\\n\' "$x"`, not echo; and never name a variable `path` (it is $PATH) or `status` (read-only).',
+];
+
+/**
+ * Agents write their commands for bash; on zsh, how to write them so they run. Claude Code's zsh also
+ * takes zsh-compat.sh (a glob that matches nothing stays as typed), so it's told what that leaves.
+ */
+export function buildShellAppend(setup: ShellSetup): string {
+  if (setup === 'other') return '';
+  const lead =
+    setup === 'zsh-compat'
+      ? [
+          'Your shell commands run in zsh, set up to take common bash: a glob or URL that matches nothing is left as',
+          'typed, as in bash. Still quote globs and URLs (`--include=\'*.ts\'`, `curl "https://…?a=1"`) so they never expand;',
+        ]
+      : [
+          'Your shell commands run in zsh, not bash. Write them for zsh: quote globs and URLs (`--include=\'*.ts\'`,',
+          '`curl "https://…?a=1"`), since an unquoted one that matches nothing stops the whole command;',
+        ];
+  return ['', ...lead, ...ZSH_STILL].join('\n');
 }
 
 /**
