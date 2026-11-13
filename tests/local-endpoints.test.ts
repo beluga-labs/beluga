@@ -134,6 +134,8 @@ describe('local endpoints: a run', () => {
   it('points Claude Code at the endpoint, every model alias at its model, and keeps your Claude login off it', () => {
     const env = endpointEnv(target);
     expect(env).toMatchObject({ ANTHROPIC_BASE_URL: OLLAMA_URL, ANTHROPIC_AUTH_TOKEN: 'ollama', ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', ANTHROPIC_SMALL_FAST_MODEL: 'qwen3-coder', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'qwen3-coder', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
+    // Nothing only Anthropic's API takes: no tool search, no inline tools (DeepSeek answers 422).
+    expect(env).toMatchObject({ ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_INLINE_TOOLS: 'false' });
     expect(endpointEnv({ ...target, key: 'sk-1' }).ANTHROPIC_AUTH_TOKEN).toBe('sk-1');
     // Claude Code runs in its own folder there, where it finds no Claude sign-in to send instead of the key.
     expect(endpointEnv(target, '/tmp/endpoint-claude').CLAUDE_CONFIG_DIR).toBe('/tmp/endpoint-claude');
