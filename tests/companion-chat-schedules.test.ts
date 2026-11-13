@@ -3,6 +3,7 @@ import { phoneMay } from '../src/companion/coverage.js';
 import { convView } from '../src/companion/views.js';
 import { COMPANION_PROTO, ConvView, SINCE } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
+import { withExperiment } from '../src/shared/experiments.js';
 import type { Sentinel } from '../src/core/sentinel/model.js';
 
 /** A chat's schedules on the phone (BLG-401): its conversation lists them with Run now and pause; no create or edit. */
@@ -28,7 +29,7 @@ const sentinel = (id: string, to: string, paused = false): Sentinel =>
 
 function storeWith(experiment = true) {
   const store = new Store({ ...initialState('room', 'auto'), selfId: ME });
-  store.dispatch({ type: 'prefs', prefs: { experiments: experiment ? ['chat-schedules'] : [] } });
+  store.dispatch({ type: 'prefs', prefs: { experiments: withExperiment([], 'chat-schedules', experiment) } });
   store.dispatch({ type: 'sentinel_put', item: sentinel('s1', `${ME}/ws:w1`), nextAt: NEXT });
   store.dispatch({ type: 'sentinel_put', item: sentinel('s2', `${ME}/ws:w2`, true) });
   return store;

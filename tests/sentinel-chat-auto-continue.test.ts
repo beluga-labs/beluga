@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { AutoContinue, resumeOf } from '../src/core/auto-continue.js';
 import { ChatSendService } from '../src/core/chat-links/service.js';
-import type { SentinelWake } from '../src/core/sentinel/runner.js';
+import { CHAT_SCHEDULES_OFF, type SentinelWake } from '../src/core/sentinel/runner.js';
 import type { SentinelDraft } from '../src/core/sentinel/model.js';
 import { wakeRefusal } from '../src/core/sentinel/wake.js';
 import { type DomainState, Store, initialState } from '../src/core/store.js';
-import { experimentGate } from '../src/shared/experiments.js';
+import { experimentGate, withExperiment } from '../src/shared/experiments.js';
 import { CONTINUE_PROMPT, encodeFailure } from '../src/shared/run-failure.js';
 import { LIMIT_MARGIN_MS } from '../src/shared/auto-continue.js';
 import type { BodyOf } from '../src/protocol.js';
@@ -32,14 +32,14 @@ type TurnEnd = { readonly kind: 'done'; readonly text: string } | { readonly kin
  * A world on a fake clock. Each prompt that reaches the chat starts a turn; `end` says how that turn
  * ends (by default: answered at once). `ask` is what AutoContinue sends on.
  */
-function world(end: (prompt: string) => TurnEnd = () => ({ kind: 'done', text: 'Sent.' })) {
+function world(end: (prompt: string) => TurnEnd = () => ({ kind: 'done', text: 'Sent.' }), experiments: readonly string[] = []) {
   let now = T0;
   const base = initialState('room', 'auto');
   const store = new Store({
     ...base,
     selfId: ME,
     projectsLoaded: true,
-    prefs: { ...base.prefs, experiments: ['chat-schedules'] },
+    prefs: { ...base.prefs, experiments },
     projects: [{ id: 'api', name: 'bob-api', root: '/code/bob-api', base: 'main', workspaces: [{ id: 'w1', name: 'Daily status', projectId: 'api', projectRoot: '/code/bob-api', path: '/code/bob-api/w1', kind: 'worktree', branch: 'beluga/w1', createdAt: 0 }] }],
   } as unknown as DomainState);
   const prompts: Array<{ readonly prompt: string; readonly requestId: string; readonly by: 'sentinel' | 'auto-continue' }> = [];
@@ -130,6 +130,30 @@ describe('use case 1: "Send XYZ every day at 9:00"', () => {
     await w.at(new Date(2026, 10, 13, 9, 0, 20).getTime());
     await until(() => w.runsOf(id).length === 2 && w.runsOf(id).every((r) => r.state === 'done'));
     expect(w.prompts.map((p) => p.prompt)).toEqual(['Send XYZ', 'Send XYZ']);
+    w.s.sentinels.stopAll();
+    w.auto.stop();
+  });
+});
+
+describe('the chat-schedules switch', () => {
+  it('on by default: a daily wake goes with no experiment saved', async () => {
+    const w = world(undefined, []);
+    const id = w.schedule({ kind: 'schedule', every: 'day', at: '09:00', missed: 'skip' });
+    await w.at(new Date(2026, 10, 12, 9, 0, 20).getTime());
+    await until(() => w.runsOf(id)[0]?.state === 'done');
+    expect(w.prompts).toHaveLength(1);
+    w.s.sentinels.stopAll();
+    w.auto.stop();
+  });
+
+  it('turned off: the run is refused and nothing reaches the chat', async () => {
+    const w = world();
+    const id = w.schedule({ kind: 'schedule', every: 'day', at: '09:00', missed: 'skip' });
+    w.store.dispatch({ type: 'prefs', prefs: { ...w.store.getState().prefs, experiments: withExperiment([], 'chat-schedules', false) } } as never);
+    await w.at(new Date(2026, 10, 12, 9, 0, 20).getTime());
+    await until(() => w.runsOf(id)[0]?.state === 'failed');
+    expect(w.runsOf(id)[0]!.why).toBe(CHAT_SCHEDULES_OFF);
+    expect(w.prompts).toHaveLength(0);
     w.s.sentinels.stopAll();
     w.auto.stop();
   });

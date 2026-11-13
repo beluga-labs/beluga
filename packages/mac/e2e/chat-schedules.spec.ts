@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { SocketClient } from '../../../src/ipc/socket-client.js';
+import { withExperiment } from '../../../src/shared/experiments.js';
 import { expect, test, type Page } from './fixtures.js';
 
 /**
@@ -90,7 +91,7 @@ test('/schedule opens the sheet; In hours makes a once schedule that starts on a
 
 test('with the experiment off, the section is hidden', async ({ page, demo }) => {
   const client = await connect(demo);
-  await client.api.session.setPrefs({ experiments: [] });
+  await client.api.session.setPrefs({ experiments: withExperiment([], 'chat-schedules', false) });
   client.close();
   await openChat(page);
   await expect(inspector(page)).toBeVisible();
