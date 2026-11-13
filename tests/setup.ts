@@ -50,5 +50,9 @@ afterAll(() => {
   }
 });
 
+// A whole suite keeps every core and the disk busy, and macOS then holds a lowest-priority delete
+// back for tens of seconds: tests that wait for one (deletesSettled) delete at normal priority.
+process.env.BELUGA_DELETE_PRIORITY ??= 'normal';
+
 // The tests are a Mac's wherever they run ("Your Mac"; shared/assistant.ts).
 process.env.BELUGA_COMPUTER ??= 'mac';

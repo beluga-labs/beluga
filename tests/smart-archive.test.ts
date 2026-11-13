@@ -95,7 +95,7 @@ describe('a smart archive', () => {
   afterEach(async () => {
     await deletesSettled();
     rmSync(base, { recursive: true, force: true });
-  }, 120_000); // Lowest-priority disk cleanup can be starved during a full-suite run.
+  });
 
   it('says what goes and what stays before doing anything', async () => {
     const plan = await planArchive(wt);
@@ -338,7 +338,7 @@ describe('a smart archive', () => {
     expect(readdirSync(archives).sort()).toEqual(['done1', 'notes.partial.txt']);
     expect(readManifest(archives, 'done1')).toBeDefined();
     expect(await sweepPartialArchives(path.join(base, 'nowhere'))).toBe(0);
-  }, 120_000);
+  });
 
   it('a second archive never replaces one that’s there', async () => {
     await archiveWorktree({ repo, dir: wt, id: 'd1', archivesDir: archives });
