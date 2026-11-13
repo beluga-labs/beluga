@@ -9,7 +9,7 @@ import { baseEnv } from '../../../core/peer-run.js';
 import { gateTool } from '../../tool-gate.js';
 import { syncProbes } from '../../sync-main.js';
 import { fromRateLimitEvent, fromUsageResponse, toMs } from './usage.js';
-import { RunFailedError, classifyRun } from '../../../shared/run-failure.js';
+import { type RunEnd, type RunFailure, RunFailedError, classifyRun } from '../../../shared/run-failure.js';
 import { SubAgentTracker, withAgentScratch } from './subagents.js';
 import { type RecorderMessage, StepRecorder } from '../../step-recorder.js';
 import { type TrackedMessage, McpAppTracker } from '../../../mcp-apps/tracker.js';
@@ -89,6 +89,26 @@ export function claudeLaunchEnv(input: Pick<AgentRunInput, 'guest' | 'ownerMcp' 
     return undefined;
   }
   return { ...baseEnv(env), ...claudeConfigEnv(env), ...SCRUBBED_SHELL, ...compact, ...safeRunEnv(input.env) };
+}
+
+/**
+ * How Claude Code signs in from the environment alone: a friend's or guest's scrubbed run gets none
+ * of these, so it signs in only the way Claude Code does without them (its own login on this Mac).
+ */
+const ENV_SIGN_IN = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'GOOGLE_APPLICATION_CREDENTIALS'];
+/** Claude's own words when its sign-in didn't work (beyond a plain "Not logged in"). */
+const SIGN_IN_FAILED = /authenticat|credential|api key|x-api-key|unauthori[sz]ed|\b401\b|\/login/i;
+
+/**
+ * A failure that is the scrubbed environment's doing says so: the owner signs Claude Code in with a
+ * variable (ANTHROPIC_API_KEY) that a friend's run isn't given, so "isn't signed in on this Mac"
+ * would be wrong (their own runs work).
+ */
+export function withSignInHint(failure: RunFailure, launchEnv: Readonly<Record<string, string>> | undefined, inherits: boolean, env: NodeJS.ProcessEnv = process.env): RunFailure {
+  if (inherits || !launchEnv) return failure;
+  if (failure.kind !== 'signed_out' && !(failure.kind === 'api' && SIGN_IN_FAILED.test(failure.detail))) return failure;
+  const dropped = ENV_SIGN_IN.find((name) => env[name] && !launchEnv[name]);
+  return dropped ? { ...failure, envSignIn: dropped } : failure;
 }
 
 /**
@@ -299,6 +319,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       // Set, this replaces Claude Code's whole environment. A friend or a guest gets a scrubbed one
       // (never the daemon's tokens); your own run inherits unless it already passes variables.
       const launchEnv = claudeLaunchEnv(input);
+      const failure = (end: RunEnd): RunFailedError => new RunFailedError(withSignInHint(classifyRun(end), launchEnv, inheritsDaemonEnv(input)));
       const options: Options = {
         cwd,
         additionalDirectories: [...extraDirs, ...(fixup ? [fixup] : [])],
@@ -637,7 +658,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
             // A turn that ended on an API error (a usage limit, an outage) is a failure, whatever its subtype.
             const ok = msg.subtype === 'success' && !msg.is_error;
             if (!ok) failedResult = msg.subtype === 'success' ? msg.result : [`Agent stopped: ${msg.subtype.replace(/_/g, ' ')}`, ...(msg.errors ?? [])].join('\n');
-            const stopped = ok ? '' : new RunFailedError(classifyRun({ result: failedResult, ...ends() })).message;
+            const stopped = ok ? '' : failure({ result: failedResult, ...ends() }).message;
             // The prompts this turn took in: a message steered in mid-turn is answered by it.
             const took = msg.user_message_uuids ?? (msg.user_message_uuid ? [msg.user_message_uuid] : undefined);
             tools.clear();
@@ -661,7 +682,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
               }
             }
             // A later turn failing (e.g. reporting a finished agent) doesn't throw away answers already given.
-            else if (!turns.end(ok, ok ? shelf.finish((msg as { result: string }).result) : stopped, took) && !turns.answers.length) throw new RunFailedError(classifyRun({ result: failedResult, ...ends() }));
+            else if (!turns.end(ok, ok ? shelf.finish((msg as { result: string }).result) : stopped, took) && !turns.answers.length) throw failure({ result: failedResult, ...ends() });
             settle();
           }
         }
@@ -672,7 +693,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // a steer's interrupt). Every turn has been answered by then, so that's no crash.
         if (prompts.closed) failed = false;
         // Claude Code itself failed ("process exited with code 1"): say how, in words.
-        else throw new RunFailedError(classifyRun({ error: err instanceof Error ? err.message : String(err), ...(failedResult ? { result: failedResult } : {}), ...ends() }));
+        else throw failure({ error: err instanceof Error ? err.message : String(err), ...(failedResult ? { result: failedResult } : {}), ...ends() });
       } finally {
         live.delete(q);
         recorder.finish(failed || abortController.signal.aborted);

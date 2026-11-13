@@ -153,3 +153,22 @@ describe('a broken identity.json at start', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('identity.json read again after a handover', () => {
+  it('falls back to a one-off identity and says why when the kept file is broken', async () => {
+    const { identityOrOneOff } = await import('../src/machines/identity-load.js');
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-identity-letgo-'));
+    const file = path.join(dir, 'identity.json');
+    writeFileSync(file, '{broken');
+    const said: string[] = [];
+    expect(identityOrOneOff(file, (m) => said.push(m)).peerId).toHaveLength(32);
+    expect(said.join('\n')).toMatch(/invalid/i);
+    expect(readFileSync(file, 'utf8')).toBe('{broken');
+    // A good file is read as it is, with nothing said.
+    const fresh = path.join(dir, 'fresh.json');
+    const good = loadIdentity(fresh);
+    expect(identityOrOneOff(fresh, (m) => said.push(m)).peerId).toBe(good.peerId);
+    expect(said).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

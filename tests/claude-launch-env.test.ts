@@ -4,7 +4,8 @@ import path from 'node:path';
 import type { HookCallback, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunInput } from '../src/agent/types.js';
-import { claudeLaunchEnv } from '../src/agent/runtime/claude/runner.js';
+import { claudeLaunchEnv, withSignInHint } from '../src/agent/runtime/claude/runner.js';
+import { failureTitle } from '../src/shared/run-failure.js';
 import { room } from './runtime-conformance.js';
 
 const sdk = vi.hoisted(() => ({ options: undefined as Options | undefined }));
@@ -149,5 +150,27 @@ describe("a friend's run keeps Claude Code's own settings", () => {
     expect(env.HTTP_PROXY).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+});
+
+describe("a friend's run that can't sign in", () => {
+  const signedOut = { kind: 'signed_out', detail: 'Invalid API key · Please run /login' } as const;
+  const daemon = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-planted' };
+
+  it('says the owner signs Claude Code in with a variable friends never get', () => {
+    const scrubbed = claudeLaunchEnv({ channel: 'room', vetTool: () => undefined } as unknown as AgentRunInput, daemon)!;
+    const hinted = withSignInHint(signedOut, scrubbed, false, daemon);
+    expect(hinted.envSignIn).toBe('ANTHROPIC_API_KEY');
+    expect(failureTitle(hinted)).toContain('ANTHROPIC_API_KEY');
+    expect(failureTitle(hinted)).not.toContain('isn’t signed in on this Mac');
+    // An auth error from the API says it too; one about something else doesn't.
+    expect(withSignInHint({ kind: 'api', detail: 'authentication_failed' }, scrubbed, false, daemon).envSignIn).toBe('ANTHROPIC_API_KEY');
+    expect(withSignInHint({ kind: 'api', detail: 'overloaded' }, scrubbed, false, daemon).envSignIn).toBeUndefined();
+  });
+
+  it("leaves your own run's failure, and a sign-in that isn't from a variable, as they were", () => {
+    expect(withSignInHint(signedOut, undefined, true, daemon)).toEqual(signedOut);
+    expect(withSignInHint(signedOut, { PATH: '/usr/bin' }, false, { PATH: '/usr/bin' })).toEqual(signedOut);
+    expect(withSignInHint({ kind: 'crash', detail: 'exit 1' }, { PATH: '/usr/bin' }, false, daemon).envSignIn).toBeUndefined();
   });
 });

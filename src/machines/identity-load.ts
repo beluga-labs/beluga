@@ -48,10 +48,11 @@ export interface StartIdentities {
 }
 
 /**
- * identity.json, or a one-off key for this run when the file is there but broken: Beluga still starts,
- * and the file stays as it is (replacing it would change your peer id and the trust tied to it).
+ * identity.json, or a one-off key for this run when the file is there but broken: Beluga still starts
+ * (or a handover still ends), and the file stays as it is (replacing it would change your peer id and
+ * the trust tied to it).
  */
-function ownAtStart(file: string, warn: (message: string) => void): Identity {
+export function identityOrOneOff(file: string, warn: (message: string) => void): Identity {
   try {
     return loadIdentity(file);
   } catch (err) {
@@ -62,7 +63,7 @@ function ownAtStart(file: string, warn: (message: string) => void): Identity {
 
 /** The identities this install starts with (identity.json is made when missing, as ever). */
 export function identitiesAtStart(dir: string, warn: (message: string) => void = (m) => console.error(m)): StartIdentities {
-  const own = ownAtStart(path.join(dir, IDENTITY_FILE), warn);
+  const own = identityOrOneOff(path.join(dir, IDENTITY_FILE), warn);
   const standby = standbyIdentity(dir);
   const local = standby && readAlwaysOn(dir)?.standIn ? standby : own;
   return { local, you: standby ?? local };

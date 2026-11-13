@@ -185,6 +185,13 @@ const SEARCH_TOOLS = new Set(['Grep', 'Glob', 'LS']);
 /** How many entries a directory search is walked before it stops (node_modules and .git are skipped). */
 const MAX_SEARCH_SCAN = 20_000;
 /**
+ * One tool call judges its folder up to four times (the hook and canUseTool, each narrowing then
+ * deciding): a walk is kept this long, so a folder is walked once per call, not four times.
+ */
+const SEARCH_SCAN_TTL_MS = 2_000;
+/** Folders kept at once: a few searches in flight, never a growing map. */
+const SEARCH_SCAN_KEEP = 16;
+/**
  * Names a broad directory search must leave out, the same files Codex denies (codex/sandbox.ts).
  * One ripgrep glob: a basename anywhere, or a directory and everything in it.
  */
@@ -277,12 +284,49 @@ function hitKind(abs: string, link: boolean): SearchHit['kind'] | undefined {
   return linked ?? named;
 }
 
+interface SearchScan {
+  readonly hits: readonly SearchHit[];
+  /** Stopped at {@link MAX_SEARCH_SCAN}: there may be credential files it didn't get to. */
+  readonly truncated: boolean;
+}
+
+const scans = new Map<string, { readonly at: number; readonly scan: SearchScan | undefined }>();
+let scanLimit = MAX_SEARCH_SCAN;
+
+/** Tests: a walk cut off after `n` entries (not 20,000 files on disk). Returns the undo. */
+export function limitSearchScanForTest(n: number): () => void {
+  const before = scanLimit;
+  scanLimit = n;
+  scans.clear();
+  return () => {
+    scanLimit = before;
+    scans.clear();
+  };
+}
+
+/**
+ * {@link walkSearch}, kept for {@link SEARCH_SCAN_TTL_MS} per folder (the newest
+ * {@link SEARCH_SCAN_KEEP} folders). `now` is passed in by tests.
+ */
+export function scanSearch(root: string, now: number = Date.now()): SearchScan | undefined {
+  const kept = scans.get(root);
+  if (kept && now >= kept.at && now - kept.at < SEARCH_SCAN_TTL_MS) return kept.scan;
+  const scan = walkSearch(root);
+  scans.delete(root);
+  scans.set(root, { at: now, scan });
+  for (const [key, entry] of scans) {
+    if (scans.size <= SEARCH_SCAN_KEEP && now - entry.at < SEARCH_SCAN_TTL_MS) break;
+    scans.delete(key);
+  }
+  return scan;
+}
+
 /**
  * Credential files under a directory a search would walk. Stops after {@link MAX_SEARCH_SCAN}
  * entries (a whole checkout still searches; named secrets are excluded either way). Symlink
  * directories are not descended: ripgrep doesn't follow them unless asked.
  */
-function scanSearch(root: string): { hits: SearchHit[]; truncated: boolean } | undefined {
+function walkSearch(root: string): SearchScan | undefined {
   try {
     if (!statSync(root).isDirectory()) return undefined;
   } catch {
@@ -305,7 +349,7 @@ function scanSearch(root: string): { hits: SearchHit[]; truncated: boolean } | u
     }
     for (const ent of entries) {
       if (ent.name === 'node_modules' || ent.name === '.git') continue;
-      if (++n > MAX_SEARCH_SCAN) return { hits, truncated: true };
+      if (++n > scanLimit) return { hits, truncated: true };
       const abs = path.join(dir, ent.name);
       const rel = path.relative(root, abs).split(path.sep).join('/');
       const kind = hitKind(abs, ent.isSymbolicLink());
@@ -382,8 +426,34 @@ function searchSelects(toolName: string, input: Record<string, unknown>, rel: st
   return globSelects(spec, rel);
 }
 
+/**
+ * A glob that could pick a credential file somewhere in the tree: an exclusion that doesn't leave
+ * them out, or a pattern whose file-name part fits one (`src/**` does, `src/**\/*.ts` doesn't).
+ */
+function specMaySelectSecret(spec: string): boolean {
+  if (SEARCH_SECRET_SAMPLES.some((name) => globSelects(spec, name))) return true;
+  if (spec.startsWith('!')) return false;
+  return braceExpand(spec).some((alt) => {
+    const name = alt.split(/[\\/]/).pop() || alt;
+    return SEARCH_SECRET_SAMPLES.some((sample) => globMatches(name, sample));
+  });
+}
+
+/** The search could open a credential file: no glob of its own, or one that could pick one. */
+const searchIsBroad = (toolName: string, input: Record<string, unknown>): boolean => {
+  const spec = searchSpec(toolName, input);
+  return !spec || specMaySelectSecret(spec);
+};
+
+interface OpenedSecrets {
+  readonly hard: boolean;
+  readonly dotenv: boolean;
+  /** The walk stopped before the end and the search's own glob could still pick a credential file. */
+  readonly unsure: boolean;
+}
+
 /** Credential files this directory search would actually open. */
-function openedSecrets(toolName: string, input: Record<string, unknown>, ctx: PolicyContext): { hard: boolean; dotenv: boolean } | undefined {
+function openedSecrets(toolName: string, input: Record<string, unknown>, ctx: PolicyContext): OpenedSecrets | undefined {
   if (!SEARCH_TOOLS.has(toolName)) return undefined;
   const field = READ_TOOLS[toolName];
   if (!field) return undefined;
@@ -396,15 +466,20 @@ function openedSecrets(toolName: string, input: Record<string, unknown>, ctx: Po
     if (hit.kind === 'hard') hard = true;
     else dotenv = true;
   }
-  return hard || dotenv ? { hard, dotenv } : undefined;
+  // No glob of its own: confineSearch narrows it (that glob leaves every named secret out).
+  const unsure = scan.truncated && searchSpec(toolName, input) !== undefined && searchIsBroad(toolName, input);
+  return hard || dotenv || unsure ? { hard, dotenv, unsure } : undefined;
 }
 
 /** Glob patterns that already list the whole tree, so the exclusion glob can stand in for them. */
 const WHOLE_TREE_PATTERNS = new Set(['**', '**/*']);
 
-/** A relative path that cannot be put inside one `{a,b}` glob. */
-const UNSAFE_GLOB_CHAR = new Set(['*', '?', '[', ']', '{', '}', ',', '!', '\\', '\n']);
-const unsafeGlob = (rel: string): boolean => [...rel].some((c) => UNSAFE_GLOB_CHAR.has(c));
+/**
+ * A relative path that cannot be put inside one `{a,b}` glob: glob syntax, or white space (a glob
+ * may be split on it, so "my secret.pem" would become two names that leave nothing out).
+ */
+const UNSAFE_GLOB_CHAR = /[\s*?[\]{},!\\]/;
+const unsafeGlob = (rel: string): boolean => UNSAFE_GLOB_CHAR.test(rel);
 
 /**
  * One negated ripgrep glob that leaves every credential file out and still returns the rest.
@@ -429,10 +504,10 @@ export function confineSearch(toolName: string, input: Record<string, unknown>, 
   const scan = scanSearch(resolveTarget(ctx.cwd, input[field]));
   if (!scan) return undefined;
   const opened = scan.hits.filter((hit) => searchSelects(toolName, input, hit.rel));
-  const broad = !searchSpec(toolName, input) || SEARCH_SECRET_SAMPLES.some((name) => searchSelects(toolName, input, name));
-  if (!opened.length && !(scan.truncated && broad)) return undefined;
+  if (!opened.length && !(scan.truncated && searchIsBroad(toolName, input))) return undefined;
   // The exclusion takes the place of Grep's glob or Glob's pattern: a caller's own one would be lost
-  // and the search widened, so that search isn't narrowed (decideTool then turns it down).
+  // and the search widened, so that search isn't narrowed (decideTool then turns it down, or asks
+  // when the walk stopped before finding one).
   if (toolName === 'Grep' ? typeof input.glob === 'string' && input.glob.trim() !== '' : !WHOLE_TREE_PATTERNS.has(String(input.pattern ?? '').trim())) return undefined;
   const glob = exclusionGlob(opened.map((hit) => hit.rel));
   if (!glob) return undefined;
@@ -459,7 +534,7 @@ export function decideTool(toolName: string, input: Record<string, unknown>, ctx
 }
 
 /** A file tool on a .env file, a shell command whose only secret is one, or a directory search that would open one and nothing harder. */
-function touchesDotenv(toolName: string, input: Record<string, unknown>, ctx: PolicyContext, opened: { hard: boolean; dotenv: boolean } | undefined): boolean {
+function touchesDotenv(toolName: string, input: Record<string, unknown>, ctx: PolicyContext, opened: OpenedSecrets | undefined): boolean {
   if (toolName === 'Bash') return typeof input.command === 'string' && mentionsOnlyDotenv(input.command);
   const field = READ_TOOLS[toolName] ?? WRITE_TOOLS[toolName];
   if (field !== undefined && isDotenvPath(resolveTarget(ctx.cwd, input[field]))) return true;
@@ -478,7 +553,7 @@ const namesOf = (toolName: string, input: Record<string, unknown>): string[] =>
     .flatMap((g) => [g, ...g.split(/[{},]/).map((part) => part.split(/[\\/]/).at(-1)?.replace(/[*?[\]!]/g, '') ?? '')])
     .filter(Boolean);
 
-function decideToolPlain(toolName: string, input: Record<string, unknown>, ctx: PolicyContext, opened: { hard: boolean; dotenv: boolean } | undefined): Decision {
+function decideToolPlain(toolName: string, input: Record<string, unknown>, ctx: PolicyContext, opened: OpenedSecrets | undefined): Decision {
   // Your own Claude's .env: judged as any file there, then it asks you (decideTool).
   const dotenv = ctx.dotenv === true && touchesDotenv(toolName, input, ctx, opened);
   if (ctx.askOnly && changesMain(toolName, input, ctx)) return 'deny';
@@ -509,6 +584,8 @@ function decideToolPlain(toolName: string, input: Record<string, unknown>, ctx: 
     if ([target, real, ...namesOf(toolName, input)].some((n) => isSecretPath(n) && !isDotenvPath(n))) return 'deny';
     // A directory Grep, Glob or LS opens credential files it finds, not only the path it was given.
     if (opened?.hard || (opened?.dotenv && !ctx.dotenv)) return 'deny';
+    // A folder too big to walk to the end, searched with a glob that could still pick a key: someone decides.
+    if (opened?.unsure) return 'ask';
     if (ctx.roots.some((r) => within(r, target))) return 'allow';
     // Outside the shared folders the owner decides (or it just runs, with full trust).
     return ctx.scope === 'full' ? 'allow' : 'ask';

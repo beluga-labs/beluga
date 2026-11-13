@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { confineSearch, decideTool, writesCode } from '../src/agent/policy.js';
+import { confineSearch, decideTool, limitSearchScanForTest, scanSearch, writesCode } from '../src/agent/policy.js';
 
 const ctx = { cwd: '/work/proj', roots: ['/work/proj', '/work/docs'], autoEdit: false };
 const rw = { ...ctx, autoEdit: true };
@@ -268,5 +268,56 @@ describe('a narrowed directory search keeps what was asked', () => {
     expect(decideTool('Glob', { pattern: 'src/*', path: dir }, ctx)).toBe('deny');
     // The whole tree, asked for as such, is narrowed as before.
     expect(String(confineSearch('Glob', { pattern: '**', path: dir }, ctx)?.pattern).startsWith('!')).toBe(true);
+  });
+});
+
+describe('a directory search, judged on what it finds', () => {
+  it("won't put a credential file with a space in its name into the exclusion glob: the search is turned down", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'beluga-policy-space-'));
+    writeFileSync(path.join(dir, 'notes.txt'), 'hello');
+    writeFileSync(path.join(dir, 'my secret.pem'), 'x');
+    const here = { cwd: dir, roots: [dir], autoEdit: false };
+    expect(confineSearch('Grep', { pattern: 'KEY', path: dir }, here)).toBeUndefined();
+    expect(confineSearch('Glob', { pattern: '**/*', path: dir }, here)).toBeUndefined();
+    expect(decideTool('Grep', { pattern: 'KEY', path: dir }, here)).toBe('deny');
+    expect(decideTool('Glob', { pattern: '**/*', path: dir }, { ...here, scope: 'full' })).toBe('deny');
+  });
+
+  it('walks a folder once for a few seconds, then again', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'beluga-policy-cache-'));
+    const key = path.join(dir, 'credentials.json');
+    writeFileSync(key, 'x');
+    const t = 1_000_000;
+    expect(scanSearch(dir, t)?.hits.map((h) => h.rel)).toEqual(['credentials.json']);
+    rmSync(key);
+    // The same call judged again (the hook, then canUseTool): what was walked is kept.
+    expect(scanSearch(dir, t + 500)?.hits.map((h) => h.rel)).toEqual(['credentials.json']);
+    // A later call walks it again.
+    expect(scanSearch(dir, t + 60_000)?.hits).toEqual([]);
+  });
+
+  it('asks about a search cut off before the end whose own glob could still pick a key, even with full trust', () => {
+    const undo = limitSearchScanForTest(2);
+    try {
+      const dir = mkdtempSync(path.join(tmpdir(), 'beluga-policy-cutoff-'));
+      for (const name of ['a.ts', 'b.ts', 'c.ts']) writeFileSync(path.join(dir, name), 'x');
+      mkdirSync(path.join(dir, 'src'));
+      writeFileSync(path.join(dir, 'src', 'credentials.json'), 'x');
+      const ctx = { cwd: dir, roots: [dir], autoEdit: false };
+      expect(scanSearch(dir)?.truncated).toBe(true);
+      expect(decideTool('Grep', { pattern: 'KEY', path: dir, glob: 'src/**' }, ctx)).toBe('ask');
+      expect(decideTool('Grep', { pattern: 'KEY', path: dir, glob: 'src/**' }, { ...ctx, scope: 'full' })).toBe('ask');
+      expect(decideTool('Glob', { pattern: 'src/*', path: dir }, ctx)).toBe('ask');
+      expect(decideTool('Grep', { pattern: 'KEY', path: dir, glob: '!*.md' }, ctx)).toBe('ask');
+      // A glob that can't pick a credential file runs as before.
+      expect(decideTool('Grep', { pattern: 'KEY', path: dir, glob: '**/*.ts' }, ctx)).toBe('allow');
+      expect(decideTool('Glob', { pattern: 'src/**/*.{ts,tsx}', path: dir }, ctx)).toBe('allow');
+      // No glob of its own: narrowed to leave every named secret out, then allowed.
+      const next = confineSearch('Grep', { pattern: 'KEY', path: dir }, ctx);
+      expect(String(next?.glob).startsWith('!')).toBe(true);
+      expect(decideTool('Grep', next!, ctx)).toBe('allow');
+    } finally {
+      undo();
+    }
   });
 });
