@@ -3,6 +3,7 @@ import { linkedImages } from '../../../core/attachments.js';
 import { type RunEnd, RunFailedError, classifyRun } from '../../../shared/run-failure.js';
 import { fallbackFor } from '../../../shared/runtime-fallbacks.js';
 import { buildPrompt } from '../../prompt.js';
+import { isYourRun } from '../../policy.js';
 import { runInstructions } from '../../run-instructions.js';
 import { runToolSuites } from '../../run-tools.js';
 import { ToolHost, type StdioServerConfig } from '../../tool-host.js';
@@ -181,7 +182,7 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
       const autoEdit = !askOnly && !input.dialogue?.readOnly && (place?.autoEdit ?? opts.autoEdit);
       const fixup = place?.fixup;
       const syncMain = askOnly ? place?.syncMain : undefined;
-      const policy = { cwd, roots: [cwd, ...extraDirs, ...(fixup ? [fixup] : [])], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, askOnly: Boolean(askOnly), ...(syncMain ? { syncMain: syncProbes(cwd, syncMain) } : {}), ...(fixup ? { fixup } : {}), ...(place?.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
+      const policy = { cwd, roots: [cwd, ...extraDirs, ...(fixup ? [fixup] : [])], autoEdit, scope: input.scope, guest: input.guest, boardAsks: input.boardAsks, dotenv: Boolean(input.canUseSecret) && !input.guest, yourRun: isYourRun(input), askOnly: Boolean(askOnly), ...(syncMain ? { syncMain: syncProbes(cwd, syncMain) } : {}), ...(fixup ? { fixup } : {}), ...(place?.alsoEdit?.length ? { alsoEdit: place.alsoEdit } : {}) };
       const remember = (id: string): void => (place ? place.onSession(id) : void (sessionId = id));
       const shelf = new ViewShelf();
       // The model and effort, settled once Codex can list its models (see settle), and again when another model is picked mid-run.
@@ -504,7 +505,8 @@ export function createCodexBackend(opts: CodexBackendOptions): AgentBackend {
             remember(threadId);
             await planned?.proc.kill();
           }
-          r = await runTurn(original, next, '');
+          // Images you pasted into your answer go with it, as a message's do (codexInput: Codex reads them itself).
+          r = await runTurn(original, next, verdict.approve ? '' : verdict.feedback);
           answer = said(answerOf(r, original));
           if (verdict.approve || next === NOT_YET_NOTE) break;
         }
