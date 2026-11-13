@@ -9,6 +9,8 @@
  * "/api/login", a package ("@scope/pkg/x.js"), a glob, or words like "and/or".
  */
 
+import { SCRATCH_DIR } from '../scratch-dir.js';
+
 export interface PathRef {
   /** As written, without its line ("src/app.ts", "~/notes/", "/tmp/a b.png"). */
   readonly path: string;
@@ -96,6 +98,20 @@ export function relativeCandidates(path: string): readonly string[] {
   const rel = path.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
   if (rel.startsWith('../') || rel === BELUGA_DIR || rel.startsWith(`${BELUGA_DIR}/`)) return [rel];
   return [rel, `${BELUGA_DIR}/${rel}`];
+}
+
+/** Folders Beluga keeps in scratch itself: never a checkout an agent made. */
+const OWN_SCRATCH_FOLDERS = new Set(['sent', 'agents']);
+
+/**
+ * Where else a relative path may be when it isn't in the worktree: in a checkout an agent made in its
+ * scratch folder (`.beluga/scratch/land-492/`, to land or review a PR), named from that checkout's
+ * root (BLG-956). `folders` are the names directly under the scratch folder, in the order to look.
+ */
+export function scratchCandidates(path: string, folders: readonly string[]): readonly string[] {
+  const rel = path.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  if (rel.startsWith('../') || rel === BELUGA_DIR || rel.startsWith(`${BELUGA_DIR}/`)) return [];
+  return folders.filter((f) => /^[^./\\][^/\\]*$/.test(f) && !OWN_SCRATCH_FOLDERS.has(f)).map((f) => `${SCRATCH_DIR}/${f}/${rel}`);
 }
 
 /** A path link back (from pathHref), or undefined for any other link. */
