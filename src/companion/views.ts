@@ -3,6 +3,7 @@ import { STILLS_DIR, STILL_SCHEME } from '../shared/preview/ref.js';
 import { SCRATCH_DIR } from '../shared/scratch-dir.js';
 import { dialogueHeader } from '../core/dialogues/view.js';
 import { agentPicker, pickedAgent } from '../shared/agent-picker.js';
+import { phoneModels } from '../shared/model-search.js';
 import { roomAgentTags } from '../shared/agent-tags.js';
 import { type Approval, type DomainState, type LogItem, type SubAgent, isRunning } from '../core/store.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
@@ -805,19 +806,27 @@ function workPicker(state: DomainState, ref: AgentRef | undefined): AgentPickerV
   return ref ? p : { ...p, groups: p.groups.map((g) => ({ ...g, models: g.models.map((m) => ({ ...m, on: false })) })) };
 }
 
+/** The models a picker group sends the phone (the protocol's most). */
+const PHONE_MODELS = 30;
+
 function pickerView(p: ReturnType<typeof agentPicker>): AgentPickerView {
   return {
     runtime: clip(p.runtime, 32),
     label: clip(p.label, 120),
-    groups: p.groups.slice(0, 8).map((g) => ({
-      runtime: clip(g.runtime, 32),
-      label: clip(g.label, 64),
-      available: g.available,
-      ...(g.why ? { why: clip(g.why, 200) } : {}),
-      isDefault: g.isDefault,
-      current: g.current,
-      models: g.models.slice(0, 30).map((m) => ({ value: clip(m.value, 80), label: clip(m.label, 80), description: clip(m.description, 200), on: m.on })),
-    })),
+    groups: p.groups.slice(0, 8).map((g) => {
+      // A long list (OpenCode's every provider, BLG-945): its first ones, the picked one kept, and how many more.
+      const { models, more } = phoneModels(g.models, PHONE_MODELS);
+      return {
+        runtime: clip(g.runtime, 32),
+        label: clip(g.label, 64),
+        available: g.available,
+        ...(g.why ? { why: clip(g.why, 200) } : {}),
+        isDefault: g.isDefault,
+        current: g.current,
+        models: models.map((m) => ({ value: clip(m.value, 80), label: clip(m.label, 80), description: clip(m.description, 200), on: m.on })),
+        ...(more ? { more } : {}),
+      };
+    }),
   };
 }
 
