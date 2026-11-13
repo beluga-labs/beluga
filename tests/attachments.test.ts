@@ -96,3 +96,12 @@ describe('images for Claude', () => {
     expect(readFileSync(path.join(dir, 'out', name))).toEqual(png);
   });
 });
+
+describe('an image linked into an answer', () => {
+  it("is in a folder the agent may read (not one of Beluga's secret files)", async () => {
+    const { attachmentsDir } = await import('../src/core/attachments.js');
+    const { isSecretPath } = await import('../src/core/shares.js');
+    expect(isSecretPath(path.join(attachmentsDir(), 'shot.png'))).toBe(false);
+    expect(isSecretPath(path.join(attachmentsDir(), '..', 'identity.json'))).toBe(true);
+  });
+});
