@@ -151,12 +151,32 @@ export async function followPullHead(repo: string, branch: string): Promise<void
   if (!specs.includes(pullRefspec(pull.number))) await git(repo, ['config', '--add', `remote.${pull.remote}.fetch`, pullRefspec(pull.number)]);
 }
 
+/** Whether `branch` follows a pull request by GitHub's pull ref (a fork's, checked out here). */
+export const followsPull = async (repo: string, branch: string): Promise<boolean> => (await followedPull(repo, branch)) !== undefined;
+
+/** Forget a fork pull request's kept head and the refspec that kept it current. */
+async function dropPullHead(repo: string, pull: { readonly remote: string; readonly number: number }): Promise<void> {
+  await tryGit(repo, ['update-ref', '-d', pullHeadRef(pull.number)]);
+  await tryGit(repo, ['config', '--unset-all', `remote.${pull.remote}.fetch`, pullRefspecPattern(pull.number)]);
+}
+
+/**
+ * Take `branch` off the fork pull request it follows (BLG-948): it tracks nothing until it's pushed
+ * (a pull request of its own), and that pull request's head is no longer kept. → its number, if it followed one.
+ */
+export async function stopFollowingPull(repo: string, branch: string): Promise<number | undefined> {
+  const pull = await followedPull(repo, branch);
+  if (!pull) return undefined;
+  await tryGit(repo, ['config', '--unset', `branch.${branch}.merge`]);
+  await tryGit(repo, ['config', '--unset', `branch.${branch}.remote`]);
+  await dropPullHead(repo, pull);
+  return pull.number;
+}
+
 export async function deleteBranch(repo: string, branch: string): Promise<void> {
   const pull = await followedPull(repo, branch);
   await git(repo, ['branch', '-D', branch]);
-  if (!pull) return;
-  await tryGit(repo, ['update-ref', '-d', pullHeadRef(pull.number)]);
-  await tryGit(repo, ['config', '--unset-all', `remote.${pull.remote}.fetch`, pullRefspecPattern(pull.number)]);
+  if (pull) await dropPullHead(repo, pull);
 }
 
 /**

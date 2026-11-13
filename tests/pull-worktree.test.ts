@@ -199,6 +199,24 @@ describe('a pull request in a worktree', () => {
     expect(ws).toBeTruthy();
   });
 
+  it('a fork’s that can’t be pushed to becomes a branch of your own, with every commit kept (BLG-948)', async () => {
+    const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', title: 'From a fork', fork: true });
+    writeFileSync(path.join(ws!.path, 'mine.ts'), 'mine\n');
+    git(ws!.path, 'add', '.');
+    git(ws!.path, 'commit', '-q', '-m', 'mine');
+    const head = git(ws!.path, 'rev-parse', 'HEAD').trim();
+    expect(await mgr.leavePull(ws!.id)).toBe('beluga/pr-7-from-a-fork');
+    expect(git(ws!.path, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('beluga/pr-7-from-a-fork');
+    expect(git(ws!.path, 'rev-parse', 'HEAD').trim()).toBe(head);
+    expect(pullOfBranch(ws!.path, 'beluga/pr-7-from-a-fork')).toBeUndefined();
+    expect(git(repo, 'config', '--get-all', 'remote.origin.fetch')).not.toContain('refs/pull/7/head');
+    expect(mgr.find(ws!.id)?.branch).toBe('beluga/pr-7-from-a-fork');
+    // The fork's commit and yours: nothing on origin has them yet.
+    expect(mgr.find(ws!.id)?.status?.unpushed).toBe(2);
+    // Already yours: asked again, it stays as it is.
+    expect(await mgr.leavePull(ws!.id)).toBe('beluga/pr-7-from-a-fork');
+  });
+
   it('a fork’s worktree made before its head was kept fetches it before warning', async () => {
     const ws = await ctl.openPull(pid(), 7, { number: 7, branch: 'their-fork-branch', fork: true });
     git(repo, 'update-ref', '-d', 'refs/beluga/pulls/7');

@@ -1554,6 +1554,26 @@ export class WorkspaceManager {
     return { name: s, ...(branch ? { branch } : {}), ...(kept ? { branchKept: kept } : {}) };
   }
 
+  /**
+   * Make a fork pull request's worktree a branch of your own (BLG-948), for a pull request of its
+   * own when the fork can't be pushed to: it gets a name nothing here or on a remote has (beluga/<its
+   * name>, so the fork's branch name never finds the fork's PR), and stops following the fork's
+   * pull request. Its commits, the fork's and yours, all stay. → the branch's name now.
+   */
+  async leavePull(id: string): Promise<string> {
+    const ws = this.require(id);
+    if (ws.kind !== 'worktree' || !ws.branch) throw new WorkspaceError('Only a worktree’s branch can have a pull request of its own');
+    if (!(await g.followsPull(ws.path, ws.branch))) return ws.branch;
+    const wanted = `${this.branchPrefix()}${slug(ws.name) || 'pull-request'}`;
+    let branch = wanted;
+    for (let i = 2; (await g.isCommit(ws.path, `refs/heads/${branch}`)) || (await this.onRemote(ws.path, branch)); i++) branch = `${wanted}-${i}`;
+    await g.git(ws.path, ['branch', '-m', ws.branch, branch]);
+    await g.stopFollowingPull(ws.path, branch);
+    this.patchRecord(id, { branch });
+    await this.refresh();
+    return branch;
+  }
+
   /** Is this branch on a remote already (a remote branch of the same name)? Its upstream alone says nothing: a new worktree's is origin/main. */
   private async onRemote(repo: string, branch: string): Promise<boolean> {
     return Boolean((await g.tryGit(repo, ['for-each-ref', '--count=1', `refs/remotes/*/${branch}`]))?.trim());
