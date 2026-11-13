@@ -4,13 +4,15 @@ import { query, type Options, type Query } from '@anthropic-ai/claude-agent-sdk'
 import { MAX_ATTACHMENT_BYTES, linkedImages, mediaTypeOf } from '../../../core/attachments.js';
 import { buildPrompt, summarizeTool } from '../../prompt.js';
 import { runInstructions } from '../../run-instructions.js';
-import { SECRET_DECLINED, decideTool, denyReason } from '../../policy.js';
+import { SECRET_DECLINED, confineSearch, decideTool, denyReason } from '../../policy.js';
+import { baseEnv } from '../../../core/peer-run.js';
 import { gateTool } from '../../tool-gate.js';
 import { syncProbes } from '../../sync-main.js';
 import { fromRateLimitEvent, fromUsageResponse, toMs } from './usage.js';
-import { RunFailedError, classifyRun } from '../../../shared/run-failure.js';
+import { type RunEnd, type RunFailure, RunFailedError, classifyRun } from '../../../shared/run-failure.js';
 import { SubAgentTracker, withAgentScratch } from './subagents.js';
 import { type RecorderMessage, StepRecorder } from '../../step-recorder.js';
+import { type TrackedMessage, McpAppTracker } from '../../../mcp-apps/tracker.js';
 import { type ContextMessage, ContextReport, breakdownReader, isCompactCommand } from '../../context-report.js';
 import { compactEnv } from '../../../shared/context-usage.js';
 import { progressCount } from '../../../shared/progress-count.js';
@@ -39,6 +41,76 @@ import { expandCommand, mayBeCommand, skillOptions } from './skill-plugins.js';
 import { BACKGROUND_LIMIT_MS, INTERRUPT_TIMEOUT_MS } from '../types.js';
 
 const USAGE_TIMEOUT_MS = 20_000;
+
+/**
+ * A friend's or a guest's Claude run must not inherit the daemon's environment (API tokens,
+ * cloud credentials). Your own runs do, and so does a dialogue or a compaction: those have no
+ * friend marker. A guest never does, even if another flag is set.
+ */
+export function inheritsDaemonEnv(input: Pick<AgentRunInput, 'guest' | 'ownerMcp' | 'dialogue' | 'vetTool' | 'viaAgent' | 'channel'>): boolean {
+  if (input.guest) return false;
+  if (input.ownerMcp || input.dialogue) return true;
+  if (input.vetTool || input.viaAgent || input.channel) return false;
+  return true;
+}
+
+/** Env names that carry a credential. Matched on the name, never the value. */
+const SECRET_ENV = /PASSWORD|PASSWD|SECRET|PRIVATE_KEY|SERVICE_ROLE_KEY|API_KEY|TOKEN|CREDENTIAL|_KEY/i;
+
+/** What a friend's shell is given, on top of baseEnv (see core/peer-run.ts). */
+const SCRUBBED_SHELL = { CI: '1', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1', TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat' };
+
+/**
+ * Claude Code's own settings the owner may keep in the environment: where its config lives, which
+ * endpoint or cloud it talks to, how it gets through a proxy. None is a credential, so a friend's run
+ * keeps them and can still start. A proxy address with a password in it (user:pass@host) stays out,
+ * and so do the keys and tokens (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN): a friend's run signs in
+ * the way Claude Code does without them.
+ */
+const CLAUDE_CONFIG_ENV = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION', 'AWS_REGION', 'CLAUDE_CODE_GIT_BASH_PATH', 'NODE_EXTRA_CA_CERTS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
+const claudeConfigEnv = (env: NodeJS.ProcessEnv): Record<string, string> =>
+  Object.fromEntries(CLAUDE_CONFIG_ENV.flatMap((name) => {
+    const value = env[name];
+    return value && !/:\/\/[^/\s]*@/.test(value) ? [[name, value]] : [];
+  }));
+
+const safeRunEnv = (extra: Readonly<Record<string, string>> | undefined): Record<string, string> =>
+  Object.fromEntries(Object.entries(extra ?? {}).filter(([name]) => name && !SECRET_ENV.test(name)));
+
+/**
+ * The environment Claude Code is launched with. Undefined: don't set one, so your own run (or a
+ * compaction) inherits the daemon's. A friend or a guest always gets an explicit scrubbed one,
+ * plus the non-secret variables the run already adds (a worktree tag, the compact threshold).
+ */
+export function claudeLaunchEnv(input: Pick<AgentRunInput, 'guest' | 'ownerMcp' | 'dialogue' | 'vetTool' | 'viaAgent' | 'channel' | 'env' | 'autoCompactAt'>, env: NodeJS.ProcessEnv = process.env): Record<string, string> | undefined {
+  const compact = compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0);
+  if (inheritsDaemonEnv(input)) {
+    if ((input.env && Object.keys(input.env).length) || input.autoCompactAt) return { ...env, ...input.env, ...compact } as Record<string, string>;
+    return undefined;
+  }
+  return { ...baseEnv(env), ...claudeConfigEnv(env), ...SCRUBBED_SHELL, ...compact, ...safeRunEnv(input.env) };
+}
+
+/**
+ * How Claude Code signs in from the environment alone: a friend's or guest's scrubbed run gets none
+ * of these, so it signs in only the way Claude Code does without them (its own login on this Mac).
+ */
+const ENV_SIGN_IN = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'GOOGLE_APPLICATION_CREDENTIALS'];
+/** Claude's own words when its sign-in didn't work (beyond a plain "Not logged in"). */
+const SIGN_IN_FAILED = /authenticat|credential|api key|x-api-key|unauthori[sz]ed|\b401\b|\/login/i;
+
+/**
+ * A failure that is the scrubbed environment's doing says so: the owner signs Claude Code in with a
+ * variable (ANTHROPIC_API_KEY) that a friend's run isn't given, so "isn't signed in on this Mac"
+ * would be wrong (their own runs work).
+ */
+export function withSignInHint(failure: RunFailure, launchEnv: Readonly<Record<string, string>> | undefined, inherits: boolean, env: NodeJS.ProcessEnv = process.env): RunFailure {
+  if (inherits || !launchEnv) return failure;
+  if (failure.kind !== 'signed_out' && !(failure.kind === 'api' && SIGN_IN_FAILED.test(failure.detail))) return failure;
+  const dropped = ENV_SIGN_IN.find((name) => env[name] && !launchEnv[name]);
+  return dropped ? { ...failure, envSignIn: dropped } : failure;
+}
+
 /**
  * How long a run stays open after answering for a command or watch the main conversation left
  * running (no agents): long enough for the full tests or a build to end and wake Claude, short
@@ -63,6 +135,11 @@ const STDERR_KEEP = 40;
  */
 export function ownerSettings(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): { settingSources: Array<'user'>; skills?: 'all' } {
   return input.ownerMcp && !input.guest ? { settingSources: ['user'], skills: 'all' } : { settingSources: [] };
+}
+
+/** MCP Apps follow your MCP servers: a run that loads them (yours, or Full trust; never a guest's) keeps apps on its steps. */
+export function tracksMcpApps(input: Pick<AgentRunInput, 'ownerMcp' | 'guest'>): boolean {
+  return Boolean(input.ownerMcp && !input.guest);
 }
 
 export interface ClaudeBackendOptions {
@@ -239,6 +316,10 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const launch = claudeLaunch(input.launchArgs?.claude ?? [], { plan: Boolean(input.plan), autoEdit, chrome: Boolean(input.chrome) });
       // Claude in Chrome: as usual on a run you typed; any other asks you once before it first uses it (agent/chrome.ts).
       const chrome = chromeGate(input.chrome);
+      // Set, this replaces Claude Code's whole environment. A friend or a guest gets a scrubbed one
+      // (never the daemon's tokens); your own run inherits unless it already passes variables.
+      const launchEnv = claudeLaunchEnv(input);
+      const failure = (end: RunEnd): RunFailedError => new RunFailedError(withSignInHint(classifyRun(end), launchEnv, inheritsDaemonEnv(input)));
       const options: Options = {
         cwd,
         additionalDirectories: [...extraDirs, ...(fixup ? [fixup] : [])],
@@ -268,14 +349,17 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
                     if (said.kind === 'deny') return verdict('deny', said.reason);
                     if (said.kind === 'allow') return verdict('allow', 'Approved by the machine owner.');
                   }
-                  const decision = decideTool(hookInput.tool_name, toolInput, policy);
-                  if (decision === 'deny') return verdict('deny', denyReason(hookInput.tool_name, toolInput, policy));
+                  // A directory search is narrowed so it never opens a credential file, then judged on that.
+                  const confined = confineSearch(hookInput.tool_name, toolInput, policy);
+                  const judged = confined ?? toolInput;
+                  const decision = decideTool(hookInput.tool_name, judged, policy);
+                  if (decision === 'deny') return verdict('deny', denyReason(hookInput.tool_name, judged, policy));
                   // A sub-agent is told where its own scratch folder is, so what it makes shows on its page.
-                  const scratched = scratchRoot ? withAgentScratch(hookInput.tool_name, toolInput, hookInput.tool_use_id, scratchRoot) : undefined;
+                  const scratched = scratchRoot ? withAgentScratch(hookInput.tool_name, judged, hookInput.tool_use_id, scratchRoot) : undefined;
                   // In a worktree, what's kept on purpose is made to outlive the turn (see workspaces/test-procs.ts).
                   const keptLog = path.join(cwd, SCRATCH_DIR, `kept-${hookInput.tool_use_id.slice(-8)}.log`);
-                  const kept = input.env?.KLAUD_WORKTREE ? keptBashInput(hookInput.tool_name, scratched ?? toolInput, keptLog) : undefined;
-                  const patched = kept ?? scratched;
+                  const kept = input.env?.KLAUD_WORKTREE ? keptBashInput(hookInput.tool_name, scratched ?? judged, keptLog) : undefined;
+                  const patched = kept ?? scratched ?? confined;
                   const allow = (reason: string) => (patched ? { hookSpecificOutput: { ...verdict('allow', reason).hookSpecificOutput, updatedInput: patched } } : verdict('allow', reason));
                   if (decision === 'allow' && !input.asksFirst?.(hookInput.tool_name)) return patched ? allow('Allowed by Beluga.') : {};
                   if (decision === 'secret') return (await input.canUseSecret?.(hookInput.tool_name, toolInput)) ? allow('Approved by the machine owner.') : verdict('deny', SECRET_DECLINED);
@@ -301,18 +385,19 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         ...skills,
         ...((input.model ?? opts.model) ? { model: input.model ?? opts.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
-        // Set, this replaces Claude Code's whole environment, so it starts from ours.
         // Claude Code's own auto-compact follows Beluga's threshold (see shared/context-usage.ts).
-        ...((input.env && Object.keys(input.env).length) || input.autoCompactAt ? { env: { ...process.env, ...input.env, ...compactEnv(Boolean(input.autoCompactAt), input.autoCompactAt ?? 0) } } : {}),
+        ...(launchEnv ? { env: launchEnv } : {}),
         ...claudeExecutable(opts.claudePath),
         // Its last words, so a crash says why (see shared/run-failure.ts): read by our own spawn when there is one.
         ...(tracked ? { spawnClaudeCodeProcess: tracked.spawn } : { stderr: keepStderr }),
         canUseTool: async (toolName, toolInput) => {
           if (toolName === 'AskUserQuestion') return answerQuestion(toolInput);
           if (toolName === 'ExitPlanMode') return reviewPlan(toolInput);
-          // The same gate the stdio tool server asks (agent/tool-gate.ts).
-          const denied = await gateTool(toolName, toolInput, input, policy);
-          return denied ? { behavior: 'deny', message: denied } : { behavior: 'allow', updatedInput: toolInput };
+          // The same gate the stdio tool server asks (agent/tool-gate.ts). A directory search is narrowed first.
+          const confined = confineSearch(toolName, toolInput, policy);
+          const judged = confined ?? toolInput;
+          const denied = await gateTool(toolName, judged, input, policy);
+          return denied ? { behavior: 'deny', message: denied } : { behavior: 'allow', updatedInput: judged };
         },
       };
 
@@ -353,7 +438,9 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
       const turns = new TurnRouter({ onEvent: input.onEvent, ...(input.onStep ? { onStep: input.onStep } : {}), ...(input.onAnswered ? { onDone: input.onAnswered } : {}) });
       // Steps in detail go to the request whose turn it is (a follow-up's turn: the follow-up).
       let stepTo = input.onStep;
-      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(record) });
+      // MCP Apps: a UI tool's step carries its app (when this Claude Code can host them); the tools' _meta comes from this session.
+      const apps = tracksMcpApps(input) ? new McpAppTracker({ servers: () => q.mcpServerStatus() }, (record) => stepTo?.(record)) : undefined;
+      const recorder = new StepRecorder({ cwd, emit: (record) => stepTo?.(apps ? apps.decorate(record) : record) });
       recorder.begin();
       let limit: NodeJS.Timeout | undefined;
       let quiet: NodeJS.Timeout | undefined;
@@ -524,6 +611,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           // Claude Code took it off its queue into the running turn (between turns, read ignores it: it's a turn of its own).
           const started = startedPrompt(msg);
           if (started) turns.read([started]);
+          apps?.observe(msg as TrackedMessage);
           recorder.observe(msg as RecorderMessage);
           if (msg.type === 'user' && msg.parent_tool_use_id === null) {
             for (const e of subagents.user(msg.message.content as never)) input.onEvent('sub', JSON.stringify(e));
@@ -570,7 +658,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
             // A turn that ended on an API error (a usage limit, an outage) is a failure, whatever its subtype.
             const ok = msg.subtype === 'success' && !msg.is_error;
             if (!ok) failedResult = msg.subtype === 'success' ? msg.result : [`Agent stopped: ${msg.subtype.replace(/_/g, ' ')}`, ...(msg.errors ?? [])].join('\n');
-            const stopped = ok ? '' : new RunFailedError(classifyRun({ result: failedResult, ...ends() })).message;
+            const stopped = ok ? '' : failure({ result: failedResult, ...ends() }).message;
             // The prompts this turn took in: a message steered in mid-turn is answered by it.
             const took = msg.user_message_uuids ?? (msg.user_message_uuid ? [msg.user_message_uuid] : undefined);
             tools.clear();
@@ -594,7 +682,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
               }
             }
             // A later turn failing (e.g. reporting a finished agent) doesn't throw away answers already given.
-            else if (!turns.end(ok, ok ? shelf.finish((msg as { result: string }).result) : stopped, took) && !turns.answers.length) throw new RunFailedError(classifyRun({ result: failedResult, ...ends() }));
+            else if (!turns.end(ok, ok ? shelf.finish((msg as { result: string }).result) : stopped, took) && !turns.answers.length) throw failure({ result: failedResult, ...ends() });
             settle();
           }
         }
@@ -605,7 +693,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
         // a steer's interrupt). Every turn has been answered by then, so that's no crash.
         if (prompts.closed) failed = false;
         // Claude Code itself failed ("process exited with code 1"): say how, in words.
-        else throw new RunFailedError(classifyRun({ error: err instanceof Error ? err.message : String(err), ...(failedResult ? { result: failedResult } : {}), ...ends() }));
+        else throw failure({ error: err instanceof Error ? err.message : String(err), ...(failedResult ? { result: failedResult } : {}), ...ends() });
       } finally {
         live.delete(q);
         recorder.finish(failed || abortController.signal.aborted);
@@ -624,6 +712,10 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
     mcpServers: (projects) => mcp.list([opts.cwd, ...projects]),
     mcpSignIn: (projects, name) => mcp.signIn([opts.cwd, ...projects], name),
     mcpSignedIn: (name) => mcp.signedIn(name),
+    mcpReadUiResource: (projects, server, uri) => mcp.readUiResource([opts.cwd, ...projects], server, uri),
+    mcpAppTools: (projects, server) => mcp.appTools([opts.cwd, ...projects], server),
+    mcpAppCall: (projects, server, tool, args) => mcp.appCall([opts.cwd, ...projects], server, tool, args),
+    mcpAppRead: (projects, server, uri) => mcp.appRead([opts.cwd, ...projects], server, uri),
     mcpSigningIn: (name) => mcp.signingIn(name),
 
     /** Ask Claude Code which models it offers (no prompt is sent). */

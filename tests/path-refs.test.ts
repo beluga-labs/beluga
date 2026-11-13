@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { linkPaths, parsePathHref, pathHref, readPath } from '../src/shared/render/path-refs.js';
+import { linkPaths, parsePathHref, pathHref, readPath, relativeCandidates } from '../src/shared/render/path-refs.js';
 
 const link = (text: string, relative = true): string => linkPaths(text, { relative });
 
@@ -49,6 +49,19 @@ describe('path links', () => {
     }
     expect(parsePathHref('https://x.dev')).toBeUndefined();
     expect(parsePathHref('beluga-path:%E0%A4%A')).toBeUndefined();
+  });
+});
+
+describe('relativeCandidates', () => {
+  it('looks in the worktree first, then in its .beluga folder (a path written from there)', () => {
+    expect(relativeCandidates('scratch/pr-498/')).toEqual(['scratch/pr-498', '.beluga/scratch/pr-498']);
+    expect(relativeCandidates('./reports/a.md')).toEqual(['reports/a.md', '.beluga/reports/a.md']);
+  });
+
+  it('looks once for a path already under .beluga, or one climbing out of the worktree', () => {
+    expect(relativeCandidates('.beluga/scratch/x.png')).toEqual(['.beluga/scratch/x.png']);
+    expect(relativeCandidates('../other/a.ts')).toEqual(['../other/a.ts']);
+    expect(relativeCandidates('src/app.ts')).toEqual(['src/app.ts', '.beluga/src/app.ts']);
   });
 });
 

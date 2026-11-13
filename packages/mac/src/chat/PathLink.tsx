@@ -3,7 +3,7 @@ import type { AppState } from '@beluga/core/store.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { shareNameOf } from '@beluga/shared/share-names.js';
 import { baseName, sepOf } from '@beluga/shared/os-path.js';
-import type { PathRef } from '@beluga/shared/render/path-refs.js';
+import { relativeCandidates, type PathRef } from '@beluga/shared/render/path-refs.js';
 import { Icon } from '../components/Icon.js';
 import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
 import { useActions } from '../lib/actions.js';
@@ -18,11 +18,15 @@ import { useRevealFileLabel, useRevealLabel } from '../lib/remote-open.js';
 /** The worktree a relative path is in: the one on screen. */
 const worktreeOf = (state: AppState): string | undefined => (state.view.kind === 'workspace' ? state.view.id : undefined);
 
-/** Where a path is on this Mac: a relative one in the worktree on screen, "~" left for the daemon to expand. */
-function fullPath(state: AppState, ref: PathRef): string | undefined {
-  if (!ref.relative) return ref.path;
+/**
+ * Where a path may be on this Mac, in order: a relative one in the worktree on screen (from its root,
+ * then from its .beluga folder), "~" left for the daemon to expand.
+ */
+function fullPaths(state: AppState, ref: PathRef): readonly string[] {
+  if (!ref.relative) return [ref.path];
   const ws = worktreeOf(state);
-  return ws ? localPathOf(state, { owner: state.selfId, share: shareNameOf(ws), path: ref.path.replace(/^\.\//, '').replace(/\/+$/, '') }) : undefined;
+  if (!ws) return [];
+  return relativeCandidates(ref.path).flatMap((path) => localPathOf(state, { owner: state.selfId, share: shareNameOf(ws), path }) ?? []);
 }
 
 /** A file's place in the worktree on screen, when it's in it. */
@@ -34,9 +38,10 @@ function inWorktree(state: AppState, file: string): { ws: string; path: string }
 
 /** What the path is on this Mac now (a file, a folder, or nothing), with "~" expanded. */
 async function lookUp(client: SocketClient, ref: PathRef): Promise<{ path: string; kind: 'file' | 'folder' } | undefined> {
-  const at = fullPath(client.store.getState(), ref);
-  if (!at) return undefined;
-  const [info] = await client.api.local.statFiles([at]);
+  const candidates = fullPaths(client.store.getState(), ref);
+  if (!candidates.length) return undefined;
+  const infos = await client.api.local.statFiles([...candidates]);
+  const info = infos.find((i) => i.kind !== 'missing');
   return info && info.kind !== 'missing' ? { path: info.path, kind: info.kind } : undefined;
 }
 
