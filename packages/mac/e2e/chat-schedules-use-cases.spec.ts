@@ -35,8 +35,7 @@ async function newChat(demo: Demo, name: string): Promise<string> {
 async function openChat(page: Page, name: string): Promise<void> {
   await page.goto('/');
   // The demo's project starts folded.
-  const show = sidebar(page).getByRole('button', { name: "Show what's in bob-api" }).first();
-  if (await show.isVisible()) await show.click();
+  await sidebar(page).getByRole('button', { name: "Show what's in bob-api" }).first().click();
   await sidebar(page).getByRole('button', { name: new RegExp(`^${name}`) }).first().click();
   await page.getByRole('tab', { name: 'Info', exact: true }).click();
 }
@@ -58,7 +57,7 @@ const wakes = (x: { readonly steps: readonly unknown[] }, ref: string): boolean 
 async function runStateOf(demo: Demo, ref: string): Promise<string | undefined> {
   const client = await connect(demo);
   const st = client.store.getState();
-  const id = st.sentinel.sentinels.find((x) => wakes(x, ref))?.id;
+  const id = st.sentinel.items.find((x) => wakes(x, ref))?.id;
   const state = st.sentinel.runs.filter((r) => r.sentinelId === id).at(-1)?.state;
   client.close();
   return state;
@@ -113,7 +112,7 @@ test('use case 2: "Send XYZ in 5 hours" makes a once schedule five hours from no
 
   // The daemon has it as a one-time trigger at that moment.
   const client = await connect(demo);
-  const made = client.store.getState().sentinel.sentinels.find((x) => wakes(x, ref));
+  const made = client.store.getState().sentinel.items.find((x) => wakes(x, ref));
   client.close();
   expect(made?.trigger).toMatchObject({ kind: 'once' });
   expect(Date.parse((made!.trigger as { at: string }).at)).toBe(new Date(2027, 0, 14, 13, 0).getTime());
