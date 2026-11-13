@@ -37,5 +37,10 @@ interface Said {
 
 /** The id of your newest message among a conversation's items. */
 export function lastMineIn(items: readonly Said[], selfId: string): string | undefined {
-  return items.findLast((l) => l.type === 'chat' && l.from === selfId)?.id;
+  // Not findLast: the Mac app's lib is ES2022.
+  for (let i = items.length - 1; i >= 0; i--) {
+    const l = items[i]!;
+    if (l.type === 'chat' && l.from === selfId) return l.id;
+  }
+  return undefined;
 }
