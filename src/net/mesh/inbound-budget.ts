@@ -76,6 +76,15 @@ export class InboundBudget {
     this.schedule(0);
   }
 
+  /**
+   * Handle a frame now, ahead of whatever of theirs waits: for small frames that can't wait (a call
+   * ringing, its setup), which have their own flood guard. What it costs still comes off their share.
+   */
+  urgent(peerId: string, handle: () => void): void {
+    if (this.stopped) return;
+    this.run(peerId, handle);
+  }
+
   /** How many of someone's frames wait. */
   waitingFor(peerId: string): number {
     return this.waiting.get(peerId)?.length ?? 0;

@@ -80,6 +80,10 @@ So each person's frames take at most 200 ms of every second (400 ms for everyone
 in a queue of their own, in order, worked through in 8 ms slices between everything else. A queue
 past 5,000 frames takes no more until it eases; what matters is resent by its sender, since it
 wasn't acknowledged. The black box notes whose frames were waiting, once a minute per person.
+A call's frames never wait in that queue (BLG-950): a ring is sent once and repeated only every
+10 s, so behind a teammate's board backlog it rang for nobody, both callers hearing only their own
+ringing. They're handled at once, ahead of what waits, and still cost that person's share; the
+call service keeps its own limit of 60 a second.
 The daemon's own big files never hold the thread: the board and the team's copy of it write only
 the tasks a change touched to a journal (`core/journal-file.ts`), and the outboxes and the plans are
 written in the background (`JsonFile` in `net/mesh/files.ts`).

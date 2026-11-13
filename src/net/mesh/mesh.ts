@@ -209,7 +209,8 @@ export class Mesh extends EventEmitter<MeshEvents> {
         this.emit('change');
       },
       // In turn, within each person's share of the thread: a busy friend's Beluga can't hold up yours.
-      onMessage: (link, msg) => this.inbound.take(link.peerId, () => this.onMessage(link, msg)),
+      // A call's frames go at once: a ring stuck behind a teammate's board backlog never rang (BLG-950).
+      onMessage: (link, msg) => (msg.t === 'call' ? this.inbound.urgent(link.peerId, () => this.onMessage(link, msg)) : this.inbound.take(link.peerId, () => this.onMessage(link, msg))),
       wantsFiles: (peerId) => this.filesFrom(peerId),
     });
     this.pairing = new PairingHost({
