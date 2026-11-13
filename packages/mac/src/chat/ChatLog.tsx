@@ -125,9 +125,19 @@ function useEarlier(channel: string, parent: React.RefObject<HTMLDivElement | nu
   return ask;
 }
 
-export function ChatLog({ channel, empty }: { channel: string; empty?: React.ReactNode }) {
+interface ChatLogProps {
+  readonly channel: string;
+  readonly empty?: React.ReactNode;
+  /** What you said here that Beluga's daemon hasn't drawn yet (a worktree being made): shown at once, after its items. */
+  readonly ahead?: readonly LogItem[];
+  /** "Claude is starting…" under the last row whatever was sent from here (its agent starts once the worktree is made). */
+  readonly starting?: boolean;
+}
+
+export function ChatLog({ channel, empty, ahead, starting: startingHere = false }: ChatLogProps) {
   // Only this conversation's items and tasks: another one streaming doesn't draw this one again (KLD-48).
-  const mine = useApp((st) => st.log.filter((l) => l.channel === channel), sameItems);
+  const logged = useApp((st) => st.log.filter((l) => l.channel === channel), sameItems);
+  const mine = useMemo(() => (ahead?.length ? [...logged, ...ahead] : logged), [logged, ahead]);
   const selfId = useApp((st) => st.selfId);
   // The agent this conversation runs on: a worktree's own pick, else yours.
   const myAgent = useMyAgent();
@@ -184,7 +194,8 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const cards = useMemo(() => items.filter((l) => l.type === 'agent').length, [items]);
   // ...and only once the message you sent is in the chat: it shows first, the line under it (BLG-949).
   const lastMine = useMemo(() => lastMineIn(mine, selfId), [mine, selfId]);
-  const starting = useClaudeStarting(channel, cards, lastMine);
+  const sentStarting = useClaudeStarting(channel, cards, lastMine);
+  const starting = sentStarting || (startingHere && cards === 0);
 
   // New messages (and Claude's streaming text) keep you at the bottom if that's where you were.
   useLayoutEffect(() => {

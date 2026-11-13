@@ -1,7 +1,7 @@
 import { expect, test, type Page } from './fixtures.js';
 
 /**
- * A new worktree answers the click at once (BLG-942): its row and its "Making…" page show before
+ * A new worktree answers the click at once (BLG-942): its row and its page (your message in its chat) show before
  * Beluga's daemon has even heard of it, however busy it is. Here the daemon's part is held back,
  * as a busy one would hold it, and the window still answers; let go, the worktree takes over.
  */
@@ -55,8 +55,11 @@ test('a new worktree from the home shows at once with what you asked, before the
   await box.press('Enter');
 
   await expect.poll(daemon.held).toBe(1);
-  await expect(page.getByText('Making add-request-logging…')).toBeVisible();
-  await expect(page.getByText(/Your agent gets “Add request logging” as soon as its folder is ready/)).toBeVisible();
+  // Its page is a chat already: your message, then Claude starting under it (no "Making…" page).
+  const main = page.locator('main');
+  await expect(main.locator('[data-mine="true"]').getByText('Add request logging')).toBeVisible();
+  await expect(main.locator('[data-claude-starting]')).toBeVisible();
+  await expect(main.getByText(/Making add-request-logging|as soon as its folder is ready/)).toHaveCount(0);
   await expect(sidebar(page).getByRole('button', { name: /add-request-logging/ }).first()).toBeVisible();
 
   daemon.release();
