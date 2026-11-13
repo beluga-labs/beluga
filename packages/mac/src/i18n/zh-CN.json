@@ -1411,6 +1411,7 @@
  "Can’t draw": "无法绘制",
  "Can’t draw this diagram:": "无法绘制这个图表：",
  "Can’t draw this graph:": "无法绘制这个图：",
+ "Can’t find {0} in this worktree": "在这个工作树中找不到 {0}",
  "Can’t find {0} on {1}": "在 {1} 上找不到 {0}",
  "Can’t open this file": "无法打开这个文件",
  "Can’t open this file:": "无法打开这个文件：",
