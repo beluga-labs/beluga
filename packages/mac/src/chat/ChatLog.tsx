@@ -17,6 +17,7 @@ import { MergedDivider, ShippedDivider } from './ShippedDivider.js';
 import { isMergedItem, isShippedItem, withoutDoubleMerge } from './merged-model.js';
 import { DialogueCard, isDialogueItem } from './DialogueCard.js';
 import { useClaudeStarting } from './flight.js';
+import { lastMineIn } from './starting-model.js';
 import { withLiveTails } from './live-tail.js';
 import { JUMP_LOST_TEXT, JUMP_MARK_MS, JUMP_TTL_MS, chatJumpState } from '@beluga/ui/chat-jump.js';
 import { asSent, steeredMessages } from '@beluga/shared/claude-notices.js';
@@ -181,7 +182,9 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
 
   // Until Claude's card for the message you just sent appears.
   const cards = useMemo(() => items.filter((l) => l.type === 'agent').length, [items]);
-  const starting = useClaudeStarting(channel, cards);
+  // ...and only once the message you sent is in the chat: it shows first, the line under it (BLG-949).
+  const lastMine = useMemo(() => lastMineIn(mine, selfId), [mine, selfId]);
+  const starting = useClaudeStarting(channel, cards, lastMine);
 
   // New messages (and Claude's streaming text) keep you at the bottom if that's where you were.
   useLayoutEffect(() => {

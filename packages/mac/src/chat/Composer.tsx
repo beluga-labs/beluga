@@ -36,6 +36,7 @@ import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { QueueTray } from './QueueTray.js';
 import { BtwCard, askBtw } from './BtwCard.js';
 import { expectClaude, launchFlight } from './flight.js';
+import { lastMineIn } from './starting-model.js';
 import { type WorktreeChoice, WorktreeDraft } from './WorktreeDraft.js';
 import { sendSteerNow, stopClaude } from '../lib/commands.js';
 import { useAttachments } from './use-attachments.js';
@@ -549,7 +550,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
       const live = state.log.some((l) => l.type === 'agent' && l.channel === channel && isRunning(l.status));
       launchFlight({ channel, target: queueing && compose.typing && !urgent ? 'queue' : 'chat', text: typed, from: ref.current, live });
       // Steering joins the turn Claude is on (no new card to wait for).
-      if (compose.typing && !compose.busy) expectClaude(channel, state.log.filter((l) => l.type === 'agent' && l.channel === channel).length);
+      if (compose.typing && !compose.busy) {
+        const here = state.log.filter((l) => l.channel === channel);
+        expectClaude(channel, here.filter((l) => l.type === 'agent').length, lastMineIn(here, state.selfId));
+      }
     }
     ui.patch({ buffer: '', cursor: 0, history: [...ui.get().history, typed].slice(-200), historyIndex: -1 });
     // Image chips become links to the images (Beluga keeps them) before the message goes.
