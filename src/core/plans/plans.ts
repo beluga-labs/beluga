@@ -287,12 +287,15 @@ export class Plans {
     return this.change(plan, { runs: withRun(plan, milestone, { checkAsked: this.now() }) }, [event({ kind: 'beluga' }, 'gate', `${milestoneName(plan, milestone)}: every task is finished, the agent is checking its pass criteria`, this.now())]);
   }
 
-  /** Work came back to a milestone (a task reopened, fix tasks added): its next check is a new one. */
+  /**
+   * Work came back to a milestone (a task reopened, fix tasks added, Check Again): its next check is
+   * a new one. A merge that failed before goes too: the next pass (Autopilot's too) tries it afresh.
+   */
   newRound(id: string, milestone: string): Plan {
     const plan = this.need(id);
     const run = plan.runs[milestone] ?? {};
-    if (run.checkAsked === undefined) return plan;
-    const { checkAsked: _c, check: _k, ...rest } = run;
+    if (run.checkAsked === undefined && !run.mergeFailed) return plan;
+    const { checkAsked: _c, check: _k, mergeFailed: _f, ...rest } = run;
     return this.change(plan, { runs: { ...plan.runs, [milestone]: rest } }, [], false);
   }
 
