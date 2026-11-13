@@ -192,6 +192,44 @@ describe('a team board over the network', () => {
     expect(issue(kay, mine.id)?.priority).toBe('high');
   }, 90_000);
 
+  it('a teammate on an older Beluga sending one line’s add and drop over and over: the board here changes once, then stays still (BLG-951)', async () => {
+    net = await crowd();
+    const syncs = new Map<string, TeamBoardSync>();
+    const keepSync: PartsFor = (m) => {
+      const parts = withSync(m);
+      syncs.set(m.name, parts[0] as TeamBoardSync);
+      return parts;
+    };
+    const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], keepSync);
+    const kay = await teamMac(net, 'kay', [{ id: 'pk', name: 'api', repo: 'acme/api' }], keepSync);
+    macs.push(ata, kay);
+    const t = ata.board.create({ projectId: 'pa', title: 'Confirm the old table is deleted' }, personOf(ata));
+    await befriend(ata.person, kay.person);
+    await teamUp(ata, 'pa', kay, 'pk');
+    ata.board.comment(t.id, 'moved it back to Ready', personOf(ata));
+    await settle(() => issue(kay, t.id)?.activity.some((a) => a.body === 'moved it back to Ready'));
+    const line = issue(kay, t.id)!.activity.find((a) => a.body === 'moved it back to Ready')!;
+    const link = kay.team.linksOf('pk').find((l) => l.peerId === ata.id)!;
+    const sync = syncs.get('kay')!;
+
+    // What 3.3.0 Macs passed round a team of four, about 17 times a second, all afternoon.
+    const seen: string[] = [];
+    const off = kay.store.onAction((a) => {
+      if ((a.type === 'board_issue' && a.issue.id === t.id) || a.type === 'team_state') seen.push(a.type);
+    });
+    type Ops = Parameters<TeamBoardSync['receive']>[1];
+    const add = { k: 'ops', link: link.id, tasks: [{ id: t.id, fields: {}, acts: [line] }] } as Ops;
+    const drop = { k: 'ops', link: link.id, tasks: [{ id: t.id, fields: {}, acts: [], drop: [line.id] }] } as Ops;
+    sync.receive(ata.id, drop);
+    for (let n = 0; n < 200; n++) sync.receive(ata.id, n % 2 ? drop : add);
+    off();
+
+    // Taken off the board once; every later add and drop is already known here, and changes nothing.
+    expect(issue(kay, t.id)!.activity.some((a) => a.id === line.id)).toBe(false);
+    expect(seen.filter((s) => s === 'board_issue').length).toBeLessThanOrEqual(1);
+    expect(seen.filter((s) => s === 'team_state').length).toBeLessThanOrEqual(1);
+  }, 90_000);
+
   it('three teammates agree even where two of them aren’t friends', async () => {
     net = await crowd();
     const ata = await teamMac(net, 'ata', [{ id: 'pa', name: 'api', repo: 'acme/api' }], withSync);
