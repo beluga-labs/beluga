@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { belugaHome } from '../../../core/home.js';
 
@@ -23,13 +23,17 @@ const current = (file: string): boolean => {
  * CLAUDE_ENV_FILE for a Claude run: a script Claude Code runs ahead of every Bash command. Left alone
  * when you set one yourself; nothing when the file can't be written.
  */
-export function zshCompatEnv(env: Readonly<Record<string, string | undefined>>, home: string = belugaHome()): Record<string, string> {
-  if (env.CLAUDE_ENV_FILE) return {};
+export function zshCompatEnv(env: Readonly<Record<string, string | undefined>>, home: string = belugaHome(), platform: NodeJS.Platform = process.platform): Record<string, string> {
+  // Windows runs Claude Code's commands in Git Bash, never zsh.
+  if (env.CLAUDE_ENV_FILE || platform === 'win32') return {};
   const file = path.join(home, ZSH_COMPAT_FILE);
   if (current(file)) return { CLAUDE_ENV_FILE: file };
   try {
     mkdirSync(home, { recursive: true });
-    writeFileSync(file, ZSH_COMPAT);
+    // Whole or not at all: a run starting meanwhile never sources half a file.
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, ZSH_COMPAT);
+    renameSync(tmp, file);
     return { CLAUDE_ENV_FILE: file };
   } catch {
     return {};

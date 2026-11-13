@@ -14,7 +14,7 @@ const ZSH = ['/bin/zsh', '/usr/bin/zsh'].find((file) => existsSync(file));
 describe('zsh compat for Claude runs', () => {
   it('points CLAUDE_ENV_FILE at a file it writes in Beluga’s home', () => {
     const dir = home();
-    const env = zshCompatEnv({}, dir);
+    const env = zshCompatEnv({}, dir, 'darwin');
     expect(env.CLAUDE_ENV_FILE).toBe(path.join(dir, ZSH_COMPAT_FILE));
     expect(readFileSync(env.CLAUDE_ENV_FILE!, 'utf8')).toBe(ZSH_COMPAT);
   });
@@ -22,7 +22,7 @@ describe('zsh compat for Claude runs', () => {
   it('rewrites a file that drifted', () => {
     const dir = home();
     writeFileSync(path.join(dir, ZSH_COMPAT_FILE), 'old');
-    zshCompatEnv({}, dir);
+    zshCompatEnv({}, dir, 'darwin');
     expect(readFileSync(path.join(dir, ZSH_COMPAT_FILE), 'utf8')).toBe(ZSH_COMPAT);
   });
 
@@ -57,5 +57,11 @@ describe('the shell piece of the prompt', () => {
     ['C:\\Program Files\\Git\\bin\\zsh.exe', 'win32'],
   ] as const)('says nothing for %s on %s', (shell, platform) => {
     expect(buildShellAppend(shell, platform)).toBe('');
+  });
+});
+
+describe('zsh-compat on Windows', () => {
+  it('sets nothing: Claude Code runs commands in Git Bash there', () => {
+    expect(zshCompatEnv({}, mkdtempSync(path.join(os.tmpdir(), 'beluga-zsh-win-')), 'win32')).toEqual({});
   });
 });
