@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { AgentRef } from '../../protocol.js';
 import { agentName } from '../../shared/agent-label.js';
-import { readJson, writeJson } from '../../net/mesh/files.js';
+import { JsonFile, readJson, writeJson } from '../../net/mesh/files.js';
 import { type Actor, renamedActors } from '../board/model.js';
 import type { Store } from '../store.js';
 import { type BodyInput, type PlanOp, PlanError, applyOps, normalizeBody } from './edit.js';
@@ -108,12 +108,14 @@ const short = (prefix: string): string => `${prefix}_${randomUUID().replace(/-/g
 export class Plans {
   private plans: Plan[] = [];
   private style = '';
-  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** plans.json: large with many plans, so written in the background (BLG-942). */
+  private readonly file: JsonFile | undefined;
   private readOnly = false;
   private readonly now: () => number;
 
   constructor(private readonly deps: PlansDeps) {
     this.now = deps.now ?? Date.now;
+    this.file = deps.dir ? new JsonFile(path.join(deps.dir, 'plans.json'), () => ({ version: 1, plans: this.plans }), deps.saveDelayMs ?? 300) : undefined;
     this.load();
     deps.store.dispatch({ type: 'plans_init', state: this.state() });
   }
@@ -477,10 +479,11 @@ export class Plans {
   }
 
   flush(): void {
-    if (!this.saveTimer) return;
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    this.write();
+    try {
+      this.file?.flush();
+    } catch {
+      // The next change tries again.
+    }
   }
 
   // ------------------------------------------------------------------ inside
@@ -536,21 +539,7 @@ export class Plans {
   }
 
   private save(): void {
-    if (!this.deps.dir || this.readOnly || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = undefined;
-      this.write();
-    }, this.deps.saveDelayMs ?? 300);
-    this.saveTimer.unref?.();
-  }
-
-  private write(): void {
-    if (!this.deps.dir) return;
-    try {
-      writeJson(path.join(this.deps.dir, 'plans.json'), { version: 1, plans: this.plans });
-    } catch {
-      // The next change tries again.
-    }
+    if (!this.readOnly) this.file?.changed();
   }
 }
 

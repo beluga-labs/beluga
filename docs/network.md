@@ -71,6 +71,18 @@ at once. A relayed link is retried directly now and then and replaced once that 
 `av_get`/`av_data` (profile pictures), `g_heads`/`g_sync`/`g_entries`, `tun_open`/`tun_in`/`tun_data`/`tun_close`, `gw` (the gateway), `share`
 (sharing with friends), `team` (team boards: friends on the same GitHub repository, see docs/tasks-and-plans.md phase 3).
 
+**Each person's share of your Mac's time** (`inbound-budget.ts`, BLG-942). The link limits count frames
+and bytes; this one counts the work they make. Every frame is handled on the daemon's one thread, the
+thread that also answers your clicks and runs your agents, and how much work comes in is up to the
+other Mac (a bug in their Beluga, like the team board loop of 2026-11-13, can send it without end).
+So each person's frames take at most 200 ms of every second (400 ms for everyone together, with a
+400 ms burst after a quiet spell): within that they're handled as they come; past it, theirs wait
+in a queue of their own, in order, worked through in 8 ms slices between everything else. A queue
+past 5,000 frames takes no more until it eases; what matters is resent by its sender, since it
+wasn't acknowledged. The black box notes whose frames were waiting, once a minute per person.
+The daemon's own big files (the board, the team's copy of it, the outboxes, the plans) are written
+in the background (`JsonFile` in `net/mesh/files.ts`), never with a write that holds the thread.
+
 **Delivered, then Seen** (BLG-798). A direct message is Delivered once the install that is them on the network
 (their Mac, or their Always On) acks it with `dm_ack`. `dm_seen { id }` says their messages up to that one were on
 a screen of theirs: a conversation visible in a Beluga window in front, or opened on their phone (`network.read`),

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { readJson, writeJson } from '../../net/mesh/files.js';
+import { writeJson } from '../../net/mesh/files.js';
+import { BoardFile } from './board-file.js';
 import { AgentRef } from '../../protocol.js';
 import { agentName } from '../../shared/agent-label.js';
 import type { Store } from '../store.js';
@@ -70,6 +71,8 @@ export interface BoardDeps {
   readonly now?: () => number;
   /** How long to wait before writing changes (several in a row are written once). */
   readonly saveDelayMs?: number;
+  /** Fold the journal into board.json past this many bytes (board-file.ts; tests make it small). */
+  readonly foldMinBytes?: number;
 }
 
 export interface NewIssue {
@@ -145,7 +148,7 @@ const SavedLabel = z.object({ name: z.string().regex(LABEL_NAME), icon: z.enum(L
 
 const SavedContext = z.object({ text: z.string().max(MAX_PROJECT_CONTEXT), by: z.string().max(80), at: z.number().int().min(0) });
 
-const BoardFile = z.object({
+const BoardShape = z.object({
   version: z.literal(1),
   // Renamed from autoTasks when it turned off by default (tasks come from plans now): the old key is ignored.
   worktreeTasks: z.boolean().default(false),
@@ -263,14 +266,18 @@ export class Board {
   private cascading = 0;
   /** A merge is moving tasks to Done (see shipping): only their sub-tasks under way go with them. */
   private merging = 0;
-  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** board.json and its journal: a change writes only the tasks it touched (board-file.ts, BLG-942). */
+  private readonly file: BoardFile | undefined;
   /** board.json couldn't be read nor moved aside: changes stay in memory rather than overwrite it. */
   private readOnly = false;
   private readonly now: () => number;
 
   constructor(private readonly deps: BoardDeps) {
     this.now = deps.now ?? Date.now;
+    this.file = deps.dir ? new BoardFile(deps.dir, () => ({ worktreeTasks: this.autoTasks, projects: this.projects, issues: this.issues }), deps.saveDelayMs ?? 300, deps.foldMinBytes) : undefined;
     this.load();
+    // What was read is what's on disk: only what changes from here is written.
+    this.file?.baseline();
     // Proof saved before files were kept (still in a worktree): kept now, while it's there.
     if (deps.dir) {
       const home = deps.dir;
@@ -1151,10 +1158,13 @@ export class Board {
 
   /** Write anything waiting now (on the way out). */
   flush(): void {
-    if (!this.saveTimer) return;
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    this.write();
+    // A board.json it couldn't read nor move aside is never written over.
+    if (this.readOnly) return;
+    try {
+      this.file?.flush();
+    } catch {
+      // A full disk or a permission problem: the next change tries again.
+    }
   }
 
   // ------------------------------------------------------------------ inside
@@ -1311,11 +1321,12 @@ export class Board {
   }
 
   private load(): void {
-    if (!this.deps.dir) return;
+    if (!this.deps.dir || !this.file) return;
     const file = path.join(this.deps.dir, 'board.json');
-    if (!existsSync(file)) return;
-    const raw = renamedActors(readJson(file));
-    const parsed = BoardFile.safeParse(raw);
+    const saved = this.file.read();
+    if (!saved) return;
+    const raw = renamedActors(saved.raw);
+    const parsed = BoardShape.safeParse(raw);
     if (!parsed.success) {
       // Never written over: kept aside (a newer Beluga's board, or a damaged file), and this one starts fresh.
       this.setAside(file, 'unreadable');
@@ -1344,7 +1355,10 @@ export class Board {
 
   private setAside(file: string, why: string): void {
     try {
-      renameSync(file, `${file}.${why}-${this.now()}`);
+      const suffix = `${why}-${this.now()}`;
+      if (existsSync(file)) renameSync(file, `${file}.${suffix}`);
+      // Its journal goes with it: it can't be read without it.
+      this.file?.setAside(suffix);
     } catch {
       // Can't move it: don't write over it either.
       this.readOnly = true;
@@ -1352,21 +1366,7 @@ export class Board {
   }
 
   private save(): void {
-    if (!this.deps.dir || this.readOnly || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = undefined;
-      this.write();
-    }, this.deps.saveDelayMs ?? 300);
-    this.saveTimer.unref?.();
-  }
-
-  private write(): void {
-    if (!this.deps.dir) return;
-    try {
-      writeJson(path.join(this.deps.dir, 'board.json'), { version: 1, worktreeTasks: this.autoTasks, projects: this.projects, issues: this.issues });
-    } catch {
-      // A full disk or a permission problem: the next change tries again.
-    }
+    if (!this.readOnly) this.file?.changed();
   }
 }
 
