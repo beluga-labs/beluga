@@ -59,6 +59,20 @@ const SECRET_ENV = /PASSWORD|PASSWD|SECRET|PRIVATE_KEY|SERVICE_ROLE_KEY|API_KEY|
 /** What a friend's shell is given, on top of baseEnv (see core/peer-run.ts). */
 const SCRUBBED_SHELL = { CI: '1', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1', TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat' };
 
+/**
+ * Claude Code's own settings the owner may keep in the environment: where its config lives, which
+ * endpoint or cloud it talks to, how it gets through a proxy. None is a credential, so a friend's run
+ * keeps them and can still start. A proxy address with a password in it (user:pass@host) stays out,
+ * and so do the keys and tokens (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN): a friend's run signs in
+ * the way Claude Code does without them.
+ */
+const CLAUDE_CONFIG_ENV = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION', 'AWS_REGION', 'CLAUDE_CODE_GIT_BASH_PATH', 'NODE_EXTRA_CA_CERTS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
+const claudeConfigEnv = (env: NodeJS.ProcessEnv): Record<string, string> =>
+  Object.fromEntries(CLAUDE_CONFIG_ENV.flatMap((name) => {
+    const value = env[name];
+    return value && !/:\/\/[^/\s]*@/.test(value) ? [[name, value]] : [];
+  }));
+
 const safeRunEnv = (extra: Readonly<Record<string, string>> | undefined): Record<string, string> =>
   Object.fromEntries(Object.entries(extra ?? {}).filter(([name]) => name && !SECRET_ENV.test(name)));
 
@@ -73,7 +87,7 @@ export function claudeLaunchEnv(input: Pick<AgentRunInput, 'guest' | 'ownerMcp' 
     if ((input.env && Object.keys(input.env).length) || input.autoCompactAt) return { ...env, ...input.env, ...compact } as Record<string, string>;
     return undefined;
   }
-  return { ...baseEnv(env), ...SCRUBBED_SHELL, ...compact, ...safeRunEnv(input.env) };
+  return { ...baseEnv(env), ...claudeConfigEnv(env), ...SCRUBBED_SHELL, ...compact, ...safeRunEnv(input.env) };
 }
 
 /**

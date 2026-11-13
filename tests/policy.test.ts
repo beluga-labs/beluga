@@ -250,3 +250,23 @@ describe('decideTool', () => {
     expect(decideTool('Grep', next!, own)).toBe('allow');
   });
 });
+
+describe('a narrowed directory search keeps what was asked', () => {
+  const tree = () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'beluga-policy-own-glob-'));
+    mkdirSync(path.join(dir, 'src'));
+    writeFileSync(path.join(dir, 'src', 'a.ts'), 'x');
+    writeFileSync(path.join(dir, 'src', 'credentials.json'), 'x');
+    return { dir, ctx: { cwd: dir, roots: [dir], autoEdit: false } };
+  };
+
+  it("isn't narrowed when it has a glob or pattern of its own (the exclusion would replace it): it's turned down", () => {
+    const { dir, ctx } = tree();
+    expect(confineSearch('Grep', { pattern: 'KEY', path: dir, glob: 'src/**' }, ctx)).toBeUndefined();
+    expect(decideTool('Grep', { pattern: 'KEY', path: dir, glob: 'src/**' }, ctx)).toBe('deny');
+    expect(confineSearch('Glob', { pattern: 'src/*', path: dir }, ctx)).toBeUndefined();
+    expect(decideTool('Glob', { pattern: 'src/*', path: dir }, ctx)).toBe('deny');
+    // The whole tree, asked for as such, is narrowed as before.
+    expect(String(confineSearch('Glob', { pattern: '**', path: dir }, ctx)?.pattern).startsWith('!')).toBe(true);
+  });
+});

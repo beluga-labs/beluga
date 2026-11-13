@@ -130,3 +130,24 @@ describe('a friend or guest Claude launch', () => {
     expect(listed).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
   });
 });
+
+describe("a friend's run keeps Claude Code's own settings", () => {
+  const friend = { channel: 'room', vetTool: () => undefined } as unknown as AgentRunInput;
+  it('keeps where its config lives, its endpoint and a plain proxy; drops keys, tokens and a proxy with a password', () => {
+    const env = claudeLaunchEnv(friend, {
+      PATH: '/usr/bin',
+      CLAUDE_CONFIG_DIR: '/Users/me/.claude-work',
+      ANTHROPIC_BASE_URL: 'https://gateway.example',
+      HTTPS_PROXY: 'http://proxy.example:3128',
+      HTTP_PROXY: 'http://me:hunter2@proxy.example:3128',
+      ANTHROPIC_API_KEY: 'sk-ant-planted',
+      CLAUDE_CODE_OAUTH_TOKEN: 'planted',
+    })!;
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/Users/me/.claude-work');
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://gateway.example');
+    expect(env.HTTPS_PROXY).toBe('http://proxy.example:3128');
+    expect(env.HTTP_PROXY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  });
+});

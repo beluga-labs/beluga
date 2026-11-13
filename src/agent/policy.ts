@@ -399,6 +399,9 @@ function openedSecrets(toolName: string, input: Record<string, unknown>, ctx: Po
   return hard || dotenv ? { hard, dotenv } : undefined;
 }
 
+/** Glob patterns that already list the whole tree, so the exclusion glob can stand in for them. */
+const WHOLE_TREE_PATTERNS = new Set(['**', '**/*']);
+
 /** A relative path that cannot be put inside one `{a,b}` glob. */
 const UNSAFE_GLOB_CHAR = new Set(['*', '?', '[', ']', '{', '}', ',', '!', '\\', '\n']);
 const unsafeGlob = (rel: string): boolean => [...rel].some((c) => UNSAFE_GLOB_CHAR.has(c));
@@ -428,6 +431,9 @@ export function confineSearch(toolName: string, input: Record<string, unknown>, 
   const opened = scan.hits.filter((hit) => searchSelects(toolName, input, hit.rel));
   const broad = !searchSpec(toolName, input) || SEARCH_SECRET_SAMPLES.some((name) => searchSelects(toolName, input, name));
   if (!opened.length && !(scan.truncated && broad)) return undefined;
+  // The exclusion takes the place of Grep's glob or Glob's pattern: a caller's own one would be lost
+  // and the search widened, so that search isn't narrowed (decideTool then turns it down).
+  if (toolName === 'Grep' ? typeof input.glob === 'string' && input.glob.trim() !== '' : !WHOLE_TREE_PATTERNS.has(String(input.pattern ?? '').trim())) return undefined;
   const glob = exclusionGlob(opened.map((hit) => hit.rel));
   if (!glob) return undefined;
   if (toolName === 'Grep') return input.glob === glob ? undefined : { ...input, glob };
