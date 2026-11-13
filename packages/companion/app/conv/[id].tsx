@@ -169,13 +169,21 @@ export default function Conversation() {
                     </T>
                     <T v="caption" numberOfLines={1}>
                       {c.plan.milestones ? `${c.plan.milestones} ${c.plan.milestones === 1 ? 'milestone' : 'milestones'} · ${c.plan.done} of ${c.plan.total} tasks` : 'Your agent is writing the plan'}
-                      {c.plan.earlier ? ` · ${c.plan.earlier} earlier ${c.plan.earlier === 1 ? 'plan' : 'plans'}` : ''}
                     </T>
                   </View>
                   <Pill label={c.plan.state} tone={toneOf(c.plan.state)} />
                   <ChevronRight color={color.text3} size={16} />
                 </Card>
               </Press>
+              {/* 1.38: the chat's earlier plans (closed or done), read-only, a tap away. */}
+              {c.plan.earlier ? (
+                <Press onPress={() => router.push({ pathname: '/plans', params: { home: topic } })} accessibilityLabel="Open this chat’s earlier plans" style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 8, paddingHorizontal: 4 }}>
+                  <T v="caption" c={color.text2} style={{ fontWeight: '600' }}>
+                    {c.plan.earlier} earlier {c.plan.earlier === 1 ? 'plan' : 'plans'}
+                  </T>
+                  <ChevronRight color={color.text3} size={14} />
+                </Press>
+              ) : null}
             </View>
           ) : null}
           {/* Its sub-agents at work stay in view, wherever their turn is (BLG-110). */}

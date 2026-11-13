@@ -99,7 +99,8 @@ export const COMPANION_PROTO = { major: 1, minor: 38 } as const;
  * 1.37 (BLG-559): a repo's own board also lists the tasks running in its repo from other boards,
  * each saying the board it's on (`TaskSummary.onBoard`). An older phone shows them without it.
  * 1.38 (BLG-416): a chat's own plans (the chatPlans pref): `plans.close`, `plans.ofHome` (the chat's
- * plans, newest first), and `ConvView.plan.earlier`, how many earlier plans the chat has. An older
+ * plans, newest first), `ConvView.plan.earlier`, how many earlier plans the chat has, and a closed
+ * plan's `PlanView.closedAt` (its state reads `closed`). An older
  * Mac sends none and refuses both methods.
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, chatPlans: 38 } as const;
@@ -611,6 +612,8 @@ export const PlanView = z.object({
   title: z.string().max(300),
   goal: z.string().max(4000).optional(),
   state: z.string().max(40),
+  /** 1.38 (BLG-419): when it was closed in its chat (its state is then `closed`): read-only. */
+  closedAt: z.number().optional(),
   topic: Topic.optional(),
   milestones: z
     .array(
