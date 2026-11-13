@@ -139,6 +139,8 @@ export function launchBoard(host: BoardHost): () => void {
     titlePlan: (goal) => session.titlePlan(goal),
     // Tasks only you can do came up: their decision cards (below) go up now.
     forYou: () => decisions?.sync(true),
+    // The plan's conversation runs on the agent picked for its work, switched as its own picker switches it.
+    followAgent: (channel, agent) => void session.workbench?.setAgent(channel, agent, 'quiet'),
   });
   attachPlans(session, planWork);
   // A plan task that's yours: a decision card in the plan's conversation, never a worktree.

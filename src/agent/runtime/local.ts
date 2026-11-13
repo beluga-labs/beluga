@@ -42,6 +42,15 @@ export function endpointEnv(t: LocalTarget, configDir: string = endpointClaudeHo
     ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
     ANTHROPIC_SMALL_FAST_MODEL: m,
     CLAUDE_CODE_SUBAGENT_MODEL: m,
+    // No `tool_reference`/`tool_definition` blocks: only Anthropic's API takes them. DeepSeek answered
+    // 422 "unknown variant `tool_definition`". They come from inline tools: on Claude, MCP tools that
+    // arrive mid-run go as a system message of `tool_addition` blocks, kept in the conversation, so a
+    // run switched to an endpoint and resumed sends them again. Claude Code leaves inline tools on for
+    // a model it doesn't know and falls back only on Anthropic's own wording of the refusal. Tool
+    // search is already off on a non-Anthropic URL unless ENABLE_TOOL_SEARCH is set, and the daemon's
+    // env may set it. On an endpoint, both are off: every tool goes up front, in `tools`.
+    ENABLE_TOOL_SEARCH: 'false',
+    CLAUDE_CODE_INLINE_TOOLS: 'false',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     DISABLE_TELEMETRY: '1',
     DISABLE_ERROR_REPORTING: '1',

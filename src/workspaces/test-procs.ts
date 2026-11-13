@@ -181,14 +181,35 @@ export function e2eLockedIn(dir: string): boolean {
   return lockedRun(path.resolve(dir)) !== undefined;
 }
 
+/** How long the process listing may take before it's given up on (a full one takes well under a second). */
+export const PS_DEADLINE_MS = 3000;
+
 function ps(args: readonly string[]): Promise<string> {
-  return new Promise((resolve) => execFile('ps', [...args], { maxBuffer: 256 * 1024 * 1024, timeout: 15_000 }, (err, out) => resolve(err ? '' : out)));
+  return new Promise((resolve) => {
+    // On macOS, reading a stuck process's environment can leave ps waiting even after a
+    // signal. execFile's timeout waits for it to close: don't let that block archiving forever.
+    const child = execFile('ps', [...args], { maxBuffer: 256 * 1024 * 1024 }, (err, out) => {
+      clearTimeout(deadline);
+      resolve(err ? '' : out);
+    });
+    const deadline = setTimeout(() => {
+      child.kill('SIGKILL');
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref();
+      // Nothing is stopped this time: say so, or test runs left behind pile up with no trace why.
+      console.warn(`[test-procs] ps didn't answer within ${PS_DEADLINE_MS / 1000} s: left-behind test runs weren't stopped this time`);
+      resolve('');
+    }, PS_DEADLINE_MS);
+  });
 }
 
 /** Every process with its command and environment (yours only: the OS shows no one else's). */
 async function processRows(): Promise<ProcRow[]> {
   if (process.platform === 'win32') return [];
-  const out = await ps(process.platform === 'darwin' ? ['-axwwE', '-o', 'pid=,ppid=,command='] : ['axeww', '-o', 'pid=,ppid=,command=']);
+  // We can only stop our own processes. Asking macOS for other users' environments can
+  // block on a protected system process, even though their environment isn't returned.
+  const out = await ps(process.platform === 'darwin' ? ['-wwE', '-U', String(process.getuid!()), '-o', 'pid=,ppid=,command='] : ['axeww', '-o', 'pid=,ppid=,command=']);
   return out
     .split('\n')
     .map((l) => /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(l))
