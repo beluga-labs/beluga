@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { JsonFile, readJson } from '../../net/mesh/files.js';
+import { JournalFile, type JournalShape } from '../journal-file.js';
 import type { Board } from '../board/board.js';
 import { type Activity, type Actor, type Assignee, BRIEF_SECTIONS, type BriefSection, type Issue, isArchived, worktreeDoing } from '../board/model.js';
 import type { Action } from '../store.js';
@@ -80,7 +80,7 @@ export class TeamBoardSync implements TeamPart {
   private clocks: Record<string, number> = {};
   private tasks: Record<string, Record<string, SharedTask>> = {};
   /** team-board.json: megabytes for a busy team, so written in the background (BLG-942). */
-  private readonly file: JsonFile | undefined;
+  private readonly file: JournalFile<SharedTask> | undefined;
   private readonly listeners: Array<(c: TeamChange) => void> = [];
   private readonly reconciled = new Set<string>();
   private readonly locals: Array<(issue: Issue, changed: Readonly<Record<string, Field>>) => void> = [];
@@ -96,7 +96,7 @@ export class TeamBoardSync implements TeamPart {
     private readonly team: TeamBoards,
     private readonly deps: BoardSyncDeps,
   ) {
-    this.file = deps.dir ? new JsonFile(path.join(deps.dir, 'team-board.json'), () => ({ clocks: this.clocks, tasks: Object.fromEntries(Object.entries(this.tasks).map(([p, byId]) => [p, Object.values(byId)])) }), SAVE_MS) : undefined;
+    this.file = deps.dir ? new JournalFile<SharedTask>(deps.dir, 'team-board', this.shape(), SAVE_MS) : undefined;
     this.load();
   }
 
@@ -469,17 +469,48 @@ export class TeamBoardSync implements TeamPart {
 
   // ------------------------------------------------------------------ the file
 
+  /**
+   * team-board.json and its journal, team-board.log (core/journal-file.ts, BLG-942): a change
+   * writes only the tasks it touched, not the team's whole copy (megabytes for a busy team, once a
+   * second while it's busy). The file keeps its shape: each project's tasks, and the clocks.
+   */
+  private shape(): JournalShape<SharedTask> {
+    return {
+      records: () => Object.entries(this.tasks).flatMap(([p, byId]) => Object.values(byId).map((t) => [`${p}/${t.id}`, t] as const)),
+      // The clocks, and every project teamed (one with no tasks yet too).
+      meta: () => ({ clocks: this.clocks, projects: Object.keys(this.tasks) }),
+      pack: (t, key) => ({ p: key.slice(0, key.indexOf('/')), t }),
+      keyOf: (w) => {
+        const r = w as { p?: unknown; t?: { id?: unknown } } | undefined;
+        return r && typeof r.p === 'string' && typeof r.t?.id === 'string' ? `${r.p}/${r.t.id}` : undefined;
+      },
+      toSnapshot: (meta, records, seq) => {
+        const m = meta as { clocks: Record<string, number>; projects: readonly string[] };
+        const tasks: Record<string, SharedTask[]> = Object.fromEntries(m.projects.map((p) => [p, []]));
+        for (const r of records as Array<{ p: string; t: SharedTask }>) (tasks[r.p] ??= []).push(r.t);
+        return { seq, clocks: m.clocks, tasks };
+      },
+      fromSnapshot: (raw) => {
+        const tasks = raw.tasks && typeof raw.tasks === 'object' ? (raw.tasks as Record<string, unknown>) : {};
+        const records = Object.entries(tasks).flatMap(([p, list]) => (Array.isArray(list) ? list.map((t: unknown) => ({ p, t })) : []));
+        return { meta: { clocks: raw.clocks, projects: Object.keys(tasks) }, records, seq: typeof raw.seq === 'number' ? raw.seq : 0 };
+      },
+    };
+  }
+
   private load(): void {
-    if (!this.deps.dir) return;
-    const saved = readJson(path.join(this.deps.dir, 'team-board.json')) as { clocks?: unknown; tasks?: unknown } | undefined;
-    if (!saved || typeof saved !== 'object') return;
-    if (saved.clocks && typeof saved.clocks === 'object') this.clocks = saved.clocks as Record<string, number>;
-    if (saved.tasks && typeof saved.tasks === 'object') {
-      for (const [projectId, list] of Object.entries(saved.tasks as Record<string, unknown>)) {
-        if (!Array.isArray(list)) continue;
-        this.tasks[projectId] = Object.fromEntries((list as SharedTask[]).filter((t) => t && typeof t.id === 'string' && t.fields && Array.isArray(t.acts)).map((t) => [t.id, t]));
-      }
+    const saved = this.file?.read();
+    if (!saved?.raw) return;
+    const meta = (saved.meta && typeof saved.meta === 'object' ? saved.meta : {}) as { clocks?: unknown; projects?: unknown };
+    if (meta.clocks && typeof meta.clocks === 'object') this.clocks = { ...(meta.clocks as Record<string, number>) };
+    if (Array.isArray(meta.projects)) for (const p of meta.projects) if (typeof p === 'string') this.tasks[p] ??= {};
+    for (const r of saved.records as Array<{ p?: unknown; t?: SharedTask }>) {
+      const t = r?.t;
+      if (typeof r?.p !== 'string' || !t || typeof t.id !== 'string' || !t.fields || !Array.isArray(t.acts)) continue;
+      (this.tasks[r.p] ??= {})[t.id] = t;
     }
+    // What was read is what's on disk: only what changes from here is written.
+    this.file?.baseline();
   }
 
   private save(): void {

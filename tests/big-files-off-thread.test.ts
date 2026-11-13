@@ -10,7 +10,8 @@ const BIG: ReadonlyArray<{ readonly src: string; readonly file: string; readonly
   // The board writes only the tasks a change touched, folding them into board.json in the background (board-file.ts).
   { src: 'src/core/board/board.ts', file: 'board.json', writer: 'new BoardFile(' },
   { src: 'src/core/plans/plans.ts', file: 'plans.json' },
-  { src: 'src/core/team/board-sync.ts', file: 'team-board.json' },
+  // The team's copy too: the tasks a change touched, folded into team-board.json in the background.
+  { src: 'src/core/team/board-sync.ts', file: 'team-board.json', writer: 'new JournalFile<SharedTask>(' },
   { src: 'src/core/friend-share/courier.ts', file: 'outbox' },
 ];
 
