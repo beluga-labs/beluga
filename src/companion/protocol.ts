@@ -141,6 +141,8 @@ export const COMPANION_PROTO = { major: 1, minor: 54 } as const;
  * chat links on; with them off the phone shows a chat mention as its title, with no chip.
  * 1.52 (BLG-149): `TurnView.origin`: an agent's turn that reads a message from another chat.
  * 1.53 (BLG-277): `ConvView.queue[].origin`: a queued message that an agent in another chat sent.
+ * 1.54 (BLG-401): `ConvView.schedules`, `TurnView.origin.sentinel`, `queue[].origin.sentinel`: a chat's
+ * schedules (Run and Pause only), and a message one of your sentinels sent says so.
  */
 export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, chatSchedules: 54 } as const;
 

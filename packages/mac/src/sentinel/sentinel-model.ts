@@ -47,6 +47,7 @@ import { dateLocale } from '../i18n/index.js';
 import { ago } from '../tasks/tasks-model.js';
 import { ASSISTANT_TITLE } from '../../../../src/shared/assistant.js';
 import { computerTitle, computerWord } from '../lib/os-words.js';
+import { isoLocal, nextWholeHour } from '../chat/schedule-model.js';
 
 /**
  * Sentinel's window, its plain parts (docs/sentinel.md §3): the list's rows and groups, the
@@ -387,11 +388,13 @@ export function withInterval(t: ScheduleTrigger, value: string): ScheduleTrigger
   return (HOURS_CHOICES as readonly number[]).includes(n) ? { ...rest, every: 'hours', hours: n as ScheduleHours } : t;
 }
 
-/** "What starts it": a schedule, by hand, after another sentinel, or an event (each kind this Beluga runs). */
+/** "What starts it": a schedule, one time, by hand, after another sentinel, or an event (each kind this Beluga runs). */
 export function triggerChoices(): Array<{ readonly value: TriggerKind; readonly label: string; readonly disabled: boolean; readonly description?: string }> {
-  // A one-time trigger is set by your agent for now (sentinel_create): the Mac shows it, and has no form for it yet.
-  return (Object.keys(TRIGGER_INFO) as TriggerKind[]).filter((k) => k !== 'once').map((k) => ({ value: k, label: k === 'schedule' ? 'On a schedule' : TRIGGER_INFO[k].label, disabled: !triggerAvailable(k), ...(triggerAvailable(k) ? { description: TRIGGER_HINT[k] } : { description: LATER }) }));
+  return (Object.keys(TRIGGER_INFO) as TriggerKind[]).map((k) => ({ value: k, label: CHOICE_LABEL[k] ?? TRIGGER_INFO[k].label, disabled: !triggerAvailable(k), ...(triggerAvailable(k) ? { description: TRIGGER_HINT[k] } : { description: LATER }) }));
 }
+
+/** The menu's own short names, where TRIGGER_INFO's would read wrong there. */
+const CHOICE_LABEL: Partial<Record<TriggerKind, string>> = { schedule: 'On a schedule', once: 'Once' };
 
 /** The menu's one line under each kind. */
 const TRIGGER_HINT: Readonly<Record<TriggerKind, string>> = {
@@ -407,12 +410,14 @@ const TRIGGER_HINT: Readonly<Record<TriggerKind, string>> = {
   webhook: 'Its own URL: GitHub, Stripe or anything that posts',
 };
 
-/** A trigger of another kind, with what it needs filled in (an uptime starts on the project's site when it has one). */
-export function triggerOfKind(kind: TriggerKind, was: Trigger): Trigger | undefined {
+/** A trigger of another kind, with what it needs filled in (an uptime starts on the project's site when it has one; one time, at the next whole hour). */
+export function triggerOfKind(kind: TriggerKind, was: Trigger, now = Date.now()): Trigger | undefined {
   if (kind === was.kind) return was;
   switch (kind) {
     case 'schedule':
       return DEFAULT_SCHEDULE;
+    case 'once':
+      return { kind: 'once', at: isoLocal(nextWholeHour(now)), missed: 'catch-up' };
     case 'manual':
       return { kind: 'manual' };
     case 'after':
@@ -645,7 +650,7 @@ export interface StepChoice {
 
 /** Add a step: the ten kinds, each with why it can't be added when it can't (a later update, or the access). */
 export function stepChoices(access: Access): StepChoice[] {
-  // Wake one of your chats is set by your agent for now (sentinel_create): the Mac shows it, and has no form for it yet.
+  // Wake one of your chats is made by /schedule in that chat (BLG-400) or by your agent (sentinel_create): no Add step for it.
   return (Object.keys(STEP_INFO) as StepKind[]).filter((kind) => kind !== 'chat').map((kind) => {
     const info = STEP_INFO[kind];
     const later = !stepAvailable(kind);

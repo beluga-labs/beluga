@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SentinelDraftSchema } from '../src/core/sentinel/schema.js';
-import { canSchedule, isoLocal, onceIn, scheduleCommand, scheduleDraft, scheduleName } from '../packages/mac/src/chat/schedule-model.js';
+import type { ChatSchedule } from '../src/core/sentinel/model.js';
+import { canSchedule, isoLocal, nextWholeHour, onceAhead, onceIn, scheduleCommand, scheduleDraft, scheduleMark, scheduleName, scheduleSpent } from '../packages/mac/src/chat/schedule-model.js';
 
 /** The /schedule sheet's model (BLG-400): 'in N hours', the name, and the sentinel it makes. */
 
@@ -8,15 +9,34 @@ const NOW = new Date(2026, 10, 12, 14, 30, 15).getTime();
 const REF = 'me-me-me-me-me-me-me-me-me-me-me0/ws:w1';
 
 describe('onceIn', () => {
-  it('is a once trigger at now + N hours, to the minute, with the local offset', () => {
+  it('is a once trigger at now + N hours, up to the next minute, with the local offset', () => {
     const t = onceIn(5, NOW);
     expect(t.kind).toBe('once');
-    expect(new Date(t.at).getTime()).toBe(new Date(2026, 10, 12, 19, 30).getTime());
-    expect(t.at).toMatch(/^2026-11-12T19:30:00[+-]\d\d:\d\d$/);
+    expect(new Date(t.at).getTime()).toBe(new Date(2026, 10, 12, 19, 31).getTime());
+    expect(t.at).toMatch(/^2026-11-12T19:31:00[+-]\d\d:\d\d$/);
   });
 
   it('a fraction of an hour works too', () => {
-    expect(new Date(onceIn(0.5, NOW).at).getTime()).toBe(new Date(2026, 10, 12, 15, 0).getTime());
+    expect(new Date(onceIn(0.5, NOW).at).getTime()).toBe(new Date(2026, 10, 12, 15, 1).getTime());
+  });
+
+  it('a tiny N is still at least a minute ahead, never in the past', () => {
+    const at = new Date(onceIn(0.001, NOW).at).getTime();
+    expect(at).toBeGreaterThanOrEqual(NOW + 60_000);
+    expect(at).toBe(new Date(2026, 10, 12, 14, 32).getTime());
+  });
+});
+
+describe('a Once moment', () => {
+  it('starts at the next whole local hour', () => {
+    expect(nextWholeHour(NOW)).toBe(new Date(2026, 10, 12, 15, 0).getTime());
+    expect(nextWholeHour(new Date(2026, 10, 12, 14, 0).getTime())).toBe(new Date(2026, 10, 12, 15, 0).getTime());
+  });
+
+  it('can be scheduled only while it is ahead', () => {
+    expect(onceAhead({ kind: 'once', at: isoLocal(NOW + 60_000), missed: 'catch-up' }, NOW)).toBe(true);
+    expect(onceAhead({ kind: 'once', at: isoLocal(NOW - 60_000), missed: 'catch-up' }, NOW)).toBe(false);
+    expect(onceAhead({ kind: 'once', at: 'not a date', missed: 'catch-up' }, NOW)).toBe(false);
   });
 });
 
@@ -66,5 +86,35 @@ describe('/schedule', () => {
     expect(canSchedule('ws:w1', true)).toBe(false);
     expect(canSchedule('room', false)).toBe(false);
     expect(canSchedule('dm:bob', false)).toBe(false);
+  });
+
+  it('not in a chat Beluga made for itself (a sentinel run’s Your Mac chat)', () => {
+    const chats = [
+      { id: 'abc1', auto: true as const },
+      { id: 'mine1' },
+    ];
+    expect(canSchedule('mac:assistant:abc1', false, chats)).toBe(false);
+    expect(canSchedule('mac:assistant:mine1', false, chats)).toBe(true);
+    expect(canSchedule('mac:assistant', false, chats)).toBe(true);
+  });
+});
+
+describe('a one-time schedule that already ran', () => {
+  const row = (over: Partial<ChatSchedule>): ChatSchedule => ({ id: 's', name: 'S', icon: 'calendar', trigger: { kind: 'once', at: isoLocal(NOW), missed: 'catch-up' }, paused: false, prompt: 'Hi', running: false, ...over });
+  const daily = { kind: 'schedule' as const, every: 'day' as const, at: '09:00', missed: 'skip' as const };
+
+  it('is spent: a once trigger, on, with no next time and no run going', () => {
+    expect(scheduleSpent(row({}))).toBe(true);
+    expect(scheduleSpent(row({ nextAt: NOW + 1 }))).toBe(false);
+    expect(scheduleSpent(row({ running: true }))).toBe(false);
+    expect(scheduleSpent(row({ paused: true }))).toBe(false);
+    expect(scheduleSpent(row({ trigger: daily }))).toBe(false);
+  });
+
+  it('the sidebar’s clock reads it as off', () => {
+    expect(scheduleMark([])).toBeUndefined();
+    expect(scheduleMark([row({})])).toEqual({ count: 1, paused: true });
+    expect(scheduleMark([row({}), row({ id: 't', trigger: daily, nextAt: NOW + 1 })])).toEqual({ count: 2, paused: false });
+    expect(scheduleMark([row({}), row({ id: 't', paused: true })])).toEqual({ count: 2, paused: true });
   });
 });

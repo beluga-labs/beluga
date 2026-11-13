@@ -70,7 +70,7 @@ import {
   agentFields,
   stepAgentChoice,
 } from './sentinel-model.js';
-import { EventControls } from './EventControls.js';
+import { EventControls, OnceControls } from './EventControls.js';
 import { MeasureFields } from './MeasureFields.js';
 import { useDraft } from './use-draft.js';
 import { sentinelGraph } from '@beluga/core/sentinel/workflow.js';
@@ -117,7 +117,8 @@ export function WhenCard({ item, save }: { item: Sentinel; save: Save }) {
         {t.kind === 'schedule' ? <ScheduleControls t={t} set={(trigger) => save({ trigger })} note={frequentAgentNote({ trigger: t, steps: item.steps, limits: item.limits })} /> : null}
         {t.kind === 'manual' ? <p className={s.hint}>It runs only when you press Run Now: here, on its row, or from your phone.</p> : null}
         {t.kind === 'after' ? <AfterControls t={t} item={item} items={items} save={save} /> : null}
-        {t.kind !== 'schedule' && t.kind !== 'manual' && t.kind !== 'after' ? <EventControls item={item} save={save} /> : null}
+        {t.kind === 'once' ? <OnceControls t={t} set={(trigger) => save({ trigger })} /> : null}
+        {t.kind !== 'schedule' && t.kind !== 'once' && t.kind !== 'manual' && t.kind !== 'after' ? <EventControls item={item} save={save} /> : null}
       </div>
     </section>
   );

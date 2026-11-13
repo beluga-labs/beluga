@@ -9,12 +9,14 @@ import { sameDeep } from '../lib/stable.js';
 import { Panel } from '../layout/inspector-parts.js';
 import { nextText } from '../sentinel/sentinel-model.js';
 import { useSentinelActions } from '../sentinel/use-sentinel.js';
+import { scheduleSpent } from './schedule-model.js';
 import s from './chat-schedules.module.css';
 
 /**
  * A chat's schedules (BLG-399), in its Info panel: each sentinel whose chat step wakes this chat,
- * with its status dot, when it runs, Run Now and an on/off switch; a click opens its page. Only
- * with the chat-schedules experiment on, and only when the chat has one.
+ * with its status dot, when it runs, Run Now and an on/off switch; a click opens its page. A
+ * one-time schedule that already ran reads as done, with no switch. Only with the chat-schedules
+ * experiment on, and only when the chat has one.
  */
 
 type Tone = 'ok' | 'warn' | 'muted' | 'claude';
@@ -49,8 +51,9 @@ export const useAssistantChannel = (chat: string | undefined): string => useApp(
 
 function ScheduleRow({ row, sentence }: { row: ChatSchedule; sentence: string }) {
   const a = useSentinelActions();
-  const tone = toneOf(row);
-  const when = row.nextAt !== undefined ? `${sentence} · next ${nextText(row.nextAt, Date.now())}` : row.paused ? `${sentence} · paused` : sentence;
+  const spent = scheduleSpent(row);
+  const tone = spent ? 'muted' : toneOf(row);
+  const when = row.nextAt !== undefined ? `${sentence} · next ${nextText(row.nextAt, Date.now())}` : row.paused ? `${sentence} · paused` : spent ? `${sentence} · done` : sentence;
   return (
     <div className={s.row} role="listitem" data-schedule={row.id}>
       <button type="button" className={s.open} onClick={() => a.open(row.id)} title={row.prompt ? `Sends “${row.prompt}”` : undefined}>
@@ -65,7 +68,7 @@ function ScheduleRow({ row, sentence }: { row: ChatSchedule; sentence: string })
       <Tip label={row.paused ? 'Run it once now, even though it’s off' : 'Run it now'}>
         <Button size="small" variant="quiet" icon="play" aria-label={`Run ${row.name} now`} disabled={row.running} onClick={() => void a.runNow(row)} />
       </Tip>
-      <Switch on={!row.paused} label={`${row.name}: ${row.paused ? 'off' : 'on'}`} onChange={(v) => void a.setPaused(row, !v)} />
+      {spent ? null : <Switch on={!row.paused} label={`${row.name}: ${row.paused ? 'off' : 'on'}`} onChange={(v) => void a.setPaused(row, !v)} />}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { useApp } from '../lib/beluga.js';
 import { OnceControls } from '../sentinel/EventControls.js';
 import { ScheduleControls } from '../sentinel/SentinelCards.js';
 import { useSentinelActions } from '../sentinel/use-sentinel.js';
-import { isoLocal, onceIn, scheduleDraft } from './schedule-model.js';
+import { isoLocal, nextWholeHour, onceAhead, onceIn, scheduleDraft } from './schedule-model.js';
 import s from '../sentinel/sentinel.module.css';
 
 /**
@@ -24,7 +24,6 @@ const WHEN: ReadonlyArray<{ readonly value: When; readonly label: string }> = [
   { value: 'in', label: 'In hours' },
 ];
 const FIRST_SCHEDULE: ScheduleTrigger = { kind: 'schedule', every: 'day', at: '09:00', missed: 'skip' };
-const HOUR = 3_600_000;
 
 export function ScheduleSheet({ channel, prompt: first = '', close }: { channel: string; prompt?: string; close: () => void }) {
   const a = useSentinelActions();
@@ -32,17 +31,17 @@ export function ScheduleSheet({ channel, prompt: first = '', close }: { channel:
   const projectId = useApp((st) => (channel.startsWith('ws:') ? findWorkspace(st.projects, channel.slice(3))?.projectId : undefined));
   const [when, setWhen] = useState<When>('repeat');
   const [schedule, setSchedule] = useState<ScheduleTrigger>(FIRST_SCHEDULE);
-  const [once, setOnce] = useState<OnceTrigger>(() => ({ kind: 'once', at: isoLocal(Math.ceil((Date.now() + HOUR) / HOUR) * HOUR), missed: 'catch-up' }));
+  const [once, setOnce] = useState<OnceTrigger>(() => ({ kind: 'once', at: isoLocal(nextWholeHour(Date.now())), missed: 'catch-up' }));
   const [hours, setHours] = useState('5');
   const [prompt, setPrompt] = useState(first);
   const n = Number(hours);
   const hoursOk = Number.isFinite(n) && n > 0 && n <= 24 * 30;
-  const ready = Boolean(prompt.trim()) && (when !== 'in' || hoursOk);
+  const ready = Boolean(prompt.trim()) && (when !== 'in' || hoursOk) && (when !== 'once' || onceAhead(once, Date.now()));
 
-  const make = async (): Promise<string | void> => {
+  const make = async (): Promise<void> => {
     const trigger = when === 'repeat' ? schedule : when === 'once' ? once : onceIn(n, Date.now());
-    const made = await a.act(() => a.create(scheduleDraft({ trigger, prompt, ref: `${self}/${channel}`, ...(projectId ? { projectId } : {}) })));
-    if (!made) return 'Couldn’t make it: see the message above';
+    // A refusal throws: the sheet shows its words and stays open.
+    const made = await a.create(scheduleDraft({ trigger, prompt, ref: `${self}/${channel}`, ...(projectId ? { projectId } : {}) }));
     await a.setPaused(made, false);
     close();
   };

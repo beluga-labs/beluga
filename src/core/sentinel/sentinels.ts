@@ -370,6 +370,8 @@ export class Sentinels {
    * (one of yours) or its ref. In the order they were made.
    */
   forChat(chat: string): ChatSchedule[] {
+    // The Chat schedules experiment off: no chat has any (docs/sentinel.md §13).
+    if (!this.deps.wake?.on()) return [];
     const ref = chat.includes('/') ? chat : `${this.deps.selfId()}/${chat}`;
     const nextAt: Record<string, number> = {};
     for (const s of this.items) {
@@ -448,6 +450,14 @@ export class Sentinels {
     return item;
   }
 
+  /**
+   * A sentinel that wakes a chat waits while the Chat schedules experiment is off: its trigger
+   * starts nothing and counts no failure, so turning it back on finds it as it was.
+   */
+  private chatsOff(s: Sentinel): boolean {
+    return s.steps.some((st) => st.kind === 'chat') && !this.deps.wake?.on();
+  }
+
   /** Wake one of your chats: refused while the experiment is off, and for a chat that is not yours alone. */
   private checkChats(steps: readonly Step[]): void {
     for (const st of steps) {
@@ -468,7 +478,9 @@ export class Sentinels {
     const projectId = patch.projectId === null ? undefined : patch.projectId !== undefined ? this.projectIdOf(patch.projectId) : was.projectId;
     const { projectId: _p, ...rest } = was;
     const triggerChanged = patch.trigger !== undefined && JSON.stringify(patch.trigger) !== JSON.stringify(was.trigger);
-    const past = triggerChanged ? pastOnce(patch.trigger, this.now()) : undefined;
+    // Only a new moment is checked: `missed` alone can change after a one-time trigger ran.
+    const newMoment = patch.trigger?.kind === 'once' && (was.trigger.kind !== 'once' || Date.parse(was.trigger.at) !== Date.parse(patch.trigger.at));
+    const past = newMoment ? pastOnce(patch.trigger, this.now()) : undefined;
     if (past) throw new Error(past);
     const next: Sentinel = {
       ...rest,
@@ -516,6 +528,9 @@ export class Sentinels {
   pause(ref: string, paused: boolean): Sentinel {
     const was = this.need(ref);
     if (was.paused === paused) return was;
+    // A one-time trigger whose moment passed would be on and never run.
+    const past = paused ? undefined : pastOnce(was.trigger, this.now());
+    if (past) throw new Error(past);
     const { pausedWhy: _why, ...rest } = was;
     const next: Sentinel = paused ? { ...rest, paused: true, updatedAt: this.now() } : { ...rest, paused: false, failures: 0, lastScheduledAt: this.now(), updatedAt: this.now() };
     this.replace(next);
@@ -624,7 +639,7 @@ export class Sentinels {
   /** Something an event trigger saw: a run, unless it's paused, or a run of its own (or of a sentinel that led to it) made it. */
   private fireEvent(id: string, e: TriggerEvent): void {
     const s = this.items.find((i) => i.id === id);
-    if (!s || s.paused || this.closed) return;
+    if (!s || s.paused || this.closed || this.chatsOff(s)) return;
     let chain: string[] | undefined;
     if (e.from) {
       // The run that made it keeps its chain after it ended (a merge, a task done later).
@@ -817,7 +832,7 @@ export class Sentinels {
     this.lastTick = now;
     this.expireWaiting();
     for (const s of this.items) {
-      if (s.paused || (s.trigger.kind !== 'schedule' && s.trigger.kind !== 'once')) continue;
+      if (s.paused || (s.trigger.kind !== 'schedule' && s.trigger.kind !== 'once') || this.chatsOff(s)) continue;
       const due = dueNow(s.trigger, s.lastScheduledAt, now, this.deps.tz ? { tz: this.deps.tz } : {});
       if (due.kind === 'wait') {
         // The clock jumped: what the window says comes next is worked out again.

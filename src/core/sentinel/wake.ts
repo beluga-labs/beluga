@@ -11,8 +11,10 @@ export function wakeRefusal(state: DomainState, to: string): string | undefined 
   const ref = to.includes('/') ? parseChatRef(to) : { owner: state.selfId, channel: to };
   if (!ref) return 'that is not a chat a ref can name';
   if (ref.owner !== state.selfId) return 'a sentinel wakes only your own chats, not one another person shared with you';
+  // A main checkout that moved on to a chat delivers there (chat-links targetOf): that chat is checked too.
   const ws = /^ws:(.+)$/.exec(ref.channel)?.[1];
-  const roles = ws ? Object.values(state.members[ws] ?? {}) : [];
+  const moved = ws ? state.projects.flatMap((p) => p.workspaces).find((w) => w.id === ws)?.movedTo : undefined;
+  const roles = [ws, moved].flatMap((id) => (id ? Object.values(state.members[id] ?? {}) : []));
   return roles.includes('contribute') ? 'that chat is shared with a contributor, and a sentinel wakes only a chat that is yours alone' : undefined;
 }
 

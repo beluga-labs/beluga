@@ -301,8 +301,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const btwHere = useApp((st) => runtimeHas(runtimeHere(st.projects.flatMap((p) => p.workspaces).find((w) => `ws:${w.id}` === channel)?.agent, st.self), 'btw'));
   const canBtw = channel.startsWith('ws:') && !shared && btwHere;
   // A schedule for this chat (BLG-400): '/schedule' opens its sheet, behind the chat-schedules experiment.
-  const schedulesOn = useApp((st) => experimentOn(st.prefs.experiments, 'chat-schedules'));
-  const canScheduleHere = schedulesOn && canSchedule(channel, Boolean(shared));
+  // Not in a Your Mac chat Beluga made for itself (a sentinel run's).
+  const canScheduleHere = useApp((st) => experimentOn(st.prefs.experiments, 'chat-schedules') && canSchedule(channel, Boolean(shared), st.assistant.chats));
   const [asideIn, setAsideIn] = useState<string | undefined>(undefined);
   const aside = canBtw && asideIn === channel;
   const btwOpen = useApp((st) => Boolean(st.btw?.[channel]));

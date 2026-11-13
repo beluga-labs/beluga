@@ -4,7 +4,8 @@ import { KeyboardLift } from '../../components/KeyboardLift';
 import { Activity, Bot, CalendarClock, Camera, ChevronRight, Map as MapIcon, CircleCheck, CircleX, Clock, Cpu, FolderTree, GitMerge, History, Images, Laptop, MessagesSquare, Monitor, Network, OctagonX, Plus, Send, Square, SquareTerminal, Trash2, Undo2 } from 'lucide-react-native';
 import { AgentList, Breathe, LivePanel, StepList, StepsFold, ToolBadge, TypingDots } from '../../components/Live';
 import { ThreadsSheet, threadsSummary } from '../../components/ThreadsSheet';
-import { SchedulesSheet, schedulesSummary } from '../../components/ChatSchedules';
+import { SchedulesSheet } from '../../components/ChatSchedules';
+import { schedulesSummary } from '../../lib/schedules';
 import { BranchBand, MergeBand, MergeSheet } from '../../components/Merge';
 import { ProjectMark } from '../../components/ProjectMark';
 import { InlineThing } from '../../components/render/Inline';
@@ -137,6 +138,8 @@ function Conversation() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  // The chat's last schedule went: the sheet closes, so it doesn't open by itself when one comes back.
+  if (schedulesOpen && !c?.schedules?.length) setSchedulesOpen(false);
   // What waits its turn is in the queue above the composer, not a turn of its own.
   const turns = c ? c.turns.filter((t) => !(c.queue && t.who === 'claude' && t.status === 'queued')) : [];
   // A worktree (or chat folder) of yours has files to read and terminals to share with the Mac (1.7).

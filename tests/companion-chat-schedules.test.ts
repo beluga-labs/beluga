@@ -5,6 +5,7 @@ import { COMPANION_PROTO, ConvView, SINCE } from '../src/companion/protocol.js';
 import { Store, initialState } from '../src/core/store.js';
 import { withExperiment } from '../src/shared/experiments.js';
 import type { Sentinel } from '../src/core/sentinel/model.js';
+import { scheduleSpent, schedulesSummary } from '../packages/companion/lib/schedules.js';
 
 /** A chat's schedules on the phone (BLG-401): its conversation lists them with Run now and pause; no create or edit. */
 
@@ -56,6 +57,19 @@ describe('a chat’s schedules on the phone', () => {
 
   it('with the experiment off, the phone sees none', () => {
     expect(view(storeWith(false))).not.toHaveProperty('schedules');
+  });
+
+  it('a one-time schedule that already ran is done, and the summary doesn’t count it as on', () => {
+    const row = { id: 's', name: 'S', sentence: 'Once, Thu 12 Nov 14:00', paused: false, running: false };
+    expect(scheduleSpent(row)).toBe(true);
+    expect(scheduleSpent({ ...row, nextAt: NEXT })).toBe(false);
+    expect(scheduleSpent({ ...row, paused: true })).toBe(false);
+    expect(scheduleSpent({ ...row, running: true })).toBe(false);
+    const on = { ...row, id: 't', nextAt: NEXT };
+    expect(schedulesSummary([on])).toBe('1 schedule');
+    expect(schedulesSummary([row, on])).toBe('2 schedules · 1 on');
+    expect(schedulesSummary([row])).toBe('1 schedule · 0 on');
+    expect(schedulesSummary(undefined)).toBe('');
   });
 
   it('the phone may run and pause them, and never create or edit one', () => {

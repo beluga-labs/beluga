@@ -4,6 +4,7 @@ import { chatMessageAsker, chatMessagePrompt } from '../src/core/chat-links/mess
 import { ChatSendService, type ChatSendDeps, type Delivered } from '../src/core/chat-links/service.js';
 import { type DomainState, Store, initialState } from '../src/core/store.js';
 import type { BodyOf } from '../src/protocol.js';
+import { wakeRefusal } from '../src/core/sentinel/wake.js';
 
 const ME = 'me-me-me-me-me-me-me-me-me-me-me0';
 const FRIEND = 'friend-friend-friend-friend-frie';
@@ -88,6 +89,13 @@ describe('ChatSendService.deliverFromSentinel', () => {
   it('refuses a chat another person shared with you', async () => {
     const { delivered, deliver } = setup({ state: { peers: [{ peerId: FRIEND, name: 'Friend' }] } });
     await expect(deliver(`${FRIEND}/ws:theirs`)).rejects.toThrow(/^not_yours:/);
+    expect(delivered).toHaveLength(0);
+  });
+
+  it('refuses a main checkout that moved to a chat shared with a contributor (the chat it lands in is checked)', async () => {
+    const { delivered, deliver } = setup({ state: { projects: [{ id: 'p1', name: 'Beluga', root: '/p', workspaces: [ws('main1', { kind: 'main', movedTo: 'tgt' }), ws('tgt')] }], members: { tgt: { [FRIEND]: 'contribute' } } } });
+    expect(wakeRefusal({ ...initialState('room'), selfId: ME, projects: [{ id: 'p1', name: 'Beluga', root: '/p', workspaces: [ws('main1', { kind: 'main', movedTo: 'tgt' }), ws('tgt')] }], members: { tgt: { [FRIEND]: 'contribute' } } } as unknown as DomainState, `${ME}/ws:main1`)).toMatch(/shared with a contributor/);
+    await expect(deliver(`${ME}/ws:main1`)).rejects.toThrow(/^shared_contributor:/);
     expect(delivered).toHaveLength(0);
   });
 

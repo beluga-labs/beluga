@@ -6,6 +6,7 @@ import { type InvitePlace, friendNamed, inviteRoute, namesLine, parseInvite } fr
 import { defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
 import { builtInInstead } from '../shared/skills.js';
+import { experimentOn } from '../shared/experiments.js';
 
 /**
  * "~/x" (or "~\\x" on Windows) from your home folder. No node:os here (the screens load this file):
@@ -139,8 +140,9 @@ export function runCommand(session: Session, name: string, args: readonly string
       return;
     case 'invite':
       return inviteCommand(session, args, channel);
-    // The Mac's message box opens its Schedule sheet itself (BLG-400); typed anywhere else it says where.
+    // The Mac's message box opens its Schedule sheet itself (BLG-400); typed anywhere else it says where, or what turns it on.
     case 'schedule':
+      if (!experimentOn(state.prefs.experiments, 'chat-schedules')) return session.toast('/schedule needs the Chat schedules experiment: turn it on in Settings › Experimental', 'info');
       return session.toast('/schedule opens its sheet in the Mac app, in a worktree, project or Your Mac chat', 'info');
     case 'btw': {
       const question = args.join(' ').trim();

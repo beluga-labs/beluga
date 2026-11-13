@@ -103,7 +103,9 @@ export class HostChatLinks {
     // One of your sentinels' prompts keeps its origin with chat links off too: its card and the chain guard need it.
     const keep = origin && ((on && (from === this.self || request.channel !== 'room')) || (origin.sentinel && from === this.self));
     const keepChain = chain && on && from === this.self;
-    return { ...rest, ...(keep ? { origin } : {}), ...(keepChain ? { chain } : {}) };
+    // Only this computer's own sentinels send as one: a peer's `sentinel` would make its words read as your user's.
+    const kept = keep && origin.sentinel && from !== this.self ? (({ sentinel: _, ...peer }) => peer)(origin) : origin;
+    return { ...rest, ...(keep ? { origin: kept } : {}), ...(keepChain ? { chain } : {}) };
   }
 
   /**

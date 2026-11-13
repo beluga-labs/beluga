@@ -90,6 +90,26 @@ describe('a moment in the past', () => {
   });
 });
 
+describe('turning on and changing a one-time trigger', () => {
+  it('turning one on after its moment is refused (it would never run)', () => {
+    let now = at - 3600_000;
+    const s = setup({ now: () => now });
+    const made = s.sentinels.create({ name: 'Later', trigger: once(), steps: [notify] });
+    now = at + 1000;
+    expect(() => s.sentinels.pause(made.id, false)).toThrow(/That moment has passed/);
+    expect(s.sentinels.get(made.id)!.paused).toBe(true);
+  });
+
+  it('after it ran, a change of `missed` alone is taken', () => {
+    let now = at - 3600_000;
+    const s = setup({ now: () => now });
+    const made = s.sentinels.create({ name: 'Later', trigger: once(), steps: [notify] });
+    now = at + 1000;
+    expect(s.sentinels.update(made.id, { trigger: once('skip') }).trigger).toEqual(once('skip'));
+    expect(() => s.sentinels.update(made.id, { trigger: { kind: 'once', at: '2026-11-12T13:00:00+01:00', missed: 'skip' } })).toThrow(/That moment has passed/);
+  });
+});
+
 describe('the sentence', () => {
   it('reads like "Once, Thu 12 Nov 14:00" in local time', () => {
     const local = new Date(2026, 10, 12, 14, 0).toISOString();

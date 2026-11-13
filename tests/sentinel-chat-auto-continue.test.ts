@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AutoContinue, resumeOf } from '../src/core/auto-continue.js';
 import { ChatSendService } from '../src/core/chat-links/service.js';
-import { CHAT_SCHEDULES_OFF, type SentinelWake } from '../src/core/sentinel/runner.js';
+import type { SentinelWake } from '../src/core/sentinel/runner.js';
 import type { SentinelDraft } from '../src/core/sentinel/model.js';
 import { wakeRefusal } from '../src/core/sentinel/wake.js';
 import { type DomainState, Store, initialState } from '../src/core/store.js';
@@ -146,14 +146,19 @@ describe('the chat-schedules switch', () => {
     w.auto.stop();
   });
 
-  it('turned off: the run is refused and nothing reaches the chat', async () => {
+  it('turned off: nothing runs, nothing is counted against it; turned back on, the next 9:00 wakes the chat', async () => {
     const w = world();
     const id = w.schedule({ kind: 'schedule', every: 'day', at: '09:00', missed: 'skip' });
-    w.store.dispatch({ type: 'prefs', prefs: { ...w.store.getState().prefs, experiments: withExperiment([], 'chat-schedules', false) } } as never);
+    const prefs = (experiments: string[]) => w.store.dispatch({ type: 'prefs', prefs: { ...w.store.getState().prefs, experiments } } as never);
+    prefs(withExperiment([], 'chat-schedules', false));
     await w.at(new Date(2026, 10, 12, 9, 0, 20).getTime());
-    await until(() => w.runsOf(id)[0]?.state === 'failed');
-    expect(w.runsOf(id)[0]!.why).toBe(CHAT_SCHEDULES_OFF);
+    expect(w.s.sentinels.runsOf(id)).toHaveLength(0);
     expect(w.prompts).toHaveLength(0);
+    expect(w.s.sentinels.get(id)).toMatchObject({ paused: false, failures: 0 });
+    prefs([]);
+    await w.at(new Date(2026, 10, 13, 9, 0, 20).getTime());
+    await until(() => w.runsOf(id).some((r) => r.state === 'done'));
+    expect(w.prompts).toHaveLength(1);
     w.s.sentinels.stopAll();
     w.auto.stop();
   });

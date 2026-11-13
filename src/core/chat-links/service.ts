@@ -9,6 +9,7 @@ import { type GuardRefusal, type GuardState, NO_SENDS, checkSend, checkSentOn, r
 import { oneLine } from '../gateway/result.js';
 import { type ResolvedChat, resolveChat } from './resolve.js';
 import { REFUSAL_WORDS, refOf } from './transcript.js';
+import { wakeRefusal } from '../sentinel/wake.js';
 
 /**
  * Agents sending to your own chats: who may send (access.ts), what the target's state means, the
@@ -16,7 +17,7 @@ import { REFUSAL_WORDS, refOf } from './transcript.js';
  * message's request id is its message id, and its card says how it is.
  */
 
-export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'offline' | 'mode_wider' | 'not_delivered' | 'chain_stopped' | 'requester_refused' | 'not_addressable' | 'view_only' | 'not_yours';
+export type SendRefusal = GuardRefusal | 'chat_archived' | 'not_found' | 'chat_loading' | 'terminal_driving' | 'source_not_addressable' | 'offline' | 'mode_wider' | 'not_delivered' | 'chain_stopped' | 'requester_refused' | 'not_addressable' | 'view_only' | 'not_yours' | 'shared_contributor';
 
 /** How a message reached its chat. `readBy`: a steered message's answer comes from that run. */
 export interface Delivered {
@@ -111,6 +112,7 @@ const WORDS: Readonly<Record<SendRefusal, string>> = {
   target_rate: 'that chat got too many messages in a short time. Stop sending and end your turn.',
   queue_full: 'too many messages wait at that chat already.',
   not_yours: 'a sentinel sends only to your own chats, not to a chat another person shared with you.',
+  shared_contributor: 'that chat is shared with a contributor, and a sentinel wakes only a chat that is yours alone.',
 };
 
 const BELUGA_AGENT: AgentRef = { runtime: 'beluga', label: 'Beluga' };
@@ -232,6 +234,8 @@ export class ChatSendService {
     const self = this.deps.selfId();
     const { chat, remote, target } = this.targetOf(state, self, delivery.channel.includes('/') ? delivery.channel : `${self}/${delivery.channel}`);
     if (remote) throw refused('not_yours');
+    // The chat it lands in must be yours alone (a main checkout's moved-to chat too): the sentinel's checks named the ref.
+    if (wakeRefusal(state, target)) throw refused('shared_contributor');
     const source = `sentinel:${delivery.sentinel.id}`;
     const chainId = `${source}:${delivery.run}`;
     if (this.stopped.has(chainId)) throw refused('chain_stopped');
