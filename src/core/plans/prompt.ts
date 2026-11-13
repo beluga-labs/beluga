@@ -130,18 +130,18 @@ export function taskTestsNote(plan: Pick<Plan, 'testsAt'>): string {
 
 /** What a milestone's check runs, by the plan's test timing (and whether it's the last milestone). */
 /**
- * Why plan checks got stuck: a check ran the e2e in the background and ended its turn waiting to be
- * woken (ScheduleWakeup). Nothing wakes a run whose turn ended, and what it started is stopped.
- */
-/**
  * What a task's agent does when only the user can unblock it (a step on their server or an account,
  * a secret, a choice): ask, with a card that waits for them (their phone too) and whose answer comes
  * back in the same turn. A request written out and the turn ended reads as stopping: Beluga wakes it,
- * then shows it as stopped with only Resume (TRC-151 asked for a .env that way, again and again).
+ * then shows it as stopped with only Resume (a task that needed a .env on the user's server looped so).
  */
 export const ASK_YOU =
   'Only the user can do or decide it (a step on their server or an account, a secret, a choice): ask them with AskUserQuestion, with options to pick ("Done", "Done, but somewhere else: …", "Not now"). It shows them a card, on their phone too, and their answer comes back to you in this turn. Never end your turn with the request written out instead: that reads as stopping, and you are only woken again.';
 
+/**
+ * Why plan checks got stuck: a check ran the e2e in the background and ended its turn waiting to be
+ * woken (ScheduleWakeup). Nothing wakes a run whose turn ended, and what it started is stopped.
+ */
 export const WAIT_IN_TURN =
   'Everything you start ends with your turn, and nothing wakes you afterwards (no ScheduleWakeup, no waiting for a notification): run each command to the end inside this turn. In the foreground (Bash timeout up to 600000 ms); a longer one in the background with a log, waited on in foreground steps of under 10 minutes until it is done.';
 
