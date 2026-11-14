@@ -128,42 +128,49 @@
 .flex {
   flex: 1;
 }
+/* A sheet's or an alert's push buttons (NSButton): the control colours of tokens.css at AppKit's regular size. */
 .button {
-  min-width: 78px;
-  height: 26px;
-  padding: 0 13px;
-  border-radius: 6px;
-  background: var(--bg-raised);
-  box-shadow: 0 0 0 0.5px var(--hairline-strong), 0 0.5px 1px rgba(0, 0, 0, 0.07);
-  font-weight: 500;
+  min-width: 76px;
+  height: var(--control-h);
+  padding: 0 12px;
+  border-radius: var(--control-radius);
+  background: linear-gradient(var(--control-top), var(--control));
+  box-shadow: var(--control-bezel);
+  font-weight: 400;
   white-space: nowrap;
   transition: background var(--dur-fast);
 }
-:global([data-theme='dark']) .button:not(.default) {
-  background: color-mix(in srgb, var(--bg-raised) 80%, white);
-}
-.button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--bg-raised) 92%, var(--text));
+.button:active:not(:disabled) {
+  background: var(--control-press);
 }
 .button:disabled {
-  opacity: 0.45;
+  opacity: var(--control-disabled);
 }
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 0.5px var(--control-edge), var(--focus-ring);
+}
+/* The default button (Return): the accent, rising toward its top, a lit upper edge. */
 .default {
-  background: var(--accent);
-  color: white;
-  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.15), inset 0 0.5px 0 rgba(255, 255, 255, 0.18);
+  background: linear-gradient(var(--control-accent-top), var(--control-accent));
+  color: var(--on-accent);
+  box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop), var(--control-accent-sheen);
 }
-.default:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, black);
+.default:active:not(:disabled) {
+  background: color-mix(in srgb, var(--control-accent) 86%, var(--text));
+}
+/* While the window isn't key the default button is drawn as any other, as AppKit's is. */
+:global(:root[data-window='idle']) .default:not(.destructive) {
+  background: linear-gradient(var(--control-top), var(--control));
+  color: var(--text);
+  box-shadow: var(--control-bezel);
 }
 .destructive {
-  background: var(--error);
+  background: linear-gradient(color-mix(in srgb, var(--error) 84%, var(--control-lift)), var(--error));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--error) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
 }
-:global([data-theme='dark']) .destructive {
-  background: #d9483f;
-}
-.destructive:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 88%, black);
+.destructive:active:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 86%, var(--text));
 }
 .destructiveText {
   color: var(--error);
@@ -183,17 +190,17 @@
   height: 14px;
   margin: 1.5px 0 0;
   border-radius: 3.5px;
-  background: var(--bg-raised);
-  box-shadow: inset 0 0 0 0.5px var(--hairline-strong), 0 0.5px 1px rgba(0, 0, 0, 0.08);
+  background: linear-gradient(var(--control-top), var(--control));
+  box-shadow: inset 0 0 0 0.5px var(--control-edge), 0 0 0 0.5px var(--control-edge), var(--control-drop), var(--control-sheen);
   appearance: none;
   transition: background var(--dur-fast);
 }
-:global([data-theme='dark']) .box {
-  background: color-mix(in srgb, var(--bg-raised) 80%, white);
-}
 .box:checked {
-  background: var(--accent);
-  box-shadow: none;
+  background: linear-gradient(var(--control-accent-top), var(--control-accent));
+  box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop), var(--control-accent-sheen);
+}
+.box:active {
+  filter: brightness(0.94);
 }
 .box:checked::after {
   content: '';
@@ -202,13 +209,13 @@
   top: 1.5px;
   width: 3.5px;
   height: 7.5px;
-  border: solid white;
+  border: solid var(--on-accent);
   border-width: 0 1.6px 1.6px 0;
   transform: rotate(42deg);
 }
 .box:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 0.5px var(--control-edge), var(--focus-ring);
 }
 .checkText {
   display: flex;
