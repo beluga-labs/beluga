@@ -13,7 +13,7 @@
   background: linear-gradient(var(--control-top), var(--control));
   box-shadow: var(--control-bezel);
   color: var(--text);
-  font-size: var(--text-size);
+  font-size: var(--control-text);
   text-align: left;
   white-space: nowrap;
   transition: background var(--dur-fast), box-shadow var(--dur-fast);
@@ -33,7 +33,15 @@
   height: var(--control-h-small);
   gap: 5px;
   padding: 0 3px 0 7px;
-  font-size: 0.92rem;
+  border-radius: var(--control-radius-small);
+  font-size: var(--control-text-small);
+}
+.large {
+  height: var(--control-h-large);
+  gap: 7px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--control-radius-large);
+  font-size: var(--control-text-large);
 }
 .full {
   display: flex;

@@ -3,7 +3,7 @@ import { type ButtonHTMLAttributes, type KeyboardEvent, type PointerEvent, type 
 import { SelectMenu } from './SelectMenu.js';
 import { SEARCH_THRESHOLD, flatOptions, typeahead, wantsSearch } from './select-model.js';
 import { OptionIcon, type SelectEntry, useTypeahead } from './select-parts.js';
-import { cx } from './ui.js';
+import { type ControlSize, cx } from './ui.js';
 import s from './select.module.css';
 
 export { SEARCH_THRESHOLD } from './select-model.js';
@@ -21,7 +21,8 @@ export interface SelectProps<T extends string> extends TriggerProps {
   readonly label: string;
   /** Shown when the value isn't one of the options. */
   readonly placeholder?: string;
-  readonly size?: 'regular' | 'small';
+  /** docs/mac-controls.md: regular in content, small in dense rows and panels, large in the toolbar. */
+  readonly size?: ControlSize;
   /** 'fit': as wide as its longest option (like a Mac pop-up button); 'full': the row's width. */
   readonly width?: 'fit' | 'full';
   /** Monospaced (branches, paths). */
@@ -131,7 +132,7 @@ export function Select<T extends string>(props: SelectProps<T>) {
           data-value={value}
           data-select-trigger=""
           disabled={disabled}
-          className={cx(s.trigger, size === 'small' && s.small, width === 'full' && s.full, mono && s.mono, !current && s.placeholder, className)}
+          className={cx(s.trigger, size === 'small' && s.small, size === 'large' && s.large, width === 'full' && s.full, mono && s.mono, !current && s.placeholder, className)}
           onKeyDown={keyDown}
           onPointerDown={pointerDown}
           onClick={(e) => {

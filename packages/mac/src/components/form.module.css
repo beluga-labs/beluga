@@ -148,10 +148,10 @@
   line-height: 1.45;
   resize: vertical;
 }
-/* Code in a field: the monospaced face a point under the system text, as Xcode's fields. */
+/* Code in a field: the monospaced face a pixel under the system text, as Xcode's fields. */
 .mono {
   font-family: var(--font-mono);
-  font-size: calc(var(--text-size) - 1px);
+  font-size: calc(var(--control-text) - 1px);
 }
 /* The FormSheet's pop-up (a Select): at least as wide as a short field. */
 .popup {

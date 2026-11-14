@@ -15,11 +15,12 @@ const strip = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const CONTROL = /--(?:control[\w-]*|text-bg|on-accent|focus-ring|segment-[\w-]+)\b/g;
 
 const tokens = strip(read('styles', 'tokens.css'));
-/** The rule for `selector` whose first line declares `first` (tokens.css has several `:root` rules). */
+/** The rule for `selector` that declares `first` (tokens.css has several `:root` rules). */
 const block = (selector: string, first = ''): string => {
-  const at = tokens.indexOf(`${selector} {${first ? `\n  ${first}:` : ''}`);
-  expect(at, selector).toBeGreaterThanOrEqual(0);
-  return tokens.slice(at, tokens.indexOf('}', at));
+  const rules = tokens.split(`${selector} {`).slice(1).map((rest) => rest.slice(0, rest.indexOf('}')));
+  const rule = rules.find((body) => !first || new RegExp(`^\\s*${first}:`, 'm').test(body));
+  expect(rule, `${selector} with ${first}`).toBeDefined();
+  return rule!;
 };
 const defined = new Set([...tokens.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]!));
 
@@ -44,6 +45,32 @@ describe('the control tokens', () => {
     const lines = tokens.split('\n').filter((l) => /^\s*--(?:control|text-bg|on-accent|focus-ring|segment-)/.test(l));
     expect(lines.length).toBeGreaterThan(20);
     for (const line of lines) expect(line).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|\b(?:white|black)\b/i);
+  });
+
+  it('come in the three sizes of docs/mac-controls.md, each one height, text and corner', () => {
+    const base = block(':root', '--control-h-large');
+    const px = (name: string): number => Number(new RegExp(`${name}:\\s*(\\d+)px`).exec(base)?.[1]);
+    expect([px('--control-h-small'), px('--control-h'), px('--control-h-large')]).toEqual([20, 22, 28]);
+    expect([px('--control-text-small'), px('--control-text'), px('--control-text-large')]).toEqual([12, 13, 13]);
+    expect([px('--control-radius-small'), px('--control-radius'), px('--control-radius-large')]).toEqual([4, 5, 7]);
+    // No text under 12px (Chinese doesn't read there), so no mini size.
+    expect(tokens).not.toContain('--control-h-mini');
+    const doc = readFileSync(path.join('docs', 'mac-controls.md'), 'utf8');
+    for (const row of ['| **Large** | 28px | 13px | 7px', '| **Regular** (default) | 22px | 13px | 5px', '| **Small** | 20px | 12px | 4px']) expect(doc).toContain(row);
+  });
+
+  it('give each size a class to the shared controls that take one', () => {
+    const ui = read('components', 'ui.module.css');
+    for (const sel of ['.small', '.large', '.segmentedSmall .segment', '.segmentedLarge .segment']) expect(ui).toContain(`\n${sel} {`);
+    const select = read('components', 'select.module.css');
+    for (const sel of ['.small', '.large']) expect(select).toContain(`\n${sel} {`);
+    expect(read('components', 'ui.tsx')).toContain("export type ControlSize = 'small' | 'regular' | 'large';");
+  });
+
+  it('draw Simplified Chinese in its own face', () => {
+    const zh = block(':root:lang(zh-CN)');
+    expect(zh.indexOf("'PingFang SC'")).toBeGreaterThan(0);
+    expect(zh.indexOf("'PingFang SC'")).toBeLessThan(zh.indexOf('system-ui'));
   });
 
   it('lose the accent while the window isn’t key', () => {

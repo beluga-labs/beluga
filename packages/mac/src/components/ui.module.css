@@ -4,17 +4,26 @@
   align-items: center;
   gap: 6px;
   height: var(--control-h);
-  padding: 0 11px;
+  padding: 0 12px;
   border-radius: var(--control-radius);
-  font-size: var(--text-size);
+  font-size: var(--control-text);
   font-weight: 400;
   white-space: nowrap;
   transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
 }
 .small {
+  gap: 5px;
   height: var(--control-h-small);
   padding: 0 8px;
-  font-size: 0.92rem;
+  border-radius: var(--control-radius-small);
+  font-size: var(--control-text-small);
+}
+.large {
+  gap: 7px;
+  height: var(--control-h-large);
+  padding: 0 16px;
+  border-radius: var(--control-radius-large);
+  font-size: var(--control-text-large);
 }
 .plain {
   background: linear-gradient(var(--control-top), var(--control));
@@ -148,13 +157,31 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: var(--control-h-small);
+  height: calc(var(--control-h) - 2px);
   padding: 0 12px;
   border-radius: var(--control-radius);
   color: var(--text);
-  font-size: var(--text-size);
+  font-size: var(--control-text);
   font-weight: 400;
   transition: background var(--dur-fast), color var(--dur-fast);
+}
+.segmentedSmall {
+  border-radius: calc(var(--control-radius-small) + 1px);
+}
+.segmentedSmall .segment {
+  height: calc(var(--control-h-small) - 2px);
+  padding: 0 9px;
+  border-radius: var(--control-radius-small);
+  font-size: var(--control-text-small);
+}
+.segmentedLarge {
+  border-radius: calc(var(--control-radius-large) + 1px);
+}
+.segmentedLarge .segment {
+  height: calc(var(--control-h-large) - 2px);
+  padding: 0 14px;
+  border-radius: var(--control-radius-large);
+  font-size: var(--control-text-large);
 }
 .segment + .segment::before {
   content: '';

@@ -10,9 +10,17 @@ import s from './ui.module.css';
 const cx = (...c: Array<string | false | undefined | null>): string => c.filter(Boolean).join(' ');
 export { cx };
 
+/**
+ * A control's size (docs/mac-controls.md): regular in a window's content, small inside dense
+ * content (rows, cards, panels), large for a screen's one main action and the window's toolbar.
+ */
+export type ControlSize = 'small' | 'regular' | 'large';
+const SIZE_CLASS = { small: s.small, regular: undefined, large: s.large } as const;
+const ICON_SIZE = { small: 12, regular: 14, large: 16 } as const;
+
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   readonly variant?: 'plain' | 'primary' | 'quiet' | 'danger' | 'merge';
-  readonly size?: 'small' | 'regular';
+  readonly size?: ControlSize;
   readonly icon?: IconName;
   readonly tone?: 'error' | 'ok' | 'info';
 };
@@ -20,8 +28,8 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 /** A push button. `quiet`: toolbar style, no fill until hovered. */
 export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ variant = 'plain', size = 'regular', icon, tone, className, children, ...rest }, ref) {
   return (
-    <button ref={ref} type="button" className={cx(s.button, s[variant], size === 'small' && s.small, tone && s[`tone_${tone}`], className)} {...rest}>
-      {icon ? <Icon name={icon} size={size === 'small' ? 13 : 14} /> : null}
+    <button ref={ref} type="button" className={cx(s.button, s[variant], SIZE_CLASS[size], tone && s[`tone_${tone}`], className)} {...rest}>
+      {icon ? <Icon name={icon} size={ICON_SIZE[size]} /> : null}
       {children ? <span>{children}</span> : null}
     </button>
   );
@@ -62,15 +70,15 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTM
  */
 /** `radio`: a choice of how to show one thing (a radio group), not tabs of their own. */
 /** `count`: a number after the label, in a quieter tone (`data-count`, so a narrow toolbar can drop it). */
-export function Segmented<T extends string>({ value, options, onChange, label, iconOnly, radio }: { value: T; options: ReadonlyArray<{ value: T; label: string; hint?: string; icon?: IconName; keys?: string; count?: number }>; onChange: (v: T) => void; label: string; iconOnly?: boolean; radio?: boolean }) {
+export function Segmented<T extends string>({ value, options, onChange, label, iconOnly, radio, size = 'regular' }: { value: T; options: ReadonlyArray<{ value: T; label: string; hint?: string; icon?: IconName; keys?: string; count?: number }>; onChange: (v: T) => void; label: string; iconOnly?: boolean; radio?: boolean; size?: ControlSize }) {
   return (
-    <div className={s.segmented} role={radio ? 'radiogroup' : 'tablist'} aria-label={label}>
+    <div className={cx(s.segmented, size === 'small' && s.segmentedSmall, size === 'large' && s.segmentedLarge)} role={radio ? 'radiogroup' : 'tablist'} aria-label={label}>
       {options.map((o) => {
         const bare = iconOnly && o.icon;
         return (
           <Tip key={o.value} label={bare ? `${o.label}${o.hint ? ` · ${o.hint}` : ''}` : (o.hint ?? o.label)} {...(o.keys ? { keys: o.keys } : {})}>
             <button type="button" role={radio ? 'radio' : 'tab'} aria-label={bare ? o.label : o.count ? `${o.label} ${o.count}` : undefined} {...(radio ? { 'aria-checked': o.value === value } : { 'aria-selected': o.value === value })} className={cx(s.segment, o.value === value && s.segmentOn, bare && s.segmentIcon)} onClick={() => onChange(o.value)}>
-              {o.icon ? <Icon name={o.icon} size={13} /> : null}
+              {o.icon ? <Icon name={o.icon} size={size === 'small' ? 12 : 13} /> : null}
               {bare ? null : o.label}
               {bare || !o.count ? null : (
                 <span className={s.segmentCount} data-count="">
