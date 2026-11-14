@@ -80,7 +80,7 @@ export function PlanPage({ id, task }: { id: string; task?: string }) {
   useEffect(() => {
     if (picked && view && picked !== FEED && picked !== BRANCH && picked !== DECISIONS && !picked.startsWith('gate:') && !view.milestones.some((m) => m.tasks.some((t) => t.task.id === picked))) setPicked(undefined);
   }, [view, picked]);
-  if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={<Button onClick={() => openList()}>Back to Plans</Button>} />;
+  if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={<Button size="small" onClick={() => openList()}>Back to Plans</Button>} />;
   return <Page view={view} prefs={prefs} setPrefs={setPrefs} picked={picked} setPicked={setPicked} />;
 }
 
@@ -354,7 +354,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
       <header className={p.pageHead}>
         <div className={p.headMain}>
           <div className={p.titleRow}>
-            <IconButton icon="back" label="All Plans" className={p.back} onClick={() => openList(plan.projectId)} />
+            <IconButton size="small" icon="back" label="All Plans" className={p.back} onClick={() => openList(plan.projectId)} />
             <TitleField value={titleOf(plan)} onSave={(title) => void act(() => api.edit(plan.id, [{ op: 'retitle', title }]))} />
           </div>
           {drafting ? null : (
@@ -385,7 +385,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
             </Button>
           </Tip>
           <ActionsDropdown items={more}>
-            <IconButton icon="more" label="Plan Options" />
+            <IconButton size="small" icon="more" label="Plan Options" />
           </ActionsDropdown>
           {primary?.with && !primary.busy ? (
             <SplitButton label={primary.with.label} items={primary.with.items}>
@@ -442,7 +442,7 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
         <div className={p.stage}>
           <div className={p.stageTools}>
             {drafting ? null : (
-              <Segmented<Display>
+              <Segmented<Display> size="small"
                 label="Show"
                 value={prefs.display}
                 onChange={(display) => setPrefs((l) => ({ ...l, display }))}

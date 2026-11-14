@@ -199,7 +199,7 @@ function Header({ model }: { model: HomeModel }) {
       </div>
       {/* Its settings (General, Environment, Worktrees), in one sheet (BLG-926). */}
       {project.root ? (
-        <IconButton
+        <IconButton size="small"
           icon="gear"
           label="Project Settings…"
           className={s.settingsButton}
@@ -460,7 +460,7 @@ function HomeComposer({ project }: { project: Project }) {
       {att.dropTarget}
       <div className={s.composerHead}>
         <h2 className={s.prompt}>What do you want to do in {project.name}?</h2>
-        <Segmented<Mode>
+        <Segmented<Mode> size="small"
           label="How to start"
           value={mode}
           onChange={(m) => {

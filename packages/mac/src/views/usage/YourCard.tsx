@@ -213,10 +213,10 @@ export function YourCard({ state, stats, now }: { state: AppState; stats: StatsS
           </div>
         ) : null}
         <div className={s.foot}>
-          <Button variant="primary" icon="play" onClick={() => setRecap(true)}>
+          <Button size="small" variant="primary" icon="play" onClick={() => setRecap(true)}>
             Play Your Recap
           </Button>
-          <Button variant="plain" icon="share" onClick={() => setSharing(true)} disabled={!faces}>
+          <Button size="small" variant="plain" icon="share" onClick={() => setSharing(true)} disabled={!faces}>
             Share…
           </Button>
           <span className={s.since}>

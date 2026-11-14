@@ -117,4 +117,7 @@ move in steps, each a PR that changes no behaviour:
 3. Sheets with their own controls (`dialogs/native/*`, the new-task and new-plan sheets) to Regular:
    their fields, segmented controls and bottom buttons, and a button beside a field. Done; a
    row's own actions in a sheet's list stay Small.
-4. Lists, cards and the conversation's own buttons to Small.
+4. Lists, cards and the conversation's own buttons to Small. Done: every `Button`, `IconButton`,
+   `Select` and `Segmented` outside Settings, sheets, onboarding, calls and the phone view now names
+   its size; the Overview's filter bar and the sentinel page's pickers moved too. Two designs keep
+   their own shape on purpose: the composer (its chips and round send button) and the stat pills.

@@ -250,7 +250,7 @@ export function PlanChat({
         ) : null}
         <span className={p.grow} />
         {wsId ? (
-          <IconButton
+          <IconButton size="small"
             icon="expand"
             label="Open the Whole Conversation"
             onClick={() =>
@@ -258,7 +258,7 @@ export function PlanChat({
             }
           />
         ) : null}
-        <IconButton icon="x" label="Hide the Conversation" onClick={onClose} />
+        <IconButton size="small" icon="x" label="Hide the Conversation" onClick={onClose} />
       </header>
       <div className={p.chatLog}>
         {/* A narrow pane: what you asked first folds to a few lines, so the conversation reads from the top; while the plan is being written, the line under it is Claude's one status. */}
