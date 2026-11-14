@@ -75,7 +75,7 @@ function Milestone({ view, plan, m, keys, marks, selected, onSelect, startable }
           {m.state === 'draft' ? `${m.milestone.tasks.length} tasks` : `${m.finished}/${m.total}`}
         </span>
         <ActionsDropdown items={menu}>
-          <IconButton icon="more" label={`${m.milestone.title} Options`} />
+          <IconButton size="small" icon="more" label={`${m.milestone.title} Options`} />
         </ActionsDropdown>
       </header>
       {m.milestone.goal ? <p className={p.oGoal}>{m.milestone.goal}</p> : null}

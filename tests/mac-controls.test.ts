@@ -103,6 +103,19 @@ describe('the control tokens', () => {
     ] as const) expect(read(...file.split('/')), file).toContain(tag);
   });
 
+  it('give lists, cards and the conversation Small controls (step 4)', () => {
+    const bar = strip(read('views', 'overview', 'filter-bar.module.css'));
+    for (const sel of ['popup', 'field']) expect(bar).toMatch(new RegExp(`\\n\\.${sel} \\{[^}]*height: var\\(--control-h-small\\)`));
+    expect(bar).toMatch(/\n\.segment \{[^}]*height: calc\(var\(--control-h-small\) - 2px\)/);
+    // A small icon button keeps its square in a tight row.
+    expect(strip(read('components', 'ui.module.css'))).toMatch(/\.iconSmall \{\s*flex: none;/);
+    for (const file of ['chat/Attention.tsx', 'tasks/TaskPage.tsx', 'sentinel/SentinelCards.tsx', 'views/Overview.tsx']) {
+      const tags = [...read(...file.split('/')).matchAll(/<(?:Button|IconButton)\b[^>]*/g)].map((m) => m[0]);
+      expect(tags.length, file).toBeGreaterThan(0);
+      for (const tag of tags) expect(tag, file).toMatch(/\bsize="(?:small|large)"/);
+    }
+  });
+
   it('lose the accent while the window isn’t key', () => {
     expect(block(":root[data-window='idle']")).toContain('--control-accent:');
   });

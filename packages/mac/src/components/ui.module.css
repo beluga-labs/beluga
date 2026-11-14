@@ -98,6 +98,11 @@
   color: var(--text-2);
   transition: background var(--dur-fast), color var(--dur-fast);
 }
+.iconLarge,
+.iconRegular,
+.iconSmall {
+  flex: none;
+}
 .iconLarge {
   width: var(--control-h-large);
   height: var(--control-h-large);
