@@ -114,5 +114,7 @@ move in steps, each a PR that changes no behaviour:
    tokens and the Chinese face. Done with this page.
 2. The title row (window toolbar, the sidebar's buttons and search, the panel's view switcher) to
    Large; the right panel's and the dock's own toolbars and tabs to Small. Done.
-3. Sheets with their own controls (`dialogs/native/*`, the new-task and new-plan sheets) to Regular.
+3. Sheets with their own controls (`dialogs/native/*`, the new-task and new-plan sheets) to Regular:
+   their fields, segmented controls and bottom buttons, and a button beside a field. Done; a
+   row's own actions in a sheet's list stay Small.
 4. Lists, cards and the conversation's own buttons to Small.

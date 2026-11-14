@@ -87,6 +87,22 @@ describe('the control tokens', () => {
     expect(panel).toMatch(/\.dockTabs \.tab \{[^}]*height: var\(--control-h-small\)/);
   });
 
+  it('give sheets Regular fields and buttons (step 3)', () => {
+    const sheets = ['dialogs/native/sharing.module.css', 'dialogs/env-settings.module.css', 'dialogs/add-project.module.css'];
+    for (const file of sheets) {
+      const css = strip(read(...file.split('/')));
+      expect(css, file).toContain('height: var(--control-h)');
+      expect(css, file).not.toMatch(/\n\.(?:input|key|filter|path|nameInput|search)\b[^{]*\{[^}]*height:\s*\d+px/);
+    }
+    // A sheet's or a popover's bottom buttons, and a button beside a field, are Regular.
+    for (const [file, tag] of [
+      ['dialogs/native/MergeReview.tsx', '<Button variant="merge" icon="merge"'],
+      ['dialogs/native/WorkConfirm.tsx', '<Button ref={start} variant="primary"'],
+      ['dialogs/AddProjectSheet.tsx', '<Button type="submit"'],
+      ['dialogs/EnvironmentSettings.tsx', '<Button icon={result'],
+    ] as const) expect(read(...file.split('/')), file).toContain(tag);
+  });
+
   it('lose the accent while the window isn’t key', () => {
     expect(block(":root[data-window='idle']")).toContain('--control-accent:');
   });
