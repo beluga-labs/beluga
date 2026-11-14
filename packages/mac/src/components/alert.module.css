@@ -142,7 +142,7 @@
   transition: background var(--dur-fast);
 }
 .button:active:not(:disabled) {
-  background: var(--control-press);
+  background: linear-gradient(var(--control-press), var(--control-press));
 }
 .button:disabled {
   opacity: var(--control-disabled);
@@ -158,7 +158,7 @@
   box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop), var(--control-accent-sheen);
 }
 .default:active:not(:disabled) {
-  background: color-mix(in srgb, var(--control-accent) 86%, var(--text));
+  background: linear-gradient(color-mix(in srgb, var(--control-accent) 86%, var(--text)), color-mix(in srgb, var(--control-accent) 86%, var(--text)));
 }
 /* While the window isn't key the default button is drawn as any other, as AppKit's is. */
 :global(:root[data-window='idle']) .default:not(.destructive) {
@@ -171,7 +171,7 @@
   box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--error) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
 }
 .destructive:active:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 86%, var(--text));
+  background: linear-gradient(color-mix(in srgb, var(--error) 86%, var(--text)), color-mix(in srgb, var(--error) 86%, var(--text)));
 }
 .destructiveText {
   color: var(--error);

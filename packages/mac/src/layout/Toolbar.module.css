@@ -166,11 +166,19 @@
 .primary[aria-disabled='true'] {
   opacity: 0.45;
 }
+/* A primary action that failed: the whole bezel in the error colour (doubled: above .primary's states). */
 .primaryError {
-  background: var(--error);
+  --tint: var(--error);
 }
-.primaryError:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 88%, black);
+.primaryError.primaryError {
+  background: linear-gradient(color-mix(in srgb, var(--tint) 84%, var(--control-lift)), var(--tint));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--tint) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
+}
+.primaryError.primaryError:active:not(:disabled) {
+  background: linear-gradient(color-mix(in srgb, var(--tint) 86%, var(--text)), color-mix(in srgb, var(--tint) 86%, var(--text)));
+}
+.primaryError.primaryError:focus-visible {
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--tint) 70%, var(--text)), var(--focus-ring);
 }
 .tools {
   display: inline-flex;

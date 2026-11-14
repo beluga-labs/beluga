@@ -20,7 +20,7 @@
 }
 .trigger:active:not(:disabled),
 .trigger[aria-expanded='true'] {
-  background: var(--control-press);
+  background: linear-gradient(var(--control-press), var(--control-press));
 }
 .trigger:focus-visible {
   outline: none;

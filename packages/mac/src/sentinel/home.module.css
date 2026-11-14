@@ -110,7 +110,7 @@
 }
 .pick[data-state='open'],
 .pick:active {
-  background: var(--control-press);
+  background: linear-gradient(var(--control-press), var(--control-press));
 }
 .count {
   color: var(--text-3);

@@ -30,7 +30,7 @@
   box-shadow: var(--control-bezel);
 }
 .plain:active:not(:disabled) {
-  background: var(--control-press);
+  background: linear-gradient(var(--control-press), var(--control-press));
 }
 .primary {
   background: linear-gradient(var(--control-accent-top), var(--control-accent));
@@ -38,7 +38,13 @@
   box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop), var(--control-accent-sheen);
 }
 .primary:active:not(:disabled) {
-  background: color-mix(in srgb, var(--control-accent) 86%, var(--text));
+  background: linear-gradient(color-mix(in srgb, var(--control-accent) 86%, var(--text)), color-mix(in srgb, var(--control-accent) 86%, var(--text)));
+}
+/* While the window isn't key a primary button is drawn as any other, as alert.module.css's default is. */
+:global(:root[data-window='idle']) .primary {
+  background: linear-gradient(var(--control-top), var(--control));
+  color: var(--text);
+  box-shadow: var(--control-bezel);
 }
 /* Merging changes your main branch: green, as GitHub's Merge, and never the everyday blue. */
 .merge {
@@ -47,7 +53,7 @@
   box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--merge) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
 }
 .merge:active:not(:disabled) {
-  background: color-mix(in srgb, var(--merge) 86%, black);
+  background: linear-gradient(color-mix(in srgb, var(--merge) 86%, black), color-mix(in srgb, var(--merge) 86%, black));
 }
 .merge:disabled {
   background: color-mix(in srgb, var(--merge) 40%, var(--bg-hover));
@@ -68,7 +74,7 @@
   box-shadow: var(--control-bezel);
 }
 .danger:active:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 12%, var(--control));
+  background: linear-gradient(color-mix(in srgb, var(--error) 12%, var(--control)), color-mix(in srgb, var(--error) 12%, var(--control)));
 }
 .button:disabled {
   opacity: var(--control-disabled);

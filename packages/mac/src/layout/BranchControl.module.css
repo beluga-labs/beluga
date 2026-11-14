@@ -87,15 +87,21 @@
   width: 1px;
   background: color-mix(in srgb, var(--on-accent) 35%, transparent);
 }
+/* A step that failed, or a merged branch: the whole bezel in that colour, pressed and focused too
+   (doubled classes: above ui.module.css's .primary and its :active, whatever order they load in). */
 .mainError {
-  background: var(--error);
-}
-.mainError:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 88%, black);
+  --tint: var(--error);
 }
 .mainMerged {
-  background: var(--merged);
+  --tint: var(--merged);
 }
-.mainMerged:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--merged) 88%, black);
+:is(.mainError, .mainMerged):is(.mainError, .mainMerged) {
+  background: linear-gradient(color-mix(in srgb, var(--tint) 84%, var(--control-lift)), var(--tint));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--tint) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
+}
+:is(.mainError, .mainMerged):is(.mainError, .mainMerged):active:not(:disabled) {
+  background: linear-gradient(color-mix(in srgb, var(--tint) 86%, var(--text)), color-mix(in srgb, var(--tint) 86%, var(--text)));
+}
+:is(.mainError, .mainMerged):is(.mainError, .mainMerged):focus-visible {
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--tint) 70%, var(--text)), var(--focus-ring);
 }

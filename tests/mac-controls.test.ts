@@ -116,6 +116,18 @@ describe('the control tokens', () => {
     }
   });
 
+  it('draw a tinted primary (failed, merged) in its tint when pressed and focused too', () => {
+    for (const [file, sel] of [
+      ['layout/BranchControl.module.css', ':is(.mainError, .mainMerged):is(.mainError, .mainMerged)'],
+      ['layout/Toolbar.module.css', '.primaryError.primaryError'],
+    ] as const) {
+      const css = strip(read(...file.split('/')));
+      for (const state of ['', ':active:not(:disabled)', ':focus-visible']) expect(css, file).toContain(`${sel}${state} {`);
+      expect(css, file).not.toMatch(/Error:hover|Merged:hover/);
+    }
+    expect(strip(read('components', 'ui.module.css'))).toContain(":global(:root[data-window='idle']) .primary {");
+  });
+
   it('lose the accent while the window isn’t key', () => {
     expect(block(":root[data-window='idle']")).toContain('--control-accent:');
   });
