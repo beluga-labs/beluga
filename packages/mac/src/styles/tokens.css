@@ -31,6 +31,13 @@
   --dur: 180ms;
 }
 
+/* Simplified Chinese (i18n/index.ts sets <html lang>): its own system face before any fallback, so
+   Han characters are drawn in PingFang SC (Microsoft YaHei, Noto Sans SC elsewhere), never a
+   Japanese face, and the Latin in a Chinese sentence stays SF. */
+:root:lang(zh-CN) {
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', system-ui, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC', sans-serif;
+}
+
 :root[data-density='compact'] {
   --row: 24px;
   --space-4: 10px;
@@ -123,9 +130,16 @@
  * theme (lib/themes.ts) and the accent carry through. Metrics are AppKit's regular size.
  */
 :root {
+  /* The three sizes of docs/mac-controls.md: one height, text size and corner each. */
+  --control-h-large: 28px;
   --control-h: 22px;
   --control-h-small: 20px;
+  --control-text-large: 13px;
+  --control-text: 13px;
+  --control-text-small: 12px;
+  --control-radius-large: 7px;
   --control-radius: 5px;
+  --control-radius-small: 4px;
   /* controlColor: a button's face, rising a little to its top edge; and its pressed face. */
   --control: var(--bg-raised);
   --control-top: var(--bg-raised);

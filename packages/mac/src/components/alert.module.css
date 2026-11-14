@@ -134,6 +134,7 @@
   height: var(--control-h);
   padding: 0 12px;
   border-radius: var(--control-radius);
+  font-size: var(--control-text);
   background: linear-gradient(var(--control-top), var(--control));
   box-shadow: var(--control-bezel);
   font-weight: 400;
