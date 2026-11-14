@@ -55,14 +55,14 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 22px;
+  height: var(--control-h);
   padding: 0 9px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--control-radius);
   background: none;
   color: var(--text-2);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--control-text);
   cursor: default;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
