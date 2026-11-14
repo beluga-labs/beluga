@@ -98,6 +98,25 @@
   color: var(--text-2);
   transition: background var(--dur-fast), color var(--dur-fast);
 }
+.iconLarge {
+  width: var(--control-h-large);
+  height: var(--control-h-large);
+  border-radius: var(--control-radius-large);
+}
+.iconRegular {
+  width: var(--control-h);
+  height: var(--control-h);
+  border-radius: var(--control-radius);
+}
+.iconSmall {
+  width: var(--control-h-small);
+  height: var(--control-h-small);
+  border-radius: var(--control-radius-small);
+}
+.iconButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .iconButton:hover {
   background: var(--bg-hover);
   color: var(--text);

@@ -40,7 +40,8 @@ pop-up and a button on one row line up without adjusting anything.
 
 - Rows of a list or table: a row's own actions (Merge, Open, Retry).
 - Cards (tasks, sentinels, usage), and the header of a card or panel section.
-- The right panel and the dock: their tab switchers and toolbars.
+- The right panel's and the dock's own toolbars and switchers (Changes / History, the shells'
+  buttons, the dock's Terminal / Background).
 - Controls inside a conversation: an answer's actions, a step's buttons, a question's choices.
 - Filter bars over a list.
 
@@ -48,7 +49,9 @@ pop-up and a button on one row line up without adjusting anything.
 
 - The main action of onboarding, a welcome or an empty state ("Add Project", "Turn On").
 - The window's toolbar: its buttons, icon buttons (28 × 28), segmented control and search field.
-  This is AppKit's unified toolbar, whose items are 28px tall.
+  This is AppKit's unified toolbar, whose items are 28px tall. The title row goes across the
+  window, so the sidebar's buttons there, its search field and the right panel's view switcher
+  (Changes / Files / Scratch / Info) are Large too.
 
 Never more than one large button in a view outside the toolbar. One row never mixes sizes.
 
@@ -57,8 +60,11 @@ Never more than one large button in a view outside the toolbar. One row never mi
 - **Push button** (`Button`, a sheet's or an alert's buttons): plain, primary (the accent, for the
   default action), danger, merge. Height, padding and text by size; at least 76px wide in a sheet's
   or an alert's button row.
-- **Icon button** (`IconButton`): square at its size (22 × 22, 20 × 20; 28 × 28 in a toolbar), the
-  icon centred, no bezel until hovered or pressed.
+- **Icon button** (`IconButton`): square at its size (28 × 28, 22 × 22, 20 × 20), the icon
+  16, 14 or 13px and centred, no bezel until hovered or pressed. One without a `size` keeps the
+  28 × 26 it had until its screen moves onto the scale (steps 3 and 4).
+- **Split button** (a button and its ▾, `SplitButton`, the toolbar's branch button): both halves
+  are one control of one size and one bezel; a line inside parts them.
 - **Pop-up button** (`Select`): the button's height; the chevrons in an accent box at its end,
   16px square in regular and large, 14px in small.
 - **Text field** (`TextInput`, Settings' fields, search fields): the button's height for its size,
@@ -106,7 +112,7 @@ move in steps, each a PR that changes no behaviour:
 
 1. The shared controls (`components/ui`, `Alert`, `FormSheet`, `Select`, Settings' controls), the
    tokens and the Chinese face. Done with this page.
-2. The window toolbar and the sidebar's search to Large; the right panel's and the dock's tab bars
-   and toolbars to Small.
+2. The title row (window toolbar, the sidebar's buttons and search, the panel's view switcher) to
+   Large; the right panel's and the dock's own toolbars and tabs to Small. Done.
 3. Sheets with their own controls (`dialogs/native/*`, the new-task and new-plan sheets) to Regular.
 4. Lists, cards and the conversation's own buttons to Small.

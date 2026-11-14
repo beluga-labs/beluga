@@ -50,13 +50,19 @@ export function Tip({ label, keys, side = 'bottom', children }: { label: ReactNo
   );
 }
 
-/** A square icon button for toolbars, with its tooltip. */
-export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { readonly icon: IconName; readonly label: string; readonly keys?: string; readonly active?: boolean; readonly badge?: number }>(
-  function IconButton({ icon, label, keys, active, badge, className, ...rest }, ref) {
+/**
+ * A square icon button with its tooltip. `size` (docs/mac-controls.md): large (28 × 28) in the
+ * window's toolbar, small (20 × 20) in panels and the dock, regular (22 × 22) in content. Without
+ * one it keeps the 28 × 26 it had before the scale, until its screen moves onto it.
+ */
+const ICON_BUTTON = { small: s.iconSmall, regular: s.iconRegular, large: s.iconLarge } as const;
+const ICON_IN_BUTTON = { small: 13, regular: 14, large: 16 } as const;
+export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { readonly icon: IconName; readonly label: string; readonly keys?: string; readonly active?: boolean; readonly badge?: number; readonly size?: ControlSize }>(
+  function IconButton({ icon, label, keys, active, badge, size, className, ...rest }, ref) {
     return (
       <Tip label={label} keys={keys}>
-        <button ref={ref} type="button" aria-label={label} aria-pressed={active} className={cx(s.iconButton, active && s.iconActive, className)} {...rest}>
-          <Icon name={icon} />
+        <button ref={ref} type="button" aria-label={label} aria-pressed={active} className={cx(s.iconButton, size && ICON_BUTTON[size], active && s.iconActive, className)} {...rest}>
+          <Icon name={icon} {...(size ? { size: ICON_IN_BUTTON[size] } : {})} />
           {badge ? <span className={s.iconBadge}>{badge > 99 ? '99+' : badge}</span> : null}
         </button>
       </Tip>

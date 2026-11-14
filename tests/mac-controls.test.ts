@@ -73,6 +73,20 @@ describe('the control tokens', () => {
     expect(zh.indexOf("'PingFang SC'")).toBeLessThan(zh.indexOf('system-ui'));
   });
 
+  it('size the title row Large and the panels Small, every control of a row one height', () => {
+    const iconButtons = (file: string): string[] => [...read(...file.split('/')).matchAll(/<IconButton\b[^>]*/g)].map((m) => m[0]);
+    for (const file of ['layout/Toolbar.tsx']) for (const tag of iconButtons(file)) expect(tag, file).toContain('size="large"');
+    for (const file of ['layout/panel/ChangesTab.tsx', 'layout/panel/FilesTab.tsx', 'layout/panel/ScratchTab.tsx', 'layout/panel/TerminalPane.tsx']) for (const tag of iconButtons(file)) expect(tag, file).toContain('size="small"');
+    expect(read('layout', 'BranchControl.tsx').match(/<Button size="large"/g)).toHaveLength(2);
+    const branch = strip(read('layout', 'BranchControl.module.css'));
+    for (const sel of ['main', 'more']) expect(branch).toMatch(new RegExp(`\\n\\.${sel} \\{[^}]*height: var\\(--control-h-large\\)`));
+    expect(branch).not.toMatch(/\.more\s*\{[^}]*box-shadow/);
+    expect(strip(read('layout', 'SidebarSearch.module.css'))).toContain('height: var(--control-h-large)');
+    const panel = strip(read('layout', 'panel', 'panel.module.css'));
+    expect(panel).toContain('height: calc(var(--control-h-large) - 4px)');
+    expect(panel).toMatch(/\.dockTabs \.tab \{[^}]*height: var\(--control-h-small\)/);
+  });
+
   it('lose the accent while the window isn’t key', () => {
     expect(block(":root[data-window='idle']")).toContain('--control-accent:');
   });
