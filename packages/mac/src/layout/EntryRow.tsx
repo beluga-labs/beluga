@@ -2,8 +2,8 @@ import { type ReactNode, forwardRef, useEffect, useState } from 'react';
 import { type AppState, shownChannel } from '@beluga/core/store.js';
 import { planOf } from '@beluga/core/plans/owner.js';
 import { Icon } from '../components/Icon.js';
-import { ProjectIcon } from '../components/ProjectIcon.js';
-import { Avatar, cx } from '../components/ui.js';
+import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
+import { Avatar } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
@@ -11,11 +11,16 @@ import { openDm, openGroup } from '../network/use-net.js';
 import { chatPlaceOf, iconOf } from '../sentinel/sentinel-model.js';
 import { IDLE_SIGNAL, type Signal, type UnreadEntry, planSignal, workspaceSignal } from './attention-model.js';
 import { SignalMark, nameClass, signalClass } from './signal-marks.js';
-import { Row, type RowProps } from './sidebar-parts.js';
-import type { WorkspaceRowActions } from './workspace-row.js';
+import { ExtrasName, Row, type RowExtras } from './sidebar-parts.js';
+import { WorkspaceWithAgents } from './SubAgents.js';
+import { WorkspaceRow } from './workspace-row.js';
+import { PlanRow } from './plan-row.js';
 import m from './signal.module.css';
 
 /** One conversation in a sidebar list, and opening it from there: the seam the Unread section and the categories share. */
+
+/** A conversation with no row of its own elsewhere in the sidebar. */
+type PlainEntry = Exclude<UnreadEntry, { readonly kind: 'workspace' | 'plan' }>;
 
 /** A list's rows, and the one you opened from it, which stays while you're in it. */
 export interface EntryList<E extends UnreadEntry = UnreadEntry> {
@@ -28,53 +33,43 @@ export interface EntryList<E extends UnreadEntry = UnreadEntry> {
   readonly open: (e: E, at: number) => void;
 }
 
-type EntryRowProps = Omit<RowProps, 'icon' | 'label' | 'selected' | 'onClick' | 'detail' | 'trailing' | 'className'> & {
+type EntryRowProps = {
   e: UnreadEntry;
   list: Pick<EntryList, 'here' | 'ownerName'> & { readonly open: (e: never, at: number) => void };
   at: number;
+  /** Before the row's own marks at its right edge: the list's tools and words. */
   trailing?: ReactNode;
   /** Bold for something other than news (a snooze that ended). */
-  nameBold?: string | undefined;
-  /** A workspace's: what its row does in a project's list too (Rename…, shift-click picking). */
-  workspace?: WorkspaceRowActions | undefined;
+  bold?: boolean;
+  /** With the threads it started under it, as in the Chats section (the categories). */
+  threads?: boolean;
+  /** The list's own marks on the row (`data-category`). */
+  data?: RowExtras['data'];
+  /** The right-click menu of a row with none of its own (a sentinel's chat); a chat's and a plan's row bring theirs. */
+  menu?: () => readonly ActionItem[];
 };
 
-/** It passes its ref and other props to its Row, so a right-click menu wrapped around it can attach. */
-export const EntryRow = forwardRef<HTMLDivElement, EntryRowProps>(function EntryRow({ e, list, at, trailing, nameBold, workspace, ...rest }, ref) {
-  const selected = e.channel === list.here;
+/**
+ * A conversation in a list: a chat's and a plan's are the very rows a project's list draws, with the
+ * list's extras added (so a drag, a rename or a menu works the same in both). The rest (a DM, a group,
+ * a friend's chat, a sentinel's) have no row elsewhere to be: they get a plain one.
+ */
+export function EntryRow({ e, list, at, trailing, bold, threads, data, menu }: EntryRowProps) {
   const where = whereOf(e, list.ownerName);
-  const name = <span className={nameBold ?? nameClass(e.signal)}>{e.name}</span>;
-  return (
-    <Row
-      ref={ref}
-      {...rest}
-      {...workspace?.props}
-      selected={selected || Boolean(workspace?.inSelection)}
-      color={workspace?.color}
-      className={cx(signalClass(e.signal, selected), workspace?.className)}
-      data-signal-row={e.signal.level}
-      // With what's waiting, so it reads (and is found) apart from the same conversation further down.
-      aria-label={`${e.name} · ${e.signal.tip || 'read'}`}
-      icon={
-        <span className={m.unreadIcon}>
-          <EntryIcon e={e} />
-        </span>
-      }
-      label={
-        <>
-          {workspace ? workspace.label(name) : name}
-          {/* Drawn from the attribute: a hint for the eye, not more text to find (the tooltip says it). */}
-          <span className={m.where} data-where={where} aria-hidden="true" />
-        </>
-      }
-      detail={`${where} › ${e.name}${e.signal.tip ? `: ${e.signal.tip}` : ''}`}
-      onClick={(event) => {
-        if (!workspace?.pick(event)) list.open(e as never, at);
-      }}
-      trailing={trailing ?? <SignalMark signal={e.signal} />}
-    />
-  );
-});
+  const extras: RowExtras = {
+    // With what's waiting, so it reads (and is found) apart from the same conversation further down.
+    label: `${e.name} · ${e.signal.tip || 'read'}`,
+    where,
+    trailing,
+    ...(bold ? { bold } : {}),
+    open: () => list.open(e as never, at),
+    ...(data ? { data } : {}),
+  };
+  if (e.kind === 'workspace') return threads ? <WorkspaceWithAgents ws={e.ws} indent={0} threadsOnly extras={extras} /> : <WorkspaceRow ws={e.ws} indent={0} extras={extras} />;
+  if (e.kind === 'plan') return <PlanRow plan={e.plan} indent={0} extras={extras} />;
+  const row = <PlainEntryRow e={e} selected={e.channel === list.here} extras={extras} />;
+  return menu ? <ActionsContext items={menu}>{row}</ActionsContext> : row;
+}
 
 /** A list of `entriesOf(state)` you can open. The one you open stays in place, so the list doesn't jump under you. */
 export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState) => readonly E[]): EntryList<E> {
@@ -126,18 +121,43 @@ export function openEntry(e: UnreadEntry, run: ReturnType<typeof useActions>['ru
   else openGroup(client, e.groupId);
 }
 
-function EntryIcon({ e }: { e: UnreadEntry }) {
+/** The row of a conversation that has no row of its own elsewhere. It passes its ref on, so a right-click menu wrapped around it can attach. */
+const PlainEntryRow = forwardRef<HTMLDivElement, { e: PlainEntry; selected: boolean; extras: RowExtras }>(function PlainEntryRow({ e, selected, extras, ...rest }, ref) {
+  return (
+    <Row
+      ref={ref}
+      {...rest}
+      {...extras.data}
+      selected={selected}
+      className={signalClass(e.signal, selected)}
+      data-signal-row={e.signal.level}
+      aria-label={extras.label}
+      icon={
+        <span className={m.unreadIcon}>
+          <EntryIcon e={e} />
+        </span>
+      }
+      label={<ExtrasName name={e.name} extras={extras} className={nameClass(e.signal)} />}
+      detail={`${extras.where} › ${e.name}${e.signal.tip ? `: ${e.signal.tip}` : ''}`}
+      onClick={extras.open}
+      trailing={
+        <>
+          {extras.trailing}
+          <SignalMark signal={e.signal} />
+        </>
+      }
+    />
+  );
+});
+
+function EntryIcon({ e }: { e: PlainEntry }) {
   switch (e.kind) {
-    case 'workspace':
-      return e.project ? <ProjectIcon id={e.project.id} name={e.project.name} size={16} /> : <Icon name="chat" size={14} />;
     case 'shared':
       return <Avatar name={e.name} id={e.owner} size={16} />;
     case 'dm':
       return <Avatar name={e.name} id={e.peerId} size={16} />;
     case 'group':
       return <Icon name="people" size={14} />;
-    case 'plan':
-      return <Icon name="flag" size={14} />;
     case 'sentinel':
       return <Icon name={iconOf(e.sentinel.icon)} size={14} />;
   }

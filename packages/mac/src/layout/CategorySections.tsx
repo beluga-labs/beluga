@@ -2,18 +2,14 @@ import { useState } from 'react';
 import type { ChatCategory } from '@beluga/core/triage/model.js';
 import { Icon } from '../components/Icon.js';
 import { IconButton, cx } from '../components/ui.js';
-import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
+import type { ActionItem } from '../components/SpecMenu.js';
 import { useActions } from '../lib/actions.js';
 import { useBeluga } from '../lib/beluga.js';
 import { useClock } from '../lib/window-active.js';
 import { CATEGORY_ORDER, CATEGORY_TITLES, type CategoryEntry, SETTLED_PAGE, categoriesOf, statusWords, visibleRows } from './attention-model.js';
 import { type EntryList, EntryRow, openEntry, useEntryList } from './EntryRow.js';
 import { RowTriageTools, triageItems } from './row-triage-actions.js';
-import { useWorkspaceRowActions } from './workspace-row.js';
 import { ChatsMenu } from './ChatsMenu.js';
-import { SignalMark } from './signal-marks.js';
-import { WorkspaceThreads } from './SubAgents.js';
-import { HarnessMark } from '../threads/HarnessMark.js';
 import { Row, Section } from './sidebar-parts.js';
 import s from './Sidebar.module.css';
 import m from './signal.module.css';
@@ -63,21 +59,22 @@ export function CategorySections() {
   );
 }
 
+/** A conversation's own row with the category's extras: its triage tools, its PR, and what it's doing in words. */
 function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list: EntryList<CategoryEntry>; now: number }) {
   const actions = useActions();
   const { client } = useBeluga();
-  // A workspace's row does here what it does in a project's list.
-  const workspace = useWorkspaceRowActions(e.kind === 'workspace' ? e.ws : undefined);
   const words = statusWords(e.status, now);
   const loud = e.status.kind === 'need' || e.status.kind === 'back' || e.status.kind === 'stopped';
-  const row = (
+  return (
     <EntryRow
       e={e}
       at={at}
       list={list}
-      data-category={e.category}
-      workspace={workspace}
-      nameBold={e.bold ? m.unreadName : undefined}
+      threads
+      data={{ 'data-category': e.category }}
+      bold={e.bold}
+      // A DM, a group, a friend's chat: nothing to do from here.
+      {...(e.key ? { menu: () => entryItems(e, actions.run, client) } : {})}
       trailing={
         <>
           {e.key ? <RowTriageTools e={e} /> : null}
@@ -89,26 +86,13 @@ function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list:
               </span>
             ) : null}
           </span>
-          <SignalMark signal={e.signal} />
-          {e.kind === 'workspace' ? <HarnessMark ws={e.ws} /> : null}
         </>
       }
     />
   );
-  // A DM, a group, a sentinel's chat: nothing to do from here.
-  const menu = workspace ? <ActionsContext items={workspace.items}>{row}</ActionsContext> : e.key ? <ActionsContext items={() => entryItems(e, actions.run, client)}>{row}</ActionsContext> : row;
-  // With threads on, the child threads it started sit under it, as in the project list (none put off till later).
-  return e.kind === 'workspace' ? (
-    <>
-      {menu}
-      <WorkspaceThreads ws={e.ws} indent={1} />
-    </>
-  ) : (
-    menu
-  );
 }
 
-/** The right-click menu of a row that isn't a workspace (a plan): Open with the category's items. */
+/** The right-click menu of a row with none of its own (a sentinel's chat): Open with the category's items. */
 function entryItems(e: CategoryEntry, run: ReturnType<typeof useActions>['run'], client: ReturnType<typeof useBeluga>['client']): ActionItem[] {
   return [{ label: 'Open', icon: 'chevronRight', onSelect: () => openEntry(e, run, client) }, ...triageItems(client.store.getState(), e.channel, run, client)];
 }
