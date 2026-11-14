@@ -39,6 +39,7 @@ export default function Settings() {
   const { scrolled, onScroll } = useScrolled();
   const insets = useSafeAreaInsets();
   const link = useLink();
+  const supportsAgents = useSupports('externalAgents');
   const [p, setP] = useState<NotifyPrefs>(prefs());
   const [perm, setPerm] = useState<string>('');
   const [asleep, setAsleep] = useState(store.demo?.sleeping ?? false);
@@ -119,6 +120,19 @@ export default function Settings() {
     setAwake(mode);
     void store.call(calls.keepAwake(mode), { queue: false }).catch(() => {
       setAwake(undefined);
+      store.toast({ text: 'Your Mac is away: change this when it’s linked.', tone: 'warn' });
+    });
+  };
+  // Usage statistics (BLG-922): the Mac's level, when its build can send them.
+  const canShare = useSupports('telemetry');
+  const sharing = home?.data.mac.telemetry;
+  const [shareLevel, setShareLevel] = useState<'off' | 'limited' | 'on' | undefined>(undefined);
+  const share = shareLevel ?? sharing?.level ?? 'off';
+  const chooseShare = (level: 'off' | 'limited' | 'on') => {
+    haptic.tap();
+    setShareLevel(level);
+    void store.call(calls.telemetry(level), { queue: false }).catch(() => {
+      setShareLevel(undefined);
       store.toast({ text: 'Your Mac is away: change this when it’s linked.', tone: 'warn' });
     });
   };
@@ -209,6 +223,7 @@ export default function Settings() {
             {update.release && update.phase !== 'current' ? (
               <Row Icon={ArrowDownToLine} tone="mint" label={`Update to Beluga ${update.release.version}`} sub={update.phase === 'downloading' ? `Downloading ${Math.round((update.progress ?? 0) * 100)}%` : update.phase === 'ready' ? 'Ready to install' : 'See what’s new'} onPress={() => setUpdateOpen(true)} />
             ) : null}
+            {supportsAgents ? <Row Icon={Cable} tone="lavender" label="External agents" sub="What they did, and stopping them" onPress={() => router.push('/agents')} /> : null}
             <Row Icon={HardDrive} tone="sky" label="Storage" sub={saved.length ? `${saved.length} saved · ${sizeOf(totalBytes(saved))}` : 'What Beluga keeps on this phone'} onPress={() => router.push('/storage')} />
             <Row
               Icon={LogOut}
@@ -286,6 +301,25 @@ export default function Settings() {
                 />
                 <T v="caption" c={color.text3} style={{ paddingHorizontal: 6 }}>
                   A sleeping Mac can’t be reached or woken from here, so Beluga keeps it from sleeping. Its display still sleeps; closing the lid still sleeps it.
+                </T>
+              </View>
+            ) : null}
+            {canShare && sharing ? (
+              <View style={{ gap: 8 }}>
+                <T v="eyebrow" style={{ paddingHorizontal: 6 }}>
+                  Usage statistics
+                </T>
+                <Segments
+                  value={share}
+                  onChange={chooseShare}
+                  options={[
+                    { key: 'off', label: 'Off' },
+                    { key: 'limited', label: 'Limited' },
+                    { key: 'on', label: 'On' },
+                  ]}
+                />
+                <T v="caption" c={color.text3} style={{ paddingHorizontal: 6 }}>
+                  {share === 'off' ? 'Nothing is sent.' : share === 'limited' ? 'Only the very essential data.' : 'How you use Beluga and its statistics, sent anonymously.'} Beluga is free and open source: this is how it gets better for you.
                 </T>
               </View>
             ) : null}

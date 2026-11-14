@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import type { SharedFork } from '@beluga/core/friend-share-store.js';
 import { trustOf } from '@beluga/core/trust.js';
+import { formatBytes } from '@beluga/shared/format.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { Field, FormSheet, TextInput } from '../../components/FormSheet.js';
 import { Icon, type IconName } from '../../components/Icon.js';
@@ -9,6 +11,7 @@ import { useApi, useApp } from '../../lib/beluga.js';
 import { openSheet } from '../../lib/sheets.js';
 import s from './fork-to-mac.module.css';
 import m from './menus.module.css';
+import { computerTitle, thisComputer } from '../../lib/os-words.js';
 
 /** The folder and branch name Beluga makes from a name (as the core's `slug` does). */
 const slug = (name: string): string =>
@@ -45,7 +48,7 @@ export function ForkToMacSheet({ owner, wsId, close }: { owner: string; wsId: st
   if (!ws) return null;
   return (
     <FormSheet
-      title={`Fork “${ws.name}” to This Mac`}
+      title={`Fork “${ws.name}” to This ${computerTitle()}`}
       icon="laptop"
       intro={`A worktree of your own that starts where ${ownerName}’s is now, with your agent. ${ownerName}’s goes on as it is.`}
       submitLabel="Fork"
@@ -84,7 +87,42 @@ export function ForkToMacSheet({ owner, wsId, close }: { owner: string; wsId: st
 }
 
 /**
- * In a friend's worktree you work in (shared over the network), in its header: Fork to My Mac,
+ * A fork coming over, in the header: how much of it is here, with a bar that fills, then that it's
+ * being set up. Hover for the sizes and how many files are in it.
+ */
+function ForkProgress({ fork }: { fork: SharedFork }) {
+  const { total } = fork;
+  if (total === undefined) {
+    // A Mac on an older Beluga doesn't say how big it is.
+    return (
+      <Tip label="Its changes, Scratch and conversation are coming over">
+        <span className={s.progress} role="status">
+          <Icon name="laptop" size={14} />
+          Copying…
+        </span>
+      </Tip>
+    );
+  }
+  const received = Math.min(fork.received ?? 0, total);
+  const here = received >= total;
+  const pct = total ? Math.floor((received / total) * 100) : 100;
+  const files = fork.files ? `, ${fork.files} ${fork.files === 1 ? 'file' : 'files'}` : '';
+  const tip = here ? 'All here: making it a worktree of yours' : `${formatBytes(received)} of ${formatBytes(total)}: its commits${files} and the conversation`;
+  return (
+    <Tip label={tip}>
+      <span className={s.progress} role="progressbar" aria-label={here ? 'Setting up your fork' : 'Copying your fork'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <Icon name="laptop" size={14} />
+        {here ? 'Setting up…' : `Copying ${pct}%`}
+        <span className={s.bar} aria-hidden="true">
+          <span style={{ width: `${pct}%` }} />
+        </span>
+      </span>
+    </Tip>
+  );
+}
+
+/**
+ * In a friend's worktree you work in (shared over the network), in its header: Fork to My {computerTitle()},
  * how far a fork got (waiting for their Mac, copying), and Open My Fork once it's made.
  */
 export function ForkToMacButton({ owner, wsId }: { owner: string; wsId: string }) {
@@ -94,7 +132,8 @@ export function ForkToMacButton({ owner, wsId }: { owner: string; wsId: string }
   const mine = useApp((st) => (fork?.wsId ? findWorkspace(st.projects, fork.wsId) : undefined));
   const ownerName = useApp((st) => st.network.friends.find((f) => f.peerId === owner)?.name ?? 'their');
   const online = useApp((st) => Boolean(st.network.friends.find((f) => f.peerId === owner)?.online));
-  if (!ws || ws.via !== 'mesh' || ws.role !== 'contribute') return null;
+  // A friend's plain chat has no project to fork.
+  if (!ws || ws.via !== 'mesh' || ws.role !== 'contribute' || ws.chat) return null;
   if (fork?.state === 'ready' && mine && !mine.archived) {
     return (
       <Tip label={`Your fork, on ${mine.branch ?? 'its own branch'}`}>
@@ -104,20 +143,30 @@ export function ForkToMacButton({ owner, wsId }: { owner: string; wsId: string }
       </Tip>
     );
   }
-  if (fork?.state === 'asking' || fork?.state === 'copying') {
-    const label = fork.state === 'copying' ? 'Copying…' : online ? 'Packing…' : `Waiting for ${ownerName}’s Mac…`;
+  if (fork?.state === 'copying') return <ForkProgress fork={fork} />;
+  if (fork?.state === 'preparing') {
+    const project = ws.project ?? 'the project';
     return (
-      <Tip label={fork.state === 'copying' ? 'Its changes, Scratch and conversation are coming over' : online ? `${ownerName}’s Mac is packing it` : 'It goes as soon as their Mac is back'}>
+      <Tip label={`${project} isn’t on ${thisComputer()} yet: it’s copied here first, then forked`}>
+        <Button variant="quiet" icon="download" disabled aria-busy="true">
+          {`Getting ${project}…`}
+        </Button>
+      </Tip>
+    );
+  }
+  if (fork?.state === 'asking') {
+    return (
+      <Tip label={online ? `${ownerName}’s computer is packing it` : 'It goes as soon as their computer is back'}>
         <Button variant="quiet" icon="laptop" disabled aria-busy="true">
-          {label}
+          {online ? 'Packing…' : `Waiting for ${ownerName}’s computer…`}
         </Button>
       </Tip>
     );
   }
   return (
-    <Tip label={fork?.state === 'failed' ? `Last time: ${fork.error ?? 'it didn’t work'}. Try again` : 'Your own copy of this worktree on this Mac: its changes, Scratch and conversation'}>
+    <Tip label={fork?.state === 'failed' ? `Last time: ${fork.error ?? 'it didn’t work'}. Try again` : `Your own copy of this worktree on ${thisComputer()}: its changes, Scratch and conversation`}>
       <Button variant="quiet" icon="laptop" onClick={() => openSheet({ kind: 'fork_to_mac', owner, wsId })}>
-        Fork to My Mac
+        Fork to My {computerTitle()}
       </Button>
     </Tip>
   );

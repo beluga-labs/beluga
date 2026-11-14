@@ -156,7 +156,7 @@ export function AgentTermView({ wsId }: { readonly wsId: string }) {
   const openNewest = (): void => {
     const newest = visuals?.[visuals.length - 1];
     if (newest) open({ kind: 'visual', n: newest.n });
-    else toast(client, `No visuals yet: when ${agentLabel} shows a graph or a table here, ${keyOf('newest_visual') ?? '⌘↩'} opens it`, 'info');
+    else toast(client, `No visuals yet: when ${agentLabel} shows a graph or a table here, ${keyOf('newest_visual') ?? chordLabel('Cmd+Enter')} opens it`, 'info');
   };
 
   const newKey = (t: TermTabs): string => paneTermId(wsId, nextPaneNumber(allPaneKeys(t)));
@@ -239,7 +239,7 @@ export function AgentTermView({ wsId }: { readonly wsId: string }) {
             const title = tabTitle(tab.id, tab.tree, tab.zoom);
             return (
               <div key={tab.id} className={cx(s.tab, on && s.tabOn)}>
-                <Tip label={`${title}${i < 9 ? ` · ⌘${i + 1}` : ''}`}>
+                <Tip label={[title, i < 9 ? keyOf(`tab:${i + 1}` as TermAction) : undefined].filter(Boolean).join(' · ')}>
                   <button type="button" role="tab" aria-selected={on} className={s.tabPick} onClick={() => show({ ...tabs, active: tab.id })}>
                     <Icon name={tab.id === AGENT_TAB ? 'claude' : 'terminal'} size={12} />
                     <span className={s.tabTitle}>{title}</span>

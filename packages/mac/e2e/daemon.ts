@@ -82,7 +82,8 @@ export interface Demo {
  * pretend ~/.claude and fake gh, and wait until it's ready: bob and mia are in the room and zoe knocks.
  * Its temp folders (the demo's projects, chats, tasks) are in its home too, so they go with it.
  */
-export async function startDemo({ home, claude, port }: { home: string; claude: string; port: number }): Promise<Demo> {
+/** `linkMs`: a round trip added to the demo's computers' pages (BLG-792), so remote work runs at a real link's pace. */
+export async function startDemo({ home, claude, port, linkMs = 0 }: { home: string; claude: string; port: number; linkMs?: number }): Promise<Demo> {
   const repo = path.resolve(import.meta.dirname, '../../..');
   for (const line of await freshHome(home)) console.log(`[e2e] ${line}`);
   rmSync(claude, { recursive: true, force: true });
@@ -102,12 +103,13 @@ export async function startDemo({ home, claude, port }: { home: string; claude: 
   // node itself, not npx tsx (two processes fewer per daemon).
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'daemon', '--keep-alive', 'demo'], {
     cwd: repo,
-    // GitHub is a stand-in (e2e/fake-gh.mjs): its PRs are whatever a test writes to fake-gh.json.
+    // GitHub is a stand-in (e2e/fake-gh.mjs): its PRs are whatever a test writes to fake-gh.json. So is
+    // Tailscale (e2e/fake-tailscale.mjs), and each daemon's web port is a free one (never the real 7777).
     // Under both names: the core reads BELUGA_* first, so an inherited BELUGA_HOME (the run's) must not win.
     env: {
       ...process.env,
       TMPDIR: `${tmp}/`,
-      ...both({ HOME: home, CLAUDE_HOME: claude, GH: path.join(import.meta.dirname, 'fake-gh.mjs'), FAKE_GH: path.join(home, 'fake-gh.json'), DEMO_PACE: process.env.E2E_DEMO_PACE ?? '0.3', ALLOW_ORIGINS: `http://localhost:${port}`, NETWORK: '' }),
+      ...both({ HOME: home, CLAUDE_HOME: claude, GH: path.join(import.meta.dirname, 'fake-gh.mjs'), TAILSCALE: path.join(import.meta.dirname, 'fake-tailscale.mjs'), WEB_PORT: '0', FAKE_GH: path.join(home, 'fake-gh.json'), DEMO_PACE: process.env.E2E_DEMO_PACE ?? '0.3', ALLOW_ORIGINS: `http://localhost:${port}`, NETWORK: '', DEMO_LINK_MS: String(linkMs), EXTERNAL_PORT: '0' }),
     },
     stdio: ['ignore', out, out],
   });

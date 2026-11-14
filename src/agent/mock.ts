@@ -1,4 +1,4 @@
-import type { AgentBackend, AgentRunInput, FollowUp, RoomBridge } from './types.js';
+import type { AgentBackend, AgentRunInput, FollowUp, RoomBridge, ThreadTools } from './types.js';
 import type { McpServerRow } from '../shared/mcp.js';
 import { demoAnswerFromPrompt } from '../core/chat/demo-answers.js';
 import { cleanPlanTitle, slugify } from './namer.js';
@@ -7,6 +7,7 @@ import { MORE, MockStepper, splitLine } from './mock-steps.js';
 import { MockContext, withGrowingContext } from './mock-context.js';
 import { MOCK_GRAPH_ANSWER } from './mock-graphs.js';
 import { mockTerminal } from './mock-terminal.js';
+import { RunFailedError, classifyRun } from '../shared/run-failure.js';
 import { MOCK_VIEWS_ANSWER } from './mock-views.js';
 
 interface Script {
@@ -26,6 +27,8 @@ interface Script {
   readonly brief?: ReadonlyArray<readonly ['context' | 'acceptance', string]>;
   /** One step that runs long: after it starts, the next step comes `ms` later (a steer waits; Send now stops it). */
   readonly slowStep?: { readonly step: string; readonly ms: number };
+  /** What Claude says on the way, before the step at that index ("Found it, now the tests"). */
+  readonly says?: Readonly<Record<number, string>>;
 }
 
 /** Canned, fast replies so the demo (and README recordings) never wait on real Claude calls. */
@@ -35,6 +38,11 @@ const SCRIPTS: readonly Script[] = [
     match: /^Investigate GitHub issue #48\b/,
     stepMs: 900,
     steps: ['Bash gh issue view 48 --repo acme/bob-api --comments', 'Grep "decodeURIComponent" src', 'Read src/users.ts', 'Read src/routes/login.ts', 'Write tests/login-plus-email.test.ts', 'Bash npm test -- login-plus-email'],
+    says: {
+      1: 'A `+` in the email answers 500. Looking for where the email gets decoded.',
+      3: '`findUser()` decodes it a second time, so `+` turns into a space. Checking what `login()` does with no user.',
+      4: 'That’s the 500. Writing a test that reproduces it.',
+    },
     brief: [
       [
         'context',
@@ -129,6 +137,31 @@ const SCRIPTS: readonly Script[] = [
     ].join('\n'),
   },
   {
+    // A component that can't be built yet: the preview says why, in a short note.
+    match: /\bprice ?tag\b/i,
+    steps: ['Read src/components/PriceTag.tsx'],
+    answer: ['PriceTag.tsx shows a price from cents:', '', '```beluga-preview', 'src/components/PriceTag.tsx', '```'].join('\n'),
+  },
+  {
+    // Two components in one file: the preview's picker and All Components.
+    match: /\bbadges?\b/i,
+    steps: ['Read src/components/Badges.tsx'],
+    answer: ['Badges.tsx has two small pieces, a Badge and a Stat:', '', '```beluga-preview', 'src/components/Badges.tsx', '```'].join('\n'),
+  },
+  {
+    // A component drawn live in the answer (Settings › Experimental › Live previews).
+    match: /\bpreview\b|show (me )?the hero/i,
+    steps: ['Read src/components/Hero.tsx', 'Edit src/components/Hero.tsx'],
+    answer: [
+      'The new hero takes a tone, the faces of people already in, and weekly sign-ups as bars. Here it is, live:',
+      '',
+      '```beluga-preview',
+      'src/components/Hero.tsx',
+      'props: {"title": "Build together", "subtitle": "You, your friends, and everyone’s Claude.", "cta": "Start free"}',
+      '```',
+    ].join('\n'),
+  },
+  {
     // A long task, so you can try queueing messages (and sending one now) while Claude works.
     match: /deep dive|take your time/i,
     stepMs: 2500,
@@ -155,6 +188,8 @@ const SCRIPTS: readonly Script[] = [
   {
     // Background work with steps after it: once answered, it folds with the older steps (e2e/subagents.spec.ts).
     match: /keep (them )?watching/i,
+    // The reading after it, slow enough to see the background row running, even on a busy machine.
+    stepMs: 1500,
     steps: ['Read package.json', 'Bash npm test'],
     subagents: [{ title: 'npm test --watch', steps: ['24 passed', '24 passed'], kind: 'background' }],
     after: ['Read src/payments.ts', 'Grep "coverage"', 'Read README.md'],
@@ -276,6 +311,30 @@ async function mockOpenPlan(input: AgentRunInput, plan: NonNullable<AgentRunInpu
 
 /** The demo's planner: a first plan from what you asked, a revision for what you say next, and milestone checks. */
 async function mockPlanning(input: AgentRunInput, plan: NonNullable<AgentRunInput['planTools']>, pace: number): Promise<string> {
+  // Verifying a draft (BLG-772): it reads the plan and finds one thing to fix (an empty plan: nothing).
+  if (plan.review && /Review the draft|changed since your last review/.test(input.prompt)) {
+    input.onEvent('tool', 'plan_get');
+    const shown = plan.get();
+    await sleep(900 * pace, input.signal);
+    const ids = [...shown.matchAll(/- \[([\w-]+)\]/g)].map((m) => m[1]!);
+    // Each check in turn, named as it starts (what the plan's page shows while it works).
+    for (const line of [
+      `Contradictions: reading every task against the plan’s goal and its decisions.`,
+      `Duplicates: comparing the ${ids.length} tasks’ titles and goals, across milestones.`,
+      'Stale: looking for text written for an idea the plan dropped.',
+      'Order: checking what each task builds on, and which milestones run side by side.',
+    ]) {
+      input.onEvent('text', line);
+      await sleep(1100 * pace, input.signal);
+    }
+    input.onEvent('tool', 'plan_review');
+    if (ids.length < 2 || /Rate limits/i.test(shown) === false) {
+      plan.review([]);
+      return 'The plan holds together: nothing to fix.';
+    }
+    plan.review([{ kind: 'order', text: `“Rate limits on the export endpoint” changes the export route that [${ids[0]}] builds, in a milestone that runs beside it: make it wait on [${ids[0]}], or move it into the same milestone.`, ids: [ids[0]!] }]);
+    return 'One thing to fix before it’s approved.';
+  }
   const check = /milestone “([^”]+)” is finished/i.exec(input.prompt) ?? /Every task of milestone “([^”]+)”/i.exec(input.prompt);
   if (check) {
     for (const step of ['task_get', 'Bash git diff main...HEAD --stat', 'Bash npm test']) {
@@ -477,6 +536,44 @@ async function mockSentinel(input: AgentRunInput, pace: number): Promise<string>
  * The demo's Claude in a sentinel run that keeps numbers (Stripe revenue): it reads what the step
  * before brought and keeps the numbers its brief names with sentinel_measure.
  */
+const CHAT_NOTE = /\[Beluga note: this message names other chats: `([^`]+)`/;
+
+/** Reads the first chat a message names, and says how much it found. */
+async function mockReadChat(input: AgentRunInput, tools: NonNullable<AgentRunInput['chatTools']>, pace: number): Promise<string> {
+  await sleep(300 * pace, input.signal);
+  input.onEvent('tool', 'read_chat');
+  try {
+    const found = /"total":\s*(\d+)/.exec(tools.read(CHAT_NOTE.exec(input.prompt)![1]!, {}))?.[1] ?? '0';
+    return `I read that chat. It has ${found} messages so far.`;
+  } catch (err) {
+    return `I could not read that chat (${err instanceof Error ? err.message : String(err)}).`;
+  }
+}
+
+/** Works until it's stopped: holds a chat busy for as long as a test needs (e2e/chat-send.spec.ts). */
+const HOLD_CHAT = /^hold this chat$/i;
+const CHAT_SEND = /^send to (\S+): (.+)$/m;
+
+/** Sends what a message says to send, waits for the answer, and says what came back. */
+async function mockSendChat(input: AgentRunInput, tools: NonNullable<AgentRunInput['chatTools']>, pace: number): Promise<string> {
+  const [, ref, text] = CHAT_SEND.exec(input.prompt)!;
+  await sleep(300 * pace, input.signal);
+  input.onEvent('tool', 'send_to_chat');
+  try {
+    // A message that tells the next chat to send on (a chain, for the demo): nothing to wait for.
+    if (CHAT_SEND.test(text!)) {
+      await tools.send(ref!, text!, {});
+      return 'I passed that on.';
+    }
+    const { message_id: id } = JSON.parse(await tools.send(ref!, text!, { reply: 'wanted' })) as { message_id: string };
+    input.onEvent('tool', 'wait_for_chat');
+    const { state, answer } = JSON.parse(await tools.wait(id, 60)) as { state: string; answer?: string };
+    return answer ? `That chat answered: ${answer}` : `The message is ${state}.`;
+  } catch (err) {
+    return `I could not send that message (${err instanceof Error ? err.message : String(err)}).`;
+  }
+}
+
 async function mockMeasure(input: AgentRunInput, tools: NonNullable<AgentRunInput['dashboardTools']>, pace: number): Promise<string> {
   const keeps = /it keeps ([^.]+)\./.exec(input.sentinelBrief ?? '')?.[1] ?? '';
   const names = [...keeps.matchAll(/([a-z0-9-]+)(?: \(([^)]+)\))?/g)].map((m) => ({ name: m[1]!, unit: m[2] }));
@@ -747,6 +844,19 @@ export function mockBtw(question: string): string {
   return `Short answer: yes. For “${q.slice(0, 80)}”, what I’ve done so far keeps the change inside \`src/core\`, and the tests I ran passed. I haven’t touched the phone app yet, so nothing there depends on it.`;
 }
 
+/** The demo's agent starting child threads through the real tools: `title=runtime:task`, split by semicolons. */
+async function mockStartThreads(input: AgentRunInput, tools: ThreadTools, list: string, pace: number): Promise<string> {
+  const answers: string[] = [];
+  for (const item of list.split(';')) {
+    const m = /^\s*(.+?)=(\w+):(.+?)\s*$/.exec(item);
+    if (!m) continue;
+    await sleep(200 * pace, input.signal);
+    input.onEvent('tool', 'thread_start');
+    answers.push(await tools.start({ title: m[1]!, agent: { runtime: m[2]! }, task: m[3]! }));
+  }
+  return answers.join('\n');
+}
+
 export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
   const context = new MockContext();
   let mcp = DEMO_MCP;
@@ -772,12 +882,15 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       return { url: `https://example.com/oauth/${encodeURIComponent(name)}` };
     },
     mcpSignedIn: (name) => signing.get(name) ?? Promise.resolve(undefined),
+    mcpSigningIn: (name) => signing.has(name),
     nameTask: async (prompt) => {
       await new Promise((r) => setTimeout(r, 600 * pace));
       return slugify(prompt);
     },
     draftTask: async (text, ctx) => {
-      await new Promise((r) => setTimeout(r, (ctx.look ? 6000 : 1500) * pace));
+      // "Take your time" in what you wrote: slow enough, at any pace, to watch the task being written (BLG-598).
+      const watch = /take your time/i.test(text) ? 5000 : 0;
+      await new Promise((r) => setTimeout(r, Math.max(watch, (ctx.look ? 6000 : 1500) * pace)));
       return mockDraft(text, ctx);
     },
     describeProject: async (_dir, project) => {
@@ -788,6 +901,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     titlePlan: async (goal) => {
       await new Promise((r) => setTimeout(r, 400 * pace));
       return mockPlanTitle(goal);
+    },
+    titleChat: async (content) => {
+      await new Promise((r) => setTimeout(r, 400 * pace));
+      const latest = content.split('\n\n').filter((part) => part.startsWith('User: ')).at(-1);
+      return cleanPlanTitle((latest ?? content).replace(/^User: /, ''));
     },
     // A side question: a beat of thinking, then the answer word by word, as Claude streams it.
     btw: async (req) => {
@@ -820,6 +938,10 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
   async function runScript(input: AgentRunInput): Promise<string> {
     const script = SCRIPTS.find((s) => s.match.test(input.prompt)) ?? FALLBACK;
     if (/^\/compact/.test(input.prompt.trim())) return context.compact(input, (ms) => sleep(ms * pace, input.signal));
+    // Claude Code's sign-in ran out mid-run (BLG-589): the failed card offers Sign In's choices.
+    if (/^sign-in expired$/i.test(input.prompt.trim())) throw new RunFailedError(classifyRun({ result: 'Failed to authenticate: Auth session expired and could not be refreshed', apiError: 'authentication_failed' }));
+    // Your plan's usage limit (BLG-757): the card says when Beluga continues it, two hours from now. Also a child thread's task (its last line).
+    if (/(^|\n)usage limit$/i.test(input.prompt.trim())) throw new RunFailedError({ kind: 'usage_limit', resetsAt: Date.now() + 2 * 60 * 60_000, detail: 'You’ve hit your limit' });
     // Updating main (the one thing a main-folder run may change): what real Claude would report.
     if (input.place?.syncMain) return mockSyncMain(input, input.place.syncMain, pace);
     // A sentinel's run (core/sentinel): its brief, before the main folder's "move it to a worktree".
@@ -834,6 +956,13 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     if (input.planTools?.open && OPENS_PLAN.test(input.prompt) && !/^You opened a new plan/.test(input.prompt)) return mockOpenPlan(input, input.planTools, pace);
     // A plan's conversation: Claude writes, revises and checks the plan with its tools. A chat that can only open one talks as usual.
     if (input.planTools && !input.planTools.only?.includes('plan_open') && !/^\/compact/.test(input.prompt.trim())) return mockPlanning(input, input.planTools, pace);
+    // A message that names another chat (see explainChatMentions): it reads that chat, as real Claude may.
+    if (input.chatTools && CHAT_NOTE.test(input.prompt)) return mockReadChat(input, input.chatTools, pace);
+    if (HOLD_CHAT.test(input.prompt.trim())) {
+      input.onEvent('tool', 'Bash npm run test:all');
+      await sleep(3_600_000, input.signal);
+    }
+    if (input.chatTools && CHAT_SEND.test(input.prompt)) return mockSendChat(input, input.chatTools, pace);
     // A main folder is questions only: a change request moves to a new worktree, as real Claude is told to.
     if (input.place?.askOnly && WANTS_CHANGE.test(input.prompt)) {
       if (!input.continueInWorktree) return "This is the project's main folder, which is read-only. Ask the owner to continue in a new worktree.";
@@ -842,6 +971,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       await input.continueInWorktree(input.prompt.trim());
       return 'Moving this to a new worktree; I’ll continue there.';
     }
+    // The demo's agent as a parent: "start threads: Login tests=codex:finish; Docs=claude:keep working".
+    const kids = /^start threads: (.+)$/im.exec(input.prompt);
+    if (kids && input.threadTools) return mockStartThreads(input, input.threadTools, kids[1]!, pace);
+    // A child told to keep working (a run with thread tools): it works until someone stops it.
+    if (input.threadTools && /\bkeep working$/i.test(input.prompt.trim())) await sleep(3_600_000, input.signal);
     // Plan mode, and questions back to you, work in the demo too.
     if (input.plan) return mockPlan(input, pace);
     // A friend's Claude answered after this conversation's turn ended: carry on with it.
@@ -879,6 +1013,7 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
     }
     // What you said meanwhile: read at the next step, folded into this turn (its answer covers it).
     // Sent now (Steer.force): the step it's on stops and your message is the next turn, its own.
+    // Cancelled (Steer.cancel) before that: never read.
     const said: FollowUp[] = [];
     let forced: { followUp: FollowUp; note: string } | undefined;
     let wake: (() => void) | undefined;
@@ -895,13 +1030,27 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       wake?.();
       return true;
     };
-    if (script.steerable) input.onSteer?.(Object.assign((followUp: FollowUp) => (said.push(followUp), true), { force }));
+    // Taken back (Steer.cancel): out of what it reads at its next step.
+    const cancel = async (followUp: FollowUp): Promise<boolean> => {
+      const i = said.indexOf(followUp);
+      if (i < 0) return false;
+      said.splice(i, 1);
+      return true;
+    };
+    if (script.steerable) input.onSteer?.(Object.assign((followUp: FollowUp) => (said.push(followUp), true), { force, cancel }));
     let last: string | undefined;
     try {
-      for (const step of script.steps) {
+      for (const [i, step] of script.steps.entries()) {
         await pause((last && last === script.slowStep?.step ? script.slowStep.ms : (script.stepMs ?? 450)) * pace);
         if (forced) break;
         for (const followUp of said.splice(0)) followUp.onFolded?.();
+        // What it says on the way reads as it's said, then becomes a remark when the step comes.
+        const says = script.says?.[i];
+        if (says) {
+          input.onEvent('text', says);
+          await pause(900 * pace);
+          if (forced) break;
+        }
         input.onEvent('tool', step);
         last = step;
       }
@@ -934,13 +1083,15 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       for (const s of subs) {
         const step = s.steps[i];
         if (step) input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'step', step }));
-        if (i === s.steps.length - 1) input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
+        // Background work (a watcher) keeps going while Claude reads on: it ends with the turn, below.
+        if (i === s.steps.length - 1 && s.kind !== 'background') input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
       }
     }
     for (const step of script.after ?? []) {
       await sleep((script.stepMs ?? 450) * pace, input.signal);
       input.onEvent('tool', step);
     }
+    for (const s of subs) if (s.kind === 'background') input.onEvent('sub', JSON.stringify({ id: s.id, phase: 'done' }));
     if (script.report) await bridge.writeReport(script.report.title, script.report.markdown);
     // Doing a task: keep it true, as real Claude is told to (core/board/prompt.ts).
     if (input.board?.current) keepTaskTrue(input, script);

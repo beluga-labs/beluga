@@ -1,4 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { Session } from '../core/session.js';
@@ -8,6 +10,8 @@ import { ClientRegistry, type ConnectedClient } from './clients.js';
 import { dispatchCall } from './dispatch.js';
 import { companionOf } from '../companion/registry.js';
 import type { MirrorStatus, PhoneTouch, VideoPiece } from '../companion/phone-control.js';
+import type { MessageSocket } from '../net/transport.js';
+import { MACHINE_REFUSED, machineRefuses } from '../machines/coverage.js';
 
 export interface DaemonServerOptions {
   readonly session: Session;
@@ -37,6 +41,15 @@ const MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const byteLength = (raw: Buffer | ArrayBuffer | Buffer[]): number => (Array.isArray(raw) ? raw.reduce((n, b) => n + b.length, 0) : raw.byteLength);
+
+/** Who may manage external agents: the Mac app and the command line. A browser's screen may not, whatever else it may do. */
+const EXTERNAL_MANAGERS: ReadonlySet<string> = new Set(['mac', 'cli', 'test']);
+export const mayCall = (kind: string, method: string): boolean => !method.startsWith('external.') || EXTERNAL_MANAGERS.has(kind);
+/** What only the Mac app and the command line may do: managing browsers' access (BLG-653). */
+export const WEB_ADMIN: ReadonlySet<string> = new Set(['web.link', 'web.sessions.revoke', 'web.stop', 'web.public', 'web.tailscale']);
+
+/** A computer's screen asked for one: who gets it (src/machines/door.ts). The hello's token was checked. */
+export type MachineRoute = (id: string, ws: WebSocket, hello: Extract<ReturnType<typeof parseClientFrame>, { t: 'hello' }>) => void;
 
 /** The default origins of the Mac app's webview. */
 export const APP_ORIGINS = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'] as const;
@@ -92,7 +105,12 @@ export class DaemonServer {
       wss.once('listening', resolve);
       wss.once('error', reject);
     });
-    wss.on('connection', (ws) => this.accept(ws));
+    // `/machine/<id>`: a screen of this app driving one of your computers (BLG-775); the rest is this daemon's.
+    wss.on('connection', (ws, req: IncomingMessage) => {
+      const machine = /^\/machine\/([0-9a-f]{16})\/?$/.exec(req.url ?? '');
+      if (machine) this.acceptMachineScreen(ws, machine[1]!);
+      else this.accept(ws);
+    });
     this.offs.push(
       this.session.store.onAction((action) => {
         this.seq++;
@@ -120,6 +138,7 @@ export class DaemonServer {
     const wss = this.wss;
     if (!wss) return;
     for (const ws of wss.clients) ws.close(1001, reason);
+    this.wss = undefined;
     await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 
@@ -152,7 +171,61 @@ export class DaemonServer {
     });
   }
 
-  private accept(ws: WebSocket): void {
+  /**
+   * A browser's socket from the web port (daemon/web.ts), already let in by its session: it
+   * goes through the same accept path, but its hello's token is never read.
+   */
+  adopt(ws: WebSocket): void {
+    if (!this.wss) return ws.close(1013, 'Beluga is starting');
+    this.accept(ws, 'web');
+  }
+
+  /**
+   * Your app driving this computer (BLG-775): its link (already let in by its certificate, and its
+   * first frame, the hello, already read) becomes a screen of kind `machine`. The hello's token is
+   * never read: the app's own token never leaves the app.
+   */
+  adoptMachine(socket: MessageSocket, hello: string): void {
+    if (!this.wss) return socket.close(1013, 'Beluga is starting');
+    const ws = new LinkAsWs(socket);
+    this.accept(ws as unknown as WebSocket, 'machine');
+    ws.emit('message', Buffer.from(hello), false);
+  }
+
+  /**
+   * A screen for one of your computers that is this daemon itself (the demo's, BLG-784): its hello
+   * (token already checked) is heard again, and it's a screen of kind `machine` here.
+   */
+  serveAsMachine(ws: WebSocket, hello: Parameters<MachineRoute>[2]): void {
+    if (!this.wss) return ws.close(1013, 'Beluga is starting');
+    this.accept(ws, 'machine');
+    ws.emit('message', Buffer.from(encodeFrame(hello)), false);
+  }
+
+  private machineRoute?: MachineRoute;
+
+  /** Who serves `/machine/<id>` (the machines' door, once it's up). */
+  routeMachines(route: MachineRoute): void {
+    this.machineRoute = route;
+  }
+
+  /** A screen for one of your computers: it proves it holds this daemon's token, then the door pipes it there. */
+  private acceptMachineScreen(ws: WebSocket, id: string): void {
+    const timer = setTimeout(() => ws.close(4001, 'No hello'), this.opts.helloTimeoutMs ?? 5000);
+    timer.unref?.();
+    ws.once('message', (raw, isBinary) => {
+      clearTimeout(timer);
+      if (isBinary || byteLength(raw) > MAX_HELLO_BYTES) return ws.close(1009, 'Say hello first');
+      const frame = parseClientFrame(raw.toString());
+      if (frame?.t !== 'hello') return ws.close(4001, 'Say hello first');
+      if (!this.tokenOk(frame.token)) return ws.close(4003, 'Wrong token');
+      if (!this.machineRoute) return ws.close(4404, 'No computers here');
+      this.machineRoute(id, ws, frame);
+    });
+    ws.on('error', () => undefined);
+  }
+
+  private accept(ws: WebSocket, preauthorized?: 'web' | 'machine'): void {
     let client: ConnectedClient | undefined;
     const attached = new Map<string, () => void>();
     const send = (frame: DaemonFrame): void => {
@@ -176,6 +249,8 @@ export class DaemonServer {
     };
 
     ws.on('message', (raw, isBinary) => {
+      // Closing (a revoked browser): nothing more it sends is heard, whether or not it answers the close.
+      if (ws.readyState !== ws.OPEN) return;
       if (!client && (isBinary || byteLength(raw) > MAX_HELLO_BYTES)) return ws.close(1009, 'Say hello first');
       try {
         handle(raw.toString());
@@ -191,12 +266,14 @@ export class DaemonServer {
       if (!client) {
         if (frame.t !== 'hello') return;
         clearTimeout(helloTimer);
-        if (!this.tokenOk(frame.token)) return ws.close(4003, 'Wrong token');
+        if (!preauthorized && !this.tokenOk(frame.token)) return ws.close(4003, 'Wrong token');
         if (frame.ipc !== IPC_VERSION) {
           send({ t: 'bye', reason: `This Beluga speaks version ${IPC_VERSION} of the protocol, the screen ${frame.ipc}. Update both to the same version.` });
           return ws.close(4004, 'IPC version mismatch');
         }
-        client = this.clients.add({ kind: frame.kind, version: frame.version, ...(frame.launchDir ? { launchDir: frame.launchDir } : {}), caps: frame.caps, send });
+        // A browser from the web port is a web screen, and your app over a computer's link a machine
+        // screen, whatever their hello says (neither may manage access).
+        client = this.clients.add({ kind: preauthorized ?? frame.kind, version: frame.version, ...(frame.launchDir ? { launchDir: frame.launchDir } : {}), caps: frame.caps, send });
         send({ t: 'welcome', clientId: client.id, version: this.opts.version, ipc: IPC_VERSION, snapshot: this.session.store.getState(), seq: this.seq, clients: this.clients.size });
         return;
       }
@@ -209,6 +286,8 @@ export class DaemonServer {
         case 'resync':
           return send({ t: 'snapshot', snapshot: this.session.store.getState(), seq: this.seq });
         case 'attention':
+          // The `beluga` command in a terminal shows no conversations: it doesn't count as looking.
+          if (me.kind === 'cli') return;
           // Screens from before `front` existed: one showing something is in front.
           return this.session.attend(me.id, { ...frame.attention, front: frame.attention.front ?? frame.attention.visible.length > 0 });
         case 'call':
@@ -321,6 +400,11 @@ export class DaemonServer {
   }
 
   private async call(client: ConnectedClient, id: string, method: string, raw: readonly unknown[]): Promise<DaemonFrame> {
+    if (!mayCall(client.kind, method)) return { t: 'result', id, ok: false, error: 'External agents are managed from the Mac app or `beluga mcp` on the computer Beluga runs on' };
+    // A browser's session can't mint, revoke or move browser sessions: a stolen cookie can't outlive its revoke.
+    if (client.kind === 'web' && WEB_ADMIN.has(method)) return { t: 'result', id, ok: false, error: 'Browsers are let in and revoked from the Mac app or `beluga web` on the computer Beluga runs on' };
+    // Your app driving this computer: what src/machines/coverage.ts refuses it (BLG-776).
+    if (client.kind === 'machine' && machineRefuses(method)) return { t: 'result', id, ok: false, error: MACHINE_REFUSED };
     return { t: 'result', id, ...(await dispatchCall(this.session, client.id, method, raw)) };
   }
 
@@ -330,3 +414,36 @@ export class DaemonServer {
     return a.length === b.length && timingSafeEqual(a, b);
   }
 }
+
+/**
+ * A computer's link (a framed Noise stream) as the parts of a `ws` WebSocket the door uses, so
+ * your app's screens over it go through the very same accept path as local ones.
+ */
+class LinkAsWs extends EventEmitter {
+  readonly OPEN = 1;
+  readonly bufferedAmount = 0;
+
+  constructor(private readonly socket: MessageSocket) {
+    super();
+    socket.on('message', (text) => void this.emit('message', Buffer.from(text), false));
+    socket.once('close', (code) => void this.emit('close', code));
+    socket.on('error', (err) => void this.emit('error', err));
+  }
+
+  get readyState(): number {
+    return this.socket.isOpen ? 1 : 3;
+  }
+
+  send(text: string): void {
+    this.socket.send(text);
+  }
+
+  close(code?: number, reason?: string): void {
+    this.socket.close(code, reason);
+  }
+
+  terminate(): void {
+    this.socket.terminate();
+  }
+}
+

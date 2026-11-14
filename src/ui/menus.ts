@@ -1,4 +1,5 @@
 import type { AppState } from '../core/store.js';
+import type { ThreadChildren } from '../shared/threads.js';
 import { worktreeOrigin } from '../workspaces/origin.js';
 import { clearMenu, invitePersonMenu, sharedMenu, wsShareMenu } from './collab-menus.js';
 import { shareFolderMenu, shareWhoMenu } from './share-menus.js';
@@ -10,6 +11,7 @@ import { workMenuSpec, type WorkMenuKind } from './work-menus.js';
 import { describeWindow } from '../agent/runtime/claude/usage.js';
 import { type Usage, defaultAgentOf } from '../protocol.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
+import { FILE_MANAGER } from '../shared/assistant.js';
 
 function usageLines(usage: Usage | undefined): string[] {
   if (!usage) return [];
@@ -37,7 +39,7 @@ export type MenuKind =
   | WorkMenuKind
   | InviteMenuKind
   | { readonly kind: 'person'; readonly index: number }
-  | { readonly kind: 'confirm'; readonly action: 'archive' | 'delete'; readonly id: string }
+  | { readonly kind: 'confirm'; readonly action: 'archive' | 'delete'; readonly id: string; readonly children?: ThreadChildren }
   | { readonly kind: 'project'; readonly id: string }
   | { readonly kind: 'archived'; readonly id: string }
   | { readonly kind: 'agents'; readonly projectId: string }
@@ -48,7 +50,7 @@ export type MenuKind =
   | { readonly kind: 'share_folder'; readonly launchDir: string; readonly mine: ReadonlyArray<{ name: string; root?: string; private?: boolean; allowed?: readonly string[] }> }
   | { readonly kind: 'share_who'; readonly dir: string };
 
-/** The ⋯ menu on a project: start work, organize into groups, hide, open in Finder. */
+/** The ⋯ menu on a project: start work, organize into groups, hide, open in Finder (File Explorer, Files). */
 export function projectMenu(state: AppState, id: string): MenuSpec | undefined {
   const p = state.projects.find((x) => x.id === id);
   if (!p) return undefined;
@@ -62,8 +64,8 @@ export function projectMenu(state: AppState, id: string): MenuSpec | undefined {
       { id: 'p-worktree', label: 'New worktree', hint: 'from the latest origin' },
       { id: 'p-chat', label: 'New chat', hint: "a new one each time, in the project's main folder" },
       ...(p.root ? [{ id: 'p-invite', label: 'Invite someone to this project…', hint: 'a link: they watch, prompt or edit here' }] : []),
-      { id: 'p-scripts', label: 'Setup and run commands…', hint: p.scripts?.setup ? `setup: ${p.scripts.setup.command}` : 'none yet' },
-      { id: 'p-finder', label: 'Open in Finder', hint: '' },
+      { id: 'p-scripts', label: 'Project Settings…', hint: p.scripts?.setup ? `setup: ${p.scripts.setup.command}` : 'none yet' },
+      { id: 'p-finder', label: `Open in ${FILE_MANAGER}`, hint: '' },
       ...otherGroups.map((g) => ({ id: `p-group:${g.name}`, label: `Move to "${g.name}"`, hint: 'group' })),
       { id: 'p-newgroup', label: 'Move to a new group…', hint: 'type a name' },
       ...(group ? [{ id: 'p-ungroup', label: `Remove from "${group.name}"`, hint: '' }] : []),
@@ -103,7 +105,7 @@ export function archivedMenu(state: AppState, id: string): MenuSpec | undefined 
     options: [
       { id: 'a-restore', label: 'Restore', hint: ws.kind === 'worktree' ? 'recreate the worktree from its branch' : 'show it again' },
       { id: 'a-open', label: 'Read its conversation', hint: 'without restoring' },
-      { id: 'a-finder', label: 'Open the project folder in Finder', hint: '' },
+      { id: 'a-finder', label: `Open the project folder in ${FILE_MANAGER}`, hint: '' },
       { id: 'a-delete', label: 'Delete permanently', hint: 'branch and conversation' },
       { id: 'close', label: 'Close', hint: 'Esc' },
     ],
@@ -127,7 +129,14 @@ export function confirmMenu(state: AppState, action: 'archive' | 'delete', id: s
         ),
       ]
     : [];
-  const envOption = env.length ? [{ id: `confirm-${action}-env`, label: `Copy env changes to the main folder, then ${action}`, hint: 'keeps your new keys' }] : [];
+  const removedKeys = env.flatMap((c) => c.removed);
+  const envOption = env.length
+    ? [
+        { id: `confirm-${action}-env`, label: `Copy env changes to the main folder, then ${action}`, hint: 'keeps your new keys' },
+        // Removed keys go from the main folder's file too, only when chosen.
+        ...(removedKeys.length ? [{ id: `confirm-${action}-env-all`, label: `Copy env changes and removals to the main folder, then ${action}`, hint: `also removes ${removedKeys.join(', ')}` }] : []),
+      ]
+    : [];
   if (action === 'archive') {
     return {
       title: `Archive ${ws.name}?`,

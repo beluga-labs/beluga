@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { AgentRef } from '../../protocol.js';
 import { agentName } from '../../shared/agent-label.js';
-import { readJson, writeJson } from '../../net/mesh/files.js';
+import { JsonFile, readJson, writeJson } from '../../net/mesh/files.js';
 import { type Actor, renamedActors } from '../board/model.js';
 import type { Store } from '../store.js';
 import { type BodyInput, type PlanOp, PlanError, applyOps, normalizeBody } from './edit.js';
@@ -14,6 +14,7 @@ import {
   type Autonomy,
   type Combining,
   DEFAULT_AUTONOMY,
+  type DraftReview,
   DEFAULT_PARALLEL,
   type GateCheck,
   KEEP_PLAN_ACTIVITY,
@@ -28,6 +29,7 @@ import {
   type PlanEventKind,
   type PlanMainMerge,
   type PlanMerge,
+  type PlanMove,
   type PlanPr,
   type PlanShipped,
   type PlansState,
@@ -35,6 +37,7 @@ import {
   TESTS_AT,
   type TestsAt,
   diffBodies,
+  NOTE_MAX,
   isEmptyDiff,
   planById,
 } from './model.js';
@@ -107,12 +110,14 @@ const short = (prefix: string): string => `${prefix}_${randomUUID().replace(/-/g
 export class Plans {
   private plans: Plan[] = [];
   private style = '';
-  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** plans.json: large with many plans, so written in the background (BLG-942). */
+  private readonly file: JsonFile | undefined;
   private readOnly = false;
   private readonly now: () => number;
 
   constructor(private readonly deps: PlansDeps) {
     this.now = deps.now ?? Date.now;
+    this.file = deps.dir ? new JsonFile(path.join(deps.dir, 'plans.json'), () => ({ version: 1, plans: this.plans }), deps.saveDelayMs ?? 300) : undefined;
     this.load();
     deps.store.dispatch({ type: 'plans_init', state: this.state() });
   }
@@ -189,7 +194,7 @@ export class Plans {
 
   private setDraft(plan: Plan, draft: PlanBody, by: Actor, text: string): Plan {
     // Back to exactly what was approved: no changes are waiting.
-    const same = plan.body && isEmptyDiff(diffBodies(plan.body, draft)) && plan.body.title === draft.title && plan.body.goal === draft.goal;
+    const same = plan.body && isEmptyDiff(diffBodies(plan.body, draft)) && plan.body.title === draft.title && plan.body.goal === draft.goal && JSON.stringify(plan.body.decisions ?? []) === JSON.stringify(draft.decisions ?? []);
     const last = plan.activity.at(-1);
     const quick = last && last.kind === 'drafted' && sameActor(last.by, by) && this.now() - last.at < DRAFT_NOTE_MS;
     const activity = same ? [] : [event(by, 'drafted', text, this.now())];
@@ -302,12 +307,15 @@ export class Plans {
     return this.change(plan, { runs: withRun(plan, milestone, { checkAsked: this.now() }) }, [event({ kind: 'beluga' }, 'gate', `${milestoneName(plan, milestone)}: every task is finished, the agent is checking its pass criteria`, this.now())]);
   }
 
-  /** Work came back to a milestone (a task reopened, fix tasks added): its next check is a new one. */
+  /**
+   * Work came back to a milestone (a task reopened, fix tasks added, Check Again): its next check is
+   * a new one. A merge that failed before goes too: the next pass (Autopilot's too) tries it afresh.
+   */
   newRound(id: string, milestone: string): Plan {
     const plan = this.need(id);
     const run = plan.runs[milestone] ?? {};
-    if (run.checkAsked === undefined) return plan;
-    const { checkAsked: _c, check: _k, ...rest } = run;
+    if (run.checkAsked === undefined && !run.mergeFailed) return plan;
+    const { checkAsked: _c, check: _k, mergeFailed: _f, ...rest } = run;
     return this.change(plan, { runs: { ...plan.runs, [milestone]: rest } }, [], false);
   }
 
@@ -361,6 +369,13 @@ export class Plans {
     const plan = this.need(id);
     if (JSON.stringify(plan.rescue) === JSON.stringify(rescue)) return plan;
     return this.change(plan, { rescue }, []);
+  }
+
+  /** The draft's review by a fresh agent (see draft-review.ts); undefined: none. */
+  setReview(id: string, review: DraftReview | undefined): Plan {
+    const plan = this.need(id);
+    if (JSON.stringify(plan.review) === JSON.stringify(review)) return plan;
+    return this.change(plan, { review }, []);
   }
 
   /** Its epics on the board (see epics.ts). */
@@ -444,7 +459,30 @@ export class Plans {
 
   note(id: string, kind: PlanEventKind, text: string, by: Actor): Plan {
     const plan = this.need(id);
-    return this.change(plan, {}, [event(by, kind, text.replace(/\s+/g, ' ').trim().slice(0, 300), this.now())]);
+    return this.change(plan, {}, [event(by, kind, text.replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX), this.now())]);
+  }
+
+  /** A plan that moved here from another computer (BLG-806), as move.ts made it ready: in place of the record of an earlier move away. */
+  adopt(plan: Plan): Plan {
+    const there = this.get(plan.id);
+    if (there && !there.movedTo) throw new PlanError('A plan with that id is here already');
+    const next = { ...plan, updatedAt: this.now() };
+    this.plans = [...this.plans.filter((p) => p.id !== plan.id), next];
+    this.publish(next);
+    return next;
+  }
+
+  /** It moved to another computer: this copy is its record from now on, paused, off the lists. */
+  movedAway(id: string, to: PlanMove, by: Actor): Plan {
+    const plan = this.need(id);
+    return this.change(plan, { movedTo: to, paused: true }, [event(by, 'note', `moved the plan to ${to.name}: it runs there now`, to.at)]);
+  }
+
+  /** A moved milestone's next agent started from its branch: it isn't resumed from there again. */
+  resumed(id: string, milestone: string): Plan {
+    const plan = this.need(id);
+    const { resumeFrom: was, ...rest } = plan.runs[milestone] ?? {};
+    return was ? this.change(plan, { runs: { ...plan.runs, [milestone]: rest } }, []) : plan;
   }
 
   remove(id: string): void {
@@ -465,10 +503,11 @@ export class Plans {
   }
 
   flush(): void {
-    if (!this.saveTimer) return;
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    this.write();
+    try {
+      this.file?.flush();
+    } catch {
+      // The next change tries again.
+    }
   }
 
   // ------------------------------------------------------------------ inside
@@ -524,21 +563,7 @@ export class Plans {
   }
 
   private save(): void {
-    if (!this.deps.dir || this.readOnly || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = undefined;
-      this.write();
-    }, this.deps.saveDelayMs ?? 300);
-    this.saveTimer.unref?.();
-  }
-
-  private write(): void {
-    if (!this.deps.dir) return;
-    try {
-      writeJson(path.join(this.deps.dir, 'plans.json'), { version: 1, plans: this.plans });
-    } catch {
-      // The next change tries again.
-    }
+    if (!this.readOnly) this.file?.changed();
   }
 }
 
@@ -555,4 +580,4 @@ function milestoneName(plan: Plan, id: string): string {
   return m ? `“${m.title}”` : 'a milestone';
 }
 
-const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner : true);
+const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner && a.external?.id === (b as typeof a).external?.id : true);

@@ -16,6 +16,7 @@ import { useTaggable } from './use-taggable.js';
 import { useBoard, usePeople, useSelf, useSolo, useTaskActions, useTasksPrefs } from './use-tasks.js';
 import n from './NewTaskSheet.module.css';
 import { chordLabel } from '../lib/shortcuts-model.js';
+import { useActions } from '../lib/actions.js';
 
 /** The priority scale, left to right: its keys are 0 to 4. */
 const SCALE: readonly Priority[] = ['none', 'low', 'medium', 'high', 'urgent'];
@@ -38,6 +39,7 @@ export function NewTaskSheet({ boardId, projectId, status, parent, close }: { bo
   const self = useSelf();
   const { client } = useBeluga();
   const { api, act, open } = useTaskActions();
+  const actions = useActions();
   const parentIssue = parent ? issueById(board, parent) : undefined;
   const boards = useMemo(() => boardChoices(board, projects), [board, projects]);
   const known = (id: string | undefined): id is string => Boolean(id && boards.some((b) => b.id === id));
@@ -76,7 +78,12 @@ export function NewTaskSheet({ boardId, projectId, status, parent, close }: { bo
   const box = useRef<HTMLTextAreaElement>(null);
   const tags = useBoxSuggestions({ text: describe, setText: setDescribe, people: tagged.people, className: n.suggestions });
   if (!projects.length) {
-    return <FormSheet title="New Task" intro="Tasks belong to a project. Add a project first (File › Add Project…)." submitLabel="OK" hideSubmit onSubmit={close} onCancel={close} />;
+    // The sidebar's own "Add a Project…", one click away (every OS has it; not every one has a File menu).
+    const addProject = (): void => {
+      close();
+      actions.run({ type: 'add_project' });
+    };
+    return <FormSheet title="New Task" intro="Tasks belong to a project: a folder with your code. Add one first." submitLabel="Add a Project…" onSubmit={addProject} onCancel={close} />;
   }
   // Where it goes, quietly: the board (unless you pick it below) and the column; the repo when the board has several.
   const pickBoard = !known(boardId) && !parentIssue && boards.length > 1;

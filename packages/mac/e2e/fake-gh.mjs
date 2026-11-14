@@ -6,7 +6,9 @@
 //   { "prs": { "<branch or its last part>": { number, url, state, title, isDraft, statusCheckRollup,
 //              reviewDecision, mergeable, autoMergeRequest } },
 //     "mergeError": "what gh says when GitHub refuses (optional)",
-//     "merges": [["pr", "merge", "7", "--squash"], …] }
+//     "merges": [["pr", "merge", "7", "--squash"], …],
+//     "reruns": [["run", "rerun", "5", "--failed"], …],
+//     "repos": [{ full_name, clone_url, ssh_url, private, pushed_at, description }, …] }
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const file = process.env.BELUGA_FAKE_GH ?? process.env.KLAUD_FAKE_GH;
@@ -23,6 +25,16 @@ const find = (ref) => entries().find(([branch, pr]) => branch === ref || ref.end
 const withBranch = (ref, branch) => (ref.includes('/') ? ref : branch);
 
 if (args[0] === 'auth' && args[1] === 'status') process.exit(0);
+
+// Your repositories for the Clone tab (src/workspaces/github-repos.ts): `repos`, GitHub's REST rows.
+if (args[0] === 'api' && args[1]?.startsWith('user/repos')) {
+  process.stdout.write(JSON.stringify(state.repos ?? []));
+  process.exit(0);
+}
+if (args[0] === 'config' && args[1] === 'get' && args[2] === 'git_protocol') {
+  process.stdout.write(`${state.gitProtocol ?? 'https'}\n`);
+  process.exit(0);
+}
 
 if (args[0] === 'pr' && args[1] === 'view') {
   const hit = find(args[2] ?? '');
@@ -47,6 +59,13 @@ if (args[0] === 'pr' && args[1] === 'merge') {
   const [branch, pr] = hit;
   const method = (args.find((a) => ['--squash', '--merge', '--rebase'].includes(a)) ?? '--merge').slice(2).toUpperCase();
   state.prs[branch] = args.includes('--auto') ? { ...pr, autoMergeRequest: { mergeMethod: method } } : { ...pr, state: 'MERGED', autoMergeRequest: null };
+  writeFileSync(file, JSON.stringify(state, null, 2));
+  process.exit(0);
+}
+
+// Re-run Failed Checks (BLG-753): kept, so a test can read back which runs it asked for.
+if (args[0] === 'run' && args[1] === 'rerun') {
+  state.reruns = [...(state.reruns ?? []), args];
   writeFileSync(file, JSON.stringify(state, null, 2));
   process.exit(0);
 }

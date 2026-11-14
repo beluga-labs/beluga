@@ -106,8 +106,8 @@ test('Merge on GitHub: live checks, the ways to merge, GitHub saying no, then Me
     await lookAgain(page);
     await expect(toolbar(page)).toContainText('add-auth');
 
-    // Once the PR is known, the branch pill at the top ("Checks running #7") opens its sheet.
-    const known = toolbar(page).getByRole('group', { name: /^Branch:/ }).getByRole('button', { name: /#7$/ });
+    // Once the PR is known, the branch pill beside the worktree's name ("Checks running #7") opens its sheet.
+    const known = toolbar(page).getByRole('button', { name: /#7$/ });
     await known.click();
     const sheet = page.getByRole('dialog', { name: /Pull Request/ });
     await expect(sheet).toContainText('#7');
@@ -214,7 +214,7 @@ test('The chat watches the PR’s checks live, and an admin can merge past them'
   }
 });
 
-test('A PR that conflicts says so at the top and offers Resolve with Claude; a merged one offers Archive, Continue After Merge or Delete there', async ({ page }) => {
+test('A PR that conflicts says so at the top and offers Resolve Conflicts; a merged one offers Archive, Continue After Merge or Delete there', async ({ page }) => {
   writeGh({ prs: { 'add-auth': openPr({ mergeable: 'CONFLICTING' }) } });
   try {
     await page.goto('/');
@@ -225,14 +225,14 @@ test('A PR that conflicts says so at the top and offers Resolve with Claude; a m
     await row.click();
     await lookAgain(page);
 
-    // Conflicts: said once, at the top, with Resolve with Claude (asking first); the strip only has the checks.
+    // Conflicts: said once, at the top, with Resolve Conflicts… (asking first); the strip only has the checks.
     const strip = page.locator('[data-pr-strip="OPEN"]');
     await expect(strip).toContainText('#7', { timeout: 20_000 });
     await expect(strip.getByRole('button', { name: 'Merge on GitHub' })).toHaveCount(0);
     await expect(strip).not.toContainText('Conflicts');
     await expect(toolbar(page).locator('[data-branch-state="conflicts"]')).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('pr-strip-conflicts.png') });
-    await toolbar(page).getByRole('button', { name: 'Resolve with Your Agent…' }).click();
+    await toolbar(page).getByRole('button', { name: 'Resolve Conflicts…' }).click();
     const ask = page.getByRole('dialog', { name: 'Ask your agent to resolve the merge conflicts?' }).or(page.getByRole('alertdialog', { name: 'Ask your agent to resolve the merge conflicts?' }));
     await expect(ask).toContainText('merges the latest base');
     await ask.getByRole('button', { name: 'Cancel' }).click();
@@ -243,6 +243,11 @@ test('A PR that conflicts says so at the top and offers Resolve with Claude; a m
     await expect(toolbar(page).locator('[data-branch-state="merged"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('[data-pr-strip]')).toHaveCount(0);
     await expect(toolbar(page).getByRole('button', { name: 'Archive Worktree' })).toBeVisible();
+    // Merged on GitHub, not here: the chat says so too, with a line across it.
+    const line = page.locator('[data-merged-divider="7"]');
+    await expect(line).toContainText('Above was merged into main in PR #7');
+    await line.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath('merged-line.png') });
     await toolbar(page).getByRole('button', { name: 'Other steps for this branch' }).click();
     await expect(page.getByRole('menuitem', { name: /^Delete Worktree…/ })).toBeVisible();
     await page.getByRole('menuitem', { name: /^Continue After Merge…/ }).click();

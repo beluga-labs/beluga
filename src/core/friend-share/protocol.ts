@@ -20,9 +20,11 @@ import { AgentRef } from '../../protocol.js';
  *   one): the friend makes their own copy (copy.ts). When they can't clone it, `copy_request` asks
  *   the owner's Mac for a bundle of it, and `copy_ready` says where to fetch it (or `copy_failed`).
  *   `repo`: that address for a project shared a worktree at a time too (a fork looks for it in yours).
+ * - `chats`: the owner's plain chats (no project folder), each shared on its own: a friend gets
+ *   their conversation and Scratch, never a copy or a fork.
  * - `fork_request`: a friend who works in one of your worktrees wants their own fork of it on their
  *   Mac (fork.ts), with the commits they `have` (left out of the pack). `fork_ready` says where to
- *   fetch the pack (or `fork_failed`, why not).
+ *   fetch the pack and how many `files` are in it, for its progress (or `fork_failed`, why not).
  */
 
 const id = z.string().regex(/^[\w:.-]{1,80}$/);
@@ -32,7 +34,28 @@ const text = (max: number) => z.string().max(max);
 const repoUrl = z.string().regex(/^https:\/\/[\w.~/-]{4,500}$/);
 
 export const HISTORY_ITEMS = 60;
+/** How long each message of a history page may be, for a Mac from before `share.history.long`. */
 export const HISTORY_TEXT = 4000;
+/** How long it may be for one that takes long messages: a graph or a long answer comes whole (BLG-622). */
+export const HISTORY_TEXT_LONG = 60_000;
+/** A history page stays under this many bytes, so it fits a link frame and a friend's mailbox. */
+export const HISTORY_PAGE_BYTES = 400_000;
+
+/**
+ * The newest of `items` that fit one page: at most HISTORY_ITEMS, and under HISTORY_PAGE_BYTES
+ * (always at least the newest one). `more`: there are older ones it left out.
+ */
+export function historyPageOf<T extends { readonly text: string }>(items: readonly T[], maxBytes = HISTORY_PAGE_BYTES): { items: T[]; more: boolean } {
+  let bytes = 0;
+  let start = items.length;
+  while (start > 0 && items.length - start < HISTORY_ITEMS) {
+    const size = Buffer.byteLength(JSON.stringify(items[start - 1]));
+    if (start < items.length && bytes + size > maxBytes) break;
+    bytes += size;
+    start -= 1;
+  }
+  return { items: items.slice(start), more: start > 0 };
+}
 
 export const ShareMsg = z.discriminatedUnion('k', [
   z.object({
@@ -45,19 +68,20 @@ export const ShareMsg = z.discriminatedUnion('k', [
     members: z.array(z.object({ peerId, name: text(80), role })).max(100),
     copy: z.object({ url: repoUrl.optional() }).optional(),
     repo: repoUrl.optional(),
+    chats: z.literal(true).optional(),
   }),
   z.object({ k: z.literal('copy_request'), id }),
   z.object({ k: z.literal('copy_ready'), id, share: id, size: z.number().int().min(0) }),
   z.object({ k: z.literal('copy_failed'), id, error: text(300) }),
   z.object({ k: z.literal('fork_request'), ws: id, have: z.array(z.string().regex(/^[0-9a-f]{40}$/)).max(40) }),
-  z.object({ k: z.literal('fork_ready'), ws: id, share: id, size: z.number().int().min(0) }),
+  z.object({ k: z.literal('fork_ready'), ws: id, share: id, size: z.number().int().min(0), files: z.number().int().min(0).max(1_000_000).optional() }),
   z.object({ k: z.literal('fork_failed'), ws: id, error: text(300) }),
   z.object({ k: z.literal('unshare'), id }),
   z.object({ k: z.literal('leave'), id }),
   z.object({
     k: z.literal('history'),
     ws: id,
-    items: z.array(z.object({ from: text(120), text: text(HISTORY_TEXT), ts: z.number().int().min(0), byAgent: z.boolean() })).max(HISTORY_ITEMS),
+    items: z.array(z.object({ from: text(120), text: text(HISTORY_TEXT_LONG), ts: z.number().int().min(0), byAgent: z.boolean() })).max(HISTORY_ITEMS),
     more: z.boolean().optional(),
     before: z.number().int().min(0).optional(),
   }),

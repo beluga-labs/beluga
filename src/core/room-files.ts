@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { type BodyInput, type BodyOf, CHUNK_BYTES, type FsEntry } from '../protocol.js';
+import { type BodyInput, type BodyOf, CHUNK_BYTES, type FsEntry, MAX_FILE_BYTES } from '../protocol.js';
+import { FIRST_RANGE, type RangeOptions, type TextRange } from '../shared/text-range.js';
 import { parseLocation } from './mentions.js';
 import { type ShareService, isSecretPath } from './shares.js';
 import { type Location, type Store, peerName } from './store.js';
@@ -215,6 +216,8 @@ export class RoomFiles {
 
   /** Owner side of a download: send one encrypted chunk, and tell the owner who is downloading. */
   private async serveChunk(from: string, body: BodyOf<'fs_fetch'>): Promise<void> {
+    // A picture, PDF or video shown is watched like a text file read (fs_read): written again, it's read again.
+    if (body.offset === 0) this.deps.shares.watchFile(body.share, body.path);
     try {
       const { data, total } = await this.deps.shares.readChunk(body.share, body.path, body.offset, CHUNK_BYTES, from === this.selfId);
       if (body.offset === 0 && from !== this.selfId) this.system(`${peerName(this.store.getState(), from)} is downloading ${body.share}/${body.path}`);
@@ -264,6 +267,20 @@ export class RoomFiles {
     return { mediaType, bytes: await fetchBytes(at, (to, b) => this.request(to, b), max) };
   }
 
+  /**
+   * Which version of a file this is (its size and when it last changed), without reading it, so a
+   * picture kept by its path is read again once it's rewritten (BLG-749). Yours: one stat. A
+   * friend's: from a listing of its folder, the way their Scratch tab sees it.
+   */
+  async fileVersion(at: Location): Promise<{ size: number; mtime: number }> {
+    if (at.owner === this.selfId) return this.deps.shares.stat(at.share, at.path, true);
+    const dir = path.posix.dirname(at.path);
+    const name = path.posix.basename(at.path);
+    const entry = (await this.listFiles({ ...at, path: dir === '.' ? '' : dir }, { times: true })).find((e) => e.name === name && !e.dir);
+    if (!entry) throw new Error(`ENOENT: ${at.path} is not there`);
+    return { size: entry.size, mtime: entry.mtime ?? 0 };
+  }
+
   async listFiles(at: Location, opts: { times?: boolean } = {}): Promise<readonly FsEntry[]> {
     const res = await this.request<BodyOf<'fs_list_result'>>(at.owner, { kind: 'fs_list', reqId: randomUUID(), share: at.share, path: at.path, ...(opts.times ? { times: true } : {}) });
     return res.entries ?? [];
@@ -272,6 +289,35 @@ export class RoomFiles {
   async readFile(at: Location): Promise<{ content: string; truncated: boolean }> {
     const res = await this.request<BodyOf<'fs_read_result'>>(at.owner, { kind: 'fs_read', reqId: randomUUID(), share: at.share, path: at.path });
     return { content: res.content ?? '', truncated: res.truncated ?? false };
+  }
+
+  /**
+   * One piece of a file's text (BLG-791). Yours: read where it is, refused as a whole read would be,
+   * and watched like one. A friend's: their whole read (up to 512 KB), as one piece from the start.
+   */
+  async readRange(at: Location, range: RangeOptions): Promise<TextRange> {
+    if (at.owner === this.selfId) {
+      this.deps.shares.watchFile(at.share, at.path);
+      return this.deps.shares.readRange(at.share, at.path, range.offset, range.length, true);
+    }
+    if (range.offset > 0) throw new Error('A friend’s file is read from its start');
+    const { content } = await this.readFile(at);
+    return { content, offset: 0, total: Buffer.byteLength(content), mtime: 0 };
+  }
+
+  /**
+   * What the viewer opens with: a file of yours too big to read whole, its first piece (the rest
+   * streams as you scroll, BLG-791); anything else, the whole read.
+   */
+  private async opening(at: Location): Promise<{ content: string; truncated: boolean; next?: number; total?: number }> {
+    if (at.owner === this.selfId) {
+      const { size } = await this.deps.shares.stat(at.share, at.path, true);
+      if (size > MAX_FILE_BYTES) {
+        const first = await this.readRange(at, { offset: 0, length: FIRST_RANGE });
+        return { content: first.content, truncated: false, ...(first.next !== undefined ? { next: first.next, total: first.total } : {}) };
+      }
+    }
+    return this.readFile(at);
   }
 
   /**
@@ -304,8 +350,8 @@ export class RoomFiles {
         this.store.dispatch({ type: 'viewer_image', at, image: await decodeImageAsync(bytes, at.path) });
         return;
       }
-      const { content, truncated } = await this.readFile(at);
-      this.store.dispatch({ type: 'viewer_content', at, content, truncated });
+      const { content, truncated, next, total } = await this.opening(at);
+      this.store.dispatch({ type: 'viewer_content', at, content, truncated, ...(next !== undefined && total !== undefined ? { next, total } : {}) });
     } catch (err) {
       this.store.dispatch({ type: 'viewer_error', at, error: errorText(err) });
     }

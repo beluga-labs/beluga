@@ -41,7 +41,8 @@ describe('detectSetup', () => {
 
   it('creates a venv for requirements.txt', () => {
     touch('requirements.txt');
-    expect(detectSetup(dir)).toBe('python3 -m venv .venv && .venv/bin/pip install -r requirements.txt');
+    expect(detectSetup(dir, 'darwin')).toBe('python3 -m venv .venv && .venv/bin/pip install -r requirements.txt');
+    expect(detectSetup(dir, 'win32')).toBe('python -m venv .venv && .venv/Scripts/pip install -r requirements.txt');
   });
 
   it('returns undefined for an empty folder', () => {

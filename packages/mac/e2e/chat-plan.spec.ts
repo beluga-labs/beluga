@@ -21,6 +21,8 @@ async function openChat(page: Page): Promise<void> {
 }
 
 async function chatPlans(page: Page, on: boolean): Promise<void> {
+  // The window takes keys once its sidebar is there.
+  await expect(page.getByRole('navigation', { name: 'Sidebar' })).toBeVisible();
   await page.keyboard.press('Meta+,');
   await page.getByRole('button', { name: 'Agent', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Chat plans' });

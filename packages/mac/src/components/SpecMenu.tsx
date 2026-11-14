@@ -6,6 +6,7 @@ import { useActions } from '../lib/actions.js';
 import { useBeluga } from '../lib/beluga.js';
 import { Icon, type IconName } from './Icon.js';
 import { guiHint } from '../lib/gui-copy.js';
+import { ContextRoot } from './ContextRoot.js';
 import s from './SpecMenu.module.css';
 
 /**
@@ -78,14 +79,14 @@ export function SpecDropdown({ menu, children, align = 'start', extra, hide }: {
 export function SpecContext({ menu, children, extra, hide }: { menu: MenuKind | undefined; children: ReactNode; extra?: readonly ActionItem[]; hide?: (id: string) => boolean }) {
   if (!menu) return <>{children}</>;
   return (
-    <Context.Root modal={false}>
+    <ContextRoot>
       <Context.Trigger asChild>{children}</Context.Trigger>
       <Context.Portal>
         <Context.Content className={s.menu} onClick={stayInMenu} onCloseAutoFocus={keepFocus} collisionPadding={8}>
           <Items menu={menu} Item={Context.Item as unknown as typeof Dropdown.Item} Separator={Context.Separator as unknown as typeof Dropdown.Separator} kit={CONTEXT_SUB} {...(extra ? { extra } : {})} {...(hide ? { hide } : {})} />
         </Context.Content>
       </Context.Portal>
-    </Context.Root>
+    </ContextRoot>
   );
 }
 
@@ -98,6 +99,8 @@ export interface ActionItem {
   /** Its shortcut, shown on the right like a Mac menu (⇧⌘C). */
   readonly keys?: string;
   readonly icon?: IconName;
+  /** Drawn where the icon goes, instead of one of the app's icons (a computer's own mark). */
+  readonly mark?: ReactNode;
   /** Starts a new group (a line above it). */
   readonly separate?: boolean;
   /** A checkmark in front (the group a project is in). */
@@ -124,7 +127,7 @@ type AnySeparator = typeof Dropdown.Separator;
 
 /** The rows of an action menu: a line between groups and before the first dangerous one. */
 function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: readonly ActionItem[]; Item: AnyItem; Separator: AnySeparator; kit?: SubKit }) {
-  const icons = items.some((it) => it.icon || it.checked !== undefined);
+  const icons = items.some((it) => it.icon || it.mark || it.checked !== undefined);
   return (
     <>
       {items.map((it, i) => (
@@ -134,10 +137,11 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
             <kit.Sub>
               <kit.SubTrigger className={s.item} disabled={it.disabled}>
                 <span className={s.line}>
-                  {icons ? <span className={s.icon}>{it.icon ? <Icon name={it.icon} size={13} /> : null}</span> : null}
+                  {icons ? <span className={s.icon} aria-hidden="true">{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : null)}</span> : null}
                   <span className={s.label}>{it.label}</span>
                   <Icon name="chevronRight" size={10} className={s.subArrow} />
                 </span>
+                {it.hint ? <span className={`${s.hint} ${icons ? s.hintIndent : ''}`}>{it.hint}</span> : null}
               </kit.SubTrigger>
               <kit.Portal>
                 <kit.SubContent className={s.menu} sideOffset={2} alignOffset={-5} collisionPadding={8}>
@@ -149,10 +153,10 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
           <Item className={`${s.item} ${it.danger ? s.danger : ''}`} disabled={it.disabled} onSelect={it.onSelect} data-checked={it.checked || undefined}>
             <span className={s.line}>
               {/* A row with its own icon keeps it (a choice of icons); the check then goes after the name. */}
-              {icons ? <span className={s.icon}>{it.icon ? <Icon name={it.icon} size={13} /> : it.checked ? <Icon name="check" size={12} /> : null}</span> : null}
+              {icons ? <span className={s.icon} aria-hidden="true">{it.mark ?? (it.icon ? <Icon name={it.icon} size={13} /> : it.checked ? <Icon name="check" size={12} /> : null)}</span> : null}
               {it.swatch ? <span className={s.swatch} style={{ background: it.swatch }} aria-hidden="true" /> : null}
               <span className={s.label}>{it.label}</span>
-              {it.checked && it.icon ? <Icon name="check" size={12} className={s.trailingCheck} /> : null}
+              {it.checked && (it.icon || it.mark) ? <Icon name="check" size={12} className={s.trailingCheck} /> : null}
               {it.keys ? <kbd className={s.keys}>{it.keys}</kbd> : null}
             </span>
             {it.hint ? <span className={`${s.hint} ${icons ? s.hintIndent : ''}`}>{it.hint}</span> : null}
@@ -170,14 +174,14 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
  */
 export function ActionsContext({ items, children }: { items: readonly ActionItem[] | (() => readonly ActionItem[]); children: ReactNode }) {
   return (
-    <Context.Root modal={false}>
+    <ContextRoot>
       <Context.Trigger asChild>{children}</Context.Trigger>
       <Context.Portal>
         <Context.Content className={s.menu} onClick={stayInMenu} onCloseAutoFocus={keepFocus} collisionPadding={8}>
           <LazyRows items={items} />
         </Context.Content>
       </Context.Portal>
-    </Context.Root>
+    </ContextRoot>
   );
 }
 

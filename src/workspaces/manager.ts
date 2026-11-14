@@ -11,25 +11,30 @@ import { type EnvChange, applyEnvChanges, copyEnvFiles, envChanges, envChangesAs
 import { WorkspaceStore } from './store.js';
 import { migrateMainConversations } from './main-migration.js';
 import { stopTestProcesses } from './test-procs.js';
-import { applySnapshot, dropSnapshots, snapshotBase } from './snapshots.js';
-import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree } from './archive.js';
+import { applySnapshot, dropSnapshots, forkRef, snapshot, snapshotBase } from './snapshots.js';
+import { type ArchiveManifest, type ArchivePhase, type ArchivePreview, archiveWorktree, dropArchive, freeSpace, planArchive, previewOf, readManifest, restoreWorktree, sweepPartialArchives } from './archive.js';
 import { worktreeOrigin } from './origin.js';
 import { deleteFolderInBackground, removeWorktreeKeepingBranch, sweepSetAside } from './others.js';
 import { moveToTrash } from './trash.js';
-import { dropFolderSessions, dropSession } from '../agent/runtime/claude/claude-sessions.js';
+import { dropFolderSessions, dropSession, pathVariants, sessionFoldersUnder } from '../agent/runtime/claude/claude-sessions.js';
 import { dropCodexSessions } from '../agent/runtime/codex/codex-sessions.js';
+import { dropOpenCodeFolder, dropOpenCodeSession } from '../agent/runtime/opencode/sessions.js';
+import { dropCopilotFolder, dropCopilotSession } from '../agent/runtime/copilot/sessions.js';
 import { addDay, dayKey } from './usage-days.js';
 import type { AgentRef } from '../protocol.js';
-import type { MergeWait, Project, ProjectGroup, ProjectSync, ProjectsConfig, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { DeletePlan, MergeWait, Project, ProjectGroup, PullHead, ProjectSync, ProjectsConfig, RenameResult, Workspace, WorkspaceRecord, WorkspaceUsage } from './types.js';
+import type { ForkOf } from './github.js';
 import type { Effort } from '../shared/settings-schema.js';
 import { ArrangeError, type Item, type Layout, MAX_GROUP_NAME, arrangedOrder, groupKey, groupOfKey, isGroupKey, keyOf, move, settle } from './arrange.js';
 
 /** A project (by id) or a group (by name), for arranging the sidebar. */
 export type ArrangeTarget = { readonly project: string } | { readonly group: string };
 import { type ProjectScripts, type ResolvedScripts, resolveScripts, saveProjectFile } from './scripts.js';
-import { PROJECT_DIR } from '../shared/scratch-dir.js';
+import { PROJECT_DIR, sentFolder } from '../shared/scratch-dir.js';
+import { copyScratch, dropSent } from './scratch.js';
 import { BRANCH_PREFIX_DEFAULT } from '../shared/settings-schema.js';
 import { envRecord, parseEnvText } from '../shared/env-vars.js';
+import type { ThreadRecord } from '../shared/threads.js';
 
 export const slug = (s: string): string =>
   s
@@ -37,6 +42,16 @@ export const slug = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'workspace';
+
+/** A pull request's worktree name: pr-<n> and the first whole words of its title ("pr-51-decode-emails-safely"). */
+export function pullName(pull: { readonly number: number; readonly title?: string | undefined }): string {
+  let name = `pr-${pull.number}`;
+  for (const word of pull.title ? slug(pull.title).split('-') : []) {
+    if (name.length + word.length + 1 > 28) break;
+    name += `-${word}`;
+  }
+  return name;
+}
 
 /**
  * Canonical path: resolves symlinks (macOS /var → /private/var) and, via the native call,
@@ -70,6 +85,9 @@ const forkSessionOf = (source: Workspace, session: string | null | undefined): P
   ...(session === undefined ? (source.sessionId ? { forkFromSession: source.sessionId } : {}) : session ? { sessionId: session } : {}),
 });
 /** A record's agent and model from one AgentRef (its model kept as the workspace's model, as setAgent does). */
+/** Heads of a worktree's pull requests that merged (BLG-831, BLG-833): GitHub keeps them, so what's in them isn't pushed nowhere. */
+const shippedOf = (ws: Pick<WorkspaceRecord, 'mergedHead' | 'prShipped'>): string[] => [...new Set([ws.mergedHead, ws.prShipped?.head].filter((h): h is string => Boolean(h)))];
+
 const agentFields = (agent: AgentRef | undefined): Pick<WorkspaceRecord, 'agent' | 'model'> => {
   if (!agent) return {};
   const { model, ...ref } = agent;
@@ -106,12 +124,18 @@ export class WorkspaceManager {
   /** The refresh running now, and the one queued behind it (every call made meanwhile shares it). */
   private refreshing?: Promise<readonly Project[]>;
   private followUp?: Promise<readonly Project[]>;
+  private archivesSwept = false;
+  private sessionsSwept = false;
   /** One folder's status refresh in flight, per folder: the next waits for it (see refreshWorkspace). */
   private readonly folderRefreshes = new Map<string, Promise<boolean>>();
   /** Fetching state per project root (in flight, the last failure), shown with the default branch. */
   private fetchState = new Map<string, Pick<ProjectSync, 'fetching' | 'fetchError'>>();
+  /** What each project's origin was forked from (by root), as gh last said. */
+  private forks = new Map<string, ForkOf>();
   /** A remote's default branch learned while fetching, for repos without origin/HEAD (by root). */
   private remoteDefaults = new Map<string, string>();
+  /** Worktree branches (root and branch) already checked for a fork pull request's head to follow: git asked once each. */
+  private readonly pullHeadsChecked = new Set<string>();
 
   /** What new branches start with (Settings › Workspaces; the session points this at your choice). */
   branchPrefix: () => string = () => BRANCH_PREFIX;
@@ -169,19 +193,45 @@ export class WorkspaceManager {
 
   addProject(dir: string): string {
     const root = path.resolve(dir);
+    if (!existsSync(root)) throw new WorkspaceError(`${root} isn’t there anymore`);
     if (!isMainCheckout(root)) throw new WorkspaceError(`${root} is not a git project (no .git folder)`);
     const removed = this.config.removed?.filter((r) => real(r) !== real(root));
-    this.config = { ...this.config, projects: [...new Set([...this.config.projects, root])], hidden: this.config.hidden.filter((h) => h !== root), ...(removed ? { removed } : {}) };
+    const hidden = this.config.hidden.filter((h) => real(h) !== real(root));
+    this.config = { ...this.config, projects: [...new Set([...this.config.projects, root])], hidden, ...(removed ? { removed } : {}) };
     this.store.saveConfig(this.config);
     return projectId(root);
   }
 
+  /** Watch a folder of projects: new ones in it show up, and ones you removed from it come back. */
   addFolder(dir: string): number {
     const root = path.resolve(dir);
     if (!existsSync(root)) throw new WorkspaceError(`${root} doesn't exist`);
-    this.config = { ...this.config, roots: [...new Set([...this.config.roots, root])] };
+    const inside = real(root) + path.sep;
+    const removed = this.config.removed?.filter((r) => !real(r).startsWith(inside));
+    this.config = { ...this.config, roots: [...new Set([...this.config.roots, root])], ...(removed ? { removed } : {}) };
     this.store.saveConfig(this.config);
     return findProjects([root]).length;
+  }
+
+  /** Whether a project's (real) root is one the config lists and shows. */
+  private wanted(root: string): boolean {
+    const is = (r: string): boolean => real(r) === root;
+    if (!existsSync(root) || this.config.hidden.some(is) || this.config.removed?.some(is)) return false;
+    return this.config.projects.some(is) || findProjects(this.config.roots).some(is);
+  }
+
+  /**
+   * A project just added, read from git now and listed, without waiting for a full refresh of
+   * every project (that follows). Undefined: it isn't one the config shows anymore.
+   */
+  async loadAdded(dir: string): Promise<Project | undefined> {
+    const root = real(dir);
+    if (!this.wanted(root)) return undefined;
+    const project = await this.loadProject(root);
+    if (!this.wanted(root)) return undefined;
+    const repos = [...this.projects.filter((p) => p.root && p.id !== project.id), project].sort((a, b) => a.name.localeCompare(b.name));
+    this.projects = [...this.projects.filter((p) => !p.root), ...repos];
+    return project;
   }
 
   get groups(): readonly ProjectGroup[] {
@@ -401,6 +451,15 @@ export class WorkspaceManager {
       .then((projects) => {
         // Worktree folders an earlier background delete couldn't finish sit next to the ones still here.
         void sweepSetAside(new Set(projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree').map((w) => path.dirname(w.path)))));
+        // Archives cut short by a quit (their worktree is still there): once a run, before any new archive starts.
+        if (!this.archivesSwept) {
+          this.archivesSwept = true;
+          void sweepSetAside([this.store.archivesDir]).then(() => sweepPartialArchives(this.store.archivesDir));
+        }
+        if (!this.sessionsSwept) {
+          this.sessionsSwept = true;
+          void this.sweepLeftoverSessions().catch(() => undefined);
+        }
         return projects;
       })
       .finally(() => {
@@ -432,7 +491,7 @@ export class WorkspaceManager {
     const find = (): Workspace | undefined => this.projects.flatMap((p) => p.workspaces).find((w) => !w.archived && w.kind !== 'chat' && real(w.path) === key);
     const read = find();
     if (!read) return false;
-    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base).catch(() => undefined);
+    const status = await g.status(read.path, read.kind === 'main' ? undefined : read.base, shippedOf(read)).catch(() => undefined);
     if (this.refreshing) return false; // a full refresh started meanwhile: it has the newer reading
     // As it is now (a full refresh may have replaced it meanwhile), not as it was before git ran.
     const ws = find();
@@ -449,7 +508,10 @@ export class WorkspaceManager {
     const roots = [...new Set([...findProjects(this.config.roots), ...this.config.projects].map(real))].filter(
       (r) => !this.config.hidden.includes(r) && !this.config.removed?.includes(r) && existsSync(r),
     );
-    const loaded = await Promise.all(roots.map((root) => this.loadProject(root)));
+    const read = await Promise.all(roots.map((root) => this.loadProject(root)));
+    // Projects added while this ran (it read the config before them) stay until the next scan finds them.
+    const scanned = new Set(roots);
+    const loaded = [...read, ...this.projects.filter((p) => p.root && !scanned.has(p.root) && this.wanted(p.root))];
     // Same-named projects (e.g. two clones) get their parent folder added so you can tell them apart.
     const counts = new Map<string, number>();
     for (const p of loaded) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
@@ -465,7 +527,7 @@ export class WorkspaceManager {
     const workspaces = this.records
       .filter((r) => r.projectRoot === '')
       // A chat started in a project's main folder is questions only, like any run there.
-      .map((r): Workspace => ({ ...r, projectId: CHATS_PROJECT, external: false, ...(roots.has(real(r.path)) ? { askOnly: true } : {}) }))
+      .map((r): Workspace => ({ ...r, projectId: CHATS_PROJECT, external: false, ...(roots.has(real(r.path)) || r.thread?.readOnly ? { askOnly: true } : {}) }))
       .sort(order);
     return { id: CHATS_PROJECT, name: 'Chats', root: '', base: '', workspaces };
   }
@@ -496,11 +558,12 @@ export class WorkspaceManager {
       }
       for (const rec of records) {
         // Chats in the main folder (every project chat, so far) are questions only: work happens in worktrees.
-        if (rec.kind === 'chat') workspaces.push({ ...rec, projectId: id, external: false, ...(real(rec.path) === real(root) ? { askOnly: true } : {}) });
+        if (rec.kind === 'chat') workspaces.push({ ...rec, projectId: id, external: false, ...(real(rec.path) === real(root) || rec.thread?.readOnly ? { askOnly: true } : {}) });
         else if (rec.archived && rec.kind === 'worktree') workspaces.push({ ...rec, projectId: id, external: false });
       }
+      await this.followPullHeads(root, workspaces);
       const withStatus = await Promise.all(
-        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base).catch(() => undefined) })),
+        workspaces.map(async (w) => (w.archived || w.kind === 'chat' ? w : { ...w, status: await g.status(w.path, w.kind === 'main' ? undefined : w.base, shippedOf(w)).catch(() => undefined) })),
       );
       // The main checkout's status (just read) says what it's on and how much is uncommitted.
       const mainStatus = withStatus.find((w) => w.kind === 'main')?.status;
@@ -515,7 +578,8 @@ export class WorkspaceManager {
         const branch = w.kind === 'worktree' || w.kind === 'main' ? (trees.find((t) => real(t.path) === real(w.path))?.branch ?? now.branch) : now.branch;
         return { ...now, ...(branch ? { branch } : {}), base: now.base ?? base, projectId: id, external: false, ...(w.askOnly ? { askOnly: true } : {}), ...(w.status ? { status: w.status } : {}) };
       };
-      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}) };
+      const fork = this.forks.get(root);
+      return { id, name, root, base, workspaces: withStatus.map(current).sort(order), scripts: resolveScripts(root, this.config.scripts?.[root]), ...(syncInfo ? { sync: syncInfo } : {}), ...(fork ? { fork } : {}) };
     } catch (err) {
       return { id, name, root, base: 'HEAD', workspaces: [], error: err instanceof Error ? err.message : String(err) };
     }
@@ -624,6 +688,19 @@ export class WorkspaceManager {
   async defaultBranchName(projectId: string): Promise<string> {
     const base = await this.baseOf(this.repoProject(projectId).root);
     return base.replace(/^origin\//, '');
+  }
+
+  /** Record what a project's origin was forked from (undefined: not a fork), shown right away. */
+  setFork(projectId: string, fork: ForkOf | undefined): void {
+    const project = this.projects.find((p) => p.id === projectId && p.root);
+    if (!project) return;
+    if (fork) this.forks.set(project.root, fork);
+    else this.forks.delete(project.root);
+    this.projects = this.projects.map((p) => {
+      if (p !== project) return p;
+      const { fork: _f, ...rest } = p;
+      return fork ? { ...rest, fork } : rest;
+    });
   }
 
   /** Mark a project as fetching (or record how its last fetch went), shown right away. */
@@ -758,7 +835,7 @@ export class WorkspaceManager {
 
   /** `opts.id`: the id it gets (from newWorktreeId), else a fresh one. */
   /** `opts.agent`: the agent it runs (unset: your default). */
-  async createWorktree(projectIdOrRoot: string, name: string, base?: string, opts: { readonly id?: string; readonly agent?: AgentRef } = {}): Promise<Workspace> {
+  async createWorktree(projectIdOrRoot: string, name: string, base?: string, opts: { readonly id?: string; readonly agent?: AgentRef; readonly thread?: ThreadRecord } = {}): Promise<Workspace> {
     const project = this.projects.find((p) => p.id === projectIdOrRoot || p.root === projectIdOrRoot);
     if (!project) throw new WorkspaceError('Project not found');
     if (base !== undefined && !(await g.isCommit(project.root, base))) throw new WorkspaceError(`There's no branch called ${base}`);
@@ -769,10 +846,74 @@ export class WorkspaceManager {
     await g.addWorktree(project.root, dir, branch, from);
     await g.excludeProjectDir(dir);
     await copyEnvFiles(project.root, dir);
-    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: project.root, name: s, path: dir, kind: 'worktree', branch, base: from, createdAt: Date.now(), envSnapshot: await envSnapshot(dir), ...agentFields(opts.agent) };
+    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: project.root, name: s, path: dir, kind: 'worktree', branch, base: from, createdAt: Date.now(), envSnapshot: await envSnapshot(dir), ...agentFields(opts.agent), ...(opts.thread ? { thread: opts.thread } : {}) };
     this.saveRecord(record);
     const status = await g.status(dir, from).catch(() => undefined);
     return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
+  }
+
+  /**
+   * A worktree on a pull request's own branch (BLG-633). One from this repository gets its
+   * branch, fetched from origin and tracking it, so a push there updates the pull request (a
+   * local branch of that name is used as it is, moved up to origin's when it can be); one from a
+   * fork gets its branch's name (pr-<n> when that's taken here) from GitHub's pull ref, which
+   * `git pull` keeps current. Named pr-<n> and the first words of its title.
+   * It's compared with the branch the pull request merges into.
+   */
+  async createPullWorktree(projectId: string, pull: PullHead, opts: { readonly id?: string } = {}): Promise<Workspace> {
+    const project = this.repoProject(projectId);
+    const root = project.root;
+    if (!(await g.hasRemote(root))) throw new WorkspaceError('This project has no origin to fetch the pull request from');
+    await g.tryGit(root, ['fetch', 'origin', '--prune']);
+    const s = pullName(pull);
+    const dir = this.freeDir(project, s);
+    let branch: string;
+    if (!pull.fork && pull.branch) {
+      branch = pull.branch;
+      if (!(await g.isCommit(root, `refs/remotes/origin/${branch}`))) throw new WorkspaceError(`${branch} isn’t on origin (it may have been deleted, or the fetch failed)`);
+      if (await g.isCommit(root, `refs/heads/${branch}`)) {
+        const out = (await g.listWorktrees(root)).find((w) => w.branch === branch);
+        if (out) throw new WorkspaceError(`${branch} is already checked out in ${out.path}`);
+        await g.git(root, ['worktree', 'add', dir, branch]);
+        // Your own commits on it stay; otherwise it catches up with the pull request.
+        await g.tryGit(dir, ['merge', '--ff-only', `origin/${branch}`]);
+      } else {
+        await g.git(root, ['worktree', 'add', '--track', '-b', branch, dir, `origin/${branch}`]);
+      }
+    } else {
+      const named = pull.branch && !pull.branch.startsWith('-') && !(await g.isCommit(root, `refs/heads/${pull.branch}`));
+      branch = named ? pull.branch : await this.freeBranch(root, `pr-${pull.number}`);
+      // Its head is kept too (BLG-746): GitHub has these commits, so they never read as pushed nowhere.
+      await g.git(root, ['fetch', 'origin', `+refs/pull/${pull.number}/head:refs/heads/${branch}`, `+refs/pull/${pull.number}/head:${g.pullHeadRef(pull.number)}`]).catch((err: unknown) => {
+        throw new WorkspaceError(`Couldn’t fetch pull request #${pull.number} from origin: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      await g.git(root, ['worktree', 'add', dir, branch]);
+      // `git pull` there brings the pull request's new commits.
+      await g.git(root, ['config', `branch.${branch}.remote`, 'origin']);
+      await g.git(root, ['config', `branch.${branch}.merge`, `refs/pull/${pull.number}/head`]);
+      // And keeps its head here current (BLG-948): what git pull brings is never "not on the PR".
+      await g.followPullHead(root, branch).catch(() => undefined);
+      this.pullHeadsChecked.add(`${root}\0${branch}`);
+    }
+    await g.excludeProjectDir(dir);
+    await copyEnvFiles(root, dir);
+    const base = pull.base && (await g.isCommit(root, `refs/remotes/origin/${pull.base}`)) ? `origin/${pull.base}` : project.base;
+    const record: WorkspaceRecord = { id: opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId(), projectRoot: root, name: s, path: dir, kind: 'worktree', branch, base, createdAt: Date.now(), envSnapshot: await envSnapshot(dir) };
+    this.saveRecord(record);
+    const status = await g.status(dir, base).catch(() => undefined);
+    return this.adopt(project, { ...record, projectId: project.id, external: false, ...(status ? { status } : {}) });
+  }
+
+  /**
+   * Fork pull requests' worktrees made before their heads were followed (BLG-948) get the fetch
+   * refspec that keeps them current: once per branch while the daemon runs, never in a refresh's way.
+   */
+  private async followPullHeads(root: string, workspaces: readonly Workspace[]): Promise<void> {
+    const fresh = workspaces.filter((w) => w.kind === 'worktree' && !w.archived && w.branch && !this.pullHeadsChecked.has(`${root}\0${w.branch}`));
+    for (const w of fresh) {
+      this.pullHeadsChecked.add(`${root}\0${w.branch}`);
+      await g.followPullHead(root, w.branch!).catch(() => undefined);
+    }
   }
 
   /**
@@ -823,9 +964,11 @@ export class WorkspaceManager {
     }
   }
 
-  private async freeBranch(repo: string, wanted: string): Promise<string> {
+  /** `mine`: the branch being renamed, free for itself (renaming foo-2 back to foo-2 keeps it). */
+  private async freeBranch(repo: string, wanted: string, mine?: string): Promise<string> {
     for (let i = 1; ; i++) {
       const name = i === 1 ? wanted : `${wanted}-${i}`;
+      if (name === mine) return name;
       try {
         await g.git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`]);
       } catch {
@@ -839,23 +982,24 @@ export class WorkspaceManager {
     return path.join(this.store.workspacesDir, '..', 'chats');
   }
 
-  async createChat(projectIdOrRoot: string, title: string, inDir?: string): Promise<Workspace> {
-    if (projectIdOrRoot === CHATS_PROJECT) return this.createStandaloneChat(title, inDir);
+  /** `opts`: a thread's chat (core/threads): its record, and the folder it reads (a project chat's own: the main folder). */
+  async createChat(projectIdOrRoot: string, title: string, inDir?: string, opts: { readonly dir?: string; readonly thread?: ThreadRecord } = {}): Promise<Workspace> {
+    if (projectIdOrRoot === CHATS_PROJECT) return this.createStandaloneChat(title, opts.dir ?? inDir, opts.thread);
     const project = this.projects.find((p) => p.id === projectIdOrRoot || (p.root !== '' && p.root === projectIdOrRoot));
     if (!project) throw new WorkspaceError('Project not found');
-    const record: WorkspaceRecord = { id: `chat-${randomUUID().slice(0, 8)}`, projectRoot: project.root, name: title.trim().slice(0, 40) || 'chat', path: project.root, kind: 'chat', createdAt: Date.now() };
+    const record: WorkspaceRecord = { id: `chat-${randomUUID().slice(0, 8)}`, projectRoot: project.root, name: title.trim().slice(0, 40) || 'chat', path: opts.dir ?? project.root, kind: 'chat', createdAt: Date.now(), ...(opts.thread ? { thread: opts.thread } : {}) };
     this.saveRecord(record);
     // Questions only, like every chat in a project's main folder (see loadProject).
     return this.adopt(project, { ...record, projectId: project.id, external: false, askOnly: true });
   }
 
   /** A Claude chat with no project: its own scratch folder for anything Claude makes. */
-  async createStandaloneChat(title: string, inDir?: string): Promise<Workspace> {
+  async createStandaloneChat(title: string, inDir?: string, thread?: ThreadRecord): Promise<Workspace> {
     const id = `chat-${randomUUID().slice(0, 8)}`;
     // Runs in the folder you give it (e.g. where you started Beluga), or its own scratch folder.
     const dir = inDir || path.join(this.chatsDir, id);
     mkdirSync(dir, { recursive: true });
-    const record: WorkspaceRecord = { id, projectRoot: '', name: title.trim().slice(0, 40) || 'chat', path: real(dir), kind: 'chat', createdAt: Date.now() };
+    const record: WorkspaceRecord = { id, projectRoot: '', name: title.trim().slice(0, 40) || 'chat', path: real(dir), kind: 'chat', createdAt: Date.now(), ...(thread ? { thread } : {}) };
     this.saveRecord(record);
     const chats = this.projects.find((p) => p.id === CHATS_PROJECT);
     if (!chats) {
@@ -863,35 +1007,54 @@ export class WorkspaceManager {
       return this.require(record.id);
     }
     // Started in a project's main folder: questions only (see chatsProject).
-    const askOnly = this.projects.some((p) => p.root && real(p.root) === record.path);
+    const askOnly = thread?.readOnly || this.projects.some((p) => p.root && real(p.root) === record.path);
     return this.adopt(chats, { ...record, projectId: CHATS_PROJECT, external: false, ...(askOnly ? { askOnly: true } : {}) });
   }
 
   /**
    * Copy a workspace into a new worktree that starts from its current state, with its conversation.
+   * A worktree goes whole: its commits, its uncommitted work (still uncommitted in the copy, taken
+   * without touching a file or the index of the source) and its Scratch folder.
    * `at`: from an earlier snapshot of it instead (see snapshots.ts), with `session` (Claude's, cut to
    * there; null: none) and `history` (the conversation up to there) in place of the whole of them.
+   * `id`: the id it gets (from newWorktreeId: its row shows under it while it's made), else a fresh one.
    */
-  async fork(id: string, name: string, opts: { base?: string; at?: string; session?: string | null; history?: readonly unknown[] } = {}): Promise<Workspace> {
+  async fork(id: string, name: string, opts: { base?: string; at?: string; session?: string | null; history?: readonly unknown[]; id?: string } = {}): Promise<Workspace> {
     const source = this.require(id);
     const project = this.projectOf(source);
     const s = slug(name);
     const dir = this.freeDir(project, s);
-    // `opts.base`: start from there (e.g. the latest origin) instead of the source's own commits.
-    const from = opts.at ? await snapshotBase(source.path, opts.at) : (opts.base ?? (source.kind === 'chat' ? project.base : (source.branch ?? 'HEAD')));
-    const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
-    await g.addWorktree(project.root, dir, branch, from);
-    await g.excludeProjectDir(dir);
-    if (opts.at) await applySnapshot(dir, opts.at);
-    await copyEnvFiles(source.kind === 'chat' ? project.root : source.path, dir);
+    const newId = opts.id && !this.records.some((r) => r.id === opts.id) ? opts.id : freshId();
+    const worktree = source.kind === 'worktree' && existsSync(source.path);
+    // As it is now, uncommitted work too (`opts.base`: from there instead, e.g. the latest origin).
+    const ref = forkRef(newId);
+    const now = worktree && !opts.at && opts.base === undefined ? await snapshot(source.path, ref, 'Beluga: uncommitted work, forked') : undefined;
+    const at = opts.at ?? now;
+    try {
+      const from = at ? await snapshotBase(source.path, at) : (opts.base ?? (source.kind === 'chat' ? project.base : (source.branch ?? 'HEAD')));
+      const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
+      await g.addWorktree(project.root, dir, branch, from);
+      await g.excludeProjectDir(dir);
+      if (at) await applySnapshot(dir, at);
+      if (worktree) await copyScratch(source.path, dir);
+      await copyEnvFiles(source.kind === 'chat' ? project.root : source.path, dir);
+      return await this.recordFork(source, { id: newId, name: s, dir, branch, base: opts.base ?? source.base ?? project.base, root: project.root }, opts);
+    } finally {
+      if (now) await g.git(source.path, ['update-ref', '-d', ref]).catch(() => undefined);
+    }
+  }
+
+  /** fork's record of the new worktree, its conversation (a copy of the source's, or `opts.history`) and the refreshed list. */
+  private async recordFork(source: Workspace, made: { id: string; name: string; dir: string; branch: string; base: string; root: string }, opts: { session?: string | null; history?: readonly unknown[] }): Promise<Workspace> {
+    const { dir, branch } = made;
     const record: WorkspaceRecord = {
-      id: freshId(),
-      projectRoot: project.root,
-      name: s,
+      id: made.id,
+      projectRoot: made.root,
+      name: made.name,
       path: dir,
       kind: 'worktree',
       branch,
-      base: opts.base ?? source.base ?? project.base,
+      base: made.base,
       createdAt: Date.now(),
       forkedFrom: source.id,
       ...forkSessionOf(source, opts.session),
@@ -978,6 +1141,27 @@ export class WorkspaceManager {
     return previewOf(await planArchive(ws.path));
   }
 
+  /**
+   * What deleting a worktree would lose that archiving keeps (BLG-617): its branch's commits that are
+   * on neither its base nor any remote. Undefined: nothing to warn about (not ours, no branch, all pushed).
+   * `mergedHeads`: heads of its pull requests GitHub says merged; with its own prShipped, what's in
+   * them shipped (BLG-831), so only commits made after count.
+   */
+  async deletePlan(id: string, mergedHeads: readonly string[] = []): Promise<DeletePlan | undefined> {
+    const ws = this.require(id);
+    // Another tool's worktree keeps its branch when deleted (see remove): nothing of it is lost.
+    if (ws.kind !== 'worktree' || !ws.branch || ws.external || !real(ws.path).startsWith(real(this.store.workspacesDir) + path.sep)) return undefined;
+    const into = ws.base ?? (await this.baseOf(ws.projectRoot));
+    const shipped = [...new Set([...mergedHeads, ...shippedOf(ws)])];
+    let lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
+    // Checked against the remote before warning (BLG-746): merged on GitHub a minute ago reads as merged.
+    if (lost.count) {
+      await g.catchUpForDelete(ws.projectRoot, ws.branch, into);
+      lost = await g.unpushedCommits(ws.projectRoot, ws.branch, into, shipped);
+    }
+    return lost.count ? { branch: ws.branch, into, unpushed: lost.count, subjects: lost.subjects } : undefined;
+  }
+
   /** Throw away a worktree's dependencies, builds and caches (it stays; they're made again by its setup). */
   async freeSpace(id: string): Promise<{ bytes: number; remake: readonly string[] }> {
     const ws = this.require(id);
@@ -1002,6 +1186,29 @@ export class WorkspaceManager {
     this.patchRecord(id, { archived: false, archive: undefined });
     await this.refresh();
     return manifest;
+  }
+
+  /**
+   * Claude Code's sessions for worktrees of ours deleted before Delete took them too (BLG-532): ones
+   * whose folder is gone and that no workspace still names (an archived one's stay, for Restore).
+   * Once a run. → how many folders' sessions went.
+   */
+  async sweepLeftoverSessions(): Promise<number> {
+    // An unreadable workspaces.json reads as none: then every archived worktree's would look left over.
+    if (!this.records.length) return 0;
+    const base = real(this.store.workspacesDir);
+    const named = new Set(this.records.flatMap((r) => (r.path ? pathVariants(r.path) : [])));
+    let dropped = 0;
+    for (const cwd of await sessionFoldersUnder(base)) {
+      // The worktree it ran in: <project>/<name> under the workspaces folder (Claude may have run in a sub-folder).
+      const parts = path.relative(base, real(cwd)).split(path.sep);
+      if (parts.length < 2 || parts[0] === '..') continue;
+      const folder = path.join(base, parts[0]!, parts[1]!);
+      if (existsSync(folder) || pathVariants(folder).some((v) => named.has(v))) continue;
+      await dropFolderSessions(cwd).catch(() => 0);
+      dropped++;
+    }
+    return dropped;
   }
 
   /** Permanently delete: worktree folder, its branch, and its conversation. */
@@ -1034,12 +1241,21 @@ export class WorkspaceManager {
     if (ws.kind === 'worktree' && existsSync(ws.projectRoot)) await dropSnapshots(ws.projectRoot, id).catch(() => undefined);
     if (ws.archived) await dropArchive(ws.projectRoot, this.store.archivesDir, id).catch(() => undefined);
     if (scratch) rmSync(ws.path, { recursive: true, force: true });
+    // A chat in a folder that stays (yours, or a worktree it was forked in): only what you sent it goes.
+    else if (ws.kind === 'chat' && existsSync(ws.path)) await dropSent(ws.path, sentFolder(`ws:${ws.id}`, false)).catch(() => undefined);
     if (ours) {
-      // Claude Code's (your own Claude and local models alike) and Codex's, whichever agent ran there.
+      // Claude Code's (your own Claude and local models alike), Codex's, OpenCode's and Copilot's, whichever agent ran there.
       for (const dir of new Set([sessionsDir, path.resolve(ws.path)])) await dropFolderSessions(dir).catch(() => 0);
       await dropCodexSessions({ dir: sessionsDir }).catch(() => 0);
+      if (ws.sessionRuntime === 'opencode') {
+        if (ws.sessionId) await dropOpenCodeSession(ws.sessionId).catch(() => false);
+        await dropOpenCodeFolder(sessionsDir, ws.kind === 'worktree' ? ws.projectRoot : sessionsDir).catch(() => 0);
+      }
+      if (ws.sessionRuntime === 'copilot') await dropCopilotFolder(sessionsDir).catch(() => 0);
     } else if (ws.kind === 'chat' && this.ownSession(ws)) {
       if (ws.sessionRuntime === 'codex') await dropCodexSessions({ threadId: ws.sessionId! }).catch(() => 0);
+      else if (ws.sessionRuntime === 'opencode') await dropOpenCodeSession(ws.sessionId!).catch(() => false);
+      else if (ws.sessionRuntime === 'copilot') await dropCopilotSession(ws.sessionId!).catch(() => false);
       else await dropSession(sessionsDir, ws.sessionId!).catch(() => undefined);
     }
     this.records = this.records.filter((r) => r.id !== id);
@@ -1085,15 +1301,34 @@ export class WorkspaceManager {
 
   /** Pick the model for one workspace's conversation (undefined: your default). */
   /** Carry on after a merged PR: PR `number` and older are done (see Workbench.continueAfterMerge). */
-  setPrDone(id: string, number: number, shipped?: { readonly url?: string; readonly into: string }): void {
+  setPrDone(id: string, number: number, shipped?: { readonly url?: string; readonly into: string; readonly head?: string }): void {
     this.require(id);
     this.patchRecord(id, { prDone: number, ...(shipped ? { prShipped: { number, ...shipped } } : {}) });
+  }
+
+  /** Its chat shows PR `number` merged now (see Workbench.sayMerged). */
+  setMergeSaid(id: string, number: number): void {
+    this.require(id);
+    this.patchRecord(id, { mergeSaid: number });
+  }
+
+  /** GitHub says its PR merged at `head` (BLG-833) → whether that's news (its status counts again then). */
+  setMergedHead(id: string, head: string): boolean {
+    if (this.require(id).mergedHead === head) return false;
+    this.patchRecord(id, { mergedHead: head });
+    return true;
   }
 
   /** Merge When Ready is waiting on this worktree's PR (undefined: not anymore). See Workbench.mergeWhenReady. */
   setMergeWait(id: string, wait: MergeWait | undefined): void {
     this.require(id);
     this.patchRecord(id, { mergeWhenReady: wait });
+  }
+
+  /** An old Remind Me Later (before BLG-770): undefined clears it, once it's carried into triage.json. */
+  setRemindAt(id: string, at: number | undefined): void {
+    this.require(id);
+    this.patchRecord(id, { remindAt: at });
   }
 
   setModel(id: string, model: string | undefined): void {
@@ -1110,6 +1345,24 @@ export class WorkspaceManager {
     this.require(id);
     // Another agent's model may not take the effort picked for the last one: Settings' again.
     this.patchRecord(id, { agent: undefined, model: undefined, effort: undefined, ...agentFields(agent) });
+  }
+
+  /** An external agent started this chat. */
+  setStartedBy(id: string, agent: { readonly id: string; readonly name: string }): void {
+    this.require(id);
+    this.patchRecord(id, { startedByAgent: agent });
+  }
+
+  /** After a quiet switch, the agent it came from (BLG-592); undefined once its recent conversation went along. */
+  setCarry(id: string, from: string | undefined): void {
+    this.require(id);
+    this.patchRecord(id, { carryFrom: from });
+  }
+
+  /** A chat's thread record (core/threads), saved at once: a result must survive a restart. */
+  setThread(id: string, thread: ThreadRecord): void {
+    this.require(id);
+    this.patchRecord(id, { thread });
   }
 
   /** Pick the thinking effort for one workspace's conversation (undefined: Settings'). */
@@ -1155,6 +1408,11 @@ export class WorkspaceManager {
 
   markHandedOff(id: string, to: string): void {
     this.patchRecord(id, { handedTo: to });
+  }
+
+  /** Continued on another computer of yours (BLG-808): said on it, in the Archive. */
+  markContinuedOn(id: string, to: string): void {
+    this.patchRecord(id, { continuedOn: to });
   }
 
   // ---------------------------------------------------------------- scripts
@@ -1241,8 +1499,12 @@ export class WorkspaceManager {
     this.patchRecord(id, { sessionId: undefined, forkFromSession: undefined, sessionRuntime: undefined });
   }
 
-  rename(id: string, name: string): void {
-    this.patchRecord(id, { name: name.trim().slice(0, 40) || this.require(id).name });
+  rename(id: string, name: string, opts: { readonly automatic?: boolean } = {}): void {
+    const ws = this.require(id);
+    if (opts.automatic && ws.nameSetByUser) return;
+    const clean = opts.automatic ? name.trim().slice(0, 40) || ws.name : name.trim();
+    if (!clean || clean.length > 200) throw new WorkspaceError('A workspace name must contain 1 to 200 characters');
+    this.patchRecord(id, { name: clean, ...(opts.automatic ? {} : { nameSetByUser: true }) });
   }
 
   /**
@@ -1252,13 +1514,82 @@ export class WorkspaceManager {
   async renameWorktree(id: string, name: string): Promise<void> {
     const ws = this.require(id);
     const s = slug(name);
-    if (ws.kind !== 'worktree' || !s || s === ws.name) return;
-    const pushed = ws.branch && (await g.tryGit(ws.path, ['for-each-ref', '--count=1', `refs/remotes/*/${ws.branch}`]))?.trim();
+    // You named it meanwhile: yours stays.
+    if (ws.kind !== 'worktree' || ws.nameSetByUser || !s || s === ws.name) return;
     const prefix = this.branchPrefix();
-    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !pushed ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
+    const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !(await this.onRemote(ws.path, ws.branch)) ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
     if (branch) await g.git(ws.path, ['branch', '-m', ws.branch!, branch]);
     this.patchRecord(id, { name: s, ...(branch ? { branch } : {}) });
     await this.refresh();
+  }
+
+  /**
+   * You renamed a workspace. A worktree's branch takes the name too: beluga/<name> (or your prefix)
+   * for one Beluga made, the same folder for one of yours (feature/<name>), or exactly what you typed
+   * when it has a / in it. A branch already on a remote keeps its name (its pull request follows it),
+   * and the folder stays where it is (sessions and terminals run in it).
+   */
+  async renameByUser(id: string, typed: string): Promise<RenameResult> {
+    const ws = this.require(id);
+    if (ws.kind !== 'worktree') {
+      this.rename(id, typed);
+      return { name: this.require(id).name };
+    }
+    const text = typed.trim();
+    const exact = text.includes('/') ? await this.validBranch(ws.path, text) : undefined;
+    const label = exact ? exact.slice(exact.lastIndexOf('/') + 1) : text;
+    if (!/[a-z0-9]/i.test(label)) throw new WorkspaceError('A worktree needs a name with a letter or a digit in it');
+    const s = slug(label);
+    const old = ws.branch;
+    const kept = !old ? undefined : (await this.onRemote(ws.path, old)) ? ('pushed' as const) : undefined;
+    let branch = old;
+    if (old && !kept) {
+      const prefix = this.branchPrefix();
+      const wanted = exact ?? (isOwnBranch(old, ws.name, prefix) ? `${prefix}${s}` : `${old.slice(0, old.lastIndexOf('/') + 1)}${s}`);
+      branch = exact ? await this.takenOrFree(ws.path, exact, old) : await this.freeBranch(ws.path, wanted, old);
+      if (branch !== old) await g.git(ws.path, ['branch', '-m', old, branch]);
+    }
+    this.patchRecord(id, { name: s, nameSetByUser: true, ...(branch ? { branch } : {}) });
+    await this.refresh();
+    return { name: s, ...(branch ? { branch } : {}), ...(kept ? { branchKept: kept } : {}) };
+  }
+
+  /**
+   * Make a fork pull request's worktree a branch of your own (BLG-948), for a pull request of its
+   * own when the fork can't be pushed to: it gets a name nothing here or on a remote has (beluga/<its
+   * name>, so the fork's branch name never finds the fork's PR), and stops following the fork's
+   * pull request. Its commits, the fork's and yours, all stay. → the branch's name now.
+   */
+  async leavePull(id: string): Promise<string> {
+    const ws = this.require(id);
+    if (ws.kind !== 'worktree' || !ws.branch) throw new WorkspaceError('Only a worktree’s branch can have a pull request of its own');
+    if (!(await g.followsPull(ws.path, ws.branch))) return ws.branch;
+    const wanted = `${this.branchPrefix()}${slug(ws.name) || 'pull-request'}`;
+    let branch = wanted;
+    for (let i = 2; (await g.isCommit(ws.path, `refs/heads/${branch}`)) || (await this.onRemote(ws.path, branch)); i++) branch = `${wanted}-${i}`;
+    await g.git(ws.path, ['branch', '-m', ws.branch, branch]);
+    await g.stopFollowingPull(ws.path, branch);
+    this.patchRecord(id, { branch });
+    await this.refresh();
+    return branch;
+  }
+
+  /** Is this branch on a remote already (a remote branch of the same name)? Its upstream alone says nothing: a new worktree's is origin/main. */
+  private async onRemote(repo: string, branch: string): Promise<boolean> {
+    return Boolean((await g.tryGit(repo, ['for-each-ref', '--count=1', `refs/remotes/*/${branch}`]))?.trim());
+  }
+
+  /** The branch name you typed, as git accepts it, or why not. */
+  private async validBranch(repo: string, name: string): Promise<string> {
+    const ok = (await g.tryGit(repo, ['check-ref-format', '--branch', name]))?.trim();
+    if (!ok || ok !== name) throw new WorkspaceError(`“${name}” can’t be a branch name`);
+    return ok;
+  }
+
+  /** An exact branch name you asked for: refused when another branch has it already. */
+  private async takenOrFree(repo: string, wanted: string, mine: string): Promise<string> {
+    if (wanted === mine || (await this.freeBranch(repo, wanted, mine)) === wanted) return wanted;
+    throw new WorkspaceError(`A branch named ${wanted} is there already`);
   }
 
   /** `runtime`: the one that made `sessionId` (unset: Claude). */
@@ -1328,10 +1659,10 @@ export class WorkspaceManager {
   }
 
   /** Copy a worktree's env changes back into the main folder; they're in step again, so nothing is asked. */
-  applyEnvBack(id: string): number {
+  applyEnvBack(id: string, opts: { readonly removed?: boolean } = {}): number {
     const ws = this.require(id);
     const changes = this.envChanges(id, true);
-    applyEnvChanges(ws.path, ws.projectRoot, changes);
+    applyEnvChanges(ws.path, ws.projectRoot, changes, opts);
     const files = changes.map((c) => c.file);
     this.patchRecord(id, { envSnapshot: { ...ws.envSnapshot, ...envHashes(ws.path, files) }, envKept: dropKeys(ws.envKept, files) });
     return changes.length;

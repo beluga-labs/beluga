@@ -11,7 +11,7 @@ import { store } from '../lib/store';
 import { color } from '../lib/theme';
 import { Card, IconBadge, Pill, Press, T, toneInk, toneOf } from './ui';
 
-/** One plan of a chat (plans.ofHome, 1.38). */
+/** One plan of a chat (plans.ofHome, 1.57). */
 type HomePlan = PhoneResult<'plans.ofHome'>[number];
 
 const STATE: Record<string, string> = { running: 'Running', done: 'Done', draft: 'Draft', waiting: 'Waiting', todo: 'To do', closed: 'Closed', active: 'Running' };
@@ -65,7 +65,7 @@ export function PlansList() {
 }
 
 /**
- * A chat's plans, newest first (1.38, the chatPlans pref): its current one, then the earlier ones,
+ * A chat's plans, newest first (1.57, the chatPlans pref): its current one, then the earlier ones,
  * closed or done. Each opens read-only once closed (app/plan/[id].tsx).
  */
 export function HomePlans({ home }: { readonly home: Topic }) {

@@ -20,7 +20,8 @@ export class ClientRegistry {
   private readonly changeListeners = new Set<(count: number) => void>();
 
   add(info: Omit<ConnectedClient, 'id' | 'lastActive'>): ConnectedClient {
-    const client: ConnectedClient = { ...info, id: randomUUID(), lastActive: Date.now() };
+    // Your app driving this computer is `machine:<id>`, so what it causes knows (client-context.ts fromMachine).
+    const client: ConnectedClient = { ...info, id: info.kind === 'machine' ? `machine:${randomUUID()}` : randomUUID(), lastActive: Date.now() };
     this.clients.set(client.id, client);
     this.changed();
     return client;
@@ -56,10 +57,15 @@ export class ClientRegistry {
       .sort((a, b) => b.lastActive - a.lastActive)[0];
   }
 
-  /** Who shows desktop notifications: the Mac app if it's attached (native ones), else the most recent screen. */
+  /**
+   * Who shows desktop notifications: the Mac app if it's attached (native ones), else your app
+   * driving this computer (BLG-776: a computer's news reaches you where you are), else the most
+   * recent screen.
+   */
   pickNotifier(): ConnectedClient | undefined {
     const able = this.list().filter((c) => c.caps.includes('notify'));
-    return able.find((c) => c.kind === 'mac') ?? able.sort((a, b) => b.lastActive - a.lastActive)[0];
+    const recent = (kind: ConnectedClient['kind']): ConnectedClient | undefined => able.filter((c) => c.kind === kind).sort((a, b) => b.lastActive - a.lastActive)[0];
+    return recent('mac') ?? recent('machine') ?? able.sort((a, b) => b.lastActive - a.lastActive)[0];
   }
 
   /** Send to one screen, or every screen. */

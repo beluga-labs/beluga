@@ -1,5 +1,5 @@
 import { type ReactElement, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AUTONOMIES, AUTONOMY_INFO, type Autonomy, MAX_PARALLEL, type Plan, TESTS_AT, TESTS_AT_INFO, shownBody } from '@beluga/core/plans/model.js';
+import { AUTONOMIES, AUTONOMY_INFO, type Autonomy, MAX_PARALLEL, type Plan, TESTS_AT, TESTS_AT_INFO, reviewState, shownBody } from '@beluga/core/plans/model.js';
 import { type PlanView, tidyOffer } from '@beluga/core/plans/progress.js';
 import { CONTINUE_PROMPT, decodeFailure, resetWords } from '@beluga/shared/run-failure.js';
 import { formatDuration } from '@beluga/shared/text.js';
@@ -9,9 +9,10 @@ import { Icon, type IconName } from '../components/Icon.js';
 import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { usePrefs } from '../lib/prefs.js';
 import { taskChatsItem } from '../layout/plan-task-chats.js';
-import { Button, Empty, IconButton, Segmented, Working, cx } from '../components/ui.js';
+import { Button, Empty, IconButton, Segmented, Tip, Working, cx } from '../components/ui.js';
 import { copyText } from '../lib/copy.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
+import { RunsOnLabel } from '../chat/RunsOn.js';
 import { YOUR_AGENT, agentMenuItems, useAgentEntries, useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { agentName, useMyAgent } from '../lib/agent-words.js';
@@ -20,16 +21,21 @@ import { agentForChoice } from '@beluga/ui/agent-choice.js';
 import type { AgentRef } from '@beluga/protocol.js';
 import { openSheet } from '../lib/sheets.js';
 import { mod, openExternal } from '../lib/system.js';
-import { MilestoneBar, PlanProgress, Said, TonePill } from './marks.js';
-import { BRANCH, FEED, PlanDetails } from './PlanDetails.js';
+import { MilestoneBar, PlanPrChip, PlanProgress, Said, TonePill } from './marks.js';
+import { BRANCH, DECISIONS, FEED, PlanDetails } from './PlanDetails.js';
 import { PlanOutline } from './PlanOutline.js';
+import { ReviewLine } from './ReviewLine.js';
 import { DEFAULT_PLAN_LAYOUT, type Display, PLAN_LAYOUT_KEY, type PlanLayout, readPlanLayout } from './plan-layout.js';
 import { PlanReadOnly } from './read-only.js';
-import { barColumns, changeWords, headline, nextWords, prWords, shipAction, titleOf } from './plans-model.js';
-import { useConversationLoaded, usePlanActions, usePlanStep, usePlanView, usePlans } from './use-plans.js';
+import { barColumns, changeWords, headline, nextWords, shipAction, titleOf } from './plans-model.js';
+import { useCheckerChat, useConversationLoaded, usePlanActions, usePlanStep, usePlanView, usePlans } from './use-plans.js';
 import p from './plans.module.css';
 import { TeamReviews, usePlanTeamItems } from '../team/SharedPlans.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
+import { revealLabel } from '../lib/os-words.js';
+import { useActions } from '../lib/actions.js';
+import { onMachine } from '../machines/pane-model.js';
+import { useMoveTo } from './move-to.js';
 
 const PlanCanvas = lazy(() => import('./PlanCanvas.js'));
 
@@ -74,7 +80,7 @@ export function PlanStage({ planId, task, readOnly = false, back = true, chat, b
   const { openList } = usePlanActions();
   // A task taken out of the plan isn't picked any more.
   useEffect(() => {
-    if (picked && view && picked !== FEED && picked !== BRANCH && !picked.startsWith('gate:') && !view.milestones.some((m) => m.tasks.some((t) => t.task.id === picked))) setPicked(undefined);
+    if (picked && view && picked !== FEED && picked !== BRANCH && picked !== DECISIONS && !picked.startsWith('gate:') && !view.milestones.some((m) => m.tasks.some((t) => t.task.id === picked))) setPicked(undefined);
   }, [view, picked]);
   if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={back ? <Button onClick={() => openList()}>Back to Plans</Button> : undefined} />;
   return (
@@ -113,6 +119,25 @@ function currentLayout(): PlanLayout {
 function subscribeLayout(f: () => void): () => void {
   layoutListeners.add(f);
   return () => void layoutListeners.delete(f);
+}
+
+/** It moved to another computer (BLG-806): this is its record here; it runs there. */
+function MovedAway({ plan }: { plan: Plan }) {
+  const actions = useActions();
+  const to = plan.movedTo;
+  if (!to) return null;
+  const page = { kind: 'plan' as const, id: to.planId ?? plan.id };
+  return (
+    <div className={p.changes} role="status">
+      <Icon name="send" size={13} />
+      <strong>Moved to {to.name}</strong>
+      <span>It runs there now, with its chat and tasks; this is its record.</span>
+      <span className={p.grow} />
+      <Button size="small" onClick={() => actions.run({ type: 'view', view: to.id ? onMachine(to.id, page) : page })}>
+        Open There
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -189,6 +214,7 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
   );
   const next = view.next;
   const words = nextWords(next);
+  const checker = useCheckerChat(next.kind === 'checking' ? next.milestone : undefined);
   const line = headline(view);
   // Claude is writing the first plan: one placeholder and one line say so, nothing else.
   const drafting = !plan.body && !body?.milestones.length;
@@ -208,21 +234,38 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
 
   // Start with ▸ (BLG-506): "Your agent" over a plan with its own agent is yours by name (none would mean the plan's again).
   const startTasks = (tasks: readonly { readonly task: { readonly id: string } }[], agent?: AgentRef): void => tasks.forEach((t) => void act(() => api.startTask(plan.id, t.task.id, agent)));
+  const approvePlan = (): void => void act(() => api.approve(plan.id), 'Plan approved: its tasks are on the board');
+  // Verifying a first draft with a fresh agent, when you ask (BLG-772): Approve Plan waits for it, or Fix what it found.
+  const review = reviewState(plan);
+  const fixReview = (): void => void act(() => api.fixReview(plan.id), 'Sent to your agent');
+  const verify = (thenApprove: boolean): void => void act(() => api.verify(plan.id, { thenApprove }), thenApprove ? 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing' : 'A fresh agent is verifying the plan');
   // `with`: the same action by another agent, as the ▾ of a split button.
   const primary = ((): { label: string; run?: () => void; icon?: IconName; busy?: boolean; with?: { readonly label: string; readonly items: ActionItem[] } } | undefined => {
     if (readOnly) return undefined;
     if (step.busy) return { label: step.busy, busy: true };
     switch (next.kind) {
       case 'approve':
+        if (body?.milestones.length && review === 'reviewing') return { label: 'Verifying the Plan…', busy: true };
+        if (body?.milestones.length && review === 'findings' && !plan.review?.fixAsked) return { label: 'Fix', icon: 'wand', run: fixReview, with: { label: 'Approve anyway', items: [{ label: 'Approve Anyway', onSelect: approvePlan }] } };
         // Approve, worked by ▸: who works its milestones and tasks, set as it's approved.
         return body?.milestones.length
           ? {
               label: 'Approve Plan',
               icon: 'check',
-              run: () => void act(() => api.approve(plan.id), 'Plan approved: its tasks are on the board'),
+              run: approvePlan,
               with: {
-                label: 'Approve, worked by another agent',
-                items: startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by'),
+                label: 'More ways to approve',
+                items: [
+                  // A fresh agent reads it first (contradictions, duplicates, stale decisions), and approves it once nothing needs fixing.
+                  // Who: the same agents and models as Approve, worked by ▸; the one picked verifies it and then works it.
+                  {
+                    label: 'Verify, Then Approve',
+                    icon: 'eye',
+                    onSelect: () => undefined,
+                    submenu: startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.verify(plan.id, { thenApprove: true })), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing'), ''),
+                  },
+                  ...startWith(plan.agent, (a) => void act(async () => (await api.setWorkAgent(plan.id, a ?? null), api.approve(plan.id)), 'Plan approved: its tasks are on the board'), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
+                ],
               },
             }
           : undefined;
@@ -249,6 +292,9 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
         if (c?.stuck) return { label: `Ask ${who} Again`, icon: agentMark(mine), run: askAgain };
         return { label: c ? `${who} Is Fixing the Conflict` : 'Merging…', busy: true };
       }
+      case 'checking':
+        // Its checker's conversation (off the sidebar, folded into the plan); the head Claude's own check: the plan's chat.
+        return { label: 'Watch the Check', icon: 'eye', run: checker ? () => openWorktree(checker) : () => showChat(true) };
       case 'failed':
         return { label: 'Not Yet…', run: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: next.milestone.milestone.id }) };
       case 'ship': {
@@ -285,6 +331,8 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
   })();
 
   const teamItems = usePlanTeamItems(plan.id, plan.projectId);
+  // Move To ▸ another computer of yours (BLG-806): Pause and Move To while something runs in it.
+  const moveTo = useMoveTo(plan, view, step);
   // Agent for Its Work ▸ (BLG-498): who works what starts from now on; milestones at work keep theirs (the toast says so).
   const workAgent = (v: string): void =>
     void act(() => api.setWorkAgent(plan.id, v === YOUR_AGENT ? null : agentForChoice(v, runtimes))).then((said) => {
@@ -298,6 +346,8 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
     { label: 'Run at Once', submenu: [1, 2, 3, 4, 6, MAX_PARALLEL].map((n) => ({ label: `${n} ${n === 1 ? 'milestone' : 'milestones'}`, checked: plan.maxParallel === n, onSelect: () => void act(() => api.setParallel(plan.id, n)) })), onSelect: () => undefined },
     ...(plan.status !== 'done' ? [{ label: 'Agent for Its Work', submenu: agentMenuItems(agents, plan.agent, workAgent), onSelect: () => undefined }] : []),
     { label: 'When to Run Tests', submenu: TESTS_AT.map((t) => ({ label: TESTS_AT_INFO[t].label, hint: TESTS_AT_INFO[t].hint, checked: plan.testsAt === t, onSelect: () => void act(() => api.setTestsAt(plan.id, t), t === 'end' ? 'From now on, milestone checks skip the test suites; they all run once, in the final step' : 'From now on, each milestone’s check runs the full suites once, on its combined work') })), onSelect: () => undefined },
+    ...(review === 'reviewing' ? [{ label: 'Approve Without Waiting', onSelect: approvePlan }] : []),
+    ...(review !== 'off' && review !== 'reviewing' ? [{ label: review === 'none' ? 'Verify the Plan' : 'Verify the Plan Again', onSelect: () => verify(false) }] : []),
     ...(next.kind === 'stalled' ? next.tasks.flatMap((t) => (t.worktree ? [{ label: `Open ${t.issue?.key ?? 'Its'} Chat`, onSelect: () => openWorktree(t.worktree!) }] : [])) : []),
     ...(next.kind === 'pass' ? [{ label: 'Not Yet…', onSelect: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: next.milestone.milestone.id }) }] : []),
     ...(next.kind === 'failed' || next.kind === 'checking'
@@ -315,9 +365,10 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
         ]
       : []),
     ...(conflictWaits && primary?.run !== askAgain ? [{ label: `Ask ${who} Again`, onSelect: askAgain }] : []),
-    ...(conflictHere ? [{ label: 'Show Conflict in Finder', onSelect: () => void act(() => api.showConflict(plan.id)) }] : []),
+    ...(conflictHere ? [{ label: revealLabel('Conflict'), onSelect: () => void act(() => api.showConflict(plan.id)) }] : []),
     ...(plan.status === 'active' ? [taskChatsItem(plan.id, uiPrefs)] : []),
     ...teamItems,
+    ...(moveTo ? [moveTo] : []),
     { label: 'Copy as Markdown', separate: true, onSelect: () => void copyText(markdownOf(view)) },
     { label: 'Planning Style…', onSelect: () => openSheet({ kind: 'plan_style' }) },
     ...(plan.draft ? [{ label: plan.body ? 'Discard Changes' : 'Discard Draft', danger: true, separate: true, onSelect: () => openSheet({ kind: 'confirm', title: plan.body ? 'Discard the proposed changes?' : 'Discard this draft?', message: plan.body ? 'The plan stays as you approved it.' : 'Nothing was put on the board, so nothing else changes.', confirm: 'Discard', destructive: true, run: () => void act(() => api.discard(plan.id)) }) }] : []),
@@ -343,6 +394,12 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
             What Happened
           </Button>
         )}
+        {/* What the plan has decided (BLG-772): there once it decided something. */}
+        {body?.decisions?.length ? (
+          <Button size="small" variant="quiet" icon="bulb" onClick={() => setPicked(picked === DECISIONS ? undefined : DECISIONS)} aria-pressed={picked === DECISIONS}>
+            Decisions
+          </Button>
+        ) : null}
         {/* Where the work goes: each milestone into the plan's branch, the branch into main as one PR. */}
         {plan.body && !plan.draft ? (
           <Button size="small" variant="quiet" icon="branch" onClick={() => setPicked(picked === BRANCH ? undefined : BRANCH)} aria-pressed={picked === BRANCH} title={`Where the plan’s work goes, step by step${plan.branch ? ` (${plan.branch})` : ''}`} className={p.branchButton}>
@@ -359,7 +416,7 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
       ) : (
         <PlanOutline view={view} keys={keys} selected={picked} onSelect={setPicked} startable={startable} />
       )}
-      {picked ? <PlanDetails view={view} picked={picked} canStart={startable.has(picked)} onClose={() => setPicked(undefined)} /> : null}
+      {picked ? <PlanDetails view={view} picked={picked} canStart={startable.has(picked)} onPick={setPicked} onClose={() => setPicked(undefined)} /> : null}
     </div>
   );
 
@@ -381,12 +438,10 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
           )}
         </div>
         <div className={p.headActions}>
+          {/* Where it runs (BLG-786): the computer it was made on. Only with a computer paired. */}
+          <RunsOnLabel tip="It runs on the computer it was made on until you move it." />
           {/* The plan's pull request, always one click from GitHub, with what stands in its way. */}
-          {pr ? (
-            <Button size="small" variant="quiet" icon="pr" title={`#${pr.number} ${pr.title}: ${prWords(pr)}. Open on GitHub`} onClick={() => void openExternal(pr.url)} className={p.prChip} data-state={pr.state === 'OPEN' ? (pr.conflicts || pr.checks === 'failing' ? 'problem' : 'open') : pr.state.toLowerCase()}>
-              #{pr.number} · {pr.state === 'OPEN' ? prWords(pr) : pr.state === 'MERGED' ? 'Merged' : 'Closed'}
-            </Button>
-          ) : null}
+          {pr ? <PlanPrChip pr={pr} /> : null}
           {/* How it runs: nothing to run while Claude writes it. A real decision: its sheet says what changes. */}
           {drafting || readOnly ? null : (
             <Button size="small" variant="quiet" icon="gauge" title={AUTONOMY_INFO[plan.autonomy].hint} onClick={() => openSheet({ kind: 'plan_mode', planId: plan.id })}>
@@ -394,8 +449,14 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
               {view.milestones.some((m) => m.milestone.autonomy && m.milestone.autonomy !== plan.autonomy) ? ' (mixed)' : ''}
             </Button>
           )}
-          {/* The chat beside the plan, in and out: always here, whichever way it is. */}
-          {chat ? <IconButton icon="claude" label={chat.open ? 'Hide the Chat' : 'Show the Chat'} keys={shortcutKeys('toggle-inspector')} active={chat.open} onClick={() => showChat(!chat.open)} /> : null}
+          {/* The orchestrator's chat beside the plan, in and out: always here, whichever way it is. */}
+          {chat ? (
+            <Tip label={chat.open ? 'Hide the orchestrator’s chat' : 'Open the orchestrator’s chat'} keys={shortcutKeys('toggle-inspector')}>
+              <Button size="small" variant="quiet" icon="claude" aria-pressed={chat.open} onClick={() => showChat(!chat.open)}>
+                {chat.open ? 'Hide Orchestrator' : 'Open Orchestrator'}
+              </Button>
+            </Tip>
+          ) : null}
           <ActionsDropdown items={more}>
             <IconButton icon="more" label="Plan Options" />
           </ActionsDropdown>
@@ -429,6 +490,7 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
           ) : null}
         </div>
       ) : null}
+      <MovedAway plan={plan} />
       <ConflictLine view={view} onShow={setPicked} />
       {readOnly ? null : (
         <>
@@ -436,6 +498,7 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
           <LimitPause view={view} />
           <TidyOffer view={view} />
           <TeamReviews planId={plan.id} />
+          <ReviewLine plan={plan} onApprove={approvePlan} />
         </>
       )}
       {plan.body && plan.draft && !readOnly ? (

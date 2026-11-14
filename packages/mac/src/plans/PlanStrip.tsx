@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { planForHome, planTitle, planTaskOfIssue } from '@beluga/core/plans/model.js';
+import { planForHome, planTitle, planTaskOfIssue, reviewState } from '@beluga/core/plans/model.js';
 import { issueForWorkspace } from '@beluga/core/board/model.js';
 import { Icon } from '../components/Icon.js';
 import { Button, Tip } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
-import { Said } from './marks.js';
+import { PlanPrChip, Said } from './marks.js';
 import { headline, taskHeadline } from './plans-model.js';
 import { usePlanActions, usePlanView } from './use-plans.js';
 import { useStartWith } from '../components/agent-options.js';
@@ -13,8 +13,8 @@ import type { AgentRef } from '@beluga/protocol.js';
 import p from './plans.module.css';
 
 /**
- * Above a conversation that plans (a plan's home): the plan and its one sentence (who it waits
- * for). In a worktree doing a plan's task: which plan, and the same sentence from the task's side
+ * Above a conversation that plans (a plan's home): the plan, its one sentence (who it waits
+ * for) and its pull request. In a worktree doing a plan's task: which plan, and the same sentence from the task's side
  * (“Done. Claude is checking “API”; Beluga merges this into the plan”).
  */
 export function PlanStrip({ workspaceId }: { workspaceId: string }) {
@@ -29,6 +29,7 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
   // An empty draft has nothing to show yet (the box below says what this mode does).
   if (home && view && (home.body || view.milestones.length)) {
     const canApprove = (view.next.kind === 'approve' && view.milestones.length > 0) || view.next.kind === 'review_changes';
+    const review = reviewState(home);
     /** Approve (with `agent`: worked by that one from now on; null: your default), then on to the plan, where it runs. */
     const approve = (agent?: AgentRef | null): void =>
       void act(
@@ -50,6 +51,8 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
             <Said line={headline(view)} className={p.stripNext} />
           </button>
         </Tip>
+        {/* Its pull request, as on the plan's page: the conversation opened whole still says where the work stands. */}
+        {home.pr ? <PlanPrChip pr={home.pr} /> : null}
         {canApprove ? (
           <>
             {/* The plan beside this same conversation: read it, ask about it, have it changed, then approve there. */}
@@ -62,9 +65,32 @@ export function PlanStrip({ workspaceId }: { workspaceId: string }) {
               <Button size="small" variant="primary" onClick={() => approve()}>
                 Apply Changes
               </Button>
+            ) : review === 'reviewing' ? (
+              // A fresh agent verifies the draft, as you asked (BLG-772): its findings show on the plan.
+              <Button size="small" variant="primary" disabled>
+                Verifying…
+              </Button>
+            ) : review === 'findings' && !home.review?.fixAsked ? (
+              <Tip label="Verifying found things to fix in the plan: see them there">
+                <Button size="small" variant="primary" icon="wand" onClick={() => open(home.id)}>
+                  See What It Found
+                </Button>
+              </Tip>
             ) : (
               // Approve, worked by ▸ (BLG-506): who works its milestones and tasks, set as it's approved.
-              <SplitButton label="Approve, worked by another agent" items={startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by')}>
+              <SplitButton
+                label="More ways to approve"
+                items={[
+                  // Verify, Then Approve (BLG-772): a fresh agent checks it holds together first.
+                  {
+                    label: 'Verify, Then Approve',
+                    icon: 'eye',
+                    onSelect: () => undefined,
+                    submenu: startWith(home.agent, (a) => void act(async () => (await api.setWorkAgent(home.id, a ?? null), api.verify(home.id, { thenApprove: true })), 'A fresh agent is verifying the plan: it’s approved once nothing needs fixing'), ''),
+                  },
+                  ...startWith(home.agent, (a) => approve(a ?? null), 'Approve, worked by').map((item, i) => (i === 0 ? { ...item, separate: true } : item)),
+                ]}
+              >
                 <Button size="small" variant="primary" onClick={() => approve()}>
                   Approve Plan
                 </Button>

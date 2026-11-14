@@ -21,12 +21,19 @@ export interface RunFailure {
   readonly detail: string;
   /** The runtime that failed ('codex'); unset: Claude Code. */
   readonly runtime?: string;
+  /**
+   * A friend's or guest's run that couldn't sign in: the variable this Mac signs Claude Code in with
+   * (ANTHROPIC_API_KEY…), which such a run is never given.
+   */
+  readonly envSignIn?: string;
 }
 
 /** Who a failure's words name: the agent, its app, and whose API it calls. */
 const WHO: Readonly<Record<string, { readonly agent: string; readonly app: string; readonly vendor: string }>> = {
   claude: { agent: 'Claude', app: 'Claude Code', vendor: 'Anthropic' },
   codex: { agent: 'Codex', app: 'Codex', vendor: 'OpenAI' },
+  opencode: { agent: 'OpenCode', app: 'OpenCode', vendor: 'its model provider' },
+  copilot: { agent: 'Copilot', app: 'Copilot', vendor: 'GitHub' },
 };
 
 /** What Continue (and an automatic resume) sends: the same session goes on. */
@@ -48,11 +55,12 @@ export function resetWords(at: number, now = Date.now()): string {
 /** The card's headline: "Claude hit your usage limit · resets at 15:00". */
 export function failureTitle(f: RunFailure, now = Date.now()): string {
   const who = WHO[f.runtime ?? 'claude'] ?? WHO.claude!;
+  if (f.envSignIn && (f.kind === 'signed_out' || f.kind === 'api')) return `${who.app} couldn’t sign in for this run: this Mac signs it in with ${f.envSignIn}, which friends’ runs never get`;
   switch (f.kind) {
     case 'usage_limit':
       return `You hit your ${who.agent} plan usage limit${f.resetsAt ? ` · resets at ${resetWords(f.resetsAt, now)}` : ''}`;
     case 'signed_out':
-      return `${who.app} isn’t signed in on this Mac`;
+      return EXPIRED.test(f.detail) ? `${who.app}’s sign-in on this Mac expired` : `${who.app} isn’t signed in on this Mac`;
     case 'crash':
       return `${who.app} stopped unexpectedly${f.exitCode !== undefined ? ` (exit ${f.exitCode})` : ''}`;
     case 'network':
@@ -157,7 +165,9 @@ const CODEX_LIMIT_INFO = 'usageLimitExceeded';
 /** Codex's limit words: "You've hit your usage limit. …" (longer than Claude's notice, so not one of those). */
 const CODEX_LIMIT = /you['’]ve hit your usage limit/i;
 // Claude Code has no login here ("Not logged in · Please run /login"), or the one it had stopped working.
-const SIGNED_OUT = /\bnot logged in\b|please run \/login|oauth token (has )?(expired|been revoked)/i;
+const SIGNED_OUT = /\bnot logged in\b|please run \/login|oauth token (has )?(expired|been revoked)|oauth token revoked|auth session expired|please log in again/i;
+// The login it had stopped working ("Failed to authenticate: OAuth session expired and could not be refreshed").
+const EXPIRED = /expired|could not be refreshed|revoked|log in again/i;
 
 const NETWORK = /\b(ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|fetch failed|network error|connection error|getaddrinfo)\b/i;
 const EXIT = /exited with code (-?\d+)|terminated by signal (\w+)/i;

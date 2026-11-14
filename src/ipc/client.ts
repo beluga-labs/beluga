@@ -62,7 +62,14 @@ export interface BelugaClient {
   close(): void;
 }
 
-export type ClientKind = 'mac' | 'test';
+/**
+ * The Mac app, a browser on the web port (set by the daemon, never claimed), a command run once
+ * (`beluga web`), a test, or your own app driving this computer over its link (BLG-775, set by the
+ * daemon for a device of yours, never claimed).
+ */
+export type ClientKind = 'mac' | 'web' | 'cli' | 'test' | 'machine';
+/** What a screen may say it is in its hello. */
+export type HelloKind = Exclude<ClientKind, 'web' | 'machine'>;
 
 type Group<M> = M extends `${infer G}.${string}` ? G : never;
 type NameIn<M, G extends string> = M extends `${G}.${infer N}` ? N : never;
@@ -75,6 +82,15 @@ export type ApiProxy = {
 };
 
 export type Call = <M extends Method>(method: M, ...args: Args<M>) => Promise<Result<M>>;
+
+/**
+ * Calls whose failure the screen shows in place, so they raise no "Something went wrong" toast:
+ * a picture in an answer whose file an agent has since deleted shows a placeholder, not an error.
+ */
+const QUIET_METHODS: ReadonlySet<Method> = new Set<Method>(['files.version', 'files.readImageFile']);
+
+/** Whether a failed call should say so in a toast (the screen shows the rest itself). */
+export const toastsFailure = (method: Method): boolean => !QUIET_METHODS.has(method);
 
 /** Build the grouped API over a call function (calls are made lazily by name). */
 export function apiProxy(call: (method: Method, args: readonly unknown[]) => Promise<unknown>): ApiProxy {

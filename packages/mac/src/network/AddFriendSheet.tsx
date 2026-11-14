@@ -11,6 +11,7 @@ import { acceptError, expiryLabel, findInvitation, openFriendInvitation, timeLef
 import { closeNet } from './net-sheets.js';
 import { errorText, openDm, openGroup, quietly, useSay } from './use-net.js';
 import s from './network.module.css';
+import { yourComputer } from '../lib/os-words.js';
 
 /** What's on the clipboard, if the window may read it (the app can; a browser may refuse). */
 async function clipboardText(): Promise<string> {
@@ -256,7 +257,7 @@ function AcceptHalf({ preset, group }: { preset?: string; group?: boolean }) {
         {busy ? (
           <span className={s.busy}>
             <span className={s.spinner} />
-            Reaching their Mac…
+            Reaching their computer…
           </span>
         ) : error ? (
           <div className={s.acceptError} role="alert">
@@ -287,7 +288,7 @@ export function AddFriendSheet({ accept }: { accept?: string }) {
   return (
     <Sheet
       title="Add a Friend"
-      subtitle="Friends connect straight to your Mac. No server, no account."
+      subtitle={`Friends connect straight to ${yourComputer()}. No server, no account.`}
       icon="people"
       close={closeNet}
       wide
@@ -311,7 +312,7 @@ export function AddFriendSheet({ accept }: { accept?: string }) {
 /** Join a group from its link: just the accepting half. */
 export function JoinGroupSheet({ accept }: { accept: string }) {
   return (
-    <Sheet title="Join a Channel" subtitle="Channels live on their members’ Macs. No server." icon="people" close={closeNet}>
+    <Sheet title="Join a Channel" subtitle="Channels live on their members’ computers. No server." icon="people" close={closeNet}>
       <div style={{ margin: '0 -18px' }}>
         <AcceptHalf preset={accept} group />
       </div>

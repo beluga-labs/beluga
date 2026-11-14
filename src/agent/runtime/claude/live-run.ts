@@ -36,6 +36,14 @@ export class PromptQueue implements AsyncIterable<SDKUserMessage> {
     return uuid;
   }
 
+  /** Out of the queue before Claude Code got it (see PromptQueue.push): false once it went. */
+  remove(uuid: string): boolean {
+    const at = this.items.findIndex((item) => item.uuid === uuid);
+    if (at === -1) return false;
+    this.items.splice(at, 1);
+    return true;
+  }
+
   close(): void {
     this.ended = true;
     this.wake?.();
@@ -109,6 +117,19 @@ export class BackgroundAgents {
 }
 
 type OnEvent = AgentRunInput['onEvent'];
+
+/**
+ * The prompt Claude Code just took off its queue (a command_lifecycle frame, state "started"):
+ * a message steered in is in the running turn from that step on. Claude Code only names a
+ * folded message on assistant frames of turns it started itself, so a turn you started (the
+ * usual case) never says it there before the turn ends; this frame does, at the step. Not in the
+ * SDK's types yet, so read loosely: anything else is undefined.
+ */
+export function startedPrompt(msg: unknown): string | undefined {
+  if (!msg || typeof msg !== 'object') return undefined;
+  const m = msg as { type?: unknown; state?: unknown; command_uuid?: unknown };
+  return m.type === 'command_lifecycle' && m.state === 'started' && typeof m.command_uuid === 'string' ? m.command_uuid : undefined;
+}
 
 /** Where one turn's output goes: the request that started the run, or a follow-up sent into it. */
 export interface TurnRoute {

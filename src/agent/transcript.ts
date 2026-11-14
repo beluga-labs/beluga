@@ -60,7 +60,8 @@ export function typedText(message: unknown): string {
     .trim();
 }
 
-type TranscriptOptions = { selfId: string; selfName: string; cwd: string; start: number; end: number };
+/** `first`: how many messages came before these (ids stay the same when the earliest are let go). */
+type TranscriptOptions = { selfId: string; selfName: string; cwd: string; start: number; end: number; first?: number };
 
 /**
  * Turn a Claude Code conversation into Beluga's chat: your messages, and one Claude card
@@ -81,6 +82,7 @@ export function transcriptToTurns(messages: readonly TranscriptMessage[], opts: 
   const items: LogItem[] = [];
   const steps: Record<string, StepRecord[]> = {};
   const span = Math.max(1, messages.length);
+  const first = opts.first ?? 0;
   const tsAt = (i: number): number => Math.round(opts.start + ((opts.end - opts.start) * i) / span);
   let turn: { id: string; text: string; steps: string[]; records: StepRecord[]; ts: number; endTs: number } | undefined;
   /** Tool calls waiting for their results: which turn and which record. */
@@ -127,16 +129,16 @@ export function transcriptToTurns(messages: readonly TranscriptMessage[], opts: 
       if (text.startsWith(CONTINUED)) {
         const summary = text.slice(text.indexOf('Summary:') >= 0 ? text.indexOf('Summary:') + 8 : 0).trim();
         const short = summary.length > SUMMARY_CHARS ? `${summary.slice(0, SUMMARY_CHARS).trimEnd()}…` : summary;
-        items.push({ id: `t-${i}`, type: 'system', channel: '', text: `Earlier in this conversation (summarized):\n${short}`, ts, level: 'info' });
+        items.push({ id: `t-${first + i}`, type: 'system', channel: '', text: `Earlier in this conversation (summarized):\n${short}`, ts, level: 'info' });
         return;
       }
-      items.push({ id: `t-${i}`, type: 'chat', channel: '', from: opts.selfId, name: opts.selfName, text, ts, byAgent: false });
+      items.push({ id: `t-${first + i}`, type: 'chat', channel: '', from: opts.selfId, name: opts.selfName, text, ts, byAgent: false });
       return;
     }
     if (m.type !== 'assistant') return;
     // Claude Code's own notices (rate limits, API errors) aren't Claude's words.
     if ((m.message as { model?: string } | undefined)?.model === '<synthetic>') return;
-    turn ??= { id: `t-${i}`, text: '', steps: [], records: [], ts, endTs: ts };
+    turn ??= { id: `t-${first + i}`, text: '', steps: [], records: [], ts, endTs: ts };
     turn.endTs = ts;
     for (const b of blocksOf(m.message)) {
       if (b.type === 'text' && b.text?.trim()) turn.text = b.text.trim();

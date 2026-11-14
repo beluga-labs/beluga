@@ -5,20 +5,26 @@ import type { LogItem } from '@beluga/core/store.js';
 import { type TaskView, tasksIn } from '@beluga/core/gateway/model.js';
 import { LogTaskCard } from '../gateway/TaskCard.js';
 import { Icon } from '../components/Icon.js';
-import { Avatar, Empty, Working } from '../components/ui.js';
-import { useApi, useApp } from '../lib/beluga.js';
+import { Avatar, Empty, Working, cx } from '../components/ui.js';
+import { toast, useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
 import { agentName, useMyAgent } from '../lib/agent-words.js';
 import { keepSameLists, sameItems } from '../lib/stable.js';
 import { FindBar } from './FindBar.js';
 import { AgentCard, ChatRow, ShellCard, SystemRow } from './Items.js';
 import { CompactDivider } from './CompactDivider.js';
 import { isCompactItem } from './context-model.js';
-import { ShippedDivider, isShippedItem } from './ShippedDivider.js';
+import { MergedDivider, ShippedDivider } from './ShippedDivider.js';
+import { isMergedItem, isShippedItem, withoutDoubleMerge } from './merged-model.js';
 import { DialogueCard, isDialogueItem } from './DialogueCard.js';
 import { useClaudeStarting } from './flight.js';
+import { lastMineIn } from './starting-model.js';
 import { withLiveTails } from './live-tail.js';
+import { JUMP_LOST_TEXT, JUMP_MARK_MS, JUMP_TTL_MS, chatJumpState } from '@beluga/ui/chat-jump.js';
 import { asSent, steeredMessages } from '@beluga/shared/claude-notices.js';
 import { inYourQueue } from '@beluga/ui/compose.js';
+import { type ThreadStart, threadStarts } from '../threads/threads-model.js';
+import { StartedByLine, ThreadStartLine } from '../threads/ThreadLines.js';
+import { sameDeep } from '../lib/stable.js';
 import s from './chat.module.css';
 import f from './flight.module.css';
 
@@ -26,7 +32,9 @@ const GROUP_GAP_MS = 3 * 60_000;
 
 /** A task your Claude sent from this conversation (to another person's Claude), drawn where it was asked. */
 type TaskRow = { readonly type: 'task'; readonly id: string; readonly ts: number; readonly task: TaskView };
-type Row = LogItem | TaskRow;
+/** A thread this conversation started, drawn when it started. */
+type ThreadRow = { readonly type: 'thread_start'; readonly id: string; readonly ts: number; readonly thread: ThreadStart };
+type Row = LogItem | TaskRow | ThreadRow;
 
 /**
  * Tasks your Claude sent during one of its turns belong to that turn: drawn inside its card,
@@ -52,6 +60,16 @@ function withTasks(items: readonly LogItem[], tasks: readonly TaskView[]): reado
   for (const task of tasks) {
     const at = rows.findIndex((r) => r.ts > task.createdAt);
     rows.splice(at < 0 ? rows.length : at, 0, { type: 'task', id: `task:${task.id}`, ts: task.createdAt, task });
+  }
+  return rows;
+}
+
+function withThreadStarts(items: readonly Row[], starts: readonly ThreadStart[]): readonly Row[] {
+  if (!starts.length) return items;
+  const rows: Row[] = [...items];
+  for (const thread of starts) {
+    const at = rows.findIndex((r) => r.ts > thread.ts);
+    rows.splice(at < 0 ? rows.length : at, 0, { type: 'thread_start', id: `thread:${thread.id}`, ts: thread.ts, thread });
   }
   return rows;
 }
@@ -107,9 +125,19 @@ function useEarlier(channel: string, parent: React.RefObject<HTMLDivElement | nu
   return ask;
 }
 
-export function ChatLog({ channel, empty }: { channel: string; empty?: React.ReactNode }) {
+interface ChatLogProps {
+  readonly channel: string;
+  readonly empty?: React.ReactNode;
+  /** What you said here that Beluga's daemon hasn't drawn yet (a worktree being made): shown at once, after its items. */
+  readonly ahead?: readonly LogItem[];
+  /** "Claude is starting…" under the last row whatever was sent from here (its agent starts once the worktree is made). */
+  readonly starting?: boolean;
+}
+
+export function ChatLog({ channel, empty, ahead, starting: startingHere = false }: ChatLogProps) {
   // Only this conversation's items and tasks: another one streaming doesn't draw this one again (KLD-48).
-  const mine = useApp((st) => st.log.filter((l) => l.channel === channel), sameItems);
+  const logged = useApp((st) => st.log.filter((l) => l.channel === channel), sameItems);
+  const mine = useMemo(() => (ahead?.length ? [...logged, ...ahead] : logged), [logged, ahead]);
   const selfId = useApp((st) => st.selfId);
   // The agent this conversation runs on: a worktree's own pick, else yours.
   const myAgent = useMyAgent();
@@ -120,7 +148,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const agentRef = ownAgent ?? myAgent;
   const agent = agentName(agentRef);
   // A shared workspace's earlier messages arrive as system lines; drawn here as normal messages.
-  const items = useMemo(() => mine.map(chatRowOf), [mine]);
+  const items = useMemo(() => withoutDoubleMerge(mine.map(chatRowOf)), [mine]);
   // What waits its turn is in the queue above the box; once it runs, it's drawn where it ran (BLG-317).
   const sent = useMemo(() => asSent(items, (card) => inYourQueue(card, selfId)), [items, selfId]);
   // A message you steered in shows itself whether Claude has read it (BLG-54): its note card isn't drawn.
@@ -132,7 +160,8 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const turnTasks = useRef<ReadonlyMap<string, readonly TaskView[]>>(undefined);
   const inTurn = useMemo(() => (turnTasks.current = keepSameLists(turnTasks.current, placed.inTurn)), [placed]);
   // A turn you spoke during goes on below what you said: its live part is the chat's last row (BLG-22).
-  const shown = useMemo(() => withLiveTails(placed.rows), [placed]);
+  const starts = useApp((st) => threadStarts(st, channel), sameDeep);
+  const shown = useMemo(() => withLiveTails(withThreadStarts(placed.rows, starts)), [placed, starts]);
   const rows = useMemo(() => shown.map((x) => x.row), [shown]);
   const latest = useMemo(() => latestCard(items), [items]);
   const parent = useRef<HTMLDivElement>(null);
@@ -163,7 +192,10 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
 
   // Until Claude's card for the message you just sent appears.
   const cards = useMemo(() => items.filter((l) => l.type === 'agent').length, [items]);
-  const starting = useClaudeStarting(channel, cards);
+  // ...and only once the message you sent is in the chat: it shows first, the line under it (BLG-949).
+  const lastMine = useMemo(() => lastMineIn(mine, selfId), [mine, selfId]);
+  const sentStarting = useClaudeStarting(channel, cards, lastMine);
+  const starting = sentStarting || (startingHere && cards === 0);
 
   // New messages (and Claude's streaming text) keep you at the bottom if that's where you were.
   useLayoutEffect(() => {
@@ -188,6 +220,35 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
     setAtBottom(true);
   }, [channel]);
 
+  // A search hit opened: to its message, marked for a moment, once its history is here. After the
+  // effect above, which sends a conversation that just opened to the bottom.
+  const { client, ui } = useBeluga();
+  const jump = useUi((u) => u.chatJump);
+  const [marked, setMarked] = useState<React.Key | undefined>(undefined);
+  const [waited, setWaited] = useState(0);
+  // Which part of a split turn each row is: a hit on a turn goes to its answer, in the tail.
+  const jumpRows = useMemo(() => shown.map((x) => ({ id: x.row.id, ts: x.row.ts, side: x.part?.side })), [shown]);
+  useEffect(() => {
+    const next = chatJumpState(jump, channel, jumpRows, Date.now());
+    if (next.state === 'none') return;
+    if (next.state === 'wait') {
+      // No row comes to run this again when the history never lands.
+      const t = setTimeout(() => setWaited((n) => n + 1), JUMP_TTL_MS + 1);
+      return () => clearTimeout(t);
+    }
+    ui.patch({ chatJump: undefined });
+    if (next.state === 'lost') toast(client, JUMP_LOST_TEXT);
+    if (next.state !== 'go') return;
+    stick.current = false;
+    virtualizer.scrollToIndex(next.index, { align: 'center' });
+    setMarked(shown[next.index]?.key ?? next.index);
+  }, [jump, channel, jumpRows, shown, virtualizer, ui, client, waited]);
+  useEffect(() => {
+    if (marked === undefined) return;
+    const t = setTimeout(() => setMarked(undefined), JUMP_MARK_MS);
+    return () => clearTimeout(t);
+  }, [marked]);
+
   // Only you scrolling (wheel, trackpad, keys, the scroll bar) leaves the bottom; the list moving
   // itself (a tall row measured, a graph laid out) doesn't.
   const youScrolled = useRef(0);
@@ -211,6 +272,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
     return (
       <div className={s.logWrap}>
         <FindBar items={items} logRef={parent} onGo={() => undefined} />
+        <StartedByLine channel={channel} />
         <div className={s.logEmpty}>{empty ?? <Empty icon="chat" title="Nothing here yet" detail="Say something below." />}</div>
       </div>
     );
@@ -219,7 +281,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   const continued = (i: number): boolean => {
     const a = rows[i - 1];
     const b = rows[i];
-    return Boolean(a && b && a.type === 'chat' && b.type === 'chat' && a.from === b.from && a.byAgent === b.byAgent && b.ts - a.ts < GROUP_GAP_MS);
+    return Boolean(a && b && a.type === 'chat' && b.type === 'chat' && a.from === b.from && a.byAgent === b.byAgent && a.via?.id === b.via?.id && b.ts - a.ts < GROUP_GAP_MS);
   };
 
   const go = (index: number): void => {
@@ -231,6 +293,7 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
   return (
     <div className={s.logWrap} data-flight-layer="">
       <FindBar items={items} logRef={parent} onGo={go} />
+      <StartedByLine channel={channel} />
       <div ref={parent} className={s.log} onScroll={onScroll} onWheel={markScroll} onTouchMove={markScroll} onPointerDown={markScroll} onKeyDown={markScroll}>
         {/* The virtualizer sets the list's height and each row's position itself (see above). */}
         <div ref={virtualizer.containerRef} className={s.logInner}>
@@ -238,9 +301,11 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
             const item = rows[v.index] as Row;
             const part = shown[v.index]?.part;
             return (
-              <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className={s.logRow}>
+              <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className={cx(s.logRow, v.key === marked && s.logRowMarked)} data-jumped={v.key === marked ? 'true' : undefined}>
                 {item.type === 'task' ? (
                   <LogTaskCard task={item.task} />
+                ) : item.type === 'thread_start' ? (
+                  <ThreadStartLine thread={item.thread} />
                 ) : item.type === 'chat' ? (
                   <ChatRow item={item} continued={continued(v.index)} ends={!continued(v.index + 1)} mine={item.from === selfId} steer={steered.waiting.get(item.id)} />
                 ) : item.type === 'agent' ? (
@@ -251,6 +316,8 @@ export function ChatLog({ channel, empty }: { channel: string; empty?: React.Rea
                   <CompactDivider item={item} />
                 ) : isShippedItem(item) ? (
                   <ShippedDivider item={item} />
+                ) : isMergedItem(item) ? (
+                  <MergedDivider item={item} />
                 ) : isDialogueItem(item) ? (
                   <DialogueCard item={item} />
                 ) : (

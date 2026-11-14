@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -24,9 +24,10 @@ const sessions: Session[] = [];
  * peers, and the workspaces it talks in don't depend on what another test said there.
  */
 let demo: WorkspaceManager;
+// Two real repos with history and worktrees: well past 30 s on a busy Windows runner.
 beforeAll(async () => {
   demo = await createDemoWorkspaces();
-});
+}, 120_000);
 
 afterEach(async () => {
   for (const s of sessions.splice(0)) await s.stop();
@@ -180,6 +181,75 @@ describe('sharing a workspace', () => {
     await expect(bob.session.listFiles({ owner: kay.session.selfId, share: shared.share, path: '' })).rejects.toThrow();
   });
 
+  it('shares only the Scratch of a plain chat with someone in your room', async () => {
+    hub = await startHub({ keys });
+    const kay = peer('kay', { workspaces: demo });
+    const bob = peer('bob');
+    await room(kay, bob);
+    const dir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'beluga-chat-')));
+    writeFileSync(path.join(dir, 'private.txt'), 'not for the room');
+    const chat = await demo.createStandaloneChat('room plans', dir);
+    await kay.session.workspaces!.refresh();
+    expect(kay.session.sharing.invite(chat.id, bob.session.selfId, 'contribute')).toBe(true);
+    const shared = await waitFor(() => bob.state().shared.find((w) => w.id === chat.id));
+    const noFiles = 'A chat has no project files: only its Scratch is shared';
+    await expect(bob.session.readFile({ owner: kay.session.selfId, share: shared.share, path: 'private.txt' })).rejects.toThrow(noFiles);
+    await expect(bob.session.listFiles({ owner: kay.session.selfId, share: shared.share, path: '' })).rejects.toThrow(noFiles);
+  });
+
+  it("a guest's @claude is their own agent, answering in the worktree for everyone; the owner's answers the rest", async () => {
+    hub = await startHub({ keys });
+    const mgr = demo;
+    const kay = peer('kay', { workspaces: mgr });
+    const bob = peer('bob');
+    await room(kay, bob);
+    await kay.session.workspaces!.refresh();
+    const ws = mgr.list.flatMap((p) => p.workspaces).find((w) => w.name === 'add-auth')!;
+    const channel = `ws:${ws.id}`;
+    kay.session.sharing.invite(ws.id, bob.session.selfId, 'contribute');
+    const shared = await waitFor(() => bob.state().shared[0]);
+
+    // "@claude" from bob: bob's agent, on bob's Mac, told how to read kay's worktree; kay's stays out.
+    bob.session.submit('@claude what does src do?', { channel });
+    await waitFor(() => bob.runs.some((r) => r.prompt === 'what does src do?'));
+    const run = bob.runs.find((r) => r.prompt === 'what does src do?')!;
+    expect(run.place?.cwd).not.toBe(ws.path);
+    expect(run.sharedBrief).toContain(`share "${shared.share}"`);
+    // Its answer is in the worktree's conversation on kay's Mac too, as bob's agent's.
+    await waitFor(() => kay.state().log.some((l) => l.type === 'agent' && l.channel === channel && l.owner === bob.session.selfId && l.status === 'done' && l.text.includes('echo: what does src do?')));
+    await waitFor(() => kay.state().log.some((l) => l.type === 'chat' && l.channel === channel && l.text === '@claude what does src do?'));
+    expect(kay.runs).toHaveLength(0);
+
+    // A plain line, and "@claude:kay", go to kay's agent.
+    bob.session.submit('add a test', { channel });
+    bob.session.submit('@claude:kay and a readme', { channel });
+    await waitFor(() => kay.runs.some((r) => r.prompt === 'add a test') && kay.runs.some((r) => r.prompt === 'and a readme'));
+    expect(bob.runs).toHaveLength(1);
+
+    // Bob's agent reads kay's worktree with the room's file tools.
+    const files = await bob.session.bridge.listPeerFiles('kay', shared.share, '');
+    expect(files.some((f) => f.name === 'src')).toBe(true);
+  });
+
+  it("nobody else's agent writes into a worktree, nor a guest's agent for someone else's ask", async () => {
+    hub = await startHub({ keys });
+    const mgr = demo;
+    const kay = peer('kay', { workspaces: mgr });
+    const bob = peer('bob');
+    const cat = peer('cat');
+    await room(kay, bob, cat);
+    await kay.session.workspaces!.refresh();
+    const ws = mgr.list.flatMap((p) => p.workspaces).find((w) => w.name === 'add-auth')!;
+    const channel = `ws:${ws.id}`;
+    kay.session.sharing.invite(ws.id, bob.session.selfId, 'contribute');
+    await waitFor(() => bob.state().shared[0]);
+    const forged = (from: P, requester: string) => from.session.send({ kind: 'agent_event', requestId: `f-${requester}`, requester, event: 'done', text: 'forged', channel }, { to: kay.session.selfId });
+    forged(cat, cat.session.selfId); // not invited
+    forged(bob, kay.session.selfId); // invited, but not their own ask
+    await new Promise((r) => setTimeout(r, 200));
+    expect(kay.state().log.some((l) => l.type === 'agent' && l.text === 'forged')).toBe(false);
+  });
+
   it('viewers follow along but cannot ask Claude or post', async () => {
     hub = await startHub({ keys });
     const mgr = demo;
@@ -208,6 +278,30 @@ describe('sharing a workspace', () => {
     bob.session.requestAgent(kay.session.selfId, 'hi', false, `ws:${ws.id}`);
     await new Promise((r) => setTimeout(r, 200));
     expect(kay.runs).toHaveLength(0);
+  });
+
+  // A name you give is up to 200 characters; the invite carries at most 80 (what older peers accept).
+  it.each([80, 81, 200])('invites with a name of %i characters: the friend gets it, cut to 80', async (n) => {
+    hub = await startHub({ keys });
+    const mgr = demo;
+    const kay = peer('kay', { workspaces: mgr });
+    const bob = peer('bob');
+    await room(kay, bob);
+    await kay.session.workspaces!.refresh();
+    // A worktree no other test looks for by name.
+    const ws = mgr.list.flatMap((p) => p.workspaces).find((w) => w.name === 'checkout-events')!;
+    const original = ws.name;
+    const long = 'x'.repeat(n);
+    mgr.rename(ws.id, long);
+    try {
+      await kay.session.workspaces!.refresh();
+      expect(kay.session.sharing.invite(ws.id, bob.session.selfId, 'view')).toBe(true);
+      const shared = await waitFor(() => bob.state().shared[0]);
+      expect(shared.name).toBe(long.slice(0, 80));
+      expect(mgr.list.flatMap((p) => p.workspaces).find((w) => w.id === ws.id)?.name).toBe(long);
+    } finally {
+      mgr.rename(ws.id, original);
+    }
   });
 });
 
@@ -372,7 +466,9 @@ describe('workspaces work in parallel', () => {
       script: async (input) => {
         inFlight++;
         peak = Math.max(peak, inFlight);
-        await new Promise((r) => setTimeout(r, 150));
+        // Each run holds until another one runs beside it (or 3 s go by: they don't), not for a set
+        // time a busy machine can take just to start the next one.
+        await waitFor(() => peak >= 2, 3_000).catch(() => undefined);
         order.push(input.prompt);
         inFlight--;
         return 'ok';
@@ -386,7 +482,7 @@ describe('workspaces work in parallel', () => {
     kay.session.askOwnClaude('a1', `ws:${a.id}`);
     kay.session.askOwnClaude('a2', `ws:${a.id}`);
     kay.session.askOwnClaude('b1', `ws:${b.id}`);
-    await waitFor(() => order.length === 3, 4000);
+    await waitFor(() => order.length === 3, 10_000);
     expect(peak).toBe(2); // add-auth and new-hero side by side
     expect(order.indexOf('a1')).toBeLessThan(order.indexOf('a2')); // same workspace stays in order
   });

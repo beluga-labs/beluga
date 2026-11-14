@@ -4,11 +4,15 @@ import { HIDDEN_STEPS, isRunning } from '@beluga/ui/format.js';
 import { formatDuration } from '@beluga/shared/text.js';
 import { splitImages } from '@beluga/shared/attachment-links.js';
 import { READS_AFTER_STEP, STEERED_IN, STOPPING_FOR, type SteeredMessage, isLimitNotice } from '@beluga/shared/claude-notices.js';
-import { CONTINUE_PROMPT, type RunFailure, decodeFailure, failureTitle } from '@beluga/shared/run-failure.js';
+import { CONTINUE_PROMPT, type RunFailure, decodeFailure, failureTitle, resetWords } from '@beluga/shared/run-failure.js';
+import { autoContinueFor, chatsOff, limitResumeAt, sessionSkip } from '@beluga/shared/auto-continue.js';
+import { sentinelOfChannel } from '@beluga/core/sentinel/model.js';
 import { Icon } from '../components/Icon.js';
 import { Avatar, Button, Dot, Tip, claudeColor, cx, personColor } from '../components/ui.js';
-import { ActionsContext, type ActionItem } from '../components/SpecMenu.js';
-import { sendSteerNow, stopClaude } from '../lib/commands.js';
+import { ActionsContext, ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
+import { openExternal } from '../lib/system.js';
+import { type SignInHow, signInChoices } from './sign-in-choices.js';
+import { cancelSteer, sendSteerNow, stopClaude } from '../lib/commands.js';
 import { copyText } from '../lib/copy.js';
 import { useActions } from '../lib/actions.js';
 import { toast, useApp, useBeluga } from '../lib/beluga.js';
@@ -18,12 +22,14 @@ import { countRender } from '../lib/render-count.js';
 import { ImageGrid } from './ChatImages.js';
 import { openLightbox } from './images.js';
 import { agentBadge, agentName, useMyAgentName } from '../lib/agent-words.js';
-import type { AgentRef } from '@beluga/protocol.js';
+import type { AgentRef, ChatOrigin } from '@beluga/protocol.js';
+import { InlineCode } from '../components/views/Inline.js';
 import { agentMark } from '@beluga/shared/agent-marks.js';
 import { brandText } from '../lib/brand.js';
 import { messageItems } from './message-menu.js';
 import { Markdown } from './Markdown.js';
 import { AgentSteps, StepsFold, StepsToggle } from './steps/AgentSteps.js';
+import { McpApps } from './mcp-app/McpApps.js';
 import { useDisclosure } from './steps/step-memory.js';
 import { useFlightLanding } from './flight.js';
 import { type TurnPart, workingPhase } from './live-tail.js';
@@ -36,6 +42,10 @@ import { EditPrompt } from './EditPrompt.js';
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { PersonButton } from '../network/PersonProfile.js';
 import { KnockCard } from '../team/Team.js';
+import { useChatReactions } from './ChatReactions.js';
+import r from '../network/reactions.module.css';
+import { threadSender } from '../threads/threads-model.js';
+import l from '../threads/threads.module.css';
 import s from './chat.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { revealTerminal } from '../lib/panel.js';
@@ -104,23 +114,32 @@ function Folding({ children }: { children: ReactNode }) {
 
 /**
  * Under a message you steered in that Claude hasn't read yet: sent, not read, and (while it waits
- * for Claude's next step) Send now. Once Claude reads it the line goes and the message reads as any other.
+ * for Claude's next step) Send now or Cancel. Once Claude reads it the line goes and the message
+ * reads as any other; cancelled, the message goes and its words are back in the box.
  */
-function SteerWaiting({ steer }: { steer: SteeredMessage }) {
-  const { client } = useBeluga();
+function SteerWaiting({ steer, channel }: { steer: SteeredMessage; channel: string }) {
+  const { client, ui } = useBeluga();
   const stopping = steer.waiting === 'stopping';
   const agent = useMyAgentName();
   return (
     <div className={s.steerWaiting} data-steer-waiting={steer.waiting} role="status">
       <Icon name="clock" size={11} />
-      <span>{stopping ? `Sent · ${agent} is stopping its step to read it` : `Sent · waiting for ${agent} to read it`}</span>
+      <span>{stopping ? `Sent · ${agent} is stopping its step to read it` : `Sent · ${agent} reads it after its current step`}</span>
       {stopping ? null : (
-        <Tip label={`Stop ${agent}’s current step so it reads this now`} keys={shortcutKeys('composer-send-now')}>
-          <button type="button" className={s.steerNow} onClick={() => sendSteerNow(client, steer.request)}>
-            <Icon name="send" size={10} />
-            Send now
-          </button>
-        </Tip>
+        <>
+          <Tip label={`Stop ${agent}’s current step so it reads this now`} keys={shortcutKeys('composer-send-now')}>
+            <button type="button" className={s.steerNow} onClick={() => sendSteerNow(client, steer.request)}>
+              <Icon name="send" size={10} />
+              Send now
+            </button>
+          </Tip>
+          <Tip label={`Take it back before ${agent} reads it: its words go back in the box`}>
+            <button type="button" className={s.steerNow} data-steer-cancel onClick={() => cancelSteer({ client, ui }, steer.request, channel)}>
+              <Icon name="x" size={10} />
+              Cancel
+            </button>
+          </Tip>
+        </>
       )}
     </div>
   );
@@ -140,7 +159,7 @@ function Delivery({ request, channel }: { request: string; channel: string }) {
   return (
     <div className={s.steerWaiting} data-delivery={state} role="status">
       <Icon name={state === 'waiting' ? 'clock' : 'check'} size={11} />
-      <span>{state === 'waiting' ? `Waiting for ${owner}'s Mac · it goes when it's back` : 'Delivered'}</span>
+      <span>{state === 'waiting' ? `Waiting for ${owner}'s computer · it goes when it's back` : 'Delivered'}</span>
     </div>
   );
 }
@@ -161,14 +180,21 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
   // Your own message in one of your conversations can be edited (BLG-385): rewound to, or forked from.
   const wsId = own && item.channel.startsWith('ws:') ? item.channel.slice(3) : undefined;
   const kind = useApp((st) => (wsId ? findWorkspace(st.projects, wsId)?.kind : undefined));
-  const editable = Boolean(wsId) && (kind === 'worktree' || kind === 'chat') && !steer;
+  const editable = Boolean(wsId) && (kind === 'worktree' || kind === 'chat') && !steer && !item.via && !item.fromApp;
   const [editing, setEditing] = useState(false);
+  // Emoji reactions (BLG-702): the button a hover shows, and the chips under the message.
+  const reactions = useChatReactions(item, own);
+  // A task or a message from the agent that started this thread: its words, not yours and not this chat's agent's.
+  const sender = useApp((st) => threadSender(st, item));
   // Your own words: a tinted bubble on the right, no name or picture (it's plainly you).
   if (own)
     return (
       <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)), ...(editable ? { lead: [{ label: 'Edit Message', icon: 'pencil', onSelect: () => setEditing(true) }] } : {}) })}>
-        <div ref={row} className={cx(s.message, s.own, continued && s.continued, steer && s.unread)} data-mine="true" data-steer={steer ? 'waiting' : undefined}>
+        <div ref={row} className={cx(s.message, s.own, r.reactable, continued && s.continued, steer && s.unread)} data-mine="true" data-steer={steer ? 'waiting' : undefined} data-chat={item.id}>
+          {editing ? null : reactions.button}
           <div className={s.body}>
+            {item.via ? <div className={s.sentBy} data-sent-by={item.via.id}>Sent by {item.via.name}</div> : null}
+            {item.fromApp ? <div className={s.sentBy} data-sent-by-app={item.fromApp}>Sent by the {item.fromApp} app</div> : null}
             {editing && wsId ? (
               <EditPrompt wsId={wsId} lineId={item.id} text={item.text} worktree={kind === 'worktree'} onClose={() => setEditing(false)} />
             ) : text ? (
@@ -188,7 +214,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
               </div>
             ) : null}
             <ImageGrid images={images} />
-            {steer ? <SteerWaiting steer={steer} /> : null}
+            {reactions.chips}
+            {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
             {item.request && item.channel ? <Delivery request={item.request} channel={item.channel} /> : null}
           </div>
         </div>
@@ -199,7 +226,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
   if (!item.byAgent)
     return (
       <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)) })}>
-        <div ref={row} className={cx(s.message, s.theirs, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} style={{ ['--person' as string]: personColor(item.from) }}>
+        <div ref={row} className={cx(s.message, s.theirs, r.reactable, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} data-chat={item.id} style={{ ['--person' as string]: personColor(item.from) }}>
+          {reactions.button}
           <div className={cx(s.gutter, s.gutterEnd)}>{ends ? (
               <PersonButton peerId={item.from} name={item.name}>
                 <Avatar name={item.name} id={item.from} size={26} />
@@ -214,6 +242,7 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
                 {prefs.timestamps ? <span className={s.time}>{time(item.ts)}</span> : null}
               </div>
             )}
+            {item.via ? <div className={cx(s.sentBy, s.sentByTheirs)} data-sent-by={item.via.id}>Sent by {item.via.name}</div> : null}
             {text ? (
               <div className={cx(s.theirBubble, ends && s.theirTail)}>
                 <Folding>
@@ -222,22 +251,31 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
               </div>
             ) : null}
             <ImageGrid images={images} />
-            {steer ? <SteerWaiting steer={steer} /> : null}
+            {reactions.chips}
+            {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
           </div>
         </div>
       </ActionsContext>
     );
   return (
     <ActionsContext items={() => messageItems({ ...menu, text, images, openImage: (img) => openLightbox(images, images.indexOf(img)) })}>
-      <div ref={row} className={cx(s.message, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined}>
-        <div className={s.gutter}>{continued ? null : <Avatar name={item.name} id={item.from} claude={item.byAgent} agent={item.agent} size={26} />}</div>
+      <div ref={row} className={cx(s.message, r.reactable, continued && s.continued, steer && s.unread)} data-steer={steer ? 'waiting' : undefined} data-chat={item.id}>
+        {reactions.button}
+        <div className={s.gutter}>{continued ? null : sender ? <Icon name="up" size={15} /> : <Avatar name={item.name} id={item.from} claude={item.byAgent} agent={item.agent} size={26} />}</div>
         <div className={s.body}>
           {continued ? null : (
             <div className={s.meta}>
-              <span className={cx(s.author, item.byAgent && s.claudeName)} style={item.byAgent && claudeColor(item.from) ? { color: claudeColor(item.from) } : undefined}>
-                {item.name}
-              </span>
-              {item.byAgent ? <AgentBadge agent={item.agent} /> : null}
+              {sender ? (
+                <span className={l.sentBy} data-sent-by="">{`Sent by ${sender}’s agent`}</span>
+              ) : (
+                <>
+                  <span className={cx(s.author, item.byAgent && s.claudeName)} style={item.byAgent && claudeColor(item.from) ? { color: claudeColor(item.from) } : undefined}>
+                    {item.name}
+                  </span>
+                  {item.byAgent ? <AgentBadge agent={item.agent} /> : null}
+                  {item.via ? <span className={s.time} data-sent-by={item.via.id}>Sent by {item.via.name}</span> : null}
+                </>
+              )}
               {prefs.timestamps ? <span className={s.time}>{time(item.ts)}</span> : null}
             </div>
           )}
@@ -251,7 +289,8 @@ export const ChatRow = memo(function ChatRow({ item, continued, ends = true, min
             )
           ) : null}
           <ImageGrid images={images} />
-          {steer ? <SteerWaiting steer={steer} /> : null}
+          {reactions.chips}
+          {steer ? <SteerWaiting steer={steer} channel={item.channel} /> : null}
         </div>
       </div>
     </ActionsContext>
@@ -327,6 +366,24 @@ function WorkingLine({ item, quiet }: { item: AgentItem; quiet: boolean }) {
  * Where a turn split by what was said during it began (see live-tail.ts): who, and the steps it
  * had finished by then; the rest (what it does now, its answer) is further down.
  */
+/** A message from an agent in another chat: a card with its source. It is never a bubble of yours. */
+function FromChatCard({ origin, text }: { origin: ChatOrigin; text: string }) {
+  return (
+    <div className={s.message}>
+      <div className={s.gutter} />
+      <div className={s.body}>
+        <div className={s.fromChat} data-from-chat={origin.ref}>
+          <div className={s.fromChatHead}>
+            <Icon name="chat" size={11} />
+            From <InlineCode text={`chat:${origin.ref}`} fallback={origin.title} /> · {origin.agent.label}, an agent
+          </div>
+          <Markdown text={text} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnHead({ item, part, mine }: { item: AgentItem; part: TurnPart; mine: boolean }) {
   const prefs = usePrefs();
   const steps = useDisclosure(`${item.channel}/${item.id}`);
@@ -397,9 +454,16 @@ export const AgentCard = memo(function AgentCard({
 }) {
   countRender(`card:${item.id}`);
   const selfId = useApp((st) => st.selfId);
-  if (part?.side === 'head') return <TurnHead item={item} part={part} mine={item.owner === selfId} />;
   if (part?.side === 'live') return <LivePart item={item} working={working} />;
-  return <TurnCard item={item} tasks={tasks} latest={latest} part={part} selfId={selfId} working={working} subs={subs} />;
+  // A turn drawn in parts shows the message once, above its first part (a head with no step draws nothing).
+  const hasHead = item.steps.some((x) => !HIDDEN_STEPS.test(x));
+  const from = item.origin && (part?.side === 'head' || !part || !hasHead) ? <FromChatCard origin={item.origin} text={item.prompt ?? ''} /> : null;
+  return (
+    <>
+      {from}
+      {part?.side === 'head' ? <TurnHead item={item} part={part} mine={item.owner === selfId} /> : <TurnCard item={item} tasks={tasks} latest={latest} part={part} selfId={selfId} working={working} subs={subs} />}
+    </>
+  );
 });
 
 function TurnCard({
@@ -446,14 +510,15 @@ function TurnCard({
   // The same session goes on, ahead of what queued behind the failed turn (that follows, in order).
   const resume = (): void =>
     void client.api.session.submit(`${item.channel === 'room' && group ? '@claude ' : ''}${CONTINUE_PROMPT}`, { channel: item.channel, urgent: true }).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
-  // Claude Code isn't signed in: Continue would fail the same way. Sign In runs `claude auth login` in a
-  // shell you can see (the worktree's own, else the Terminal's), and Claude goes on once it ends well.
-  const signIn = (): void => {
+  // Claude Code isn't signed in (or its sign-in expired): Continue would fail the same way. Sign In
+  // offers /login's choices; a Claude or Console account runs `claude auth login` in a shell you can
+  // see (the worktree's own, else the Terminal's), and Claude goes on once it ends well.
+  const signIn = (how: SignInHow): void => {
     const terminals = client.store.getState().terminals;
     const key = item.channel.startsWith('ws:') ? claimShell(item.channel.slice(3), terminals) : globalShellId(Math.max(0, ...Object.keys(terminals).filter(isGlobalShell).map(globalShellNumber)) + 1);
     ui.patch({ termKey: key });
     requestAnimationFrame(() => revealTerminal(client.store.getState(), true));
-    void client.api.workbench.signInClaude(key, item.channel).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
+    void client.api.workbench.signInClaude(key, item.channel, how).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'));
   };
   const hasSteps = item.steps.length > 0 || item.subagents.length > 0;
   const folded = answered && prefs.doneSteps === 'fold' && !steps.shown;
@@ -501,6 +566,8 @@ function TurnCard({
           <StepsFold folded={folded}>
             <AgentSteps item={item} running={running} part={part} subs={subs} />
           </StepsFold>
+          {/* MCP Apps (Settings › Experimental): a UI tool's page, kept in sight when the steps fold. */}
+          <McpApps item={item} running={running} />
           {/* What it asked other people's Claudes, before its answer (which comes last). */}
           {tasks?.map((t) => (
             <div key={t.id} className={s.turnTask}>
@@ -523,10 +590,24 @@ function TurnCard({
           {/* Sign In runs Claude Code's own login: only for a Claude run (Codex says how to sign in on its card). */}
           {limited && failure?.kind === 'signed_out' && (failure.runtime ?? 'claude') === 'claude' ? (
             <div className={s.limitActions}>
-              <Button size="small" icon="person" onClick={signIn} title="Sign in to Claude Code in your browser; then the run picks up where it stopped">
+              <ActionsDropdown items={signInChoices(signIn, (url) => void openExternal(url))} align="start">
+                <Button size="small" icon="person" title="Sign in to Claude Code again; then the run picks up where it stopped">
+                  Sign In
+                </Button>
+              </ActionsDropdown>
+            </div>
+          ) : limited && failure?.kind === 'signed_out' && (failure.runtime === 'opencode' || failure.runtime === 'copilot') ? (
+            // OpenCode's model provider said no (a key expired, none set up), or Copilot's GitHub sign-in did: sign in in Terminal (`opencode auth login`, `copilot login`), then Continue.
+            <div className={s.limitActions}>
+              <Button size="small" icon="person" onClick={() => void client.api.workbench.agentSignIn(failure.runtime!).catch((err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'))} title={failure.runtime === 'copilot' ? 'Sign in to GitHub in Terminal (copilot login), then Continue' : 'Add or renew a model provider in Terminal (opencode auth login), then Continue'}>
                 Sign In
               </Button>
+              <Button size="small" icon="play" onClick={resume} title={`Send “continue”: ${agentName(item.agent)} picks up where it stopped`}>
+                Continue
+              </Button>
             </div>
+          ) : limited && failure?.kind === 'usage_limit' ? (
+            <LimitResume channel={item.channel} failure={failure} stoppedAt={item.endTs ?? item.lastAt ?? item.ts} agent={item.agent} onContinue={resume} />
           ) : limited ? (
             <div className={s.limitActions}>
               <Button size="small" icon="play" onClick={resume} title={`Send “continue”: ${agentName(item.agent)} picks up where it stopped`}>
@@ -538,6 +619,78 @@ function TurnCard({
         </div>
       </div>
     </ActionsContext>
+  );
+}
+
+/**
+ * Under a run that stopped on your usage limit (BLG-757): when Beluga tells it to continue on its
+ * own (shared/auto-continue.ts), and Don't Send for this chat, this session or everywhere. Off, it's
+ * Continue as before, with a way to turn it back on for this chat or session.
+ */
+function LimitResume({ channel, failure, stoppedAt, agent, onContinue }: { channel: string; failure: RunFailure; stoppedAt: number; agent: AgentRef | undefined; onContinue: () => void }) {
+  const { client } = useBeluga();
+  const prefs = useApp((st) => st.prefs);
+  const now = useNow(true, 15_000);
+  const at = limitResumeAt(failure, stoppedAt);
+  // A sentinel's run chat isn't continued: the sentinel runs again after the reset (core/auto-continue.ts sentinelRunChat).
+  const sentinelRun = useApp((st) => Boolean(sentinelOfChannel(st.sentinel, channel)?.runId));
+  const auto = sentinelRun ? ({ kind: 'off', why: 'sentinel', at } as const) : autoContinueFor(prefs, channel, at, now);
+  const set = (patch: Parameters<typeof client.api.session.setPrefs>[0], said: string): void =>
+    void client.api.session.setPrefs(patch).then(
+      () => toast(client, said, 'success'),
+      (err: unknown) => toast(client, err instanceof Error ? err.message : String(err), 'error'),
+    );
+  const when = resetWords(at, now);
+  if (auto.kind === 'scheduled') {
+    const dontSend: ActionItem[] = [
+      { label: 'For This Session', icon: 'pause', hint: 'Every chat, until this limit resets', onSelect: () => set({ autoContinueSkip: sessionSkip(at) }, `Nothing continues on its own until ${when}`) },
+      { label: 'Never in This Chat', icon: 'chat', onSelect: () => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, true) }, 'This chat waits for you to press Continue') },
+      { label: 'Everywhere', icon: 'x', separate: true, hint: 'Settings › Agent › Usage limits', onSelect: () => set({ autoContinue: false }, 'Turned off: agents wait for you to press Continue') },
+    ];
+    return (
+      <div className={cx(s.limitActions, s.limitResume)}>
+        <Icon name="clock" size={13} />
+        <span className={s.limitResumeText}>
+          {now < at ? (
+            <>
+              Sends “{CONTINUE_PROMPT}” at {when}, when your limit resets
+            </>
+          ) : (
+            <>Your limit reset: telling {agentName(agent)} to continue…</>
+          )}
+        </span>
+        {now < at ? (
+          // The limit lifted sooner (a plan change, more usage): go on now.
+          <Button size="small" variant="quiet" icon="play" onClick={onContinue} title={`Send “continue” now: ${agentName(agent)} picks up where it stopped`}>
+            Continue Now
+          </Button>
+        ) : null}
+        <ActionsDropdown items={dontSend} align="start">
+          <Button size="small" variant="quiet" title="Keep it from continuing on its own">
+            Don’t Send
+          </Button>
+        </ActionsDropdown>
+      </div>
+    );
+  }
+  // Off for this chat or this session, and still ahead: one click puts it back.
+  const undo =
+    now < at && auto.why === 'chat'
+      ? (): void => set({ autoContinueOff: chatsOff(prefs.autoContinueOff, channel, false) }, `Continues on its own at ${when}`)
+      : now < at && auto.why === 'session'
+        ? (): void => set({ autoContinueSkip: 0 }, `Continues on its own at ${when}`)
+        : undefined;
+  return (
+    <div className={s.limitActions}>
+      <Button size="small" icon="play" onClick={onContinue} title={`Send “continue”: ${agentName(agent)} picks up where it stopped`}>
+        Continue
+      </Button>
+      {undo ? (
+        <Button size="small" variant="quiet" icon="clock" onClick={undo} title="Beluga sends it on its own once your limit resets">
+          Send at {when}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

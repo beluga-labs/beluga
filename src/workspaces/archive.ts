@@ -1,11 +1,12 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { type Dirent, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { folderSize } from './disk.js';
 import { parseWorktreeList } from './git.js';
-import { removeWorktreeKeepingBranch } from './others.js';
+import { deleteFolderInBackground, removeWorktreeKeepingBranch } from './others.js';
 import { ArchiveError, LONG_MS, RAW_ARGS, RAW_ENV, assertSettled, fingerprint, git, gitLiteral, ignoredByProject, ignoredIn, pack, run, snapshot, submoduleOnlyHere, submodulesIn, tryGit, unpackKeeping, untrackedDirs } from './archive-git.js';
 import { type RegenRule, regenRule, remakeSteps } from './regenerable.js';
+import { SENT_DIR } from '../shared/scratch-dir.js';
 
 /**
  * A smart archive of a worktree: nothing of yours is lost, and what can be made again doesn't
@@ -93,20 +94,91 @@ function outermost(rels: readonly string[]): string[] {
   return rels.filter((r) => !dirs.some((d) => d !== r && r.startsWith(d)));
 }
 
+/** How deep to look for build output inside a folder the project ignores whole. */
+const NESTED_DEPTH = 6;
+
+/**
+ * Folders made again inside a folder the project ignores whole (android/app/build, .gradle…):
+ * relative, ending in "/". Never inside a git repo of yours (what it tracks isn't throwaway) or a link.
+ */
+function regenUnder(dir: string, folder: string): Array<{ rel: string; rule: RegenRule }> {
+  const found: Array<{ rel: string; rule: RegenRule }> = [];
+  const walk = (rel: string, depth: number): void => {
+    if (depth > NESTED_DEPTH || existsSync(path.join(dir, rel, '.git'))) return;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(path.join(dir, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const sub = `${rel}${e.name}/`;
+      const rule = regenRule(dir, sub);
+      if (rule) found.push({ rel: sub, rule });
+      else walk(sub, depth + 1);
+    }
+  };
+  walk(folder, 0);
+  return found;
+}
+
+/** A folder as the fewest paths that leave out these folders inside it. */
+function without(dir: string, folder: string, out: ReadonlySet<string>): string[] {
+  if (![...out].some((o) => o.startsWith(folder))) return [folder];
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(path.join(dir, folder), { withFileTypes: true });
+  } catch {
+    return [folder];
+  }
+  return entries.flatMap((e) => {
+    const rel = e.isDirectory() ? `${folder}${e.name}/` : `${folder}${e.name}`;
+    if (out.has(rel)) return [];
+    return e.isDirectory() ? without(dir, rel, out) : [rel];
+  });
+}
+
+/** The copies of what you sent Claude in a worktree (see core/sent-files.ts): never kept by an archive. */
+const SENT = `${SENT_DIR}/`;
+const SENT_RULE: RegenRule = { what: 'copies of files you sent Claude', names: [] };
+
+/** Whether what would be kept holds the sent copies (a real folder, never a link). */
+function sentIn(dir: string, kept: readonly string[]): boolean {
+  if (!kept.some((rel) => rel.startsWith(SENT) || (rel.endsWith('/') && SENT.startsWith(rel)))) return false;
+  try {
+    return lstatSync(path.join(dir, SENT_DIR)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * What an archive would throw away and keep, without touching anything. Only what git lists as
  * ignored is ever thrown away, as git lists it: a folder only when git ignores all of it.
+ * `archiving`: the worktree goes, so the copies of what you sent Claude go too (freeing space keeps them).
  */
-export async function planArchive(dir: string): Promise<ArchivePlan> {
+export async function planArchive(dir: string, opts: { readonly archiving?: boolean } = {}): Promise<ArchivePlan> {
   const entries = await ignoredIn(dir);
   const candidates = entries.map((rel) => ({ rel, rule: regenRule(dir, rel) })).filter((c): c is { rel: string; rule: RegenRule } => Boolean(c.rule));
   const theirs = await ignoredByProject(
     dir,
     candidates.map((c) => c.rel),
   );
-  const drop = candidates.filter((c) => theirs.has(c.rel));
-  const dropped = new Set(drop.map((d) => d.rel));
-  const keep = outermost(entries.filter((rel) => !dropped.has(rel)));
+  const kept = outermost(entries.filter((rel) => !theirs.has(rel)));
+  // A folder the project ignores whole (an Android project, a vendored app): what's made again inside it goes too.
+  const ignoredFolders = await ignoredByProject(
+    dir,
+    kept.filter((rel) => rel.endsWith('/') && !regenRule(dir, rel)),
+  );
+  const inside = [...ignoredFolders].flatMap((folder) => regenUnder(dir, folder));
+  const drop = [...candidates.filter((c) => theirs.has(c.rel)), ...inside];
+  const nestedDrops = new Set(inside.map((d) => d.rel));
+  const listed = kept.flatMap((rel) => (ignoredFolders.has(rel) ? without(dir, rel, nestedDrops) : [rel]));
+  // Copies of what you sent Claude (the originals are yours elsewhere): they go with the worktree.
+  const sent = opts.archiving === true && sentIn(dir, listed);
+  const keep = sent ? listed.flatMap((rel) => (rel.startsWith(SENT) ? [] : SENT.startsWith(rel) ? without(dir, rel, new Set([SENT])) : [rel])) : listed;
+  if (sent) drop.push({ rel: SENT, rule: SENT_RULE });
   const sized = await Promise.all(drop.map(async (d) => ({ path: d.rel, rule: d.rule, bytes: (await folderSize(path.join(dir, d.rel))) ?? 0 })));
   return { drop: sized, keep, dropBytes: sized.reduce((n, d) => n + d.bytes, 0), remake: remakeSteps(sized.map((d) => d.rule)) };
 }
@@ -206,7 +278,7 @@ export function archiveWorktree(o: ArchiveOptions): Promise<ArchiveManifest> {
       mkdirSync(work, { recursive: true });
       try {
         o.onPhase?.('saving');
-        const plan = await planArchive(o.dir);
+        const plan = await planArchive(o.dir, { archiving: true });
         const branch = await tryGit(o.dir, ['symbolic-ref', '--short', '--quiet', 'HEAD']);
         const snap = await snapshot(o.dir, `Beluga archive of ${path.basename(o.dir)}`);
         const keep = outermost([...plan.keep, ...snap.nested.map((n) => `${n}/`), ...empty]);
@@ -219,7 +291,7 @@ export function archiveWorktree(o: ArchiveOptions): Promise<ArchiveManifest> {
         }
         // Written to meanwhile (an agent, a dev server, you): save it again, so nothing new is lost.
         const again = await snapshot(o.dir, 'check');
-        const againPlan = await planArchive(o.dir);
+        const againPlan = await planArchive(o.dir, { archiving: true });
         const keepAgain = outermost([...againPlan.keep, ...again.nested.map((n) => `${n}/`), ...empty]);
         if (!sameSave({ tree: snap.tree, keep, print }, { tree: again.tree, keep: keepAgain, print: fingerprint(o.dir, keepAgain) })) {
           if (attempt < ATTEMPTS) continue;
@@ -302,6 +374,23 @@ export function restoreWorktree(o: Omit<ArchiveOptions, 'onPhase'>): Promise<Arc
     rmSync(folder, { recursive: true, force: true });
     return m;
   });
+}
+
+const PARTIAL = /^([\w.-]{1,128})\.partial$/;
+
+/**
+ * Throw away archives that were cut short (Beluga quit or crashed while compressing): their
+ * worktree is still there, untouched, so nothing in them is needed. Left alone, each could be
+ * hundreds of MB. Skips one being written now. → how many went.
+ */
+export async function sweepPartialArchives(archivesDir: string): Promise<number> {
+  const names = await readdir(archivesDir).catch(() => [] as string[]);
+  const stale = names.filter((name) => {
+    const id = PARTIAL.exec(name)?.[1];
+    return id !== undefined && !busy.has(id);
+  });
+  await Promise.all(stale.map((name) => deleteFolderInBackground(path.join(archivesDir, name)).catch(() => undefined)));
+  return stale.length;
 }
 
 /** Forget an archive (the worktree is deleted for good). */

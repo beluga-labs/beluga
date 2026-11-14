@@ -1,16 +1,18 @@
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal, flushSync } from 'react-dom';
-import { animate, motion, useMotionValue, useReducedMotion, useSpring, useTransform, useVelocity } from 'motion/react';
-import { type Issue, type IssueStatus, PRIORITY_INFO, STATUS_INFO, byRank, isEpic } from '@beluga/core/board/model.js';
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { AnimatePresence, animate, frame as nextFrame, motion, useMotionValue, useReducedMotion } from 'motion/react';
+import { ISSUE_STATUSES, type Issue, type IssueStatus, PRIORITY_INFO, STATUS_INFO, byRank, isEpic } from '@beluga/core/board/model.js';
 import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
+import { Lifted, useLean } from '../components/Lifted.js';
 import { Icon } from '../components/Icon.js';
 import { IconButton, cx } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
 import { openSheet } from '../lib/sheets.js';
 import { openExternal } from '../lib/system.js';
 import { usePlans } from '../plans/use-plans.js';
-import { type ColumnGeometry, type Slot, type Span, closeUp, edgeSpeed, isDrag, leanFor, neighbours, spotIn, withGap } from './board-drag.js';
-import { AssigneeMark, PriorityIcon, StatusIcon } from './marks.js';
+import { type ColumnGeometry, type Slot, type Span, clipBox, closeUp, edgeSpeed, foldedAround, isDrag, neighbours, spotIn, withGap } from './board-drag.js';
+import { AssigneeMark, PriorityIcon, StatusIcon, assigneeWords } from './marks.js';
+import { AssigneePicker } from './pickers.js';
 import { ArchiveDoneButton, EpicBar, IssueMeta, OnItLine, PrivateMark, useIssueMenu } from './parts.js';
 import { WaitingMark } from '../team/Team.js';
 import { isSolo } from './tasks-model.js';
@@ -23,6 +25,8 @@ import t from './tasks.module.css';
  * Tasks as a board: a column per status. Pick a card up and it lifts, leaning with the way you
  * move it; the cards where it would land slide apart to make room, and on release it settles
  * into its place. Esc puts it back. ⌥← ⌥→ move a focused card across columns, ⌥↑ ⌥↓ within one.
+ * While a card is up, the columns this scope hides (Backlog, Done…) open where they belong, to drop
+ * it in; after, they fold away again.
  */
 
 interface Lift {
@@ -52,17 +56,29 @@ interface Pending {
   readonly seq: number;
 }
 
+/** A card dropped in a column this scope hides: shown resting there while that column folds away. */
+interface Landed {
+  readonly issue: Issue;
+  readonly seq: number;
+}
+
 let moves = 0;
 
 const GAP = 6;
+/** A column's width and the room between columns (as in tasks.module.css). */
+const COLUMN = 286;
+const COLUMN_GAP = 12;
+/** How long a card dropped in a hidden column rests there before the column folds away. */
+const REST_MS = 260;
+const NONE: readonly Issue[] = [];
 const SPRING = { type: 'spring', stiffness: 560, damping: 44, mass: 0.75 } as const;
 const SETTLE = { type: 'spring', stiffness: 420, damping: 36, mass: 0.8 } as const;
 
-/** The nearest element (the board or one around it) that scrolls sideways; the board itself if none does. */
+/** The nearest element (the board or one around it) that scrolls sideways (or will, once the hidden columns open); the board itself if none does. */
 function sideScroller(el: HTMLElement): HTMLElement {
   for (let at: HTMLElement | null = el; at; at = at.parentElement) {
     const { overflowX } = getComputedStyle(at);
-    if ((overflowX === 'auto' || overflowX === 'scroll') && at.scrollWidth > at.clientWidth) return at;
+    if (overflowX === 'auto' || overflowX === 'scroll') return at;
   }
   return el;
 }
@@ -77,21 +93,26 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
   const [over, setOver] = useState<Spot>();
   const [pending, setPending] = useState<Pending>();
   const [settling, setSettling] = useState(false);
+  const [landed, setLanded] = useState<Landed>();
   const boardRef = useRef<HTMLDivElement>(null);
   const sections = useRef(new Map<IssueStatus, HTMLElement>());
   const stacks = useRef(new Map<IssueStatus, HTMLElement>());
-  /** The board measured when the drag started (re-read on scroll). */
+  /** The board measured when the drag started (re-read on scroll, and while hidden columns open). */
   const geometry = useRef<Array<ColumnGeometry<IssueStatus> & { readonly view: Span }>>([]);
+  /** Each column's cards as laid out when the drag started, the lifted one taken out. */
+  const layouts = useRef(new Map<IssueStatus, readonly Span[]>());
+  /** When a hidden column last changed width (the board is re-read until it rests). */
+  const foldMoved = useRef(0);
   const justDragged = useRef(false);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
-  const lean = useSpring(useTransform(useVelocity(x), (v) => (reduce ? 0 : leanFor(v))), { stiffness: 260, damping: 22 });
+  const lean = useLean(x);
 
   // Columns as the board says, with a move made here shown where it was dropped until the board catches up.
   // A column whose cards didn't change keeps its list, so it doesn't render again.
   const previous = useRef(new Map<IssueStatus, Issue[]>());
   const columns = useMemo(() => {
-    const cols = statuses.map((status) => ({ status, items: issues.filter((i) => i.status === status && i.id !== pending?.id).sort(order) }));
+    const cols = statuses.map((status) => ({ status, items: issues.filter((i) => i.status === status && i.id !== pending?.id && i.id !== landed?.issue.id).sort(order) }));
     const moved = pending && issues.find((i) => i.id === pending.id);
     const into = moved && cols.find((c) => c.status === pending.status);
     if (moved && into) into.items.splice(Math.min(pending.index, into.items.length), 0, moved);
@@ -101,15 +122,16 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
     });
     previous.current = new Map(kept.map((c) => [c.status, c.items]));
     return kept;
-  }, [issues, statuses, pending]);
+  }, [issues, statuses, pending, landed]);
+  const folded = useMemo(() => foldedAround(ISSUE_STATUSES, statuses), [statuses]);
   // What every card needs from the store, read here once: a card itself subscribes to nothing, so a change elsewhere doesn't render them all.
   const board = useBoard();
   const selfId = useSelfId();
   const teams = useApp((s) => s.team.teams);
   const soloIn = useMemo(() => [...new Set(issues.map((i) => i.projectId))].filter((p) => isSolo(board, p, selfId, teams[p]?.mates.length ?? 0)).sort().join('\n'), [board, issues, selfId, teams]);
   const issueMenu = useIssueMenu();
-  const latest = useRef({ columns, statuses, api, act, issueMenu });
-  latest.current = { columns, statuses, api, act, issueMenu };
+  const latest = useRef({ columns, statuses, issues, api, act, issueMenu });
+  latest.current = { columns, statuses, issues, api, act, issueMenu };
   const menu = useCallback((issue: Issue) => latest.current.issueMenu(issue), []);
 
   /** Reads where each column and its stack sit on screen; the cards' layout (`cards`) is kept from the drag's start. */
@@ -119,18 +141,27 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
     if (!section || !stack) return undefined;
     const r = section.getBoundingClientRect();
     const s = stack.getBoundingClientRect();
-    return { key: status, box: { top: r.top, bottom: r.bottom, left: r.left, right: r.right }, origin: s.top - stack.scrollTop, view: { top: s.top, bottom: s.bottom }, cards };
+    // A hidden column still opening counts only as far as it shows.
+    const box = clipBox({ top: r.top, bottom: r.bottom, left: r.left, right: r.right }, section.closest('[data-fold]')?.getBoundingClientRect());
+    return box && { key: status, box, origin: s.top - stack.scrollTop, view: { top: s.top, bottom: s.bottom }, cards };
+  };
+
+  /** Every column on screen now, with the cards' layout kept from the drag's start (a hidden column has none). */
+  const reframe = (): void => {
+    geometry.current = [...sections.current.keys()].flatMap((status) => frame(status, layouts.current.get(status) ?? []) ?? []);
   };
 
   /** Measures the board once as a drag starts: every column, and its cards' layout with the lifted one taken out. */
   const measure = useCallback((lifted: string): void => {
-    geometry.current = latest.current.statuses.flatMap((status) => {
-      const stack = stacks.current.get(status);
-      if (!stack) return [];
-      const slots: Slot[] = [...stack.querySelectorAll<HTMLElement>('[data-card]')].map((el) => ({ id: el.dataset.card!, top: el.offsetTop, height: el.offsetHeight }));
-      const col = frame(status, closeUp(slots, lifted, GAP));
-      return col ? [col] : [];
-    });
+    layouts.current = new Map(
+      latest.current.statuses.flatMap((status) => {
+        const stack = stacks.current.get(status);
+        if (!stack) return [];
+        const slots: Slot[] = [...stack.querySelectorAll<HTMLElement>('[data-card]')].map((el) => ({ id: el.dataset.card!, top: el.offsetTop, height: el.offsetHeight }));
+        return [[status, closeUp(slots, lifted, GAP)] as const];
+      }),
+    );
+    reframe();
   }, []);
 
   // Dragging: follow the pointer, find the spot, scroll near the edges; release settles or Esc puts it back.
@@ -147,6 +178,11 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
       return at && { status: at.key, index: at.index };
     };
     const scroll = (): void => {
+      // Hidden columns opening move the board under a still pointer: read it again until they rest.
+      if (performance.now() - foldMoved.current < 120) {
+        reframe();
+        follow();
+      }
       if (board && edges) {
         const dx = edgeSpeed(pointer.x, edges.left, edges.right);
         if (dx) board.scrollLeft += dx;
@@ -176,7 +212,7 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
     };
     // Scrolling moves the columns under a still pointer: read where they are now (only their boxes; the cards' layout is the same).
     const scrolled = (): void => {
-      geometry.current = geometry.current.flatMap((c) => frame(c.key, c.cards) ?? []);
+      reframe();
       follow();
     };
     const settle = async (target: Spot, commit: boolean): Promise<void> => {
@@ -193,16 +229,21 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
       }
       // One commit: the gap becomes the card, in the same place, and the lifted one goes. Nothing else moves.
       const seq = ++moves;
-      if (commit) setPending({ id: lift.id, ...target, seq });
+      const { columns: cols, statuses: shown, issues: all, api: board, act: run } = latest.current;
+      // Into a column this scope hides: the card rests there a moment, then folds away with it.
+      const moved = all.find((i) => i.id === lift.id);
+      const away = commit && moved && !shown.includes(target.status) ? { issue: { ...moved, status: target.status }, seq } : undefined;
+      if (away) setLanded(away);
+      else if (commit) setPending({ id: lift.id, ...target, seq });
       setLift(undefined);
       setOver(undefined);
       setSettling(false);
       setTimeout(() => (justDragged.current = false), 0);
       if (!commit) return;
-      const { columns: cols, api: board, act: run } = latest.current;
       const items = cols.find((c) => c.status === target.status)?.items ?? [];
       await run(() => board.move(lift.id, target.status, neighbours(items, lift.id, target.index)));
-      setPending((p) => (p?.seq === seq ? undefined : p));
+      if (away) setTimeout(() => setLanded((l) => (l?.seq === seq ? undefined : l)), REST_MS);
+      else setPending((p) => (p?.seq === seq ? undefined : p));
     };
     const up = (): void => {
       // The click that may follow this release isn't one.
@@ -314,8 +355,41 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
   // Tucked back, they go the other way: the last one first.
   const tucking = useTucking();
   const outs = useMemo(() => tuckOrder(tucking, columns.flatMap((c) => c.items)), [tucking, columns]);
+  const unfolded = Boolean(lift || landed);
+  const boardEl = useCallback(() => boardRef.current, []);
+  const scroller = useCallback(() => boardRef.current && sideScroller(boardRef.current), []);
+  const foldMove = useCallback(() => void (foldMoved.current = performance.now()), []);
+  /** A column this scope hides, open while a card is up: a place to drop it, nothing more. */
+  const hidden = (status: IssueStatus): ReactNode => (
+    <Column
+      key={status}
+      status={status}
+      items={landed?.issue.status === status ? [landed.issue] : NONE}
+      folded
+      {...(lift && over?.status === status ? { gapAt: over.index, gapHeight: lift.height } : {})}
+      reduce={reduce}
+      popFrom={0}
+      onPress={press}
+      onNudge={nudge}
+      suppressClick={justDragged}
+      register={register}
+      menu={menu}
+      selfId={selfId}
+      soloIn={soloIn}
+    />
+  );
+  const fold = (side: 'before' | 'after', keys: readonly IssueStatus[]): ReactNode => (
+    <AnimatePresence>
+      {unfolded && keys.length ? (
+        <Fold key={side} side={side} count={keys.length} reduce={reduce} board={boardEl} scroller={scroller} onMove={foldMove}>
+          {keys.map(hidden)}
+        </Fold>
+      ) : null}
+    </AnimatePresence>
+  );
   return (
     <div ref={boardRef} className={cx(t.board, lift && t.boardDragging)} role="list" aria-label="Board">
+      {fold('before', folded.before)}
       {columns.map(({ status, items }) => {
         const target = lift && over?.status === status;
         const popFrom = popped;
@@ -342,15 +416,61 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
           />
         );
       })}
+      {fold('after', folded.after)}
       {lift && lifted
-        ? createPortal(
-            <motion.div className={t.cardLifted} style={{ x, y, width: lift.width, rotate: lean }} initial={reduce ? false : { scale: 1 }} animate={{ scale: settling ? 1 : 1.035 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} aria-hidden="true">
-              <CardFace issue={lifted} selfId={selfId} solo={soloIn.split('\n').includes(lifted.projectId)} />
-            </motion.div>,
-            document.body,
+        ? (
+            <Lifted className={t.cardLifted} x={x} y={y} lean={lean} width={lift.width} down={settling}>
+              <CardFace issue={lifted} selfId={selfId} solo={soloIn.split('\n').includes(lifted.projectId)} lifted />
+            </Lifted>
           )
         : null}
     </div>
+  );
+}
+
+/**
+ * Hidden columns opening (or folding away) by sliding their width, on the side they belong. The ones
+ * on the left would push the board along: it scrolls by as much as they grow, so what you're looking
+ * at stays put and they wait just off the edge (the drag's edge scroll brings them in).
+ */
+function Fold({ side, count, reduce, board, scroller, onMove, children }: { side: 'before' | 'after'; count: number; reduce: boolean; board: () => HTMLElement | null; scroller: () => HTMLElement | null; onMove: () => void; children: ReactNode }) {
+  // Kept after unmount (the ref goes null): the last frames of folding away still scroll back.
+  const el = useRef<HTMLDivElement | null>(null);
+  const kept = useRef({ width: 0, carry: 0 });
+  const width = count * (COLUMN + COLUMN_GAP);
+  const hold = useCallback((): void => {
+    const s = scroller();
+    const b = board();
+    if (side !== 'before' || !el.current || !s || !b) return;
+    const w = el.current.isConnected ? el.current.getBoundingClientRect().width : 0;
+    // Room to scroll by that much even when the board fits the window.
+    b.style.minWidth = w ? `calc(100% + ${w}px)` : '';
+    // scrollLeft rounds: what it couldn't take is carried to the next frame (but not what the edge refused).
+    const want = s.scrollLeft + (w - kept.current.width) + kept.current.carry;
+    s.scrollLeft = want;
+    kept.current = { width: w, carry: Math.max(-1, Math.min(1, want - s.scrollLeft)) };
+  }, [side, board, scroller]);
+  // Opening at once (reduced motion) has no frames: hold the board before it paints.
+  useLayoutEffect(hold, [hold]);
+  useEffect(() => () => void (side === 'before' && board()?.style.removeProperty('min-width')), [side, board]);
+  return (
+    <motion.div
+      ref={(node: HTMLDivElement | null) => void (node && (el.current = node))}
+      data-fold={side}
+      className={cx(t.fold, side === 'before' && t.foldBefore)}
+      initial={reduce ? false : { width: 0 }}
+      animate={{ width }}
+      exit={{ width: 0 }}
+      transition={reduce ? { duration: 0 } : SPRING}
+      onUpdate={() => {
+        onMove();
+        nextFrame.postRender(hold);
+      }}
+    >
+      <div className={cx(t.foldInner, side === 'before' ? t.foldInnerBefore : t.foldInnerAfter)} style={{ width }}>
+        {children}
+      </div>
+    </motion.div>
   );
 }
 
@@ -361,6 +481,7 @@ export function TaskBoard({ issues, statuses, projectId, repo }: { issues: reado
 const Column = memo(function Column({
   status,
   items,
+  folded,
   liftedId,
   gapAt,
   gapHeight,
@@ -379,6 +500,8 @@ const Column = memo(function Column({
 }: {
   status: IssueStatus;
   items: readonly Issue[];
+  /** A status this scope hides, open while a card is up: only somewhere to drop it. */
+  folded?: boolean;
   /** The card lifted out of this column, if it came from here. */
   liftedId?: string;
   /** Where the lifted card would land here, if it hovers this column. */
@@ -406,15 +529,19 @@ const Column = memo(function Column({
   let index = 0;
   let pop = popFrom;
   return (
-    <section ref={(el) => register('sections', status, el)} className={cx(t.column, gapAt !== undefined && t.columnOver)} role="listitem" aria-label={`${label}, ${items.length}`}>
+    <section ref={(el) => register('sections', status, el)} className={cx(t.column, folded && t.columnFolded, gapAt !== undefined && t.columnOver)} role="listitem" aria-label={folded ? label : `${label}, ${items.length}`}>
       <header className={t.columnHead}>
         <StatusIcon status={status} />
         <span className={t.groupName}>{label}</span>
-        <span className={t.groupCount}>{shown.length}</span>
-        <span className={t.grow} />
-        {status === 'in_plan' ? <PlanPrs issues={items} /> : null}
-        {status === 'done' ? <ArchiveDoneButton projectId={projectId} /> : null}
-        <IconButton icon="plus" label={`New Task in ${label}`} onClick={() => openSheet({ kind: 'new_task', status, ...(projectId ? { boardId: projectId } : {}), ...(repo ? { projectId: repo } : {}) })} />
+        {folded ? null : (
+          <>
+            <span className={t.groupCount}>{shown.length}</span>
+            <span className={t.grow} />
+            {status === 'in_plan' ? <PlanPrs issues={items} /> : null}
+            {status === 'done' ? <ArchiveDoneButton projectId={projectId} /> : null}
+            <IconButton icon="plus" label={`New Task in ${label}`} onClick={() => openSheet({ kind: 'new_task', status, ...(projectId ? { boardId: projectId } : {}), ...(repo ? { projectId: repo } : {}) })} />
+          </>
+        )}
       </header>
       <div ref={(el) => register('stacks', status, el)} className={t.cards}>
         {shown.map((item) =>
@@ -436,14 +563,32 @@ const Column = memo(function Column({
             </motion.div>
           ),
         )}
-        {!shown.length ? <div className={t.columnEmpty}>No tasks</div> : null}
+        {!shown.length ? <div className={t.columnEmpty}>{folded ? 'Drop here' : 'No tasks'}</div> : null}
       </div>
     </section>
   );
 });
 
-/** What a card shows (on the board, and lifted under the pointer). */
-const CardFace = memo(function CardFace({ issue, selfId, solo }: { issue: Issue; selfId: string; solo: boolean }) {
+/**
+ * Who a card's task is for, and a click picks someone else without opening the task (or starting
+ * a drag): the same menu as a row in the list and the task's page.
+ */
+function CardAssignee({ issue, selfId }: { issue: Issue; selfId: string }) {
+  const { api, act } = useTaskActions();
+  const stop = (e: { stopPropagation: () => void }): void => e.stopPropagation();
+  return (
+    <span className={t.cardAssignee} onPointerDown={stop} onClick={stop} onKeyDown={stop}>
+      <AssigneePicker projectId={issue.projectId} value={issue.assignee} onChange={(a) => void act(() => api.update(issue.id, { assignee: a }))} align="end">
+        <button type="button" className={t.iconHit} aria-label={`${assigneeWords(issue.assignee, selfId)}. Change who it's for`}>
+          <AssigneeMark assignee={issue.assignee} selfId={selfId} size={16} changeable />
+        </button>
+      </AssigneePicker>
+    </span>
+  );
+}
+
+/** What a card shows (on the board, and lifted under the pointer: `lifted`, nothing in it to press). */
+const CardFace = memo(function CardFace({ issue, selfId, solo, lifted }: { issue: Issue; selfId: string; solo: boolean; lifted?: boolean }) {
   const self = useSelf();
   const epic = useApp((s) => isEpic(s.board, issue));
   return (
@@ -460,7 +605,7 @@ const CardFace = memo(function CardFace({ issue, selfId, solo }: { issue: Issue;
         <span className={t.grow} />
         <WaitingMark issueId={issue.id} />
         <PriorityIcon priority={issue.priority} labelled />
-        {solo ? null : <AssigneeMark assignee={issue.assignee} selfId={selfId} size={16} />}
+        {solo ? null : lifted ? <AssigneeMark assignee={issue.assignee} selfId={selfId} size={16} /> : <CardAssignee issue={issue} selfId={selfId} />}
       </div>
       <div className={cx(t.cardTitle, !STATUS_INFO[issue.status].open && t.titleClosed)}>{issue.title}</div>
       <IssueMeta issue={issue} compact progress={!epic} presence={false} />

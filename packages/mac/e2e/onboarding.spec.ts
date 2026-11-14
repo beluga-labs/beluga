@@ -18,8 +18,16 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
 
   // Skip Tour goes straight to the look.
   await welcome.getByRole('button', { name: 'Skip Tour' }).click();
-  await welcome.getByRole('radio', { name: 'Dark' }).click();
+  await welcome.getByRole('radiogroup', { name: 'Appearance' }).getByRole('radio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // A theme for the look (BLG-696): the dark ones show, and one picked repaints the window at once.
+  const themes = welcome.getByRole('radiogroup', { name: 'Dark theme' });
+  await expect(themes.getByRole('radio', { name: 'Dark', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await themes.getByRole('radio', { name: 'OLED Black' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-palette', 'oled');
+  await expect(welcome.getByText('OLED Black', { exact: true })).toBeVisible();
+  if (process.env.THEME_SHOTS) await page.waitForTimeout(1200);
+  if (process.env.THEME_SHOTS) await page.screenshot({ path: `${process.env.THEME_SHOTS}/03-onboarding-oled.png` });
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
 
   // Another terminal's look (BLG-212): skippable, Beluga's own until you pick one.
@@ -70,6 +78,14 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await expect(welcome.getByRole('heading', { name: 'Your agent in your pocket.' })).toBeVisible();
   await expect(welcome.getByText('Android only for now')).toBeVisible();
   await expect(welcome.getByRole('button', { name: /Pair a Phone/ })).toBeVisible();
+  await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
+
+  // Usage statistics (BLG-922), the last setting: Limited picked, and Finish keeps it.
+  await expect(welcome.getByRole('heading', { name: 'Help make Beluga better.' })).toBeVisible();
+  await expect(welcome.getByRole('radio', { name: /Limited/ })).toBeChecked();
+  await welcome.getByRole('radio', { name: /^On/ }).check();
+  await expect(welcome.getByRole('radio', { name: /^On/ })).toBeChecked();
+  await welcome.getByRole('radio', { name: /Limited/ }).check();
   await welcome.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(welcome.getByRole('img', { name: 'Beluga' })).toBeVisible();
 
@@ -130,7 +146,7 @@ test('the tour explains Sentinel: a sentence becomes a sentinel, then real ones 
   await welcome.getByRole('button', { name: /Get Started/ }).click();
   await expect(welcome.getByRole('heading', { name: 'Which agent is yours?' })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
-  for (const heading of ['Work on everything at once.', 'See every agent work. Steer any of them.', 'Answers you can sort, not just read.', 'Your agent, and your friends’ agents.']) {
+  for (const heading of ['Work on everything at once.', 'See every agent work. Steer any of them.', 'Answers you can sort, not just read.', 'Your app here. The work on any computer.', 'Your agent, and your friends’ agents.']) {
     await expect(welcome.getByRole('heading', { name: heading })).toBeVisible();
     await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
   }
@@ -152,4 +168,28 @@ test('the tour explains Sentinel: a sentence becomes a sentinel, then real ones 
   await expect(welcome.getByText(/When the tests fail on GitHub for one of my projects/)).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(welcome.getByRole('heading', { name: 'Know what every project earns.' })).toBeVisible();
+});
+
+test('the tour’s table opens in a full window over the welcome, and Continue still goes on after it', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  const welcome = page.getByRole('dialog', { name: 'Welcome to Beluga' });
+  await welcome.getByRole('button', { name: /Get Started/ }).click();
+  await expect(welcome.getByRole('heading', { name: 'Which agent is yours?' })).toBeVisible();
+  // Your agents, then the tour's first two steps, then the table.
+  for (let i = 0; i < 3; i++) await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
+  const table = welcome.getByRole('figure', { name: /Churned last month/ });
+  await expect(table).toBeVisible({ timeout: 15_000 });
+  await table.hover();
+  await table.getByRole('button', { name: 'Open in Full Window' }).click();
+  // Over the welcome, not hidden under it (where its modal took every click, Continue's too).
+  const full = page.getByRole('dialog', { name: 'Churned last month' });
+  await expect(full).toBeVisible();
+  // (Under it, it's hidden yet still takes the clicks: Continue's spot lands on the hidden table.)
+  const z = async (el: typeof full): Promise<number> => Number(await el.evaluate((e) => getComputedStyle(e).zIndex));
+  expect(await z(full)).toBeGreaterThan(await z(page.locator('[data-welcome]')));
+  await full.getByRole('button', { name: 'Close' }).click();
+  await expect(full).toHaveCount(0);
+  await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(table).toHaveCount(0);
 });

@@ -1,3 +1,4 @@
+import { outsideActingAgent } from '../acting-agent.js';
 import type { AgentRef } from '../../protocol.js';
 import type { CombineResult } from '../../workspaces/git.js';
 import type { Actor, BoardState, Issue } from '../board/model.js';
@@ -11,6 +12,8 @@ import type { Plans } from './plans.js';
 import { FINISHED, type MilestoneView, type PlanView, type TaskState, type TaskView, agentTasks, agentsAtWork, liveFrom, planView, startable, tidyOffer, waitingOnYou } from './progress.js';
 import { checkFailedPrompt, checkNudgePrompt, checkPrompt, criteriaNeedCheck, fixupPrompt, mainFixupPrompt, mergeFixupPrompt, milestoneNextPrompt, milestonePrompt, recapPrompt, stuckPrompt } from './prompt.js';
 import { TaskWatchdog } from './watchdog.js';
+import { PLAN_PR_FAST_MS, PLAN_PR_FOCUS_FRESH_MS, planPrCadence } from './pr-cadence.js';
+import { pace } from '../power-saver.js';
 
 /**
  * The scheduler: runs approved plans as far as their autonomy allows. It starts what's ready
@@ -92,8 +95,6 @@ const FIXUP_ASKS = 2;
 const STUCK_RETRY_MS = 30_000;
 /** A check asked before a restart, with nothing running in its conversation this long after: it ended without a verdict. */
 const CHECK_QUIET_MS = 60_000;
-/** How often a plan's pull request is looked at on GitHub. */
-const PR_POLL_MS = 2 * 60_000;
 /** How often started tasks are looked at when nothing else happens (a turn can stall in silence). */
 const HEARTBEAT_MS = 60_000;
 /** Nothing of a plan running, and nothing of it yours, this long: Beluga moves it along (see rescue). */
@@ -241,6 +242,10 @@ export class PlanPilot {
   /** Plans whose pull request is being merged now (a second click waits for the first). */
   private readonly prMerging = new Set<string>();
   private prTimer: ReturnType<typeof setInterval> | undefined;
+  /** When each plan's PR was last looked at, and when Beluga last pushed its branch. */
+  private readonly prChecked = new Map<string, number>();
+  private readonly prPushed = new Map<string, number>();
+  private prPolling = false;
   /** Each plan's tasks as last seen (by plan task id): a task that comes back finished is written down once. */
   private readonly seen = new Map<string, ReadonlyMap<string, TaskState>>();
   private readonly off: () => void;
@@ -294,7 +299,8 @@ export class PlanPilot {
     this.heartbeat = setInterval(() => this.schedule(), HEARTBEAT_MS);
     this.heartbeat.unref?.();
     if (deps.git) {
-      this.prTimer = setInterval(() => void this.pollPrs(), PR_POLL_MS);
+      // Each tick looks only at the plans whose PR is due (see pr-cadence.ts).
+      this.prTimer = setInterval(() => void this.pollPrs('tick'), PLAN_PR_FAST_MS);
       this.prTimer.unref?.();
     }
   }
@@ -343,14 +349,17 @@ export class PlanPilot {
       clearTimeout(this.timer);
     }
     this.dueAt = at;
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      this.lastTick = Date.now();
-      const only = this.dueAll ? undefined : new Set(this.duePlans);
-      this.dueAll = false;
-      this.duePlans.clear();
-      this.tick(only);
-    }, wait);
+    // Armed from an external agent's call too, and what it then starts isn't that agent's.
+    this.timer = outsideActingAgent(() =>
+      setTimeout(() => {
+        this.timer = undefined;
+        this.lastTick = Date.now();
+        const only = this.dueAll ? undefined : new Set(this.duePlans);
+        this.dueAll = false;
+        this.duePlans.clear();
+        this.tick(only);
+      }, wait),
+    );
     this.timer.unref?.();
   }
 
@@ -364,6 +373,8 @@ export class PlanPilot {
   tick(only?: ReadonlySet<string>): void {
     for (const plan of this.deps.plans.list()) {
       if (only && !only.has(plan.id)) continue;
+      // Moved to another computer (BLG-806): it runs there, this is only its record.
+      if (plan.movedTo) continue;
       try {
         // Plans from before epics: their shape goes on the board once.
         if (plan.body && plan.status !== 'draft' && !this.structured.has(plan.id)) {
@@ -393,6 +404,7 @@ export class PlanPilot {
   async startNow(planId: string, taskId: string, by: Actor, agent?: AgentRef): Promise<string> {
     const plan = this.deps.plans.need(planId);
     if (plan.closedAt) throw new Error('The plan is closed: nothing of it starts any more');
+    if (plan.movedTo) throw new Error(`This plan moved to ${plan.movedTo.name}: it runs there now`);
     if (plan.status !== 'active' || !plan.body) throw new Error('The plan isn’t approved yet');
     if (plan.draft) throw new Error('Changes to the plan are waiting for approval: approve or discard them first');
     const view = this.view(plan);
@@ -854,11 +866,14 @@ export class PlanPilot {
       // The first ready task first (it goes In Progress); the rest in their order.
       const ordered = [first, ...tasks.filter((t) => t !== first)];
       ids = ordered.map((t) => t.issue!.id);
-      const base = first.bases?.length ? plan.branch : first.base;
+      // Moved here mid-milestone (BLG-806): from the branch its agent left on the other computer, its work so far.
+      const resume = plan.runs[milestoneId]?.resumeFrom;
+      const base = resume ?? (first.bases?.length ? plan.branch : first.base);
       // The agent you started it with (BLG-506), else the plan's (BLG-497); none: your default.
       const agent = pick ?? plan.agent;
       const ws = await this.deps.work.startShared(ids, `${first.issue.key} ${m.milestone.title}`, { quiet: true, ...(base ? { base } : {}), ...(agent ? { agent } : {}) });
-      const fresh = this.deps.plans.setAgent(plan.id, milestoneId, { worktree: ws.id, ...(ws.branch ? { branch: ws.branch } : {}), at: Date.now(), tasks: ordered.map((t) => t.task.id) });
+      this.deps.plans.setAgent(plan.id, milestoneId, { worktree: ws.id, ...(ws.branch ? { branch: ws.branch } : {}), at: Date.now(), tasks: ordered.map((t) => t.task.id) });
+      const fresh = this.deps.plans.resumed(plan.id, milestoneId);
       const keys = ordered.map((t) => t.issue!.key);
       const said = `started one agent for “${m.milestone.title}” (${keys.join(', ')}) in a new worktree${base ? ` from ${base}` : ''}`;
       this.deps.plans.note(plan.id, 'started', said, by);
@@ -998,6 +1013,8 @@ export class PlanPilot {
 
   /** Autopilot's pass: a task still being worked on (see stillWorking) leaves it for the next look. */
   private autoPass(planId: string, milestoneId: string, by: Actor): void {
+    // Its merge failed (not a conflict): passing again only fails again, so it's yours to fix and Pass Again.
+    if (this.deps.plans.get(planId)?.runs[milestoneId]?.mergeFailed) return;
     try {
       this.pass(planId, milestoneId, by);
     } catch (err) {
@@ -1235,6 +1252,7 @@ export class PlanPilot {
       await git.push(plan.projectId, branch).catch((err: unknown) => {
         throw new Error(`Merged ${main} into ${branch}, but couldn’t push it: ${(err instanceof Error ? err.message : String(err)).split('\n')[0]}`);
       });
+      this.pushedPlan(planId);
       const pr = await git.findPr(plan.projectId, branch).catch(() => undefined);
       if (pr) this.prSeen(planId, pr);
       return this.deps.plans.need(planId);
@@ -1406,22 +1424,46 @@ export class PlanPilot {
 
   // ------------------------------------------------------------------ the plan's pull request
 
-  /** Look at every plan's pull request now (also every few minutes): merged → its tasks are Done. */
-  async pollPrs(): Promise<void> {
+  /**
+   * Look at the plans' pull requests: merged → its tasks are Done. `now` (the default): every one;
+   * `tick` (every few seconds): those due (see pr-cadence.ts, slower in Low Power mode); `focus`:
+   * you came back to the window, so any not looked at in the last few seconds.
+   */
+  async pollPrs(reason: 'now' | 'tick' | 'focus' = 'now'): Promise<void> {
     const git = this.deps.git;
-    if (!git || this.stopped) return;
-    for (const plan of this.deps.plans.list()) {
-      if (!plan.branch || plan.shipped) continue;
-      // Only once there's something to ship (or a PR to follow).
-      const waiting = this.deps.store.getState().board.issues.some((i) => i.plan?.id === plan.id && i.status === 'in_plan');
-      if (!waiting && !plan.pr) continue;
-      try {
-        const pr = await git.findPr(plan.projectId, plan.branch);
-        if (pr) this.prSeen(plan.id, pr);
-      } catch {
-        // GitHub couldn't tell (offline): next time.
+    if (!git || this.stopped || (reason !== 'now' && this.prPolling)) return;
+    this.prPolling = true;
+    try {
+      for (const plan of this.deps.plans.list()) {
+        if (!plan.branch || plan.shipped) continue;
+        // Only once there's something to ship (or a PR to follow).
+        const waiting = this.deps.store.getState().board.issues.some((i) => i.plan?.id === plan.id && i.status === 'in_plan');
+        if (!waiting && !plan.pr) continue;
+        const now = this.deps.now?.() ?? Date.now();
+        if (reason !== 'now' && !this.prDue(plan, reason, now)) continue;
+        this.prChecked.set(plan.id, now);
+        try {
+          const pr = await git.findPr(plan.projectId, plan.branch);
+          if (pr) this.prSeen(plan.id, pr);
+        } catch {
+          // GitHub couldn't tell (offline): next time.
+        }
       }
+    } finally {
+      this.prPolling = false;
     }
+  }
+
+  private prDue(plan: Plan, reason: 'tick' | 'focus', now: number): boolean {
+    const since = now - (this.prChecked.get(plan.id) ?? -Infinity);
+    if (reason === 'focus') return since >= PLAN_PR_FOCUS_FRESH_MS;
+    const every = planPrCadence(plan, this.prPushed.get(plan.id), now);
+    return every !== undefined && since >= pace(every, this.deps.store.getState().powerSaving);
+  }
+
+  /** Beluga pushed the plan's branch: its PR is looked at often for a while (GitHub catches up a little after). */
+  private pushedPlan(planId: string): void {
+    this.prPushed.set(planId, this.deps.now?.() ?? Date.now());
   }
 
   private prSeen(planId: string, pr: NonNullable<Plan['pr']>): void {
@@ -1448,6 +1490,7 @@ export class PlanPilot {
       `One pull request for the plan: each milestone was merged into \`${branch}\` when it passed.`,
     ].join('\n');
     const pr = await git.openPr(plan.projectId, branch, view.body?.title ?? branch, body.trim());
+    this.pushedPlan(planId);
     this.prSeen(planId, pr);
     return this.deps.plans.need(planId);
   }
@@ -1469,6 +1512,7 @@ export class PlanPilot {
       if (pr.state === 'CLOSED') throw new Error(`Pull request #${pr.number} was closed on GitHub: open it again first`);
       try {
         await git.push(plan.projectId, branch);
+        this.pushedPlan(planId);
       } catch (err) {
         throw new Error(`Couldn’t push ${branch} to GitHub, so #${pr.number} isn’t merged (it would leave work out): ${(err instanceof Error ? err.message : String(err)).split('\n')[0]}`);
       }

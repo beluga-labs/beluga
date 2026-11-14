@@ -1,6 +1,7 @@
 import type { SoundChoice } from '../../../../../src/shared/notify-sound.js';
 import { inApp } from '../boot.js';
-import { renderChoice } from './catalog.js';
+import { keyPlatform } from '../shortcuts-model.js';
+import { playableHere, renderChoice } from './catalog.js';
 
 /**
  * Playing a sound in the window: the ▶ previews in Settings, and the fallback when a
@@ -18,7 +19,8 @@ function audio(): AudioContext | undefined {
 }
 
 /** Play it now (stopping the previous preview). Resolves once it has started. */
-export async function playSound(choice: SoundChoice, volume: number): Promise<void> {
+export async function playSound(picked: SoundChoice, volume: number): Promise<void> {
+  const choice = playableHere(picked, keyPlatform() === 'mac');
   if (choice.kind === 'none') return;
   if (choice.kind === 'mac') {
     if (!inApp()) return;

@@ -1,9 +1,12 @@
-import { Check } from 'lucide-react-native';
-import { ScrollView, View } from 'react-native';
+import { Check, Search } from 'lucide-react-native';
+import { useState } from 'react';
+import { Platform, ScrollView, TextInput, View } from 'react-native';
+import { SEARCH_MODELS_OVER, searchModels } from '../../../src/shared/model-search';
 import { calls } from '../lib/link/calls';
 import type { AgentPickerView, Topic } from '../lib/link/protocol';
 import { store } from '../lib/store';
-import { color } from '../lib/theme';
+import { useOn } from '../lib/scope';
+import { color, radius } from '../lib/theme';
 import { AgentMarkIcon, modelMark, runtimeMark } from './AgentMark';
 import { Sheet } from './Sheet';
 import { haptic, Press, T } from './ui';
@@ -18,13 +21,14 @@ type Group = AgentPickerView['groups'][number];
  * runtime's own (a local runtime running an OpenAI model).
  */
 export function AgentPickerSheet({ topic, picker, visible, onClose }: { readonly topic: Topic; readonly picker: AgentPickerView | undefined; readonly visible: boolean; readonly onClose: () => void }) {
+  const on = useOn();
   const pick = (g: Group, value: string, label: string): void => {
     if (!picker) return;
     const call =
       g.runtime === picker.runtime
         ? calls.setModel(topic, value, label)
         : calls.setAgent(topic, g.isDefault && !value ? null : { runtime: g.runtime, label: g.label, ...(value ? { model: value } : {}) }, `${g.label} ${label}`);
-    void store.call(call).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
+    void store.call(call, on ? { on } : {}).catch((e: Error) => store.toast({ text: e.message, tone: 'error' }));
   };
   return <AgentChoiceSheet title="Agent" caption="For this conversation, from your next message" picker={picker} visible={visible} onClose={onClose} onPick={pick} />;
 }
@@ -45,6 +49,11 @@ export function AgentChoiceSheet({ title, caption, picker, visible, onClose, onP
     onClose();
   };
   const def = picker?.groups.find((g) => g.isDefault);
+  // A long list (OpenCode with every provider, BLG-945): a search field, each group showing what matches.
+  const [query, setQuery] = useState('');
+  const searchable = Boolean(picker?.groups.some((g) => g.models.length + (g.more ?? 0) > SEARCH_MODELS_OVER));
+  const searching = searchable && query.trim() !== '';
+  const groups = (picker?.groups ?? []).map((g) => ({ g, models: searching ? searchModels(g.models, query, g.runtime) : g.models })).filter((x) => !searching || x.models.length);
   return (
     <Sheet
       visible={visible && Boolean(picker)}
@@ -55,6 +64,23 @@ export function AgentChoiceSheet({ title, caption, picker, visible, onClose, onP
             {title}
           </T>
           <T v="caption">{caption}</T>
+          {searchable ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, height: 38, borderRadius: radius.m, backgroundColor: color.card }}>
+              <Search size={16} color={color.text3} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search models"
+                placeholderTextColor={color.text3}
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+                accessibilityLabel="Search models"
+                style={{ flex: 1, color: color.text, fontSize: 16, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) }}
+              />
+            </View>
+          ) : null}
         </View>
       }
     >
@@ -80,7 +106,8 @@ export function AgentChoiceSheet({ title, caption, picker, visible, onClose, onP
             </View>
           </Press>
         ) : null}
-        {picker?.groups.map((g) => (
+        {searching && !groups.length ? <T v="caption">{`No model matches “${query.trim()}”.`}</T> : null}
+        {groups.map(({ g, models }) => (
           <View key={g.runtime} style={{ gap: 4, opacity: g.available ? 1 : 0.55 }} accessibilityState={{ disabled: !g.available }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <AgentMarkIcon mark={runtimeMark(g.runtime)} size={18} color={color.text2} />
@@ -89,7 +116,7 @@ export function AgentChoiceSheet({ title, caption, picker, visible, onClose, onP
               </T>
             </View>
             {g.available ? (
-              g.models.map((m) => {
+              models.map((m) => {
                 const maker = m.value ? modelMark(m.value, g.runtime) : undefined;
                 const other = maker && maker !== modelMark(undefined, g.runtime) ? maker : undefined;
                 return (
@@ -108,6 +135,11 @@ export function AgentChoiceSheet({ title, caption, picker, visible, onClose, onP
             ) : (
               <T v="caption">{g.why}</T>
             )}
+            {g.available && g.more ? (
+              <T v="caption" style={{ paddingHorizontal: 12 }}>
+                {`${g.more} more on your Mac: pick them in its agent picker.`}
+              </T>
+            ) : null}
           </View>
         ))}
       </ScrollView>

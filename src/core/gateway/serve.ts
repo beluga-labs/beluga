@@ -1,10 +1,11 @@
 import { talkReadOnly } from '../../agent/dialogue-tools.js';
-import type { AgentRef } from '../../protocol.js';
+import { type AgentRef, CLAUDE_AGENT } from '../../protocol.js';
+import { fallbackFor } from '../../shared/runtime-fallbacks.js';
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentBackend, AgentPlace, TaskTools } from '../../agent/types.js';
+import type { AgentBackend, AgentPlace, BoardTools, TaskTools } from '../../agent/types.js';
 import { mentionsSecret, writesCode } from '../../agent/policy.js';
 import type { ClaudeAnswer, ClaudeQuestion } from '../../protocol.js';
 import { isNeverSent, isSecretPath, secretKindOf } from '../shares.js';
@@ -87,6 +88,8 @@ export interface ServeContext {
   readonly access: AccessPort;
   readonly serveShell?: ServeShell;
   readonly projectRoot: (name: string) => string | undefined;
+  /** A project's task board for a friend's request there (BLG-701): its tools, and what Claude is told. */
+  readonly board?: (project: string, friend: { readonly id: string; readonly name: string }) => { readonly tools?: BoardTools; readonly brief?: string } | undefined;
   readonly model: () => { model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' };
   /** The agent that answers friends' asks here: your default, with your default model (you choose it, never the asker). */
   readonly agentRef?: () => AgentRef;
@@ -123,11 +126,11 @@ const STEP_EVERY_MS = 400;
 const MAX_SCREENSHOTS = 4;
 const QUESTION_WAIT_MS = 15 * 60_000;
 /** A friend's task stops after this many turns, or this long, whichever comes first (BLG-427). */
-const MAX_TURNS = 50;
-const RUN_LIMIT_MS = 20 * 60_000;
+export const MAX_TURNS = 50;
+export const RUN_LIMIT_MS = 20 * 60_000;
 /** Times one task may ask you to approve a step, and declines in a row that stop it (BLG-427). */
-const MAX_TOOL_ASKS = 8;
-const MAX_DECLINES = 2;
+export const MAX_TOOL_ASKS = 8;
+export const MAX_DECLINES = 2;
 
 const NEED_WORDS: Readonly<Record<Need, string>> = { project: 'work in a project', shell: 'run commands', files: 'read or write files', screen: 'see the screen', device: 'read device information' };
 
@@ -157,6 +160,18 @@ export function agentForAsk(asked: AgentRef | undefined, mine: AgentRef, listed:
   const found = listed.find((a) => a.runtime === asked.runtime && (!asked.model || a.model === asked.model)) ?? listed.find((a) => a.runtime === asked.runtime);
   if (found && (runs?.(found) ?? false)) return { agent: found };
   return { agent: mine, note: `${asked.label} isn’t set up here, so ${mine.label} does it` };
+}
+
+/**
+ * A friend's task picked for an agent that doesn't take them (OpenCode: shared/runtime-fallbacks.ts
+ * `friends`): handed to one that does and runs here (Claude first), the card saying why. None
+ * here: as it was (the run says it can't).
+ */
+export function agentForFriend(picked: { readonly agent: AgentRef; readonly note?: string }, listed: readonly AgentRef[], runs?: (agent: AgentRef) => boolean): { readonly agent: AgentRef; readonly note?: string } {
+  const why = fallbackFor(picked.agent.runtime, 'friends');
+  if (!why) return picked;
+  const other = [CLAUDE_AGENT, ...listed].find((a) => !fallbackFor(a.runtime, 'friends') && (runs?.(a) ?? false));
+  return other ? { agent: other, note: why } : picked;
 }
 const SKIP: ClaudeAnswer = { kind: 'skip' };
 
@@ -230,6 +245,7 @@ export class TaskServer {
       ...(req.summary?.trim() ? { summary: oneLine(req.summary, 140) } : {}),
       needs: req.needs,
       by: req.by,
+      ...(req.via ? { via: req.via.name } : {}),
       state: 'queued',
       steps: [],
       createdAt: now,
@@ -314,7 +330,7 @@ export class TaskServer {
     } else {
       allowedBy = decided.by === 'rule' ? 'a rule of yours allows it' : 'you trust them';
       const what = req.kind === 'run' ? `run \`${oneLine(req.command ?? '', 60)}\` on your Mac` : req.kind === 'file' ? `get ${path.basename(req.path ?? '')} from your Mac` : `ask your agent to: ${requestGist(req, 80)}`;
-      ctx.notify(`${name}${req.by === 'agent' ? "'s agent" : ''} wants to ${what}`, `It runs without asking: ${allowedBy}`);
+      ctx.notify(`${name}${req.by === 'agent' ? "'s agent" : ''}${req.via ? ` (via ${oneLine(req.via.name)})` : ''} wants to ${what}`, `It runs without asking: ${allowedBy}`);
     }
     if (this.isOver(task.id)) return;
     this.update(task.id, { allowedBy });
@@ -499,7 +515,8 @@ export class TaskServer {
     const found = this.place(task, req);
     const { where, folders } = found;
     // On the agent its card says (your default), or the one they asked for when it runs here (BLG-503).
-    const picked = ctx.agentRef ? agentForAsk(req.agent, ctx.agentRef(), ctx.agents?.() ?? [], ctx.runs) : undefined;
+    // One that can't take a friend's task (OpenCode) hands it on (BLG-686).
+    const picked = ctx.agentRef ? agentForFriend(agentForAsk(req.agent, ctx.agentRef(), ctx.agents?.() ?? [], ctx.runs), ctx.agents?.() ?? [], ctx.runs) : undefined;
     if (picked) this.ranOn.set(task.id, picked.agent);
     // A talk (or cross-reference) dialogue's turn changes nothing, on any agent: no edits, even in a scratch folder.
     const withAgent = picked ? { ...found.place, agent: picked.agent } : found.place;
@@ -508,8 +525,12 @@ export class TaskServer {
     const settings = ctx.model();
     const model = picked ? (picked.agent.model ?? (picked.agent.runtime === 'claude' ? settings.model : undefined)) : settings.model;
     const runModel = { ...(model ? { model } : {}), ...(settings.effort ? { effort: settings.effort } : {}) };
-    const full = ctx.trustFor(task.peerId) === 'full';
+    const trust = ctx.trustFor(task.peerId);
+    const full = trust === 'full';
     const tools = this.toolsFor(task, req);
+    // Working in one of your projects, a friend you trust gets its board too (BLG-701): Full trust
+    // freely, Trusted with each change asking you (a talk dialogue only looks: none).
+    const board = req.project && found.where !== 'in a scratch folder' && (full || trust === 'trusted') && !(task.dialogue && task.dialogue.mode !== 'work') ? ctx.board?.(req.project, { id: task.peerId, name: task.peerName }) : undefined;
     const toolNames = [...(tools.screenshot ? ['screenshot'] : []), ...(tools.deviceInfo ? ['device_info'] : [])];
     const controller = new AbortController();
     this.controllers.set(task.id, controller);
@@ -561,6 +582,7 @@ export class TaskServer {
         canUseTool: (tool, input) => this.authorizeTool(task, tool, input, full, place.cwd),
         askUser: (question) => this.askRequester(task, question, controller.signal),
         ...(toolNames.length ? { taskTools: tools } : {}),
+        ...(board?.tools ? { board: board.tools, ...(board.brief ? { taskBrief: board.brief } : {}), ...(full ? {} : { boardAsks: 'writes' as const }) } : {}),
         ...runModel,
         maxTurns: MAX_TURNS,
       });

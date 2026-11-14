@@ -1,3 +1,4 @@
+import type { MessageVia } from '../protocol.js';
 import { chatOf } from '../core/chat/launch.js';
 import { answerFriendOffer, sendFriendOffer } from '../core/friend-offers.js';
 import { networkEnabled, networkOf, networkStatus, networkSwitchOf } from '../core/network.js';
@@ -49,13 +50,13 @@ function incoming(s: Session, list: readonly MessageView[]): MessageView[] {
   return list.map((m) => ({ ...m, text: localMentions(m.text, issues) }));
 }
 
-function post(s: Session, conversation: string, body: { text: string; files?: readonly ChatFile[] | undefined; ask?: 'all' | readonly string[] | undefined }) {
+export function post(s: Session, conversation: string, body: { text: string; files?: readonly ChatFile[] | undefined; ask?: 'all' | readonly string[] | undefined }, via?: MessageVia) {
   const chat = chatOf(s);
   const files = (body.files ?? []).map((f) => {
     if (!chat.files.store.has(f.sha)) throw new Error(`${f.name} isn’t ready to send: add it again`);
     return chat.files.info(f.sha) ?? f;
   });
-  const extras = { ...(files.length ? { files } : {}), ...(body.ask ? { ask: { to: body.ask } } : {}) };
+  const extras = { ...(files.length ? { files } : {}), ...(body.ask ? { ask: { to: body.ask } } : {}), ...(via ? { via } : {}) };
   return chat.mesh.post(conversation, outgoing(s, conversation, body.text), Object.keys(extras).length ? extras : undefined);
 }
 
@@ -86,13 +87,18 @@ export const NETWORK_HANDLERS = {
   'network.groups.join': (s, text) => net(s).accept(text),
   'network.groups.approve': (s, groupId, peerId) => net(s).approve(groupId, peerId),
   'network.groups.decline': (s, groupId, peerId) => net(s).decline(groupId, peerId),
-  'network.presence.set': (s, presence) => net(s).setPresence({ state: presence.state, ...(presence.note !== undefined ? { note: presence.note } : {}), ...(presence.until !== undefined ? { until: presence.until } : {}) }),
+  'network.presence.set': (s, presence) => net(s).setPresence({ state: presence.state, ...(presence.note !== undefined ? { note: presence.note } : {}), ...(presence.emoji !== undefined ? { emoji: presence.emoji } : {}), ...(presence.until !== undefined ? { until: presence.until } : {}) }),
   'network.presence.get': (s) => net(s).getPresence(),
   'network.avatar.set': (s, b64) => net(s).setAvatar(b64 === null ? undefined : Buffer.from(b64, 'base64')),
   'network.avatar.get': (s, sha) => net(s).avatar(sha),
-  'network.read': (s, conversation) => net(s).markRead(conversation),
+  // Read on a screen of yours (the phone's open conversation): read, and Seen unless you turned that off (BLG-798).
+  'network.read': (s, conversation) => {
+    net(s).markRead(conversation);
+    if (s.store.getState().prefs.readReceipts !== false) net(s).markSeen(conversation);
+  },
   'network.messages.delete': (s, conversation, id, opts) => net(s).deleteMessage(conversation, id, opts?.everyone ?? false),
   'network.messages.edit': (s, conversation, id, text) => net(s).editMessage(conversation, id, text),
+  'network.messages.react': (s, conversation, id, emoji, on) => net(s).react(conversation, id, emoji, on),
   'network.clear': (s, conversation) => net(s).clearConversation(conversation),
   'network.post': (s, conversation, body) => post(s, conversation, body),
   'network.files.add': (s, paths) => chatOf(s).files.share(paths),

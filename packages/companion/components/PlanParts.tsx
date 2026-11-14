@@ -15,7 +15,7 @@ type Milestone = PlanView['milestones'][number];
  * The plan's own conversation, on its page (the Mac keeps it beside the plan): what its Claude is
  * doing now (writing the plan, running it) or the last thing it said, and a tap into the whole chat.
  */
-export function PlanChat({ topic, drafting, closed = false }: { readonly topic: Topic; readonly drafting: boolean; /** 1.38: the plan was closed: its chat works on newer plans now, so none of that shows here. */ readonly closed?: boolean }) {
+export function PlanChat({ topic, drafting, closed = false }: { readonly topic: Topic; readonly drafting: boolean; /** 1.57: the plan was closed: its chat works on newer plans now, so none of that shows here. */ readonly closed?: boolean }) {
   const conv = useView<ConvView>(closed ? undefined : topic)?.data;
   const turns = conv?.turns ?? [];
   const live = [...turns].reverse().find((t) => t.who === 'claude' && t.status === 'working');

@@ -4,7 +4,7 @@ import type { FormatterInfo } from '@beluga/core/workspace-files.js';
 import { Alert } from '../../components/Alert.js';
 import { Button, IconButton, Tip, cx } from '../../components/ui.js';
 import { useBeluga } from '../../lib/beluga.js';
-import { mod } from '../../lib/system.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 import { type EditSession, editSession, isDirty, markSaved, setDraft, startEditing, stopEditing, textToSave, updateSession, useEditSession } from './edit-store.js';
 import { hasText } from './reader-model.js';
 import r from './reader.module.css';
@@ -136,7 +136,7 @@ export function EditTools({ viewer, wsId, selfId, compact = false }: { viewer: V
       {session || !compact ? formatBtn : null}
       {session ? (
         <>
-          <Tip label="Save" keys={`${mod()}S`}>
+          <Tip label="Save" keys={chordLabel('Cmd+S')}>
             <Button size="small" variant={dirty ? 'primary' : 'quiet'} disabled={!dirty || Boolean(session.busy)} onClick={() => void save()}>
               Save
             </Button>

@@ -12,6 +12,7 @@
 //   --skip-build       reuse what the last `npm run app:build` made
 //   --dry-run          build and write latest.json, but don't touch GitHub
 //   --force            release even if GitHub's latest release isn't older
+//   --no-telemetry     release without usage statistics (otherwise it needs BELUGA_TELEMETRY_URL/KEY or ~/.tauri/beluga-telemetry.json)
 //   --ad-hoc           sign the app ad hoc instead of with the "Beluga Self-Signed" certificate
 //                      ($APPLE_SIGNING_IDENTITY picks another); updates then lose Screen Recording
 //   --key <file>       the updater's private key (default ~/.tauri/beluga-updater.key, else
@@ -25,13 +26,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const REPO = 'kayraucklnc/beluga';
+export const REPO = 'beluga-labs/beluga';
 /** What people download is named for the app, whatever the build's productName still says. */
 export const APP = 'Beluga';
 const root = path.resolve(import.meta.dirname, '..');
 const mac = path.join(root, 'packages/mac');
 const confFile = path.join(mac, 'src-tauri/tauri.conf.json');
 const pkgFile = path.join(mac, 'package.json');
+
+/** The app protocol this checkout speaks (src/ipc/protocol.ts IPC_VERSION), for latest.json's `ipc`. */
+export function ipcVersion() {
+  const m = /export const IPC_VERSION = (\d+);/.exec(readFileSync(path.join(root, 'src/ipc/protocol.ts'), 'utf8'));
+  return m ? Number(m[1]) : undefined;
+}
 
 /** "1.2.3" or "v1.2.3-mac" → [1, 2, 3]; undefined when it isn't a version. */
 export function versionParts(v) {
@@ -55,8 +62,10 @@ export const dmgAsset = (version, arch) => `${APP}_${version}_${arch}.dmg`;
 export const assetUrl = (tag, name) => `https://github.com/${REPO}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`;
 
 /** The file every installed copy reads to learn about this release (tauri-plugin-updater's format). */
-export function latestJson({ version, notes, pubDate, signature, url, arch }) {
-  return { version, notes, pub_date: pubDate, platforms: { [`darwin-${arch}`]: { signature: signature.trim(), url } } };
+export function latestJson({ version, notes, pubDate, signature, url, arch, ipc = ipcVersion() }) {
+  // `ipc` (BLG-777): the app protocol this release speaks, so an installed app can warn before it
+  // updates past what your computers speak.
+  return { version, notes, pub_date: pubDate, ...(ipc ? { ipc } : {}), platforms: { [`darwin-${arch}`]: { signature: signature.trim(), url } } };
 }
 
 /**
@@ -119,6 +128,24 @@ function signingEnv(opts) {
   return { TAURI_SIGNING_PRIVATE_KEY: readFileSync(key, 'utf8').trim(), TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password };
 }
 
+/** Where the maintainer keeps the release's usage-statistics config (beside the updater key): { "url", "key" }. */
+export const telemetryFile = () => path.join(os.homedir(), '.tauri/beluga-telemetry.json');
+
+/**
+ * Usage statistics for the release: BELUGA_TELEMETRY_URL and BELUGA_TELEMETRY_KEY, else the file
+ * above. A release without them would quietly stop asking and sending, so it stops here instead,
+ * unless --no-telemetry says that's meant.
+ */
+export function telemetryEnv(opts, file = telemetryFile()) {
+  if (opts.flags.has('no-telemetry')) return { BELUGA_TELEMETRY_URL: '', BELUGA_TELEMETRY_KEY: '' };
+  if (process.env.BELUGA_TELEMETRY_URL && process.env.BELUGA_TELEMETRY_KEY) return {};
+  if (!existsSync(file)) throw new Error(`No usage-statistics config: set BELUGA_TELEMETRY_URL and BELUGA_TELEMETRY_KEY, or put { "url", "key" } in ${file} (a Ratel ingest-only key). --no-telemetry releases without it.`);
+  const { url, key } = JSON.parse(readFileSync(file, 'utf8'));
+  if (!url || !key) throw new Error(`${file} needs "url" and "key".`);
+  if (!/^rtl_pub_/.test(key)) console.warn(`Warning: the key in ${file} doesn't look like an ingest-only key (rtl_pub_…). Only ship one that can't read anything.`);
+  return { BELUGA_TELEMETRY_URL: url, BELUGA_TELEMETRY_KEY: key };
+}
+
 /** The certificate releases are signed with when $APPLE_SIGNING_IDENTITY doesn't name another. */
 export const CODE_SIGN_IDENTITY = 'Beluga Self-Signed';
 
@@ -173,7 +200,7 @@ function main() {
   const arch = archOf();
   if (!opts.flags.has('skip-build')) {
     console.log(`Building ${APP} ${version} (${arch}) with update signing…`);
-    run('npm', ['run', 'app:build'], { cwd: mac, env: { ...process.env, ...signingEnv(opts), ...codeSignEnv(opts) } });
+    run('npm', ['run', 'app:build'], { cwd: mac, env: { ...process.env, ...signingEnv(opts), ...codeSignEnv(opts), ...telemetryEnv(opts) } });
   }
 
   // The build names its files for tauri.conf.json's productName; the release names them for the app.

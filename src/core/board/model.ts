@@ -73,8 +73,18 @@ export type Actor =
       readonly ownerName: string;
       /** Which agent it was (BLG-498: Codex, a local model…); left out on older entries: Claude, as before. */
       readonly agent?: AgentRef;
+      /** An external agent did it, through its grant. It stays kind `claude`, so every rule that holds an agent back applies to it. */
+      readonly external?: ExternalActor;
+      /** Working for a friend who asked it (BLG-701): "Kayra's Claude, for Bran". */
+      readonly for?: { readonly id: string; readonly name: string };
     }
   | { readonly kind: 'beluga' };
+
+/** An external agent as the board and plans record it: its grant and its name. */
+export interface ExternalActor {
+  readonly id: string;
+  readonly name: string;
+}
 
 /**
  * Saved boards and plans from before the rename say `{ kind: 'klaud' }` for Beluga itself: read them as
@@ -157,6 +167,12 @@ export interface Proof {
   readonly by: Actor;
 }
 
+/** A proof's file carried to another computer with its plan (BLG-806): its name and its bytes, base64. */
+export interface CarriedFile {
+  readonly name: string;
+  readonly data: string;
+}
+
 /** A task's files (added for the work to use) and its proof (that shows the work), apart. */
 export const taskFiles = (issue: Pick<Issue, 'proof'>): readonly Proof[] => issue.proof.filter((p) => p.context);
 export const taskProof = (issue: Pick<Issue, 'proof'>): readonly Proof[] => issue.proof.filter((p) => !p.context);
@@ -218,6 +234,11 @@ export interface Issue {
   readonly worktreeGone?: boolean;
   /** It was kept out of review: an acceptance criterion is neither ticked nor explained (see criteria.ts). */
   readonly needsChecks?: boolean;
+  /**
+   * Its work merged (its pull request, or its worktree into main) while a criterion was neither ticked
+   * nor explained (BLG-952): kept In Review, held, instead of Done; settling them makes it Done.
+   */
+  readonly mergedHeld?: boolean;
   readonly proof: readonly Proof[];
   readonly activity: readonly Activity[];
   readonly createdAt: number;
@@ -242,6 +263,10 @@ export interface Issue {
    * another tracker (Linear), until Share with Team. A private task's sub-tasks are private too.
    */
   readonly private?: true;
+  /** Keys it had on another computer before its plan moved here (BLG-806): they still open it. */
+  readonly aliases?: readonly string[];
+  /** Its plan moved to another computer (that computer's name): this is the record of it, in the Archive. */
+  readonly movedTo?: string;
 }
 
 /**
@@ -479,10 +504,10 @@ export function titleFromName(name: string): string {
 
 export const issueById = (board: BoardState, id: string): Issue | undefined => board.issues.find((i) => i.id === id);
 
-/** A task by its key ("BOB-12", any case) or its id. */
+/** A task by its key ("BOB-12", any case) or its id; else a key it had on another computer (its plan moved here). */
 export function findIssue(board: BoardState, ref: string): Issue | undefined {
   const k = ref.trim().toUpperCase();
-  return board.issues.find((i) => i.key === k) ?? board.issues.find((i) => i.id === ref.trim());
+  return board.issues.find((i) => i.key === k) ?? board.issues.find((i) => i.id === ref.trim()) ?? board.issues.find((i) => i.aliases?.includes(k) && !i.movedTo);
 }
 
 /** The task a workspace (worktree) is doing, if any. */
@@ -611,11 +636,14 @@ export function actorName(actor: Actor, selfId: string): string {
     case 'person':
       return actor.id === selfId ? 'You' : actor.name;
     case 'claude':
-      return agentLabel(actor.agent, actor.ownerName, actor.owner === selfId, { capital: true });
+      return actor.external ? externalLabel(actor.external) : agentLabel(actor.agent, actor.ownerName, actor.owner === selfId, { capital: true }) + (actor.for ? `, for ${actor.for.id === selfId ? 'you' : actor.for.name}` : '');
     default:
       return 'Beluga';
   }
 }
+
+/** A client picks its own name: the word after it keeps "You" from reading as you. */
+export const externalLabel = (agent: ExternalActor): string => `${agent.name} (agent)`;
 
 export function assigneeName(assignee: AnyAssignee | undefined, selfId: string): string {
   if (!assignee) return 'No one';

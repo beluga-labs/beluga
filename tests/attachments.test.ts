@@ -5,15 +5,17 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentLabel,
   chipText,
-  droppedImagePaths,
+  droppedImagePaths as dropped,
   expandChips,
   formatBytes,
   importImage,
+  isOwnImageFile,
   insertChip,
   linkedImages,
   mediaTypeOf,
   publishForRoom,
   registerAttachment,
+  withImagePaths,
 } from '../src/core/attachments.js';
 import { imageContent } from '../src/agent/runtime/claude/runner.js';
 
@@ -46,8 +48,9 @@ describe('image chips', () => {
     expect(expandChips(`[image ${b.n}]`, 'me', undefined, [b.n], [1]).text).toBe(`[image ${b.n}]`);
   });
 
-  it('recognizes dragged-in image paths', () => {
+  it('recognizes dragged-in image paths (a Mac’s, where a backslash escapes)', () => {
     const exists = (p: string) => p.startsWith('/img/');
+    const droppedImagePaths = (text: string, has: (p: string) => boolean) => dropped(text, has, 'darwin');
     expect(droppedImagePaths('/img/My\\ Shot.png ', exists)).toEqual(['/img/My Shot.png']);
     expect(droppedImagePaths("'/img/a b.jpg' /img/c.gif", exists)).toEqual(['/img/a b.jpg', '/img/c.gif']);
     expect(droppedImagePaths('file:///img/x%20y.png', exists)).toEqual(['/img/x y.png']);
@@ -72,6 +75,22 @@ describe('images for Claude', () => {
     expect(mediaTypeOf('a.JPG')).toBe('image/jpeg');
   });
 
+  it('points linked images at their files for an answer Claude reads as text', () => {
+    const answer = 'like this [📎 image 1 (png, 1K)](klaud-attachment:me/a.png), not [x](klaud-attachment:me/missing.png)';
+    expect(withImagePaths(answer, dir)).toBe(`like this [📎 image 1 (png, 1K)](${path.join(dir, 'a.png')}), not [x](klaud-attachment:me/missing.png)`);
+    // Only an image right in the folder (the one your own run may Read): a room copy stays a link.
+    expect(withImagePaths('[y](klaud-attachment:me/b.jpg)', dir)).toBe('[y](klaud-attachment:me/b.jpg)');
+    expect(withImagePaths('klaud-attachment:me/../secret.png', dir)).toBe('klaud-attachment:me/../secret.png');
+    expect(withImagePaths('klaud-attachment:me/a\\..\\x.png', dir)).toBe('klaud-attachment:me/a\\..\\x.png');
+  });
+
+  it('knows an image right in the folder, where it really is', () => {
+    expect(isOwnImageFile(path.join(dir, 'a.png'), dir)).toBe(true);
+    expect(isOwnImageFile(path.join(dir, 'room', 'b.jpg'), dir)).toBe(false);
+    expect(isOwnImageFile(path.join(dir, 'missing.png'), dir)).toBe(false);
+    expect(isOwnImageFile(dir, dir)).toBe(false);
+  });
+
   it('sends images as content blocks next to the text', async () => {
     expect(imageContent('hi', [])).toBe('hi');
     const content = imageContent('hi', [path.join(dir, 'a.png')]) as Array<{ type: string; source?: { data: string; media_type: string } }>;
@@ -85,5 +104,14 @@ describe('images for Claude', () => {
     const a = registerAttachment(copy, png.length);
     const name = publishForRoom(a, path.join(dir, 'out'));
     expect(readFileSync(path.join(dir, 'out', name))).toEqual(png);
+  });
+});
+
+describe('an image linked into an answer', () => {
+  it("stays in Beluga's own folder: secret, and never sent (only your own run's Read of it is let through, policy.ts)", async () => {
+    const { attachmentsDir } = await import('../src/core/attachments.js');
+    const { isSecretPath } = await import('../src/core/shares.js');
+    expect(isSecretPath(path.join(attachmentsDir(), 'shot.png'))).toBe(true);
+    expect(isSecretPath(path.join(attachmentsDir(), 'received', 'f-shot.png'))).toBe(true);
   });
 });

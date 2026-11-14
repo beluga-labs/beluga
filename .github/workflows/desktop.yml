@@ -44,7 +44,8 @@ jobs:
           echo '<!doctype html>' > dist/index.html
           touch src-tauri/resources/daemon/.keep
           ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
-          cp "$(which node)" "src-tauri/binaries/node-${{ matrix.triple }}$ext"
+          name=node; [ "$RUNNER_OS" = Linux ] && name=beluga-node
+          cp "$(which node)" "src-tauri/binaries/$name-${{ matrix.triple }}$ext"
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: packages/mac/src-tauri
       - run: cargo test

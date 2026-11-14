@@ -4,6 +4,13 @@
   min-height: 0;
   display: flex;
 }
+/* A child thread's chat: its "Started by" line above the conversation. */
+.logWrap:has(> [data-started-by]) {
+  flex-direction: column;
+}
+.logWrap:has(> [data-started-by]) > .log {
+  min-height: 0;
+}
 .log {
   flex: 1;
   min-width: 0;
@@ -23,6 +30,20 @@
   left: 0;
   width: 100%;
   overflow-wrap: anywhere;
+}
+/* The message a search hit opened at: a tint that fades (JUMP_MARK_MS in chat-jump.ts). */
+.logRowMarked {
+  border-radius: 8px;
+  animation: jumpMark 2s ease-out;
+}
+@keyframes jumpMark {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
 }
 .logEmpty {
   flex: 1;
@@ -57,6 +78,15 @@
   padding-left: 15%;
 }
 /* The bubble, with Edit beside it on hover (BLG-385). */
+.sentBy {
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+}
+.sentByTheirs {
+  text-align: left;
+}
 .bubbleRow {
   display: flex;
   align-items: flex-start;
@@ -308,6 +338,16 @@
   display: flex;
   margin-top: 6px;
 }
+/* Under a usage limit: when Beluga sends Continue on its own, and Don't Send beside it. */
+.limitResume {
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.limitResumeText {
+  min-width: 0;
+}
 /* A failed turn: what happened in one line, the raw error behind Show details. */
 .failure {
   display: flex;
@@ -528,6 +568,20 @@
   border-bottom: 0;
 }
 
+/* A file or folder named in the words (PathLink.tsx): its icon in front, a click opens it. */
+.markdown a.pathLink {
+  overflow-wrap: anywhere;
+}
+.markdown a.pathLink > svg {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -1px;
+  color: var(--text-2);
+}
+.markdown a.pathLink:hover > svg {
+  color: var(--accent);
+}
+
 /* A Markdown image that can't show here (a web one, someone else's local path). */
 .markdown .imageRef {
   display: inline-flex;
@@ -622,4 +676,22 @@
 /* What a taken-over turn left running (sub-agents, background jobs), with the working line: the chat's last row (BLG-54). */
 .livePart {
   padding-top: 0;
+}
+
+/* A message from an agent in another chat: its own card, not a bubble of yours. */
+.fromChat {
+  padding: 8px 12px;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.fromChatHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  opacity: 0.8;
 }

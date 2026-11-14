@@ -1,23 +1,26 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createMockBackend } from './agent/mock.js';
 import { seedMockContext } from './agent/mock-context.js';
 import { ATTACHMENT_SCHEME, ATTACHMENT_SHARE, formatBytes } from './core/attachments.js';
-import { DEMO_DOCS, DEMO_LANDING_SVG, DEMO_PAYMENTS_TS, DEMO_PLANS_JSON, DEMO_SERVER_WITH_AUTH } from './demo-docs.js';
-import { seedLandingHistory } from './demo-history.js';
+import { DEMO_BADGES_TSX, DEMO_DOCS, DEMO_PRICE_TAG_TSX, DEMO_HERO_CSS, DEMO_HERO_TSX, DEMO_LANDING_SVG, DEMO_PAYMENTS_TS, DEMO_PLANS_JSON, DEMO_SERVER_WITH_AUTH } from './demo-docs.js';
+import { seedBobPulls, seedLandingHistory } from './demo-history.js';
 import { demoScreenshot } from './demo-image.js';
 import { demoPdf } from './demo-pdf.js';
 import { type ShellRunner, runShell } from './core/peer-run.js';
 import { DEMO_AGENTS } from './core/demo-agents.js';
 import { Session } from './core/session.js';
+import { belugaEnv } from './core/beluga-env.js';
 import { ShareService } from './core/shares.js';
 import { Store, initialState } from './core/store.js';
 import { type RoomKeys } from './net/crypto.js';
 import { PeerClient } from './net/peer-client.js';
+import { chatMessageId } from './protocol.js';
 import { WorkspaceManager } from './workspaces/manager.js';
 import { WorkspaceStore } from './workspaces/store.js';
+import { dropGitLocalEnv } from './core/git-env.js';
 
 const SUNSET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
   <defs>
@@ -121,6 +124,7 @@ export function startDemoFriend(url: string, keys: RoomKeys, folder: string, nam
     }
   });
   let said = 0;
+  let reactedToYou = false;
   const say = (delay: number): void => {
     const line = friend.lines[said++];
     if (line) setTimeout(() => session.sendChat(line, false), delay);
@@ -138,6 +142,20 @@ export function startDemoFriend(url: string, keys: RoomKeys, folder: string, nam
     // Answer you (not each other), one line per message you send.
     const fromYou = msg.from !== client.peerId && !store.getState().peers.find((p) => p.peerId === msg.from && (p.name === 'bob' || p.name === 'mia'));
     if (fromYou && msg.body.kind === 'chat' && !msg.body.byAgent && said < friend.lines.length) say(name === 'bob' ? 1500 : 2400);
+    // Reactions (BLG-702): bob likes mia's lines in the group chat, and mia has a look at your first one.
+    const body = msg.body;
+    if (body.kind !== 'chat' || body.byAgent || body.channel !== 'room' || msg.from === client.peerId) return;
+    const fromMia = store.getState().peers.find((p) => p.peerId === msg.from)?.name === 'mia';
+    const emoji = name === 'bob' && fromMia ? '👍' : name === 'mia' && fromYou && !reactedToYou ? '👀' : undefined;
+    if (!emoji) return;
+    if (name === 'mia') reactedToYou = true;
+    setTimeout(() => {
+      try {
+        session.reactChat('room', chatMessageId(msg.from, body.mid, msg.id), emoji);
+      } catch {
+        // Not in the log (yet): the demo goes without it.
+      }
+    }, 900);
   });
   if (name === 'bob') answerDemoDiff(session, client);
   session.start();
@@ -145,6 +163,7 @@ export function startDemoFriend(url: string, keys: RoomKeys, folder: string, nam
 }
 
 const DEMO_WS = 'bob-payments';
+const DEMO_WORK_WS = 'bob-refunds';
 const DEMO_PATCH = `@@ -1,4 +1,9 @@
 -export async function onWebhook(event: Event) {
 +const seen = new Set<string>();
@@ -181,6 +200,11 @@ function shareDemoWorkspace(session: Session, shares: ShareService, folder: stri
     { from: "bob's Claude", text: 'The handler is not idempotent: it charges again on every retry. I added an idempotency key check.', ts: Date.now() - 60_000, byAgent: true },
   ];
   session.send({ kind: 'ws_invite', ws: { id: DEMO_WS, name: 'payments', project: 'bob-api', branch: 'fix-webhooks' }, role: 'view', can: 'watch', share, history }, { to: host.peerId });
+  // And one you work in with him: a message there goes to his agent, so you can try sending into a friend's chat (BLG-152).
+  const work = 'ws-bob-refunds';
+  shares.upsert({ name: work, root: folder, writable: false, private: true, allowed: [host.peerId] });
+  session.store.dispatch({ type: 'member_set', id: DEMO_WORK_WS, peerId: host.peerId, role: 'contribute' });
+  session.send({ kind: 'ws_invite', ws: { id: DEMO_WORK_WS, name: 'refunds', project: 'bob-api', branch: 'partial-refunds' }, role: 'contribute', share: work, history: [] }, { to: host.peerId });
 }
 
 /** bob sends the room a screenshot (the way a pasted image goes out), so the demo shows images in the chat. */
@@ -232,8 +256,11 @@ function demoRepo(base: string, name: string, files: Record<string, string>): st
 
 /** Two sample projects with worktrees in different states, plus saved conversations. */
 export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
+  // Its git must never reach a repository git pointed this process at (git-env.ts): `git init --bare` there made it bare.
+  dropGitLocalEnv();
   const base = mkdtempSync(path.join(os.tmpdir(), 'beluga-demo-projects-'));
   demoRepo(base, 'bob-api', BOB_FILES);
+  seedBobPulls(path.join(base, 'remotes', 'bob-api.git'), base);
   const landingDir = demoRepo(base, 'landing', YOUR_FILES);
   // History with several people and merged branches, and a teammate's push you haven't pulled yet.
   seedLandingHistory(landingDir, path.join(base, 'remotes', 'landing.git'), base);
@@ -251,6 +278,8 @@ export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
     writeTree(auth.path, { 'src/server.ts': DEMO_SERVER_WITH_AUTH });
     gitIn(auth.path, 'add', '.');
     gitIn(auth.path, 'commit', '-m', 'Protect payments routes');
+    // On GitHub already, as a branch with a pull request is: its PR's checks are for what's here.
+    gitIn(auth.path, 'push', '-q', 'origin', 'HEAD');
     const tests = await mgr.createWorktree(api.id, 'webhook-retries');
     writeTree(tests.path, { 'src/webhooks.ts': '// retry with backoff\nexport const MAX_RETRIES = 5;\n' });
     // The demo plan's two tasks in progress, each in its own worktree (the sidebar shows the plan instead).
@@ -261,6 +290,17 @@ export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
     const checkoutHooks = await mgr.createWorktree(api.id, 'checkout-events');
     writeTree(checkoutHooks.path, { 'src/webhooks.ts': '// handle each event once\nexport const MAX_RETRIES = 5;\n' });
     await mgr.createChat(api.id, 'How do deploys work?');
+    // BELUGA_DEMO_SCENE=external (BLG-121): a chat an external agent started, with its label on the message.
+    if (belugaEnv('DEMO_SCENE') === 'external') {
+      const driven = await mgr.createWorktree(api.id, 'fix-rate-limit');
+      const via = { id: 'demo0grokbot', name: 'GrokBot', creationSource: 'mcp' as const };
+      mgr.setStartedBy(driven.id, { id: via.id, name: via.name });
+      const line = (id: string, from: string, name: string, text: string, ts: number) => ({ id, type: 'chat', channel: `ws:${driven.id}`, from, name, text, ts, byAgent: false, via });
+      store.saveHistory(driven.id, [
+        line('demo-via-1', 'bob-demo-peer', 'kay', 'On a friend\'s Beluga, a message of an external agent says so too.', Date.now() - 120_000),
+        line('demo-via-2', 'self', 'you', 'Find why the rate limit test fails on CI and fix it.', Date.now() - 60_000),
+      ]);
+    }
     // Worktrees Claude Code sub-agents leave behind (listed after the project's own worktrees).
     for (const id of ['a3f9c1e07b2d', 'a8b24d6e91c0']) gitIn(api.root, 'worktree', 'add', '-q', '-b', `agent-${id}`, path.join(api.root, '.claude', 'worktrees', `agent-${id}`));
   }
@@ -272,7 +312,18 @@ export async function createDemoWorkspaces(): Promise<WorkspaceManager> {
       'README.md': '# Landing page\n\nMarketing site for the launch. Built with Astro.\n\n## Develop\n\n- `npm run dev` to preview\n- Copy lives in `content/`\n- The brand brief is in `docs/brand-brief.pdf`\n\n| Page | Status |\n| --- | --- |\n| Hero | **new** |\n| Pricing | draft |\n',
       'public/hero-shot.png': demoScreenshot(),
       'docs/brand-brief.pdf': demoPdf(),
+      // A component for live previews (Settings › Experimental), drawn with the Mac app's own React.
+      'src/components/Hero.tsx': DEMO_HERO_TSX,
+      'src/components/hero.css': DEMO_HERO_CSS,
+      'src/components/Badges.tsx': DEMO_BADGES_TSX,
+      'src/components/PriceTag.tsx': DEMO_PRICE_TAG_TSX,
     });
+    const react = path.resolve(import.meta.dirname, '../packages/mac/node_modules');
+    if (existsSync(path.join(react, 'react-dom'))) {
+      symlinkSync(react, path.join(hero.path, 'node_modules'));
+      // Installed packages aren't a change: the Changes tab leaves them out, as a project's .gitignore would.
+      writeFileSync(path.join(landingDir, '.git', 'info', 'exclude'), 'node_modules\n', { flag: 'a' });
+    }
   }
   await mgr.refresh();
   seedDemoUsage(mgr);

@@ -1,9 +1,12 @@
+import type { ChatRef } from '../shared/chat-ref.js';
 import type { ChatAnswerRequest } from '../core/chat/claude-prompt.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from './setup-fixer.js';
 import type { DraftContext, TaskDraft } from './task-drafter.js';
 import type { AgentRef, ClaudeAnswer, ClaudeQuestion, FsEntry, PeerInfo, Usage } from '../protocol.js';
 import type { UsageUpdate } from './usage.js';
+import type { Effort } from '../shared/settings-schema.js';
 import type { StepRecord } from '../shared/steps.js';
+import type { ArgsRuntime } from '../shared/agent-args.js';
 
 /** How far a request may reach on the owner's computer. */
 export type AccessScope = 'folder' | 'full';
@@ -16,6 +19,11 @@ export interface AgentRunInput {
   readonly promptId?: string;
   readonly requesterName: string;
   readonly viaAgent: boolean;
+  /**
+   * Only for a run you asked for yourself on this computer: the words you typed, without what
+   * Beluga adds to the prompt. Usage statistics send it at level On, masked; nothing else reads it.
+   */
+  readonly ownWords?: string;
   readonly context: readonly string[];
   /** 'folder': only the shared folders. 'full': the whole computer (secrets still blocked). */
   readonly scope: AccessScope;
@@ -28,6 +36,8 @@ export interface AgentRunInput {
   readonly onAnswered?: (text: string) => void;
   /** Asked by a guest invited into one project: the room tools (other people, their files, the room chat) are off. */
   readonly guest?: boolean;
+  /** A friend's run with the board (BLG-701): which board tools ask you first ('writes': changes; 'all': every one). */
+  readonly boardAsks?: 'writes' | 'all';
   readonly signal: AbortSignal;
   readonly onEvent: (kind: 'text' | 'tool' | 'progress' | 'sub' | 'context' | 'compact' | 'usage', text: string) => void;
   /**
@@ -44,10 +54,14 @@ export interface AgentRunInput {
   readonly env?: Readonly<Record<string, string>>;
   /** Your own runs: your own MCP servers from Claude Code (agent/owner-mcp.ts); never a friend's or a guest's. */
   readonly ownerMcp?: boolean;
+  /** Claude in Chrome (agent/chrome.ts): as usual on a run you typed, asking you on any other. Unset: no Chrome (a guest's run). */
+  readonly chrome?: import('./chrome.js').ChromeAccess;
   /** Auto-compact threshold (percent) for Claude Code's own compaction; unset: auto-compact is off. */
   readonly autoCompactAt?: number;
   /** A folder (relative to the run's folder, git-ignored) for screenshots and scratch output; the owner watches it live. */
   readonly scratchDir?: string;
+  /** This chat's address: the run learns the chat chip (view-prompt.ts). */
+  readonly chatLink?: ChatRef;
   /** Where to run: a workspace folder with its own Claude conversation. Defaults to the room's folder. */
   readonly place?: AgentPlace;
   /** The conversation this run answers in: its room tools (send_chat, asks) post there. */
@@ -61,11 +75,23 @@ export interface AgentRunInput {
   readonly vetTool?: (toolName: string, input: Record<string, unknown>) => string | undefined;
   /** Ask the owner whether a non-preapproved tool may run. */
   readonly canUseTool: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
+  /** An external agent asked for this run, and it is your own run: never a friend's limits or a friend's sandbox. */
+  readonly asOwner?: boolean;
+  /**
+   * A run an external agent asked for: these tools ask you even where Beluga's policy would allow
+   * them (its level decides which). Set only for such a run, which `askBeforeCommands` then also covers.
+   */
+  readonly asksFirst?: (toolName: string) => boolean;
   /**
    * Your own run, with "My agent asks before commands" on (Settings' selfApproval 'ask'): a runtime
    * that runs commands without asking Beluga first (Codex) asks for each one instead.
    */
   readonly askBeforeCommands?: boolean;
+  /**
+   * Your own run: your flags for the agent's command line, by runtime (Settings › Agents › Launch
+   * flags; shared/agent-args.ts). Never set on a friend's or a guest's run.
+   */
+  readonly launchArgs?: Readonly<Partial<Record<ArgsRuntime, readonly string[]>>>;
   /**
    * Your own Claude wants a .env file (policy.ts 'secret'): ask you, even when nothing else would.
    * Without it (a friend's request, a task from outside) .env files are refused like every secret.
@@ -112,14 +138,26 @@ export interface AgentRunInput {
   /** "Your Mac" (core/assistant): its tools (the screen, device info, starting work) and what Claude is told it is. */
   readonly macTools?: MacTools;
   readonly macBrief?: string;
+  /** Asked in a friend's worktree (your "@claude" there): whose it is and how to read it from here. */
+  readonly sharedBrief?: string;
   /** Your phone (core/phone): tools to act on your own paired phone, and what Claude is told about it. */
   readonly phoneTools?: PhoneTools;
   readonly phoneBrief?: string;
+  /** Live previews are on (Settings › Experimental): what Claude is told about showing them. */
+  readonly previewBrief?: string;
   /** Your own runs: sentinels (core/sentinel), and what Claude is told (a sentinel run's brief, or a short note). */
   readonly sentinelTools?: SentinelTools;
   readonly sentinelBrief?: string;
   /** Your own runs: dashboards and the numbers sentinels keep (server `beluga_dashboard`; sentinel_measure inside a run). */
   readonly dashboardTools?: DashboardTools;
+  /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */
+  readonly callNotesTools?: CallNotesTools;
+  /** Your own runs: your MCP servers, and signing in to one from the chat (core/mcp-sign-in.ts). */
+  readonly mcpTools?: McpTools;
+  /** Your own runs: find and read other chats (core/chat-links); never a friend's or a guest's. */
+  readonly chatTools?: ChatTools;
+  /** Your own runs, when you turned agent threads on: tools to start and follow child threads (core/threads), bound to this run's chat. */
+  readonly threadTools?: ThreadTools;
   /** A turn of a chaired dialogue (core/dialogues): its brief and end_dialogue tool. */
   readonly dialogue?: import('./dialogue-tools.js').DialogueTurnTools;
 }
@@ -161,6 +199,10 @@ export interface SentinelTools {
   update(ref: string, patch: import('../core/sentinel/tool-draft.js').ToolPatch): string | Promise<string>;
   /** Delete it (through your approval: never in ALWAYS_OK). */
   remove(ref: string): string;
+  /** Its runs, newest first: id, when, how it ended, its line, whether its agent's chat is kept (BLG-577). */
+  runs(ref: string): string;
+  /** Delete some of its runs' chats, or the runs themselves (through your approval, always) → what was done. */
+  deleteRuns(ref: string, which: { readonly runs?: readonly string[]; readonly state?: string; readonly before?: string }, what: 'chat' | 'run'): Promise<string>;
   /** This conversation changes that sentinel (sentinel.ask): its id. */
   readonly asking?: string;
 }
@@ -213,6 +255,8 @@ export interface PlanTools {
   write(body: import('../core/plans/edit.js').BodyInput): string;
   update(ops: readonly import('../core/plans/edit.js').PlanOp[], reason?: string): string;
   gate(milestone: string, verdict: 'pass' | 'fail', notes: string): string;
+  /** The draft's reviewer records what it found (see core/plans/draft-review.ts). */
+  review?(findings: readonly import('../core/plans/model.js').ReviewFinding[]): string;
   start(task: string): Promise<string>;
   /** `queue` (default): read when its current turn ends. `steer`: now, interrupting a long command or a dead run. */
   message(task: string, text: string, mode?: 'queue' | 'steer'): string;
@@ -224,6 +268,25 @@ export interface PlanTools {
   open?(): string;
   /** chatPlans: close this chat's current plan (kept, read-only). */
   close?(): string;
+}
+
+/** Child threads as an agent's tools (agent/thread-tools.ts, server `beluga_threads`). Bound to the calling chat: no argument names it. */
+export interface ThreadTools {
+  start(input: ThreadStartInput): Promise<string>;
+  status(input: { readonly id?: string; readonly waitSec?: number }): Promise<string>;
+  message(input: { readonly id: string; readonly text: string; readonly mode?: 'queue' | 'steer' }): string;
+  stop(input: { readonly id: string; readonly reason?: string }): string;
+}
+
+export interface ThreadStartInput {
+  readonly task: string;
+  readonly title?: string;
+  readonly agent?: { readonly runtime: string; readonly model?: string; readonly effort?: Effort };
+  readonly project?: string;
+  readonly where?: 'worktree' | 'read';
+  readonly base?: string;
+  readonly plan?: boolean;
+  readonly key?: string;
 }
 
 /**
@@ -257,6 +320,8 @@ export interface BoardTools {
     /** Only the user sees it (BLG-501). */
     readonly private?: boolean;
   }): string;
+  /** Start a task (as the app's Start): a worktree of its own, in the repo it runs in, with your agent working it. Your own runs only. */
+  start(key: string): Promise<string>;
   /** A board of its own covering a few repos (their names); its key prefix made from its name unless given. */
   createBoard(input: { readonly name: string; readonly repos: readonly string[]; readonly prefix?: string }): string;
   update(
@@ -407,6 +472,12 @@ export interface Steer {
    * when Claude read it already, or the run couldn't be interrupted.
    */
   readonly force?: (followUp: FollowUp, note: string) => Promise<boolean>;
+  /**
+   * Take back a message already steered in (this steer took it) that Claude hasn't read yet: it
+   * leaves Claude Code's queue and is never read nor answered. Resolves false when Claude read it
+   * already (or is reading it); rejects when the agent can't take messages back.
+   */
+  readonly cancel?: (followUp: FollowUp) => Promise<boolean>;
 }
 
 export interface AgentPlace {
@@ -425,7 +496,8 @@ export interface AgentPlace {
   /** The thinking effort picked for this conversation (unset: Settings'). */
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** A project's main folder: questions only, nothing may change (see policy.ts). */
-  readonly askOnly?: { readonly project: string };
+  /** `stays`: a read-only thread (core/threads) stays read-only: it cannot move itself into a worktree. */
+  readonly askOnly?: { readonly project: string; readonly stays?: boolean };
   /** With askOnly, for one run: Claude brings the default branch up to date (git syncing only; see sync-main.ts). */
   readonly syncMain?: { readonly branch: string; readonly upstream: string };
   /** With askOnly: a hidden worktree Claude may edit to fix a conflict there (see policy.ts). */
@@ -437,6 +509,20 @@ export interface AgentPlace {
   readonly alsoEdit?: readonly string[];
   /** Continue After Merge: this worktree's earlier work went out in this pull request, merged into `into`. */
   readonly shipped?: { readonly number: number; readonly url?: string; readonly into: string };
+  /** Its pull request is open (BLG-840): the run pushes its commits there (see prompt.ts buildCommitAppend). */
+  readonly openPr?: OpenPr;
+}
+
+/** A worktree's open pull request, for its run's commit rules (BLG-840). */
+export interface OpenPr {
+  readonly number: number;
+  readonly url?: string;
+  /** The branch it's from: what to push. */
+  readonly branch: string;
+  /** Push to it at the end of a turn that committed (Settings › Workspaces, on by default). */
+  readonly push: boolean;
+  /** Someone's fork's pull request, checked out here (BLG-756): nothing here can push to it. */
+  readonly fork?: boolean;
 }
 
 export interface SubAgentEvent {
@@ -485,6 +571,8 @@ export interface AgentBackend {
   nameTask?(prompt: string): Promise<string>;
   /** A short name for a new plan from its goal (a small model names it; undefined when it couldn't). */
   titlePlan?(goal: string): Promise<string | undefined>;
+  /** A title from recent chat content. The call does not use the chat session. */
+  titleChat?(content: string): Promise<string | undefined>;
   /** Answer in a friends' chat from its history (one turn, no tools; core/chat/claude.ts). */
   answerChat?(req: ChatAnswerRequest): Promise<string>;
   /** A side question about a conversation (/btw): a fork of its session, no tools, nothing kept (agent/btw.ts). */
@@ -494,7 +582,7 @@ export interface AgentBackend {
   /** What a project's run command should be after `failed` failed in `dir` (a model looks). */
   fixRun?(dir: string, failed: string, output: string): Promise<ScriptFix | undefined>;
   /** A project's setup and/or run command, worked out from its files in `dir` (a model looks). */
-  workOutScripts?(dir: string, want: { setup: boolean; run: boolean }): Promise<WorkedOutScripts | undefined>;
+  workOutScripts?(dir: string, want: { setup: boolean; run: boolean; system?: string }): Promise<WorkedOutScripts | undefined>;
   /** A task written from a description: title, goal, criteria, labels from the board's own (Sonnet). */
   draftTask?(text: string, ctx: DraftContext): Promise<TaskDraft | undefined>;
   /** What a project is about, from a quick read-only look at its folder (About This Project, BLG-298). */
@@ -512,6 +600,16 @@ export interface AgentBackend {
   mcpSignIn?(projects: readonly string[], name: string, runtime?: string): Promise<import('../shared/mcp.js').McpSignIn>;
   /** Waits for that sign-in: true once connected, false when it gave up, undefined when none is waiting. */
   mcpSignedIn?(name: string, runtime?: string): Promise<boolean | undefined>;
+  /** MCP Apps: one `ui://` resource of one of your servers (its HTML and the content item's `_meta`), read with no model turn. */
+  mcpReadUiResource?(projects: readonly string[], server: string, uri: string): Promise<{ readonly html: string; readonly meta?: Record<string, unknown> }>;
+  /** MCP Apps: one server's tools now (annotations and `_meta`), for the app tool gate. */
+  mcpAppTools?(projects: readonly string[], server: string): Promise<readonly import('../mcp-apps/ports/tool-catalog.js').CatalogTool[]>;
+  /** MCP Apps: an app's tools/call (already gated), its result for the app, never a model. */
+  mcpAppCall?(projects: readonly string[], server: string, tool: string, args: Readonly<Record<string, unknown>>): Promise<import('../shared/mcp-apps.js').AppToolResult>;
+  /** MCP Apps: an app's resources/read of a `ui://` resource. */
+  mcpAppRead?(projects: readonly string[], server: string, uri: string): Promise<import('../shared/mcp-apps.js').AppReadResult>;
+  /** A sign-in to it is waiting for the browser now (started from Settings, the MCP chip or a run's mcp_sign_in). */
+  mcpSigningIn?(name: string, runtime?: string): boolean;
   /** Turn one on or off where its agent keeps it (Codex: config.toml). Only rows with canTurnOff. */
   mcpSetEnabled?(projects: readonly string[], name: string, enabled: boolean, runtime?: string): Promise<import('../shared/mcp.js').McpTurned>;
 }
@@ -554,4 +652,42 @@ export interface RoomBridge {
   readonly gateway?: import('./gateway-tools.js').GatewayBridge;
   /** The same tools bound to one conversation (a run's: chat, asks and their answers go there). */
   inChannel?(channel: string): RoomBridge;
+}
+
+/** Your MCP servers as tools (core/mcp-sign-in.ts): each answers in words an agent reads. */
+export interface McpTools {
+  /** Each server, how it is, and how to sign in to it. */
+  servers(): Promise<string>;
+  /** Sign in to one (by name or label): its page opens in your browser, and this waits a while for it. */
+  signIn(name: string): Promise<{ readonly ok: boolean; readonly text: string }>;
+}
+
+/** Call notes as tools (core/calls/notes-tools.ts): each answers in words an agent reads. */
+export interface CallNotesTools {
+  /** The calls with notes, newest first. */
+  list(limit?: number): string;
+  /** Where something was said: the call, the time into it, who, and the words around it. */
+  search(query: string, call?: string, limit?: number): string;
+  /** A page of one call, from a turn (`from`) or a time into it (`at`: "12:30", or minutes). */
+  read(call: string, opts?: { readonly from?: number; readonly at?: string | number; readonly limit?: number }): string;
+}
+
+/** Other chats, as a run finds and reads them (core/chat-links/transcript.ts). A refusal throws, and its message starts with the refusal code. */
+/** The chain a run is in. Beluga sets it, and no tool argument can change it (core/agent-host.ts). */
+export interface ChatChain {
+  readonly chainId: string;
+  readonly hop: number;
+}
+
+export interface ChatTools {
+  /** The chain of this run now. */
+  chain(): ChatChain;
+  /** Deliver a message to a chat. Its answer is a receipt, or it throws with a refusal code. */
+  send(ref: string, text: string, opts: { readonly mode?: 'queue' | 'steer'; readonly reply?: 'none' | 'wanted'; readonly requestId?: string }): Promise<string>;
+  /** The final answer of the run that read a message this chat sent, or its state at the timeout. */
+  wait(messageId: string, timeoutSec?: number): Promise<string>;
+  /** The chats this run may read, newest activity first. */
+  list(opts: { readonly query?: string; readonly state?: 'idle' | 'working' | 'archived'; readonly limit?: number }): string;
+  /** A page of one chat, oldest first. `after` is the `next` position of the page before. */
+  read(ref: string, opts: { readonly view?: 'messages' | 'activity'; readonly after?: string; readonly limit?: number }): string;
 }

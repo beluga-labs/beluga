@@ -119,6 +119,18 @@ html[data-app='tauri'][data-transparency='reduce'] body {
   background: var(--bg-sidebar-solid);
 }
 
+/*
+ * Low Power mode (BLG-621, lib/power.ts): no blur inside the window (what blurs is nearly opaque
+ * already), and a looping animation plays once, then rests (one-shot ones, and their ends, as before).
+ */
+html[data-power='save'] *,
+html[data-power='save'] *::before,
+html[data-power='save'] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-iteration-count: 1 !important;
+}
+
 /* Find in this conversation (⌘F): every match, and the one you're on. */
 ::highlight(beluga-find) {
   background-color: color-mix(in srgb, #ffd60a 45%, transparent);
@@ -135,4 +147,15 @@ html[data-window='idle'] *,
 html[data-window='idle'] *::before,
 html[data-window='idle'] *::after {
   animation-play-state: paused !important;
+}
+
+/*
+ * A closed menu, dropdown, popover or tooltip leaves the page at once (#505). Radix's Popper holds
+ * its animation off until it's placed, so Radix's Presence first reads "no animation" and learns
+ * the real one only from `animationstart`. Windows' web view can leave that out: on close Presence
+ * took the opening animation for an exit one and waited for an `animationend` that never came, so
+ * every closed menu stayed on screen, live and clickable. No animation once closed: it unmounts.
+ */
+[data-radix-popper-content-wrapper] > [data-state='closed'] {
+  animation: none !important;
 }

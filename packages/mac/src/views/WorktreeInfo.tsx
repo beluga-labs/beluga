@@ -1,3 +1,4 @@
+import { baseName } from '@beluga/shared/os-path.js';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { AgentOrigin } from '@beluga/core/claude-code/model.js';
 import type { WorktreeInfo } from '@beluga/core/other-worktrees.js';
@@ -8,10 +9,13 @@ import { Alert } from '../components/Alert.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { Button, Tip } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
-import { toast, useApi, useApp, useBeluga } from '../lib/beluga.js';
+import { toast, useApi, useApp, useBeluga, useMachine } from '../lib/beluga.js';
+import { showWorktreeFolder } from '../lib/remote-open.js';
+import { revealThereLabel } from '@beluga/machines/open.js';
 import { setWorktreeFlag, useWorktreeInfo } from './worktree-info-state.js';
 import s from './worktree-info.module.css';
 import { LivePanel } from '../claude-code/Live.js';
+import { openFolderLabel } from '../lib/os-words.js';
 
 /**
  * What a worktree made outside Beluga is (another app's, Claude Code's, a script's): where it
@@ -150,6 +154,8 @@ export function WorktreeInfoPage({ ws, agent, origin }: { ws: Workspace; agent?:
   const actions = useActions();
   const api = useApi();
   const { client } = useBeluga();
+  // On a computer's page, its folder's path is copied instead (BLG-794).
+  const machine = useMachine();
   const statusKey = `${ws.status?.changed ?? '-'}:${ws.status?.ahead ?? '-'}:${ws.status?.behind ?? '-'}:${ws.branch ?? ''}`;
   const { info, loading, error } = useWorktreeInfo(ws.id, statusKey);
   const hasChat = useApp((st) => st.log.some((l) => l.channel === `ws:${ws.id}`));
@@ -170,7 +176,7 @@ export function WorktreeInfoPage({ ws, agent, origin }: { ws: Workspace; agent?:
           </span>
           <div className={s.headText}>
             <h1 className={s.title}>{origin?.description ?? ws.name}</h1>
-            <p className={s.origin}>{origin ? `Sub-agent · started by “${origin.sessionTitle ?? 'a Claude Code session'}”${origin.sessionCwd ? ` in ${origin.sessionCwd.split('/').at(-1)}` : ''}` : (info?.origin.label ?? MADE_OUTSIDE)}</p>
+            <p className={s.origin}>{origin ? `Sub-agent · started by “${origin.sessionTitle ?? 'a Claude Code session'}”${origin.sessionCwd ? ` in ${baseName(origin.sessionCwd)}` : ''}` : (info?.origin.label ?? MADE_OUTSIDE)}</p>
           </div>
           {hasChat ? (
             <Button size="small" variant="quiet" icon="back" onClick={() => setWorktreeFlag('about', ws.id, false)}>
@@ -198,8 +204,8 @@ export function WorktreeInfoPage({ ws, agent, origin }: { ws: Workspace; agent?:
             </Button>
           ) : null}
           {!info?.missing ? (
-            <Button icon="folder" onClick={() => void api.workspaces.openInFinder(ws.id)}>
-              Open in Finder
+            <Button icon="folder" onClick={() => void showWorktreeFolder(client, ws.id)}>
+              {machine ? revealThereLabel('folder') : openFolderLabel()}
             </Button>
           ) : null}
           {!info?.missing ? (

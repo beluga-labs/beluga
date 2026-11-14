@@ -188,6 +188,7 @@ pub async fn notification_access() -> Access {
 }
 
 /// Which System Settings pane to open: Beluga's notifications, or Focus.
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn settings_url(pane: &str, id: &str) -> Result<String, String> {
     match pane {
         "notifications" => Ok(format!(
@@ -198,12 +199,30 @@ fn settings_url(pane: &str, id: &str) -> Result<String, String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn open_settings(pane: &str, id: &str) -> Result<(), String> {
     std::process::Command::new("/usr/bin/open")
         .arg(settings_url(pane, id)?)
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Couldn't open System Settings: {e}"))
+}
+
+/// Windows: Settings › System › Notifications (Focus is on the same page there).
+#[cfg(windows)]
+fn open_settings(pane: &str, id: &str) -> Result<(), String> {
+    settings_url(pane, id)?;
+    std::process::Command::new("explorer")
+        .arg("ms-settings:notifications")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't open Settings: {e}"))
+}
+
+/// Linux desktops each keep their own notification settings: nothing to open for all of them.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn open_settings(_pane: &str, _id: &str) -> Result<(), String> {
+    Err("Open your desktop’s notification settings to allow Beluga".to_string())
 }
 
 /// Open System Settings › Notifications (at Beluga, where macOS supports that).

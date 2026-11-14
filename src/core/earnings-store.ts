@@ -12,7 +12,7 @@ export interface MoneyTotal {
   readonly amount: number;
 }
 
-export type EarningsErrorCode = 'revoked' | 'permission' | 'offline' | 'rate_limited' | 'stripe' | 'unknown';
+export type EarningsErrorCode = 'revoked' | 'permission' | 'offline' | 'rate_limited' | 'stripe' | 'revenuecat' | 'unknown';
 
 export interface EarningsError {
   readonly code: EarningsErrorCode;
@@ -88,6 +88,8 @@ export interface ProjectEarnings {
   readonly connected: true;
   /** The Stripe account's display name (when the key may read it). */
   readonly account?: string;
+  /** The Stripe account's id (acct_…), when the key may read it: lets RevenueCat tell what Stripe already counts. */
+  readonly accountId?: string;
   /** Test-mode or live key. */
   readonly mode: 'test' | 'live';
   /** A full secret key (sk_) rather than a restricted one (rk_): it works, but could do far more than read. */
@@ -198,7 +200,7 @@ export function convertTotals(totals: readonly MoneyTotal[], into: string, fx: F
  * The currency totals are shown in: the one the most money was earned in (converted to compare),
  * dollars when nothing is connected.
  */
-export function mainCurrency(earnings: Readonly<Record<string, ProjectEarnings>>, fx: FxRates | undefined): string {
+export function mainCurrency(earnings: Readonly<Record<string, { readonly totals?: readonly MoneyTotal[] }>>, fx: FxRates | undefined): string {
   const usd = new Map<string, number>();
   for (const e of Object.values(earnings)) {
     for (const t of e.totals ?? []) usd.set(t.currency, (usd.get(t.currency) ?? 0) + (convertTotals([t], 'usd', fx) ?? 0));
@@ -216,7 +218,7 @@ export const CURRENCY_CODE = /^[a-z]{3}$/;
  * The currency earnings are shown in: the one you chose ("Show earnings in"), else the one the
  * most money was earned in.
  */
-export function earningsCurrency(chosen: string | undefined, earnings: Readonly<Record<string, ProjectEarnings>>, fx: FxRates | undefined): string {
+export function earningsCurrency(chosen: string | undefined, earnings: Readonly<Record<string, { readonly totals?: readonly MoneyTotal[] }>>, fx: FxRates | undefined): string {
   return chosen && CURRENCY_CODE.test(chosen) ? chosen : mainCurrency(earnings, fx);
 }
 

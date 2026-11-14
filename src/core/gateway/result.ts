@@ -159,8 +159,11 @@ export async function readResultFiles(paths: readonly string[], opts: { roots: r
   return { files, skipped };
 }
 
-/** Text that can't close the block it's put in. */
-const fenced = (text: string): string => text.replace(/<\/?task_(?:result|question)/gi, (m) => m.replace('<', '‹'));
+/**
+ * Text that can't close the block it's put in: spaces or invisible characters (format characters,
+ * \p{Cf}) inside the tag don't help. One character class up to the name keeps it linear.
+ */
+export const fenced = (text: string): string => text.replace(/<[\s\p{Cf}/]*(?:task_(?:result|question)|chat_data)/giu, (m) => m.replace('<', '‹'));
 
 /**
  * A result as your Claude sees it: clearly marked as data from that person's Mac, to be used
@@ -219,7 +222,7 @@ export function questionPrompt(task: TaskView): string {
 }
 
 /** The prompt that starts a new turn when a result arrives after your Claude's turn ended. */
-export function resumePrompt(task: TaskView): string {
-  const who = task.kind === 'run' ? `The command you ran on ${task.peerName}'s Mac finished` : task.kind === 'file' ? `${task.peerName}'s Mac answered your file request` : `${task.peerName}'s agent replied`;
+export function resumePrompt(task: TaskView, endedHere = false): string {
+  const who = endedHere ? `Your request to ${task.peerName} ended without an answer` : task.kind === 'run' ? `The command you ran on ${task.peerName}'s Mac finished` : task.kind === 'file' ? `${task.peerName}'s Mac answered your file request` : `${task.peerName}'s agent replied`;
   return [`[beluga] ${who} (task ${task.id}, which you sent earlier in this conversation: "${oneLine(task.ask, 200)}").`, '', describeForClaude(task), '', "Continue where you left off with this information. Don't send the same ask again: if it didn't work, or was stopped or declined, tell your user what happened and let them decide. Ask again only for something new."].join('\n');
 }

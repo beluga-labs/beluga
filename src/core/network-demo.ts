@@ -13,6 +13,9 @@ import type { Store } from './store.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import { DEMO_AGENTS } from './demo-agents.js';
 import { belugaEnv } from './beluga-env.js';
+import { SHARE_FEATURES } from '../net/mesh/features.js';
+import { demoCallers } from './calls/demo.js';
+import { startDemoBoard } from './leaderboard/demo.js';
 
 const CHECKLIST = `# Friday release
 
@@ -61,12 +64,14 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
   const where = { bootstrap: testnet.bootstrap, host: '127.0.0.1' };
   const friend = (n: string): Promise<Mesh> => Mesh.start({ identity: generateIdentity(), name: n, dir: path.join(base, n), ...where });
   const [bob, mia] = await Promise.all([friend('bob'), friend('mia')]);
+  // Their Macs say they open shared projects and worktrees, so the Share sheets can share with them.
+  for (const m of [bob, mia]) m.offer(SHARE_FEATURES, true);
   const me = await startNetwork({ store, identity: generateIdentity(), name, dir: path.join(base, 'me'), ...where });
   const meId = me.mesh.peerId;
   await me.mesh.accept((await bob.createInvite()).link);
   await me.mesh.accept((await mia.createInvite()).link);
   await mia.accept((await bob.createInvite()).code);
-  mia.setPresence({ state: 'away', note: 'in a meeting' });
+  mia.setPresence({ state: 'away', note: 'in a meeting', emoji: '📅' });
   // mia has a profile picture (her card's avatar opens it large); bob keeps his initial.
   mia.setAvatar(demoPortrait());
   let stopped = false;
@@ -74,7 +79,8 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
   // bob answers with Claude (Opus), mia with Codex: the chat shows whose agent said what.
   const chats = { bob: demoChat(bob, path.join(base, 'bob'), pace, defaultAgentOf(DEMO_AGENTS.bob)), mia: demoChat(mia, path.join(base, 'mia'), pace, defaultAgentOf(DEMO_AGENTS.mia)) };
   const group = bob.createGroup('launch', [meId, mia.peerId]);
-  bob.sendGroup(group.id, 'Morning! Staging is green, ready when you are.');
+  const morning = bob.sendGroup(group.id, 'Morning! Staging is green, ready when you are.');
+  const launch = groupConversation(group.id);
   // bob shares the checklist and a screenshot: they come straight from his Mac.
   void (async () => {
     writeFileSync(path.join(base, 'release-checklist.md'), CHECKLIST);
@@ -84,9 +90,13 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
   })().catch(() => undefined);
   bob.sendDm(meId, 'Could you look at the deploy script later?');
   // mia writes once the group has reached her (in the background: the demo doesn't wait).
-  void until(() => mia.summary().groups.some((g) => g.id === group.id && g.active)).then((ok) => {
-    if (ok && !stopped) mia.sendGroup(group.id, 'Copy for the landing page is in. Can someone review?');
-  });
+  void until(() => mia.summary().groups.some((g) => g.id === group.id && g.active)).then(async (ok) => {
+    if (!ok || stopped) return;
+    const copy = mia.sendGroup(group.id, 'Copy for the landing page is in. Can someone review?');
+    // Reactions (BLG-702): mia cheers bob's morning note, and bob has a look at her copy.
+    if (await until(() => mia.conversation(launch).some((m) => m.id === morning.id)) && !stopped) mia.react(launch, morning.id, '🎉');
+    if (await until(() => bob.conversation(launch).some((m) => m.id === copy.id)) && !stopped) bob.react(launch, copy.id, '👀');
+  }).catch(() => undefined);
 
   // Their Claudes answer your Claude's tasks (core/gateway/demo.ts). You trust bob; mia asks you each time.
   const responders = { bob: demoResponder(bob, 'bob', meId, base), mia: demoResponder(mia, 'mia', meId, base) };
@@ -123,6 +133,20 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
     })().catch(() => undefined);
   }
 
+  // The leaderboard (BLG-904): bob writes and merges more than you, mia less, and her agents run long.
+  const boards = [startDemoBoard(bob, { chars: 9_000, prs: 0.7, hours: 4.5, seed: 3 }), startDemoBoard(mia, { chars: 2_600, prs: 0.25, hours: 6, seed: 11 })];
+
+  // Calls (BLG-706): bob and mia pick up when you call; BELUGA_DEMO_SCENE=call has bob ring you in #launch.
+  const callers = demoCallers([bob, mia], pace);
+  if (belugaEnv('DEMO_SCENE') === 'call') {
+    void until(() => me.mesh.summary().groups.some((g) => g.id === group.id && g.active) && mia.summary().groups.some((g) => g.id === group.id && g.active)).then((ok) => {
+      if (!ok || stopped) return;
+      setTimeout(() => !stopped && callers.ring(bob, launch), 2500 * pace).unref();
+      // bob's camera is on, as he would have it; mia keeps hers off.
+      setTimeout(() => !stopped && callers.set(bob, launch, { camera: true }), 3500 * pace).unref();
+    });
+  }
+
   // BELUGA_DEMO_SCENE=team (BLG-417): bob teams up on bob-api, works on a task and knocks on your worktree.
   let stopTeam: (() => void) | undefined;
   if (belugaEnv('DEMO_SCENE') === 'team') void import('./team/demo.js').then(async (m) => (stopTeam = await m.startDemoTeam(bob, meId, path.join(base, 'bob')))).catch(() => undefined);
@@ -147,6 +171,8 @@ export async function startDemoNetwork(store: Store, name: string): Promise<Netw
     stop: async () => {
       stopped = true;
       stopTeam?.();
+      for (const off of boards) off();
+      callers.stop();
       for (const c of Object.values(chats)) {
         c.claude.stop();
         c.files.stop();

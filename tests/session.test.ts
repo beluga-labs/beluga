@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,7 +6,7 @@ import type { AgentBackend, AgentRunInput, RoomBridge } from '../src/agent/types
 import { Session } from '../src/core/session.js';
 import { STEERED_IN } from '../src/shared/claude-notices.js';
 import { ShareService } from '../src/core/shares.js';
-import { Store, initialState, type DomainState, type Policy } from '../src/core/store.js';
+import { Store, fileKey, initialState, type DomainState, type Policy } from '../src/core/store.js';
 import { deriveKeys, generateSecret } from '../src/net/crypto.js';
 import { startHub, type Hub } from '../src/net/hub.js';
 import { PeerClient } from '../src/net/peer-client.js';
@@ -339,6 +339,55 @@ describe('Session', () => {
     await expect(kay.session.files.readImageFile(at('../outside.png'))).rejects.toThrow(/traversal/);
     await expect(kay.session.files.readImageFile(at('missing.png'))).rejects.toThrow(/ENOENT/);
     await expect(kay.session.files.readImageFile({ owner: bob.session.selfId, share: 'nope', path: 'flow.svg' })).rejects.toThrow(/not shared with you/);
+  });
+
+  it('a picture whose file was deleted raises no toast: the screen shows a placeholder instead', async () => {
+    hub = await startHub({ keys });
+    const kay = peer('kay', { files: { 'shot.png': 'x' } });
+    await room(kay);
+    const at = { owner: kay.session.selfId, share: 'proj', path: 'gone.gif' };
+    await expect(kay.screen.api.files.version(at)).rejects.toThrow(/ENOENT/);
+    await expect(kay.screen.api.files.readImageFile(at)).rejects.toThrow(/ENOENT/);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(kay.toasts.filter((t) => t.includes('Something went wrong'))).toEqual([]);
+    // Any other failed call still says so.
+    await expect(kay.screen.api.session.localLocation(42 as unknown as string, false)).rejects.toThrow();
+    await waitFor(() => kay.toasts.some((t) => t.startsWith('Something went wrong')));
+  });
+
+  it('a picture a preview shows is watched: written again, its new time comes for the preview to read it again (BLG-670)', async () => {
+    hub = await startHub({ keys });
+    const kay = peer('kay');
+    const bob = peer('bob', { files: { 'fire.gif': 'GIF89a-light' } });
+    await room(kay, bob);
+    const at = { owner: bob.session.selfId, share: 'proj', path: 'fire.gif' };
+    expect((await kay.session.files.readImageFile(at)).bytes.toString('latin1')).toBe('GIF89a-light');
+    expect(kay.state().written[fileKey(at)]).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 300));
+    writeFileSync(path.join(bob.root, 'fire.gif'), 'GIF89a-dark');
+    await waitFor(() => kay.state().written[fileKey(at)] !== undefined, 5000);
+    expect((await kay.session.files.readImageFile(at)).bytes.toString('latin1')).toBe('GIF89a-dark');
+  });
+
+  it('tells which version of a picture is there (size and time, yours or a friend’s) without reading it (BLG-749)', async () => {
+    hub = await startHub({ keys });
+    const kay = peer('kay', { files: { 'shot.png': 'PNG-old' } });
+    const bob = peer('bob', { files: { 'flow.png': 'PNG-bob' } });
+    await room(kay, bob);
+    const mine = { owner: kay.session.selfId, share: 'proj', path: 'shot.png' };
+    const first = await kay.session.files.fileVersion(mine);
+    expect(first.size).toBe(7);
+    // Re-taken under the same name: the version moves, so a picture kept by it is read again.
+    writeFileSync(path.join(kay.root, 'shot.png'), 'PNG-newer');
+    utimesSync(path.join(kay.root, 'shot.png'), new Date(), new Date(first.mtime + 5000));
+    const second = await kay.session.files.fileVersion(mine);
+    expect(second.size).toBe(9);
+    expect(second.mtime).toBeGreaterThan(first.mtime);
+    // A friend's, from a listing of its folder; the same rules as reading it.
+    expect((await kay.session.files.fileVersion({ owner: bob.session.selfId, share: 'proj', path: 'flow.png' })).size).toBe(7);
+    await expect(kay.session.files.fileVersion({ owner: bob.session.selfId, share: 'proj', path: 'missing.png' })).rejects.toThrow(/ENOENT/);
+    await expect(kay.session.files.fileVersion({ ...mine, path: '../outside.png' })).rejects.toThrow(/traversal/);
+    await expect(kay.session.files.fileVersion({ owner: bob.session.selfId, share: 'nope', path: 'flow.png' })).rejects.toThrow(/not shared with you/);
   });
 
   it('reads a PDF for the Mac reader, and a file’s text without opening the viewer', async () => {

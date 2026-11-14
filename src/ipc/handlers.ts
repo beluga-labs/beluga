@@ -1,42 +1,63 @@
+import { git, tryGit } from '../workspaces/git.js';
+import { byYourHand } from '../core/by-hand.js';
+import { type WorktreeMover, worktreeMover } from '../core/worktree-move.js';
 import type { Session } from '../core/session.js';
 import { needFriendShares } from '../core/friend-share/launch.js';
 import { remoteScratch } from '../core/friend-share/scratch.js';
-import type { WorkspaceController } from '../core/workspace-controller.js';
+import type { AddResult, WorkspaceController } from '../core/workspace-controller.js';
 import type { Workbench } from '../core/workbench.js';
-import { listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
+import { browseDir, listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
 import { ATTACHMENT_SHARE, type FetchShared, attachmentOnDisk, chipText, expandChips, importImageFitting, mediaTypeOf, pathInfo, publishForRoom, reattach, readAttachment, registerAttachment, roomAttachmentsDir, saveImageBytes } from '../core/attachments.js';
 import { fetchBytes } from '../core/downloads.js';
 import { testDatabase } from '../core/views/sources.js';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findProjects, isMainCheckout } from '../workspaces/discovery.js';
-import { createProject, defaultProjectsHome } from '../workspaces/new-project.js';
+import { cloneProject, createProject, defaultProjectsHome, initProject } from '../workspaces/new-project.js';
+import { sameRepo } from '../shared/repo-key.js';
+import { listMyReposHere } from '../workspaces/github-repos.js';
 import { projectId } from '../workspaces/manager.js';
-import { chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
+import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from '../core/project-icons.js';
 import type { Args, Method } from './api.js';
 import { NETWORK_HANDLERS } from './network-handlers.js';
 import { STRIPE_HANDLERS } from './stripe-handlers.js';
+import { REVENUECAT_HANDLERS } from './revenuecat-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
+import { TELEMETRY_HANDLERS } from './telemetry-handlers.js';
+import { STATS_HANDLERS } from './stats-handlers.js';
+import { maybeStatsOf } from '../core/stats/counter.js';
+import { WEB_HANDLERS } from './web-handlers.js';
+import { DIAGNOSTICS_HANDLERS } from './diagnostics-handlers.js';
 import { CLAUDE_CODE_HANDLERS } from './claude-code-handlers.js';
 import { STEPS_HANDLERS } from './steps-handlers.js';
+import { EXTERNAL_HANDLERS } from './external-handlers.js';
 import { GATEWAY_HANDLERS } from './gateway-handlers.js';
 import { BOARD_HANDLERS } from './board-handlers.js';
 import { DASHBOARD_HANDLERS } from './dashboard-handlers.js';
 import { SENTINEL_HANDLERS } from './sentinel-handlers.js';
 import { PLANS_HANDLERS } from './plans-handlers.js';
+import { plansOf } from '../core/plans/registry.js';
+import { stopChat, stopThreadsUnder } from '../core/threads/launch.js';
 import { DIALOGUES_HANDLERS } from './dialogues-handlers.js';
 import { ISSUES_HANDLERS } from './issues-handlers.js';
 import { CI_HANDLERS } from './ci-handlers.js';
 import { TEAM_HANDLERS } from './team-handlers.js';
+import { TRIAGE_HANDLERS } from './triage-handlers.js';
 import { GIT_HANDLERS } from './git-handlers.js';
 import { VIEWS_HANDLERS } from './views-handlers.js';
+import { PREVIEW_HANDLERS } from './preview-handlers.js';
+import { MCP_APPS_HANDLERS } from './mcp-apps-handlers.js';
 import { FILES_EDIT_HANDLERS } from './files-handlers.js';
 import { COMPANION_HANDLERS } from './companion-handlers.js';
+import { MACHINE_HANDLERS } from './machine-handlers.js';
 import { ASSISTANT_HANDLERS } from './assistant-handlers.js';
+import { CHATS_HANDLERS } from './chats-handlers.js';
 import { VOICE_HANDLERS } from './voice-handlers.js';
+import { CALLS_HANDLERS } from './calls-handlers.js';
 import { TERMINAL_IMPORT_HANDLERS } from './terminal-import-handlers.js';
 import { AGENT_TERM_HANDLERS } from './agent-term-handlers.js';
+import { worktreePorts } from '../workspaces/ports.js';
 import { waitingNeeds } from '../companion/needs-you.js';
 import { saveDismissedNeeds, withDismissed } from '../core/dismissed-needs.js';
 
@@ -50,6 +71,12 @@ export type Handlers = { readonly [M in Method]: Handler<M> };
 
 // Without projects (some tests, the guest-only mode) these do nothing, as before.
 const ctl = (s: Session): WorkspaceController | undefined => s.workspaces;
+/** Continue On's part here (BLG-808): it needs the workspaces. */
+const moverIn = (s: Session): WorktreeMover => {
+  const c = ctl(s);
+  if (!c) throw new Error('Worktrees need the Beluga app (its daemon)');
+  return worktreeMover(s.store, c);
+};
 const rootOf = (s: Session, projectId: string): string | undefined => s.store.getState().projects.find((p) => p.id === projectId)?.root || undefined;
 const expandHome = (p: string): string => p.replace(/^~(?=$|\/)/, os.homedir());
 const bench = (s: Session): Workbench | undefined => s.workbench;
@@ -61,7 +88,12 @@ const fetchShared = (s: Session): FetchShared => (at, max) => fetchBytes(at, s.f
 const started = (pty: { id: string } | undefined): string | undefined => pty?.id;
 
 export const HANDLERS = {
-  'session.submit': (s, raw, opts) => s.submit(raw, opts),
+  // Your prompts count for your stats here, where you typed them (core/stats/counter.ts).
+  'session.submit': (s, raw, opts) => {
+    maybeStatsOf(s)?.prompt(opts?.channel, raw);
+    // What you sent yourself: its run uses Claude in Chrome as usual (core/by-hand.ts).
+    return byYourHand(raw, () => s.submit(raw, opts));
+  },
   'session.copyInvite': (s) => s.copyInvite(),
   'session.copyLastAnswer': (s) => s.copyLastAnswer(),
   'session.copyText': (s, text, success) => s.copyText(text, success),
@@ -74,6 +106,7 @@ export const HANDLERS = {
   'session.unshareFolder': (s, name) => s.unshareFolder(name),
   'session.follow': (s, name) => s.follow(name),
   'session.clearChat': (s, channel, opts) => s.clearChat(channel, opts),
+  'session.react': (s, channel, id, emoji, on) => s.reactChat(channel, id, emoji, on),
   'session.removePerson': (s, peerId) => s.removePerson(peerId),
   'session.newInviteLink': (s) => s.newInviteLink(),
   'session.setRoomOpen': (s, open) => s.setRoomOpen(open),
@@ -94,10 +127,16 @@ export const HANDLERS = {
   },
 
   'host.answerApproval': (s, answer, id) => s.answerApproval(answer, id),
-  'host.promote': (s, requestId) => s.host.promote(requestId),
+  'host.promote': (s, requestId, opts) => s.host.promote(requestId, opts),
   'host.sendNext': (s, requestId) => s.host.sendNext(requestId),
   'host.steerNow': (s, requestId) => s.host.steerNow(requestId),
-  'host.stopRun': (s, channel) => s.host.stopRun(channel),
+  'host.cancelSteer': (s, requestId) => s.host.cancelSteer(requestId),
+  'host.stopRun': (s, channel) => stopChat(s, channel),
+  'threads.stop': (s, id): ReturnType<Session['host']['stopRun']> => {
+    if (!ctl(s)?.manager.find(id)?.thread) throw new Error('That chat is not a child thread.');
+    return HANDLERS['host.stopRun'](s, `ws:${id}`);
+  },
+  'threads.stopAll': (s, id) => stopThreadsUnder(s, id),
   'host.cancelQueued': (s, requestId) => s.host.cancelQueued(requestId),
   'host.reorderQueued': (s, requestId, index) => s.host.reorderQueued(requestId, index),
 
@@ -150,6 +189,7 @@ export const HANDLERS = {
 
   'remote.requestWorktree': (s, peerId, project, task, plan) => s.remote.requestWorktree(peerId, project, task, plan),
   'remote.handoff': (s, wsId, peerId) => s.remote.handoff(wsId, peerId),
+  'remote.canHandOff': (s, wsId, peerId) => s.remote.canHandOff(wsId, peerId),
 
   'diff.load': (s, id) => s.diff.load(id),
   'diff.select': (s, index) => s.diff.select(index),
@@ -173,39 +213,55 @@ export const HANDLERS = {
     const { mediaType, bytes } = await s.files.readImageFile(at);
     return { mediaType, data: bytes.toString('base64') };
   },
+  'files.version': (s, at) => s.files.fileVersion(at),
   'files.read': (s, at) => s.files.readFile(at),
+  'files.readRange': (s, at, range) => s.files.readRange(at, range),
 
   'workspaces.open': (s, id, tab, o) => ctl(s)?.open(id, tab, o?.req),
   'workspaces.load': (s, id) => void ctl(s)?.ensureLoaded(id),
   'workspaces.refresh': (s) => ctl(s)?.refresh(),
   'workspaces.newWorktree': async (s, projectId, name, opts) => (await ctl(s)?.newWorktree(projectId, name, { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.agent ? { agent: opts.agent } : {}) }))?.id,
   'workspaces.newChat': async (s, projectId, title, dir) => (await ctl(s)?.newChat(projectId, title, dir))?.id,
-  'workspaces.startChat': (s, projectId, text, dir, opts) => ctl(s)?.startChat(projectId, text, dir ?? undefined, opts?.terminal ? { terminal: true } : {}),
-  'workspaces.startWorktree': async (s, projectId, text, opts) => (await ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), nameLater: true }))?.id,
+  'workspaces.startChat': (s, projectId, text, dir, opts) => (maybeStatsOf(s)?.prompt(`new-chat:${projectId}`, text), byYourHand(text, () => ctl(s)?.startChat(projectId, text, dir ?? undefined, { ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.plan ? { plan: true } : {}) }))),
+  'workspaces.startWorktree': async (s, projectId, text, opts) => (maybeStatsOf(s)?.prompt(`new-worktree:${projectId}`, text, opts?.agent?.runtime), await byYourHand(text, () => ctl(s)?.startWorktree(projectId, text, (prompt) => s.nameTask(prompt), { ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.plan ? { plan: true } : {}), ...(opts?.tasks ? { tasks: true } : {}), ...(opts?.quiet ? { quiet: true } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), ...(opts?.terminal ? { terminal: true } : {}), ...(opts?.id ? { id: opts.id } : {}), nameLater: true })))?.id,
   'workspaces.branches': (s, projectId) => ctl(s)?.branches(projectId),
   'workspaces.fork': async (s, id, name) => (await ctl(s)?.fork(id, name))?.id,
   'workspaces.editPrompt': (s, id, line, text, mode) => ctl(s)?.editPrompt(id, line, text, mode),
   'workspaces.continueInWorktree': async (s, id, opts) =>
     // Claude starts there once whatever runs in the conversation now has finished (its session is complete then).
     (await ctl(s)?.continueInWorktree(id, (prompt) => s.nameTask(prompt), { ...(opts?.task ? { task: opts.task } : {}), ...(opts?.base ? { base: opts.base } : {}), ...(opts?.name ? { name: opts.name } : {}), ...(opts?.agent ? { agent: opts.agent } : {}), after: s.host.idle(`ws:${id}`) }))?.id,
-  'workspaces.archive': (s, id, force) => ctl(s)?.archive(id, force),
+  'workspaces.moveCheck': (s, id) => moverIn(s).check(id),
+  'workspaces.movePack': (s, id, opts) => moverIn(s).packOut(id, opts),
+  'workspaces.moveChunk': (s, token, n) => moverIn(s).chunk(token, n),
+  'workspaces.moveReceive': (s, token, n, total, data) => moverIn(s).receive(token, n, total, data),
+  'workspaces.moveLand': (s, token, projectId, from) => moverIn(s).landIn(token, projectId, from),
+  'workspaces.moveDone': (s, id, to) => moverIn(s).done(id, to),
+  'workspaces.moveUndo': (s, id) => moverIn(s).undo(id),
+  'workspaces.archive': (s, id, force, opts) => ctl(s)?.archive(id, force, opts),
   'workspaces.restore': (s, id) => ctl(s)?.restore(id),
   'workspaces.archivePlan': (s, id) => ctl(s)?.archivePlan(id),
+  'workspaces.deletePlan': (s, id) => ctl(s)?.deletePlan(id),
   'workspaces.freeSpace': (s, id) => ctl(s)?.freeSpace(id),
-  'workspaces.remove': (s, id) => ctl(s)?.remove(id),
+  'workspaces.remove': (s, id, opts) => ctl(s)?.remove(id, opts),
   'workspaces.commit': (s, id, message) => ctl(s)?.commit(id, message),
   'workspaces.merge': (s, id) => ctl(s)?.merge(id),
   'workspaces.prepareRemoval': (s, id) => ctl(s)?.prepareRemoval(id),
-  'workspaces.applyEnvBack': (s, id) => ctl(s)?.applyEnvBack(id),
+  'workspaces.applyEnvBack': (s, id, removed) => ctl(s)?.applyEnvBack(id, removed),
   'workspaces.keepEnvHere': (s, id) => ctl(s)?.keepEnvHere(id),
   'workspaces.saveEnvInBeluga': (s, id) => ctl(s)?.saveEnvInBeluga(id),
   'workspaces.checkEnv': (s, projectId) => ctl(s)?.checkEnv(projectId, false),
+  'workspaces.ports': (s, id) => {
+    const ws = s.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === id);
+    return ws ? worktreePorts(ws.path) : [];
+  },
   'workspaces.askClaudeToReview': (s, id) => ctl(s)?.askClaudeToReview(id),
   'workspaces.askClaudeToMerge': (s, id) => ctl(s)?.askClaudeToMerge(id),
   'workspaces.compact': (s, id, instructions) => ctl(s)?.compact(id, instructions),
   'workspaces.openInFinder': (s, id) => ctl(s)?.openInFinder(id),
   'workspaces.setGroup': (s, projectId, group) => ctl(s)?.setGroup(projectId, group),
   'workspaces.renameGroup': (s, from, to) => ctl(s)?.renameGroup(from, to),
+  'workspaces.rename': (s, id, name) => ctl(s)?.rename(id, name),
+  'workspaces.regenerateTitle': (s, id) => ctl(s)?.regenerateTitle(id),
   'workspaces.ungroup': (s, name) => ctl(s)?.ungroup(name),
   'workspaces.arrange': (s, item, place) => ctl(s)?.arrange(item, place ?? {}) ?? false,
   'workspaces.newGroup': (s, name, opts) => ctl(s)?.newGroup(name, opts ?? {}),
@@ -225,6 +281,7 @@ export const HANDLERS = {
   'workspaces.addProject': (s, dir) => ctl(s)?.addProject(dir),
   'workspaces.addFolder': (s, dir) => ctl(s)?.addFolder(dir),
   'workspaces.selectFile': (s, index) => ctl(s)?.selectFile(index),
+  'workspaces.diffAhead': (s, index) => ctl(s)?.diffAhead(index),
   'workspaces.review': (s, id) => ctl(s)?.loadReview(id),
   'workspaces.scratch': (s, id) => ctl(s)?.scratch(id),
 
@@ -233,26 +290,32 @@ export const HANDLERS = {
   'workbench.runSetup': (s, wsId) => bench(s)?.runSetup(wsId),
   'workbench.setScript': (s, projectId, kind, command, team) => bench(s)?.setScript(projectId, kind, command, team),
   'workbench.shareScripts': (s, projectId) => bench(s)?.shareScripts(projectId),
-  'workbench.setAgent': (s, channel, agent) => s.workbench?.setAgent(channel, agent ?? undefined) ?? false,
+  'workbench.setAgent': (s, channel, agent, mode) => s.workbench?.setAgent(channel, agent ?? undefined, mode) ?? false,
   'workbench.setModel': (s, channel, value) => (s.workbench ? s.workbench.setModel(channel, value) : s.setPrefs({ model: value || undefined })),
   'workbench.createPr': (s, id, extra) => bench(s)?.createPr(id, extra),
   'workbench.quickPr': (s, id, opts) => bench(s)?.quickPr(id, opts),
   'workbench.mergeToBase': (s, id, opts) => bench(s)?.mergeToBase(id, opts),
   'workbench.gitFix': (s, id, fix, retry) => bench(s)?.gitFix(id, fix, retry),
-  'workbench.signInClaude': (s, key, channel) => bench(s)?.signInClaude(key, channel),
+  'workbench.signInClaude': (s, key, channel, how) => bench(s)?.signInClaude(key, channel, how),
   'workbench.fixChecks': (s, id) => bench(s)?.fixChecks(id),
   'workbench.resolvePrConflicts': (s, id) => bench(s)?.resolvePrConflicts(id),
   'workbench.continueAfterMerge': (s, id) => bench(s)?.continueAfterMerge(id),
   'workbench.openPr': (s, id) => bench(s)?.openPr(id),
   'workbench.mergePr': (s, id, opts) => bench(s)?.mergePr(id, opts),
   'workbench.prStep': (s, id, step) => bench(s)?.prStep(id, step),
+  'workbench.pushPr': (s, id) => bench(s)?.pushPr(id),
+  'workbench.rerunChecks': (s, id) => bench(s)?.rerunChecks(id),
   'workbench.prConversation': (s, id) => bench(s)?.prConversation(id),
   'workbench.prPost': (s, id, post) => bench(s)?.prPost(id, post),
   'workbench.addressPrComments': (s, id, thread) => bench(s)?.addressPrComments(id, thread),
   'workbench.openCode': (s, id, file, line) => bench(s)?.openCode(id, file, line),
   'workbench.excerpt': (s, id, file, from, to) => bench(s)?.excerpt(id, file, from, to),
   'workbench.cancelMergeWhenReady': (s, id) => bench(s)?.cancelMergeWhenReady(id),
-  'workbench.refreshPrs': (s, only, recheckGh) => (typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh)),
+  'workbench.refreshPrs': (s, only, recheckGh) => {
+    // Back to the window: the plans' pull requests are looked at too, as the worktrees' are.
+    if (typeof only === 'object' && only.reason === 'focus') void plansOf(s)?.pilot.pollPrs('focus').catch(() => undefined);
+    return typeof only === 'object' ? bench(s)?.pollPrs(only.reason, only.id) : bench(s)?.refreshPrs(only, recheckGh);
+  },
   'workbench.editPrPrompt': (s) => bench(s)?.editPrPrompt(),
   'workbench.resetPrPrompt': (s) => bench(s)?.resetPrPrompt(),
   'workbench.measureDisk': (s) => bench(s)?.measureDisk(),
@@ -276,6 +339,12 @@ export const HANDLERS = {
   'env.testDatabase': (s, projectId) => testDatabase(s.env.viewEnvOf(projectId)),
   'env.importDotenv': (s, projectId) => s.env.importDotenv(projectId),
   'env.newKeysBack': (s, projectId, on) => s.env.setNewKeysBack(projectId, on),
+  'env.worktree': (s, id) => s.env.worktree(id),
+  'env.setWorktree': (s, id, rows) => s.env.setWorktree(id, rows),
+  'env.carryWorktree': (s, id) => s.env.carryWorktree(id),
+  'env.overview': (s, projectId) => s.env.overview(projectId),
+  'env.addToExample': (s, projectId) => s.env.addToExample(projectId),
+  'env.exampleSync': (s, projectId, on) => s.env.setExampleSync(projectId, on),
   'env.endpoints': (s) => s.local.views(),
   'env.saveEndpoint': async (s, change) => {
     const saved = s.env.saveEndpoint(change);
@@ -338,34 +407,68 @@ export const HANDLERS = {
     chooseProjectIcon(root, image ? expandHome(image) : undefined);
   },
   // A git project is added; a folder of them is watched (new ones in it show up too).
-  'projects.add': (s, dir) => {
+  // → what it did, or why it couldn't (the Add projects sheet shows it on the folder's row).
+  'projects.add': async (s, dir): Promise<AddResult> => {
     const abs = expandHome(dir);
-    if (isMainCheckout(abs)) return ctl(s)?.addProject(abs);
-    if (findProjects([abs]).length) return ctl(s)?.addFolder(abs);
-    s.toast(`${path.basename(abs)} isn't a git project, and has none inside`, 'warn');
-    return undefined;
+    if (isMainCheckout(abs)) return (await ctl(s)?.addProject(abs)) ?? {};
+    if (findProjects([abs]).length) return (await ctl(s)?.addFolder(abs)) ?? {};
+    const plain = existsSync(abs);
+    const error = plain ? `${path.basename(abs)} isn't a git project yet` : `${abs} isn't there`;
+    s.toast(error, 'warn');
+    // A plain folder: the Add projects sheet offers to set up git there (projects.initGit).
+    return plain ? { error, canInit: true } : { error };
   },
+  // Make a plain folder a git project (git, a .gitignore, a first commit), then add it.
+  'projects.initGit': async (s, dir): Promise<AddResult> => (await ctl(s)?.addProject(await initProject(expandHome(dir)))) ?? {},
   'projects.addFolder': (s, dir) => ctl(s)?.addFolder(expandHome(dir)),
+  'projects.origin': async (s, projectId) => {
+    const root = rootOf(s, projectId);
+    if (!root) return null;
+    return (await git(root, ['remote', 'get-url', 'origin'], 5_000).catch(() => '')).trim() || null;
+  },
   'projects.iconAt': (_s, dir) => readProjectIcon(expandHome(dir)),
-  'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean)),
+  // Every repo found (the sheet shows the newest, and its Filter searches them all).
+  'projects.suggest': (s) => suggestProjects(s.store.getState().projects.map((p) => p.root).filter(Boolean), undefined, SUGGEST_ALL),
   'projects.create': async (s, name, parent) => {
     const dir = await createProject(name, parent ? expandHome(parent) : undefined);
-    await ctl(s)?.addProject(dir);
-    return { id: projectId(dir), path: dir };
+    const added = await ctl(s)?.addProject(dir);
+    return { id: added?.project?.id ?? projectId(dir), path: dir };
+  },
+  // A repository you have here already is the project it is, not a second clone.
+  'projects.clone': async (s, url, parent) => {
+    const projects = s.store.getState().projects.filter((p) => p.root);
+    const origins = await Promise.all(projects.map((p) => tryGit(p.root, ['remote', 'get-url', 'origin'])));
+    const here = projects.find((_, i) => origins[i] && sameRepo(origins[i]!.trim(), url.trim()));
+    if (here) return { id: here.id, path: here.root, existed: true };
+    const dir = await cloneProject(url, parent ? expandHome(parent) : undefined);
+    const added = await ctl(s)?.addProject(dir);
+    if (added?.error) throw new Error(added.error);
+    return { id: added?.project?.id ?? projectId(dir), path: dir };
   },
   'projects.newHome': () => defaultProjectsHome(),
+  'projects.myRepos': (s) => {
+    const roots = s.store.getState().projects.map((p) => p.root).filter(Boolean);
+    return listMyReposHere(async () => (await Promise.all(roots.map((r) => tryGit(r, ['remote', 'get-url', 'origin'])))).flatMap((o) => (o?.trim() ? [o.trim()] : [])));
+  },
   'local.listDirs': (s, dir) => {
     const entries = listLocalDirs(dir);
     s.store.dispatch({ type: 'dir_cache', key: localDirKey(dir), entries });
     return entries;
   },
+  'local.browse': (_s, dir) => browseDir(dir),
   'local.openFolder': (_s, dir) => openWithSystem(dir),
   'local.statFiles': (_s, paths) => paths.map(pathInfo),
   ...NETWORK_HANDLERS,
   ...STRIPE_HANDLERS,
+  ...REVENUECAT_HANDLERS,
   ...SUPPORT_HANDLERS,
+  ...TELEMETRY_HANDLERS,
+  ...STATS_HANDLERS,
+  ...WEB_HANDLERS,
+  ...DIAGNOSTICS_HANDLERS,
   ...CLAUDE_CODE_HANDLERS,
   ...STEPS_HANDLERS,
+  ...EXTERNAL_HANDLERS,
   ...GATEWAY_HANDLERS,
   ...BOARD_HANDLERS,
   ...SENTINEL_HANDLERS,
@@ -375,12 +478,18 @@ export const HANDLERS = {
   ...ISSUES_HANDLERS,
   ...CI_HANDLERS,
   ...TEAM_HANDLERS,
+  ...TRIAGE_HANDLERS,
   ...GIT_HANDLERS,
   ...VIEWS_HANDLERS,
+  ...PREVIEW_HANDLERS,
+  ...MCP_APPS_HANDLERS,
   ...FILES_EDIT_HANDLERS,
   ...COMPANION_HANDLERS,
+  ...MACHINE_HANDLERS,
   ...ASSISTANT_HANDLERS,
+  ...CHATS_HANDLERS,
   ...VOICE_HANDLERS,
+  ...CALLS_HANDLERS,
   ...TERMINAL_IMPORT_HANDLERS,
   ...AGENT_TERM_HANDLERS,
 } satisfies Handlers;

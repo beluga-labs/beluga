@@ -1,5 +1,6 @@
 // Relative, not @beluga: tests at the repo's root import this file too.
 import type { RuntimeChoice, RuntimeState } from '../../../../src/shared/agent-runtimes.js';
+import { thisComputer } from '../lib/os-words.js';
 
 /**
  * Your agents, found (BLG-507): each runtime Beluga knows with where it stands on this Mac (ready,
@@ -7,9 +8,16 @@ import type { RuntimeChoice, RuntimeState } from '../../../../src/shared/agent-r
  * agents" step and Settings › Agent draw the same rows. Pure, so it's tested without a screen.
  */
 
+/** How to get a runtime Beluga doesn't come with: its download page, and its command for Terminal. */
+export const INSTALLS: Readonly<Record<string, { readonly page: string; readonly command: string }>> = {
+  codex: { page: 'https://developers.openai.com/codex', command: 'npm i -g @openai/codex' },
+  opencode: { page: 'https://opencode.ai/download', command: 'npm i -g opencode-ai' },
+  copilot: { page: 'https://github.com/features/copilot/cli', command: 'npm i -g @github/copilot' },
+};
+
 /** Codex's own install: the app, or its CLI from npm. */
-export const CODEX_NPM = 'npm i -g @openai/codex';
-export const CODEX_DOWNLOAD = 'https://developers.openai.com/codex';
+export const CODEX_NPM = INSTALLS.codex!.command;
+export const CODEX_DOWNLOAD = INSTALLS.codex!.page;
 
 /** What to do about a runtime that isn't ready: its sign-in, its install, or a local endpoint. */
 export type AgentFix = 'sign_in' | 'install' | 'set_up';
@@ -36,6 +44,9 @@ export const STATE_WORDS: Readonly<Record<RuntimeState, string>> = {
 
 export const FIX_LABEL: Readonly<Record<AgentFix, string>> = { sign_in: 'Sign In', install: 'Get Codex', set_up: 'Set Up…' };
 
+/** A row's button: "Sign In", "Get Codex", "Get OpenCode", "Get Copilot", "Set Up…". */
+export const fixLabel = (row: Pick<AgentRow, 'label' | 'fix'>): string => (row.fix === 'install' ? `Get ${row.label}` : row.fix ? FIX_LABEL[row.fix] : '');
+
 /** Where a runtime stands: what it said once asked, else ready when it runs here; undefined: not asked yet. */
 export function stateOf(r: RuntimeChoice, checked: boolean): RuntimeState | undefined {
   if (r.state) return r.state;
@@ -54,16 +65,26 @@ const DETAIL: Readonly<Record<string, Partial<Record<RuntimeState, string>> & { 
     signed_out: 'Installed. Sign in once with your ChatGPT account or an API key.',
     missing: 'Install the Codex app, or in Terminal:',
   },
+  opencode: {
+    ready: 'The open-source coding agent, on the models you set up in it (its free ones too).',
+    signed_out: 'Installed. Add a model provider once (opencode auth login).',
+    missing: 'Install OpenCode, or in Terminal:',
+  },
+  copilot: {
+    ready: 'GitHub’s coding agent, through Copilot CLI. Copilot Free works, on Auto.',
+    signed_out: 'Installed. Sign in once with your GitHub account (copilot login), and turn on Copilot for it (Free is enough).',
+    missing: 'Install GitHub Copilot CLI, or in Terminal:',
+  },
   local: {
-    ready: 'A model of your own: Ollama on this Mac, or an endpoint you added. Free.',
-    no_endpoint: 'Ollama on this Mac, or any endpoint you add. Free, on your own models.',
+    ready: `A model of your own: Ollama on ${thisComputer()}, or an endpoint you added. Free.`,
+    no_endpoint: `Ollama on ${thisComputer()}, or any endpoint you add. Free, on your own models.`,
   },
 };
 
 function fixOf(id: string, state: RuntimeState | undefined): AgentFix | undefined {
   if (state === 'signed_out') return id === 'local' ? 'set_up' : 'sign_in';
   if (state === 'no_endpoint') return 'set_up';
-  if (state === 'missing') return id === 'local' ? 'set_up' : id === 'claude' ? 'sign_in' : id === 'codex' ? 'install' : undefined;
+  if (state === 'missing') return id === 'local' ? 'set_up' : id === 'claude' ? 'sign_in' : INSTALLS[id] ? 'install' : undefined;
   return undefined;
 }
 
@@ -76,6 +97,17 @@ export function agentRows(runtimes: readonly RuntimeChoice[], checked: boolean):
     const fix = fixOf(r.id, state);
     return { id: r.id, label: r.label, state, words: state ? STATE_WORDS[state] : 'Checking…', detail, ...(fix ? { fix } : {}) };
   });
+}
+
+/** How often the agents are asked again while one is still being installed or signed in to. */
+export const AGENT_RECHECK_MS = 5_000;
+
+/**
+ * Whether an agent could turn ready any moment now (Codex installing, a sign-in in Terminal or in
+ * Beluga's own terminal), so it's worth asking again on its own. A local model waits for Set Up….
+ */
+export function awaitingAgent(rows: readonly AgentRow[]): boolean {
+  return rows.some((r) => r.id !== 'local' && r.state !== undefined && r.state !== 'ready');
 }
 
 /**

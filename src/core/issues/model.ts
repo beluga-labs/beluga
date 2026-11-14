@@ -62,6 +62,34 @@ export type IssuesList =
   | { readonly kind: 'error'; readonly repo: GitHubRepo; readonly message: string }
   | { readonly kind: 'github'; readonly repo: GitHubRepo; readonly issues: readonly GhIssue[]; /** More than were read: narrow it with search. */ readonly more: boolean; readonly fetchedAt: number };
 
+/** An open pull request as Project Home lists it: anyone's, not only the ones Beluga's worktrees opened. */
+export interface GhPull {
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  /** Their GitHub login. */
+  readonly author?: string;
+  /** The branch it would merge (headRefName): a worktree on it is where it's worked on. */
+  readonly branch: string;
+  /** The branch it would merge into (baseRefName). */
+  readonly base?: string;
+  /** Its branch is on a fork (isCrossRepository): it's fetched from GitHub's pull ref, not origin's branches. */
+  readonly fork?: boolean;
+  readonly draft: boolean;
+  /** Its latest commit's checks, in one word. */
+  readonly checks: 'passing' | 'failing' | 'pending' | 'none';
+  readonly review?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED';
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+/** What asking for a project's open pull requests gives (the same kinds as IssuesList). */
+export type PullsList =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'no_gh'; readonly repo: GitHubRepo }
+  | { readonly kind: 'error'; readonly repo: GitHubRepo; readonly message: string }
+  | { readonly kind: 'github'; readonly repo: GitHubRepo; readonly pulls: readonly GhPull[]; /** How many are open (more than were read when it's above pulls.length). */ readonly total: number; readonly fetchedAt: number };
+
 export interface IssuesQuery {
   readonly state?: GhIssueState;
   /** GitHub's search words ("login 500", "label:bug"). */

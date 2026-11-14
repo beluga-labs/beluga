@@ -1,13 +1,16 @@
-import { syncMainPrompt, syncWorktreePrompt } from '../agent/sync-main.js';
+import { syncForkPrompt, syncMainPrompt, syncWorktreePrompt } from '../agent/sync-main.js';
 import { conflictedFiles } from '../workspaces/git.js';
-import { type GhRunner, type GitHubInfo, type GitHubRepo, fetchGitHubInfo, ghHosts, parseGitHubRemote, runGh } from '../workspaces/github.js';
+import { type ForkOf, type GhRunner, type GitHubInfo, type GitHubRepo, fetchFork, fetchGitHubInfo, ghHosts, mergeUpstream, parseGitHubRemote, runGh } from '../workspaces/github.js';
 import type { WorkspaceManager } from '../workspaces/manager.js';
 import * as sync from '../workspaces/sync.js';
 import type { Project, Workspace } from '../workspaces/types.js';
+import { FETCH_EVERY_DEFAULT } from '../shared/background-fetch.js';
+import { pace } from './power-saver.js';
 
 /**
  * Keeping each project's main folder current, for the project home's Update main / Fetch: a
- * quiet fetch every ~15 minutes while Beluga runs (and when you open a project), fast-forwarding
+ * quiet fetch as often as Settings › Workspaces says (every 15 minutes unless you chose otherwise;
+ * never, if you turned it off), and when you open a project, fast-forwarding
  * the default branch, setting uncommitted changes aside or into a worktree, and handing anything
  * harder to Claude: in a worktree of its own, or (for what's stuck in the main folder's own files)
  * in a run there that may only sync git. Never pushes; never discards.
@@ -30,16 +33,20 @@ export interface MainSyncDeps {
   /** Open a workspace's conversation. */
   readonly open: (wsId: string) => void;
   readonly gh?: GhRunner;
+  /** Low Power mode is saving now (BLG-621): the background fetches come less often. */
+  readonly saving?: () => boolean;
+  /** Minutes between background fetches, as chosen now (0: never on its own); default: every 15. */
+  readonly fetchEvery?: () => number;
   /** Hosts gh is signed in to (enterprise GitHub under any name); default: gh's hosts.yml. */
   readonly ghHosts?: () => string[];
   readonly now?: () => number;
 }
 
-/** A quiet fetch for every project, this often. */
-export const BACKGROUND_FETCH_MS = 15 * 60_000;
+/** How often the background pass looks for a project whose fetch is due (looking runs no git). */
+export const FETCH_TICK_MS = 60_000;
 /** The first background pass, once Beluga has settled. */
 const FIRST_PASS_MS = 20_000;
-/** Opening a project fetches when the last fetch is older than this. */
+/** Opening a project fetches when the last fetch is older than this (at the default pace or faster). */
 export const STALE_FETCH_MS = 2 * 60_000;
 /** After git said "sign in", background fetches leave that project alone this long. */
 const AUTH_BACKOFF_MS = 60 * 60_000;
@@ -54,6 +61,16 @@ export type GitHubState =
   /** On GitHub; `info` when gh could tell (unset: gh missing, signed out, or no access). */
   | { readonly kind: 'github'; readonly repo: GitHubRepo; readonly info?: GitHubInfo; readonly gh: boolean };
 
+/**
+ * How Sync fork went: GitHub brought the original's commits into the fork (`how`: nothing new, a
+ * fast-forward, or a merge commit for a fork with commits of its own) and Update main ran here; or
+ * GitHub stopped on conflicts (nothing changed); or it couldn't.
+ */
+export type ForkSyncOutcome =
+  | { readonly kind: 'synced'; readonly how: 'none' | 'fast-forward' | 'merge'; readonly update: sync.UpdateOutcome }
+  | { readonly kind: 'conflict'; readonly message: string }
+  | { readonly kind: 'failed'; readonly message: string };
+
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export class MainSync {
@@ -64,6 +81,8 @@ export class MainSync {
   private readonly tried = new Map<string, number>();
   private readonly authFailed = new Map<string, number>();
   private readonly github = new Map<string, GitHubState & { at: number; url: string }>();
+  /** What each project's origin was forked from as gh last said (null: not a fork), for which remote, and when. */
+  private readonly forks = new Map<string, { url: string; at: number; fork: ForkOf | null }>();
   private passing = false;
   /** Projects with an update, stash, move or switch running (one at a time per project). */
   private readonly exclusive = new Set<string>();
@@ -74,12 +93,20 @@ export class MainSync {
     return this.deps.now?.() ?? Date.now();
   }
 
-  /** Start the background fetches (first one shortly after start). */
+  /** Minutes between background fetches as chosen now (0: never on its own). */
+  private get every(): number {
+    return this.deps.fetchEvery?.() ?? FETCH_EVERY_DEFAULT;
+  }
+
+  /**
+   * Start the background fetches (the first pass shortly after start). The timer only looks once a
+   * minute for a project whose fetch is due, so a new choice in Settings applies at once.
+   */
   start(): void {
     if (this.timer) return;
     this.first = setTimeout(() => void this.backgroundPass(), FIRST_PASS_MS);
     this.first.unref();
-    this.timer = setInterval(() => void this.backgroundPass(), BACKGROUND_FETCH_MS);
+    this.timer = setInterval(() => void this.backgroundPass(), FETCH_TICK_MS);
     this.timer.unref();
   }
 
@@ -128,6 +155,8 @@ export class MainSync {
       if (result.remoteDefault) this.deps.manager.learnRemoteDefault(projectId, result.remoteDefault);
       this.deps.manager.setFetchState(projectId, {});
       await this.deps.refresh();
+      // A fork: how far behind the original it is now (for Sync fork). Never in the way of the fetch.
+      void this.learnFork(projectId).catch(() => undefined);
       return { ok: true };
     }
     if (result.reason === 'auth') this.authFailed.set(projectId, this.now);
@@ -137,24 +166,32 @@ export class MainSync {
     return { ok: false, reason: result.reason, message: result.message };
   }
 
-  /** Opening a project home: fetch if the last try is a while ago (quietly). */
+  /** Opening a project home: fetch if the last try is a while ago (quietly), unless you turned Beluga's own fetches off. */
   async fetchIfStale(projectId: string): Promise<FetchOutcome | undefined> {
+    const every = this.every;
+    if (!every) return undefined;
     const project = this.deps.manager.list.find((p) => p.id === projectId && p.root);
     if (!project?.sync?.upstream) return undefined;
     const last = Math.max(this.tried.get(projectId) ?? 0, project.sync.fetchedAt ?? 0);
-    if (this.now - last < STALE_FETCH_MS) return undefined;
+    if (this.now - last < staleAfterMs(every)) return undefined;
     if (this.now - (this.authFailed.get(projectId) ?? 0) < AUTH_BACKOFF_MS) return undefined;
     return this.fetch(projectId, { quiet: true });
   }
 
-  /** Fetch every project with a remote, one at a time, without a word (failures show on its home). */
+  /**
+   * Fetch each project with a remote whose last fetch is older than the chosen pace (four times
+   * that while Low Power mode saves), one at a time, without a word (failures show on its home).
+   * Off: nothing.
+   */
   async backgroundPass(): Promise<void> {
-    if (this.passing) return;
+    const every = this.every;
+    if (this.passing || !every) return;
+    const due = pace(every * 60_000, this.deps.saving?.() ?? false) - FETCH_TICK_MS / 2;
     this.passing = true;
     try {
       for (const p of this.deps.manager.list.filter((x) => x.root && x.sync?.upstream)) {
         if (this.now - (this.authFailed.get(p.id) ?? 0) < AUTH_BACKOFF_MS) continue;
-        if (this.now - Math.max(this.tried.get(p.id) ?? 0, p.sync?.fetchedAt ?? 0) < BACKGROUND_FETCH_MS / 2) continue;
+        if (this.now - Math.max(this.tried.get(p.id) ?? 0, p.sync?.fetchedAt ?? 0) < due) continue;
         await this.fetch(p.id, { quiet: true }).catch(() => undefined);
       }
     } finally {
@@ -167,7 +204,7 @@ export class MainSync {
     return this.alone(projectId, () => this.doUpdate(projectId));
   }
 
-  private async doUpdate(projectId: string): Promise<sync.UpdateOutcome> {
+  private async doUpdate(projectId: string, extra = ''): Promise<sync.UpdateOutcome> {
     const project = this.project(projectId);
     this.deps.manager.setFetchState(projectId, { fetching: true });
     this.deps.publish();
@@ -175,7 +212,7 @@ export class MainSync {
     this.tried.set(projectId, this.now);
     this.deps.manager.setFetchState(projectId, outcome.kind === 'fetch_failed' ? { fetchError: { reason: outcome.reason, message: outcome.message, at: this.now } } : {});
     await this.deps.refresh();
-    this.report(outcome);
+    this.report(outcome, extra);
     return outcome;
   }
 
@@ -267,6 +304,78 @@ export class MainSync {
     return ws.id;
   }
 
+  /** The project's origin on GitHub, when gh may be asked about its host (github.com, or one gh is signed in to). */
+  private async ghOrigin(projectId: string): Promise<{ url: string; repo?: GitHubRepo }> {
+    const url = (await this.deps.manager.remoteOf(projectId)) ?? '';
+    const hosts = this.deps.ghHosts?.() ?? ghHosts();
+    const repo = url ? parseGitHubRemote(url, hosts) : undefined;
+    return { url, ...(repo && (repo.host === 'github.com' || hosts.includes(repo.host)) ? { repo } : {}) };
+  }
+
+  /**
+   * Whether the project's origin is a GitHub fork, of what, and how far behind the original it is
+   * (asked after each fetch; "not a fork" is believed for an hour). What gh couldn't tell keeps
+   * what was known.
+   */
+  async learnFork(projectId: string): Promise<ForkOf | undefined> {
+    const { url, repo } = await this.ghOrigin(projectId);
+    const had = this.forks.get(projectId);
+    if (!repo) {
+      if (had) {
+        this.forks.delete(projectId);
+        this.deps.manager.setFork(projectId, undefined);
+        this.deps.publish();
+      }
+      return undefined;
+    }
+    if (had?.url === url && had.fork === null && this.now - had.at < GITHUB_TTL_MS) return undefined;
+    const fork = await fetchFork(repo, this.deps.gh ?? runGh).catch(() => undefined);
+    if (fork === undefined) return had?.url === url ? (had.fork ?? undefined) : undefined;
+    this.forks.set(projectId, { url, at: this.now, fork });
+    this.deps.manager.setFork(projectId, fork ?? undefined);
+    this.deps.publish();
+    return fork ?? undefined;
+  }
+
+  /**
+   * "Sync fork": the original's new commits come into the fork's default branch on GitHub (as
+   * GitHub's own Sync fork button does: a fast-forward, or a merge commit when the fork has commits
+   * of its own), then Update main brings them here. A conflict changes nothing and comes back
+   * (syncForkWithClaude resolves it in a worktree).
+   */
+  async syncFork(projectId: string): Promise<ForkSyncOutcome> {
+    const { url, repo } = await this.ghOrigin(projectId);
+    const fork = this.project(projectId).fork ?? (await this.learnFork(projectId));
+    if (!repo || !fork) return { kind: 'failed', message: 'This project’s origin isn’t a fork on GitHub' };
+    const original = `${fork.owner}/${fork.repo}`;
+    const merged = await mergeUpstream(repo, fork.forkBranch, this.deps.gh ?? runGh);
+    if (merged.kind === 'conflict') return { kind: 'conflict', message: `Your fork’s ${fork.forkBranch} and ${original}’s ${fork.branch} change the same lines, so GitHub couldn’t sync them.` };
+    if (merged.kind === 'failed') {
+      this.deps.toast(`Couldn’t sync with ${original}: ${merged.message}`, 'error');
+      return { kind: 'failed', message: merged.message };
+    }
+    this.forks.set(projectId, { url, at: this.now, fork: { ...fork, behind: 0 } });
+    this.deps.manager.setFork(projectId, { ...fork, behind: 0 });
+    const said = merged.kind === 'none' ? ` · your fork already had everything from ${original}` : merged.kind === 'merge' ? ` · synced with ${original} (a merge commit on your fork)` : ` · synced with ${original}`;
+    const update = await this.alone(projectId, () => this.doUpdate(projectId, said));
+    if (update.kind !== 'updated' && update.kind !== 'up_to_date' && merged.kind !== 'none') this.deps.toast(`Your fork on GitHub has ${original}’s new commits`, 'success');
+    return { kind: 'synced', how: merged.kind, update };
+  }
+
+  /** Sync fork stopped on conflicts: Claude merges the original in, in a worktree from the fork's branch, and opens a PR into it. → the worktree's id. */
+  async syncForkWithClaude(projectId: string, situation?: string): Promise<string | undefined> {
+    const fork = this.project(projectId).fork ?? (await this.learnFork(projectId));
+    if (!fork) {
+      this.deps.toast('This project’s origin isn’t a fork on GitHub', 'warn');
+      return undefined;
+    }
+    const ws = await this.deps.newWorktree(projectId, `sync-${fork.owner}`, {});
+    if (!ws) return undefined;
+    this.deps.askClaude(syncForkPrompt({ original: `${fork.owner}/${fork.repo}`, originalUrl: fork.url, originalBranch: fork.branch, forkBranch: fork.forkBranch, ...(situation ? { situation } : {}) }), `ws:${ws.id}`);
+    await this.deps.refresh();
+    return ws.id;
+  }
+
   /** Just where the project is on GitHub, from its remote (no gh, no network): for menus. */
   async githubRepo(projectId: string): Promise<GitHubRepo | undefined> {
     const url = await this.deps.manager.remoteOf(projectId);
@@ -290,6 +399,14 @@ export class MainSync {
     this.github.set(projectId, { ...state, at: this.now, url });
     return state;
   }
+}
+
+/**
+ * Opening a project fetches when its last fetch is older than this: two minutes at the default
+ * pace or faster; at a slower one you chose, half of it (so fewer fetches mean fewer from opening too).
+ */
+export function staleAfterMs(everyMinutes: number): number {
+  return everyMinutes <= FETCH_EVERY_DEFAULT ? STALE_FETCH_MS : (everyMinutes * 60_000) / 2;
 }
 
 const strip = (s: GitHubState & { at: number; url: string }): GitHubState => {

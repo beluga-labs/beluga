@@ -9,7 +9,7 @@ import { useReadOnly } from './read-only.js';
 import { MILESTONE_STATE, TASK_STATE, changeMarks, milestoneLabel, milestoneRows, taskWords } from './plans-model.js';
 import { TaskChatMark, TaskStateIcon } from './marks.js';
 import { openDecision } from './plan-ask-model.js';
-import { useClock, usePlanActions } from './use-plans.js';
+import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useStartWith } from '../components/agent-options.js';
 import { useMyAgent } from '../lib/agent-words.js';
 import type { AgentRef } from '@beluga/protocol.js';
@@ -54,11 +54,13 @@ export function PlanOutline({ view, keys, selected, onSelect, startable }: { vie
 }
 
 function Milestone({ view, plan, m, keys, marks, selected, onSelect, startable }: { view: PlanView; plan: Plan; m: MilestoneView; keys: ReadonlyMap<string, string>; marks: ReadonlyMap<string, string>; selected?: string; onSelect: (id: string) => void; startable: ReadonlySet<string> }) {
-  const { api, act } = usePlanActions();
+  const { api, act, openWorktree } = usePlanActions();
   const edit = (ops: PlanOp[]): void => void act(() => api.edit(plan.id, ops));
   const info = MILESTONE_STATE[m.state];
   const readOnly = useReadOnly();
+  const checker = useCheckerChat(m);
   const menu: ActionItem[] = [
+    ...(checker ? [{ label: m.state === 'checking' ? 'Watch the Check' : 'Open the Check', onSelect: () => openWorktree(checker) }] : []),
     { label: 'Runs', submenu: AUTONOMIES.map((a) => ({ label: AUTONOMY_INFO[a].label, hint: AUTONOMY_INFO[a].hint, checked: m.autonomy === a, onSelect: () => void act(() => api.setAutonomy(plan.id, a, m.milestone.id)) })), onSelect: () => undefined },
     ...(m.state === 'gate' || m.state === 'failed' || m.state === 'checking' ? [{ label: 'Not Yet…', onSelect: () => openSheet({ kind: 'plan_send_back', planId: plan.id, milestone: m.milestone.id }) }] : []),
     { label: 'Remove Milestone', danger: true, separate: true, onSelect: () => openSheet({ kind: 'confirm', title: `Remove “${m.milestone.title}”?`, message: plan.body ? 'Its tasks are taken out of the plan (unfinished ones are canceled on the board).' : 'Its tasks go with it.', confirm: 'Remove', destructive: true, run: () => edit([{ op: 'remove_milestone', id: m.milestone.id }]) }) },

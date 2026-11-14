@@ -118,6 +118,20 @@ export interface PullRequest {
   readonly mergeState?: 'behind' | 'blocked';
   /** Its head commit (headRefOid). */
   readonly head?: string;
+  /** When it merged (ms), merged PRs only. */
+  readonly mergedAt?: number;
+  /** Someone's fork's pull request, checked out here by its number (BLG-948). */
+  readonly fork?: PrFork;
+}
+
+/** Where a fork's pull request lives, and whether its author lets the repository's maintainers push to it. */
+export interface PrFork {
+  readonly owner: string;
+  readonly repo: string;
+  /** Its branch on the fork. */
+  readonly branch: string;
+  /** "Allow edits by maintainers" is on: a push to the fork's branch updates the pull request. */
+  readonly canPush: boolean;
 }
 
 export interface SetupRun {
@@ -134,6 +148,8 @@ export interface SearchHit {
   /** Where the match starts in `text`. */
   readonly at: number;
   readonly ts: number;
+  /** The item it was found in: the row a chat opens at, whatever time it draws that row at. */
+  readonly id?: string;
   readonly archived?: boolean;
 }
 

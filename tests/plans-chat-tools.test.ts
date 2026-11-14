@@ -106,7 +106,7 @@ describe('chatPlans off', () => {
     expect(t.work.forRun('ws:chat', 'p-me')).toBeUndefined();
     t.work.here('ws:chat');
     const run = t.work.forRun('ws:chat', 'p-me')!;
-    expect(createPlanToolDefs(run.tools!).map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES);
+    expect(createPlanToolDefs(run.tools!).map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES.filter((n) => n !== 'mcp__beluga_plan__plan_review')); // plan_review: the draft's reviewer's alone
     expect(run.opener).toBeUndefined();
   });
 });

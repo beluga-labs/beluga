@@ -16,6 +16,9 @@ const done = z.unknown();
 export const AskResult = z.object({ topic: z.string() });
 export const AskPersonResult = z.object({ topic: z.string(), task: z.string() });
 export const OlderResult = z.union([z.object({ turns: z.array(TurnView), more: z.boolean() }), z.object({ messages: z.array(ChatMessageView), more: z.boolean() })]);
+/** What a chat's address is now (src/core/chat-links/resolve.ts); null for a malformed ref, or from a Mac of 3.3.0 or older with chat links off. Where it opens stays the Mac's: the phone opens /conv/<channel>. */
+export const ChatResolveResult = z.object({ title: z.string().optional(), kind: z.string(), state: z.enum(['idle', 'working', 'archived', 'removed', 'loading']), ownership: z.enum(['own', 'shared', 'unknown']) }).passthrough().nullable();
+export type ChatResolveResult = z.infer<typeof ChatResolveResult>;
 /** Open on your Mac: it came to the front, or why not. */
 export const OpenOnMacResult = z.object({ opened: z.boolean(), why: z.string().optional() });
 /** A project's small icon (PNG, or a small SVG), by checksum. */
@@ -27,7 +30,7 @@ export const TaskDraftResult = OneDraft.extend({ more: z.array(OneDraft).optiona
 export type TaskDraftResult = z.infer<typeof TaskDraftResult>;
 /** What `put` answers: a piece taken, then the file's ref. */
 /** A sentinel's run as the phone reads it (src/core/sentinel/model.ts RunSummary; more fields pass through). */
-/** 1.38: one plan of a chat (plans.ofHome; src/core/plans/work.ts HomePlan). */
+/** 1.57: one plan of a chat (plans.ofHome; src/core/plans/work.ts HomePlan). */
 export const HomePlanResult = z.object({ id: z.string(), title: z.string(), status: z.string(), createdAt: z.number(), closedAt: z.number().optional(), current: z.boolean() });
 
 export const SentinelRunResult = z.object({ id: z.string(), sentinelId: z.string(), state: z.string(), startedAt: z.number(), headline: z.string() }).passthrough();
@@ -35,10 +38,13 @@ export const PutResult =z.union([z.object({ received: z.number().int().min(0) })
 
 export const PhoneCalls = {
   'session.submit': entry('session.submit', done),
+  // 1.41 (BLG-702): an emoji reaction in a worktree's or the room's chat.
+  'session.react': entry('session.react', done),
   'host.answerApproval': entry('host.answerApproval', done),
   'host.promote': entry('host.promote', done),
   'host.sendNext': entry('host.sendNext', done),
   'host.steerNow': entry('host.steerNow', done),
+  'host.cancelSteer': entry('host.cancelSteer', z.object({ cancelled: z.boolean(), prompt: z.string() }).partial().passthrough().optional()),
   // 1.28 (BLG-387): edit a message you sent → the conversation it went on in (a fork's channel).
   'workspaces.editPrompt': entry('workspaces.editPrompt', z.string().optional()),
   // 1.32 (BLG-446): the agent picker: a model of this conversation's runtime, or another runtime's agent.
@@ -47,7 +53,15 @@ export const PhoneCalls = {
   // Give a conversation its terminal drives back to the chat (BLG-534).
   'agentTerm.takeOver': entry('agentTerm.takeOver', done),
   'host.stopRun': entry('host.stopRun', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stop': entry('threads.stop', z.object({ stopped: z.boolean(), returned: z.array(z.string()) }).partial().passthrough().optional()),
+  'threads.stopAll': entry('threads.stopAll', z.object({ stopped: z.number() }).passthrough().optional()),
   'host.cancelQueued': entry('host.cancelQueued', done),
+  // 1.38: external agents: who holds a grant, what they did, and stopping them.
+  'external.agents': entry('external.agents', z.array(z.object({ id: z.string(), name: z.string(), level: z.string(), route: z.string(), lastSeen: z.number() }).passthrough())),
+  'external.revoke': entry('external.revoke', z.boolean()),
+  'external.stopAgent': entry('external.stopAgent', z.boolean()),
+  'external.stopAll': entry('external.stopAll', z.number()),
+  'external.activity': entry('external.activity', z.array(z.object({ ts: z.number(), agent: z.string(), tool: z.string(), target: z.string(), decidedBy: z.string(), kind: z.enum(['allowed', 'asked', 'refused']) }).passthrough())),
   'inbox.read': entry('inbox.read', done),
   'inbox.unread': entry('inbox.unread', done),
   'questions.answer': entry('questions.answer', done),
@@ -62,9 +76,17 @@ export const PhoneCalls = {
   'attachments.add': entry('attachments.add', z.object({ n: z.number(), chip: z.string() })),
   'attachments.expand': entry('attachments.expand', z.string()),
   'attachments.read': entry('attachments.read', z.object({ mime: z.string(), size: z.number(), data: z.string() })),
+  'calls.join': entry('calls.join', done),
+  'calls.leave': entry('calls.leave', done),
+  'calls.decline': entry('calls.decline', done),
   'network.status': entry('network.status', done),
   'network.friends.list': entry('network.friends.list', done),
   'network.friends.answerOffer': entry('network.friends.answerOffer', done),
+  'triage.settle': entry('triage.settle', done),
+  'triage.unsettle': entry('triage.unsettle', done),
+  'triage.snooze': entry('triage.snooze', done),
+  'triage.wake': entry('triage.wake', done),
+  'triage.setAutoSettle': entry('triage.setAutoSettle', done),
   // Team boards: an offer to team up with a friend on the same repository (its card).
   'team.answer': entry('team.answer', done),
   'team.ackAssignment': entry('team.ackAssignment', done),
@@ -94,6 +116,8 @@ export const PhoneCalls = {
   'network.messages.delete': entry('network.messages.delete', done),
   'network.messages.edit': entry('network.messages.edit', done),
   'network.clear': entry('network.clear', done),
+  // 1.41 (BLG-702): an emoji reaction put on a message or taken off (the quick row).
+  'network.messages.react': entry('network.messages.react', done),
   // 1.34 (BLG-466): a dialogue between agents, stopped or continued from the phone.
   'dialogues.stop': entry('dialogues.stop', done),
   'dialogues.continue': entry('dialogues.continue', done),
@@ -116,7 +140,9 @@ export const PhoneCalls = {
   // 1.5: how a plan runs (Step by Step, Check-ins, Autopilot), from its page.
   'plans.setAutonomy': entry('plans.setAutonomy', done),
   'plans.discard': entry('plans.discard', done),
-  // 1.38: close a chat's plan, and list a chat's plans (newest first).
+  'plans.fixReview': entry('plans.fixReview', done),
+  'plans.verify': entry('plans.verify', done),
+  // 1.57: close a chat's plan, and list a chat's plans (newest first).
   'plans.close': entry('plans.close', done),
   'plans.ofHome': entry('plans.ofHome', z.array(HomePlanResult)),
   'plans.pass': entry('plans.pass', done),
@@ -133,11 +159,14 @@ export const PhoneCalls = {
   'companion.signOut': entry('companion.signOut', z.object({ signedOut: z.literal(true) })),
   // 1.13: whether the Mac stays awake for the phone (BLG-127).
   'companion.keepAwake': entry('companion.keepAwake', done),
+  // 1.54: usage statistics' level, from the phone's Settings (BLG-922).
+  'telemetry.choose': entry('telemetry.choose', done),
   // 1.32: one of your providers becomes the default agent (BLG-459).
   'companion.defaultAgent': entry('companion.defaultAgent', done),
   // 1.14: Your Mac's chats: a new one (its id comes back), or one deleted for good.
   'assistant.newChat': entry('assistant.newChat', z.string()),
   'assistant.deleteChat': entry('assistant.deleteChat', done),
+  'chats.resolve': entry('chats.resolve', ChatResolveResult),
   'companion.openOnMac': entry('companion.openOnMac', OpenOnMacResult),
   'companion.icon': entry('companion.icon', IconResult),
   'companion.mergeCheck': entry('companion.mergeCheck', MergeCheckView),

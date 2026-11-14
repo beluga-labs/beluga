@@ -15,17 +15,21 @@ import { EarningsPill } from "../components/EarningsPill.js";
 import { Icon } from "../components/Icon.js";
 import { ProjectIcon } from "../components/ProjectIcon.js";
 import { Select } from "../components/Select.js";
-import { Button, Dot, Empty, Segmented, Tip, cx } from "../components/ui.js";
+import { Button, Dot, Empty, IconButton, Segmented, Tip, cx } from "../components/ui.js";
 import { useActions } from "../lib/actions.js";
 import { toast, useApi, useApp, useBeluga } from "../lib/beluga.js";
+import { makeAhead } from "../lib/make-ahead.js";
 import { useMyAgentName } from "../lib/agent-words.js";
+import { RunsOnPicker } from "../chat/RunsOn.js";
+import { type WorkToStart, sendToComputer, useStartDeps } from "../machines/start-there.js";
+import { myRuntime } from "../chat/ModelPicker.js";
 import { useStartWith } from "../components/agent-options.js";
 import { SplitButton } from "../components/SplitButton.js";
 import type { AgentRef } from "@beluga/protocol.js";
 import { sameDeep } from "../lib/stable.js";
 import { getPrefs, usePrefs } from "../lib/prefs.js";
 import { sendsToTerminal } from "../lib/convo-mode.js";
-import { mod } from "../lib/system.js";
+import { chordLabel } from "../lib/shortcuts-model.js";
 import {
   type OverviewFilter,
   readOverviewPrefs,
@@ -34,8 +38,12 @@ import {
   type HomeModel,
   agoText,
   homeModel,
+  homeTasks,
   lastActive,
 } from "./project/home-model.js";
+import { type Issue, STATUS_INFO } from "@beluga/core/board/model.js";
+import { StatusIcon } from "../tasks/marks.js";
+import { useTaskActions } from "../tasks/use-tasks.js";
 import { branchOptions } from "../chat/WorktreeDraft.js";
 import { useBoxSuggestions } from "../chat/BoxSuggestions.js";
 import { useAttachments } from "../chat/use-attachments.js";
@@ -45,6 +53,8 @@ import { useDictationTarget } from "../lib/dictation.js";
 import { HomeHistory } from "./history/HomeHistory.js";
 import { EarningsSection } from "./project/EarningsSection.js";
 import { GitHubRow } from "./project/GitHubRow.js";
+import { GitHubMark } from "../components/GitHubMark.js";
+import { PullRow, usePullList } from "./project/PullRow.js";
 import { RunRow } from "../ci/parts.js";
 import { useArrivals, useLateArrival } from "../lib/last-seen.js";
 import { useCiActions, useNow, useRuns } from "../ci/use-ci.js";
@@ -52,7 +62,9 @@ import { isLive, sortRuns } from "@beluga/core/ci/model.js";
 import { IssueRow } from "../issues/parts.js";
 import { useIssueActions, useIssueList } from "../issues/use-issues.js";
 import { MainSyncBar } from "./project/MainSyncBar.js";
-import { EnvPill, ProjectEnvAsks } from "./project/EnvAsks.js";
+import { EnvPill } from "./project/EnvAsks.js";
+import { EnvSection } from "./project/EnvSection.js";
+import { Section } from "./project/HomeSection.js";
 import { outsideOf } from "../layout/outside-model.js";
 import { openSheet } from "../lib/sheets.js";
 import { TonePill } from "../plans/marks.js";
@@ -68,7 +80,8 @@ import { TeamOffers } from "../team/Team.js";
  * A project's home: what you see when you click a project. Its main folder is never worked in,
  * so the big box starts work in a new worktree (or just asks a question about the project, or
  * plans big work with Claude), and below are its plans, worktrees, the questions asked in main,
- * what was put away, and (with Stripe connected) a folded row of how it's earning.
+ * the latest of its tasks and GitHub issues (each with the way to all of them), what was put away,
+ * and (with Stripe connected) a folded row of how it's earning.
  */
 export function ProjectHome({ id }: { id: string }) {
   const project = useApp((st) =>
@@ -159,7 +172,6 @@ function Header({ model }: { model: HomeModel }) {
           ) : null}
         </div>
         <MainSyncBar project={project} line={mainLine} />
-        {project.root ? <ProjectEnvAsks projectId={project.id} /> : null}
         <div className={s.stats} role="group" aria-label="At a glance">
           <span className={s.stat}>
             <strong>{stats.active}</strong> active
@@ -185,6 +197,15 @@ function Header({ model }: { model: HomeModel }) {
           <GitHubRow projectId={project.id} />
         </div>
       </div>
+      {/* Its settings (General, Environment, Worktrees), in one sheet (BLG-926). */}
+      {project.root ? (
+        <IconButton
+          icon="gear"
+          label="Project Settings…"
+          className={s.settingsButton}
+          onClick={() => openSheet({ kind: "project_env", projectId: project.id, tab: "general" })}
+        />
+      ) : null}
     </header>
   );
 }
@@ -281,12 +302,13 @@ function HomeComposer({ project }: { project: Project }) {
     : chosen
       ? [chosen]
       : [];
-  const sendKeys = prefs.sendWith === "enter" ? "↩" : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === "enter" ? "↩" : chordLabel('Cmd+Enter');
   // "@src/…" offers the main folder's files (the new worktree starts with the same ones), "/" the commands.
   const mainId = project.workspaces.find((w) => w.kind === "main")?.id;
   const box = useBoxSuggestions({ text, setText, filesOf: mainId });
   // Create Worktree's ▾ (BLG-506): the same worktree, worked by another agent.
   const startWith = useStartWith();
+  const startDeps = useStartDeps();
 
   /** `agent`: who works the new worktree (Start with…); none: your default. */
   const send = async (agent?: AgentRef): Promise<void> => {
@@ -318,7 +340,7 @@ function HomeComposer({ project }: { project: Project }) {
         message = await api.attachments.expand(
           typed,
           `home:${project.id}`,
-          [...images],
+          [...(await att.saved(images))],
           [...shown],
         );
       } catch (err) {
@@ -326,6 +348,21 @@ function HomeComposer({ project }: { project: Project }) {
         toast(client, `Couldn’t send the images: ${errorText(err)}`, "error");
         return;
       }
+    }
+    // Runs on one of your computers (BLG-788): the plan, worktree or chat is made there and opens at once.
+    const named = name.trim();
+    const there: WorkToStart = plan
+      ? { kind: "plan", input: { goal: message, autonomy } }
+      : worktree
+        ? { kind: "worktree", text: message, opts: { ...(base ? { base } : {}), ...(named ? { name: named } : {}), ...(agent ? { agent } : {}) } }
+        : { kind: "chat", text: message };
+    const sent = sendToComputer(startDeps, project.id, agent?.runtime ?? myRuntime(client.store.getState().prefs), there);
+    // Held (the computer Runs on names can't take it now): nothing starts, the words stay.
+    if (sent === "held") return putBack();
+    if (sent === "sent") {
+      setText("");
+      setName("");
+      return;
     }
     if (plan) {
       // The plan's page and chat open on their own; Claude starts planning from the text.
@@ -339,10 +376,10 @@ function HomeComposer({ project }: { project: Project }) {
       return;
     }
     if (worktree) {
-      // The worktree is made in the background (it opens when ready): you can go on right away.
-      const named = name.trim();
+      // The worktree is made in the background, its row and "Making…" page there at once (BLG-942): you can go on right away.
       setText("");
       setName("");
+      const ahead = makeAhead(client, project.id, named || message || "worktree", { ...(base ? { base } : {}), asked: message });
       void api.workspaces
         .startWorktree(project.id, message, {
           ...(base ? { base } : {}),
@@ -350,14 +387,16 @@ function HomeComposer({ project }: { project: Project }) {
           ...(agent ? { agent } : {}),
           // Seen as its terminal (Settings › Terminal): the terminal opens on this message (BLG-553).
           ...(message.trim() && sendsToTerminal(client.store.getState(), getPrefs(), "draft", agent?.runtime) ? { terminal: true } : {}),
+          ...(ahead ? { id: ahead.id } : {}),
         })
-        .catch((err: unknown) =>
+        .catch((err: unknown) => {
+          ahead?.drop();
           toast(
             client,
             `Couldn’t create the worktree: ${errorText(err)}`,
             "error",
-          ),
-        );
+          );
+        });
       return;
     }
     setBusy(true);
@@ -373,7 +412,7 @@ function HomeComposer({ project }: { project: Project }) {
     }
   };
   // Speaking instead of typing (Settings › Voice), as in every chat's box.
-  useDictationTarget(ref, () => void send());
+  useDictationTarget(ref, () => void send(), `new-chat:${project.id}`);
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (box.onKey(e)) return;
@@ -541,6 +580,8 @@ function HomeComposer({ project }: { project: Project }) {
               anything.
             </span>
           )}
+          {/* Where it runs (BLG-786): a worktree, a question or a plan alike. Only with a computer paired. */}
+          <RunsOnPicker project={project.id} />
           <span className={s.flex} />
           {plan ? (
             <label className={d.field}>
@@ -580,8 +621,11 @@ function Lists({ model }: { model: HomeModel }) {
   // A plan's own conversation is listed under Plans, not as a question.
   const planHomes = new Set(usePlans().plans.map((p) => p.home));
   const asks = model.asks.filter((w) => !planHomes.has(`ws:${w.id}`));
+  // What moves the work first (tasks, plans, worktrees, then GitHub's pull requests and issues); the
+  // project's environment and history after, as what you look up rather than act on.
   return (
     <div className={s.lists}>
+      <HomeTasks projectId={project.id} />
       <HomePlans projectId={project.id} />
       <Section
         title="Worktrees"
@@ -611,6 +655,8 @@ function Lists({ model }: { model: HomeModel }) {
           </p>
         )}
       </Section>
+      <HomePulls projectId={project.id} />
+      <HomeIssues projectId={project.id} />
       {asks.length ? (
         <Section
           title="Questions"
@@ -622,8 +668,8 @@ function Lists({ model }: { model: HomeModel }) {
           ))}
         </Section>
       ) : null}
-      <HomeIssues projectId={project.id} />
       <HomeActions projectId={project.id} />
+      {project.root ? <EnvSection projectId={project.id} root={project.root} /> : null}
       <HomeHistory projectId={project.id} />
       {archived.length ? (
         <Section
@@ -650,21 +696,139 @@ function Lists({ model }: { model: HomeModel }) {
   );
 }
 
+/** How many open pull requests Project Home lists before "Show All". */
+const HOME_PULLS = 4;
+
+/**
+ * The project's open pull requests on GitHub (anyone's, not only your worktrees'), the most
+ * recently active first. Nothing when it isn't on GitHub, gh isn't set up, or none are open.
+ */
+function HomePulls({ projectId }: { projectId: string }) {
+  const list = usePullList(projectId);
+  const actions = useActions();
+  const shown = list?.kind === "github" ? list.pulls.slice(0, HOME_PULLS) : [];
+  const late = useLateArrival(projectId, shown.length > 0);
+  const isNew = useArrivals(shown.map((p) => p.number));
+  if (list?.kind !== "github" || !shown.length) return null;
+  const repo = list.repo;
+  return (
+    <Section
+      arrive={late}
+      title="Pull Requests"
+      count={list.total}
+      hint="Open on GitHub"
+      action={
+        <>
+          {/* GitHub's mark in place of its name: the button stays short beside See All. */}
+          <Button
+            size="small"
+            variant="quiet"
+            aria-label="See all on GitHub"
+            onClick={() => actions.openLink({ kind: "url", url: `${repo.url}/pulls` })}
+          >
+            <span className={s.onGitHub}>
+              See All on <GitHubMark />
+            </span>
+          </Button>
+          <Button
+            size="small"
+            variant="quiet"
+            aria-label="See all pull requests"
+            onClick={() => actions.run({ type: "view", view: { kind: "pulls", projectId } })}
+          >
+            See All
+          </Button>
+        </>
+      }
+    >
+      {shown.map((pull) => (
+        <div key={pull.number} className={isNew(pull.number) ? a.arrive : undefined}>
+          <PullRow projectId={projectId} pull={pull} />
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+/** How many tasks Project Home lists before "Show All". */
+const HOME_TASKS = 3;
+
+/**
+ * The project's open tasks on its board, the most recently moved first, each opening its page,
+ * and the way to the whole board. Nothing when the board has never had a task for this repo.
+ */
+function HomeTasks({ projectId }: { projectId: string }) {
+  const board = useApp((st) => st.board);
+  const { open, openList } = useTaskActions();
+  const tasks = useMemo(() => homeTasks(board, projectId, HOME_TASKS), [board, projectId]);
+  const isNew = useArrivals(tasks.shown.map((i) => i.id));
+  if (!tasks.any) return null;
+  return (
+    <Section
+      title="Tasks"
+      count={tasks.open}
+      hint="Open on the board, the latest moved first"
+      action={
+        <Button size="small" variant="quiet" onClick={() => openList(projectId)}>
+          Show All Tasks
+        </Button>
+      }
+    >
+      {tasks.shown.length ? (
+        tasks.shown.map((issue) => (
+          <div key={issue.id} role="listitem" className={isNew(issue.id) ? a.arrive : undefined}>
+            <TaskRow issue={issue} onOpen={() => open(issue)} />
+          </div>
+        ))
+      ) : (
+        <p className={s.none}>Nothing open. Finished tasks are on the board.</p>
+      )}
+    </Section>
+  );
+}
+
+function TaskRow({ issue, onOpen }: { issue: Issue; onOpen: () => void }) {
+  const status = STATUS_INFO[issue.status];
+  return (
+    <button
+      type="button"
+      className={s.row}
+      onClick={onOpen}
+      aria-label={`${issue.key}: ${issue.title}, ${status.label}`}
+    >
+      <span className={s.rowIcon}>
+        <StatusIcon status={issue.status} size={13} />
+      </span>
+      <span className={s.rowMain}>
+        <span className={s.rowTitle}>
+          <span className={s.rowName}>{issue.title}</span>
+          <span className={s.rowBranch}>{issue.key}</span>
+        </span>
+      </span>
+      <TonePill tone={status.tone} live={issue.status === "in_progress"}>
+        {status.label}
+      </TonePill>
+      <span className={s.rowWhen}>{agoText(issue.updatedAt)}</span>
+      <Icon name="chevronRight" size={11} className={s.rowChevron} />
+    </button>
+  );
+}
+
 /** How many GitHub issues Project Home lists before "Show All". */
-const HOME_ISSUES = 4;
+const HOME_ISSUES = 3;
 
 /**
  * The project's open GitHub issues, the most recently active first, each opening its page (where
- * Claude can investigate it, fix it or write it up as a task). Nothing when it isn't on GitHub,
- * gh isn't set up (Issues says how), or nothing is open.
+ * Claude can investigate it, fix it or write it up as a task). None open: a line saying so, with
+ * the way to the closed ones. Nothing when it isn't on GitHub or gh isn't set up (Issues says how).
  */
 function HomeIssues({ projectId }: { projectId: string }) {
   const { list } = useIssueList(projectId, "open", "");
   const { openList } = useIssueActions();
   const shown = list?.kind === "github" ? list.issues.slice(0, HOME_ISSUES) : [];
-  const late = useLateArrival(projectId, shown.length > 0);
+  const late = useLateArrival(projectId, list?.kind === "github");
   const isNew = useArrivals(shown.map((i) => i.number));
-  if (list?.kind !== "github" || !shown.length) return null;
+  if (list?.kind !== "github") return null;
   return (
     <Section
       arrive={late}
@@ -677,11 +841,15 @@ function HomeIssues({ projectId }: { projectId: string }) {
         </Button>
       }
     >
-      {shown.map((issue) => (
-        <div key={issue.number} role="listitem" className={isNew(issue.number) ? a.arrive : undefined}>
-          <IssueRow projectId={projectId} repo={list.repo} issue={issue} compact />
-        </div>
-      ))}
+      {shown.length ? (
+        shown.map((issue) => (
+          <div key={issue.number} role="listitem" className={isNew(issue.number) ? a.arrive : undefined}>
+            <IssueRow projectId={projectId} repo={list.repo} issue={issue} compact />
+          </div>
+        ))
+      ) : (
+        <p className={s.none}>No open issues on GitHub.</p>
+      )}
     </Section>
   );
 }
@@ -790,39 +958,6 @@ function PlanRow({ plan }: { plan: Plan }) {
         <Icon name="chevronRight" size={11} className={s.rowChevron} />
       </button>
     </div>
-  );
-}
-
-function Section({
-  title,
-  count,
-  hint,
-  action,
-  arrive,
-  children,
-}: {
-  /** It came after the page opened: it settles in. */
-  arrive?: boolean;
-  title: string;
-  count: number;
-  hint?: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className={cx(s.section, arrive && a.arrive)} aria-label={title}>
-      <div className={s.sectionHead}>
-        <h3 className={s.sectionTitle}>
-          {title} <span className={s.count}>{count}</span>
-        </h3>
-        {hint ? <span className={s.sectionHint}>{hint}</span> : null}
-        <span className={s.flex} />
-        {action}
-      </div>
-      <div className={s.rows} role="list">
-        {children}
-      </div>
-    </section>
   );
 }
 

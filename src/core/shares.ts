@@ -1,7 +1,9 @@
 import { promises as fs, realpathSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import { type FsEntry, MAX_DOWNLOAD_BYTES, MAX_FILE_BYTES, type ShareInfo } from '../protocol.js';
+import { MAX_RANGE, type TextRange, textEnd } from '../shared/text-range.js';
 import { belugaEnv } from './beluga-env.js';
 import type { SecretKind } from './gateway/model.js';
 
@@ -39,8 +41,11 @@ const MAX_WATCHED = 200;
 
 const segmentsOf = (p: string): string[] => p.split(/[\\/]/).filter(Boolean).map((s) => s.toLowerCase());
 
+/** Your home folder: $HOME where it's set (tests set it), else the system's (Windows has no $HOME). */
+const userHome = (): string => process.env.HOME || os.homedir();
+
 /** Beluga's own home (~/.beluga): your identity key, settings and trust choices live there. */
-export const belugaHomeDir = (): string => path.resolve(belugaEnv('HOME') ?? process.env.KLAUDE_HOME ?? path.join(process.env.HOME ?? '~', '.beluga'));
+export const belugaHomeDir = (): string => path.resolve(belugaEnv('HOME') ?? process.env.KLAUDE_HOME ?? path.join(userHome(), '.beluga'));
 
 /** The Mac's file system ignores case: compare paths the way it does. */
 const fold = (p: string): string => (process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p);
@@ -61,7 +66,7 @@ export function realOf(p: string): string {
 /** Beluga's home in every form it can be reached by: as named, really, and the old ~/.klaud and ~/.klaude. */
 function belugaHomes(): string[] {
   const named = belugaHomeDir();
-  const legacy = ['.beluga', '.klaud', '.klaude'].map((name) => path.resolve(process.env.HOME ?? '~', name));
+  const legacy = ['.beluga', '.klaud', '.klaude'].map((name) => path.resolve(userHome(), name));
   return [...new Set([named, realOf(named), ...legacy.flatMap((p) => [p, realOf(p)])].map(fold))];
 }
 
@@ -301,6 +306,37 @@ export class ShareService {
     } finally {
       await handle.close();
     }
+  }
+
+  /**
+   * One piece of a file's text (BLG-791): `length` bytes from `offset`, ended on a line or at least
+   * a whole character, with where the next piece starts. The same files are refused as for read().
+   */
+  async readRange(shareName: string, relPath: string, offset: number, length: number, owner = false): Promise<TextRange> {
+    const file = resolveInShare(this.find(shareName), relPath, owner);
+    const stat = await fs.stat(file);
+    if (stat.isDirectory()) throw new ShareError('That is a directory');
+    const mtime = Math.round(stat.mtimeMs);
+    const start = Math.min(offset, stat.size);
+    const size = Math.min(length, MAX_RANGE, stat.size - start);
+    const buf = Buffer.alloc(size);
+    const handle = await fs.open(file, 'r');
+    try {
+      if (size > 0) await handle.read(buf, 0, size, start);
+    } finally {
+      await handle.close();
+    }
+    if (start === 0 && buf.includes(0)) return { content: '[binary file]', offset: 0, total: stat.size, mtime, binary: true };
+    const end = textEnd(buf, start + size >= stat.size);
+    const next = start + end < stat.size ? start + end : undefined;
+    return { content: buf.subarray(0, end).toString('utf8'), offset: start, ...(next !== undefined ? { next } : {}), total: stat.size, mtime };
+  }
+
+  /** A file's size and when it last changed (ms), without reading it: a picture's cache asks whether it was rewritten. */
+  async stat(shareName: string, relPath: string, owner = false): Promise<{ size: number; mtime: number }> {
+    const stat = await fs.stat(resolveInShare(this.find(shareName), relPath, owner));
+    if (stat.isDirectory()) throw new ShareError('That is a folder; pick a file');
+    return { size: stat.size, mtime: Math.round(stat.mtimeMs) };
   }
 
   /** Read one chunk of any file (binary-safe) for downloads. */

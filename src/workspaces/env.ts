@@ -15,7 +15,8 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.beluga', '
 const MAX_DEPTH = 3;
 const INCLUDE_FILE = '.worktreeinclude';
 
-const isEnvName = (name: string): boolean => ENV_FILE.test(name) && !/\.(example|sample|template)$/.test(name);
+/** A file name env.ts calls an env file (`.env.example` and other templates aren't). */
+export const isEnvFileName = (name: string): boolean => ENV_FILE.test(name) && !/\.(example|sample|template)$/.test(name);
 
 const LS_OPTS = { encoding: 'utf8', timeout: 15_000, maxBuffer: 32 * 1024 * 1024 } as const;
 const lsArgs = (args: readonly string[]): string[] => ['ls-files', '--others', '-z', ...args];
@@ -50,7 +51,7 @@ export function findEnvFiles(root: string): string[] {
     }
     for (const e of entries) {
       const relPath = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isFile() && isEnvName(e.name)) found.add(relPath);
+      if (e.isFile() && isEnvFileName(e.name)) found.add(relPath);
       else if (e.isDirectory() && ENV_DIRS.has(e.name)) {
         for (const f of readdirSync(path.join(dir, e.name), { withFileTypes: true })) if (f.isFile()) found.add(`${relPath}/${f.name}`);
       } else if (e.isDirectory() && depth < MAX_DEPTH && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) walk(path.join(dir, e.name), relPath, depth + 1);
@@ -67,7 +68,7 @@ export function findEnvFiles(root: string): string[] {
 /** What git listed, added to what the walk found → the sorted list. */
 function withListed(found: Set<string>, listed: readonly string[], included: readonly string[]): string[] {
   const skipped = (rel: string) => rel.split('/').slice(0, -1).some((d) => SKIP_DIRS.has(d));
-  for (const rel of listed) if (isEnvName(path.posix.basename(rel)) && !skipped(rel)) found.add(rel);
+  for (const rel of listed) if (isEnvFileName(path.posix.basename(rel)) && !skipped(rel)) found.add(rel);
   for (const rel of included) if (!skipped(rel)) found.add(rel);
   return [...found].sort();
 }
@@ -87,7 +88,7 @@ async function readEnvFiles(root: string): Promise<string[]> {
     // One folder at a time, as findEnvFiles goes (a big checkout never fills the disk queue the rest of Beluga waits on).
     for (const e of entries) {
       const relPath = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isFile() && isEnvName(e.name)) found.add(relPath);
+      if (e.isFile() && isEnvFileName(e.name)) found.add(relPath);
       else if (e.isDirectory() && ENV_DIRS.has(e.name)) {
         for (const f of await readdir(path.join(dir, e.name), { withFileTypes: true })) if (f.isFile()) found.add(`${relPath}/${f.name}`);
       } else if (e.isDirectory() && depth < MAX_DEPTH && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) await walk(path.join(dir, e.name), relPath, depth + 1);
@@ -316,9 +317,10 @@ export function envHashes(dir: string, files: readonly string[]): Record<string,
 /**
  * Bring a worktree's env changes back into the main folder: changed and added keys are
  * written into the main file (keeping its other keys and comments); other files are copied.
- * Removed keys are left alone, so nothing in the main folder is deleted by surprise.
+ * Removed keys are left alone, so nothing in the main folder is deleted by surprise, unless
+ * `removed` says to take them out too (you ticked it, archiving or deleting the worktree).
  */
-export function applyEnvChanges(worktree: string, main: string, changes: readonly EnvChange[]): void {
+export function applyEnvChanges(worktree: string, main: string, changes: readonly EnvChange[], opts: { readonly removed?: boolean } = {}): void {
   for (const c of changes) {
     const src = path.join(worktree, c.file);
     const dst = path.join(main, c.file);
@@ -329,7 +331,8 @@ export function applyEnvChanges(worktree: string, main: string, changes: readonl
     const mine = parseDotenv(readFileSync(src, 'utf8'));
     const lines = readFileSync(dst, 'utf8').split('\n');
     const keys = new Set([...c.added, ...c.changed]);
-    const updated = lines.map((line) => {
+    const gone = new Set(opts.removed ? c.removed : []);
+    const updated = lines.filter((line) => !gone.has(/^\s*(?:export\s+)?([A-Za-z_][\w.-]*)\s*=/.exec(line)?.[1] ?? '')).map((line) => {
       const m = /^\s*(?:export\s+)?([A-Za-z_][\w.-]*)\s*=/.exec(line);
       const key = m?.[1];
       if (key && keys.has(key)) {

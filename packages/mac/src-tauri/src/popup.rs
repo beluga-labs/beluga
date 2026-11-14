@@ -101,14 +101,18 @@ fn ensure<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .visible(false);
     #[cfg(target_os = "macos")]
     let builder = builder.accept_first_mouse(true);
-    let window = builder.build()?;
+    let window = crate::menu::without_menu_bar(app, builder).build()?;
     #[cfg(target_os = "macos")]
     {
         let w = window.clone();
-        let _ = app.run_on_main_thread(move || float_over_everything(&w));
+        let _ = app.run_on_main_thread(move || {
+            float_over_everything(&w);
+            // Later, × and the answers leave you in the app you were in.
+            never_activate(&w);
+        });
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    // Windows and Linux give every new window the app's menu bar: not this small card.
+    crate::menu::drop_menu_bar(&window);
     Ok(())
 }
 
@@ -128,7 +132,7 @@ const FLOAT_LEVEL: isize = 101;
 /// with Beluga hidden or in the Dock, and it never hides when Beluga isn't the active app. It
 /// still never takes the keyboard (the window isn't focusable). Needs no macOS permission.
 #[cfg(target_os = "macos")]
-fn float_over_everything<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+pub(crate) fn float_over_everything<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
     let Ok(ptr) = window.ns_window() else {
@@ -144,6 +148,33 @@ fn float_over_everything<R: Runtime>(window: &tauri::WebviewWindow<R>) {
         let _: () = msg_send![ns, setLevel: FLOAT_LEVEL];
         let _: () = msg_send![ns, setHidesOnDeactivate: false];
         let _: () = msg_send![ns, setCanHide: false];
+    }
+}
+
+/// A click on a floating card leaves Beluga where it was. Without this, the click makes Beluga the
+/// active app and its window comes to the front: Later on the pop-up would still open Beluga under
+/// it, and the call card would hide (call/float.ts) before its button gets the click. AppKit's own
+/// switch for this (what a non-activating panel uses), where it exists. A button that should open
+/// Beluga does it on purpose (`crate::focus_main`).
+#[cfg(target_os = "macos")]
+pub(crate) fn never_activate<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    use objc2::runtime::{AnyObject, Bool, Sel};
+    use objc2::{msg_send, sel};
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+    let ns = ptr.cast::<AnyObject>();
+    if ns.is_null() {
+        return;
+    }
+    let prevent: Sel = sel!(_setPreventsActivation:);
+    // SAFETY: `ns` is this window's live NSWindow, this runs on the main thread, and the private
+    // method is only called once the window says it has it.
+    unsafe {
+        let has: Bool = msg_send![ns, respondsToSelector: prevent];
+        if has.as_bool() {
+            let _: () = msg_send![ns, _setPreventsActivation: Bool::YES];
+        }
     }
 }
 

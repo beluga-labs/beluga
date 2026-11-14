@@ -4,13 +4,14 @@ import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { Icon } from '../components/Icon.js';
 import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
 import { cx } from '../components/ui.js';
-import { inApp } from '../lib/boot.js';
+import { inApp, webServed } from '../lib/boot.js';
 import { copyText } from '../lib/copy.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { type Pending, removePending } from './attachments.js';
 import { kindLabel, sizeLabel } from './chat-model.js';
 import { useSay } from './use-net.js';
 import s from './network.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 /**
  * Files in a chat: cards with the file's state on this Mac (download it, watch it come, open it,
@@ -21,6 +22,14 @@ const errorText = (err: unknown): string => (err instanceof Error ? err.message 
 
 /** Pictures already read from the store, by checksum (a data URL), so scrolling doesn't read them again. */
 const previews = new Map<string, string>();
+/** Pictures remembered (each up to a few MB); the least recently shown is read again when it's back. */
+const PREVIEWS_MAX = 24;
+
+function remember(sha: string, data: string): void {
+  previews.delete(sha);
+  previews.set(sha, data);
+  while (previews.size > PREVIEWS_MAX) previews.delete(previews.keys().next().value!);
+}
 
 async function saveAs(client: SocketClient, f: ChatFile): Promise<string | undefined> {
   if (!inApp()) return undefined;
@@ -28,6 +37,20 @@ async function saveAs(client: SocketClient, f: ChatFile): Promise<string | undef
   const dir = await downloadDir().catch(() => '');
   const to = await save({ title: `Save ${f.name}`, defaultPath: dir ? `${dir.replace(/\/+$/, '')}/${f.name}` : f.name });
   return to ? client.api.network['files.saveTo'](f.sha, to) : undefined;
+}
+
+/**
+ * Open a file that's here: with its app on this Mac; in a page the web port served (another
+ * computer, maybe), the browser downloads it instead.
+ */
+function openHere(client: SocketClient, f: ChatFile, state: ChatFileState | undefined): Promise<unknown> {
+  if (webServed() && state?.path) return import('../lib/web-files.js').then(({ download }) => download(client, { path: state.path! }));
+  return client.api.network['files.open'](f.sha);
+}
+
+/** Show it in Finder; in a served page, download it (there's no Finder on this side). */
+function revealHere(client: SocketClient, f: ChatFile, state: ChatFileState | undefined): Promise<unknown> {
+  return webServed() ? openHere(client, f, state) : client.api.network['files.reveal'](f.sha);
 }
 
 function useFileState(sha: string): ChatFileState | undefined {
@@ -48,26 +71,30 @@ function fileItems(f: ChatFile, state: ChatFileState | undefined, ctx: { client:
     ];
   }
   return [
-    { label: 'Open', icon: 'external', onSelect: () => run(client.api.network['files.open'](f.sha)) },
-    { label: 'Show in Finder', icon: 'folder', onSelect: () => run(client.api.network['files.reveal'](f.sha)) },
+    ...(webServed()
+      ? [{ label: 'Download', icon: 'download' as const, onSelect: () => run(openHere(client, f, state)) }]
+      : [
+          { label: 'Open', icon: 'external' as const, onSelect: () => run(openHere(client, f, state)) },
+          { label: revealLabel(), icon: 'folder' as const, onSelect: () => run(revealHere(client, f, state)) },
+        ]),
     ...(inApp() ? [{ label: 'Save As…', icon: 'download' as const, onSelect: () => run(saveAs(client, f).then((to) => to && say(`Saved to ${to}`))) }] : []),
     { label: 'Copy Name', icon: 'copy', separate: true, onSelect: () => run(copyText(f.name), `Copied “${f.name}”`) },
     ...(state.path ? [{ label: 'Copy Path', onSelect: () => run(copyText(state.path!), 'Copied the path') }] : []),
   ];
 }
 
-/** A picture in the chat, read from the store once it's here. */
-function Picture({ f, state }: { f: ChatFile; state: ChatFileState | undefined }) {
+/** A picture's data URL, read from the store once it's here (undefined until then, and for other files). */
+function usePreview(f: ChatFile, state: ChatFileState | undefined): string | undefined {
   const { client } = useBeluga();
   const [url, setUrl] = useState(() => previews.get(f.sha));
   const here = state?.state === 'here';
   useEffect(() => {
-    if (!here || url) return;
+    if (!f.image || !here || url) return;
     let alive = true;
     client.api.network['files.preview'](f.sha).then(
       (p) => {
         const data = `data:${p.mime};base64,${p.b64}`;
-        previews.set(f.sha, data);
+        remember(f.sha, data);
         if (alive) setUrl(data);
       },
       () => undefined,
@@ -75,12 +102,30 @@ function Picture({ f, state }: { f: ChatFile; state: ChatFileState | undefined }
     return () => {
       alive = false;
     };
-  }, [here, url, f.sha]);
-  if (!url) return null;
+  }, [f.image, here, url, f.sha]);
+  return f.image ? url : undefined;
+}
+
+/**
+ * A picture in the chat: the picture is the card. Its name and size show on it as you point at
+ * it, with Show in Finder beside them; everything else is on its right-click menu.
+ */
+function Picture({ f, state, url, detail }: { f: ChatFile; state: ChatFileState | undefined; url: string; detail: string }) {
+  const { client } = useBeluga();
+  const say = useSay();
   return (
-    <button type="button" className={s.picture} onClick={() => void client.api.network['files.open'](f.sha)} aria-label={`Open ${f.name}`}>
-      <img src={url} alt={f.name} draggable={false} />
-    </button>
+    <div className={s.picture} role="group" aria-label={`${f.name}, ${detail}`}>
+      <button type="button" className={s.pictureOpen} onClick={() => void openHere(client, f, state).catch((err: unknown) => say(errorText(err), 'error'))} aria-label={`Open ${f.name}`}>
+        <img src={url} alt={f.name} draggable={false} />
+      </button>
+      <span className={s.pictureCaption} aria-hidden="true">
+        <span className={s.pictureName}>{f.name}</span>
+        <span>{detail}</span>
+      </span>
+      <button type="button" className={s.pictureAction} aria-label={webServed() ? `Download ${f.name}` : revealLabel(f.name)} onClick={() => void revealHere(client, f, state).catch((err: unknown) => say(errorText(err), 'error'))}>
+        <Icon name={webServed() ? 'download' : 'folder'} size={12} />
+      </button>
+    </div>
   );
 }
 
@@ -94,7 +139,7 @@ export const FileCard = memo(function FileCard({ f, conversation, mine }: { f: C
   const pct = coming && state.size ? Math.min(100, Math.round(((state.received ?? 0) / state.size) * 100)) : 0;
   const fail = (err: unknown): void => say(errorText(err), 'error');
   const primary = (): void => {
-    if (here) void client.api.network['files.open'](f.sha).catch(fail);
+    if (here) void openHere(client, f, state).catch(fail);
     else if (!coming) void client.api.network['files.download'](f.sha, conversation).catch(fail);
   };
   const detail = coming
@@ -106,10 +151,19 @@ export const FileCard = memo(function FileCard({ f, conversation, mine }: { f: C
       : here
         ? `${kindLabel(f)} · ${sizeLabel(f.size)}`
         : `${kindLabel(f)} · ${sizeLabel(f.size)} · ${mine ? 'sent' : 'not downloaded'}`;
+  const url = usePreview(f, state);
+  if (url && here) {
+    return (
+      <ActionsContext items={() => fileItems(f, state, { client, say, conversation })}>
+        <div className={s.fileWrap} data-file={f.sha}>
+          <Picture f={f} state={state} url={url} detail={detail} />
+        </div>
+      </ActionsContext>
+    );
+  }
   return (
     <ActionsContext items={() => fileItems(f, state, { client, say, conversation })}>
       <div className={s.fileWrap} data-file={f.sha}>
-        {f.image ? <Picture f={f} state={state} /> : null}
         <div className={cx(s.file, state?.state === 'failed' && s.fileFailed)} role="group" aria-label={`${f.name}, ${detail}`}>
           <button type="button" className={s.fileMain} onClick={primary} title={here ? `Open ${f.name}` : coming ? undefined : `Download ${f.name}`}>
             <span className={s.fileIcon}>
@@ -125,8 +179,8 @@ export const FileCard = memo(function FileCard({ f, conversation, mine }: { f: C
               <Icon name="x" size={11} />
             </button>
           ) : here ? (
-            <button type="button" className={s.fileAction} aria-label={`Show ${f.name} in Finder`} onClick={() => void client.api.network['files.reveal'](f.sha).catch(fail)}>
-              <Icon name="folder" size={12} />
+            <button type="button" className={s.fileAction} aria-label={webServed() ? `Download ${f.name}` : revealLabel(f.name)} onClick={() => void revealHere(client, f, state).catch(fail)}>
+              <Icon name={webServed() ? 'download' : 'folder'} size={12} />
             </button>
           ) : (
             <button type="button" className={s.fileAction} aria-label={state?.state === 'failed' ? `Try downloading ${f.name} again` : `Download ${f.name}`} onClick={() => void client.api.network['files.download'](f.sha, conversation).catch(fail)}>

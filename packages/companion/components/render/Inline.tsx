@@ -1,11 +1,14 @@
 import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { ArrowDownRight, ArrowRight, ArrowUpRight, GitBranch, Shield, Workflow } from 'lucide-react-native';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, GitBranch, Lock, MessageSquare, Shield, Workflow } from 'lucide-react-native';
+import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import Svg, { Polyline } from 'react-native-svg';
+import type { ChatResolveResult } from '../../../../src/companion/calls';
 import { useSupports, useView } from '../../lib/hooks';
+import { calls } from '../../lib/link/calls';
 import type { PlansView, SentinelsView, WorkView } from '../../lib/link/protocol';
-import { type InlineElement, parseColor, readInline, relative, toneOf } from '../../lib/render';
+import { type ChatRef, type InlineElement, chatChipOf, formatChatRef, parseColor, readInline, relative, toneOf } from '../../lib/render';
 import { store } from '../../lib/store';
 import { color, ink, tint, type } from '../../lib/theme';
 import { haptic, Press, type Tone, toneBg, toneInk } from '../ui';
@@ -116,7 +119,18 @@ export function InlineThing({ el }: { readonly el: InlineElement }) {
       return <PlanChip id={el.id} />;
     case 'sentinel':
       return <SentinelChip id={el.id} />;
+    case 'chat':
+      return <ChatChip target={el.ref} />;
   }
+}
+
+/**
+ * The worktrees Work knows, by id (`on`: only then, so other screens don't ask for Work): a pasted
+ * "worktree:wt-…" naming one is drawn as its chip (BLG-878).
+ */
+export function useWorktreeIds(on: boolean): ReadonlySet<string> {
+  const work = useView<WorkView>(on ? 'work' : undefined);
+  return useMemo(() => new Set(work?.data.projects.flatMap((p) => p.conversations.flatMap((c) => (c.topic.startsWith('conv:ws:') ? [c.topic.slice('conv:ws:'.length)] : []))) ?? []), [work]);
 }
 
 /** A worktree Your Mac started (`worktree:<id>`): its name from Work (live); a tap opens its conversation. */
@@ -158,6 +172,43 @@ function SentinelChip({ id }: { readonly id: string }) {
       <Shield color={ink.sky} size={12} strokeWidth={1.9} />
       <Text numberOfLines={1} style={{ ...type.caption, color: ink.sky, fontWeight: '700', maxWidth: 180 }}>
         {s?.name ?? 'Sentinel'}
+      </Text>
+    </Press>
+  );
+}
+
+/**
+ * A chat by its address (`chat:<owner>/<channel>`, 1.44): its current title from the Mac, asked
+ * again whenever Work changes (a rename); a tap opens /conv/<channel>. An older Mac, or chat links
+ * off, leaves it the code it was.
+ */
+function ChatChip({ target }: { readonly target: ChatRef }) {
+  const on = useSupports('chatLinks');
+  const work = useView<WorkView>(on ? 'work' : undefined);
+  const ref = formatChatRef(target) ?? '';
+  const [chat, setChat] = useState<ChatResolveResult | undefined>(undefined);
+  useEffect(() => {
+    if (!on) return;
+    let alive = true;
+    store.call<ChatResolveResult>(calls.resolveChat(ref), { queue: false }).then(
+      (r) => {
+        if (alive) setChat(r ?? null);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [on, ref, work]);
+  if (!on || chat === null) return <Text style={[type.mono, { color: color.text2, fontSize: 13 }]}>{`chat:${ref}`}</Text>;
+  const chip = chat ? chatChipOf(chat) : { label: 'Chat', opens: false };
+  const tone = chip.opens ? { bg: tint.sky, ink: ink.sky } : { bg: color.code, ink: color.text2 };
+  const Mark = chat?.ownership === 'unknown' ? Lock : chat?.kind === 'worktree' ? GitBranch : MessageSquare;
+  return (
+    <Press haptics={false} disabled={!chip.opens} onPress={() => router.push(`/conv/${encodeURIComponent(target.channel)}`)} style={[pill, { backgroundColor: tone.bg }]}>
+      <Mark color={tone.ink} size={12} strokeWidth={1.9} />
+      <Text numberOfLines={1} style={{ ...type.caption, color: tone.ink, fontWeight: '700', maxWidth: 180 }}>
+        {chip.label}
       </Text>
     </Press>
   );

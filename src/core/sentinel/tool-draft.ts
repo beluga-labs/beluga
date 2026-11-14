@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ACCESS, BELUGA_EVENTS, GITHUB_EVENTS, NOTIFY_WHERE, SENTRY_EVENTS, STRIPE_EVENTS } from './model.js';
+import { ACCESS, BELUGA_EVENTS, GITHUB_EVENTS, KEEP_CHATS, NOTIFY_WHERE, SENTRY_EVENTS, STRIPE_EVENTS } from './model.js';
 import { SOURCE_KINDS } from '../../shared/view-spec.js';
 import { LimitsSchema, MetricSpecSchema, ScheduleTriggerSchema } from './schema.js';
 import { ASSISTANT_TITLE } from '../../shared/assistant.js';
@@ -23,7 +23,7 @@ const stepName = z.string().max(80);
 
 const TOOL_TRIGGER = z
   .discriminatedUnion('kind', [
-    ScheduleTriggerSchema.describe('every: hours (with hours: 1|2|3|6|12), day, other-day, week (with days: 0 Sunday…6 Saturday), month (with day: 1…28); at: "HH:MM" local time'),
+    ScheduleTriggerSchema.describe('every: minutes (with minutes: 1|5|10|15|30, on the clock: every 15 is :00, :15, :30, :45; at is not used), hours (with hours: 1|2|3|6|12), day, other-day, week (with days: 0 Sunday…6 Saturday), month (with day: 1…28); at: "HH:MM" local time. A missed slot (the Mac asleep) runs once at most (catch-up) or not at all (skip). Every few minutes with an Ask your agent step uses the user’s plan quickly: prefer 15 or 30 (never 1 without a reason), or set limits.perDay'),
     z.object({ kind: z.literal('manual') }),
     z.object({ kind: z.literal('after'), sentinelId: z.string().min(1).max(80).describe('The other sentinel’s id (sentinel_list)'), on: z.enum(['success', 'failure', 'always']) }),
     z.object({ kind: z.literal('beluga'), what: z.enum(BELUGA_EVENTS), projectId: z.string().max(80).optional() }).describe('Something in Beluga happened'),
@@ -36,7 +36,7 @@ const TOOL_TRIGGER = z
   .describe('When it runs');
 
 const TOOL_STEP = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('claude'), id: stepId, name: stepName, prompt: z.string().min(1).max(20_000).describe('What the agent does each run; may use {{date}}, {{project}}, {{tasks}}, {{previous}}'), where: z.enum(['project', 'worktree', 'mac']).describe('project: reads only (briefs, triage); worktree: changes code; mac: about the Mac itself') }),
+  z.object({ kind: z.literal('claude'), id: stepId, name: stepName, prompt: z.string().min(1).max(20_000).describe('What the agent does each run; may use {{date}}, {{project}}, {{tasks}}, {{previous}}'), where: z.enum(['project', 'worktree', 'mac']).describe('project: reads only (briefs, triage); worktree: changes code; mac: about the Mac itself'), runtime: z.string().regex(/^[a-z][\w-]{0,31}$/).optional().describe('The agent that does it: "claude", "codex", "opencode" or "copilot" (leave out: the user’s default agent)'), model: z.string().max(80).optional().describe('Its model (leave out: the agent’s default)'), effort: z.string().max(20).optional().describe('Its thinking effort (low, medium, high…; leave out: Settings’ effort)') }),
   z.object({ kind: z.literal('script'), id: stepId, name: stepName, command: z.string().min(1).max(4000), cwd: z.enum(['project', 'home']).optional(), timeoutSec: z.number().int().min(1).max(3600).optional() }),
   z.object({ kind: z.literal('notify'), id: stepId, name: stepName, title: z.string().max(200).optional(), body: z.string().max(4000).optional(), phone: z.boolean().optional() }),
   z.object({
@@ -75,6 +75,7 @@ export const TOOL_DRAFT_SHAPE = {
   steps: z.array(TOOL_STEP).min(1).max(12),
   access: z.enum(ACCESS).optional().describe('look (default): read and report; work: change code in a worktree and open pull requests; ship: also merge after checks and approval'),
   notify: z.enum(NOTIFY_WHERE).optional().describe('Where the run’s end is told (mac by default)'),
+  keepChats: z.enum(KEEP_CHATS).optional().describe('Which runs’ agent conversations it keeps: all (default), failed (only failed or stopped runs’: right for frequent sentinels the user only checks when something breaks), latest (only the newest run’s). The rest are put away when a run ends; reports and outputs stay on each run'),
 };
 
 export const ToolDraftSchema = z.object(TOOL_DRAFT_SHAPE);
@@ -90,6 +91,7 @@ export const TOOL_PATCH_SHAPE = {
   access: TOOL_DRAFT_SHAPE.access,
   limits: LimitsSchema.partial().optional().describe('minutes per run, perDay (0: no limit), pauseAfter failures in a row (0: never)'),
   notify: TOOL_DRAFT_SHAPE.notify,
+  keepChats: TOOL_DRAFT_SHAPE.keepChats,
 };
 
 export const ToolPatchSchema = z.object(TOOL_PATCH_SHAPE);

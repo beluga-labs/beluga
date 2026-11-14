@@ -7,20 +7,23 @@ import { agentOfWorktree, agentTitle, isAgentWorktree } from '../claude-code/sub
 import { activityOf, findWorkspace, stateOf } from '@beluga/ui/workspace-models.js';
 import { describePr } from '@beluga/shared/format.js';
 import { Icon } from '../components/Icon.js';
+import { useContinueOn } from '../machines/continue-on.js';
 import { ActionsDropdown } from '../components/SpecMenu.js';
 import { Button, Dot, IconButton, Segmented, Tip, cx } from '../components/ui.js';
 import { ConvoSwitch, SWITCH_ICONS_W, SWITCH_W } from '../agent-term/ConvoSwitch.js';
 import { terminalCapable } from '../lib/convo-mode.js';
 import { useActions } from '../lib/actions.js';
-import { toast, useApp, useBeluga } from '../lib/beluga.js';
+import { AtHome, toast, useApp, useBeluga } from '../lib/beluga.js';
+import { MachineTag } from '../machines/MachineTag.js';
 import { sameDeep, sameFields } from '../lib/stable.js';
 import type { AppState } from '@beluga/core/store.js';
 import { type ToolAction, isPrStep, shortOf, toolbarActions } from './toolbar-actions.js';
-import { type BranchFold, BranchControl, pillHidden, shortLabel } from './BranchControl.js';
+import { type BranchFold, BranchControl, BranchPill, pillHidden, shortLabel } from './BranchControl.js';
 import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { getPrefs, setPrefs, usePrefs } from '../lib/prefs.js';
 import { togglePanel } from '../lib/panel.js';
+import { navBack, navForward, useNavAbility } from '../lib/nav.js';
 import { panelFits } from '../lib/panel-model.js';
 import { mod } from '../lib/system.js';
 import { NotificationBell } from './NotificationCenter.js';
@@ -30,13 +33,18 @@ import { ContextNote } from '../chat/ContextMeter.js';
 import { PeopleHere } from './PeopleHere.js';
 import { ForkToMacButton } from '../dialogs/native/ForkToMacSheet.js';
 import { PrivateMark, shareWithTeamItems } from '../team/Team.js';
+import { copyLinkItems } from './worktree-link.js';
 import s from './Toolbar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { sentinelSubtitle } from '../sentinel/sentinel-model.js';
+import { CallButton } from '../call/CallStrip.js';
+import { AppMenu } from './AppMenu.js';
 
 /** Room the title keeps, and the window buttons on the right (search, bell, panel). */
 const TITLE_MIN = 210;
 const RIGHT_FIXED = 3 * 30 + 16;
+/** Back and forward, before the title. */
+const NAV_W = 2 * 30;
 const FOLDS: BranchFold[] = ['none', 'pill', 'all'];
 
 const TITLES: Partial<Record<string, string>> = { overview: 'Overview', search: 'Search', usage: 'Usage', terminal: 'Terminal', files: 'Files', draft: 'New chat', draft_worktree: 'New worktree', claude_code: 'Activity', requests: 'Requests', tasks: 'Tasks', worktrees: 'Worktrees' };
@@ -62,10 +70,22 @@ function SearchButton() {
   return <IconButton icon="search" label="Search" keys={shortcutKeys('find')} active={on} onClick={() => actions.run({ type: 'view', view: { kind: 'search' } })} />;
 }
 
+/** Back and forward between pages, with what was open on each (⌘[ ⌘]; off with nowhere to go). */
+function NavButtons() {
+  const can = useNavAbility();
+  return (
+    <span className={s.nav} role="group" aria-label="Back and forward">
+      <IconButton icon="back" label="Go back" keys={shortcutKeys('nav-back')} disabled={!can.back} onClick={() => void navBack()} />
+      <IconButton icon="forward" label="Go forward" keys={shortcutKeys('nav-forward')} disabled={!can.forward} onClick={() => void navForward()} />
+    </span>
+  );
+}
+
 function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode; subtitle?: ReactNode; center?: ReactNode; right?: ReactNode; headerRef: React.RefObject<HTMLElement | null> }) {
   const prefs = usePrefs();
   const view = useApp((st) => st.view);
   // A plan's page has no panel: its chat is its right side (the plan's header shows and hides it, ⌥⌘0 too).
+  // Nor do the pages that have the whole window (Tasks, a task, Sentinel): there the button isn't shown.
   const fits = panelFits(view);
   // Only what every view needs: search, what's new, the panel. The terminal (⌘J) is a panel tab,
   // and everything you can do is ⌘K and the menu bar.
@@ -73,29 +93,40 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
     <header ref={headerRef} className={cx(s.toolbar, !prefs.sidebar && s.noSidebar)} data-tauri-drag-region>
       {prefs.sidebar ? null : (
         <span className={s.lead}>
+          {/* The sidebar's menu-bar button (a browser's), beside it while the sidebar is hidden. */}
+          <AppMenu />
           <IconButton icon="sidebar" label="Show sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: true })} />
         </span>
       )}
+      <NavButtons />
       <div className={s.titles} data-tauri-drag-region>
-        <div className={s.title}>{title}</div>
+        <div className={s.title}>
+          <MachineTag />
+          {title}
+        </div>
         {subtitle ? <div className={s.subtitle}>{subtitle}</div> : null}
       </div>
       <div className={s.center} data-tauri-drag-region>
         {center}
       </div>
       <div className={s.right}>
-        {/* Whatever still doesn't fit is cut here, never the window buttons: the panel's toggle always shows. */}
+        {/* Whatever still doesn't fit is cut here, never the window buttons: the panel's toggle always shows where there's a panel. */}
         {right ? <div className={s.extra}>{right}</div> : null}
-        <SearchButton />
-        <NotificationBell />
-        <IconButton
-          icon="panelRight"
-          label={!fits ? (view.kind === 'plan' ? 'No panel on a plan’s page: its chat is beside the plan' : 'No panel here: this page has the whole window') : prefs.inspector ? 'Hide the panel' : 'Show the panel: changes, files, terminal, info'}
-          {...(fits ? { keys: shortcutKeys('toggle-inspector') } : {})}
-          active={fits && prefs.inspector}
-          disabled={!fits}
-          onClick={() => togglePanel(view)}
-        />
+        {/* The window's own wherever you are: this Mac's search and one bell (BLG-790 brings every computer's). */}
+        <AtHome>
+          <SearchButton />
+          <NotificationBell />
+        </AtHome>
+        {/* No panel here, no button for it: a button that can only say so is nothing to click. */}
+        {fits ? (
+          <IconButton
+            icon="panelRight"
+            label={prefs.inspector ? 'Hide the panel' : 'Show the panel: changes, files, terminal, info'}
+            keys={shortcutKeys('toggle-inspector')}
+            active={prefs.inspector}
+            onClick={() => togglePanel(view)}
+          />
+        ) : null}
       </div>
     </header>
   );
@@ -143,6 +174,8 @@ export function Toolbar() {
   const { client } = beluga;
   const state = useApp(toolbarPick, sameToolbar);
   const view = state.view;
+  // Continue On ▸ another computer of yours (BLG-808).
+  const continueItem = useContinueOn(view.kind === 'workspace' ? state.ws : undefined);
 
   if (view.kind === 'workspace') {
     const ws = state.ws;
@@ -166,14 +199,14 @@ export function Toolbar() {
     }
     const { st } = state.made;
     const { branch, primary, icons, more } = state.made.tools;
-    // A narrow window: the icons that don't fit move under ⋯ first, then the branch pill keeps only
-    // its icon and number, then its step and the everyday action only their icons (words in their tips).
-    const pillW = (fold: BranchFold): number => (branch && !pillHidden(branch, fold) ? (fold === 'none' ? branch.label.length * 6.6 + 40 : 38) + (branch.pr ? 28 : 0) : 0);
+    // A narrow window: the icons that don't fit move under ⋯ first, then the branch pill (beside the
+    // name) keeps only its icon and number, then its step and the everyday action only their icons (words in their tips).
+    const pillW = (fold: BranchFold): number => (branch && !pillHidden(branch, fold) ? (fold === 'none' ? branch.label.length * 5.8 + 34 : 30) + (branch.pr ? 24 : 0) : 0);
     const stepW = (fold: BranchFold): number => (branch?.steps[0] ? (fold === 'all' ? shortLabel(branch.steps[0]).length * 7.4 + 42 : branch.steps[0].label.length * 7.4 + 42) + 34 : 0);
     const primaryW = (fold: BranchFold): number => (primary ? (fold === 'all' ? shortOf(primary).length * 7.4 + 48 : primary.label.length * 7.4 + 48) : 0);
     // The Chat · Terminal · Both switch (BLG-534): with its words while there's room, then its icons.
     const switchW = getPrefs().termView && terminalCapable(client.store.getState(), ws.id) ? (width >= 1180 ? SWITCH_W : SWITCH_ICONS_W) : 0;
-    const fixedAt = (fold: BranchFold): number => TITLE_MIN + RIGHT_FIXED + switchW + pillW(fold) + stepW(fold) + primaryW(fold) + 34;
+    const fixedAt = (fold: BranchFold): number => TITLE_MIN + NAV_W + RIGHT_FIXED + switchW + pillW(fold) + stepW(fold) + primaryW(fold) + 34;
     const fold = FOLDS.find((f) => fixedAt(f) <= width) ?? 'all';
     const fit = Math.max(0, Math.min(icons.length, Math.floor((width - fixedAt(fold)) / 30)));
     // Icons that don't fit lead ⋯ as a section of their own.
@@ -181,6 +214,8 @@ export function Toolbar() {
     const menu = overflow.flatMap((section, k) => section.map((a, i) => ({ a, separate: k > 0 && i === 0 })));
     // A team project's conversation is yours alone until you share it (core/team, BLG-226).
     const teamItems = shareWithTeamItems(state, client, ws.id, project?.id);
+    // Copy Link, to mention it in another chat (BLG-878).
+    const linkItems = copyLinkItems(ws, client);
     const run = (a: ToolAction): void => {
       if (a.disabled) return toast(client, a.hint, 'info');
       if (isPrStep(a.action)) return askBeforeWork(ws.id, a.action);
@@ -188,8 +223,8 @@ export function Toolbar() {
       actions.run({ type: 'ws', id: ws.id, action: a.action });
     };
     const pr = state.prs[ws.id];
-    // Where the branch stands (Merged, Conflicts, its PR) is said once, by the branch pill on the
-    // right: the subtitle keeps to what Claude is doing, or what needs you.
+    // Where the branch stands (Merged, Conflicts, its PR) is said once, by the branch pill beside the
+    // name: the subtitle keeps to what Claude is doing, or what needs you.
     const live = !branch || state.made.live;
     return (
       <Shell
@@ -198,6 +233,11 @@ export function Toolbar() {
           <>
             {project?.root ? <span className={s.crumb}>{project.name}</span> : null}
             <span className={s.name}>{ws.name}</span>
+            {branch ? (
+              <span className={s.branchPill}>
+                <BranchPill wsId={ws.id} branch={branch} fold={fold} />
+              </span>
+            ) : null}
           </>
         }
         subtitle={
@@ -251,8 +291,8 @@ export function Toolbar() {
               {icons.slice(0, fit).map((a) => (
                 <IconButton key={a.id} icon={a.icon} label={a.disabled ? `${a.label}: ${a.hint}` : (a.tip ?? `${a.label} · ${a.hint}`)} keys={a.keys} aria-disabled={a.disabled} data-tool={a.action} data-tool-ws={ws.id} className={cx(a.disabled && s.off, a.tone === 'error' && s.toolError)} onClick={() => run(a)} />
               ))}
-              {overflow.length || teamItems.length ? (
-                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems]}>
+              {overflow.length || teamItems.length || continueItem || linkItems.length ? (
+                <ActionsDropdown items={[...menu.map(({ a, separate }) => ({ label: a.label, icon: a.icon, hint: a.disabled ? a.hint : undefined, keys: a.keys, disabled: a.disabled, danger: a.danger, separate, onSelect: () => requestAnimationFrame(() => run(a)) })), ...teamItems, ...(continueItem ? [continueItem] : []), ...linkItems]}>
                   <IconButton icon="more" label="More for this workspace" data-tool="more" data-tool-ws={ws.id} />
                 </ActionsDropdown>
               ) : null}
@@ -275,22 +315,25 @@ export function Toolbar() {
         // Whose machine and which agent runs there: the owner's (BLG-448), never yours.
         subtitle={
           <span className={s.meta}>
-            {`${owner}'s ${w?.project ?? 'project'} ·`}
+            {w?.chat ? `${owner}'s chat ·` : `${owner}'s ${w?.project ?? 'project'} ·`}
             <Icon name={agentMark(w?.agent)} size={11} />
-            {`${agentLabel(w?.agent, owner, false, { model: true })} on their Mac · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
+            {`${agentLabel(w?.agent, owner, false, { model: true })} on their computer · ${w?.role === 'contribute' ? 'you can work here' : 'you’re following along'}`}
           </span>
         }
+        // A friend's plain chat has no project folder: no Files, no Diff (its Scratch is in the panel).
         center={
-          <Segmented
-            label="Views"
-            value={view.tab === 'terminal' ? 'files' : view.tab}
-            onChange={(tab) => actions.run({ type: 'open_shared', owner: view.owner, id: view.id, tab })}
-            options={[
-              { value: 'chat', label: 'Chat', icon: 'chat' },
-              { value: 'files', label: 'Files', icon: 'folder', hint: 'Browse and search the files' },
-              { value: 'diff', label: 'Diff', icon: 'diff' },
-            ]}
-          />
+          w?.chat ? undefined : (
+            <Segmented
+              label="Views"
+              value={view.tab === 'terminal' ? 'files' : view.tab}
+              onChange={(tab) => actions.run({ type: 'open_shared', owner: view.owner, id: view.id, tab })}
+              options={[
+                { value: 'chat', label: 'Chat', icon: 'chat' },
+                { value: 'files', label: 'Files', icon: 'folder', hint: 'Browse and search the files' },
+                { value: 'diff', label: 'Diff', icon: 'diff' },
+              ]}
+            />
+          )
         }
         right={
           <>
@@ -310,8 +353,9 @@ export function Toolbar() {
   }
 
   if (view.kind === 'room') {
+    // The room's group chat (BLG-871: no page while you're alone), and its call (BLG-716) while there's someone to call.
     const solo = state.peers.length <= 1;
-    return <Shell headerRef={headerRef} title={solo ? 'Chat' : state.room} subtitle={<span className={s.meta}>{solo ? 'You and your agent' : `${state.peers.length} people · everyone’s agent can join in`}</span>} />;
+    return <Shell headerRef={headerRef} title={state.room || 'Group chat'} subtitle={<span className={s.meta}>{solo ? 'Everyone else has left the room' : `${state.peers.length} people · everyone’s agent can join in`}</span>} right={solo ? undefined : <CallButton id="room" label="the Room" />} />;
   }
 
   if (view.kind === 'draft' || view.kind === 'draft_worktree') {
@@ -361,6 +405,8 @@ export function Toolbar() {
   if (view.kind === 'plans') return <Shell headerRef={headerRef} title={<span className={s.name}>Plans</span>} />;
 
   if (view.kind === 'issues') return <Shell headerRef={headerRef} title={<span className={s.name}>Issues</span>} subtitle={<span className={s.meta}>From GitHub · your agent investigates, fixes, or writes them up as tasks</span>} />;
+
+  if (view.kind === 'pulls') return <Shell headerRef={headerRef} title={<span className={s.name}>Pull Requests</span>} subtitle={<span className={s.meta}>From GitHub · anyone’s open pull requests, each one a worktree away</span>} />;
 
   if (view.kind === 'actions') return <Shell headerRef={headerRef} title={<span className={s.name}>Actions</span>} subtitle={<span className={s.meta}>From GitHub · runs as they go, and each workflow as a graph</span>} />;
 

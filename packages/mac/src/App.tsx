@@ -11,15 +11,18 @@ import { Icon } from './components/Icon.js';
 import { MenuSheet } from './dialogs/MenuSheet.js';
 import { Palette } from './dialogs/Palette.js';
 import { Settings } from './dialogs/Settings.js';
-import { PlanSheet } from './dialogs/PlanSheet.js';
 import type { SettingsPane } from './lib/beluga.js';
-import { RightPanel } from './layout/RightPanel.js';
-import { Main } from './layout/Main.js';
+import { Pane } from './machines/MachinePane.js';
+import { useRemoteWork } from './machines/use-remote.js';
+import { useRemoteAttentionWatch } from './machines/remote-attention.js';
 import { Sidebar } from './layout/Sidebar.js';
 import { useActions } from './lib/actions.js';
 import { SHORTCUTS, TALK_ID, keyPlatform, shortcutFor } from './lib/shortcuts-model.js';
-import { fromKey, getBindings, isRecording, useMenuKeys } from './lib/shortcuts.js';
+import { fromKey, getBindings, isRecording, isShortcut, useMenuKeys } from './lib/shortcuts.js';
+import { dialogOpen, navBack, navForward, useNavHistory } from './lib/nav.js';
+import { pageHasOwnBack } from './tasks/use-swipe-back.js';
 import { useApp, useBeluga } from './lib/beluga.js';
+import { setPowerSaving } from './lib/power.js';
 import { usePrefs } from './lib/prefs.js';
 import { joinRoom, runMenuItem, useMenuState, useNative, useNotificationTaps, useTrayStatus, useTraySpout, useWindowFocus } from './lib/native.js';
 import { AddProjectSheet } from './dialogs/AddProjectSheet.js';
@@ -32,14 +35,18 @@ import { openNet } from './network/net-sheets.js';
 import { MessageBanner } from './network/MessageBanner.js';
 import { RequestSheet } from './gateway/RequestSheet.js';
 import { useRequestNative } from './gateway/request-native.js';
-import { StripeSheet } from './dialogs/StripeSheet.js';
+import { EarningsSheet } from './dialogs/EarningsSheet.js';
 import { SupportSheets } from './dialogs/SupportSheets.js';
+import { TelemetrySheets } from './dialogs/TelemetrySheets.js';
 import { useIdleAway, useTrayPresence } from './network/net-native.js';
 import { useUpdateActivity } from './lib/updates.js';
+import { useChunkCare } from './lib/lazy-view.js';
 import { useState } from 'react';
 import { Onboarding, useOnboarding } from './onboarding/Onboarding.js';
 import { Lightbox } from './chat/ChatImages.js';
+import { SelectionBar } from './components/SelectionBar.js';
 import s from './layout/Shell.module.css';
+import { CallLayer } from './call/CallLayer.js';
 
 const TOAST_MS = 3500;
 
@@ -130,6 +137,13 @@ function useShortcuts() {
       }
       const id = shortcutFor(bindings, e, APP_SHORTCUTS);
       if (!id) return;
+      if (id === 'nav-back' || id === 'nav-forward') {
+        // A page with its own Back on the same key (a task's, back to its list) keeps it; a dialog keeps its keys.
+        if ((id === 'nav-back' && pageHasOwnBack() && isShortcut('page-back', e)) || dialogOpen()) return;
+        e.preventDefault();
+        fromKey(id, () => void (id === 'nav-back' ? navBack() : navForward()));
+        return;
+      }
       e.preventDefault();
       fromKey(id, () => {
         if (id === 'place-next' || id === 'place-prev') actions.run({ type: 'view', view: { kind: stepPlace(state, id === 'place-next' ? 1 : -1) } });
@@ -190,13 +204,31 @@ export function App() {
   const welcome = useOnboarding();
   useOverlays();
   useShortcuts();
+  // Back and Forward between pages (⌘[ ⌘], the toolbar's arrows, the mouse's buttons).
+  useNavHistory(client, actions);
+  // A screen to each of your computers, for every list of their work (BLG-785).
+  useRemoteWork(client, ui);
+  // One bell for every computer (BLG-790): what waits on each, for the bell, Needs You and the Dock.
+  useRemoteAttentionWatch(client);
   // Speaking instead of typing: the talk shortcut, ↩ and esc while listening (Settings › Voice).
   useDictationSetup(client);
   useRememberProject();
   useSettingsWindow();
+  // The views fetched early, and any that don't load noted in the black box (#370).
+  useChunkCare();
   useNative(client, ui, actions, setJoining);
   useTrayStatus(client);
   useTraySpout();
+  // Low Power mode (BLG-621): the daemon says when it saves; the window follows.
+  const saving = useApp((st) => st.powerSaving);
+  useEffect(() => setPowerSaving(saving), [saving]);
+  // Development builds only: e2e goes straight to a page no click reaches yet (a computer's task page, BLG-852).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __belugaGo?: (view: unknown) => void; __belugaState?: () => unknown };
+    w.__belugaGo = (view) => actions.run({ type: 'view', view: view as never });
+    w.__belugaState = () => client.store.getState();
+  }, [actions, client]);
   useMenuState(client);
   useMenuKeys();
   useWindowFocus(client);
@@ -210,23 +242,27 @@ export function App() {
       {/* Behind the welcome the app can't be tabbed to or read out. */}
       <div className={s.app} inert={welcome.open} data-app-root>
         {prefs.sidebar ? <Sidebar /> : null}
-        <Main />
-        <RightPanel />
+        {/* This Mac's center and panel, or a page on one of your computers drawn with its client (BLG-784). */}
+        <Pane />
       </div>
       <MenuSheet />
       <AddProjectSheet />
       <NativeSheets />
       <Palette />
       <Settings />
-      <PlanSheet />
       <NetworkSheets />
       <RequestSheet />
-      <StripeSheet />
+      <EarningsSheet />
       {welcome.open ? null : <SupportSheets />}
+      {welcome.open ? null : <TelemetrySheets />}
       {joining ? <JoinSheet invite={joining} onCancel={() => setJoining(undefined)} onJoin={() => void joinRoom(joining)} /> : null}
       {/* One per window, over whatever opened it (a chat, a sub-agent's activity, a graph). */}
       <Lightbox />
+      {/* Select text you're reading: Copy, Quote, Ask, with no right-click (BLG-917). */}
+      <SelectionBar />
       <Toasts />
+      {/* Calls (BLG-706): this window's call engine, who rings you, the ringtone, the floating card. */}
+      <CallLayer />
       <MessageBanner />
       <UndoToast />
       {welcome.open ? <Onboarding start={welcome.start} onClose={welcome.close} onArrive={welcome.arrive} /> : null}

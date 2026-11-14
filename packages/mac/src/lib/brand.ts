@@ -1,3 +1,6 @@
+import { isUnder } from '../../../../src/shared/path-inside.js';
+import { isWindowsPath } from '../../../../src/shared/os-path.js';
+
 /**
  * The product is "Beluga" in this app. Messages from the core write "beluga"
  * (and peers on a version from before the rename write "klaud"); where this
@@ -12,13 +15,16 @@
 
 const WORD = /\b(?:beluga|klaud)\b/g;
 
+/** `p` is your home folder or inside it: after a "/" (on Windows "\" too, in any letter case). */
+const inHome = (home: string, p: string): boolean => Boolean(home) && isUnder(home, p) && (isWindowsPath(home) || p.length === home.length || p[home.length] === '/');
+
 /**
- * "~/code/api" for a path under your home folder. Beluga's own folder reads ~/.beluga even where
- * it really is the old ~/.klaud or ~/.klaude (from before the renames, linked to it), as the core
- * writes it (src/core/paths.ts).
+ * "~/code/api" for a path under your home folder ("~\code\api" on Windows). Beluga's own folder reads
+ * ~/.beluga even where it really is the old ~/.klaud or ~/.klaude (from before the renames, linked
+ * to it), as the core writes it (src/core/paths.ts).
  */
 export const tildePath = (home: string, p: string): string =>
-  (home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p).replace(/^~\/\.klaude?(?=\/|$)/, '~/.beluga');
+  (inHome(home, p) ? `~${p.slice(home.length)}` : p).replace(/^~\/\.klaude?(?=\/|$)/, '~/.beluga');
 /** Right before the word: part of a path, a file name or an identifier. */
 const NAME_BEFORE = /[/~.\-@_]/;
 /** Right after the word: a link, a file name, a branch or an identifier (beluga://, beluga.json, beluga/x, beluga-x). */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TRUST_INFO, defaultTrust, reachOf, trustOf } from '../src/core/trust.js';
+import { TRUST_INFO, defaultTrust, reachOf, requesterTrust, trustOf } from '../src/core/trust.js';
 import { People, type PeopleDeps } from '../src/core/people.js';
 import { Store, initialState, reduce, type DomainState, type Policy } from '../src/core/store.js';
 import type { Settings } from '../src/core/settings.js';
@@ -24,6 +24,11 @@ describe('trust', () => {
     expect(trustOf(s, SELF)).toBe('full');
   });
 
+  it('requesterTrust gives the same answers as trustOf and reachOf', () => {
+    const s = reduce(reduce(withSelf('auto'), { type: 'trust_level', peerId: BOB, level: 'blocked' }), { type: 'trust_level', peerId: ANN, level: 'full' });
+    for (const id of [SELF, BOB, ANN, 'someone-else']) expect(requesterTrust(s, id)).toEqual({ level: trustOf(s, id), reach: reachOf(s, id) });
+  });
+
   it('an explicit level beats the policy default', () => {
     const s = reduce(withSelf('auto'), { type: 'trust_level', peerId: BOB, level: 'blocked' });
     expect(trustOf(s, BOB)).toBe('blocked');
@@ -35,6 +40,16 @@ describe('trust', () => {
     const s = initialState('r');
     expect(s.self).toBeUndefined();
     expect(trustOf(s, BOB)).toBe('ask');
+  });
+
+  it('a friend who is not in the room keeps the trust you saved for them', () => {
+    // Bran posts in a shared worktree through the friends network: never a room peer, so no live level.
+    const s = reduce(withSelf('ask'), { type: 'remembered', people: { [BOB]: { name: 'Bran', trust: 'full' } } });
+    expect(trustOf(s, BOB)).toBe('full');
+    expect(reachOf(s, BOB)).toBe('full');
+    // A level chosen in the room now still wins over the saved one.
+    expect(trustOf(reduce(s, { type: 'trust_level', peerId: BOB, level: 'ask' }), BOB)).toBe('ask');
+    expect(trustOf(s, ANN)).toBe('ask');
   });
 
   it('reachOf: full trust reaches everywhere, else your access choice, default folder', () => {

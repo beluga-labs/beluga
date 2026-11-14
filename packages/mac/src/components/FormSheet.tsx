@@ -2,7 +2,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { type ReactNode, type Ref, type TextareaHTMLAttributes, type InputHTMLAttributes, useId, useState } from 'react';
 import { pickFolders } from '../lib/projects.js';
 import { copyText } from '../lib/copy.js';
-import { inApp } from '../lib/boot.js';
+import { canPickFolders } from '../lib/boot.js';
+import { useMachine } from '../lib/beluga.js';
 import { Icon, type IconName } from './Icon.js';
 import { Select, type SelectEntry } from './Select.js';
 import { cx } from './ui.js';
@@ -28,6 +29,13 @@ export interface FormSheetProps {
   /** Left of the buttons: a link-like button, a note… */
   readonly footer?: ReactNode;
   readonly width?: number;
+  /** Most of the window's height, its content filling it (a document's preview). */
+  readonly tall?: boolean;
+  /**
+   * The head and buttons stay put and a long list scrolls inside: the child marked `data-sheet-scroll`
+   * takes the room left and scrolls (the sheet itself never does).
+   */
+  readonly scrolls?: boolean;
   /** No default button at all, only Done (a sheet that acts as you click inside it). */
   readonly cancelLabel?: string;
   readonly hideSubmit?: boolean;
@@ -38,7 +46,7 @@ export interface FormSheetProps {
  * A Mac sheet with a form: the title, a short intro, labelled fields, then Cancel and the default
  * button on the right. Return in a field (⌘Return in a text area) presses the default button.
  */
-export function FormSheet({ title, intro, icon, submitLabel, onSubmit, onCancel, canSubmit = true, destructive, footer, width = 520, cancelLabel = 'Cancel', hideSubmit, children }: FormSheetProps) {
+export function FormSheet({ title, intro, icon, submitLabel, onSubmit, onCancel, canSubmit = true, destructive, footer, width = 520, tall, scrolls, cancelLabel = 'Cancel', hideSubmit, children }: FormSheetProps) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const submit = async (): Promise<void> => {
@@ -58,7 +66,7 @@ export function FormSheet({ title, intro, icon, submitLabel, onSubmit, onCancel,
       <Dialog.Portal>
         <Dialog.Overlay className={s.overlay} />
         <Dialog.Content
-          className={s.sheet}
+          className={cx(s.sheet, tall && s.tall, scrolls && s.scrolls)}
           style={{ width: `min(${width}px, calc(100vw - 48px))` }}
           aria-describedby={undefined}
           // Escape in a field with its suggestions open (New Task's "@") closes them, not the sheet.
@@ -73,6 +81,10 @@ export function FormSheet({ title, intro, icon, submitLabel, onSubmit, onCancel,
               e.preventDefault();
               first.focus();
               if (first instanceof HTMLInputElement) first.select();
+            } else if (scrolls && root) {
+              // Its list still loading: the sheet itself, not the first tab (whose tip would pop up over it).
+              e.preventDefault();
+              root.focus();
             }
           }}
         >
@@ -163,15 +175,17 @@ export function Popup<T extends string>({ value, options, onChange, label, id }:
 /** A folder path you can type, or choose with the Open panel. */
 export function FolderInput({ value, onChange, title = 'Choose a folder', placeholder = '~/code/app' }: { value: string; onChange: (v: string) => void; title?: string; placeholder?: string }) {
   const id = useId();
+  // On a computer's page, its folders (BLG-793).
+  const machine = useMachine();
   return (
     <div className={s.folder}>
       <TextInput id={id} value={value} onChange={onChange} mono placeholder={placeholder} aria-label="Folder" />
-      {inApp() ? (
+      {canPickFolders() ? (
         <button
           type="button"
           className={s.button}
           onClick={() =>
-            void pickFolders(title).then((p) => {
+            void pickFolders(title, { machine }).then((p) => {
               if (p?.[0]) onChange(p[0]);
             })
           }

@@ -1,4 +1,7 @@
-import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react';
+import { CHAT_LINK_PREFIX, chatLinkOf, codeChatRefs } from '@beluga/shared/chat-ref.js';
+import { openChatLink } from '../lib/chat-links.js';
+import { baseName, endsWithSep, isAbsolutePath } from '@beluga/shared/os-path.js';
+import { Suspense, createContext, lazy, memo, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -24,18 +27,25 @@ import { MarkdownTable, ViewBlock } from '../components/views/ViewBlock.js';
 import { InlineCode } from '../components/views/Inline.js';
 import { viewFenceType } from '@beluga/shared/view-spec.js';
 import { TASKS_FENCE, TASK_LINK_SCHEME, linkTaskKeys } from '@beluga/shared/task-refs.js';
+import { codeWorktreeRefs } from '@beluga/shared/worktree-refs.js';
 import { TaskCards, TaskKeyChip } from '../tasks/TaskRef.js';
 import { prepareMath, splitInlineMath } from '@beluga/shared/render/math.js';
 import { MathTex } from '../components/markdown/MathTex.js';
 import { Diagram } from '../components/markdown/Diagram.js';
+import { hastText } from '../components/markdown/hast-text.js';
+import { GITHUB_REHYPE, TO_HTML } from '../components/markdown/md-pipeline.js';
 import { RichBlock, useRichFence } from '../components/blocks/RichBlock.js';
 import { loadHighlighter } from '../lib/highlight.js';
 import { CODE_FENCE } from '@beluga/shared/code-ref.js';
 import { CodeRefBlock } from '../components/code/CodeRefBlock.js';
 import { PR_COMMENTS_FENCE } from '@beluga/shared/pr-comments-ref.js';
 import { PrCommentsBlock } from '../pr/PrCommentsBlock.js';
-import { goToCode } from '../lib/go-to-code.js';
+import { PREVIEW_FENCE } from '@beluga/shared/preview/ref.js';
+import { PreviewNotice, usePreviewHere } from '../components/preview/PreviewNotice.js';
+import { linkPaths, parsePathHref } from '@beluga/shared/render/path-refs.js';
+import { PathLink } from './PathLink.js';
 import s from './chat.module.css';
+import { thisComputer } from '../lib/os-words.js';
 
 
 function Code({ code, lang }: { code: string; lang?: string }) {
@@ -43,9 +53,9 @@ function Code({ code, lang }: { code: string; lang?: string }) {
   useEffect(() => {
     if (!lang) return;
     let alive = true;
-    void loadHighlighter().then((h) => {
-      if (!alive || !h.langs.has(lang)) return;
-      setHtml(h.codeToHtml(code, { lang, themes: { light: 'github-light', dark: 'github-dark-dimmed' } }));
+    void loadHighlighter().then(async (h) => {
+      const id = await h.language(lang);
+      if (alive && id) setHtml(h.codeToHtml(code, id));
     });
     return () => {
       alive = false;
@@ -81,7 +91,7 @@ function targetOf(href: string): LinkTarget {
     const at = rest.indexOf('/');
     return { kind: 'attachment', owner: rest.slice(0, at), file: rest.slice(at + 1), label: 'image' };
   }
-  if (href.startsWith('/') || href.startsWith('~')) return { kind: 'local', path: href, dir: href.endsWith('/') };
+  if (isAbsolutePath(href) || href.startsWith('~')) return { kind: 'local', path: href, dir: endsWithSep(href) };
   return { kind: 'href', href };
 }
 
@@ -92,9 +102,9 @@ function MdImage({ src, alt, all, local }: { src: string; alt: string; all: read
   // Someone else's message never makes this Mac read its own files (a path to your screenshot, say).
   if (source.kind === 'local' && !local) {
     return (
-      <span className={s.imageRef} title={`${source.path} (pictures on this Mac show only in your own and your agent’s messages)`}>
+      <span className={s.imageRef} title={`${source.path} (pictures on ${thisComputer()} show only in your own and your agent’s messages)`}>
         <Icon name="image" size={11} />
-        {alt || source.path.split('/').pop()}
+        {alt || baseName(source.path)}
       </span>
     );
   }
@@ -141,6 +151,21 @@ function MessageView({ code, type, local }: { code: string; type: NonNullable<Re
   return <ViewBlock code={code} type={type} live={live} local={local} />;
 }
 
+/** A live preview (Settings › Experimental): built only for your own Claude's, once the text is all there. */
+// Loaded only when a message has a preview: with the experiment off, none of it is ever loaded.
+const PreviewBlock = lazy(() => import('../components/preview/PreviewBlock.js').then((m) => ({ default: m.PreviewBlock })));
+
+function MessagePreview({ code, local }: { code: string; local: boolean }) {
+  const live = useContext(LiveText);
+  // Off (or a friend's, or no worktree here): a small card, and nothing of the previews loads.
+  if (!usePreviewHere(local).draws) return <PreviewNotice code={code} local={local} />;
+  return (
+    <Suspense fallback={null}>
+      <PreviewBlock code={code} live={live} local={local} />
+    </Suspense>
+  );
+}
+
 /**
  * A fenced block that's really something else (shared/render/rich-fence.ts): a file tree, JSON, a
  * terminal session, math, or a mermaid diagram drawn as our own graph or view. Otherwise code.
@@ -167,25 +192,10 @@ function imagesOnly(node: HastNode | undefined): number {
   return rest.length ? 0 : images;
 }
 
-/** Paths in plain text ("src/app.ts:12", "~/notes/") become links (local ones, when you wrote them). */
-const PATH = /(^|[\s(`'"])((?:~|\.{1,2})?\/[\w@.+-][\w@.+/-]*|[\w@+-][\w@.+-]*\/[\w@.+/-]*\.[A-Za-z][\w-]{0,9})(?::(\d+))?/g;
-
-function linkifyPaths(text: string): string {
-  let fenced = false;
-  return text
-    .split('\n')
-    .map((line) => {
-      if (/^\s*```/.test(line)) fenced = !fenced;
-      // Leave code, existing links and inline code alone.
-      if (fenced || line.includes('](') || line.includes('`')) return line;
-      return line.replace(PATH, (_m, lead: string, p: string, n?: string) => `${lead}[${p}${n ? `:${n}` : ''}](beluga-path:${encodeURIComponent(p)}${n ? `#${n}` : ''})`);
-    })
-    .join('\n');
-}
-
 const keepUrl = (u: string): string => u;
 
 const REMARK = [remarkGfm, remarkMath];
+const NO_REHYPE: [] = [];
 
 /**
  * Math (after prepareMath) set aside while paths, mentions and task keys are linked, so `$a/b.c$`
@@ -225,29 +235,48 @@ function boardKeys(issues: readonly { readonly key: string }[]): string {
   return keys;
 }
 
+/** Every worktree's id, as one string (made once per projects list), as boardKeys. */
+type ProjectList = readonly { readonly workspaces: readonly { readonly id: string; readonly kind: string }[] }[];
+const idsOf = new WeakMap<ProjectList, string>();
+function worktreeIds(projects: ProjectList): string {
+  let ids = idsOf.get(projects);
+  if (ids === undefined) idsOf.set(projects, (ids = projects.flatMap((p) => p.workspaces.filter((w) => w.kind === 'worktree').map((w) => w.id)).join(' ')));
+  return ids;
+}
+
 /**
  * `localImages`: pictures named by a path on this Mac are shown (your own messages and your own
  * Claude's only; anyone else's stay a chip). `mentions`: draw "@mia", "@bob-api", "@src/auth.ts"…
  * as pills when they name someone or something here. `live`: the text is still being written (a
  * graph block that isn't finished yet says it's being drawn instead of failing). `tasks`: a bare
- * key your board has ("BLG-72") is a small task chip (your own and your own Claude's words only:
- * someone else's key may be on their board). `typed`: a person's own words, so the lines they broke
+ * key your board has ("BLG-72") is a small task chip, and so is a pasted "worktree:wt-…" you have
+ * (your own and your own Claude's words only: someone else's key may be on their board). `typed`: a person's own words, so the lines they broke
  * and the blank lines they left show as typed (typed-lines.ts), not folded as Markdown would.
+ * `html`: text written on GitHub (an issue, a PR comment), so the HTML in it is drawn as GitHub
+ * draws it, cut down to what GitHub allows (it also drops the links paths, mentions and task keys
+ * would add, so it's for GitHub's words only).
  */
-export const Markdown = memo(function Markdown({ text, paths = false, localImages = false, mentions, live = false, tasks = false, typed = false }: { text: string; paths?: boolean; localImages?: boolean; mentions?: MentionWorld; live?: boolean; tasks?: boolean; typed?: boolean }) {
+export const Markdown = memo(function Markdown({ text, paths = false, localImages = false, mentions, live = false, tasks = false, typed = false, html = false }: { text: string; paths?: boolean; localImages?: boolean; mentions?: MentionWorld; live?: boolean; tasks?: boolean; typed?: boolean; html?: boolean }) {
   const actions = useActions();
   const { client } = useBeluga();
   // The board's keys as one string, so a task changing doesn't draw every message again.
   const keys = useApp((st) => (tasks ? boardKeys(st.board.issues) : ''));
+  const worktrees = useApp((st) => (tasks ? worktreeIds(st.projects) : ''));
+  // Paths relative to a worktree link only where there's one on screen to open them in.
+  const inWorktree = useApp((st) => paths && st.view.kind === 'workspace');
+  // A chat named by its ref ("<owner>/<channel>", or a mention a line's code kept from being a pill) is its chip.
   const source = useMemo(() => {
     // Math first (prices stay words), then set aside so the links below leave it alone.
     const math = guardMath(prepareMath(typed ? keepBlankLines(text) : text));
-    // Tasks last: the other two leave a line with a link in it alone, and this one doesn't.
-    const withMentions = mentions ? linkMentions(math.text, mentions) : math.text;
-    const withPaths = paths ? linkifyPaths(withMentions) : withMentions;
-    const known = new Set(keys.split(' '));
-    return math.restore(keys ? linkTaskKeys(withPaths, (k) => known.has(k)) : withPaths);
-  }, [text, keys, mentions, paths, typed]);
+    // A pasted worktree link in ticks first (its chip), then mentions, chats, paths and task keys: each leaves the code and links before it alone.
+    const known = new Set(worktrees.split(' '));
+    const withRefs = worktrees ? codeWorktreeRefs(math.text, (id) => known.has(id)) : math.text;
+    const withMentions = mentions ? linkMentions(withRefs, mentions) : withRefs;
+    const withChats = codeChatRefs(withMentions);
+    const withPaths = paths ? linkPaths(withChats, { relative: inWorktree }) : withChats;
+    const board = new Set(keys.split(' '));
+    return math.restore(keys ? linkTaskKeys(withPaths, (k) => board.has(k)) : withPaths);
+  }, [text, keys, worktrees, mentions, paths, inWorktree, typed]);
   // Every local image in the message, so the lightbox steps from one to the next.
   const images = useMemo(() => (localImages ? messageImages(text) : []), [text, localImages]);
   // The same renderers from one render to the next: a new one would remount what it drew (a graph
@@ -276,33 +305,31 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
         const label = /image \d+/.exec(String(children))?.[0] ?? 'image';
         return <ImageChip href={href} label={label} title={`Open ${label}`} onClick={(e) => (e.preventDefault(), openLightbox([{ href, ...image, label }]))} />;
       }
+      // A file or folder named in the words (shared/render/path-refs.ts): opens it, right-click for more.
+      const path = parsePathHref(href);
+      if (path) return <PathLink pathRef={path}>{children}</PathLink>;
       return (
-      <a
-        href={href}
-        onClick={(e) => {
-          e.preventDefault();
-          if (href.startsWith('beluga-path:')) {
-            const [raw, line] = href.slice('beluga-path:'.length).split('#');
-            const p = decodeURIComponent(raw ?? '');
-            // A file of this worktree ("src/auth.ts:42"): straight to it, at that line.
-            const view = client.store.getState().view;
-            if (view.kind === 'workspace' && !p.endsWith('/') && !/^[~/]/.test(p)) {
-              void goToCode(client, view.id, p, line ? Number(line) : undefined);
+        <a
+          href={href}
+          onClick={(e) => {
+            e.preventDefault();
+            // A chat's link opens in the app, never in a browser.
+            if (href.startsWith(CHAT_LINK_PREFIX)) {
+              const ref = chatLinkOf(href);
+              if (ref) void openChatLink(client, actions, ref);
               return;
             }
-            actions.openLink({ kind: 'local', path: p, dir: p.endsWith('/'), ...(line ? { line: Number(line) } : {}) });
-            return;
-          }
-          actions.openLink(targetOf(href));
-        }}
-      >
-        {children}
-      </a>
+            actions.openLink(targetOf(href));
+          }}
+        >
+          {children}
+        </a>
       );
     },
-    code: ({ className, children }) => {
+    code: ({ node, className, children }) => {
       const lang = /language-([\w-]+)/.exec(className ?? '')?.[1];
-      const code = String(children).replace(/\n$/, '');
+      // Its text from the tree: HTML's code can wrap its words in spans.
+      const code = (node ? hastText(node) : String(children)).replace(/\n$/, '');
       // Math (remark-math): `$…$` in a line, a `$$` block on its own.
       if (className?.includes('math-inline')) return <MathTex tex={code} display={false} />;
       if (className?.includes('math-display')) return <MathTex tex={code} display />;
@@ -316,6 +343,8 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
       if (lang === CODE_FENCE) return <CodeRefBlock code={code} />;
       // The worktree's PR comments, when you asked what reviewers said (shared/pr-comments-ref.ts): read-only, the PR page answers them.
       if (lang === PR_COMMENTS_FENCE) return <PrCommentsBlock code={code} />;
+      // A component or page drawn live (shared/preview/ref.ts), when Live previews are on.
+      if (lang === PREVIEW_FENCE) return <MessagePreview code={code} local={localImages} />;
       // Tables, charts, stats, code and colors (docs/views.md): data, drawn live.
       const view = viewFenceType(lang);
       if (view) return <MessageView code={code} type={view} local={localImages} />;
@@ -334,12 +363,12 @@ export const Markdown = memo(function Markdown({ text, paths = false, localImage
         }
       />
     ),
-  }), [actions, client, localImages]);
+  }), [actions, localImages]);
   return (
     <LiveText.Provider value={live}>
       <MessageImages.Provider value={images}>
-      <div className={`${s.markdown} ${typed ? s.typed : ''} selectable`}>
-        <ReactMarkdown remarkPlugins={REMARK} components={components} urlTransform={keepUrl}>
+      <div className={`${s.markdown} ${typed ? s.typed : ''} selectable`} data-md>
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={html ? GITHUB_REHYPE : NO_REHYPE} remarkRehypeOptions={html ? TO_HTML : undefined} components={components} urlTransform={keepUrl}>
           {source}
         </ReactMarkdown>
       </div>

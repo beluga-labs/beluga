@@ -11,6 +11,7 @@ import { useSentinelActions } from './use-sentinel.js';
 import t from '../tasks/tasks.module.css';
 import s from './sentinel.module.css';
 import d from './data.module.css';
+import { revealLabel } from '../lib/os-words.js';
 
 type Data = Awaited<ReturnType<ReturnType<typeof useSentinelActions>['api']['dataList']>>;
 
@@ -49,7 +50,7 @@ export function DataCard({ item }: { item: Sentinel }) {
         <h3 className={s.cardTitle}>Kept data</h3>
         <span className={t.grow} />
         <span className={s.hint}>files kept {data.keepsDays} days</span>
-        {data.metrics.length ? <IconButton icon="folder" label="Show its numbers in Finder" onClick={() => void a.act(() => a.api.dataReveal(item.id))} /> : null}
+        {data.metrics.length ? <IconButton icon="folder" label={revealLabel('its numbers')} onClick={() => void a.act(() => a.api.dataReveal(item.id))} /> : null}
       </header>
       {data.metrics.length ? (
         <div className={d.list} role="list" aria-label="What it keeps">
@@ -87,7 +88,7 @@ export function DataCard({ item }: { item: Sentinel }) {
                 <ActionsDropdown
                   items={[
                     { label: 'Save Its Files to Downloads', icon: 'download', onSelect: () => void a.act(() => a.api.dataExport(item.id, { runId: r.runId }), 'Saved in Downloads › Beluga') },
-                    { label: 'Show in Finder', icon: 'folder', onSelect: () => void a.act(() => a.api.dataReveal(item.id, r.runId)) },
+                    { label: revealLabel(), icon: 'folder', onSelect: () => void a.act(() => a.api.dataReveal(item.id, r.runId)) },
                   ]}
                 >
                   <IconButton icon="more" label="More for this run" />

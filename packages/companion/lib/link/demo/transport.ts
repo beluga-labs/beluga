@@ -217,7 +217,7 @@ export class DemoTransport implements Transport {
     const w = this.world;
     if (topic === 'home') return this.home();
     // Your Mac isn't a project: Home and the Ask sheet have it (1.5).
-    if (topic === 'work') return { projects: w.projects.map((p) => ({ id: p.id, name: p.name, conversations: p.convs.map((t) => this.summary(w.convs.get(t)!)), ...(w.icons[p.id] ? { icon: w.icons[p.id]!.sum } : {}) })) };
+    if (topic === 'work') return { projects: w.projects.map((p) => ({ id: p.id, name: p.name, conversations: p.convs.map((t) => ({ ...this.summary(w.convs.get(t)!), ...this.triageOf(w.convs.get(t)!) })), ...(w.icons[p.id] ? { icon: w.icons[p.id]!.sum } : {}) })), categories: true };
     if (topic === 'tasks') return this.tasks();
     if (topic.startsWith('task:')) return w.tasks.find((t) => t.topic === topic);
     if (topic === 'sentinels') return sentinelsView(this.sentinels);
@@ -244,7 +244,7 @@ export class DemoTransport implements Transport {
     }
     if (topic.startsWith('chat:')) {
       const c = w.chats.get(topic);
-      return c ? { topic, name: c.name, kind: c.kind, messages: c.messages, more: false, live: c.peer === 'mia' ? ['Mia'] : [], members: this.membersOf(topic) } : undefined;
+      return c ? { topic, name: c.name, kind: c.kind, messages: c.messages, more: false, live: c.peer === 'mia' ? ['Mia'] : [], members: this.membersOf(topic), ...(c.unread ? { unread: c.unread } : {}) } : undefined;
     }
     return undefined;
   }
@@ -294,6 +294,37 @@ export class DemoTransport implements Transport {
     };
   }
 
+  /** Every conversation's family learns that this thread and the ones under it stopped. */
+  private stopThread(id: string): void {
+    const w = this.world;
+    const under = (at: string): string[] => [at, ...this.childrenOf(at).flatMap(under)];
+    for (const stopped of under(id)) {
+      for (const c of w.convs.values()) {
+        if (!c.threadFamily) continue;
+        const had = c.threadFamily.children.some((k) => k.id === stopped) || c.threadFamily.stoppable.includes(stopped);
+        if (!had) continue;
+        c.threadFamily = { ...c.threadFamily, children: c.threadFamily.children.map((k) => (k.id === stopped ? { ...k, state: 'stopped', working: false } : k)), stoppable: c.threadFamily.stoppable.filter((s) => s !== stopped) };
+        this.touch(c.topic);
+      }
+      const c = this.threadConv(stopped);
+      const last = c?.turns.at(-1);
+      if (c && last?.status === 'working') {
+        c.turns = [...c.turns.slice(0, -1), { ...last, status: 'stopped', step: undefined, endTs: Date.now() }];
+        c.working = false;
+        this.touch(c.topic, 'work');
+      }
+    }
+  }
+
+  private threadConv(id: string): ConvView | undefined {
+    const topic = [...this.world.convs.values()].flatMap((c) => c.threadFamily?.children ?? []).find((k) => k.id === id)?.topic;
+    return topic ? this.world.convs.get(topic) : undefined;
+  }
+
+  private childrenOf(id: string): string[] {
+    return this.threadConv(id)?.threadFamily?.children.map((k) => k.id) ?? [];
+  }
+
   private summary(c: ConvView): ConvSummary {
     const last = c.turns.at(-1);
     const waiting = this.world.needs.some((n) => n.topic === c.topic);
@@ -303,6 +334,7 @@ export class DemoTransport implements Transport {
     return {
       ...this.projectOf(c),
       ...(fresh ? { fresh } : {}),
+      ...this.world.threadRows[c.topic],
       topic: c.topic,
       title: c.title,
       project: c.project,
@@ -313,6 +345,14 @@ export class DemoTransport implements Transport {
       agents: agents || undefined,
       unread: c.topic === 'conv:weather.radar' ? 1 : undefined,
     };
+  }
+
+  /** A chat's category, as views.ts sends it. */
+  private triageOf(c: ConvView): Pick<ConvSummary, 'category' | 'snoozedUntil' | 'settledWhy' | 'back'> {
+    const t = this.world.triage.get(c.topic);
+    if (t?.snoozedUntil) return { category: 'snoozed', snoozedUntil: t.snoozedUntil };
+    if (t?.settledWhy) return { category: 'settled', settledWhy: t.settledWhy };
+    return { category: c.working ? 'working' : 'active', ...(t?.back ? { back: true } : {}) };
   }
 
   /** Mark topics changed; the subscribed ones go out coalesced (VIEW_COALESCE_MS). */
@@ -370,6 +410,24 @@ export class DemoTransport implements Transport {
     const ok = (value: unknown = null) => this.result(id, value);
     const item = this.needFor(method, args);
     switch (method) {
+      // ---- a chat's category
+      case 'triage.settle':
+        if (w.convs.get(`conv:${str(0)}`)?.working) return this.frames.emit({ t: 'result', id, ok: false, error: 'This chat is working. Settle it when its turn ends, or remind yourself later now.' });
+        w.triage.set(`conv:${str(0)}`, { settledWhy: 'you' });
+        this.touch('work');
+        return ok();
+      case 'triage.snooze':
+        w.triage.set(`conv:${str(0)}`, { snoozedUntil: args[1] as number });
+        this.touch('work');
+        return ok();
+      case 'triage.wake':
+        w.triage.set(`conv:${str(0)}`, { back: true });
+        this.touch('work');
+        return ok();
+      case 'triage.unsettle':
+        w.triage.delete(`conv:${str(0)}`);
+        this.touch('work');
+        return ok();
       // ---- what needs you (the calls views.ts puts on the buttons)
       case 'needs.dismiss':
         this.resolve(this.world.needs.find((n) => n.id === str(0)));
@@ -418,7 +476,7 @@ export class DemoTransport implements Transport {
         this.touch(`plan:${str(0)}` as Topic, 'plans');
         return ok();
       }
-      // 1.38: close a chat's plan (kept, read-only), and list a chat's plans: its current one first.
+      // 1.57: close a chat's plan (kept, read-only), and list a chat's plans: its current one first.
       case 'plans.close': {
         const p = w.plans.find((x) => x.id === str(0));
         if (!p) return this.frames.emit({ t: 'result', id, ok: false, error: 'No such plan' });
@@ -533,6 +591,19 @@ export class DemoTransport implements Transport {
         }
         return ok(method === 'workbench.setAgent' ? true : null);
       }
+      case 'external.agents':
+        return ok([{ id: 'demo0grokbot', name: 'GrokBot', level: 'trusted', route: 'local', lastSeen: Date.now() - 60_000 }]);
+      case 'external.activity':
+        return ok([
+          { ts: Date.now() - 60_000, agent: 'GrokBot', tool: 'beluga_chat_send', target: 'chat:fix-rate-limit', decidedBy: 'rule', argsHash: 'a', kind: 'allowed' },
+          { ts: Date.now() - 120_000, agent: 'GrokBot', tool: 'beluga_chat_update', target: 'chat:fix-rate-limit', decidedBy: 'person', argsHash: 'b', kind: 'asked' },
+          { ts: Date.now() - 180_000, agent: 'GrokBot', tool: 'beluga_chat_launch', target: 'project:landing', decidedBy: 'rule', argsHash: 'c', kind: 'refused' },
+        ]);
+      case 'external.stopAgent':
+      case 'external.revoke':
+        return ok(true);
+      case 'external.stopAll':
+        return ok(1);
       case 'host.stopRun': {
         const c = w.convs.get(`conv:${str(0)}`);
         const last = c?.turns.at(-1);
@@ -542,6 +613,16 @@ export class DemoTransport implements Transport {
           this.touch(c.topic, 'work');
         }
         return ok({ stopped: true, returned: [] });
+      }
+      // 1.47: a child thread stops, and those under it, as stopChat does on a real Mac.
+      case 'threads.stop': {
+        this.stopThread(str(0));
+        return ok({ stopped: true, returned: [] });
+      }
+      case 'threads.stopAll': {
+        const under = [...w.convs.values()].find((c) => c.threadFamily?.chat === str(0))?.threadFamily?.stoppable ?? [];
+        for (const thread of under) this.stopThread(thread);
+        return ok({ stopped: under.length });
       }
       // 1.30 (BLG-429): delete, edit and clear in a direct chat.
       case 'network.messages.delete':
@@ -556,11 +637,45 @@ export class DemoTransport implements Transport {
         }
         return ok();
       }
+      // 1.41 (BLG-702): a reaction on a person's turn in a worktree's or the room's chat.
+      case 'session.react': {
+        const c = w.convs.get(`conv:${str(0)}` as Topic);
+        if (c) {
+          const emoji = str(2);
+          const on = args[3] !== false;
+          c.turns = c.turns.map((t) => {
+            if (t.id !== str(1)) return t;
+            const base = (t.reactions ?? []).map((r) => (r.emoji === emoji ? { ...r, who: r.who.filter((n) => n !== 'You') } : r));
+            const withMine = !on ? base : base.some((r) => r.emoji === emoji) ? base.map((r) => (r.emoji === emoji ? { ...r, who: ['You', ...r.who] } : r)) : [...base, { emoji, count: 1, mine: true, who: ['You'] }];
+            return { ...t, reactions: withMine.map((r) => ({ ...r, count: r.who.length, mine: r.who.includes('You') })).filter((r) => r.count > 0) };
+          });
+          this.touch(c.topic);
+        }
+        return ok();
+      }
+      // 1.41 (BLG-702): a reaction put on a message or taken back.
+      case 'network.messages.react': {
+        const topic = `chat:${str(0)}` as Topic;
+        const chat = w.chats.get(topic);
+        if (chat) {
+          const emoji = str(2);
+          const on = args[3] !== false;
+          chat.messages = chat.messages.map((m) => {
+            if (m.id !== str(1)) return m;
+            const base = (m.reactions ?? []).map((r) => (r.emoji === emoji ? { ...r, who: r.who.filter((n) => n !== 'You') } : r));
+            const withMine = !on ? base : base.some((r) => r.emoji === emoji) ? base.map((r) => (r.emoji === emoji ? { ...r, who: ['You', ...r.who] } : r)) : [...base, { emoji, count: 1, mine: true, who: ['You'] }];
+            return { ...m, reactions: withMine.map((r) => ({ ...r, count: r.who.length, mine: r.who.includes('You') })).filter((r) => r.count > 0) };
+          });
+          this.touch(topic, 'chats');
+        }
+        return ok();
+      }
       case 'network.read': {
         const chat = w.chats.get(`chat:${str(0)}` as Topic);
         if (chat) {
           chat.unread = 0;
           this.touch('chats');
+          this.touch(`chat:${str(0)}` as Topic);
         }
         return ok();
       }
@@ -598,6 +713,10 @@ export class DemoTransport implements Transport {
           }
         return ok(true);
       }
+
+      // ---- a chat's address: the demo has none to find
+      case 'chats.resolve':
+        return ok(null);
 
       // ---- a live view's rows (the demo's shop.db), paged, sorted and filtered as the Mac does
       case 'companion.viewFetch': {

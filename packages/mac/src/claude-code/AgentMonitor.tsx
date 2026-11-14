@@ -7,7 +7,7 @@ import { Button, Dot, Empty, Segmented, Tip, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { useApp, useBeluga } from '../lib/beluga.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
 import { RemoveWorktreeAlert, WorktreeInfoPage } from '../views/WorktreeInfo.js';
 import { LiveTranscript } from './LiveTranscript.js';
 import { AgentOutputs, useAgentOutputs } from './AgentOutputs.js';
@@ -18,6 +18,8 @@ import { type SubAgent, agentIdOfPath, agentOfWorktree, agentTitle, effortLabel,
 import s from './claude-code.module.css';
 import m from './agent-monitor.module.css';
 import o from './agent-outputs.module.css';
+import { revealLabel } from '../lib/os-words.js';
+import { showWorktreeFolder, useRevealLabel } from '../lib/remote-open.js';
 
 /**
  * One sub-agent, followed live: what it was asked, who started it (and a way back there), its
@@ -76,7 +78,7 @@ function Steer({ sub, parent, leadName }: { sub: SubAgent; parent: Workspace | u
             send();
           }}
         />
-        <Tip label={`The main agent in ${lead} gets it and passes it on with SendMessage`} keys={prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`}>
+        <Tip label={`The main agent in ${lead} gets it and passes it on with SendMessage`} keys={prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter')}>
           <Button size="small" variant={text.trim() ? 'primary' : 'plain'} icon="send" disabled={!text.trim()} onClick={send}>
             Send to Main Agent
           </Button>
@@ -90,6 +92,7 @@ function Steer({ sub, parent, leadName }: { sub: SubAgent; parent: Workspace | u
 /** The live page of one sub-agent (with its worktree when it has one). */
 export function AgentMonitor({ sub, worktree }: { sub: SubAgent; worktree?: Workspace }) {
   const { client } = useBeluga();
+  const revealWords = useRevealLabel();
   const actions = useActions();
   const a = sub.agent;
   // Only Beluga's own conversations are a chat to go back to (a session outside Beluga isn't).
@@ -172,8 +175,8 @@ export function AgentMonitor({ sub, worktree }: { sub: SubAgent; worktree?: Work
             </Button>
           ) : null}
           {worktree ? (
-            <Button size="small" icon="folder" onClick={() => void client.api.workspaces.openInFinder(worktree.id)}>
-              Show in Finder
+            <Button size="small" icon="folder" onClick={() => void showWorktreeFolder(client, worktree.id)}>
+              {revealWords}
             </Button>
           ) : null}
           {worktree && !live ? (

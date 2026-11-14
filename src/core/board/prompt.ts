@@ -10,6 +10,7 @@ import {
   SECTION_INFO,
   STATUS_INFO,
   actorName,
+  externalLabel,
   activityText,
   assigneeName,
   blocking,
@@ -36,7 +37,7 @@ const SHOWN_COMMENTS = 20;
 const COMMENT_CHARS = 1500;
 
 /** Who said it, from no one's side (a run's instructions are the same whoever reads them). */
-const speaker = (a: Actor): string => (a.kind === 'person' ? a.name : a.kind === 'claude' ? agentLabel(undefined, a.ownerName, false) : 'Beluga');
+const speaker = (a: Actor): string => (a.kind === 'person' ? a.name : a.kind === 'claude' ? (a.external ? externalLabel(a.external) : agentLabel(undefined, a.ownerName, false)) : 'Beluga');
 
 /** The talk on a task: its comments and notes, oldest first. */
 const commentsOf = (issue: Issue): Activity[] => issue.activity.filter((a) => (a.kind === 'comment' || a.kind === 'note') && a.body?.trim());
@@ -63,6 +64,7 @@ export function briefPrompt(board: BoardState, issue: Issue): string {
   return [
     '',
     `This worktree is doing task ${issue.key} in Beluga's Tasks: "${issue.title}" (${STATUS_INFO[issue.status].label}${issue.priority !== 'none' ? `, ${PRIORITY_INFO[issue.priority].label} priority` : ''}).`,
+    issue.private ? 'It’s private: only the user sees it (never their teammates or Linear) until they Share with Team. Don’t bring it up in chats with friends or teammates.' : '',
     parent ? `It's a sub-task of the epic ${line(parent)}.` : '',
     issue.github ? gitHubLine(issue.github) : '',
     blockers.length ? `It waits on: ${blockers.map(line).join('; ')}.` : '',
@@ -110,6 +112,9 @@ const HOW_TASKS_WORK = [
   'An epic follows its sub-tasks (all Done: Done) and, reaching Done, takes its open ones with it: never move an epic by hand. The user archives Done tasks.',
   'Work across a few repos goes on one board for them all: when there is none, board_create makes one (a name and',
   'the repos; the user doesn\'t need to open it first), then task_create with board puts tasks on it, each running in one of its repos.',
+  'Starting one: task_start makes a task\'s worktree (in whichever repo it runs in, this project or another) with',
+  'an agent working it from its brief, as the user\'s Start does. Use it when the user asks you to start, kick off or',
+  'hand off work, never for every task you open: a task you create waits in Ready until someone starts it.',
   'Use tasks unasked when one message asks for two or more separate things (fixes, features, changes): before',
   'working, open one task per thing with task_create (under a parent task when they belong together), then work',
   'through them: task_update to in_progress when you start one, in_review once it\'s built and checked (tick its',
@@ -183,10 +188,35 @@ export function aboutPrompt(board: Pick<BoardState, 'projects'>, projectId: stri
 export function boardNote(): string {
   return [
     '',
-    'Tasks: Beluga has task boards (mcp__beluga_board__*: task_list, task_get, task_create, board_create, task_update,',
+    'Tasks: Beluga has task boards (mcp__beluga_board__*: task_list, task_get, task_create, task_start, board_create, task_update,',
     'task_brief_edit, task_note, task_relate, task_attach_proof). Use it when the user talks about tasks, issues,',
     'a backlog or what to do next, asks you to track or plan work, or asks for several things at once.',
     ...HOW_TASKS_WORK,
+  ].join('\n');
+}
+
+/** A friend's run with the board (BLG-701): what it may reach, so Claude doesn't try the rest. */
+export function friendNote(name: string): string {
+  return [
+    '',
+    `${name} asked this, and may use this repo's task board through you: list, read, open and change its tasks.`,
+    'Only this board: never another repo’s or board’s, never a private task, never a new board. What you change shows as yours, for them.',
+  ].join('\n');
+}
+
+/**
+ * A worktree doing no task, with a task per worktree on (BLG-683): Claude decides whether this work
+ * is one. Real work gets its task (private, the user's); a question or a look around doesn't.
+ */
+export function ownTaskPrompt(): string {
+  return [
+    '',
+    'This worktree has no task yet, and the user wants one for each worktree that does real work. Decide once you',
+    'understand the request: when it is work that will ship (a fix, a feature, a change that ends in a pull request),',
+    'open its task with mcp__beluga_board__task_define before you start (a short title, the goal in your own words,',
+    'acceptance criteria). It is linked to this worktree, assigned to the user, and private: only they see it until',
+    'they Share with Team. Then say in your answer that you opened it and that it is private, with its `task:KEY`.',
+    'A question, a look around or a quick one-off gets no task: say nothing about tasks then.',
   ].join('\n');
 }
 

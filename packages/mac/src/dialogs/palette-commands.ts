@@ -7,10 +7,11 @@ import type { UiStore } from '../lib/beluga.js';
 import type { SocketClient } from '@beluga/ipc/socket-client.js';
 import { openSettings } from '../lib/native-routes.js';
 import { openSheet } from '../lib/sheets.js';
-import { openStripe } from '../lib/earnings.js';
+import { openEarnings } from '../lib/earnings.js';
 import { openSupport } from '../lib/support.js';
 import { SHOW_WELCOME } from '../onboarding/onboarding-model.js';
 import { previewRequestPopup } from '../gateway/request-native.js';
+import { revealLabel } from '../lib/os-words.js';
 
 export interface PaletteCommand {
   readonly id: string;
@@ -48,7 +49,7 @@ function workspaceCommands({ ui, actions, state }: Ctx): PaletteCommand[] {
     ['compact', cmd('compact', 'compact', 'Compact the Conversation…', 'wand', act('compact'), 'Your agent keeps what matters'), true],
     ['run', cmd('run', 'run', 'Run the Project', 'play', act('run')), Boolean(project?.scripts?.run)],
     ['setup', cmd('setup', 'setup', 'Run Setup Again', 'refresh', act('setup')), Boolean(project?.scripts?.setup)],
-    ['finder', cmd('finder', 'finder', 'Show in Finder', 'folder', act('finder')), true],
+    ['finder', cmd('finder', 'finder', revealLabel(), 'folder', act('finder')), true],
     ['archive', cmd('archive', 'archive', 'Archive This Workspace…', 'archive', act('archive')), ws.kind !== 'main'],
     ['delete', cmd('delete', 'delete', 'Delete This Workspace…', 'alert', act('delete')), ws.kind !== 'main'],
   ];
@@ -86,6 +87,7 @@ export function paletteCommands(ctx: Ctx): PaletteCommand[] {
           { id: 'plans:open', label: 'Go to Plans', icon: 'flag' as const, hint: 'Your plans, project by project', keywords: ['plans', 'milestones', 'roadmap'], run: () => ctx.actions.run({ type: 'view', view: { kind: 'plans' } }) },
           { id: 'tasks:open', label: 'Go to Tasks', icon: 'task' as const, hint: 'Every project’s board', keywords: ['tasks', 'board', 'issues', 'backlog', 'kanban'], run: () => ctx.actions.run({ type: 'view', view: { kind: 'tasks' } }) },
           { id: 'issues:open', label: 'Go to Issues', icon: 'issue' as const, hint: 'A project’s GitHub issues: your agent investigates, fixes, or writes them up as tasks', keywords: ['issues', 'github', 'bugs', 'triage', 'investigate', 'fix'], run: () => ctx.actions.run({ type: 'view', view: { kind: 'issues' } }) },
+          { id: 'pulls:open', label: 'Go to Pull Requests', icon: 'pr' as const, hint: 'A project’s open pull requests on GitHub, anyone’s: open one in a worktree', keywords: ['pull requests', 'prs', 'pulls', 'github', 'review', 'merge'], run: () => ctx.actions.run({ type: 'view', view: { kind: 'pulls' } }) },
           { id: 'actions:open', label: 'Go to Actions', icon: 'pulse' as const, hint: 'A project’s GitHub Actions: runs as they go, and each workflow as a graph', keywords: ['actions', 'github', 'ci', 'workflows', 'runs', 'builds', 'checks', 'pipeline'], run: () => ctx.actions.run({ type: 'view', view: { kind: 'actions' } }) },
         ]
       : []),
@@ -104,8 +106,8 @@ export function paletteCommands(ctx: Ctx): PaletteCommand[] {
     ...(state.myShares.length ? [cmd('unshare', 'unshare', 'Stop Sharing a Folder…', 'share', () => ui.openMenu({ kind: 'share_folder', launchDir: client.launchDir, mine: state.myShares }))] : []),
     cmd('name', 'name', 'Change Your Name…', 'person', () => openSettings(ui, 'general', 'settings-name'), state.self?.name ? `Now: ${state.self.name}` : undefined),
     cmd('people', 'people', 'People & Access…', 'people', () => openSettings(ui, 'people'), 'Who can use your agent, and how'),
-    stripeCommand(state),
-    { id: 'cmd:support', label: 'Support Beluga…', icon: 'cup', hint: 'Buy the maker a coffee, or star Beluga on GitHub', keywords: ['support', 'coffee', 'donate', 'tip', 'sponsor', 'star', 'github'], run: () => openSupport('coffee') },
+    earningsCommand(state),
+    { id: 'cmd:support', label: 'Star Beluga on GitHub…', icon: 'star', hint: 'Stars are how other developers find Beluga', keywords: ['support', 'star', 'github', 'sponsor'], run: () => openSupport() },
     cmd('env', 'env', 'Environment Variables…', 'lock', () => openSettings(ui, 'environment'), 'For your shells, scripts and agents'),
     cmd('shell', 'shell', 'Terminal Settings…', 'terminal', () => openSettings(ui, 'terminal'), 'Which shell, and how it starts'),
     {
@@ -128,17 +130,17 @@ export function paletteCommands(ctx: Ctx): PaletteCommand[] {
   ];
 }
 
-/** Connect Stripe (or see the earnings) for the project on screen, or pick one in the sheet. */
-function stripeCommand(state: AppState): PaletteCommand {
+/** Connect earnings (or see them) for the project on screen, or pick one in the sheet. */
+function earningsCommand(state: AppState): PaletteCommand {
   const ws = state.view.kind === 'workspace' ? findWorkspace(state.projects, state.view.id) : undefined;
   const project = state.projects.find((p) => p.root && p.id === ws?.projectId);
-  const connected = project ? Boolean(state.earnings[project.root]) : false;
+  const connected = project ? Boolean(state.earnings[project.root] || state.revenuecat[project.root]) : false;
   return {
-    id: 'cmd:stripe',
-    label: project ? (connected ? `${project.name} Earnings…` : `Connect Stripe to ${project.name}…`) : 'Connect Stripe…',
+    id: 'cmd:earnings',
+    label: project ? (connected ? `${project.name} Earnings…` : `Connect Earnings to ${project.name}…`) : 'Connect Earnings…',
     hint: 'All-time earnings beside a project in the sidebar',
     icon: 'coin',
-    keywords: ['stripe', 'earnings', 'revenue', 'money', 'sales'],
-    run: () => openStripe(project?.id),
+    keywords: ['stripe', 'revenuecat', 'earnings', 'revenue', 'money', 'sales'],
+    run: () => openEarnings(project?.id),
   };
 }

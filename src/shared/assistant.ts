@@ -4,6 +4,7 @@
  * Mac: each its own conversation (channel) and Claude session, deletable for good. Browser-safe:
  * the screens, the phone's views and the daemon all name them by these channels.
  */
+import { chatMentionsAsTitles } from './chat-ref.js';
 export const ASSISTANT_CHANNEL = 'mac:assistant';
 
 /** Which kind of computer Beluga runs on (its channels keep saying `mac:` everywhere). */
@@ -30,7 +31,12 @@ export const assistantTitleFor = (kind: ComputerKind): string => (kind === 'wind
 export const ASSISTANT_TITLE = assistantTitleFor(COMPUTER);
 
 /** The computer in a sentence: "this Mac", "this PC", "this computer". */
-export const THIS_COMPUTER = COMPUTER === 'windows' ? 'this PC' : COMPUTER === 'linux' ? 'this computer' : 'this Mac';
+export const thisComputerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'this PC' : kind === 'linux' ? 'this computer' : 'this Mac');
+export const THIS_COMPUTER = thisComputerFor(COMPUTER);
+
+/** Where your files are shown (BLG-629): Finder on a Mac, File Explorer on Windows, Files on Linux. */
+export const fileManagerFor = (kind: ComputerKind): string => (kind === 'windows' ? 'File Explorer' : kind === 'linux' ? 'Files' : 'Finder');
+export const FILE_MANAGER = fileManagerFor(COMPUTER);
 
 /** The first chat: the one conversation there was before BLG-102, keeping its channel `mac:assistant`. */
 export const FIRST_CHAT = 'main';
@@ -56,7 +62,12 @@ export interface AssistantChat {
   readonly id: string;
   readonly channel: string;
   readonly createdAt: number;
+  /** Beluga's own (BLG-568: a sentinel's run or ask): found from its run, not a tab of yours (BLG-566), not counted in Open chats. */
+  readonly auto?: true;
 }
+
+/** Your own chats, the tabs: Beluga's own are shown only while open (Open Chat on a sentinel's run). */
+export const tabChats = (a: AssistantChats): readonly AssistantChat[] => a.chats.filter((c) => !c.auto || c.id === a.active);
 
 /** Your Mac's chats, in tab order, and the one open (persisted in ~/.beluga/assistant/chats.json). */
 export interface AssistantChats {
@@ -69,10 +80,10 @@ export const NO_ASSISTANT_CHATS: AssistantChats = { chats: [], active: FIRST_CHA
 /** The channel of the chat open now (the first chat's when there are none yet). */
 export const activeAssistantChannel = (a: AssistantChats): string => a.chats.find((c) => c.id === a.active)?.channel ?? a.chats[0]?.channel ?? ASSISTANT_CHANNEL;
 
-/** A chat's tab name: the first line you wrote in it, short; "New chat" until then. */
+/** A chat's tab name: the first line you wrote in it, short; "New chat" until then. A chat it names shows by its title, not its ref. */
 export function assistantChatTitle(channel: string, log: ReadonlyArray<{ readonly channel: string; readonly type: string; readonly byAgent?: boolean; readonly text?: string }>, max = 28): string {
   const first = log.find((l) => l.channel === channel && l.type === 'chat' && !l.byAgent && l.text?.trim());
-  const line = first?.text?.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const line = chatMentionsAsTitles(first?.text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   if (!line) return 'New chat';
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }

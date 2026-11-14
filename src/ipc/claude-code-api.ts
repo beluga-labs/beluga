@@ -9,7 +9,12 @@ import { z } from 'zod';
 const sessionId = z.string().regex(/^[0-9a-f-]{8,64}$/i);
 const agentId = z.string().regex(/^[\w-]{1,64}$/);
 const seq = z.number().int().min(0);
-const filePath = z.string().min(2).max(4096).refine((p) => p.startsWith('/') && !p.includes('\0'), 'a full path');
+/** A full path: "/…" on a Mac and Linux, "C:\…", "C:/…" or "\\server\…" on Windows. */
+const filePath = z
+  .string()
+  .min(2)
+  .max(4096)
+  .refine((p) => (p.startsWith('/') || /^[A-Za-z]:[\\/]|^\\\\/.test(p)) && !p.includes('\0'), 'a full path');
 const mcpName = z.string().min(1).max(200);
 /** Whose MCP servers (BLG-518): a runtime's id ('claude', 'codex'); unset: your agent's. */
 const mcpRuntime = z.string().regex(/^[a-z][\w-]{0,31}$/).optional();
@@ -28,8 +33,8 @@ export const CLAUDE_CODE_API = {
   'claudeCode.output': { args: z.tuple([sessionId, agentId, filePath]) },
   // The end of a background command's output (the session's, or one of its agents') → { text, size, file, mtime, truncated? }, or undefined.
   'claudeCode.taskOutput': { args: z.tuple([sessionId, agentId.optional(), agentId]) },
-  // The skills and custom commands Claude can use in a conversation (its folder's, yours, your plugins') → ClaudeSkill[].
-  'claudeCode.skills': { args: z.tuple([z.string().min(1).max(200)]) },
+  // List a conversation's skills and custom commands. For a draft, use the optional folder → ClaudeSkill[].
+  'claudeCode.skills': { args: z.tuple([z.string().min(1).max(200), z.string().min(1).max(4096).optional()]) },
   // Your MCP servers (yours, your projects', your plugins', claude.ai's) and how each is now, for your agent or the runtime named → McpServerRow[].
   'claudeCode.mcpServers': { args: z.tuple([mcpRuntime]) },
   // Start signing in to one (its agent's name for it) → McpSignIn: the page for your browser, or why not.

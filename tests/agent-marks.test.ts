@@ -8,6 +8,7 @@ describe('agent marks', () => {
     expect(runtimeMark('claude')).toBe('claudeCode');
     expect(runtimeMark('codex')).toBe('codex');
     expect(runtimeMark('local')).toBe('localModel');
+    expect(runtimeMark('opencode')).toBe('opencode');
     expect(agentMark(undefined)).toBe('claudeCode');
     for (const mark of ['claudeCode', 'codex', 'localModel', 'anthropic', 'openai'] as const) expect(AGENT_MARKS[mark].d).toMatch(/^M/);
   });
@@ -18,6 +19,25 @@ describe('agent marks', () => {
     expect(modelMark('gpt-oss-20b', 'local')).toBe('openai');
     expect(modelMark('claude-sonnet-4-5', 'local')).toBe('anthropic');
     expect(modelMark('qwen3', 'local')).toBe('localModel');
+    // OpenCode's models are provider/model: the provider says whose; its own free ones are OpenCode's.
+    expect(modelMark('anthropic/claude-sonnet-4-5', 'opencode')).toBe('anthropic');
+    expect(modelMark('openai/gpt-5.5', 'opencode')).toBe('openai');
+    expect(modelMark('opencode/big-pickle', 'opencode')).toBe('opencode');
+  });
+
+  it('DeepSeek and Kimi by their marks, from their own provider, a router or a local runtime (BLG-945)', () => {
+    for (const mark of ['deepseek', 'kimi'] as const) expect(AGENT_MARKS[mark].d).toMatch(/^M/);
+    expect(modelMark('deepseek/deepseek-chat', 'opencode')).toBe('deepseek');
+    expect(modelMark('openrouter/deepseek/deepseek-r1:free', 'opencode')).toBe('deepseek');
+    expect(modelMark('deepseek-r1:14b', 'local')).toBe('deepseek');
+    expect(modelMark('moonshotai/kimi-k2-0905-preview', 'opencode')).toBe('kimi');
+    expect(modelMark('moonshotai-cn/kimi-k2-turbo-preview', 'opencode')).toBe('kimi');
+    expect(modelMark('kimi-for-coding/kimi-k2-thinking', 'opencode')).toBe('kimi');
+    expect(modelMark('opencode/kimi-k2', 'opencode')).toBe('kimi');
+    expect(modelMark('openrouter/moonshotai/kimi-k2', 'opencode')).toBe('kimi');
+    // A router serving another maker's model: that maker's.
+    expect(modelMark('openrouter/anthropic/claude-sonnet-4.5', 'opencode')).toBe('anthropic');
+    expect(modelMark('openrouter/openai/gpt-5', 'opencode')).toBe('openai');
   });
 });
 
@@ -30,7 +50,9 @@ describe('the agents you can pick', () => {
 
   it('every runtime with its models; one not set up stays, greyed, saying why', () => {
     const options = agentChoices(runtimes, claude);
-    expect(options.map((o) => o.label)).toEqual(['Claude', 'Claude · Opus', 'Codex', 'Codex · GPT-5.5', 'Local model']);
+    expect(options.map((o) => o.label)).toEqual(['Claude', 'Claude · Opus', 'Codex', 'Codex · GPT-5.5', 'OpenCode', 'Copilot', 'Local model']);
+    expect(options.find((o) => o.runtime === 'opencode')).toMatchObject({ disabled: true, why: "OpenCode isn't set up on this Mac yet", mark: 'opencode' });
+    expect(options.find((o) => o.runtime === 'copilot')).toMatchObject({ disabled: true, why: "GitHub Copilot CLI isn't set up on this Mac yet", mark: 'copilot' });
     expect(options.find((o) => o.runtime === 'local')).toMatchObject({ disabled: true, why: 'No local model endpoint is set', mark: 'localModel' });
     expect(options.find((o) => o.value === 'codex:gpt-5.5')).toMatchObject({ group: 'Codex', mark: 'codex', model: 'gpt-5.5' });
   });

@@ -130,6 +130,25 @@ test('shells split beside the agent’s terminal', async ({ page }) => {
   await expect(page.locator('[data-pane="agent"]')).toHaveCount(1);
 });
 
+test('the agent’s terminal fits its box: its last row (Claude Code’s status line) is never cut off', async ({ page }) => {
+  test.setTimeout(90_000);
+  await viewOn(page);
+  await page.goto('/');
+  await openWorkspace(page, 'add-auth');
+  await modes(page).getByRole('tab', { name: 'Terminal' }).click();
+  await expect.poll(() => screen(page, /:agent$/), { timeout: 20_000 }).toContain('Claude Code');
+  // Every row the terminal has fits inside its box's padding (its padding isn't counted as room for rows).
+  const fits = () =>
+    page.locator('[data-pane="agent"] > :first-child').evaluate((box) => {
+      const rows = box.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? 0;
+      const st = getComputedStyle(box);
+      const room = box.clientHeight - parseFloat(st.paddingTop) - parseFloat(st.paddingBottom);
+      return rows > 0 && rows <= room + 0.5;
+    });
+  await expect.poll(fits).toBe(true);
+  await page.screenshot({ path: '../../.beluga/scratch/03-agent-term-fits.png' });
+});
+
 test('a preset theme (Dracula) is the agent’s terminal’s, links in its colours; tabs hold shells', async ({ page }) => {
   test.setTimeout(90_000);
   const dracula = { name: 'Dracula', from: 'Beluga', colors: { background: '#282a36', foreground: '#f8f8f2', cursor: '#f8f8f2', selection: '#44475a', ansi: ['#21222c', '#ff5555', '#50fa7b', '#f1fa8c', '#bd93f9', '#ff79c6', '#8be9fd', '#f8f8f2', '#6272a4', '#ff6e6e', '#69ff94', '#ffffa5', '#d6acff', '#ff92df', '#a4ffff', '#ffffff'] } };

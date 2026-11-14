@@ -1,0 +1,35 @@
+{
+  "object": "chart_data",
+  "category": "revenue",
+  "display_name": "Revenue",
+  "resolution": "month",
+  "yaxis_currency": "EUR",
+  "user_selectors": {
+    "revenue_type": "revenue"
+  },
+  "segments": null,
+  "start_date": 1700000000,
+  "end_date": 1790985600,
+  "measures": [
+    {
+      "display_name": "Proceeds",
+      "unit": "€"
+    },
+    {
+      "display_name": "Transactions",
+      "unit": "#"
+    },
+    {
+      "display_name": "Ad Impressions",
+      "unit": "#"
+    }
+  ],
+  "values": [],
+  "summary": {
+    "total": {
+      "Proceeds": 864.19,
+      "Transactions": 31,
+      "Ad Impressions": 0
+    }
+  }
+}

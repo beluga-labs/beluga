@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACCESS, DONE_KEY, LAST_SETTING, PLACE_KEY, PREFS_KEY, RESUME_MS, STEPS, TOUR, accessPlace, afterAccess, afterTour, clearPlace, groupOf, inAccess, inTour, resumeAt, saveMark, savePlace, shouldShow, stepBy, tourPlace, wasDone } from '../packages/mac/src/onboarding/onboarding-model.js';
+import { ACCESS, DONE_KEY, LAST_SETTING, PLACE_KEY, PREFS_KEY, RESUME_MS, STEPS, TOUR, accessPlace, afterAccess, afterTour, clearPlace, groupOf, inAccess, inTour, resumeAt, saveMark, savePlace, shouldShow, stepBy, tourPlace, wasDone, stepsFor, lastSettingOf } from '../packages/mac/src/onboarding/onboarding-model.js';
 import { ACCESS_COPY, accessNext, grantText } from '../packages/mac/src/onboarding/access-copy.js';
 import { TOUR_SENTINELS } from '../packages/mac/src/onboarding/sentinel-tour.js';
 import { TOUR_COPY } from '../packages/mac/src/onboarding/tour-copy.js';
@@ -153,10 +153,23 @@ describe('the new tour and phone steps', () => {
     expect(tourPlace('tables')).toEqual({ at: 3, of: TOUR.length });
   });
 
-  it('ends on the phone (its button says Finish), then the last step', () => {
-    expect(LAST_SETTING).toBe('phone');
+  it('ends on usage statistics (its button says Finish), then the last step', () => {
+    expect(LAST_SETTING).toBe('share');
     expect(stepBy('popups', 1)).toBe('phone');
-    expect(stepBy('phone', 1)).toBe('ready');
+    expect(stepBy('phone', 1)).toBe('share');
+    expect(stepBy('share', 1)).toBe('ready');
+  });
+
+  it('a build that cannot send usage statistics ends on the phone, as it always did (BLG-922)', () => {
+    const steps = stepsFor(false);
+    expect(steps).not.toContain('share');
+    expect(lastSettingOf(steps)).toBe('phone');
+    expect(lastSettingOf(stepsFor(true))).toBe('share');
+    expect(stepBy('phone', 1, steps)).toBe('ready');
+    expect(stepBy('ready', -1, steps)).toBe('phone');
+    // Left on the step it no longer has (resumed): on to the next one, or back to the one before.
+    expect(stepBy('share', 1, steps)).toBe('ready');
+    expect(stepBy('share', -1, steps)).toBe('phone');
   });
 
   it('groups the dots: the tour, the permissions, the rest', () => {
@@ -190,5 +203,25 @@ describe('Sentinel in the tour (BLG-362)', () => {
         expect(accessAllows(x.access, st.kind, st.where), `${x.id}: ${st.kind} with ${x.access}`).toBe(true);
       }
     }
+  });
+});
+
+describe('Your computers in the tour (BLG-813)', () => {
+  it('shows your computers after the tables, just before friends', () => {
+    expect(TOUR).toContain('machines');
+    expect(stepBy('tables', 1)).toBe('machines');
+    expect(stepBy('machines', 1)).toBe('friends');
+    expect(tourPlace('machines')).toEqual({ at: 4, of: TOUR.length });
+  });
+
+  it('says what your computers are in one or two sentences, with an icon and no emoji', () => {
+    const copy = TOUR_COPY.machines;
+    expect(copy?.title).toBeTruthy();
+    const sentences = copy!.body.split(/(?<=[.!?])\s+/).filter(Boolean);
+    expect(sentences.length).toBeGreaterThanOrEqual(1);
+    expect(sentences.length).toBeLessThanOrEqual(2);
+    expect(copy!.body).toMatch(/Always On/);
+    expect(copy!.icon).toBe('server');
+    for (const line of [copy!.eyebrow, copy!.title, copy!.body, ...copy!.points]) expect(line).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

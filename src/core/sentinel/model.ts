@@ -5,6 +5,7 @@ import type { Row, Source } from '../../shared/view-spec.js';
 import type { MetricColumn } from './columns.js';
 import type { Dashboard } from './dashboard-model.js';
 import { ASSISTANT_TITLE } from '../../shared/assistant.js';
+import { chatMentionsAsTitles } from '../../shared/chat-ref.js';
 
 /**
  * Sentinel (docs/sentinel.md): watchers that run on a schedule, by hand, or when something
@@ -17,17 +18,24 @@ import { ASSISTANT_TITLE } from '../../shared/assistant.js';
 export const TRIGGER_KINDS = ['schedule', 'manual', 'after', 'beluga', 'github', 'stripe', 'uptime', 'sentry', 'webhook'] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
-export const SCHEDULE_EVERY = ['hours', 'day', 'other-day', 'week', 'month'] as const;
+export const SCHEDULE_EVERY = ['minutes', 'hours', 'day', 'other-day', 'week', 'month'] as const;
 export type ScheduleEvery = (typeof SCHEDULE_EVERY)[number];
 export const SCHEDULE_HOURS = [1, 2, 3, 6, 12] as const;
 export type ScheduleHours = (typeof SCHEDULE_HOURS)[number];
+/** Every few minutes: each divides the hour, so the runs line up on the clock (:00, :15, :30, :45). */
+export const SCHEDULE_MINUTES = [1, 5, 10, 15, 30] as const;
+export type ScheduleMinutes = (typeof SCHEDULE_MINUTES)[number];
+/** A minutes schedule's step: 30 when it's missing or not one of SCHEDULE_MINUTES (the clock and the sentence agree). */
+export const scheduleMinutes = (t: { readonly minutes?: number }): ScheduleMinutes => ((SCHEDULE_MINUTES as readonly number[]).includes(t.minutes ?? 0) ? (t.minutes as ScheduleMinutes) : 30);
 
 export interface ScheduleTrigger {
   readonly kind: 'schedule';
   readonly every: ScheduleEvery;
-  /** Local time, "HH:MM" (for `hours`: where the hours line up, "00:00" by default). */
+  /** Local time, "HH:MM" (for `hours`: where the hours line up, "00:00" by default; `minutes` doesn't use it). */
   readonly at: string;
   readonly hours?: ScheduleHours;
+  /** For `minutes`: 1, 5, 10, 15 or 30, on the clock (every 15: :00, :15, :30, :45). */
+  readonly minutes?: ScheduleMinutes;
   /** For `week`: 0 Sunday … 6 Saturday (Monday when empty). */
   readonly days?: readonly number[];
   /** For `month`: 1…28. */
@@ -301,6 +309,30 @@ export interface Limits {
 }
 
 export const DEFAULT_LIMITS: Limits = { minutes: 30, pauseAfter: 3 };
+
+/**
+ * Which runs' conversations a sentinel keeps (BLG-566). The rest are put away once their run ends: a
+ * project chat archived (restorable), a Your Mac chat deleted; each run's report and outputs stay
+ * either way, and a worktree with work is never put away. `all` keeps every one (the 200 runs a
+ * sentinel keeps), `failed` only failed and stopped runs', `latest` only the newest run's.
+ */
+export const KEEP_CHATS = ['all', 'failed', 'latest'] as const;
+export type KeepChats = (typeof KEEP_CHATS)[number];
+export const DEFAULT_KEEP_CHATS: KeepChats = 'all';
+/** `keeps`: what it does, after its name ("Hourly check keeps only failed runs’ chats"). */
+export const KEEP_CHATS_INFO: Readonly<Record<KeepChats, { readonly label: string; readonly description: string; readonly keeps: string }>> = {
+  all: { label: 'Every run', description: 'Each run’s chat stays, to read or carry on', keeps: 'keeps every run’s chat' },
+  failed: { label: 'Failed runs only', description: 'A run that went fine puts its chat away; its report stays', keeps: 'keeps only failed runs’ chats' },
+  latest: { label: 'The latest run only', description: 'Each run puts the one before’s chat away; reports stay', keeps: 'keeps only the latest run’s chat' },
+};
+
+/** Whether a run that ended keeps its conversation; `latest`: the newest ended run with one. */
+export function keepsChat(keep: KeepChats, run: Pick<Run, 'id' | 'state'>, latest: string | undefined): boolean {
+  if (isLive(run.state)) return true;
+  if (keep === 'failed') return run.state === 'failed' || run.state === 'stopped';
+  if (keep === 'latest') return run.id === latest;
+  return true;
+}
 export const TIME_LIMITS = [10, 30, 60, 120] as const;
 
 export interface Sentinel {
@@ -314,6 +346,8 @@ export interface Sentinel {
   readonly steps: readonly Step[];
   readonly access: Access;
   readonly limits: Limits;
+  /** Which runs' conversations it keeps (none: all). */
+  readonly keepChats?: KeepChats;
   /** Where the run's end is told. */
   readonly notify: NotifyWhere;
   /** A new sentinel starts paused until you Turn It On. */
@@ -345,6 +379,7 @@ export interface SentinelDraft {
   readonly steps?: readonly StepDraft[];
   readonly access?: Access;
   readonly limits?: Partial<Limits>;
+  readonly keepChats?: KeepChats;
   readonly notify?: NotifyWhere;
   readonly recipe?: string;
 }
@@ -423,6 +458,10 @@ export interface Run {
    * done later) still can't start a loop.
    */
   readonly chain?: readonly string[];
+  /** Its conversations were put away, as its sentinel keeps them (or it was the oldest of 200). */
+  readonly putAway?: true;
+  /** You deleted its conversations (BLG-577): put away too, and its page says you did. */
+  readonly chatDeleted?: true;
 }
 
 /** A run in the index and the state: no outputs, no trigger payload. */
@@ -566,10 +605,10 @@ export const activeSentinelChat = (c: SentinelChats | undefined): string => {
   const chat = c?.chats.find((x) => x.id === c.active) ?? c?.chats[0];
   return chat?.channel ?? sentinelChatChannel(FIRST_SENTINEL_CHAT);
 };
-/** A chat's name: the first line you wrote in it, short; "New chat" until then. */
+/** A chat's name: the first line you wrote in it, short; "New chat" until then. A chat it names shows by its title, not its ref. */
 export function sentinelChatTitle(channel: string, log: ReadonlyArray<{ readonly channel: string; readonly type: string; readonly byAgent?: boolean; readonly text?: string }>, max = 40): string {
   const first = log.find((l) => l.channel === channel && l.type === 'chat' && !l.byAgent && l.text?.trim());
-  const line = first?.text?.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const line = chatMentionsAsTitles(first?.text ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   if (!line) return 'New chat';
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
@@ -671,6 +710,8 @@ export type SentinelAction =
   | { type: 'sentinel_remove'; id: string }
   /** One run changed or began. */
   | { type: 'sentinel_run'; run: RunSummary }
+  /** Runs you deleted (BLG-577): out of the history. */
+  | { type: 'sentinel_runs_gone'; ids: readonly string[] }
   /** Your Claude changing a sentinel: began, or ended (none: forgotten). */
   | { type: 'sentinel_ask'; id: string; ask?: SentinelAsk }
   /** An event sentinel can't watch (none: it watches again). */
@@ -764,6 +805,10 @@ export function reduceSentinel(state: SentinelSlice, action: SentinelAction): Se
     case 'sentinel_ask': {
       const { [action.id]: _was, ...asks } = s.asks ?? {};
       return { sentinel: { ...s, asks: action.ask ? { ...asks, [action.id]: action.ask } : asks } };
+    }
+    case 'sentinel_runs_gone': {
+      const gone = new Set(action.ids);
+      return { sentinel: { ...s, runs: s.runs.filter((r) => !gone.has(r.id)), live: Object.fromEntries(Object.entries(s.live).filter(([id]) => !gone.has(id))) } };
     }
     case 'sentinel_run': {
       const run = action.run;
@@ -1105,6 +1150,8 @@ export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => strin
     case 'schedule': {
       const at = clockText(trigger.at);
       switch (trigger.every) {
+        case 'minutes':
+          return scheduleMinutes(trigger) === 1 ? 'Every minute' : `Every ${scheduleMinutes(trigger)} minutes`;
         case 'hours': {
           const n = trigger.hours ?? 1;
           return n === 1 ? 'Every hour' : `Every ${n} hours`;
@@ -1145,6 +1192,24 @@ export function scheduleSentence(trigger: Trigger, nameOf: (id: string) => strin
     case 'webhook':
       return trigger.signature === 'github' ? 'When GitHub posts to its URL' : trigger.signature === 'stripe' ? 'When Stripe posts to its URL' : 'When something posts to its URL';
   }
+}
+
+/** An agent step this many times a day or more is worth a word about the plan it uses. */
+const FREQUENT_AGENT_RUNS = 24;
+
+/**
+ * A schedule every few minutes with an agent step: how many times a day it asks the agent, in a
+ * sentence (the When card, sentinel_create's answer). Runs per day (limits.perDay) counts.
+ * Otherwise undefined.
+ */
+export function frequentAgentNote(s: Pick<Sentinel, 'trigger' | 'steps' | 'limits'>): string | undefined {
+  const t = s.trigger;
+  if (t.kind !== 'schedule' || t.every !== 'minutes' || !s.steps.some((st) => st.kind === 'claude')) return undefined;
+  const slots = Math.floor((24 * 60) / scheduleMinutes(t));
+  const runs = s.limits.perDay ? Math.min(s.limits.perDay, slots) : slots;
+  if (runs < FREQUENT_AGENT_RUNS) return undefined;
+  const capped = s.limits.perDay && s.limits.perDay < slots;
+  return `Its agent step runs up to ${runs} times a day${capped ? ' (its runs-per-day limit)' : ''}, which uses your plan’s limits quickly. Fewer runs a day, or a schedule without an agent step, keeps it light.`;
 }
 
 /** When a sentinel runs, in one sentence, for every kind of trigger (scheduleSentence's name for what it is now). */

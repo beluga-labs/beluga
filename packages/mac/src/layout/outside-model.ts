@@ -1,6 +1,7 @@
 import type { AppState } from '../../../../src/core/store.js';
 import { activityOf } from '../../../../src/ui/workspace-models.js';
 import type { Project, Workspace } from '../../../../src/workspaces/types.js';
+import { pathParts, sepIn } from '../../../../src/shared/os-path.js';
 import { tildePath } from '../lib/brand.js';
 
 /**
@@ -30,15 +31,16 @@ export interface OutsideLocation {
 
 /** A long folder by its last two parts ("…/workspaces/api"): the part that tells worktrees apart. */
 export function folderTail(folder: string): string {
-  const parts = folder.split('/').filter(Boolean);
-  return parts.length > 3 ? `…/${parts.slice(-2).join('/')}` : folder;
+  const parts = pathParts(folder);
+  const sep = sepIn(folder);
+  return parts.length > 3 ? `…${sep}${parts.slice(-2).join(sep)}` : folder;
 }
 
 /** Where a worktree made outside Beluga is (undefined for Beluga's own and for chats). */
 export function outsideLocation(state: Pick<AppState, 'home'>, ws: Workspace): OutsideLocation | undefined {
   if (!isOutside(ws)) return undefined;
   const path = tildePath(state.home, ws.path);
-  const cut = path.lastIndexOf('/');
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return { folder: folderTail(cut > 0 ? path.slice(0, cut) : path), path };
 }
 

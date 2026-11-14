@@ -9,13 +9,15 @@ import { useMyAgent } from '../lib/agent-words.js';
 import { type AgentMark, agentMark } from '@beluga/shared/agent-marks.js';
 import { handleInvite } from '../lib/invite-command.js';
 import { usePrefs } from '../lib/prefs.js';
-import { mod } from '../lib/system.js';
+import { chordLabel } from '../lib/shortcuts-model.js';
+import { cmdReturn, returnName, yourComputer } from '../lib/os-words.js';
 import { quoted } from '../chat/message-menu.js';
 import { DictationStrip, MicButton } from '../chat/Dictation.js';
 import { useDictationTarget } from '../lib/dictation.js';
 import { MentionHighlighter } from '../chat/MentionHighlighter.js';
 import { useSuggestions } from '../chat/Suggestions.js';
 import { usePastePaths } from '../chat/paste-paths.js';
+import { plainWorktrees, worktreeNamesOf } from '../chat/worktree-box.js';
 import { PendingTray } from './ChatFiles.js';
 import { addBlobs, addPaths, restorePending, takePending, usePending } from './attachments.js';
 import { type Ask, type ChannelSuggestion, askLabel, askTo, channelSuggestions, channelTasks, channelWorld, mentionedAsk, mergeAsk } from './chat-model.js';
@@ -80,17 +82,18 @@ function AskButton({ ask, setAsk, people, me }: { ask: Ask | undefined; setAsk: 
   const whose = ask && ask.kind !== 'me' ? askLabel(ask, true) : 'your agent';
   const toggle = (
     <Tip label={ask ? `${askLabel(ask, true)} answers this message · click to just send it` : 'Your agent answers this message, from this conversation · or type @claude, which asks your agent whichever it is'}>
-      <button type="button" className={cx(c.chip, people.length > 0 && s.askMain, ask && c.chipOn)} aria-pressed={Boolean(ask)} disabled={!me} onClick={() => setAsk(ask ? undefined : { kind: 'me' })}>
+      <button type="button" className={cx(c.chip, people.length > 0 && s.askMain, ask && c.chipOn)} aria-label={`Ask: ${whose}`} aria-pressed={Boolean(ask)} disabled={!me} onClick={() => setAsk(ask ? undefined : { kind: 'me' })}>
         <Icon name={askMark(ask, myMark)} size={13} />
-        Ask: {whose}
+        {/* Beside a shared screen the box is narrow: the words step aside, Send stays in it. */}
+        <span className={c.chipLabel}>Ask: {whose}</span>
       </button>
     </Tip>
   );
   if (!people.length) return toggle;
   const items: ActionItem[] = [
-    { label: 'Your Agent', icon: myMark, checked: mine, hint: 'It answers here, from your Mac', onSelect: () => setAsk({ kind: 'me' }) },
-    { label: people.length === 1 ? 'Both Agents' : 'Everyone’s Agent', icon: 'people', checked: ask?.kind === 'all', hint: 'Each answers from their own Mac', onSelect: () => setAsk({ kind: 'all' }) },
-    ...people.map((p, i) => ({ label: `${p.name}’s Agent`, separate: i === 0, checked: ask?.kind === 'person' && ask.peerId === p.peerId, hint: `From ${p.name}’s Mac`, onSelect: () => setAsk({ kind: 'person', peerId: p.peerId, name: p.name }) })),
+    { label: 'Your Agent', icon: myMark, checked: mine, hint: `It answers here, from ${yourComputer()}`, onSelect: () => setAsk({ kind: 'me' }) },
+    { label: people.length === 1 ? 'Both Agents' : 'Everyone’s Agent', icon: 'people', checked: ask?.kind === 'all', hint: 'Each answers from their own computer', onSelect: () => setAsk({ kind: 'all' }) },
+    ...people.map((p, i) => ({ label: `${p.name}’s Agent`, separate: i === 0, checked: ask?.kind === 'person' && ask.peerId === p.peerId, hint: `From ${p.name}’s computer`, onSelect: () => setAsk({ kind: 'person', peerId: p.peerId, name: p.name }) })),
     ...(ask ? [{ label: 'Don’t Ask an Agent', separate: true, onSelect: () => setAsk(undefined) }] : []),
   ];
   return (
@@ -189,7 +192,8 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
     const to = me ? mergeAsk(ask ? askTo(ask, me.peerId) : undefined, mentionedAsk(body, me.peerId, people)) : undefined;
     setText('');
     setAsk(undefined);
-    send({ text: body, files, ...(to ? { ask: to } : {}) }).catch(() => {
+    // Worktrees' links written short in the box go out whole ("worktree:wt-…", BLG-887).
+    send({ text: plainWorktrees(body, worktreeNamesOf(client.store.getState().projects)), files, ...(to ? { ask: to } : {}) }).catch(() => {
       // Nothing is lost: the words and files come back (ahead of anything new).
       setText((t) => (t.trim() ? `${body}\n${t}` : body));
       restorePending(id, files);
@@ -198,7 +202,7 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
   };
   // Speaking instead of typing (Settings › Voice): the words come here when this is the box you're in.
   useDictationTarget(ref, submit);
-  const sendKeys = prefs.sendWith === 'enter' ? '↩' : `${mod()}↩`;
+  const sendKeys = prefs.sendWith === 'enter' ? '↩' : chordLabel('Cmd+Enter');
   const label = ask ? `${askLabel(ask)} · ` : '';
   return (
     <div className={c.wrap}>
@@ -256,13 +260,14 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
               <button
                 type="button"
                 className={c.chip}
+                aria-label="Friends"
                 onClick={() => {
                   write(text && !/\s$/.test(text) ? `${text} @` : `${text}@`);
                   ref.current?.focus();
                 }}
               >
                 <Icon name="people" size={13} />
-                Friends
+                <span className={c.chipLabel}>Friends</span>
               </button>
             </Tip>
           ) : null}
@@ -288,7 +293,7 @@ export function NetComposer({ id, placeholder, people, me, send, addPeople, note
           ) : null}
           {text.length > MAX - 500 ? <span className={cx(s.counter, over && s.counterOver)}>{MAX - text.length}</span> : null}
           <MicButton box={ref} />
-          <Tip label={`${label}${prefs.sendWith === 'enter' ? 'Send · Shift+Return for a new line' : `Send · ${mod()}Return`}`} keys={sendKeys}>
+          <Tip label={`${label}${prefs.sendWith === 'enter' ? `Send · Shift+${returnName()} for a new line` : `Send · ${cmdReturn()}`}`} keys={sendKeys}>
             <button type="button" className={cx(c.send, canSend && c.sendReady)} onClick={submit} aria-label={ask ? `Send and ${askLabel(ask).toLowerCase()}` : 'Send'} disabled={!canSend}>
               <Icon name="send" size={14} />
             </button>

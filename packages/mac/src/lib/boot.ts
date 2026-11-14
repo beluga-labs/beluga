@@ -5,6 +5,8 @@ import type { SoundChoice } from '@beluga/shared/notify-sound.js';
 import { MESSAGE_BANNER, NOTIFICATION_TAP } from './notices.js';
 import { REQUEST_NOTIFICATION, notificationActions } from '../gateway/request-actions.js';
 import { version } from '../../src-tauri/tauri.conf.json';
+import { machineSocketUrl } from '../machines/pane-model.js';
+import { t } from '../i18n/index.js';
 
 /** Running inside the Tauri shell (otherwise: a browser, while developing). */
 export const inApp = (): boolean => '__TAURI_INTERNALS__' in globalThis;
@@ -14,16 +16,46 @@ export interface Endpoint {
   readonly token: string;
 }
 
-/** Where the daemon is: the app's own sidecar (asked through Tauri), or the dev server's bridge. */
+let served = false;
+/**
+ * This page came from the daemon's web port (`beluga web`): a browser, maybe on another computer.
+ * Its stand-ins for the app's native bits (docs/web.md): a folder picker over the server's
+ * folders, uploads for what you drop or pick, downloads for what you save or show.
+ */
+export const webServed = (): boolean => served;
+/** The app's folder picker, or the browser's stand-in for it. */
+export const canPickFolders = (): boolean => inApp() || served;
+
+/** What a browser's hello carries where the token goes: the web port lets it in by its session, never a token. */
+export const WEB_HELLO_TOKEN = 'browser-session-cookie';
+
+/** The socket of the page's own origin (the daemon's web port, src/daemon/web.ts). */
+export const webSocketUrl = (loc: Pick<Location, 'protocol' | 'host'>): string => `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`;
+
+/**
+ * Where the daemon is: the app's own sidecar (asked through Tauri), the daemon's web port that
+ * served this page (`beluga web`: same origin, its session cookie), or the dev server's bridge.
+ */
 export async function endpoint(): Promise<Endpoint> {
   if (inApp()) {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke<Endpoint>('daemon_endpoint');
   }
-  const res = await fetch('/__beluga/endpoint');
-  const body = (await res.json()) as Endpoint & { error?: string };
+  const res = await fetch('/__beluga/endpoint', { cache: 'no-store' });
+  const body = (await res.json()) as Partial<Endpoint> & { error?: string; web?: boolean; signedOut?: boolean };
+  // This browser was revoked (or never let in): the page itself becomes the Ask for a link page.
+  if (res.status === 401 && body.signedOut) {
+    location.reload();
+    throw new Error('This browser is signed out of Beluga');
+  }
   if (!res.ok || body.error) throw new Error(body.error ?? 'Beluga is not running');
-  return body;
+  if (body.web) {
+    served = true;
+    document.documentElement.dataset.web = 'true';
+    return { url: webSocketUrl(location), token: WEB_HELLO_TOKEN };
+  }
+  if (!body.url || !body.token) throw new Error('Beluga is not running');
+  return { url: body.url, token: body.token };
 }
 
 /** What only this window can do for Beluga: its clipboard, notifications, links and text size. */
@@ -65,7 +97,7 @@ export function capabilities(setZoom: (dir: 'in' | 'out' | 'reset') => { ok: boo
         // A real sound name ("default" isn't one on macOS: it was silent). See lib/sounds/native.ts.
         const { sound, fallback }: { sound?: string; fallback?: () => void } = test ? {} : await notificationSound(n);
         // An approval on its own gets Approve / Decline (and Always for a friend's request) on the notification.
-        sendNotification({ title: n.title, body: n.body, ...(sound ? { sound } : {}), ...notificationActions(n), extra: { ...(n.channel ? { channel: n.channel } : {}), ...(n.approval ? { approval: n.approval } : {}), ...(n.task ? { task: n.task } : {}) } });
+        sendNotification({ title: t(n.title), body: t(n.body), ...(sound ? { sound } : {}), ...notificationActions(n), extra: { ...(n.channel ? { channel: n.channel } : {}), ...(n.approval ? { approval: n.approval } : {}), ...(n.task ? { task: n.task } : {}) } });
         fallback?.();
         return;
       }
@@ -102,5 +134,25 @@ export const APP_VERSION: string = version;
 /** Attach to Beluga. */
 export async function connect(caps: Capabilities): Promise<SocketClient> {
   const { url, token } = await endpoint();
-  return SocketClient.connect({ url, token, kind: 'mac', version: APP_VERSION, caps });
+  const client = await SocketClient.connect({ url, token, kind: 'mac', version: APP_VERSION, caps });
+  // The window opens on Overview (a screen starts on the room, which is no place of its own here: BLG-871).
+  client.store.dispatch({ type: 'view', view: { kind: 'overview' } });
+  return client;
+}
+
+/**
+ * What a computer may ask of this window (BLG-776 COMPUTER_CAPS, less): copy, open a page, read a
+ * pasted image, and notify through this Mac's one bell (BLG-790: machines/pane-clients.ts wraps it).
+ */
+const MACHINE_CAPS = ['copyText', 'openExternal', 'readClipboardImage', 'notify'] as const;
+
+/**
+ * Attach to one of your computers (BLG-784): this Mac's daemon pipes the screen there over
+ * /machine/<id>, with this daemon's own token (never sent on). Not from a browser on the web port.
+ */
+export async function connectMachine(id: string, caps: Capabilities): Promise<SocketClient> {
+  const { url, token } = await endpoint();
+  if (webServed()) throw new Error('Your computers open in the Beluga app');
+  const allowed: Capabilities = Object.fromEntries(MACHINE_CAPS.flatMap((k) => (caps[k] ? [[k, caps[k]]] : [])));
+  return SocketClient.connect({ url: machineSocketUrl(url, id), token, kind: 'mac', version: APP_VERSION, caps: allowed, timeoutMs: 20_000 });
 }

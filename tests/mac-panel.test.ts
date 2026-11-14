@@ -64,6 +64,8 @@ describe('the right panel’s tabs', () => {
   it('the Tasks board, a task’s page and the plans have the whole window', () => {
     expect(panelFits({ kind: 'task', id: 't1' })).toBe(false);
     expect(panelFits({ kind: 'plans' })).toBe(false);
+    // Usage is a page of its own to look at: the whole window (BLG-759).
+    expect(panelFits({ kind: 'usage' })).toBe(false);
     expect(panelTabsFor({ kind: 'task', id: 't1' })).toEqual([]);
     expect(panelFits({ kind: 'tasks' })).toBe(false);
     expect(panelTabsFor({ kind: 'tasks' })).toEqual([]);
@@ -80,11 +82,11 @@ describe('the right panel’s tabs', () => {
     expect(panelTabsFor(ws, 'worktree', true)).not.toContain('phone');
     expect(panelTabsFor(ws, 'chat', true)).not.toContain('phone');
     expect(panelTabsFor(room, undefined, true)).not.toContain('phone');
-    expect(panelTabsFor({ kind: 'assistant' }, undefined, true)).toEqual(['terminal', 'info', 'phone']);
-    expect(panelTabsFor({ kind: 'assistant' })).toEqual(['terminal', 'info']);
+    expect(panelTabsFor({ kind: 'assistant' }, undefined, true)).toEqual(['terminal', 'info', 'scratch', 'phone']);
+    expect(panelTabsFor({ kind: 'assistant' })).toEqual(['terminal', 'info', 'scratch']);
     expect(panelTabsFor({ kind: 'phone' }, undefined, true)).toEqual(['terminal', 'info']);
     expect(panelTabsFor({ kind: 'plan', id: 'p1' }, undefined, true)).toEqual([]);
-    expect(paneTabs(DEFAULT_LAYOUT, 'top', panelTabsFor({ kind: 'assistant' }, undefined, true))).toEqual(['info', 'phone']);
+    expect(paneTabs(DEFAULT_LAYOUT, 'top', panelTabsFor({ kind: 'assistant' }, undefined, true))).toEqual(['scratch', 'info', 'phone']);
   });
 
   it('opens on the tab you last picked there, else Changes when there are changes, else Info', () => {

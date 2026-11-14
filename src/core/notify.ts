@@ -10,13 +10,15 @@ import { isDecisionQid } from './plans/decisions.js';
 import { ASSISTANT_TITLE, isAssistant } from '../shared/assistant.js';
 import { allNeeds, needMatches } from '../companion/needs-you.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
+import { isExternalRequester } from './trust.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
+import { laterUntil } from './triage/facts.js';
 
 /** The groups you can switch on or off in Settings → Notifications. */
 export type NoticeKind = 'done' | 'needsYou' | 'problems' | 'people' | 'pr' | 'mentions' | 'background';
 
 /** What exactly happened, when the kind alone doesn't say (screens pick an icon by it). */
-export type NoticeTag = 'approval' | 'question' | 'plan' | 'milestone' | 'conflict' | 'joined' | 'left' | 'invited' | 'mention' | 'message' | 'task' | 'test' | 'sentinel';
+export type NoticeTag = 'approval' | 'question' | 'plan' | 'milestone' | 'conflict' | 'joined' | 'left' | 'invited' | 'mention' | 'message' | 'task' | 'test' | 'sentinel' | 'woke';
 
 export interface NoticeEvent {
   readonly kind: NoticeKind;
@@ -79,6 +81,15 @@ export function presenceQuiet(state: Pick<DomainState, 'network'>): boolean {
   return Boolean(self && (self.appearOffline || self.presence.state === 'dnd'));
 }
 
+/**
+ * About a conversation you put off (Remind Me Later, BLG-748, BLG-770), and not something your agent
+ * asks you: it goes into the inbox already read, with no sound or banner; the reminder brings it back.
+ */
+export function remindLaterNotice(state: DomainState, e: Pick<NoticeEvent, 'kind' | 'channel'>, now = Date.now()): boolean {
+  if (e.kind === 'needsYou' || !e.channel) return false;
+  return laterUntil(state, e.channel, now) !== undefined;
+}
+
 /** Where what waits for you lives (companion/needs-you.ts reads these). */
 const WAITING = ['approvals', 'questions', 'gateway', 'plans', 'board', 'knocks', 'network', 'team', 'sentinel'] as const satisfies ReadonlyArray<keyof DomainState>;
 
@@ -102,6 +113,7 @@ const firstLine = (text: string, max = 140): string => {
 /** "add-auth", "the group chat", or a shared workspace's name. */
 export function placeName(state: DomainState, channel: string): string {
   if (channel === 'room') return state.peers.length > 1 ? 'the group chat' : 'your chat';
+  if (isExternalRequester(channel)) return 'an external agent';
   if (isAssistant(channel)) return ASSISTANT_TITLE;
   if (isSentinelChat(channel)) return 'the Sentinel chat';
   // A friends' chat (your Claude acts there when you ask it, BLG-207).
@@ -173,7 +185,7 @@ function planNews(prev: DomainState, next: DomainState): NoticeEvent[] {
   const out: NoticeEvent[] = [];
   for (const plan of next.plans.plans) {
     const old = prev.plans.plans.find((p) => p.id === plan.id);
-    if (!old?.body || !plan.body || plan.status === 'draft') continue;
+    if (!old?.body || !plan.body || plan.status === 'draft' || plan.movedTo) continue;
     const name = planTitle(plan);
     const at = { plan: plan.id, channel: plan.home };
     const prs = (): number => next.board.issues.filter((i) => i.plan?.id === plan.id && i.pr?.state === 'OPEN').length;
@@ -213,7 +225,7 @@ function planNews(prev: DomainState, next: DomainState): NoticeEvent[] {
     const titleOf = new Map(after.milestones.flatMap((m) => [[m.milestone.id, m.milestone.title] as const, ...m.tasks.map((t) => [t.task.id, t.task.title] as const)]));
     for (const [taskId, w] of Object.entries(plan.watch ?? {})) {
       if (!w.needsYou || old.watch?.[taskId]?.needsYou) continue;
-      out.push({ kind: 'needsYou', tag: 'milestone', title: `${name}: “${titleOf.get(taskId) ?? 'A task'}” stopped twice`, body: `${w.reason}. Resume it, or open its chat`, ...at, need: `plan:${plan.id}:stalled:${taskId}`, key: `plan:${plan.id}:${taskId}:stalled:${w.at}` });
+      out.push({ kind: 'needsYou', tag: 'milestone', title: `${name}: “${titleOf.get(taskId) ?? 'A task'}” ${w.said ? 'needs you' : 'stopped twice'}`, body: w.said ? `It says: “${w.said}” Do what it asks, then Resume it` : `${w.reason}. Resume it, or open its chat`, ...at, need: `plan:${plan.id}:stalled:${taskId}`, key: `plan:${plan.id}:${taskId}:stalled:${w.at}` });
     }
     for (const [msId, merge] of Object.entries(plan.merging ?? {})) {
       const c = merge.conflict;
@@ -297,6 +309,9 @@ function finishedSetups(prev: DomainState, next: DomainState): NoticeEvent[] {
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** How a message says your name: "@name", not inside a longer word or handle. */
+export const mentionOf = (name: string): RegExp => new RegExp(`(^|[^\\w@])@${escapeRe(name)}(?![\\w-])`, 'i');
+
 /** Someone mentions you by name, or writes in the room when it's just the two of you. */
 function messagesForYou(prev: DomainState, next: DomainState): NoticeEvent[] {
   const self = next.self;
@@ -304,7 +319,7 @@ function messagesForYou(prev: DomainState, next: DomainState): NoticeEvent[] {
   const seen = new Set(prev.log.slice(-RECENT_LOG).map((l) => l.id));
   const fresh = next.log.slice(-RECENT_LOG).filter((l): l is ChatItem => l.type === 'chat' && !seen.has(l.id));
   if (!fresh.length || fresh.length > MESSAGE_BURST) return [];
-  const mention = new RegExp(`(^|[^\\w@])@${escapeRe(self.name)}(?![\\w-])`, 'i');
+  const mention = mentionOf(self.name);
   const others = next.peers.filter((p) => p.peerId !== self.peerId);
   const out: NoticeEvent[] = [];
   for (const m of fresh) {
@@ -567,8 +582,10 @@ export class Notifier {
       }
       const { kind, tag, ref, title, body, channel, plan, planTask, need, key } = e;
       // A plan's task speaking quietly: it's in the inbox under the plan, already read.
-      const read = Boolean(e.quiet && plan);
+      const hushed = remindLaterNotice(state, e, this.now());
+      const read = Boolean(e.quiet && plan) || hushed;
       this.deps.store.dispatch({ type: 'notice_add', notice: { kind, ...(tag ? { tag } : {}), ...(ref ? { ref } : {}), title, body, channel, ...(plan ? { plan } : {}), ...(planTask ? { planTask } : {}), ...(need ? { need } : {}), ...(key ? { key } : {}) }, ...(read ? { read } : {}) });
+      if (hushed) continue;
       // You're in Beluga, looking at another conversation: a friend's message shows in the window.
       if (state.attention.front && isNetworkMessage(e) && !e.quiet && !dndActive(prefs, this.now())) this.banners.push(e);
       else if (desktop && !e.quiet) this.queue.push(e);

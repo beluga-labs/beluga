@@ -11,7 +11,7 @@ export function CurrencySelect({ id, size, className }: { id?: string; size?: 'r
 export function EarningsSettings() {
   return (
     <Group title="Earnings">
-      <Row label="Show earnings in" detail="Every total from Stripe, in the sidebar and the Usage view. Other currencies are converted at the European Central Bank’s daily rates.">
+      <Row label="Show earnings in" detail="Every total from Stripe and RevenueCat, in the sidebar and the Usage view. Other currencies are converted at the European Central Bank’s daily rates.">
         <CurrencySelect />
       </Row>
     </Group>

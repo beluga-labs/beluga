@@ -1,6 +1,8 @@
 import { switchAgent } from './agent-switch.js';
 import { runtimeChoices } from '../shared/agent-runtimes.js';
 import type { SessionOptions, Session } from './session.js';
+import { appContextsOf } from '../mcp-apps/contexts.js';
+import { threadsOf } from './threads/launch.js';
 import type { ModelChoice } from './work-store.js';
 import { WorkspaceController } from './workspace-controller.js';
 import { Notifier } from './notify.js';
@@ -23,12 +25,17 @@ import { LOCAL_RUNTIME, localModels, localWhy } from '../shared/local-endpoints.
 import { useViewEnv } from './views/sources.js';
 import { boardOf } from './board/registry.js';
 import { sentinelOf } from './sentinel/registry.js';
-import { plansOf } from './plans/registry.js';
+import { needPlans, plansOf } from './plans/registry.js';
 import { assistantOf } from './assistant/registry.js';
 import { companionOf } from '../companion/registry.js';
 import { stopTestProcesses } from '../workspaces/test-procs.js';
+import { ghRepoEnv } from '../workspaces/github.js';
 import { AgentTerminals } from './agent-term.js';
 import { claudeHome } from './claude-code/launch.js';
+import { callNotesToolsOf } from './calls/launch.js';
+import { guestPlace, sharedWorktreeBrief } from './shared-guest.js';
+import { belugaHome } from './home.js';
+import { peerName } from './store.js';
 
 /** Everything a session is made of, wired to each other and to the session. */
 export interface SessionParts {
@@ -69,6 +76,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
   if (opts.runtime) local.start();
   // Database views find the project's connection string (its variables, its .env).
   useViewEnv({ database: (dir) => env.viewEnv(dir), commands: (dir) => env.envFor({ dir }) });
+    const notifier = new Notifier({ store: opts.store, desktop: (n) => opts.desktopNotify?.(n), toast: (text, level) => session.toast(text, level) });
     if (opts.workspaces) {
       workspaces = new WorkspaceController({
         manager: opts.workspaces,
@@ -82,11 +90,14 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         intend: (intent) => session.intend(intent),
         askClaude: (prompt, channel, o) => (o?.terminal ? session.startInTerminal(prompt, channel, o.shown) : session.askOwnClaude(prompt, channel, false, o?.echo ?? true, o?.shown)),
         showAsk: (prompt, channel) => session.showAsk(prompt, channel),
+        planHere: (channel) => void needPlans(session).here(channel),
+        titleChat: (content) => session.titleChat(content),
         compact: (channel, instructions) => session.compact(channel, instructions),
         stopHere: async (channel) => {
           if (host.runningIn(channel)) host.stopRun(channel);
           await host.idle(channel);
         },
+        endRuns: (channel, why) => host.endIn(channel, why),
         forgetContext: (channel) => host.forgetContext(channel),
         findConversation: opts.findConversation
           ? async (dir, o) => {
@@ -100,10 +111,14 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         onWorktreeCreated: (ws) => workbench?.onWorktreeCreated(ws),
         onWorkspaceGoing: (id) => workbench?.closeTerminals(id),
         onWorktreeRestored: (ws, remake) => workbench?.onWorktreeRestored(ws, remake),
-        env: { newKeysBack: (projectId) => env.newKeysBack(projectId), merge: (projectId, vars) => env.merge(projectId, vars) },
+        env: {
+          newKeysBack: (projectId) => env.newKeysBack(projectId),
+          merge: (projectId, vars) => env.merge(projectId, vars),
+          syncExample: (id, noteOnly) => env.syncWorktreeExample(id, noteOnly),
+          forgetWorktree: (id) => env.forgetWorktree(id),
+        },
       });
     }
-    const notifier = new Notifier({ store: opts.store, desktop: (n) => opts.desktopNotify?.(n), toast: (text, level) => session.toast(text, level) });
     if (workspaces) {
       workbench = new Workbench({
         store: opts.store,
@@ -113,15 +128,19 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         toast: (text, level) => session.toast(text, level),
         intend: (intent) => session.intend(intent),
         askClaude: (prompt, channel) => session.askOwnClaude(prompt, channel),
+        savedChats: (loaded) => assistantOf(session)?.savedChats(loaded) ?? [],
+        loadSavedChat: (id) => assistantOf(session)?.loadSaved(id),
         setPrefs: (prefs) => session.setPrefs(prefs),
         confirm: (title, detail) => session.ask('request', title, detail),
         open: opts.open,
         listModels: async () => (await session.backend?.listModels?.()) as readonly ModelChoice[] | undefined,
-        switchAgent: (channel, agent) =>
+        ...(opts.updateAgent ? { updateAgent: opts.updateAgent } : {}),
+        switchAgent: (channel, agent, mode) =>
           switchAgent(
             {
               find: (id) => opts.workspaces?.find(id),
               setAgent: (id, a) => opts.workspaces?.setAgent(id, a),
+              carry: (id, from) => opts.workspaces?.setCarry(id, from),
               askAndWait: (prompt, ch, ms) => session.askAndWait(prompt, ch, ms),
               start: (prompt, ch) => void session.askOwnClaude(prompt, ch, false, false),
               system: (ch, text, level) => session.store.dispatch({ type: 'system', channel: ch, text, level: level ?? 'info' }),
@@ -131,6 +150,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
             },
             channel,
             agent,
+            mode,
           ),
         // Your agent's runtime runs here; another, when this Beluga registers it (the demo's agent is Claude).
         listRuntimes,
@@ -192,6 +212,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       selfId: () => session.selfId,
       send: (body, o) => session.send(body, o),
       agent: () => session.backend,
+      ...(opts.openPage ? { openPage: opts.openPage } : opts.open ? { openPage: async (url: string) => opts.open?.(url) } : {}),
       agentRef: (channel) => (channel ? workspaces?.agentOf(channel, session.agentRef) : undefined) ?? session.agentRef,
       // A room ask that names one of your agents (BLG-520): the ones your card lists, and whether each runs here.
       agents: () => opts.client.currentProfile.agents ?? [],
@@ -207,7 +228,8 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       approvalTimeoutMs: () => session.approvalTimeoutMs,
       refreshUsage: () => session.refreshUsage(),
       canEditIn: (peerId, channel) => invites.canEditIn(peerId, channel),
-      envFor: (channel, dir) => env.envFor(channel.startsWith('ws:') ? { workspaceId: channel.slice(3), dir } : { dir }, { claude: true }),
+      // Claude's gh works on origin's repository, as Beluga does: a fork's own, not the original (yours win when set).
+      envFor: (channel, dir) => ({ ...ghRepoEnv(dir), ...env.envFor(channel.startsWith('ws:') ? { workspaceId: channel.slice(3), dir } : { dir }, { claude: true }) }),
       dotenvAccess: env.dotenvAccess,
       stopTests: (dir) => stopTestProcesses(dir),
       nameTask: (prompt) => session.nameTask(prompt),
@@ -217,10 +239,18 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
       sentinel: (channel, from) => sentinelOf(session)?.forRun(channel, from),
       sentinelChat: (channel, from) => sentinelOf(session)?.chatPlace(channel, from),
       confirmTool: (toolName, input) => sentinelOf(session)?.confirmWords(toolName, input),
-      plans: (channel, from) => plansOf(session)?.forRun(channel, from),
+      plans: (channel, from, chain) => plansOf(session)?.forRun(channel, from, chain),
+      threads: (channel) => threadsOf(session)?.forRun(channel),
+      appContext: (channel) => appContextsOf(session).take(channel),
       // "Your Mac"'s chats, and your own asks in friends' chats (BLG-207): both work in its folder.
       assistant: (channel, from) => assistantOf(session)?.forRun(channel, from) ?? assistantOf(session)?.forChat(channel, from),
+      // Your "@claude" in a worktree a friend shared with you: your agent, here, reading theirs (core/shared-guest).
+      guestRun: (channel, from) => {
+        const ws = from === session.selfId ? sharing.sharedFor(channel) : undefined;
+        return ws?.role === 'contribute' ? { place: guestPlace(belugaHome()), brief: sharedWorktreeBrief(ws, peerName(opts.store.getState(), ws.owner)) } : undefined;
+      },
       phone: (scratchDir) => companionOf(session)?.control.toolsFor(scratchDir),
+      callNotes: () => callNotesToolsOf(session),
       phoneUse: () => companionOf(session)?.control.useLevel() ?? 'off',
       setup: (channel) => workbench?.setupForRun(channel.slice(3)),
       terminalDriving: (channel) => agentTerms?.driving(channel) ?? false,
@@ -244,6 +274,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
             self: () => ({ id: session.selfId, name: session.store.getState().self?.name ?? 'you' }),
             keepSteps: (steps) => host.keepTerminalSteps(steps),
             claudeConfigDir: claudeHome(),
+            saving: () => opts.store.getState().powerSaving,
           })
         : undefined;
     const remote = new RemoteWork({

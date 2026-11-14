@@ -107,6 +107,28 @@ test('Changes: a file’s diff right in the panel, closed with Esc, and in full 
   await expect(composer(page)).toBeVisible();
 });
 
+test('Changes: grouped by folder, each folder folds, and the arrows walk what’s shown', async ({ page }) => {
+  await openWorkspace(page);
+  await tab(page, 'Changes').click();
+  await expect(panel(page).getByText(/2 files changed/)).toBeVisible();
+  await panel(page).getByRole('button', { name: 'Group by Folder' }).click();
+  const src = panel(page).getByRole('group', { name: 'src' });
+  const folder = src.getByRole('button', { name: /src/ });
+  await expect(folder).toHaveAttribute('aria-expanded', 'true');
+  await expect(src.getByRole('option')).toHaveCount(2);
+  await page.screenshot({ path: '../../.beluga/scratch/changes-by-folder.png' });
+  await panel(page).getByRole('listbox', { name: 'Changed files' }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(panel(page).getByRole('region', { name: 'Changes in auth.ts' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await folder.click();
+  await expect(folder).toHaveAttribute('aria-expanded', 'false');
+  await expect(src.getByRole('option')).toHaveCount(0);
+  // Back to one list: the folder shows beside each name again.
+  await panel(page).getByRole('button', { name: 'Show as One List' }).click();
+  await expect(panel(page).getByRole('option', { name: /auth\.ts/ })).toContainText('src');
+});
+
 test('Files: a tree you search by name, a preview with colors, and the file in full', async ({ page }) => {
   await openWorkspace(page);
   await tab(page, 'Files').click();
@@ -121,8 +143,22 @@ test('Files: a tree you search by name, a preview with colors, and the file in f
   await expect(panel(page).getByRole('treeitem', { name: 'NOTES.md' })).toBeHidden();
   await panel(page).getByLabel('Search file names').press('Escape');
   await expect(panel(page).getByRole('treeitem', { name: 'NOTES.md' })).toBeVisible();
-  // In full, then back.
+  // The arrows show each file they land on, no Enter needed.
+  await panel(page).getByRole('treeitem', { name: 'auth.ts' }).click();
+  await page.keyboard.press('ArrowDown');
+  const next = (await panel(page).locator('[role="treeitem"][aria-selected="true"]').getAttribute('aria-label'))!;
+  expect(next).not.toBe('auth.ts');
+  await expect(panel(page).getByRole('region', { name: next })).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await expect(preview.getByText('requireUser').first()).toBeVisible();
+  // In full, then back; the tree's arrows keep stepping through files while it's open.
   await preview.getByRole('button', { name: 'Open in full' }).click();
+  await expect(page.getByRole('main').getByRole('region', { name: 'auth.ts' })).toBeVisible();
+  await page.getByRole('button', { name: /^Show the panel/ }).click();
+  await panel(page).getByRole('treeitem', { name: 'auth.ts' }).click();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('main').getByRole('region', { name: next })).toBeVisible();
+  await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('main').getByRole('region', { name: 'auth.ts' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to Chat' }).click();
   await expect(composer(page)).toBeVisible();

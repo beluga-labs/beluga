@@ -1,3 +1,6 @@
+import { RemoteList } from '../machines/RemoteList.js';
+import { remotePlans } from '../machines/remote-work.js';
+import { useRemoteSources } from '../machines/use-remote.js';
 import { useEffect, useMemo } from 'react';
 import type { Plan } from '@beluga/core/plans/model.js';
 import { Icon } from '../components/Icon.js';
@@ -17,6 +20,7 @@ import v from './PlansView.module.css';
 import { SharedPlansList } from '../team/SharedPlans.js';
 import { isShortcut } from '../lib/shortcuts.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
+import { NoProjects } from '../work/NoProjects.js';
 
 /**
  * Plans: one project's at a time (the one you're in, like Tasks). Each is a row with how far it
@@ -48,8 +52,8 @@ export function PlansView() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [project]);
 
-  if (!state.enabled) return <Empty icon="flag" title="Plans need the Beluga app" detail="Open Beluga for Mac to plan big work with your agent." />;
-  if (!here) return <Empty icon="flag" title="No projects yet" detail="Plans belong to a project. Add one from the sidebar." />;
+  if (!state.enabled) return <Empty icon="flag" title="Plans need the Beluga app" detail="Open the Beluga app to plan big work with your agent." />;
+  if (!here) return <NoProjects icon="flag" detail="Plans belong to a project. Add one to plan its work here." />;
   return (
     <div className={p.list}>
       <div className={p.listBar}>
@@ -93,6 +97,8 @@ export function PlansView() {
         />
       )}
       <SharedPlansList projectId={here.id} />
+      {/* The same project's plans on your computers (BLG-785). */}
+      <RemotePlans project={here.name} />
     </div>
   );
 }
@@ -118,3 +124,11 @@ function PlanRow({ plan }: { plan: Plan }) {
     </li>
   );
 }
+
+/** The plans of the project of this name on your computers, tagged. */
+function RemotePlans({ project }: { project: string }) {
+  const sources = useRemoteSources();
+  const rows = useMemo(() => remotePlans(sources).filter((t) => t.item.project === project).map((t) => ({ ...t, item: { id: t.item.id, title: t.item.title, sub: t.item.status, page: { kind: 'plan' as const, id: t.item.id } } })), [sources, project]);
+  return <RemoteList title="Plans on your computers" rows={rows} />;
+}
+

@@ -1,3 +1,4 @@
+import { dirName } from '@beluga/shared/os-path.js';
 import { useState } from 'react';
 import { CAP_INFO, EXPIRY_INFO, type Expiry, type RequestFacts, capFor, ruleFor, ruleKindOf, ruleLabel, scopeChoices } from '@beluga/core/gateway/access.js';
 import { type TaskView, isFinal, oneLine, stateLabel, stateTone } from '@beluga/core/gateway/model.js';
@@ -8,8 +9,10 @@ import { Choice, Sheet } from '../dialogs/native/parts.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { backLine, whereLine } from './popup-model.js';
 import { closeRequest, useRequestSheet } from './request-native.js';
+import { TaskStep } from './TaskStep.js';
 import { openFriendCard } from '../network/use-net.js';
 import s from './access.module.css';
+import { yourComputer } from '../lib/os-words.js';
 
 /**
  * A friend's request, in full: who, what, what it needs, where it would run, what comes back.
@@ -28,7 +31,7 @@ export function factsOf(task: TaskView): RequestFacts {
     needs: task.needs,
     ...(task.project ? { project: task.project } : {}),
     ...(task.command ? { command: task.command } : {}),
-    ...(task.folder ? { folder: task.folder } : task.kind === 'file' && task.path ? { folder: task.path.replace(/\/[^/]*$/, '') || '/' } : task.cwd ? { folder: task.cwd } : {}),
+    ...(task.folder ? { folder: task.folder } : task.kind === 'file' && task.path ? { folder: dirName(task.path) || '/' } : task.cwd ? { folder: task.cwd } : {}),
   };
 }
 
@@ -114,7 +117,7 @@ function Body({ task }: { task: TaskView }) {
   );
   return (
     <Sheet
-      title={task.secret ? `${who} wants ${task.secret.label}` : task.kind === 'run' ? `${who} wants to run a command on your Mac` : task.kind === 'file' ? `${who} wants a file from your Mac` : `${who} wants your agent to do something`}
+      title={task.secret ? `${who} wants ${task.secret.label}` : task.kind === 'run' ? `${who} wants to run a command on ${yourComputer()}` : task.kind === 'file' ? `${who} wants a file from ${yourComputer()}` : `${who} wants your agent to do something`}
       subtitle={waiting && task.secret ? 'This is a secret. You’re asked each time: if you allow it, Beluga sends this one file, and their agent is told you approved it.' : waiting ? (task.by === 'agent' ? `${task.peerName} asked their agent, and it asks yours.` : `${task.peerName} asks you directly.`) : stateLabel(task)}
       badge={<Avatar name={task.peerName} id={task.peerId} claude={task.by === 'agent'} size={32} />}
       close={closeRequest}
@@ -217,10 +220,7 @@ function Body({ task }: { task: TaskView }) {
           {task.steps.length ? (
             <div className={s.steps}>
               {task.steps.slice(-6).map((step, i) => (
-                <div key={i} className={s.step}>
-                  <Icon name="chevronRight" size={10} />
-                  <span>{step}</span>
-                </div>
+                <TaskStep key={i} line={step} className={s.step} />
               ))}
             </div>
           ) : null}

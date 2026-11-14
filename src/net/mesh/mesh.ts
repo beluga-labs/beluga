@@ -5,12 +5,15 @@ import type DHT from 'hyperdht';
 import type { BootstrapNode } from 'hyperdht';
 import type { Identity } from '../crypto.js';
 import { AvatarBook } from './avatars.js';
-import { DmBook, type DmChange } from './dms.js';
+import { type Dm, DmBook, type DmChange } from './dms.js';
+import { DmReactions } from './dm-reactions.js';
+import { type Reaction, type ReactionEvent, reactionChange, reactionsOf } from '../../shared/reactions.js';
+import { reactNote, splitReactions } from './groups/reactions.js';
 import { type BelugaInfo, type Feature, MESH_FEATURES } from './features.js';
 import { checkMessage, parseExtras, wireNote } from './extras.js';
 import { readJson, writeJson } from './files.js';
 import { FriendBook } from './friends.js';
-import { MAX_TEXT } from './groups/engine.js';
+import { MAX_TEXT, type ReadMessage } from './groups/engine.js';
 import { GroupHub } from './groups/hub.js';
 import { InvitationBook, type InvitationRecord, newInvitation, parseTicket } from './invitations.js';
 import { type MeshKeys, meshKeys } from './keys.js';
@@ -20,10 +23,12 @@ import { type Contacts, DEFAULT_TIMING, LinkManager, type LinkManagerOptions, ty
 import { type ViewContext, dmView, friendView, groupMessageView, groupView, invitationView } from './mesh-views.js';
 import { PairingHost, pairWith } from './pairing.js';
 import { ONLINE, current, loadPresence, savePresence, shown } from './presence.js';
-import { NameSchema, type Profile } from './schemas.js';
+import { type Entry, NameSchema, type Profile } from './schemas.js';
 import { type ChatExtras, type ChatFile, type FriendView, type GroupView, type InvitationView, type MessageView, type NetworkSummary, type Presence, dmConversation, groupConversation } from './views.js';
 import { type LinkMessage, PROTO } from './wire.js';
 import { isLate } from '../patient-timer.js';
+import { blackbox } from '../../core/blackbox/recorder.js';
+import { type BudgetOptions, InboundBudget } from './inbound-budget.js';
 import type { AgentRef } from '../../protocol.js';
 
 /**
@@ -53,6 +58,8 @@ export interface MeshOptions {
   readonly app?: string;
   /** Where frames wait for a friend you're never online with at the same time (mailbox.ts); none: only links. */
   readonly mailbox?: MailboxOptions;
+  /** How much of this Mac's time each person's frames may take (inbound-budget.ts; tests tune it). */
+  readonly inbound?: BudgetOptions;
 }
 
 /** What using an invitation got you. */
@@ -65,6 +72,8 @@ interface MeshEvents {
   message: [MessageView];
   /** A message was deleted from a conversation (here, or by its author for both of you). */
   unsent: [string, string];
+  /** A message's reactions changed (conversation, message id, its chips now: BLG-702). */
+  reacted: [string, string, readonly Reaction[]];
   /** A conversation was cleared on this Mac. */
   cleared: [string];
   /** A gateway frame from a friend (core/gateway checks and answers it). */
@@ -73,6 +82,10 @@ interface MeshEvents {
   share: [string, unknown];
   /** A team boards frame from a friend (core/team checks it): which repos you share, the board, shared plans. */
   team: [string, unknown];
+  /** A call frame from someone you're linked to (core/calls checks it, and that you share its conversation). */
+  call: [string, unknown];
+  /** A leaderboard frame from a friend (core/leaderboard checks it): their day sums. */
+  stats: [string, unknown];
   /** A link to someone came up (what waited for them can go now). */
   link: [string];
   /** Someone's Claude started or stopped answering message `for` in a conversation. */
@@ -93,12 +106,17 @@ export class Mesh extends EventEmitter<MeshEvents> {
   private readonly friends: FriendBook;
   private readonly invitations: InvitationBook;
   private readonly dms: DmBook;
+  private readonly dmReacts: DmReactions;
   private readonly groups: GroupHub;
   private readonly links: LinkManager;
   private readonly pairing: PairingHost;
   private readonly timing: Timing;
   private presence: Presence;
+  /** When this Mac's status last changed (only ever forward): sent with it, so friends keep the newest. */
+  private presenceAt = Date.now();
   private readonly theirPresence = new Map<string, Presence>();
+  /** When each friend's status we have was set, by their clock (none: a Mac that doesn't say). */
+  private readonly theirPresenceAt = new Map<string, number>();
   private readonly helloNames = new Map<string, string>();
   private readonly avatars: AvatarBook;
   /** The picture asked of each person on this link (asked again on their next link if it didn't come). */
@@ -110,6 +128,8 @@ export class Mesh extends EventEmitter<MeshEvents> {
   /** What else this Mac does now (the gateway adds its tasks while it listens). */
   private readonly offered = new Set<Feature>();
   private reads: Record<string, number>;
+  /** The newest message of each friend's that this Mac said Seen for (BLG-798): said once per message. */
+  private readonly seenSaid = new Map<string, string>();
   private allowed = new Map<string, Profile>();
   private wanted = new Map<string, Profile>();
   private byAddress = new Map<string, string>();
@@ -121,6 +141,10 @@ export class Mesh extends EventEmitter<MeshEvents> {
   private readonly leavingHooks = new Set<() => Promise<unknown>>();
   private untilTimer: NodeJS.Timeout | undefined;
   private closed = false;
+  /** Each person's share of this Mac's time for what their Mac sends (BLG-942). */
+  private readonly inbound: InboundBudget;
+  /** When each person's waiting frames were last noted in the black box. */
+  private readonly busyNoted = new Map<string, number>();
   /** Who you're pulling chat files from now (set by core/chat/files.ts). */
   private filesFrom: (peerId: string) => boolean = () => false;
 
@@ -132,9 +156,21 @@ export class Mesh extends EventEmitter<MeshEvents> {
   ) {
     super();
     this.timing = { ...DEFAULT_TIMING, ...opts.timing };
+    this.inbound = new InboundBudget({
+      ...opts.inbound,
+      onBusy: (peerId, waiting, dropped) => {
+        // Noted once a minute per person: whose Beluga sends more than this Mac gives it, so a loop can be found.
+        const now = Date.now();
+        if (now - (this.busyNoted.get(peerId) ?? 0) < 60_000) return;
+        this.busyNoted.set(peerId, now);
+        blackbox.record('log', `${this.nameFor(peerId)}'s Beluga is sending more than its share of this Mac's time: theirs are handled in turn (${waiting} waiting${dropped ? ', more let go until it eases' : ''})`);
+      },
+      onError: (err) => blackbox.record('error', `a frame from a linked Mac failed: ${err instanceof Error ? err.message : String(err)}`),
+    });
     this.friends = new FriendBook(path.join(opts.dir, 'friends.json'));
     this.invitations = new InvitationBook(path.join(opts.dir, 'invitations.json'));
     this.dms = new DmBook(opts.dir);
+    this.dmReacts = new DmReactions(opts.dir);
     this.avatars = new AvatarBook(path.join(opts.dir, 'avatars'));
     this.presence = loadPresence(this.file('presence.json'));
     const reads = readJson(this.file('reads.json'));
@@ -147,11 +183,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
       linked: () => this.links.linked(),
       onChange: () => this.contactsChanged(),
       trusted: (peerId) => this.friends.has(peerId),
-      onMessages: (groupId, entries) => {
-        const engine = this.groups.get(groupId);
-        for (const entry of entries) this.emit('message', groupMessageView(this.ctx, groupId, engine ? engine.readMessage(entry) : { entry }));
-        this.emit('change');
-      },
+      onMessages: (groupId, entries) => this.groupEntries(groupId, entries),
     });
     const contacts: Contacts = {
       byAddress: (address) => this.byAddress.get(address),
@@ -172,10 +204,13 @@ export class Mesh extends EventEmitter<MeshEvents> {
       onLink: (link) => this.linkUp(link),
       onUnlink: (peerId) => {
         this.theirPresence.delete(peerId);
+        this.theirPresenceAt.delete(peerId);
         this.avatarAsked.delete(peerId);
         this.emit('change');
       },
-      onMessage: (link, msg) => this.onMessage(link, msg),
+      // In turn, within each person's share of the thread: a busy friend's Beluga can't hold up yours.
+      // A call's frames go at once: a ring stuck behind a teammate's board backlog never rang (BLG-950).
+      onMessage: (link, msg) => (msg.t === 'call' ? this.inbound.urgent(link.peerId, () => this.onMessage(link, msg)) : this.inbound.take(link.peerId, () => this.onMessage(link, msg))),
       wantsFiles: (peerId) => this.filesFrom(peerId),
     });
     this.pairing = new PairingHost({
@@ -296,6 +331,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
   removeFriend(peerId: string): void {
     if (!this.friends.remove(peerId)) throw new Error('Not a friend');
     this.dms.forget(peerId);
+    this.dmReacts.forget(peerId);
     this.contactsChanged();
   }
 
@@ -306,7 +342,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
     checkMessage(text, extras, MAX_TEXT);
     const dm = this.dms.compose(this.peerId, peerId, text, extras);
     this.links.get(peerId)?.send(dmFrame(dm));
-    const view = dmView(this.ctx, peerId, dm, this.dms.status(peerId));
+    const view = this.dmViewOf(peerId, dm);
     this.emit('message', view);
     this.emit('change');
     return view;
@@ -331,10 +367,36 @@ export class Mesh extends EventEmitter<MeshEvents> {
     checkMessage(text, was?.x, MAX_TEXT);
     const { dm, change } = this.dms.edit(peerId, id, text);
     this.links.get(peerId)?.send(changeFrame(change));
-    const view = dmView(this.ctx, peerId, dm, this.dms.status(peerId));
+    const view = this.dmViewOf(peerId, dm);
     this.emit('message', view);
     this.emit('change');
     return view;
+  }
+
+  /**
+   * Put an emoji on a message or take yours off (BLG-702): `on` says which, none flips it. In a
+   * direct conversation it goes to your friend's Mac (and waits for it); in a group, into the log.
+   * → the message's chips now.
+   */
+  react(conversation: string, id: string, emoji: string, on?: boolean): readonly Reaction[] {
+    const target = this.conversation(conversation).find((m) => m.id === id);
+    if (!target) throw new Error('No such message');
+    if (target.status === 'locked') throw new Error('That message can’t be read here');
+    if (conversation.startsWith('group:')) return this.reactInGroup(conversation.slice(6), target, emoji, on);
+    const peerId = conversation.slice(3);
+    const change = reactionChange(target.reactions, { id, emoji, me: this.peerId, ...(on !== undefined ? { on } : {}), at: this.dmReacts.nextAt(peerId, id, emoji, this.peerId) });
+    const chips = this.dmReacts.mine(peerId, change);
+    this.links.get(peerId)?.send({ t: 'dm_react', id, e: change.emoji, on: change.on, at: change.at });
+    this.emit('reacted', conversation, id, chips);
+    return chips;
+  }
+
+  private reactInGroup(groupId: string, target: MessageView, emoji: string, on?: boolean): readonly Reaction[] {
+    const change = reactionChange(target.reactions, { id: target.id, emoji, me: this.peerId, ...(on !== undefined ? { on } : {}), at: 0 });
+    const engine = this.groups.need(groupId);
+    const words = target.text.trim() || (target.files?.length ? target.files.map((f) => f.name).join(', ') : '');
+    this.groups.apply(groupId, (e) => e.react({ to: target.id, e: change.emoji, on: change.on }, reactNote(change.emoji, change.on, words)));
+    return reactionsOf(splitReactions(engine.messages()).reactions.get(target.id) ?? []);
   }
 
   /** Empty a conversation on this Mac (`dm:` only; your friend keeps theirs). */
@@ -555,10 +617,35 @@ export class Mesh extends EventEmitter<MeshEvents> {
     return true;
   }
 
+  /** Hand a leaderboard frame to a friend's link; false when they're not linked now. */
+  sendStats(peerId: string, payload: unknown): boolean {
+    const link = this.links.get(peerId);
+    if (!link?.isOpen || !this.friends.has(peerId)) return false;
+    link.send({ t: 'stats', p: payload });
+    return true;
+  }
+
+  /** Friends linked right now. */
+  linkedFriends(): string[] {
+    return this.friends
+      .all()
+      .map((f) => f.peerId)
+      .filter((id) => this.isLinked(id));
+  }
+
+  /** Hand a call frame to someone linked now (a friend, or someone in a group with you); false when they're not. */
+  sendCall(peerId: string, payload: unknown): boolean {
+    const link = this.links.get(peerId);
+    if (!link?.isOpen) return false;
+    link.send({ t: 'call', p: payload });
+    return true;
+  }
+
   // ---- status and reading
 
   setPresence(next: Presence): Presence {
     this.presence = savePresence(this.file('presence.json'), next);
+    this.presenceChanged();
     this.broadcastPresence();
     this.scheduleUntil();
     this.emit('change');
@@ -579,6 +666,20 @@ export class Mesh extends EventEmitter<MeshEvents> {
     this.emit('change');
   }
 
+  /**
+   * A direct conversation was on a screen of yours (BLG-798): tell that friend you saw their messages
+   * up to the newest, once per newest, only while you're linked (an older Beluga ignores it).
+   */
+  markSeen(conversation: string): void {
+    if (!conversation.startsWith('dm:')) return;
+    const peerId = conversation.slice(3);
+    const newest = [...this.dms.history(peerId)].reverse().find((m) => m.from === peerId);
+    const link = this.links.get(peerId);
+    if (!newest || !link || this.seenSaid.get(peerId) === newest.id) return;
+    this.seenSaid.set(peerId, newest.id);
+    link.send({ t: 'dm_seen', id: newest.id });
+  }
+
   /** The latest messages of every conversation (for a screen's first draw). */
   recent(limit = HISTORY_PAGE): Record<string, MessageView[]> {
     const out: Record<string, MessageView[]> = {};
@@ -591,6 +692,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
     if (this.closed) return;
     await this.leaving();
     this.closed = true;
+    this.inbound.stop();
     clearInterval(this.ticker);
     clearTimeout(this.untilTimer);
     await this.pairing.close();
@@ -678,12 +780,31 @@ export class Mesh extends EventEmitter<MeshEvents> {
 
   private dmMessages(peerId: string): MessageView[] {
     const status = this.dms.status(peerId);
-    return this.dms.history(peerId).map((dm) => dmView(this.ctx, peerId, dm, status));
+    return this.dms.history(peerId).map((dm) => dmView(this.ctx, peerId, dm, status, this.dmReacts.of(peerId, dm.id)));
+  }
+
+  private dmViewOf(peerId: string, dm: Dm): MessageView {
+    return dmView(this.ctx, peerId, dm, this.dms.status(peerId), this.dmReacts.of(peerId, dm.id));
   }
 
   private groupMessages(groupId: string): MessageView[] {
     const engine = this.groups.get(groupId);
-    return engine ? engine.messages().map((m) => groupMessageView(this.ctx, groupId, m)) : [];
+    if (!engine) return [];
+    const { messages, reactions } = splitReactions(engine.messages());
+    return messages.map((m) => groupMessageView(this.ctx, groupId, m, reactionsOf(reactions.get(m.entry.id) ?? [])));
+  }
+
+  /** Group entries that came in (or that you wrote): messages as messages, reactions as their message's new chips. */
+  private groupEntries(groupId: string, entries: readonly Entry[]): void {
+    const engine = this.groups.get(groupId);
+    const read: ReadMessage[] = engine ? entries.map((e) => engine.readMessage(e)) : entries.map((entry) => ({ entry }));
+    const split = engine && read.some((m) => m.text !== undefined) ? splitReactions(engine.messages()).reactions : new Map<string, readonly ReactionEvent[]>();
+    const chips = (id: string): Reaction[] => reactionsOf(split.get(id) ?? []);
+    for (const m of read) {
+      if (m.react) this.emit('reacted', groupConversation(groupId), m.react.to, chips(m.react.to));
+      else this.emit('message', groupMessageView(this.ctx, groupId, m, chips(m.entry.id)));
+    }
+    this.emit('change');
   }
 
   private friendViews(): FriendView[] {
@@ -749,7 +870,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
   }
 
   private sendHello(link: MeshLink): void {
-    link.send({ t: 'hello', proto: PROTO, name: this.opts.name, presence: shown(this.presence), app: this.opts.app ?? 'unknown', can: [...new Set([...MESH_FEATURES, ...this.offered])], ...(this.avatars.mine ? { avatar: this.avatars.mine } : {}) });
+    link.send({ t: 'hello', proto: PROTO, name: this.opts.name, presence: shown(this.presence), pat: this.presenceAt, app: this.opts.app ?? 'unknown', can: [...new Set([...MESH_FEATURES, ...this.offered])], ...(this.avatars.mine ? { avatar: this.avatars.mine } : {}) });
   }
 
   private linkUp(link: MeshLink): void {
@@ -757,6 +878,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
     this.groups.linkUp(link);
     for (const dm of this.dms.waiting(link.peerId)) link.send(dmFrame(dm));
     for (const change of this.dms.pendingChanges(link.peerId)) link.send(changeFrame(change));
+    for (const r of this.dmReacts.waiting(link.peerId)) link.send({ t: 'dm_react', id: r.id, e: r.e, on: r.on, at: r.at });
     this.emit('link', link.peerId);
     this.emit('change');
   }
@@ -779,7 +901,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
         else this.theirBeluga.delete(from);
         // The name they go by now (shown for people in your groups; friends keep the name you know them by).
         this.helloNames.set(from, msg.name);
-        this.theirPresence.set(from, msg.presence);
+        this.takePresence(from, msg.presence, msg.pat);
         this.avatars.announce(from, msg.avatar);
         if (msg.avatar && !this.avatars.has(msg.avatar) && this.avatarAsked.get(from) !== msg.avatar) {
           this.avatarAsked.set(from, msg.avatar);
@@ -797,8 +919,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
         if (this.avatars.receive(from, msg.sha, Buffer.from(msg.d, 'base64'))) this.emit('change');
         return;
       case 'presence':
-        this.theirPresence.set(from, msg.presence);
-        this.emit('change');
+        if (this.takePresence(from, msg.presence, msg.pat)) this.emit('change');
         return;
       case 'dm': {
         if (!this.friends.has(from)) return;
@@ -807,7 +928,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
         const text = x && msg.text === wireNote(x) ? '' : msg.text;
         const dm = { id: msg.id, from, to: this.peerId, text, ts: msg.ts, ...(x ? { x } : {}) };
         if (this.dms.receive(dm)) {
-          this.emit('message', dmView(this.ctx, from, dm, this.dms.status(from)));
+          this.emit('message', this.dmViewOf(from, dm));
           this.emit('change');
         }
         link.send({ t: 'dm_ack', id: msg.id });
@@ -818,7 +939,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
         const conversation = dmConversation(from);
         const before = msg.text === undefined ? this.dmMessages(from) : [];
         const now = this.dms.changed(from, { id: msg.id, at: msg.at, ...(msg.text !== undefined ? { text: msg.text } : {}) });
-        if (now) this.emit('message', dmView(this.ctx, from, now, this.dms.status(from)));
+        if (now) this.emit('message', this.dmViewOf(from, now));
         else if (now === undefined) {
           this.unread(conversation, before, msg.id);
           this.emit('unsent', conversation, msg.id);
@@ -830,6 +951,17 @@ export class Mesh extends EventEmitter<MeshEvents> {
       case 'dm_change_ack':
         this.dms.changeDelivered(from, msg.id, msg.at);
         return;
+      case 'dm_react': {
+        if (!this.friends.has(from)) return;
+        // Kept even before its message is here (it may come later, from the mailbox); the frame's emoji was checked (wire.ts).
+        const changed = this.dmReacts.theirs(from, { id: msg.id, emoji: msg.e, by: from, on: msg.on, at: msg.at });
+        if (changed && this.dms.find(from, msg.id)) this.emit('reacted', dmConversation(from), msg.id, this.dmReacts.of(from, msg.id));
+        link.send({ t: 'dm_react_ack', id: msg.id, e: msg.e, at: msg.at });
+        return;
+      }
+      case 'dm_react_ack':
+        this.dmReacts.delivered(from, msg.id, msg.e, msg.at);
+        return;
       case 'gw':
         if (this.friends.has(from)) this.emit('gateway', from, msg.p);
         return;
@@ -838,6 +970,12 @@ export class Mesh extends EventEmitter<MeshEvents> {
         return;
       case 'team':
         if (this.friends.has(from)) this.emit('team', from, msg.p);
+        return;
+      case 'call':
+        this.emit('call', from, msg.p);
+        return;
+      case 'stats':
+        if (this.friends.has(from)) this.emit('stats', from, msg.p);
         return;
       case 'live': {
         const conversation = msg.g ? groupConversation(msg.g) : dmConversation(from);
@@ -849,10 +987,17 @@ export class Mesh extends EventEmitter<MeshEvents> {
       case 'f_err':
         this.emit('file', from, msg);
         return;
+      case 'dm_seen': {
+        if (!this.friends.has(from)) return;
+        const seen = this.dms.seenBy(from, msg.id);
+        for (const dm of seen) this.emit('message', this.dmViewOf(from, dm));
+        if (seen.length) this.emit('change');
+        return;
+      }
       case 'dm_ack': {
         const dm = this.dms.delivered(from, msg.id);
         if (dm) {
-          this.emit('message', dmView(this.ctx, from, dm, this.dms.status(from)));
+          this.emit('message', this.dmViewOf(from, dm));
           this.emit('change');
         }
         return;
@@ -863,7 +1008,26 @@ export class Mesh extends EventEmitter<MeshEvents> {
 
   private broadcastPresence(): void {
     const presence = shown(this.presence);
-    for (const link of this.links.linked()) link.send({ t: 'presence', presence });
+    for (const link of this.links.linked()) link.send({ t: 'presence', presence, pat: this.presenceAt });
+  }
+
+  /** This Mac's status changed: later than anything said before (two changes in one millisecond too). */
+  private presenceChanged(): void {
+    this.presenceAt = Math.max(Date.now(), this.presenceAt + 1);
+  }
+
+  /**
+   * A friend's status, unless it's older than the one we have: two links to them carry no order
+   * between them, so a hello sent on one before they changed it can arrive after the change did
+   * on the other, and would leave the old status showing (BLG-728). → whether it was taken.
+   */
+  private takePresence(from: string, presence: Presence, at: number | undefined): boolean {
+    const had = this.theirPresenceAt.get(from);
+    if (at !== undefined && had !== undefined && at < had) return false;
+    this.theirPresence.set(from, presence);
+    if (at === undefined) this.theirPresenceAt.delete(from);
+    else this.theirPresenceAt.set(from, at);
+    return true;
   }
 
   /** A status with an end time goes back to online by itself. */
@@ -874,6 +1038,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
     this.untilTimer = setTimeout(() => {
       if (this.presence.until !== until) return;
       this.presence = savePresence(this.file('presence.json'), ONLINE);
+      this.presenceChanged();
       this.broadcastPresence();
       this.emit('change');
     }, Math.max(0, until - Date.now()));
@@ -888,7 +1053,7 @@ export class Mesh extends EventEmitter<MeshEvents> {
     this.lastTick = now;
     if (this.mailbox && (woke || (now - this.mailCheckedAt >= this.mailbox.checkMs && this.friends.all().some((f) => !this.isLinked(f.peerId))))) void this.checkMail();
     this.groups.tick();
-    for (const dm of this.dms.expire()) this.emit('message', dmView(this.ctx, dm.to, dm, this.dms.status(dm.to)));
+    for (const dm of this.dms.expire()) this.emit('message', this.dmViewOf(dm.to, dm));
     this.links.refresh();
   }
 }

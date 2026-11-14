@@ -10,6 +10,8 @@ import { sameDeep } from '../../lib/stable.js';
 import { workspaceItems } from '../../layout/workspace-row.js';
 import type { OverviewItem } from './overview-model.js';
 import s from '../overview.module.css';
+import { revealLabel } from '../../lib/os-words.js';
+import { chordLabel } from '../../lib/shortcuts-model.js';
 
 const ago = (ts: number, now: number): string => {
   const m = Math.round((now - ts) / 60_000);
@@ -98,7 +100,7 @@ function WorkspaceItemRow(props: RowBase & { now: number }) {
     return { st: stateOf(full, w, 0), running: act.running, lastTs: act.lastTs, unread: full.unread[`ws:${w.id}`] ?? 0, pr: full.prs[w.id], ctx: full.context[`ws:${w.id}`] };
   }, sameRow);
   return (
-    <ActionsContext items={() => workspaceItems(client.store.getState(), w, actions.run)}>
+    <ActionsContext items={() => workspaceItems(client.store.getState(), w, actions.run, client)}>
       <div {...rowProps(props, `${w.name}, ${st.label}`)} className={s.row}>
         <span className={s.kind}>
           <Icon name={w.kind === 'chat' ? 'chat' : w.kind === 'main' ? 'folder' : 'branch'} size={14} />
@@ -137,8 +139,8 @@ export function archivedItems(item: OverviewItem, act: ArchivedActions): ActionI
   return [
     { label: 'Restore', icon: 'refresh', hint: item.ws.kind === 'worktree' ? (item.ws.archive ? 'Bring the worktree back as it was' : 'Make the worktree again from its branch') : 'Show it in the sidebar again', onSelect: () => act.restore(item) },
     { label: 'Read Conversation', icon: 'eye', keys: 'Space', onSelect: () => act.read(item) },
-    ...(item.project.root ? [{ label: 'Show Project in Finder', icon: 'folder' as const, onSelect: () => act.finder(item) }] : []),
-    { label: 'Delete Permanently…', danger: true, keys: '⌘⌫', onSelect: () => act.remove(item) },
+    ...(item.project.root ? [{ label: revealLabel('Project'), icon: 'folder' as const, onSelect: () => act.finder(item) }] : []),
+    { label: 'Delete Permanently…', danger: true, keys: chordLabel('Cmd+Backspace'), onSelect: () => act.remove(item) },
   ];
 }
 
