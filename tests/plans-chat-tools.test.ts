@@ -110,6 +110,13 @@ describe('chatPlans off', () => {
     expect(createPlanToolDefs(run.tools!).map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES.filter((n) => n !== 'mcp__beluga_plan__plan_review')); // plan_review: the draft's reviewer's alone
     expect(run.opener).toBeUndefined();
   });
+
+  it('plans.close is refused, and the plan stays open', () => {
+    const t = setup({ chatPlans: false });
+    const plan = t.work.here('ws:chat');
+    expect(() => t.work.close(plan.id)).toThrow(/Chat plans/);
+    expect(t.plans.need(plan.id).closedAt).toBeUndefined();
+  });
 });
 
 describe('plans.close and plans.ofHome (BLG-416)', () => {

@@ -347,6 +347,8 @@ export class PlansWork {
 
   /** Close a plan (you, or its chat's agent): kept, read-only; its chat can open a new one. */
   close(id: string, by: Actor = this.me()): Plan {
+    // Closing belongs to chat plans: with the pref off, a plan stays open (the phone and the Mac too).
+    if (!this.deps.store.getState().prefs.chatPlans) throw new Error('Turn on Chat plans in Settings › Agent to close a plan');
     const plan = this.plans.close(id, by);
     this.pilot.schedule();
     return plan;
