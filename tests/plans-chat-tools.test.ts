@@ -17,7 +17,7 @@ const project = (workspaces: Workspace[]): Project => ({ id: 'api', name: 'bob-a
 
 function setup(opts: { chatPlans?: boolean } = {}) {
   const store = new Store(initialState('room', 'ask', { chatPlans: opts.chatPlans ?? true }));
-  store.dispatch({ type: 'projects', projects: [project([ws('chat', 'chat', { askOnly: true } as Partial<Workspace>), ws('wt', 'worktree'), ws('codex', 'chat', { agent: { runtime: 'codex', label: 'Codex' } } as Partial<Workspace>)])] });
+  store.dispatch({ type: 'projects', projects: [project([ws('chat', 'chat', { askOnly: true } as Partial<Workspace>), ws('wt', 'worktree'), ws('codex', 'chat', { agent: { runtime: 'codex', label: 'Codex' } } as Partial<Workspace>), ws('thr', 'chat', { thread: { parent: 'ws:chat', readOnly: true } } as unknown as Partial<Workspace>)])] });
   const asked: Array<{ prompt: string; channel: string; echo: boolean }> = [];
   const controller = { onWorktree: () => () => undefined } as unknown as WorkspaceController;
   const board = new Board({ store, dir: null, projectName: () => 'bob-api' });
@@ -95,6 +95,7 @@ describe('chatPlans on: a project chat that is no plan home', () => {
     const t = setup();
     expect(t.work.forRun('ws:wt', 'p-me')).toBeUndefined();
     expect(t.work.forRun('ws:codex', 'p-me')).toBeUndefined();
+    expect(t.work.forRun('ws:thr', 'p-me')).toBeUndefined(); // a thread under a chat: never its own plan home
     expect(t.work.forRun('ws:chat', 'p-bob')).toBeUndefined();
     expect(t.work.forRun('ws:nowhere', 'p-me')).toBeUndefined();
   });

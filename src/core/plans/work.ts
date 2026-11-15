@@ -536,13 +536,13 @@ export class PlansWork {
     return { tools: chatPlans ? { ...tools, open: () => this.openHere(channel), close: () => this.closeHere(plan.id) } : tools, brief };
   }
 
-  /** chatPlans: a project chat of yours, worked by Claude (not a worktree, nor another agent's). */
+  /** chatPlans: a project chat of yours, worked by Claude (not a worktree, a thread, nor another agent's). */
   private isOwnChat(channel: string): boolean {
     if (!channel.startsWith(WS)) return false;
     const id = channel.slice(WS.length);
     const project = this.deps.store.getState().projects.find((p) => p.root && p.workspaces.some((w) => w.id === id));
     const ws = project?.workspaces.find((w) => w.id === id);
-    return Boolean(ws && ws.kind === 'chat' && !ws.archived && !ws.purpose && (ws.agent?.runtime ?? 'claude') === 'claude');
+    return Boolean(ws && ws.kind === 'chat' && !ws.thread && !ws.archived && !ws.purpose && (ws.agent?.runtime ?? 'claude') === 'claude');
   }
 
   /** chatPlans, in a chat that is no plan home: plan_open, and plan_get for its earlier plans (read-only). */
