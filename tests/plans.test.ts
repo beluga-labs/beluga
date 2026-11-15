@@ -1032,6 +1032,7 @@ describe('the plan’s branch: tasks start from it, milestones merge into it, on
     let pr: PlanPr | undefined;
     let conflict: ((branches: readonly string[]) => CombineResult | undefined) | undefined;
     let mergeError: string | undefined;
+    let held: Promise<void> | undefined;
     const git: PlanGit = {
       ensureBranch: async (_p, b) => {
         log.ensured.push(b);
@@ -1041,6 +1042,7 @@ describe('the plan’s branch: tasks start from it, milestones merge into it, on
       },
       mergeInto: async (_p, into, branches) => {
         log.merged.push({ into, branches });
+        await held;
         return conflict?.(branches) ?? { ok: true, branch: into };
       },
       inMain: async (_p, b) => inMain.has(b),
@@ -1055,7 +1057,16 @@ describe('the plan’s branch: tasks start from it, milestones merge into it, on
       },
       mergeLocal: async () => ({ ok: true }),
     };
-    return { git, log, existing, inMain, setPr: (p: PlanPr | undefined) => (pr = p), setConflict: (c: typeof conflict) => (conflict = c), failMerge: (why: string | undefined) => (mergeError = why) };
+    return { git, log, existing, inMain, setPr: (p: PlanPr | undefined) => (pr = p), setConflict: (c: typeof conflict) => (conflict = c), failMerge: (why: string | undefined) => (mergeError = why), holdMerges };
+    /** Merges wait until the returned call lets them finish. */
+    function holdMerges(): () => void {
+      let finish = (): void => undefined;
+      held = new Promise((r) => (finish = r));
+      return () => {
+        held = undefined;
+        finish();
+      };
+    }
   }
 
   async function running(autonomy: 'gated' | 'autopilot' = 'gated', body: BodyInput = BODY) {
@@ -1123,6 +1134,40 @@ describe('the plan’s branch: tasks start from it, milestones merge into it, on
     expect(t.plans.need(t.plan.id).runs.safe?.passedAt).toBeDefined();
     expect(t.plans.need(t.plan.id).pr).toBeUndefined();
     expect(t.view().milestones[0]!.tasks.map((x) => x.state)).toEqual(['planned', 'planned', 'planned']);
+  });
+
+  describe('a merge under way when the plan closes', () => {
+    /** The first milestone's tasks finished and passed; its merge is held until the plan is closed. */
+    async function closedWhileMerging(body: BodyInput = BODY) {
+      const t = await running('gated', body);
+      for (const title of ['Auth on payment routes', 'Idempotent webhooks']) t.board.update(t.issue(title).id, { status: 'in_review' }, t.claude);
+      await tick(10);
+      t.board.update(t.issue('Receipts once').id, { status: 'in_review' }, t.claude);
+      await tick(10);
+      const finish = t.holdMerges();
+      t.work.pass(t.plan.id, 'safe');
+      await tick(10);
+      t.plans.close(t.plan.id, t.me);
+      const asked = t.asked.length;
+      finish();
+      await t.settle();
+      const said = t.store.getState().log.filter((l) => l.channel === 'ws:main' && l.type === 'system').map((l) => (l.type === 'system' ? l.text : ''));
+      return { ...t, said, askedAfter: () => t.asked.slice(asked) };
+    }
+
+    it('passes its milestone, but the next one stays in the Backlog and the home chat hears no Next', async () => {
+      const t = await closedWhileMerging();
+      expect(t.plans.need(t.plan.id).runs.safe?.passedAt).toBeDefined();
+      expect(t.issue('Refund endpoint').status).toBe('backlog');
+      expect(t.issue('Live keys').status).toBe('backlog');
+      expect(t.said.filter((x) => x.includes('Next:'))).toEqual([]);
+    });
+
+    it('on the last milestone, starts no recap run', async () => {
+      const t = await closedWhileMerging({ ...BODY, milestones: [BODY.milestones[0]!] });
+      expect(t.plans.need(t.plan.id).runs.safe?.passedAt).toBeDefined();
+      expect(t.askedAfter().filter((a) => a.prompt.includes('Write a short recap'))).toEqual([]);
+    });
   });
 
   it('a milestone with a task still being worked on isn’t merged: the pass says why, and nothing is retired', async () => {

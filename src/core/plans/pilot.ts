@@ -505,6 +505,11 @@ export class PlanPilot {
     // Its checker is done: archived (what it said is kept, and the plan still knows it).
     const checker = after.runs[milestoneId]?.checker;
     if (checker) this.deps.retireChat?.(checker);
+    // A closed plan starts nothing new: no milestone opens, and its chat (maybe a new plan's now) hears nothing.
+    if (after.closedAt) {
+      this.schedule();
+      return after;
+    }
     const next = openMilestones(after)
       .filter((id) => !wasOpen.has(id))
       .map((id) => after.body!.milestones.find((m) => m.id === id)!);
