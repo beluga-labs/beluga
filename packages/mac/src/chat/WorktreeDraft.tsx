@@ -5,6 +5,7 @@ import { Select, type SelectOption } from '../components/Select.js';
 import { Tip } from '../components/ui.js';
 import { useApi, useApp } from '../lib/beluga.js';
 import s from './draft.module.css';
+import { landChoice, rememberLand } from './land-choice.js';
 
 /** What a new worktree starts from and is called (empty name: Beluga names it from the task). */
 export interface WorktreeChoice {
@@ -12,6 +13,24 @@ export interface WorktreeChoice {
   readonly name: string;
   /** Its own agent (the composer's picker, BLG-446); unset: your default. */
   readonly agent?: AgentRef;
+  /** Straight to main (BLG-973): its work lands on its base in the main folder as its agent finishes. Unset: your last pick in this project. */
+  readonly land?: boolean;
+}
+
+/** Whether this new worktree goes straight to main: picked in its box, else your last pick in the project. */
+export const landsOnBase = (choice: WorktreeChoice, projectId: string): boolean => choice.land ?? landChoice(projectId);
+
+/** The branch it would land on: the base, without its remote ("origin/main" → "main"). */
+export const landTarget = (base: string): string => base.replace(/^origin\//, '') || 'main';
+
+type Then = 'branch' | 'land';
+
+/** What happens to its work: its own branch (a PR or a merge when you like), or straight to the base. */
+export function thenOptions(into: string): Array<SelectOption<Then>> {
+  return [
+    { value: 'branch', label: 'Its own branch', icon: 'branch', description: 'Open a PR or merge it when you like' },
+    { value: 'land', label: `Straight to ${into}`, icon: 'merge', description: `Lands on ${into} in your main folder each time the agent finishes: no PR, nothing pushed` },
+  ];
 }
 
 /**
@@ -66,7 +85,36 @@ export function WorktreeDraft({ projectId, choice, onChange }: { projectId: stri
           }}
         />
       </label>
+      <ThenField projectId={projectId} base={base} land={choice.land} onChange={(land) => onChange({ ...choice, land })} />
     </div>
+  );
+}
+
+/**
+ * "Then": where a new worktree's work goes, its own branch or Straight to main (BLG-973). The pick
+ * is remembered for the project. Both new-worktree boxes have it (this one and the project's home).
+ */
+export function ThenField({ projectId, base, land, onChange }: { projectId: string; base: string; land: boolean | undefined; onChange: (land: boolean) => void }) {
+  const into = landTarget(base);
+  const then: Then = (land ?? landChoice(projectId)) ? 'land' : 'branch';
+  return (
+    <label className={s.field}>
+      <span className={s.fieldLabel}>Then</span>
+      <Tip label={`Where its work goes. Straight to ${into}: the agent still works in a worktree of its own, and each time it finishes, its work lands on ${into} in your main folder (your own changes there are never touched)`}>
+        <Select
+          className={s.select}
+          size="small"
+          label="Then"
+          value={then}
+          onChange={(v) => {
+            rememberLand(projectId, v === 'land');
+            onChange(v === 'land');
+          }}
+          options={thenOptions(into)}
+          searchable={false}
+        />
+      </Tip>
+    </label>
   );
 }
 

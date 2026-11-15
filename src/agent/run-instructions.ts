@@ -49,7 +49,7 @@ export function runInstructions(input: AgentRunInput, ownerName: string, agent?:
     // On zsh, how to write commands for it: the Claude runner says whether zsh-compat.sh is in (runtime/claude/zsh-compat.ts).
     buildShellAppend(shell) +
     (worktree ? buildKeepAppend(agent) : '') +
-    (worktree && !input.planBrief && !askOnly ? buildCommitAppend(place?.openPr) : '') +
+    (worktree && !input.planBrief && !askOnly ? buildCommitAppend(place?.openPr, place?.landsOn) : '') +
     (place?.shipped && !askOnly ? buildShippedAppend(place.shipped) : '') +
     (askOnly ? (syncMain ? buildSyncMainAppend(askOnly.project, syncMain.branch, syncMain.upstream) : buildAskOnlyAppend(askOnly.project, Boolean(input.continueInWorktree), Boolean(input.board))) : '') +
     (input.terminal ? buildTerminalAppend() : '') +
