@@ -4,6 +4,7 @@ import { Button, Empty } from '../components/ui.js';
 import { ActionsDropdown } from '../components/SpecMenu.js';
 import { useBeluga } from '../lib/beluga.js';
 import { openSheet } from '../lib/sheets.js';
+import { OPEN_DECISION } from './plan-ask-model.js';
 import { PlanStage } from './PlanStage.js';
 import { titleOf } from './plans-model.js';
 import { usePlanActions, usePlans } from './use-plans.js';
@@ -24,6 +25,11 @@ export function ChatPlanPanel({ channel }: { channel: string }) {
   // A new current plan (or another chat): back to it.
   useEffect(() => setReading(undefined), [current?.id, channel]);
   const shown = reading ? earlier.find((p) => p.id === reading) : undefined;
+  // Decide… (the canvas, the outline, a task's details): the plan's chat is the one beside this panel, where its card asks you.
+  useEffect(() => {
+    document.addEventListener(OPEN_DECISION, focusChat);
+    return () => document.removeEventListener(OPEN_DECISION, focusChat);
+  }, []);
   return (
     <div className={c.panel}>
       <div className={c.bar}>
@@ -47,7 +53,7 @@ export function ChatPlanPanel({ channel }: { channel: string }) {
         ) : null}
         {current && !shown ? <CloseButton plan={current} /> : null}
       </div>
-      <div className={c.stage}>{shown ? <PlanStage key={shown.id} planId={shown.id} readOnly back={false} /> : current ? <PlanStage key={current.id} planId={current.id} back={false} /> : <NoPlan channel={channel} />}</div>
+      <div className={c.stage}>{shown ? <PlanStage key={shown.id} planId={shown.id} readOnly back={false} /> : current ? <PlanStage key={current.id} planId={current.id} back={false} decide={focusChat} /> : <NoPlan channel={channel} />}</div>
     </div>
   );
 }
@@ -82,3 +88,8 @@ function NoPlan({ channel }: { channel: string }) {
 }
 
 const whenWords = (p: Plan): string => `${p.closedAt ? 'Closed' : 'Done'} ${new Date(p.closedAt ?? p.updatedAt ?? p.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+
+/** The chat beside the panel: its composer takes the focus (its question card sits right above it). */
+function focusChat(): void {
+  document.dispatchEvent(new CustomEvent('beluga:focus-composer'));
+}

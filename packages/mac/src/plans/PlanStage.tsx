@@ -55,6 +55,8 @@ export interface PlanStageProps {
   readonly back?: boolean;
   /** The chat beside the stage, when there is one: its toggle in the header, and Decide… opens it. */
   readonly chat?: StageChat;
+  /** With no chat beside the stage, but the plan's chat on screen (a chat's Plan tab): Decide… goes to it. */
+  readonly decide?: () => void;
   /** Wraps the stage in what sits beside it (the Plan page's chat column); the stage alone otherwise. */
   readonly beside?: (stage: ReactElement) => ReactElement;
 }
@@ -68,7 +70,7 @@ const layoutListeners = new Set<() => void>();
  * beside it (`beside`); a chat's right panel shows it alone. Everything else is a click away (⋯, a
  * task, a gate).
  */
-export function PlanStage({ planId, task, readOnly = false, back = true, chat, beside }: PlanStageProps) {
+export function PlanStage({ planId, task, readOnly = false, back = true, chat, decide, beside }: PlanStageProps) {
   const plan = usePlans().plans.find((x) => x.id === planId);
   const view = usePlanView(plan);
   const prefs = usePlanLayout();
@@ -85,7 +87,7 @@ export function PlanStage({ planId, task, readOnly = false, back = true, chat, b
   if (!plan || !view) return <Empty icon="flag" title="This plan is gone" detail="It was deleted. Its tasks stay on the board." action={back ? <Button onClick={() => openList()}>Back to Plans</Button> : undefined} />;
   return (
     <PlanReadOnly.Provider value={readOnly}>
-      <Stage view={view} prefs={prefs} picked={picked} setPicked={setPicked} readOnly={readOnly} back={back} chat={chat} beside={beside} />
+      <Stage view={view} prefs={prefs} picked={picked} setPicked={setPicked} readOnly={readOnly} back={back} chat={chat} decide={decide} beside={beside} />
     </PlanReadOnly.Provider>
   );
 }
@@ -182,13 +184,14 @@ interface StageProps {
   readonly readOnly: boolean;
   readonly back: boolean;
   readonly chat?: StageChat | undefined;
+  readonly decide?: (() => void) | undefined;
   readonly beside?: ((stage: ReactElement) => ReactElement) | undefined;
 }
 
-function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }: StageProps) {
+function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, decide, beside }: StageProps) {
   const { plan } = view;
   const show = chat?.show;
-  const showChat = useCallback((open: boolean) => show?.(open), [show]);
+  const showChat = useCallback((open: boolean) => (show ? show(open) : open ? decide?.() : undefined), [show, decide]);
   const { api, act, openList, openWorktree } = usePlanActions();
   const { client } = useBeluga();
   const runtimes = useApp((s) => s.runtimes);
