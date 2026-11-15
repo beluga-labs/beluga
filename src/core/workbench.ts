@@ -40,7 +40,7 @@ import type { WorkspaceController } from './workspace-controller.js';
 import type { Intent } from './intents.js';
 import { agentName } from '../shared/agent-label.js';
 import { sentinelChatOf } from './sentinel/model.js';
-import { ASSISTANT_TITLE, assistantChatOf, assistantChatTitle, isAssistant } from '../shared/assistant.js';
+import { ASSISTANT_TITLE, assistantChatOf, assistantChatTitle, isAssistant, THE_COMPUTER, THIS_COMPUTER } from '../shared/assistant.js';
 import { type AgentRef, defaultAgentOf } from '../protocol.js';
 import type { RuntimeChoice } from '../shared/agent-runtimes.js';
 import type { HandoffMode } from '../shared/agent-handoff.js';
@@ -140,7 +140,7 @@ export function withRuntimeStatus(runtimes: readonly RuntimeChoice[], found: Rea
     if (!st) return r;
     const models = st.models.length ? st.models : r.models;
     if (st.state === 'ready') return { id: r.id, label: r.label, available: true, ...(models ? { models } : {}), state: 'ready' };
-    return { id: r.id, label: r.label, available: false, why: [st.state === 'missing' ? `${r.label} isn't installed on this Mac` : `${r.label} isn't signed in`, st.fix].filter(Boolean).join(': '), state: st.state, ...(st.fix ? { fix: st.fix } : {}) };
+    return { id: r.id, label: r.label, available: false, why: [st.state === 'missing' ? `${r.label} isn't installed on ${THIS_COMPUTER}` : `${r.label} isn't signed in`, st.fix].filter(Boolean).join(': '), state: st.state, ...(st.fix ? { fix: st.fix } : {}) };
   });
 }
 
@@ -630,7 +630,7 @@ export class Workbench {
         return again();
       }
       case 'link':
-        return { ok: false, message: 'Links open on the Mac' };
+        return { ok: false, message: `Links open on ${THE_COMPUTER}` };
       case 'install_gh':
       case 'gh_login':
       case 'add_ssh_key':
@@ -1594,12 +1594,12 @@ export class Workbench {
     const sources = project ? [project.root, ...project.workspaces.filter((w) => w.id !== wsId && !w.pending && setups[w.id]?.status !== 'running').map((w) => w.path)] : [];
     const session = this.openSession(setupId(wsId), ws, clonedSetup(command, ws.path, sources) ?? command);
     if (!session) return;
+    // Quiet while it runs (the command is in its Terminal tab): one short toast when it's done.
     this.deps.store.dispatch({ type: 'setup', id: wsId, run: { status: 'running', command } });
-    this.deps.toast(`Setting up ${ws.name}: ${command}`);
     this.watchExit(setupId(wsId), session, (code) => {
       if (code === 0) {
         this.deps.store.dispatch({ type: 'setup', id: wsId, run: { status: 'done', command } });
-        this.deps.toast(`${ws.name} is set up`, 'success');
+        this.deps.toast(`${project?.name ?? ws.name}'s worktree is set up`, 'success');
         return;
       }
       if (learn && this.deps.fixSetup) return void this.retrySetup(ws, command, code, session.backlog(), session.exited?.signal);

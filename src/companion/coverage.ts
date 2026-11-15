@@ -98,6 +98,7 @@ export const PHONE: Record<Method, Side> = {
   'remote.requestWorktree': 'mac',
   'remote.handoff': 'mac',
   'remote.canHandOff': 'mac',
+  'remote.handoffNote': 'mac',
 
   // ---- diffs, shells, files by path: code, never on the phone
   'diff.load': 'mac',
@@ -238,6 +239,8 @@ export const PHONE: Record<Method, Side> = {
   'env.worktree': 'mac',
   'env.setWorktree': 'mac',
   'env.carryWorktree': 'mac',
+  'env.pastedKeys': 'mac',
+  'env.keepPasted': 'mac',
   'env.overview': 'mac',
   'env.addToExample': 'mac',
   'env.exampleSync': 'mac',
@@ -683,6 +686,8 @@ export const PHONE: Record<Method, Side> = {
   'sentinel.moveReceive': 'mac',
   'sentinel.moveLand': 'mac',
   'sentinel.moveDrop': 'mac',
+  // A chat's schedules (BLG-399): the Info panel on the Mac, the conversation sheet on the phone (BLG-401).
+  'sentinel.forChat': 'phone',
   'sentinel.runs': 'phone',
   'sentinel.runGet': 'phone',
   'sentinel.decide': 'phone',

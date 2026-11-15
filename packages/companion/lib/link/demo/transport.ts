@@ -476,7 +476,7 @@ export class DemoTransport implements Transport {
         this.touch(`plan:${str(0)}` as Topic, 'plans');
         return ok();
       }
-      // 1.57: close a chat's plan (kept, read-only), and list a chat's plans: its current one first.
+      // 1.58: close a chat's plan (kept, read-only), and list a chat's plans: its current one first.
       case 'plans.close': {
         const p = w.plans.find((x) => x.id === str(0));
         if (!p) return this.frames.emit({ t: 'result', id, ok: false, error: 'No such plan' });

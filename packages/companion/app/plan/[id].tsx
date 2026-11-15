@@ -66,7 +66,7 @@ export default function Plan() {
   const blocked = tasks.filter((t) => t.state === 'blocked').length;
   // Claude is still writing the first plan: its chat and one placeholder, nothing to run or approve yet.
   const drafting = p?.state === 'draft' && !p.milestones.length;
-  // Closed in its chat (1.57): a record to read; nothing on it runs, changes or waits on you.
+  // Closed in its chat (1.58): a record to read; nothing on it runs, changes or waits on you.
   const closed = p?.state === 'closed';
   const writing = Boolean(useView<ConvView>(drafting ? p?.topic : undefined)?.data.working);
   // The map's tap: scroll the timeline to that milestone and open it.

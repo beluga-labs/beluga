@@ -735,7 +735,7 @@ export function makeWorld(now = Date.now()): DemoWorld {
     milestones: [{ id: 'd1', title: 'Write it up', state: 'done', criteria: [], tasks: [{ id: 'd1a', title: 'How it works', state: 'done' }, { id: 'd1b', title: 'Pictures', state: 'done' }] }],
     needsYou: [],
   };
-  // 1.57: the onboarding chat's first plan, closed when it opened "Beluga for phones": read-only now.
+  // 1.58: the onboarding chat's first plan, closed when it opened "Beluga for phones": read-only now.
   const spikePlan: PlanView = {
     id: 'phones-spike',
     title: 'Spike: a phone that talks to the Mac',
