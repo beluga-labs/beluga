@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ChatCategory } from '@beluga/core/triage/model.js';
 import { Icon } from '../components/Icon.js';
 import { IconButton, cx } from '../components/ui.js';
@@ -65,30 +65,34 @@ function CategoryRow({ e, at, list, now }: { e: CategoryEntry; at: number; list:
   const actions = useActions();
   const { client } = useBeluga();
   const words = statusWords(e.status, now);
-  const loud = e.status.kind === 'need' || e.status.kind === 'back' || e.status.kind === 'stopped';
+  // The same while `e` and its words are: the row's memo skips it when another row changes.
+  const trailing = useMemo(() => {
+    const loud = e.status.kind === 'need' || e.status.kind === 'back' || e.status.kind === 'stopped';
+    return (
+      <>
+        {e.key ? <RowTriageTools e={e} /> : null}
+        <span className={s.rowStatus}>
+          {e.pr === undefined ? null : <span className={m.status}>#{e.pr}</span>}
+          {words ? (
+            <span className={cx(m.status, loud && m.statusLoud)} data-status={e.status.kind}>
+              {words}
+            </span>
+          ) : null}
+        </span>
+      </>
+    );
+  }, [e, words]);
   return (
     <EntryRow
       e={e}
       at={at}
       list={list}
       threads
-      data={{ 'data-category': e.category }}
+      category={e.category}
       bold={e.bold}
       // A DM, a group, a friend's chat: nothing to do from here.
       {...(e.key ? { menu: () => entryItems(e, actions.run, client) } : {})}
-      trailing={
-        <>
-          {e.key ? <RowTriageTools e={e} /> : null}
-          <span className={s.rowStatus}>
-            {e.pr === undefined ? null : <span className={m.status}>#{e.pr}</span>}
-            {words ? (
-              <span className={cx(m.status, loud && m.statusLoud)} data-status={e.status.kind}>
-                {words}
-              </span>
-            ) : null}
-          </span>
-        </>
-      }
+      trailing={trailing}
     />
   );
 }

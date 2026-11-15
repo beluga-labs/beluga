@@ -1,4 +1,4 @@
-import { type ReactNode, forwardRef, useEffect, useState } from 'react';
+import { type ReactNode, forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppState } from '@beluga/core/store.js';
 import { Icon } from '../components/Icon.js';
 import { type ActionItem, ActionsContext } from '../components/SpecMenu.js';
@@ -42,8 +42,8 @@ type EntryRowProps = {
   bold?: boolean;
   /** With the threads it started under it, as in the Chats section (the categories). */
   threads?: boolean;
-  /** The list's own marks on the row (`data-category`). */
-  data?: RowExtras['data'];
+  /** The category it is in, marked on the row (`data-category`). */
+  category?: string;
   /** The right-click menu of a row with none of its own (a sentinel's chat); a chat's and a plan's row bring theirs. */
   menu?: () => readonly ActionItem[];
 };
@@ -53,17 +53,22 @@ type EntryRowProps = {
  * list's extras added (so a drag, a rename or a menu works the same in both). The rest (a DM, a group,
  * a friend's chat, a sentinel's) have no row elsewhere to be: they get a plain one.
  */
-export function EntryRow({ e, list, at, trailing, bold, threads, data, menu }: EntryRowProps) {
+export function EntryRow({ e, list, at, trailing, bold, threads, category, menu }: EntryRowProps) {
   const where = whereOf(e, list.ownerName);
-  const extras: RowExtras = {
-    // With what's waiting, so it reads (and is found) apart from the same conversation further down.
-    label: `${e.name} · ${e.signal.tip || 'read'}`,
-    where,
-    trailing,
-    ...(bold ? { bold } : {}),
-    open: () => list.open(e as never, at),
-    ...(data ? { data } : {}),
-  };
+  const { open } = list;
+  // The same object while what it says is the same, so the row's memo skips it (KLD-48): `e` and `open` keep their identity (useEntryList).
+  const extras = useMemo<RowExtras>(
+    () => ({
+      // With what's waiting, so it reads (and is found) apart from the same conversation further down.
+      label: `${e.name} · ${e.signal.tip || 'read'}`,
+      where,
+      trailing,
+      ...(bold ? { bold } : {}),
+      open: () => open(e as never, at),
+      ...(category ? { data: { 'data-category': category } } : {}),
+    }),
+    [e, where, trailing, bold, open, at, category],
+  );
   if (e.kind === 'workspace') return threads ? <WorkspaceWithAgents ws={e.ws} indent={0} threadsOnly extras={extras} /> : <WorkspaceRow ws={e.ws} indent={0} extras={extras} />;
   if (e.kind === 'plan') return <PlanRow plan={e.plan} indent={0} extras={extras} />;
   const row = <PlainEntryRow e={e} selected={e.channel === list.here} extras={extras} />;
@@ -85,6 +90,11 @@ export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState)
     const keep = kept && kept.entry.channel === here && !entries.some((e) => e.channel === here) ? kept.entry : undefined;
     return { here, entries, stay: keep ? { ...keep, signal: nowOf(state, keep) } : undefined, owners: Object.fromEntries(state.peers.map((p) => [p.peerId, p.name])) };
   }, sameDeep);
+  // Each entry the same object while it reads the same, so its row isn't drawn again when another one changes.
+  const sameEntries = useSameByChannel<E>();
+  const sameStay = useSameByChannel<E>();
+  const shown = useMemo(() => sameEntries(entries), [sameEntries, entries]);
+  const stayed = useMemo(() => (stay ? sameStay([stay])[0] : undefined), [sameStay, stay]);
   // Leaving it lets it go.
   useEffect(() => {
     if (!kept) return;
@@ -92,12 +102,46 @@ export function useEntryList<E extends UnreadEntry>(entriesOf: (state: AppState)
       if (!kept.arrived) setKept({ ...kept, arrived: true });
     } else if (kept.arrived) setKept(undefined);
   }, [here, kept]);
-  const open = (e: E, at: number): void => {
-    setKept({ entry: e, at, arrived: e.channel === here });
-    openEntry(e, actions.run, client);
-  };
-  return { here, entries, ...(stay && kept ? { kept: { entry: stay, at: kept.at } } : {}), ownerName: (id) => owners[id] ?? 'Shared', open };
+  const open = useCallback(
+    (e: E, at: number): void => {
+      setKept({ entry: e, at, arrived: e.channel === here });
+      openEntry(e, actions.run, client);
+    },
+    [here, actions, client],
+  );
+  return { here, entries: shown, ...(stayed && kept ? { kept: { entry: stayed, at: kept.at } } : {}), ownerName: (id) => owners[id] ?? 'Shared', open };
 }
+
+/** Entries as they were last time, by channel, while they read the same (sameEntry): fresh ones only for what changed. */
+function useSameByChannel<E extends UnreadEntry>(): (next: readonly E[]) => readonly E[] {
+  const last = useRef(new Map<string, E>());
+  return useCallback((next: readonly E[]) => {
+    const out = next.map((e) => {
+      const was = last.current.get(e.channel);
+      return was && sameEntry(was, e) ? was : e;
+    });
+    last.current = new Map(out.map((e) => [e.channel, e]));
+    return out;
+  }, []);
+}
+
+/**
+ * The same entry for its row: every field the same, but its project only by id and name (all a row
+ * reads of it). The project carries all its workspaces, so a change to one would redraw them all.
+ */
+function sameEntry(a: UnreadEntry, b: UnreadEntry): boolean {
+  const x = a as unknown as Record<string, unknown>;
+  const y = b as unknown as Record<string, unknown>;
+  const keys = Object.keys(x);
+  if (keys.length !== Object.keys(y).length) return false;
+  return keys.every((k) => (k === 'project' ? sameProject(x[k], y[k]) : sameDeep(x[k], y[k])));
+}
+
+const sameProject = (a: unknown, b: unknown): boolean => {
+  const x = a as { readonly id: string; readonly name: string } | undefined;
+  const y = b as { readonly id: string; readonly name: string } | undefined;
+  return x === y || (!!x && !!y && x.id === y.id && x.name === y.name);
+};
 
 /** The row of a conversation that has no row of its own elsewhere. It passes its ref on, so a right-click menu wrapped around it can attach. */
 const PlainEntryRow = forwardRef<HTMLDivElement, { e: PlainEntry; selected: boolean; extras: RowExtras }>(function PlainEntryRow({ e, selected, extras, ...rest }, ref) {
