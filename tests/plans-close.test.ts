@@ -55,6 +55,36 @@ describe('closing a plan', () => {
     expect(() => t.plans.writeDraft(plan.id, { title: 'x', milestones: [] } as never, me)).toThrow(/closed/);
     expect(() => t.plans.setPaused(plan.id, false, me)).toThrow(/closed/);
   });
+
+  it('an active plan, closed: nothing of its course changes', () => {
+    const t = setup();
+    const plan = t.plans.create({ projectId: 'api', home: 'ws:main' }, me);
+    t.plans.approved(plan.id, { title: 'x', goal: '', milestones: [{ id: 'm', title: 'M', criteria: [], tasks: [{ id: 't', title: 'T', acceptance: [], blockedBy: [] }] }] } as never, me, '1 task');
+    t.plans.close(plan.id, me);
+    expect(() => t.plans.pass(plan.id, 'm', me)).toThrow(/closed/);
+    expect(() => t.plans.setMaxParallel(plan.id, 5, me)).toThrow(/closed/);
+    expect(() => t.plans.setAutonomy(plan.id, 'autopilot', me)).toThrow(/closed/);
+    expect(() => t.plans.setTestsAt(plan.id, 'end', me)).toThrow(/closed/);
+    expect(() => t.plans.checkAsked(plan.id, 'm')).toThrow(/closed/);
+    expect(t.plans.need(plan.id)).toMatchObject({ status: 'active', maxParallel: plan.maxParallel });
+    expect(t.plans.need(plan.id).runs.m?.passedAt).toBeUndefined();
+  });
+
+  it('a closed plan is still tended: its branch, pull request and notes', () => {
+    const t = setup();
+    const plan = t.plans.create({ projectId: 'api', home: 'ws:main' }, me);
+    t.plans.close(plan.id, me);
+    expect(t.plans.setBranch(plan.id, 'plan/x', true).branch).toBe('plan/x');
+    expect(t.plans.note(plan.id, 'note', 'kept', me).activity.at(-1)).toMatchObject({ text: 'kept' });
+  });
+
+  it('a merge under way when the plan closed still passes its milestone', () => {
+    const t = setup();
+    const plan = t.plans.create({ projectId: 'api', home: 'ws:main' }, me);
+    t.plans.approved(plan.id, { title: 'x', goal: '', milestones: [{ id: 'm', title: 'M', criteria: [], tasks: [{ id: 't', title: 'T', acceptance: [], blockedBy: [] }] }] } as never, me, '1 task');
+    t.plans.close(plan.id, me);
+    expect(t.plans.pass(plan.id, 'm', me, { merged: true }).runs.m?.passedAt).toBeDefined();
+  });
 });
 
 describe('a chat’s plans', () => {

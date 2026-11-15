@@ -96,6 +96,8 @@ export interface PlanCanvasProps {
   readonly onSelect: (id: string | undefined) => void;
   readonly onStart: (taskId: string) => void;
   readonly startable: ReadonlySet<string>;
+  /** A plan you only read (closed, or another computer's): its gates offer no pass. */
+  readonly readOnly?: boolean;
 }
 
 export default function PlanCanvas(props: PlanCanvasProps) {
@@ -146,7 +148,7 @@ function loadFolds(): Folds {
 
 const passedOf = (m: MilestoneView): boolean => m.state === 'passed' || (!!m.run.passedAt && m.state !== 'merging');
 
-function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanvasProps) {
+function Canvas({ view, keys, selected, onSelect, onStart, startable, readOnly = false }: PlanCanvasProps) {
   const theme = useDocTheme();
   const flow = useReactFlow<PlanNode, PlanEdge>();
   useSharpZoom();
@@ -323,11 +325,11 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
       }
       const gate = laid.places.get(gateId(id));
       if (gate) {
-        out.push({ id: gateId(id), type: 'gate', parentId: groupId(id), position: { x: gate.x, y: gate.y }, width: gate.width, height: gate.height, measured: { width: gate.width, height: gate.height }, draggable: false, ...hidden, data: { view: m, current, folded: away, selected: selected === gateId(id), planId: view.plan.id, canPass: Boolean(view.plan.body) && !view.plan.draft } });
+        out.push({ id: gateId(id), type: 'gate', parentId: groupId(id), position: { x: gate.x, y: gate.y }, width: gate.width, height: gate.height, measured: { width: gate.width, height: gate.height }, draggable: false, ...hidden, data: { view: m, current, folded: away, selected: selected === gateId(id), planId: view.plan.id, canPass: !readOnly && Boolean(view.plan.body) && !view.plan.draft } });
       }
     }
     return out;
-  }, [laid, view, byMs, folded, keys, marks, selected, linked, startable, onStart, onFold, starting]);
+  }, [laid, view, byMs, folded, keys, marks, selected, linked, startable, onStart, onFold, starting, readOnly]);
 
   const edges = useMemo<PlanEdge[]>(() => {
     if (!laid) return [];

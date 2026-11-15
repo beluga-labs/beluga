@@ -60,6 +60,14 @@ const MAX_STYLE = 8000;
 export const UNTITLED = 'New plan';
 /** A run of drafting by one author this close together is one line in the activity. */
 const DRAFT_NOTE_MS = 3 * 60 * 1000;
+/**
+ * What still changes on a closed plan: its close, and the tend of what was under way (its branch,
+ * merges, pull request, stalls, notes). All else is its course, and a closed plan's course is kept.
+ */
+const CLOSED_KEEPS: ReadonlySet<string> = new Set(['closedAt', 'closedBy', 'merging', 'mainMerge', 'pr', 'shipped', 'caughtUp', 'rescue', 'watch', 'combining', 'review', 'epics', 'branch', 'movedTo']);
+/** A milestone's run on a closed plan: its agent and checker go, and a merge says how it went. Nothing passes or is checked. */
+const CLOSED_RUN_KEEPS: ReadonlySet<string> = new Set(['agent', 'checker', 'mergeFailed', 'resumeFrom']);
+const CLOSED = 'This plan is closed: it can’t change. Open a new plan in its chat';
 
 const PlansFile = z.object({ version: z.literal(1), plans: z.array(z.unknown()).default([]) });
 
@@ -137,9 +145,9 @@ export class Plans {
   }
 
   /** A plan that can still change: here, and not closed (a closed plan is read-only). */
-  private open(id: string): Plan {
+  open(id: string): Plan {
     const plan = this.need(id);
-    if (plan.closedAt) throw new PlanError('This plan is closed: it can’t change. Open a new plan in its chat');
+    if (plan.closedAt) throw new PlanError(CLOSED);
     return plan;
   }
 
@@ -330,14 +338,16 @@ export class Plans {
     return this.change(plan, { runs: withRun(plan, milestone, { check: { ...check, notes, at }, checkAsked: asked }) }, [event(check.by, check.verdict === 'pass' ? 'checked' : 'failed', `${check.verdict === 'pass' ? 'checked' : 'didn’t pass'} ${milestoneName(plan, milestone)}${notes ? `: ${notes.split('\n')[0]!.slice(0, 160)}` : ''}`, at)]);
   }
 
-  pass(id: string, milestone: string, by: Actor): Plan {
+  /** `merged`: its merge was under way when the plan closed, and it finishes (a closed plan is tended). */
+  pass(id: string, milestone: string, by: Actor, opts: { readonly merged?: boolean } = {}): Plan {
     const plan = this.need(id);
     if (plan.runs[milestone]?.passedAt) return plan;
     const at = this.now();
     const { mergeFailed: _failed, ...run } = plan.runs[milestone] ?? {};
-    const next = this.change(plan, { runs: { ...plan.runs, [milestone]: { ...run, passedAt: at, passedBy: by } } }, [event(by, 'passed', `passed ${milestoneName(plan, milestone)}`, at)]);
+    const closedOk = Boolean(opts.merged);
+    const next = this.change(plan, { runs: { ...plan.runs, [milestone]: { ...run, passedAt: at, passedBy: by } } }, [event(by, 'passed', `passed ${milestoneName(plan, milestone)}`, at)], false, closedOk);
     const left = (next.body?.milestones ?? []).filter((m) => !next.runs[m.id]?.passedAt);
-    return left.length ? next : this.change(next, { status: 'done', doneAt: at }, [event({ kind: 'beluga' }, 'done', 'every milestone passed: the plan is done', at)]);
+    return left.length ? next : this.change(next, { status: 'done', doneAt: at }, [event({ kind: 'beluga' }, 'done', 'every milestone passed: the plan is done', at)], false, closedOk);
   }
 
   /** Back to a milestone that passed (more work turned up). */
@@ -512,7 +522,8 @@ export class Plans {
 
   // ------------------------------------------------------------------ inside
 
-  private change(plan: Plan, patch: Partial<{ -readonly [K in keyof Plan]: Plan[K] }>, activity: readonly PlanEvent[], replaceLast = false): Plan {
+  private change(plan: Plan, patch: Partial<{ -readonly [K in keyof Plan]: Plan[K] }>, activity: readonly PlanEvent[], replaceLast = false, closedOk = false): Plan {
+    if (plan.closedAt && !closedOk && !keptWhenClosed(plan, patch)) throw new PlanError(CLOSED);
     const merged: Record<string, unknown> = { ...plan, ...patch };
     for (const [k, v] of Object.entries(patch)) if (v === undefined) delete merged[k];
     const kept = replaceLast ? plan.activity.slice(0, -1) : plan.activity;
@@ -581,3 +592,23 @@ function milestoneName(plan: Plan, id: string): string {
 }
 
 const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner && a.external?.id === (b as typeof a).external?.id : true);
+
+/** A change a closed plan takes: only its tend (CLOSED_KEEPS), a pause, and run fields in CLOSED_RUN_KEEPS. */
+function keptWhenClosed(plan: Plan, patch: Partial<Plan>): boolean {
+  for (const [key, value] of Object.entries(patch)) {
+    if (CLOSED_KEEPS.has(key)) continue;
+    if (key === 'paused' && value === true) continue;
+    if (key === 'runs' && runsKeptWhenClosed(plan.runs, value as Plan['runs'])) continue;
+    return false;
+  }
+  return true;
+}
+
+function runsKeptWhenClosed(was: Plan['runs'], now: Plan['runs']): boolean {
+  for (const id of new Set([...Object.keys(was), ...Object.keys(now)])) {
+    const a = (was[id] ?? {}) as Readonly<Record<string, unknown>>;
+    const b = (now[id] ?? {}) as Readonly<Record<string, unknown>>;
+    for (const field of new Set([...Object.keys(a), ...Object.keys(b)])) if (!CLOSED_RUN_KEEPS.has(field) && JSON.stringify(a[field]) !== JSON.stringify(b[field])) return false;
+  }
+  return true;
+}

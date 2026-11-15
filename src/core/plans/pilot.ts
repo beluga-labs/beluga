@@ -459,7 +459,8 @@ export class PlanPilot {
    * they're in); then those that waited on it open (their tasks come out of the Backlog), or the plan is done.
    */
   pass(planId: string, milestoneId: string, by: Actor): Plan {
-    const plan = this.deps.plans.need(planId);
+    // A closed plan passes nothing new: only a merge already under way finishes (see merge()).
+    const plan = this.deps.plans.open(planId);
     if (!plan.body?.milestones.some((m) => m.id === milestoneId)) throw new Error('That milestone isn’t in the approved plan');
     if (plan.runs[milestoneId]?.passedAt) return plan;
     if (plan.merging?.[milestoneId]) return plan;
@@ -495,12 +496,12 @@ export class PlanPilot {
   }
 
   /** It passed (its work is in the plan's branch, or there's none): what waited on it opens. */
-  private passed(planId: string, milestoneId: string, by: Actor): Plan {
+  private passed(planId: string, milestoneId: string, by: Actor, merged = false): Plan {
     const before = this.deps.plans.need(planId);
     const passed = before.body?.milestones.find((m) => m.id === milestoneId);
     if (!passed) throw new Error('That milestone isn’t in the approved plan');
     const wasOpen = new Set(openMilestones(before));
-    const after = this.deps.plans.pass(planId, milestoneId, by);
+    const after = this.deps.plans.pass(planId, milestoneId, by, { merged });
     // Its checker is done: archived (what it said is kept, and the plan still knows it).
     const checker = after.runs[milestoneId]?.checker;
     if (checker) this.deps.retireChat?.(checker);
@@ -1401,7 +1402,7 @@ export class PlanPilot {
     for (const t of tasks) this.deps.work.board.planMoved(t.issue!.id, 'in_plan', `merged into ${branch}: “${m.milestone.title}” passed`);
     this.deps.plans.setMerging(planId, milestoneId, undefined);
     if (tasks.length) this.deps.plans.note(planId, 'passed', `merged ${tasks.map((t) => t.issue!.key).join(', ')} into ${branch}`, beluga);
-    if (!merge.catchUp) this.passed(planId, milestoneId, merge.by);
+    if (!merge.catchUp) this.passed(planId, milestoneId, merge.by, true);
     // Cleared away in the background: the next merge (another milestone passed) doesn't wait for archiving.
     void this.retireAll(plan, tasks, branch);
   }

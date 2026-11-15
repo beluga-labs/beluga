@@ -411,7 +411,7 @@ function Stage({ view, prefs, picked, setPicked, readOnly, back, chat, beside }:
         <Drafting plan={plan} />
       ) : prefs.display === 'graph' ? (
         <Suspense fallback={<div className={p.canvasNote}>Laying out…</div>}>
-          <PlanCanvas view={view} keys={keys} selected={picked} onSelect={setPicked} onStart={start} startable={startable} />
+          <PlanCanvas view={view} keys={keys} selected={picked} onSelect={setPicked} onStart={start} startable={startable} readOnly={readOnly} />
         </Suspense>
       ) : (
         <PlanOutline view={view} keys={keys} selected={picked} onSelect={setPicked} startable={startable} />
