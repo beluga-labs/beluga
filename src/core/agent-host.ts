@@ -1181,7 +1181,9 @@ export class AgentHost {
    */
   private missesPlanTools(lane: Lane, from: string, channel: string): boolean {
     if (!lane.current || lane.runPlanTools || from !== this.selfId) return false;
-    return Boolean(this.deps.plans?.(channel, from)?.tools);
+    // A chat that can still only open a plan (chatPlans' opener) misses nothing: its run has those tools.
+    const plans = this.deps.plans?.(channel, from);
+    return Boolean(plans?.tools && !plans.opener);
   }
 
   private sendFollowUp(lane: Lane, from: string, body: BodyOf<'agent_request'>): boolean {
@@ -1573,8 +1575,8 @@ export class AgentHost {
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from, () => ({ ...chain }));
       // A plan's home (its head Claude), not a chat that can only open one (chatPlans' plan_open): that chat stays as it is.
       const planHome = plans?.tools && !plans.opener;
-      // Syncing main never gets them, so it never counts as missing them.
-      lane.runPlanTools = Boolean(plans?.tools || place?.syncMain);
+      // Syncing main never gets them, so it never counts as missing them. An opener run has only plan_open: once that makes the plan, it misses them.
+      lane.runPlanTools = Boolean(planHome || place?.syncMain);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
       // folder's chat too (BLG-626): the board is Beluga's, not a file there, so the folder stays read-only.
       // A plan's own conversation too, for tasks outside the plan. Not while syncing main, nor in a

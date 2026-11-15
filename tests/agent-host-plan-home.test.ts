@@ -122,6 +122,7 @@ describe('a conversation that became a plan’s home mid-run', () => {
     const runs: AgentRunInput[] = [];
     const steered: string[] = [];
     let planned = false;
+    let opener = false;
     const agent: AgentBackend = {
       async run(input: AgentRunInput) {
         runs.push(input);
@@ -146,10 +147,11 @@ describe('a conversation that became a plan’s home mid-run', () => {
       refreshUsage: async () => undefined,
       workspaces: { place: () => ({ cwd: dir, additionalDirectories: [], autoEdit: true, onSession: () => undefined }), refreshWorkspace: async () => undefined, inChannel: () => undefined, agentIn: () => undefined, manager: { list: [] } } as never,
       // The plan exists once Plan with Tasks is picked (plans.here).
-      plans: (channel) => (channel === HOME && planned ? { tools: { get: () => 'plan' } as never, brief: 'planning' } : undefined),
+      // With chatPlans, a chat that can only open a plan has the opener's tools until plan_open makes one.
+      plans: (channel) => (channel !== HOME ? undefined : planned ? { tools: { get: () => 'plan' } as never, brief: 'planning' } : opener ? { tools: { get: () => 'no plan' } as never, brief: 'open', opener: true } : undefined),
     });
     const ask = (requestId: string, prompt: string, urgent: boolean): Promise<void> => host.onAgentRequest(ME, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel: HOME, urgent, plan: false });
-    return { runs, steered, ask, plan: () => (planned = true) };
+    return { runs, steered, ask, plan: () => (planned = true), opener: () => (opener = true) };
   }
 
   it('a message sent now starts a run with the plan tools instead of being steered in', async () => {
@@ -163,6 +165,21 @@ describe('a conversation that became a plan’s home mid-run', () => {
     expect(t.steered).toEqual([]);
     expect(t.runs[1]!.prompt).toContain('plan the machines idea');
     expect(t.runs[1]!.planTools).toBeDefined();
+  });
+
+  it('a run that only could open a plan (plan_open) takes no message once the plan is open (BLG-415)', async () => {
+    const t = midRun();
+    t.opener();
+    void t.ask('r1', 'turn this into a plan', false);
+    await waitFor(() => t.runs.length === 1);
+    void t.ask('r2', 'one more thing', true);
+    await waitFor(() => t.steered.length === 1);
+    // plan_open made the plan during the run: the run has no plan_write, so the next message starts its own run.
+    t.plan();
+    void t.ask('r3', 'add a milestone for docs', true);
+    await waitFor(() => t.runs.length === 2);
+    expect(t.steered).toEqual(['one more thing']);
+    expect(t.runs[1]!.prompt).toContain('add a milestone for docs');
   });
 
   it('without a plan, it is steered in as before', async () => {
