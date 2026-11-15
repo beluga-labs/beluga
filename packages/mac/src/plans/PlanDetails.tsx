@@ -3,7 +3,7 @@ import { type Criterion, criteria } from '@beluga/core/board/criteria.js';
 import { type Plan, shownBody, taskById } from '@beluga/core/plans/model.js';
 import { staleTasks } from '@beluga/core/plans/coherence.js';
 import { taskProof } from '@beluga/core/board/model.js';
-import { FINISHED, type MilestoneView, type PlanView, type TaskView, taskOrder } from '@beluga/core/plans/progress.js';
+import { FINISHED, type MilestoneView, type PlanView, type TaskView, designing, taskOrder } from '@beluga/core/plans/progress.js';
 import { Markdown } from '../chat/Markdown.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { Button, IconButton, cx } from '../components/ui.js';
@@ -20,6 +20,8 @@ import { useMyAgent } from '../lib/agent-words.js';
 import type { AgentRef } from '@beluga/protocol.js';
 import { WaitingLine } from './WaitingLine.js';
 import p from './plans.module.css';
+import r from './milestone-roles.module.css';
+import { MilestoneRoles } from './MilestoneRoles.js';
 import { revealLabel } from '../lib/os-words.js';
 
 /** The details pane shows what the plan did when this is picked. */
@@ -59,7 +61,7 @@ export function PlanDetails({ view, picked, canStart, onPick, onClose }: { view:
   return (
     <aside className={p.details} aria-label={feed ? 'What happened' : branch ? 'Where the work goes' : decided ? 'Decisions' : 'Details'}>
       <header className={p.detailsHead} data-scrolled={scrolled ? 'true' : 'false'}>
-        <div className={p.detailsHeadText}>{feed ? <FeedHead /> : branch ? <BranchHead view={view} /> : decided ? <DecisionsHead /> : gate ? <GateHead m={gate} /> : <TaskHead t={task!} />}</div>
+        <div className={p.detailsHeadText}>{feed ? <FeedHead /> : branch ? <BranchHead view={view} /> : decided ? <DecisionsHead /> : gate ? <GateHead plan={view.plan} m={gate} /> : <TaskHead t={task!} />}</div>
         <IconButton icon="x" label="Close" className={p.detailsClose} onClick={onClose} />
       </header>
       <div key={picked} className={p.detailsBody} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
@@ -305,15 +307,17 @@ function TaskDetails({ view, t, canStart }: { view: PlanView; t: TaskView; canSt
   );
 }
 
-function GateHead({ m }: { m: MilestoneView }) {
+function GateHead({ plan, m }: { plan: Plan; m: MilestoneView }) {
   const info = MILESTONE_STATE[m.state];
+  // Its architect writes its design before its work starts.
+  const label = designing(plan, m) ? 'The architect is designing it' : info.label;
   return (
     <>
       <div className={p.detailsKind}>Milestone {m.index + 1}</div>
       <h3 className={p.detailsTitle}>{m.milestone.title}</h3>
       <div className={p.detailsRow}>
         <TonePill tone={info.tone} live={m.state === 'checking' || m.state === 'running'}>
-          {info.label}
+          {label}
         </TonePill>
         <span className={p.muted}>
           {m.finished}/{m.total} tasks finished
@@ -418,6 +422,18 @@ function GateDetails({ plan, m, onPick }: { plan: Plan; m: MilestoneView; onPick
           <p className={p.muted}>No criteria: you pass it when its tasks are done.</p>
         )}
       </section>
+      {m.run.design ? (
+        <section className={p.detailsSection} aria-label="Design">
+          <details className={r.designFold}>
+            <summary>
+              <h4>Design</h4>
+              <span className={p.muted}>From the plan’s architect: its agent follows it, its checker checks against it</span>
+            </summary>
+            <Markdown text={m.run.design.text} />
+          </details>
+        </section>
+      ) : null}
+      <MilestoneRoles plan={plan} m={m} />
       {check ? (
         <section className={p.detailsSection}>
           <h4>{check.verdict === 'pass' ? 'The agent’s check: passes' : 'The agent’s check: not yet'}</h4>

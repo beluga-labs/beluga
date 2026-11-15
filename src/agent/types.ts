@@ -259,6 +259,8 @@ export interface PlanTools {
   gate(milestone: string, verdict: 'pass' | 'fail', notes: string): string;
   /** The draft's reviewer records what it found (see core/plans/draft-review.ts). */
   review?(findings: readonly import('../core/plans/model.js').ReviewFinding[]): string;
+  /** A milestone's architect records its technical design (`plan_design`), before its work starts. */
+  design?(milestone: string, design: string): string;
   start(task: string): Promise<string>;
   /** `queue` (default): read when its current turn ends. `steer`: now, interrupting a long command or a dead run. */
   message(task: string, text: string, mode?: 'queue' | 'steer'): string;

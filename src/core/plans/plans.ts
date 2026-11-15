@@ -18,6 +18,7 @@ import {
   DEFAULT_PARALLEL,
   type GateCheck,
   KEEP_PLAN_ACTIVITY,
+  MAX_DESIGN,
   MAX_PARALLEL,
   type MilestoneAgent,
   type MilestoneRun,
@@ -94,6 +95,9 @@ const SavedPlan = z
     testsAt: z.enum(TESTS_AT).catch('milestone'),
     // Who works it (BLG-497): one that doesn't read is let go (your default works it).
     agent: AgentRef.optional().catch(undefined),
+    checkAgent: AgentRef.optional().catch(undefined),
+    archAgent: AgentRef.optional().catch(undefined),
+    fixAgent: AgentRef.optional().catch(undefined),
     body: Body.optional().catch(undefined),
     draft: Body.optional().catch(undefined),
     paused: z.boolean().default(false),
@@ -103,6 +107,14 @@ const SavedPlan = z
     updatedAt: z.number(),
   })
   .passthrough();
+
+/** Who does each part of a plan (each none: see Plan): its work, its checks, its design, what's hard. */
+export interface PlanRoles {
+  readonly agent?: AgentRef;
+  readonly checkAgent?: AgentRef;
+  readonly archAgent?: AgentRef;
+  readonly fixAgent?: AgentRef;
+}
 
 const short = (prefix: string): string => `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
@@ -142,7 +154,7 @@ export class Plans {
   // ------------------------------------------------------------------ drafting
 
   /** A new plan: an empty draft in its conversation (Claude writes it there). Your goal is never its title: a quick model names it (autoTitle), and Claude's plan_write after that. */
-  create(input: { readonly projectId: string; readonly home: string; readonly title?: string; readonly goal?: string; readonly autonomy?: Autonomy; readonly testsAt?: TestsAt; readonly agent?: AgentRef }, by: Actor): Plan {
+  create(input: { readonly projectId: string; readonly home: string; readonly title?: string; readonly goal?: string; readonly autonomy?: Autonomy; readonly testsAt?: TestsAt } & PlanRoles, by: Actor): Plan {
     const at = this.now();
     const title = (input.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) || UNTITLED;
     const plan: Plan = {
@@ -155,7 +167,10 @@ export class Plans {
       autonomy: input.autonomy ?? DEFAULT_AUTONOMY,
       maxParallel: DEFAULT_PARALLEL,
       testsAt: input.testsAt ?? 'milestone',
-      ...(input.agent ? { agent: input.agent } : {}),
+      ...(input.agent ? { agent: agentOnly(input.agent) } : {}),
+      ...(input.checkAgent ? { checkAgent: agentOnly(input.checkAgent) } : {}),
+      ...(input.archAgent ? { archAgent: agentOnly(input.archAgent) } : {}),
+      ...(input.fixAgent ? { fixAgent: agentOnly(input.fixAgent) } : {}),
       paused: false,
       runs: {},
       activity: [event(by, 'created', 'started this plan', at)],
@@ -275,10 +290,61 @@ export class Plans {
    */
   setWorkAgent(id: string, agent: AgentRef | undefined, by: Actor): Plan {
     const plan = this.need(id);
-    const was = plan.agent;
-    if (was?.runtime === agent?.runtime && was?.model === agent?.model && was?.label === agent?.label) return plan;
+    if (sameAgent(plan.agent, agent)) return plan;
     const text = agent ? `gave its work to ${agentName(agent, { model: true })} from here on` : 'gave its work to the default agent from here on';
-    return this.change(plan, { agent: agent ? { runtime: agent.runtime, label: agent.label, ...(agent.model ? { model: agent.model } : {}) } : undefined }, [event(by, 'note', text, this.now())]);
+    return this.change(plan, { agent: agent ? agentOnly(agent) : undefined }, [event(by, 'note', text, this.now())]);
+  }
+
+  /** The agent its milestone checkers and draft reviews run on from here on; undefined: the work's agent. */
+  setCheckAgent(id: string, agent: AgentRef | undefined, by: Actor): Plan {
+    const plan = this.need(id);
+    if (sameAgent(plan.checkAgent, agent)) return plan;
+    const text = agent ? `gave its checks to ${agentName(agent, { model: true })} from here on` : 'gave its checks back to the agent for its work';
+    return this.change(plan, { checkAgent: agent ? agentOnly(agent) : undefined }, [event(by, 'note', text, this.now())]);
+  }
+
+  /**
+   * The agent that writes each milestone's technical design before its work starts, from here on;
+   * undefined: no architect step (milestones start right away, as before).
+   */
+  setArchAgent(id: string, agent: AgentRef | undefined, by: Actor): Plan {
+    const plan = this.need(id);
+    if (sameAgent(plan.archAgent, agent)) return plan;
+    const text = agent ? `gave its milestones’ designs to ${agentName(agent, { model: true })} from here on: each one is designed before its work starts` : 'starts its milestones without a design from here on';
+    return this.change(plan, { archAgent: agent ? agentOnly(agent) : undefined }, [event(by, 'note', text, this.now())]);
+  }
+
+  /** The agent that takes over what's hard from here on (fix tasks after a failed check, conflicts, a task that stopped twice); undefined: auto route's strongest, else whoever was at it. */
+  setFixAgent(id: string, agent: AgentRef | undefined, by: Actor): Plan {
+    const plan = this.need(id);
+    if (sameAgent(plan.fixAgent, agent)) return plan;
+    const text = agent ? `gave what’s hard (fix tasks, conflicts, a task that stopped twice) to ${agentName(agent, { model: true })} from here on` : 'gave what’s hard back to whoever is at it';
+    return this.change(plan, { fixAgent: agent ? agentOnly(agent) : undefined }, [event(by, 'note', text, this.now())]);
+  }
+
+  /** The conversation that designs a milestone (undefined: none, it was archived). */
+  setArchitect(id: string, milestone: string, architect: string | undefined): Plan {
+    const plan = this.need(id);
+    const { architect: _was, ...rest } = plan.runs[milestone] ?? {};
+    if (_was === architect) return plan;
+    return this.change(plan, { runs: { ...plan.runs, [milestone]: architect ? { ...rest, architect } : rest } }, []);
+  }
+
+  /** The architect was asked for a milestone's design. */
+  designAsked(id: string, milestone: string): Plan {
+    const plan = this.need(id);
+    return this.change(plan, { runs: withRun(plan, milestone, { designAsked: this.now() }) }, [event({ kind: 'beluga' }, 'note', `asked the architect for ${milestoneName(plan, milestone)}’s design: its work starts once it’s written`, this.now())]);
+  }
+
+  /** A milestone's technical design, written by its architect (`plan_design`). */
+  recordDesign(id: string, milestone: string, text: string, by: Actor): Plan {
+    const plan = this.need(id);
+    if (!(plan.body?.milestones ?? []).some((m) => m.id === milestone)) throw new PlanError(`There's no milestone "${milestone}" in the approved plan`);
+    if (plan.runs[milestone]?.passedAt) throw new PlanError('That milestone has already passed');
+    const design = text.trim().slice(0, MAX_DESIGN);
+    if (!design) throw new PlanError('The design is empty');
+    const at = this.now();
+    return this.change(plan, { runs: withRun(plan, milestone, { design: { text: design, at, by } }) }, [event(by, 'note', `wrote the design of ${milestoneName(plan, milestone)}`, at)]);
   }
 
   /** The head Claude was asked to check a milestone (a new round of checking). */
@@ -559,5 +625,8 @@ function milestoneName(plan: Plan, id: string): string {
   const m = (plan.body ?? plan.draft)?.milestones.find((x) => x.id === id);
   return m ? `“${m.title}”` : 'a milestone';
 }
+
+const sameAgent = (a: AgentRef | undefined, b: AgentRef | undefined): boolean => a?.runtime === b?.runtime && a?.model === b?.model && a?.label === b?.label;
+const agentOnly = (a: AgentRef): AgentRef => ({ runtime: a.runtime, label: a.label, ...(a.model ? { model: a.model } : {}) });
 
 const sameActor = (a: Actor, b: Actor): boolean => a.kind === b.kind && (a.kind === 'person' ? a.id === (b as typeof a).id : a.kind === 'claude' ? a.owner === (b as typeof a).owner && a.external?.id === (b as typeof a).external?.id : true);

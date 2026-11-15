@@ -23,7 +23,7 @@ import { draftIn } from '../network/NetComposer.js';
 import { IssueMark } from '../issues/task-bits.js';
 import { useStartWith } from '../components/agent-options.js';
 import { useMyAgent } from '../lib/agent-words.js';
-import { agentName } from '@beluga/shared/agent-label.js';
+import { startWho, useAutoAgent } from './use-auto-agent.js';
 import type { AgentRef } from '@beluga/protocol.js';
 import t from './tasks.module.css';
 
@@ -293,11 +293,14 @@ export function useIssueMenu(): (issue: Issue) => ActionItem[] {
   const plans = useApp((s) => s.plans.plans);
   /** Its own agent, else its plan's (BLG-497); none: yours. */
   const ownAgent = (issue: Issue): AgentRef | undefined => issue.agent ?? (issue.plan ? plans.find((p) => p.id === issue.plan!.id)?.agent : undefined);
+  // Nobody picked one: auto route's, as the daemon will pick it when it starts.
+  const auto = useAutoAgent();
   const startIt = (issue: Issue, agent: AgentRef | undefined): void => void act(() => api.start(issue.id, { claude: true, ...(agent ? { agent } : {}) }));
   /** Start with ▸ (BLG-506): every agent and model, this start only; "your agent" over its own is yours by name. */
   const startWithMenu = (issue: Issue): ActionItem => {
     const own = ownAgent(issue);
-    return { label: 'Start with', icon: 'play', submenu: startWith(own, (a) => startIt(issue, a ?? (own ? mine : undefined)), ''), onSelect: () => undefined };
+    const routed = auto(issue);
+    return { label: 'Start with', icon: 'play', submenu: startWith(own ?? routed, (a) => startIt(issue, a ?? (own || routed ? mine : undefined)), ''), onSelect: () => undefined };
   };
   const sharedWith = useSharedWith();
   /** Your chat with a teammate, the task in the box (BLG-263: you ask, nothing is given to their Claude). */
@@ -342,7 +345,7 @@ export function useIssueMenu(): (issue: Issue) => ActionItem[] {
         : startable
           ? [
               // Its agent is still writing it: starting waits for the brief (BLG-598).
-              { label: 'Start', icon: 'play' as const, hint: issue.drafting ? 'Once its brief is written' : `A new worktree, ${ownAgent(issue) ? agentName(ownAgent(issue)) : 'your agent'} working on it`, disabled: Boolean(issue.drafting), onSelect: () => startIt(issue, ownAgent(issue)) },
+              { label: 'Start', icon: 'play' as const, hint: issue.drafting ? 'Once its brief is written' : `A new worktree, ${startWho(ownAgent(issue), auto(issue))} working on it`, disabled: Boolean(issue.drafting), onSelect: () => startIt(issue, ownAgent(issue)) },
               { ...startWithMenu(issue), disabled: Boolean(issue.drafting) },
               { label: 'Start Worktree Only', icon: 'branch' as const, hint: 'Without the agent', disabled: Boolean(issue.drafting), onSelect: () => void act(() => api.start(issue.id, {})) },
             ]

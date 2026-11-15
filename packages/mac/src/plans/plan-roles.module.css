@@ -1,0 +1,18 @@
+/* Who does each part (PlanRoles.tsx): labels in one column, so the four pop-ups start at the same edge. */
+.roles {
+  display: grid;
+  grid-template-columns: max-content minmax(0, auto);
+  justify-content: start;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  margin-bottom: 8px;
+  scroll-margin-bottom: 48px;
+}
+.row {
+  display: contents;
+}
+.label {
+  color: var(--text-2);
+  font-weight: 500;
+}

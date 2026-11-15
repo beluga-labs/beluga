@@ -10,8 +10,9 @@ import { type Plan, type PlanMerge, type PlanMilestone, allTasks, openMilestones
 import type { PlanGit } from './plan-git.js';
 import type { Plans } from './plans.js';
 import { FINISHED, type MilestoneView, type PlanView, type TaskState, type TaskView, agentTasks, agentsAtWork, liveFrom, planView, startable, tidyOffer, waitingOnYou } from './progress.js';
-import { checkFailedPrompt, checkNudgePrompt, checkPrompt, criteriaNeedCheck, fixupPrompt, mainFixupPrompt, mergeFixupPrompt, milestoneNextPrompt, milestonePrompt, recapPrompt, stuckPrompt } from './prompt.js';
+import { checkFailedPrompt, checkNudgePrompt, checkPrompt, criteriaNeedCheck, designNudgePrompt, designPrompt, fixupPrompt, mainFixupPrompt, mergeFixupPrompt, milestoneNextPrompt, milestonePrompt, recapPrompt, stuckPrompt } from './prompt.js';
 import { TaskWatchdog } from './watchdog.js';
+import { PlanFixer } from './fixer.js';
 import { PLAN_PR_FAST_MS, PLAN_PR_FOCUS_FRESH_MS, planPrCadence } from './pr-cadence.js';
 import { pace } from '../power-saver.js';
 
@@ -76,8 +77,14 @@ export interface PilotDeps {
    * free and milestones are checked side by side. Without it, the head Claude checks (as before).
    */
   readonly checkerChat?: (plan: Plan, milestone: PlanMilestone) => Promise<string | undefined>;
-  /** A checker's conversation is no longer needed (its milestone passed): archived, what was said kept. */
+  /** A checker's (or an architect's) conversation is no longer needed (its milestone passed): archived, what was said kept. */
   readonly retireChat?: (workspaceId: string) => void;
+  /**
+   * A conversation of its own for a milestone's architect (its workspace id), on the plan's agent
+   * for its architecture: it writes the milestone's design before its work starts. Without it there's
+   * no architect step (milestones start right away).
+   */
+  readonly architectChat?: (plan: Plan, milestone: PlanMilestone) => Promise<string | undefined>;
   /**
    * Tasks only you can do came up (ready, in an open milestone), each once: the hook for asking you
    * (the plan's chat). A milestone's Claude skips them, and what builds on them waits.
@@ -87,6 +94,15 @@ export interface PilotDeps {
   readonly structure?: (plan: Plan) => void;
   /** How long a plan may sit quiet with Claude's work left before Beluga moves it along (default RESCUE_MS). */
   readonly rescueMs?: number;
+  /**
+   * Who takes over what's hard in a plan (fix tasks after a failed check, a conflict, a task that
+   * stopped twice): its fix agent, else auto route's strongest. Undefined: whoever is at it keeps it.
+   */
+  readonly fixer?: (plan: Plan) => AgentRef | undefined;
+  /** Who the plan's own conversation plans on when nothing hard waits there (its architect, else its work agent; undefined: your default). */
+  readonly homeAgent?: (plan: Plan) => AgentRef | undefined;
+  /** Put a conversation on another agent from its next message on (a quiet switch: it brings the recent conversation along). */
+  readonly switchAgent?: (channel: string, agent: AgentRef | undefined) => void;
 }
 
 /** How many times the head Claude is asked to fix one task's combining conflict before it waits for you. */
@@ -208,7 +224,7 @@ export function plansByChannel(plans: readonly Plan[], board: BoardState): Map<s
   const out = new Map<string, Set<string>>();
   const add = (channel: string, planId: string): void => void (out.get(channel) ?? out.set(channel, new Set()).get(channel)!).add(planId);
   for (const plan of plans) add(plan.home, plan.id);
-  for (const plan of plans) for (const run of Object.values(plan.runs ?? {})) if (run?.checker) add(`${WS_PREFIX}${run.checker}`, plan.id);
+  for (const plan of plans) for (const run of Object.values(plan.runs ?? {})) for (const ws of [run?.checker, run?.architect]) if (ws) add(`${WS_PREFIX}${ws}`, plan.id);
   for (const issue of board.issues) {
     const planId = planOfIssue.get(issue.id);
     if (planId) for (const ws of issue.worktrees) add(`${WS_PREFIX}${ws}`, planId);
@@ -230,6 +246,8 @@ export class PlanPilot {
   private readonly opened = new Set<string>();
   /** Combining conflicts the head Claude was asked to fix, by board task: how often, and its conversation's last run before. */
   private readonly fixAsked = new Map<string, { readonly asks: number; readonly after?: string }>();
+  /** What's hard goes to the plan's fix agent (fixer.ts). */
+  private readonly fix: PlanFixer;
   /** When a conflict left to you was last looked at (by board task), and the timer to look again. */
   private readonly stuckTried = new Map<string, number>();
   private stuckTimer: ReturnType<typeof setTimeout> | undefined;
@@ -275,12 +293,21 @@ export class PlanPilot {
   private readonly checkNudged = new Map<string, 'asked' | 'told'>();
   /** Milestones whose check moved from the head Claude to a checker this session (`plan:milestone`): once. */
   private readonly handedOver = new Set<string>();
+  /** An architect's design of a milestone under way (`plan:milestone` → its request). */
+  private readonly designRuns = new Map<string, string>();
+  /** Designs whose conversation is being made now (`plan:milestone`). */
+  private readonly askingDesign = new Set<string>();
+  /** Design rounds (`plan:milestone:asked`) whose turn ended without a design: asked once more (when). */
+  private readonly designNudged = new Map<string, number>();
+  /** Milestones whose architect didn't write a design (twice): their work starts without one, this session. */
+  private readonly designSkipped = new Set<string>();
   /** Since when each plan has had nothing running and nothing of it yours (see rescue). */
   private readonly quietSince = new Map<string, number>();
   /** Plans whose epics were made or caught up this session. */
   private readonly structured = new Set<string>();
 
   constructor(private readonly deps: PilotDeps) {
+    this.fix = new PlanFixer(deps);
     this.watchdog = new TaskWatchdog({
       store: deps.store,
       plans: deps.plans,
@@ -290,6 +317,7 @@ export class PlanPilot {
       ...(deps.takeOver ? { takeOver: deps.takeOver } : {}),
       ...(deps.promote ? { promote: deps.promote } : {}),
       ...(deps.now ? { now: deps.now } : {}),
+      escalate: (plan, channel, task, how) => this.fix.escalate(plan, channel, task, how),
     });
     this.off = deps.store.onAction((a: Action) => {
       if (a.type === 'agent_event') this.onRunEvent(a.channel);
@@ -501,6 +529,9 @@ export class PlanPilot {
     // Its checker is done: archived (what it said is kept, and the plan still knows it).
     const checker = after.runs[milestoneId]?.checker;
     if (checker) this.deps.retireChat?.(checker);
+    // Its architect too.
+    const architect = after.runs[milestoneId]?.architect;
+    if (architect) this.deps.retireChat?.(architect);
     const next = openMilestones(after)
       .filter((id) => !wasOpen.has(id))
       .map((id) => after.body!.milestones.find((m) => m.id === id)!);
@@ -543,6 +574,9 @@ export class PlanPilot {
     }
     this.tellYou(plan, view);
     for (const m of view.open) this.stepMilestone(plan, view, m);
+    // What was hard is done: a milestone's work goes back from the fix agent to its own (fixer.ts).
+    const live = liveFrom(this.deps.store.getState());
+    for (const m of view.open) this.fix.settle(plan, m, (channel) => !live.busy(channel) && !live.asking(channel) && !this.deps.alive?.(channel));
     this.rescue(plan.id);
   }
 
@@ -624,6 +658,7 @@ export class PlanPilot {
     if (m) {
       if (m.agent) channels.add(`${WS_PREFIX}${m.agent.worktree}`);
       if (m.run.checker) channels.add(`${WS_PREFIX}${m.run.checker}`);
+      if (m.run.architect) channels.add(`${WS_PREFIX}${m.run.architect}`);
       for (const t of m.tasks) for (const w of t.issue?.worktrees ?? []) channels.add(`${WS_PREFIX}${w}`);
       // The head Claude works on it for these (a merge's fix-up, fix tasks, its check before checkers).
       if (kind === 'merging' || kind === 'failed' || (kind === 'checking' && !m.run.checker)) channels.add(plan.home);
@@ -635,7 +670,7 @@ export class PlanPilot {
     const key = (id: string): string => `${plan.id}:${id}`;
     if (m) {
       const k = key(m.milestone.id);
-      if (this.launching.has(k) || this.askingCheck.has(k) || this.mergingNow.has(k)) return true;
+      if (this.launching.has(k) || this.askingCheck.has(k) || this.askingDesign.has(k) || this.mergingNow.has(k)) return true;
       if (m.tasks.some((t) => t.issue && this.starting.has(t.issue.id))) return true;
     }
     return this.branching.has(plan.id);
@@ -707,7 +742,7 @@ export class PlanPilot {
           this.stepMerges(plan);
           return `merged “${title}” again`;
         }
-        this.deps.allowFixup?.(plan.home, c.dir);
+        this.fix.fixupIn(plan, c.dir);
         this.deps.askClaude(mergeFixupPrompt(title, plan.branch ?? planBranchName(plan), c.key ?? c.merging, c), plan.home, false);
         return `asked the plan’s Claude to fix the merge conflict in ${c.files.slice(0, 3).join(', ')}`;
       }
@@ -785,6 +820,8 @@ export class PlanPilot {
       // Not begun anywhere (one already under way in a worktree of its own stays there).
       const unbegun = todo.filter((t) => t.state === 'ready' || t.state === 'blocked');
       if (!agent) {
+        // Its architect writes its design first (the plan has one): its work starts once that's in.
+        if (todo.length && this.waitsForDesign(plan, m)) continue;
         const ready = todo.some((t) => t.state === 'ready' && !this.failed.has(t.issue!.id));
         if (m.autonomy === 'step' || !ready || room <= 0) continue;
         room--;
@@ -819,6 +856,143 @@ export class PlanPilot {
     }
   }
 
+  // ------------------------------------------------------------------ a milestone's architect
+
+  /**
+   * A milestone not started yet, on a plan with an agent for its architecture: its design is asked
+   * (once a round, in a conversation of its own; the architect isn't counted against the plan's
+   * limit), and its work waits until it's written. It never stalls on it: a turn that ends without a
+   * design is asked once more, then its work starts without one. True: it waits for its design.
+   * A step-by-step milestone is designed too, but your Start doesn't wait for it.
+   */
+  private waitsForDesign(plan: Plan, m: MilestoneView): boolean {
+    const key = `${plan.id}:${m.milestone.id}`;
+    if (!plan.archAgent || !this.deps.architectChat || m.run.design || this.designSkipped.has(key)) return false;
+    if (m.run.designAsked === undefined) {
+      if (this.askingDesign.has(key)) return true;
+      this.askingDesign.add(key);
+      void this.askDesign(plan.id, m.milestone)
+        .catch((err: unknown) => {
+          this.designSkipped.add(key);
+          this.deps.plans.note(plan.id, 'problem', `couldn’t ask the architect for “${m.milestone.title}”’s design (${err instanceof Error ? err.message : String(err)}): its work starts without one`, { kind: 'beluga' });
+        })
+        .finally(() => {
+          this.askingDesign.delete(key);
+          this.schedule();
+        });
+      return true;
+    }
+    return this.watchDesign(plan, m);
+  }
+
+  /** Ask a milestone's architect for its design: in its own conversation (made once, on the plan's agent for its architecture). */
+  private async askDesign(planId: string, milestone: PlanMilestone): Promise<void> {
+    const key = `${planId}:${milestone.id}`;
+    const channel = await this.architectChannel(planId, milestone);
+    const plan = this.deps.plans.need(planId);
+    const run = plan.runs[milestone.id];
+    // Started, designed or passed while its conversation was being made.
+    if (run?.passedAt || run?.design || run?.agent || run?.designAsked !== undefined || plan.status !== 'active' || !plan.archAgent) return;
+    if (!channel) {
+      this.designSkipped.add(key);
+      this.deps.plans.note(plan.id, 'problem', `couldn’t make a conversation for the architect of “${milestone.title}”: its work starts without a design`, { kind: 'beluga' });
+      return;
+    }
+    const view = this.view(plan);
+    const m = view.milestones.find((x) => x.milestone.id === milestone.id);
+    if (!m) return;
+    const id = this.deps.askClaude(designPrompt(view, m), channel, false);
+    if (id) this.designRuns.set(key, id);
+    this.deps.plans.designAsked(plan.id, milestone.id);
+    this.deps.system(plan.home, `An architect of its own is writing the design of “${milestone.title}”: its work starts once it’s written.`);
+  }
+
+  /** The conversation that designs a milestone: the one it had (still there), or a new one. */
+  private async architectChannel(planId: string, milestone: PlanMilestone): Promise<string | undefined> {
+    const was = this.deps.plans.need(planId).runs[milestone.id]?.architect;
+    const ws = was ? this.deps.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === was) : undefined;
+    if (ws && !ws.archived) return `${WS_PREFIX}${ws.id}`;
+    const made = await this.deps.architectChat?.(this.deps.plans.need(planId), milestone);
+    if (!made) return undefined;
+    this.deps.plans.setArchitect(planId, milestone.id, made);
+    return `${WS_PREFIX}${made}`;
+  }
+
+  /**
+   * A design asked and not written: still waiting (true) while its architect works. Its turn ending
+   * without one, it's asked once more; ending without one again, the plan says so and the
+   * milestone's work starts without a design (false).
+   */
+  private watchDesign(plan: Plan, m: MilestoneView): boolean {
+    const asked = m.run.designAsked!;
+    const key = `${plan.id}:${m.milestone.id}`;
+    const round = `${key}:${asked}`;
+    const title = m.milestone.title;
+    const skip = (): false => {
+      this.designSkipped.add(key);
+      this.designRuns.delete(key);
+      this.deps.plans.note(plan.id, 'problem', `the architect didn’t write a design for “${title}”: its work starts without one`, { kind: 'beluga' });
+      return false;
+    };
+    if (!m.run.architect) return skip();
+    const channel = `${WS_PREFIX}${m.run.architect}`;
+    const state = this.deps.store.getState();
+    const id = this.designRuns.get(key);
+    const nudged = this.designNudged.get(round);
+    let ended: boolean;
+    if (id) {
+      const item = state.log.find((l) => l.type === 'agent' && l.requestId === id);
+      ended = item?.type === 'agent' && !RUNNING.has(item.status);
+    } else {
+      // Asked before a restart (or the ask had no id): nothing has run there for a while.
+      ended = !liveFrom(state).busy(channel) && !this.deps.alive?.(channel) && (this.deps.now?.() ?? Date.now()) - (nudged ?? asked) > CHECK_QUIET_MS;
+    }
+    if (!ended) return true;
+    if (nudged !== undefined) return skip();
+    this.designNudged.set(round, this.deps.now?.() ?? Date.now());
+    this.fix.lift(plan, channel, `the architect of “${title}”`); // its model failed, up the ladder first (plans/ladder.ts)
+    const again = this.deps.askClaude(designNudgePrompt(title), channel, false);
+    if (again) this.designRuns.set(key, again);
+    else this.designRuns.delete(key);
+    this.deps.plans.note(plan.id, 'note', `the architect of “${title}” ended its turn without a design: asked for it again`, { kind: 'beluga' });
+    return true;
+  }
+
+  /**
+   * The agent for the plan's work changed: each milestone at work whose turn isn't running now
+   * (paused on a usage limit, stopped, between turns) goes to it at once, as its own picker would
+   * (its conversation comes along), and a task of it paused on a usage limit goes on there now
+   * instead of waiting for the reset. One mid-turn keeps its agent: switching would cut the turn.
+   * → how many milestones moved, and how many kept theirs.
+   */
+  followWork(planId: string, agent: AgentRef | undefined): { readonly moved: number; readonly kept: number } {
+    const plan = this.deps.plans.need(planId);
+    const live = liveFrom(this.deps.store.getState());
+    let moved = 0;
+    let kept = 0;
+    for (const run of Object.values(plan.runs)) {
+      if (!run?.agent || run.passedAt) continue;
+      const channel = `${WS_PREFIX}${run.agent.worktree}`;
+      if (!this.deps.switchAgent || live.busy(channel) || live.asking(channel) || this.deps.alive?.(channel)) {
+        kept++;
+        continue;
+      }
+      // On the one you picked now, not on the fix agent it may have been handed to.
+      this.fix.forget(channel);
+      this.deps.switchAgent(channel, agent);
+      moved++;
+      for (const [taskId, w] of Object.entries(plan.watch ?? {})) {
+        if (w?.limitUntil === undefined || !run.agent.tasks.includes(taskId)) continue;
+        try {
+          this.resume(planId, taskId, 'beluga');
+        } catch {
+          // Going already: nothing to wake.
+        }
+      }
+    }
+    return { moved, kept };
+  }
+
   /** Its conversation's last run now (what a reply has to come after). */
   private after(channel: string): { readonly after?: string } {
     const last = this.lastRun(channel);
@@ -829,6 +1003,8 @@ export class PlanPilot {
   private hand(plan: Plan, m: MilestoneView, tasks: readonly TaskView[]): void {
     const agent = m.agent;
     if (!agent) return;
+    // Its check failed: these are the fix tasks, and the plan's fix agent takes the milestone's worktree over for them.
+    if (tasks.length && m.run.check?.verdict === 'fail') this.fix.toFixer(plan, `${WS_PREFIX}${agent.worktree}`, `the fix tasks for “${m.milestone.title}”`, tasks.map((t) => t.task.id));
     const ws = this.deps.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === agent.worktree);
     for (const t of tasks) if (t.issue) this.deps.work.linkShared(t.issue.id, { id: agent.worktree, ...(agent.branch ? { branch: agent.branch } : {}), name: ws?.name ?? agent.worktree });
     const ids = [...new Set([...agent.tasks, ...tasks.map((t) => t.task.id)])];
@@ -866,10 +1042,10 @@ export class PlanPilot {
       // Moved here mid-milestone (BLG-806): from the branch its agent left on the other computer, its work so far.
       const resume = plan.runs[milestoneId]?.resumeFrom;
       const base = resume ?? (first.bases?.length ? plan.branch : first.base);
-      // The agent you started it with (BLG-506), else the plan's (BLG-497); none: your default.
-      const agent = pick ?? plan.agent;
+      // Start with… (BLG-506), its task's own, its fix tasks' (failed check), the plan's (BLG-497), auto route's; none: your default (roles.ts).
+      const { agent, via } = this.fix.workAgent(plan, m.milestone.title, m.run.check?.verdict === 'fail', first.issue, pick);
       const ws = await this.deps.work.startShared(ids, `${first.issue.key} ${m.milestone.title}`, { quiet: true, ...(base ? { base } : {}), ...(agent ? { agent } : {}) });
-      this.deps.plans.setAgent(plan.id, milestoneId, { worktree: ws.id, ...(ws.branch ? { branch: ws.branch } : {}), at: Date.now(), tasks: ordered.map((t) => t.task.id) });
+      this.deps.plans.setAgent(plan.id, milestoneId, { worktree: ws.id, ...(ws.branch ? { branch: ws.branch } : {}), at: Date.now(), tasks: ordered.map((t) => t.task.id), ...(agent ? { agent } : {}), via });
       const fresh = this.deps.plans.resumed(plan.id, milestoneId);
       const keys = ordered.map((t) => t.issue!.key);
       const said = `started one agent for “${m.milestone.title}” (${keys.join(', ')}) in a new worktree${base ? ` from ${base}` : ''}`;
@@ -1002,6 +1178,7 @@ export class PlanPilot {
       return;
     }
     this.checkNudged.set(round, 'asked');
+    this.fix.lift(plan, channel, `the checker of “${m.milestone.title}”`); // its model failed, up the ladder first
     const again = this.deps.askClaude(checkNudgePrompt(m.milestone.title), channel, false);
     if (again) this.checkRuns.set(key, again);
     else this.checkRuns.delete(key);
@@ -1113,11 +1290,11 @@ export class PlanPilot {
       res = await combine(plan.projectId, issue.key, bases, plan.branch);
     } catch (err) {
       this.deps.plans.setCombining(plan.id, t.task.id, undefined);
-      this.deps.allowFixup?.(plan.home, undefined);
+      this.fix.fixedIn(plan, was?.conflict?.dir);
       throw new Error(`couldn’t combine ${from.join(' and ')}: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (res.ok) {
-      if (was?.conflict) this.deps.allowFixup?.(plan.home, undefined);
+      if (was?.conflict) this.fix.fixedIn(plan, was.conflict.dir);
       this.fixAsked.delete(issue.id);
       this.stuckTried.delete(issue.id);
       return res.branch;
@@ -1126,7 +1303,7 @@ export class PlanPilot {
     const stuck = asks >= FIXUP_ASKS;
     const conflict = { at: was?.conflict?.stuck && stuck ? was.conflict.at : Date.now(), dir: res.dir, merging: res.merging, files: res.files, ...(stuck ? { stuck } : {}) };
     this.deps.plans.setCombining(plan.id, t.task.id, { at: was?.at ?? Date.now(), from, conflict });
-    this.deps.allowFixup?.(plan.home, res.dir);
+    this.fix.fixupIn(plan, res.dir);
     if (!stuck) {
       const after = this.lastRun(plan.home);
       this.fixAsked.set(issue.id, { asks: asks + 1, ...(after ? { after } : {}) });
@@ -1156,8 +1333,9 @@ export class PlanPilot {
     try {
       const base = t.bases?.length ? await this.combinedBase(plan, t, issue) : t.base;
       if (t.bases?.length && !base) return `${issue.key} builds on several tasks: combining their branches hit a conflict, and the agent is fixing it`;
-      // The agent you started it with (BLG-506), else the task's own, else the plan's (BLG-497), else your default.
-      const agent = pick ?? issue.agent ?? plan.agent;
+      // The agent you started it with (BLG-506), else the task's own, else a fix task's (its milestone's check failed: the plan's fix agent), else the plan's (BLG-497), else your default.
+      const fixer = plan.runs[t.milestoneId]?.check?.verdict === 'fail' ? this.deps.fixer?.(plan) : undefined;
+      const agent = pick ?? issue.agent ?? fixer ?? plan.agent;
       await this.deps.work.start(issue.id, { claude: true, quiet: true, ...(base ? { base } : {}), ...(agent ? { agent } : {}) });
       if (t.bases?.length) this.deps.plans.setCombining(plan.id, t.task.id, undefined);
       this.deps.plans.note(plan.id, 'started', `started ${issue.key} “${t.task.title}”${base ? ` from ${base}` : ''}`, by);
@@ -1230,7 +1408,7 @@ export class PlanPilot {
         const stuck = asks >= FIXUP_ASKS;
         const was = this.deps.plans.need(planId).mainMerge?.conflict;
         this.deps.plans.setMainMerge(planId, { at: plan.mainMerge?.at ?? Date.now(), main, conflict: { at: was?.stuck && stuck ? was.at : Date.now(), dir: res.dir, files: res.files, ...(stuck ? { stuck } : {}) } });
-        this.deps.allowFixup?.(plan.home, res.dir);
+        this.fix.fixupIn(plan, res.dir);
         if (!stuck) {
           const after = this.lastRun(plan.home);
           this.fixAsked.set(key, { asks: asks + 1, ...(after ? { after } : {}) });
@@ -1241,7 +1419,7 @@ export class PlanPilot {
         }
         return this.deps.plans.need(planId);
       }
-      if (plan.mainMerge?.conflict) this.deps.allowFixup?.(plan.home, undefined);
+      if (plan.mainMerge?.conflict) this.fix.fixedIn(plan, plan.mainMerge.conflict.dir);
       this.fixAsked.delete(key);
       this.stuckTried.delete(key);
       this.deps.plans.setMainMerge(planId, undefined);
@@ -1366,7 +1544,7 @@ export class PlanPilot {
         const why = err instanceof Error ? err.message : String(err);
         this.deps.plans.setMerging(planId, milestoneId, undefined);
         this.deps.plans.setMergeFailed(planId, milestoneId, why.split('\n').find((l) => l.trim())?.trim().slice(0, 300) ?? 'git said no');
-        this.deps.allowFixup?.(plan.home, undefined);
+        this.fix.fixedIn(plan, merge.conflict?.dir);
         this.deps.plans.note(planId, 'problem', `couldn’t merge “${m.milestone.title}” into ${branch}: ${why}`, beluga);
         return;
       }
@@ -1380,7 +1558,7 @@ export class PlanPilot {
       const was = merge.conflict;
       const conflict = { at: was?.stuck && stuck ? was.at : Date.now(), dir: res.dir, merging: res.merging, key: conflictKey, files: res.files, ...(stuck ? { stuck } : {}) };
       this.deps.plans.setMerging(planId, milestoneId, { ...merge, conflict });
-      this.deps.allowFixup?.(plan.home, res.dir);
+      this.fix.fixupIn(plan, res.dir);
       if (!stuck) {
         const after = this.lastRun(plan.home);
         this.fixAsked.set(key, { asks: asks + 1, ...(after ? { after } : {}) });
@@ -1392,7 +1570,7 @@ export class PlanPilot {
       return;
     }
     // In: its tasks are Merged into Plan, the milestone passes, and their worktrees go.
-    if (merge.conflict) this.deps.allowFixup?.(plan.home, undefined);
+    if (merge.conflict) this.fix.fixedIn(plan, merge.conflict.dir);
     this.fixAsked.delete(key);
     this.stuckTried.delete(key);
     for (const t of tasks) this.deps.work.board.planMoved(t.issue!.id, 'in_plan', `merged into ${branch}: “${m.milestone.title}” passed`);

@@ -660,4 +660,8 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'workspaces.ports': { refused: NO_TOOL },
   'chats.resolve': { refused: NO_TOOL },
   'chats.snapshot': { refused: NO_TOOL },
+  // Who works each of a plan's roles (checks, architecture, hard fixes): a pick from a list.
+  'plans.setCheckAgent': 'covered',
+  'plans.setArchAgent': 'covered',
+  'plans.setFixAgent': 'covered',
 };

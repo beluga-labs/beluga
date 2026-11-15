@@ -13,6 +13,7 @@ import type { IssuePr } from './model.js';
 import { agentLabel, agentName } from '../../shared/agent-label.js';
 import { type AgentRef, defaultAgentOf } from '../../protocol.js';
 import { chosenAgent } from '../settings.js';
+import { routedAgent } from '../../shared/auto-route.js';
 import { needsChecksText, unexplained } from './criteria.js';
 import { inSet, labelsFor } from './labels.js';
 import { aboutPrompt, alongPrompt, briefPrompt, boardNote, definePrompt, describeIssue, describeList, friendNote, gitHubLine, ownTaskPrompt, reposPrompt } from './prompt.js';
@@ -366,10 +367,13 @@ export class BoardWork {
     if (live) throw new Error(`${issue.key} is already being worked on in ${live.name}: open it there`);
     const name = slugify(`${issue.key} ${issue.title}`).slice(0, 48) || issue.key.toLowerCase();
     const ticket = { projectId: issue.projectId, name, issueId: issue.id };
+    // Nobody picked one and an agent starts on it: auto route's (shared/auto-route.ts), else your default.
+    // A worktree alone keeps your default, so its chats aren't pinned to a model nobody chose.
+    const routed = opts.claude || opts.prompt ? routedAgent(issue, this.deps.store.getState()) : undefined;
+    const agent = opts.agent ?? issue.agent ?? routed;
     this.expecting.push(ticket);
     let ws: Workspace | undefined;
     try {
-      const agent = opts.agent ?? issue.agent;
       ws = await controller.newWorktree(issue.projectId, name, { ...(opts.base ? { base: opts.base } : {}), ...(opts.quiet ? { quiet: true } : {}), ...(agent ? { agent } : {}) });
     } finally {
       const at = this.expecting.indexOf(ticket);
@@ -388,7 +392,7 @@ export class BoardWork {
     };
     if (Object.keys(patch).length) this.board.update(issue.id, patch, opts.by ?? this.me());
     // An epic whose sub-tasks run in other repos: a worktree in each, and this one's Claude works in all of them.
-    const along = await this.startAlong(this.board.need(issue.id), name, opts.agent ?? issue.agent);
+    const along = await this.startAlong(this.board.need(issue.id), name, opts.agent ?? issue.agent, routed);
     if (opts.prompt) this.deps.askClaude(opts.prompt(this.board.need(issue.id), ws), `${WS}${ws.id}`, opts.shown);
     else if (opts.claude) this.deps.askClaude(startPrompt(this.board.need(issue.id), along.map((w) => this.repoName(w.projectId) ?? w.name)), `${WS}${ws.id}`);
     return ws.id;
@@ -406,7 +410,7 @@ export class BoardWork {
    * The epic's worktree works in them too (`alsoIn`). A repo whose worktree can't be made is said
    * and left out. → the worktrees made.
    */
-  private async startAlong(epic: Issue, name: string, agent: AgentRef | undefined): Promise<Workspace[]> {
+  private async startAlong(epic: Issue, name: string, agent: AgentRef | undefined, routed?: AgentRef): Promise<Workspace[]> {
     const controller = this.deps.controller!;
     const live = (id: string): boolean => this.workspaces().some((w) => w.id === id && !w.archived);
     const kids = childrenOf(this.board.state(), epic).filter((k) => k.projectId !== epic.projectId && isStartable(k) && !worktreeDoing(k, live));
@@ -417,7 +421,10 @@ export class BoardWork {
       this.expecting.push(ticket);
       let ws: Workspace | undefined;
       try {
-        ws = await controller.newWorktree(repo, name, { quiet: true, ...(agent ? { agent } : {}) });
+        // Auto route's pick never beats another repo's own project agent.
+        const repoName = this.repoName(repo);
+        const own = agent ?? (routed && !(repoName && this.deps.store.getState().prefs.projectAgents?.[repoName]) ? routed : undefined);
+        ws = await controller.newWorktree(repo, name, { quiet: true, ...(own ? { agent: own } : {}) });
       } catch (err) {
         this.deps.toast?.(`Couldn’t make ${epic.key}’s worktree in ${this.repoName(repo) ?? 'its repo'}: ${err instanceof Error ? err.message : String(err)}`);
       } finally {

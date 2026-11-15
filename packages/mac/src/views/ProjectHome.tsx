@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDefaultAutonomy } from "../plans/use-default-autonomy.js";
 import type { PullRequest } from "@beluga/core/work-store.js";
 import { describePr } from "@beluga/shared/format.js";
 import { isPlanOwned } from "@beluga/core/plans/owner.js";
@@ -8,7 +9,6 @@ import {
   AUTONOMIES,
   AUTONOMY_INFO,
   type Autonomy,
-  DEFAULT_AUTONOMY,
   type Plan,
 } from "@beluga/core/plans/model.js";
 import { EarningsPill } from "../components/EarningsPill.js";
@@ -258,7 +258,8 @@ function HomeComposer({ project }: { project: Project }) {
   // Then (BLG-973): unset, as last time in this project.
   const [land, setLand] = useState<boolean>();
   const [busy, setBusy] = useState(false);
-  const [autonomy, setAutonomy] = useState<Autonomy>(DEFAULT_AUTONOMY);
+  const startsAs = useDefaultAutonomy();
+  const [autonomy, setAutonomy] = useState<Autonomy>(startsAs);
   const plans = usePlanActions();
   const plansOn = usePlans().enabled;
   const branches = useBranches(project.id);
@@ -284,7 +285,7 @@ function HomeComposer({ project }: { project: Project }) {
     setBase(undefined);
     setLand(undefined);
     setMode("worktree");
-    setAutonomy(DEFAULT_AUTONOMY);
+    setAutonomy(startsAs);
     ref.current?.focus();
   }, [project.id]);
   useLayoutEffect(() => {

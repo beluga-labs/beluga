@@ -618,8 +618,8 @@ describe('making a plan', () => {
     const t = setup();
     t.work.here('ws:main');
     const defs = createPlanToolDefs(t.work.forRun('ws:main', 'p-me')!.tools!);
-    // plan_review is the draft's reviewer's alone (BLG-772).
-    expect(defs.map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES.filter((n) => !n.endsWith('plan_review')));
+    // plan_review is the draft's reviewer's alone (BLG-772), plan_design a milestone's architect's.
+    expect(defs.map((d) => `mcp__beluga_plan__${d.name}`)).toEqual(PLAN_TOOL_NAMES.filter((n) => !n.endsWith('plan_review') && !n.endsWith('plan_design')));
     for (const name of PLAN_TOOL_NAMES) expect(decideTool(name, {}, { cwd: '/tmp', roots: [], autoEdit: false, askOnly: true })).toBe('allow');
   });
 });

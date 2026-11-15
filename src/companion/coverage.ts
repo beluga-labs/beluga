@@ -749,6 +749,10 @@ export const PHONE: Record<Method, Side> = {
   'external.stopAll': 'phone',
   'external.setPaused': 'mac',
   'external.activity': 'phone',
+  // Who works each of a plan's roles (checks, architecture, hard fixes): a pick from a list.
+  'plans.setCheckAgent': 'phone',
+  'plans.setArchAgent': 'phone',
+  'plans.setFixAgent': 'phone',
 };
 
 /** A method the phone may call (unknown names are not). */

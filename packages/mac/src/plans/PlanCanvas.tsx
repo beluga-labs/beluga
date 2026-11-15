@@ -17,6 +17,7 @@ import { useGlide } from './use-glide.js';
 import { LiveDot, LockMark, TaskChatMark, TaskStateIcon } from './marks.js';
 import p from './plans.module.css';
 import c from './PlanCanvas.module.css';
+import { TaskAgentChip } from './MilestoneRoles.js';
 
 /**
  * A plan as a living graph: each milestone a box, its tasks inside laid out by what waits on what,
@@ -503,6 +504,7 @@ const TaskNode = memo(function TaskNode({ data }: NodeProps<Node<TaskData, 'task
         <span className={p.taskKey}>{data.key ?? t.task.id}</span>
         {data.mark ? <span className={p.markChip}>{data.mark === 'added' ? 'New' : 'Changed'}</span> : null}
         <span className={p.grow} />
+        <TaskAgentChip t={t} />
         <TaskChatMark {...(t.worktree ? { worktree: t.worktree } : {})} />
         {t.task.estimate ? <span className={p.points}>{t.task.estimate}</span> : null}
         {t.forYou ? <Icon name="person" size={12} className={p.forYou} /> : null}

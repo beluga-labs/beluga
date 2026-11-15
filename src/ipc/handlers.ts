@@ -22,6 +22,7 @@ import { SUGGEST_ALL, chooseProjectIcon, readProjectIcon, suggestProjects } from
 import type { Args, Method } from './api.js';
 import { NETWORK_HANDLERS } from './network-handlers.js';
 import { STRIPE_HANDLERS } from './stripe-handlers.js';
+import { SAVE_ENDPOINT } from './endpoint-save.js';
 import { REVENUECAT_HANDLERS } from './revenuecat-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
 import { TELEMETRY_HANDLERS } from './telemetry-handlers.js';
@@ -366,11 +367,8 @@ export const HANDLERS = {
   'env.addToExample': (s, projectId) => s.env.addToExample(projectId),
   'env.exampleSync': (s, projectId, on) => s.env.setExampleSync(projectId, on),
   'env.endpoints': (s) => s.local.views(),
-  'env.saveEndpoint': async (s, change) => {
-    const saved = s.env.saveEndpoint(change);
-    await s.local.look();
-    return saved;
-  },
+  // Tried first: an address, key or model a run would fail on isn't saved (endpoint-save.ts).
+  'env.saveEndpoint': SAVE_ENDPOINT,
   'env.removeEndpoint': async (s, id) => {
     s.env.removeEndpoint(id);
     await s.local.look();

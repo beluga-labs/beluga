@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentRef } from '../protocol.js';
+import { AutoRoute } from './auto-route.js';
 import { AUTO_COMPACT_DEFAULT, AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from './context-usage.js';
 import { PARALLEL_RUNS_DEFAULT, PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from './run-slots.js';
 import { CHAT_LIMIT_DEFAULT, CHAT_LIMIT_MAX } from './chat-limit.js';
@@ -132,6 +133,8 @@ export const Settings = z.object({
   defaultAgent: AgentRef.optional(),
   /** A project's own default agent (by project name), over `defaultAgent` for work in that project. */
   projectAgents: z.record(z.string().min(1).max(80), AgentRef).optional(),
+  /** Who works a task nobody picked an agent for (shared/auto-route.ts); unset: its defaults, on once a local candidate runs here. */
+  autoRoute: AutoRoute.optional(),
   /** What new worktrees' branches start with (`beluga/<name>`); empty: no prefix. */
   branchPrefix: z.string().regex(BRANCH_PREFIX_RE).catch(BRANCH_PREFIX_DEFAULT),
   /** Run the project's setup script (e.g. npm install) in every new worktree. */

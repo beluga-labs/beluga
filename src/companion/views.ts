@@ -7,6 +7,8 @@ import { phoneModels } from '../shared/model-search.js';
 import { roomAgentTags } from '../shared/agent-tags.js';
 import { type Approval, type DomainState, type LogItem, type SubAgent, isRunning } from '../core/store.js';
 import { agentLabel, agentName } from '../shared/agent-label.js';
+import { routedAgent } from '../shared/auto-route.js';
+import { rolesOfMilestone } from './plan-roles-views.js';
 import { waitingNote } from '../core/friend-share-people.js';
 import { criteria, tally } from '../core/board/criteria.js';
 import { OFFER_DETAIL, offerWords, waitingOn, waitingWords, workingOn, workingWords } from '../core/team/model.js';
@@ -29,7 +31,7 @@ import { sentinelGraph } from '../core/sentinel/workflow.js';
 import { widgetSnapshot } from '../core/sentinel/widgets.js';
 import { COMPARE, changeText, deltaOf, formatMetric } from '../core/sentinel/metrics.js';
 import type { Workspace } from '../workspaces/types.js';
-import { type MilestoneView, type PlanView as PlanProgress, agentNowWords, liveFrom, planView } from '../core/plans/progress.js';
+import { type MilestoneView, type PlanView as PlanProgress, agentNowWords, designing, liveFrom, planView } from '../core/plans/progress.js';
 import { triageFacts } from '../core/triage/facts.js';
 import { categoryOf, triageKey } from '../core/triage/model.js';
 import { shortVersion } from '../net/mesh/features.js';
@@ -979,6 +981,10 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
       ...(m.autonomy !== plan.autonomy ? { autonomy: m.autonomy } : {}),
       ...checkerOfMilestone(state, m.run.checker),
       ...agentNowOf(m),
+      // 1.58: its design (no code on the phone), and that its architect is writing it.
+      ...(m.run.design ? { design: clip(stripCode(m.run.design.text).text.replace(/\[\[code(?::\d+)?\]\]/g, '(code)'), 12000) } : {}),
+      ...(designing(plan, m) ? { designing: true } : {}),
+      ...rolesOfMilestone(plan, m, state),
     })),
     autonomy: plan.autonomy,
     ...(plan.paused ? { paused: true } : {}),
@@ -990,6 +996,9 @@ export function planPageView(state: DomainState, id: string): PlanView | undefin
 
     // 1.35 (BLG-498): who works its milestones and tasks (none: your default), and the list to change it from.
     ...(plan.agent ? { agent: agentRefView(plan.agent) } : {}),
+    ...(plan.checkAgent ? { checkAgent: agentRefView(plan.checkAgent) } : {}),
+    ...(plan.archAgent ? { archAgent: agentRefView(plan.archAgent) } : {}),
+    ...(plan.fixAgent ? { fixAgent: agentRefView(plan.fixAgent) } : {}),
     ...(plan.status !== 'done' ? { agents: workPicker(state, plan.agent) } : {}),
     // 1.45 (BLG-772): its decisions, and its draft's review.
     ...decisionsAndReview(state, plan),
@@ -1115,6 +1124,12 @@ export function tasksView(state: DomainState, ctx?: ViewContext): TasksView {
 /** Where a task may be moved from the phone (board.move): the open statuses and Done, not where it is. */
 const MOVES = ['todo', 'in_progress', 'in_review', 'done', 'backlog', 'canceled'] as const;
 
+/** Nobody picked its agent: the one auto route gives it, marked as such (1.58). */
+const autoOf = (state: DomainState, i: Issue): Pick<TaskPageView, 'agent' | 'autoAgent'> => {
+  const routed = isStartable(i) ? routedAgent(i, state) : undefined;
+  return routed ? { agent: agentRefView(routed), autoAgent: true } : {};
+};
+
 export function taskPageView(state: DomainState, id: string, ctx?: ViewContext): TaskPageView | undefined {
   const i = boardIssues(state).find((x) => x.id === id);
   const summary = i ? taskSummary(state, i) : undefined;
@@ -1150,8 +1165,8 @@ export function taskPageView(state: DomainState, id: string, ctx?: ViewContext):
     ...(i.pr ? { pr: { number: i.pr.number, state: i.pr.state, title: clip(plainLine(i.pr.title, 300), 300), checks: i.pr.checks } } : {}),
     moves: MOVES.filter((s) => s !== i.status).map((s) => ({ status: s, label: STATUS_INFO[s].label })),
     // Who works it (BLG-498), shown only (BLG-569): with a worktree on it, the agent and model running
-    // there (changed in its conversation); else its own (none: your default). The list is for Start with….
-    ...(live ? { agent: agentRefView(live) } : i.agent ? { agent: agentRefView(i.agent) } : {}),
+    // there (changed in its conversation); else its own, else auto route's pick (`autoAgent`), else none: your default. The list is for Start with….
+    ...(live ? { agent: agentRefView(live) } : i.agent ? { agent: agentRefView(i.agent) } : autoOf(state, i)),
     ...(isStartable(i) ? { agents: workPicker(state, i.agent) } : {}),
   };
 }

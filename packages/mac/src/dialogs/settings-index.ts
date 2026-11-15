@@ -101,6 +101,11 @@ export const SETTINGS: readonly Entry[] = [
   ]),
   group('claude', 'Your agents', 'Each agent Beluga can run, and how to set it up.', 'sign in install login claude code codex'),
   ...rows('claude', 'Your agents', [['Signed in or installed one just now?', 'Check Again looks for your agents now.', 'check again refresh']]),
+  group('claude', 'Auto Route', 'Which model a task without an agent goes to', 'auto route model tier hard coding audit opus sonnet haiku'),
+  ...rows('claude', 'Auto Route', [
+    ['Pick a model for each task', 'Which model a task without an agent goes to', 'auto route autopilot model pick'],
+    ['Urgent and high are hard too', undefined, 'urgent high priority hard opus'],
+  ]),
   group('claude', 'Launch flags', 'Your own flags for claude and codex.', 'args arguments cli flags dangerously skip permissions'),
   ...rows('claude', 'Launch flags', [
     ['Claude Code', 'Your own flags for claude.', 'flags arguments cli'],

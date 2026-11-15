@@ -1,7 +1,8 @@
 import type { BoardState } from '../../../../src/core/board/model.js';
+import { roleNote } from './plan-roles-model.js';
 import type { Actor } from '../../../../src/core/board/model.js';
 import { AUTONOMY_INFO, type Autonomy, type Plan, type PlanBody, type PlanEvent, type PlanPr, type PlansState, diffBodies, milestoneDeps, planTitle, reviewState, shownBody } from '../../../../src/core/plans/model.js';
-import { type MilestoneState, type MilestoneView, type NextStep, type PlanView, type TaskState, type TaskView, agentNowWords } from '../../../../src/core/plans/progress.js';
+import { type MilestoneState, type MilestoneView, type NextStep, type PlanView, type TaskState, type TaskView, agentNowWords, designing } from '../../../../src/core/plans/progress.js';
 import { pulseWords } from '../../../../src/core/plans/watchdog.js';
 
 /**
@@ -43,8 +44,9 @@ export const MILESTONE_STATE: Readonly<Record<MilestoneState, { readonly label: 
  * A milestone's status text in the plan's list: its state, plus when it runs. Open milestones say
  * they run side by side with the others open now; a waiting one says what it waits on.
  */
-export function milestoneLabel(view: Pick<PlanView, 'milestones' | 'open'>, m: MilestoneView): string {
-  const base = MILESTONE_STATE[m.state].label;
+export function milestoneLabel(view: Pick<PlanView, 'milestones' | 'open' | 'plan'>, m: MilestoneView): string {
+  // Its architect writes its design first: its work starts once that's in.
+  const base = designing(view.plan, m) ? 'The architect is designing it' : MILESTONE_STATE[m.state].label;
   const title = (id: string): string => `“${view.milestones.find((x) => x.milestone.id === id)?.milestone.title ?? id}”`;
   if (m.state === 'later') {
     const waits = m.dependsOn.filter((d) => view.milestones.find((x) => x.milestone.id === d)?.state !== 'passed');
@@ -400,7 +402,7 @@ function feedKind(e: PlanEvent): FeedKind | undefined {
       return 'mode';
     // Where the work goes: the plan's branch made, its pull request opened (other notes stay out).
     case 'note':
-      return /^(made the plan’s branch|collects the plan’s work on)\b/.test(e.text) ? 'branch' : /^opened pull request #\d+/.test(e.text) ? 'pr' : undefined;
+      return /^(made the plan’s branch|collects the plan’s work on)\b/.test(e.text) ? 'branch' : /^opened pull request #\d+/.test(e.text) ? 'pr' : roleNote(e.text) ? 'changed' : undefined;
     default:
       return undefined;
   }

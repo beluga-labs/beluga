@@ -1,0 +1,100 @@
+/* A milestone's design (from the plan's architect): folded to its heading until opened. */
+.designFold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: default;
+  list-style: none;
+}
+.designFold > summary::-webkit-details-marker {
+  display: none;
+}
+.designFold > summary::before {
+  content: '▸';
+  font-size: 10px;
+  color: var(--text-3);
+}
+.designFold[open] > summary::before {
+  content: '▾';
+}
+.designFold > summary h4 {
+  margin: 0;
+}
+.designFold > summary span {
+  font-size: 12px;
+}
+
+/* Who did each part of a milestone (MilestoneRoles.tsx). */
+.roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.roleLine {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.roleName {
+  color: var(--text-2);
+}
+.roleWho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.roleModel,
+.taskAgent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.roleModel {
+  font-weight: 500;
+}
+.roleNow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.roleDiffers {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--warn, #b26b00);
+  background: color-mix(in srgb, var(--warn, #b26b00) 10%, transparent);
+}
+.handoffs {
+  grid-column: 2;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.handoffs li {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.taskAgent {
+  font-size: 11px;
+  color: var(--text-2);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.taskAgent[data-ran='no'] {
+  opacity: 0.7;
+}

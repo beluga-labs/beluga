@@ -2,7 +2,7 @@ import { tool, toolSuite } from './tool-kit.js';
 import { z } from 'zod';
 import { DEFAULT_LABELS } from '../core/board/labels.js';
 import type { BodyInput, DecisionInput, MilestoneInput, PlanOp, TaskInput } from '../core/plans/edit.js';
-import { FINDING_KINDS, type ReviewFinding } from '../core/plans/model.js';
+import { FINDING_KINDS, MAX_DESIGN, type ReviewFinding } from '../core/plans/model.js';
 import type { PlanTools } from './types.js';
 
 /**
@@ -11,7 +11,7 @@ import type { PlanTools } from './types.js';
  * task, and talk to a task's Claude. Starting and passing go through Beluga's scheduler.
  */
 
-export const PLAN_TOOL_NAMES = ['plan_get', 'plan_write', 'plan_update', 'plan_gate', 'plan_review', 'plan_start_task', 'plan_message_task', 'plan_stop_task', 'plan_pause'].map((n) => `mcp__beluga_plan__${n}`);
+export const PLAN_TOOL_NAMES = ['plan_get', 'plan_write', 'plan_update', 'plan_gate', 'plan_review', 'plan_design', 'plan_start_task', 'plan_message_task', 'plan_stop_task', 'plan_pause'].map((n) => `mcp__beluga_plan__${n}`);
 
 const id = z.string().min(1).max(40).describe('A short stable id, like "auth-api" (letters, digits, dashes)');
 const lines = (max: number) => z.array(z.string().min(1).max(400)).max(max);
@@ -178,6 +178,12 @@ export function createPlanToolDefs(plan: PlanTools) {
       { findings: z.array(FINDING).max(20) },
       (a) => guarded(() => (plan.review ? plan.review(a.findings.map((f) => ({ kind: f.kind, text: f.text, ...(f.ids?.length ? { ids: f.ids } : {}) }))) : 'Reviewing isn’t yours here')),
     ),
+    tool(
+      'plan_design',
+      'Record the technical design of the milestone you design (you are its architect): modules and files to add or change, interfaces and data shapes, how its tasks fit together, risks. Its agent follows it and its checker checks against it. Its work starts once it’s recorded.',
+      { milestone: z.string().min(1).max(200).describe('Its id or title'), design: z.string().min(1).max(MAX_DESIGN).describe('The design, in Markdown') },
+      (a) => guarded(() => (plan.design ? plan.design(a.milestone, a.design) : 'Designing isn’t yours here')),
+    ),
     tool('plan_start_task', 'Start a ready task now (a worktree with Claude on it). Only when the user asks: Beluga starts ready tasks by itself unless the plan goes step by step.', { task: z.string().min(1).max(40).describe('Its id in the plan, or its board key') }, (a) => guarded(() => plan.start(a.task))),
     tool(
       'plan_message_task',
@@ -202,8 +208,8 @@ export function createPlanToolDefs(plan: PlanTools) {
       (a) => guarded(() => (plan.pause ? plan.pause(a.paused) : 'Pausing isn’t available here')),
     ),
   ];
-  // plan_review is the draft's reviewer's alone.
-  const mine = defs.filter((d) => d.name !== 'plan_review' || plan.review);
+  // plan_review is the draft's reviewer's alone, plan_design a milestone's architect's.
+  const mine = defs.filter((d) => (d.name !== 'plan_review' || plan.review) && (d.name !== 'plan_design' || plan.design));
   return plan.only ? mine.filter((d) => plan.only!.includes(d.name)) : mine;
 }
 

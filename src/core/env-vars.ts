@@ -700,7 +700,8 @@ export class EnvVars {
    * Add or change an endpoint. `key`: undefined keeps the one it has, '' removes it. A new one
    * (no id) gets an id from its label. → its id.
    */
-  saveEndpoint(change: { readonly id?: string; readonly label: string; readonly baseUrl: string; readonly key?: string; readonly models?: readonly string[] }): string {
+  /** An endpoint change as it would be saved, or why it can't be (gone, a field that doesn't look right, too many): nothing is written. */
+  validateEndpoint(change: { readonly id?: string; readonly label: string; readonly baseUrl: string; readonly key?: string; readonly models?: readonly string[] }): { readonly endpoint: Endpoint; readonly isNew: boolean } {
     const list = this.data.endpoints;
     const before = change.id ? list.find((e) => e.id === change.id) : undefined;
     if (change.id && !before) throw new Error('That endpoint is gone');
@@ -710,9 +711,15 @@ export class EnvVars {
     const parsed = Endpoint.safeParse({ id, label: change.label.trim(), baseUrl: change.baseUrl.trim().replace(/\/+$/, ''), ...(key ? { key } : {}), models });
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'That endpoint doesn’t look right');
     if (!before && list.length >= MAX_ENDPOINTS) throw new Error(`Up to ${MAX_ENDPOINTS} endpoints`);
-    this.data = { ...this.data, endpoints: before ? list.map((e) => (e.id === id ? parsed.data : e)) : [...list, parsed.data] };
+    return { endpoint: parsed.data, isNew: !before };
+  }
+
+  saveEndpoint(change: { readonly id?: string; readonly label: string; readonly baseUrl: string; readonly key?: string; readonly models?: readonly string[] }): string {
+    const { endpoint, isNew } = this.validateEndpoint(change);
+    const list = this.data.endpoints;
+    this.data = { ...this.data, endpoints: isNew ? [...list, endpoint] : list.map((e) => (e.id === endpoint.id ? endpoint : e)) };
     this.save();
-    return id;
+    return endpoint.id;
   }
 
   removeEndpoint(id: string): void {

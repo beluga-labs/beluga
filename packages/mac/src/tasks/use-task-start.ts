@@ -1,11 +1,11 @@
 import type { Issue } from '@beluga/core/board/model.js';
 import type { AgentRef } from '@beluga/protocol.js';
-import { agentName } from '@beluga/shared/agent-label.js';
 import { useStartWith } from '../components/agent-options.js';
 import type { ActionItem } from '../components/SpecMenu.js';
 import { useMyAgent } from '../lib/agent-words.js';
 import { useApp } from '../lib/beluga.js';
 import { useTaskActions } from './use-tasks.js';
+import { startWho, useAutoAgent } from './use-auto-agent.js';
 
 /** Who starts a task, and how (see useTaskStart). */
 export interface TaskStart {
@@ -27,11 +27,13 @@ export function useTaskStart(issue: Issue): TaskStart {
   const mine = useMyAgent();
   const startWith = useStartWith();
   const own = issue.agent ?? planAgent;
+  // Nobody picked one: auto route's, as the daemon will pick it when it starts.
+  const routed = useAutoAgent()(issue);
   const start = (agent?: AgentRef): Promise<unknown> => {
     const who = agent ?? own;
     return act(() => api.start(issue.id, { claude: true, ...(who ? { agent: who } : {}) }));
   };
   // "Your agent" picked over a task (or plan) with its own: yours, by name (none would mean its own again).
-  const items = (pick: (agent: AgentRef | undefined) => void): ActionItem[] => startWith(own, (a) => pick(a ?? (own ? mine : undefined)));
-  return { who: own ? agentName(own) : 'your agent', start, items };
+  const items = (pick: (agent: AgentRef | undefined) => void): ActionItem[] => startWith(own ?? routed, (a) => pick(a ?? (own || routed ? mine : undefined)));
+  return { who: startWho(own, routed), start, items };
 }

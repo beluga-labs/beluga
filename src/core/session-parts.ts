@@ -21,6 +21,7 @@ import { GuestShell } from './guest-shell.js';
 import { SharedDiff } from './shared-diff.js';
 import { EnvVars } from './env-vars.js';
 import { LocalEndpoints } from './local-endpoints.js';
+import { failingModels } from './failing-models.js';
 import { LOCAL_RUNTIME, localModels, localWhy } from '../shared/local-endpoints.js';
 import { useViewEnv } from './views/sources.js';
 import { boardOf } from './board/registry.js';
@@ -68,11 +69,12 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
   const listRuntimes = () =>
     runtimeChoices((id) => {
       if (id === (opts.runtime?.agent ?? 'claude')) return session.backend ? {} : undefined;
-      if (id === LOCAL_RUNTIME) return opts.runtime?.runtimes('claude') && !localWhy(local.choices()) ? { models: localModels(local.choices()) } : undefined;
+      if (id === LOCAL_RUNTIME) return opts.runtime?.runtimes('claude') && !localWhy(local.choices()) ? { models: failingModels.grey(localModels(local.choices())) } : undefined;
       return opts.runtime?.runtimes(id) || opts.alsoRuntimes?.some((r) => r.id === id) ? {} : undefined;
     });
   // Listed again with what each runtime last said about itself (BLG-507: a local endpoint answering never wipes Codex's sign-in state and models).
   const local = new LocalEndpoints({ endpoints: () => env.endpoints(), onChange: () => (workbench ? workbench.runtimesChanged() : opts.store.dispatch({ type: 'runtimes', runtimes: listRuntimes() })) });
+  failingModels.attach({ local, changed: () => (workbench ? workbench.runtimesChanged() : opts.store.dispatch({ type: 'runtimes', runtimes: listRuntimes() })) }); // A model that failed is greyed, and probed till it's back (failing-models.ts).
   if (opts.runtime) local.start();
   // Database views find the project's connection string (its variables, its .env).
   useViewEnv({ database: (dir) => env.viewEnv(dir), commands: (dir) => env.envFor({ dir }) });

@@ -298,6 +298,12 @@ export interface WatchdogDeps {
    * waited there (taken out of its queue, in order) so the wake carries them.
    */
   readonly takeOver?: (channel: string) => Promise<readonly string[]>;
+  /**
+   * A task stopped again soon after a wake: before it waits for you, its conversation may go to the
+   * plan's fix agent (a stronger model) and be woken once more there. → that agent's name, or
+   * undefined (no fix agent, or it's on it already).
+   */
+  readonly escalate?: (plan: Plan, channel: string, task?: string, how?: { readonly stall?: string; readonly first?: boolean; readonly again?: boolean }) => string | undefined;
   readonly now?: () => number;
 }
 
@@ -435,6 +441,12 @@ export class TaskWatchdog {
       if (w?.wokeAt !== undefined && w.run === run?.requestId && now - w.wokeAt < WAKE_GRACE_MS) continue;
       const key = t.issue.key;
       if (w?.wokeAt !== undefined && now - w.wokeAt < REPEAT_MS) {
+        // Hard for whoever is at it: the plan's fix agent gets one go before it waits for you.
+        const to = this.deps.escalate?.(plan, channel, t.task.id, { stall, again: w.escalated === true });
+        if (to) {
+          this.wake(plan, t, t.issue, channel, stall, run, `${key} stopped again: gave it to ${to}, woke it at ${hhmm(now)}`, { escalated: true });
+          continue;
+        }
         const line = `${key} stopped again: ${stall}. It waits for you`;
         // What it said last: often what it waits on you for, so that's what you're shown.
         const said = saidLast(run);
@@ -442,6 +454,8 @@ export class TaskWatchdog {
         this.deps.plans.note(plan.id, 'problem', said ? waitsNote(line, said) : `${line} (woken at ${hhmm(w.wokeAt)}): Resume it, or open its chat.`, { kind: 'beluga' });
         continue;
       }
+      const up = this.deps.escalate?.(plan, channel, t.task.id, { stall, first: true }); // its model failed, up its ladder at once (plans/ladder.ts)
+      if (up) { this.wake(plan, t, t.issue, channel, stall, run, `${key}’s model failed: gave it to ${up}, woke it at ${hhmm(now)}`, { escalated: true }); continue; }
       this.wake(plan, t, t.issue, channel, stall, run, `${key} stopped, woke it at ${hhmm(now)}`);
     }
   }
@@ -491,11 +505,11 @@ export class TaskWatchdog {
     return autoContinueFor(this.deps.store.getState().prefs, channel, until + LIMIT_MARGIN_MS).kind === 'scheduled';
   }
 
-  private wake(plan: Plan, t: TaskView, issue: Issue, channel: string, reason: string, run: RunInfo | undefined, line: string, { counts = true }: { counts?: boolean } = {}): void {
+  private wake(plan: Plan, t: TaskView, issue: Issue, channel: string, reason: string, run: RunInfo | undefined, line: string, { counts = true, escalated = false }: { counts?: boolean; escalated?: boolean } = {}): void {
     const now = this.now();
     this.waking.add(t.task.id);
     // A resume after your usage limit isn't a wake: stopping again soon after doesn't make it wait for you.
-    this.deps.plans.setWatch(plan.id, t.task.id, counts ? { at: now, reason, ...(run ? { run: run.requestId } : {}), wokeAt: now, line } : { at: now, reason, ...(run ? { run: run.requestId, resumed: run.requestId } : {}), line });
+    this.deps.plans.setWatch(plan.id, t.task.id, counts ? { at: now, reason, ...(run ? { run: run.requestId } : {}), wokeAt: now, ...(escalated ? { escalated } : {}), line } : { at: now, reason, ...(run ? { run: run.requestId, resumed: run.requestId } : {}), line });
     this.deps.plans.note(plan.id, 'note', `${line} (${reason})`, { kind: 'beluga' });
     void (async () => {
       const waited = this.deps.takeOver ? await this.deps.takeOver(channel).catch(() => []) : [];

@@ -19,6 +19,7 @@ import type { ConvView, PlanView, Topic } from '../../lib/link/protocol';
 import { color } from '../../lib/theme';
 import { calls } from '../../lib/link/calls';
 import { store } from '../../lib/store';
+import { MilestoneRoles } from '../../components/MilestoneRoles';
 
 /** How a plan runs (src/core/plans/model.ts AUTONOMY_INFO), as the Mac says it. */
 const AUTONOMY = {
@@ -48,6 +49,9 @@ export default function Plan() {
   const [menu, setMenu] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [pickingCheck, setPickingCheck] = useState(false);
+  const [pickingArch, setPickingArch] = useState(false);
+  const [pickingFix, setPickingFix] = useState(false);
   // Who works its milestones and tasks (1.35, BLG-498): its own pick, else your default; changed from ⋯.
   const defaultGroup = p?.agents?.groups.find((g) => g.isDefault);
   const agentWords = p?.agent ? agentName(p.agent, { model: true }) : defaultGroup ? `Your agent (${defaultGroup.label})` : 'Your agent';
@@ -58,6 +62,22 @@ export default function Plan() {
       (e: Error) => store.toast({ text: e.message, tone: 'error' }),
     );
   };
+  // Who checks its milestones and reviews its drafts (SINCE.checkAgent): its own pick, else the agent for its work.
+  const checkWords = p?.checkAgent ? agentName(p.checkAgent, { model: true }) : 'Same as its work';
+  // Who designs each milestone before its work starts (SINCE.archAgent): none, the milestones start right away.
+  const archWords = p?.archAgent ? agentName(p.archAgent, { model: true }) : 'No architect';
+  // Who takes over what's hard (SINCE.fixAgent): fix tasks after a failed check, conflicts, a task that stopped twice. None: auto route's strongest.
+  const fixWords = p?.fixAgent ? agentName(p.fixAgent, { model: true }) : 'Strongest model';
+  type Picked = { runtime: string; label: string; model?: string } | null;
+  const setRole = (call: (planId: string, agent: Picked, label: string) => ReturnType<typeof calls.setPlanAgent>, done: string) => (agent: Picked, label: string): void => {
+    void store.call<string>(call(id ?? '', agent, label)).then(
+      (said) => store.toast({ text: typeof said === 'string' ? said : `${label} ${done}`, tone: 'ok' }),
+      (e: Error) => store.toast({ text: e.message, tone: 'error' }),
+    );
+  };
+  const setCheckAgent = setRole(calls.setPlanCheckAgent, 'checks this plan');
+  const setArchAgent = setRole(calls.setPlanArchAgent, 'designs this plan’s milestones');
+  const setFixAgent = setRole(calls.setPlanFixAgent, 'takes over what’s hard');
   const how = p?.autonomy && p.autonomy in AUTONOMY ? AUTONOMY[p.autonomy as Autonomy] : undefined;
   const titles = new Map(tasks.map((t) => [t.id, t.title]));
   const milestoneTitles = new Map((p?.milestones ?? []).map((m) => [m.id, m.title]));
@@ -90,6 +110,9 @@ export default function Plan() {
         title={p?.title}
         options={[
           { Icon: markIcon(runtimeMark(agentRuntime)), label: 'Agent for its work', sub: agentWords, tone: 'lavender', hidden: !p?.agents, onPress: () => setPicking(true) },
+          { Icon: markIcon(runtimeMark(p?.archAgent?.runtime ?? agentRuntime)), label: 'Agent for its architecture', sub: archWords, tone: 'lavender', hidden: !p?.agents || !store.supports('archAgent'), onPress: () => setPickingArch(true) },
+          { Icon: markIcon(runtimeMark(p?.checkAgent?.runtime ?? agentRuntime)), label: 'Agent for its checks', sub: checkWords, tone: 'lavender', hidden: !p?.agents || !store.supports('checkAgent'), onPress: () => setPickingCheck(true) },
+          { Icon: markIcon(runtimeMark(p?.fixAgent?.runtime ?? agentRuntime)), label: 'Agent for hard fixes', sub: fixWords, tone: 'lavender', hidden: !p?.agents || !store.supports('fixAgent'), onPress: () => setPickingFix(true) },
           { Icon: Monitor, label: 'Open on your Mac', sub: 'Its graph, outline and conversation', tone: 'plain', onPress: () => void openOnMac({ topic }) },
         ]}
       />
@@ -101,6 +124,33 @@ export default function Plan() {
         onClose={() => setPicking(false)}
         yours={{ on: !p?.agent, onPick: () => setAgent(null, 'Your agent') }}
         onPick={(g, value, label) => setAgent(agentOfRow(g, value), value ? `${g.label} · ${label}` : g.label)}
+      />
+      <AgentChoiceSheet
+        title="Agent for its architecture"
+        caption="Writes each milestone's design before its work starts: its agent follows it, its checker checks against it"
+        picker={p?.agents}
+        visible={pickingArch}
+        onClose={() => setPickingArch(false)}
+        yours={{ on: !p?.archAgent, onPick: () => setArchAgent(null, 'No architect'), label: 'No architect', caption: 'Each milestone starts right away, without a design' }}
+        onPick={(g, value, label) => setArchAgent(agentOfRow(g, value), value ? `${g.label} · ${label}` : g.label)}
+      />
+      <AgentChoiceSheet
+        title="Agent for its checks"
+        caption="Checks its milestones and reviews its drafts: a stronger model than the work's, say"
+        picker={p?.agents}
+        visible={pickingCheck}
+        onClose={() => setPickingCheck(false)}
+        yours={{ on: !p?.checkAgent, onPick: () => setCheckAgent(null, 'Same as its work'), label: 'Same as its work', caption: `Whoever works it checks it too (${agentWords})` }}
+        onPick={(g, value, label) => setCheckAgent(agentOfRow(g, value), value ? `${g.label} · ${label}` : g.label)}
+      />
+      <AgentChoiceSheet
+        title="Agent for hard fixes"
+        caption="Takes over fix tasks after a failed check, conflicts, and a task that stopped twice"
+        picker={p?.agents}
+        visible={pickingFix}
+        onClose={() => setPickingFix(false)}
+        yours={{ on: !p?.fixAgent, onPick: () => setFixAgent(null, 'Strongest model'), label: 'Strongest model', caption: 'Auto route’s strongest model; with auto route off, whoever is at it keeps it' }}
+        onPick={(g, value, label) => setFixAgent(agentOfRow(g, value), value ? `${g.label} · ${label}` : g.label)}
       />
       <Options
         visible={howOpen}
@@ -271,6 +321,8 @@ function Milestone({ m, last, i, draft, titles, after, picked }: { m: PlanView['
     if (picked) setOpen(true);
   }, [picked]);
   const [task, setTask] = useState<string | undefined>();
+  // Its design from the plan's architect (SINCE.archAgent), folded until tapped.
+  const [designOpen, setDesignOpen] = useState(false);
   const tone = toneOf(m.state);
   const running = m.state === 'running';
   const done = m.state === 'done';
@@ -294,7 +346,7 @@ function Milestone({ m, last, i, draft, titles, after, picked }: { m: PlanView['
             </T>
           </View>
           <T v="caption" c={toneInk(tone)} style={{ fontWeight: "600", marginTop: 2, textTransform: "capitalize" }}>
-            {m.state === 'gate' ? 'Waiting for you to pass it' : m.state}
+            {m.designing ? 'The architect is designing it' : m.state === 'gate' ? 'Waiting for you to pass it' : m.state}
           </T>
           {m.agentNow ? (
             // Its agent at work right now, even between tasks (1.40): a tap opens its conversation.
@@ -381,6 +433,29 @@ function Milestone({ m, last, i, draft, titles, after, picked }: { m: PlanView['
                 );
               })}
             </Card>
+            {m.design ? (
+              <Press scaleTo={0.98} onPress={() => setDesignOpen((o) => !o)} accessibilityLabel={designOpen ? 'Hide its design' : 'Show its design'}>
+                <View style={{ gap: 6, padding: 12, borderRadius: 14, backgroundColor: toneBg('lavender') }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {designOpen ? <ChevronDown color={toneInk('lavender')} size={15} /> : <ChevronRight color={toneInk('lavender')} size={15} />}
+                    <T v="caption" c={toneInk('lavender')} style={{ fontWeight: '700', flex: 1 }}>
+                      Design
+                    </T>
+                    <T v="caption" c={color.text3}>
+                      From its architect
+                    </T>
+                  </View>
+                  {designOpen ? (
+                    <Animated.View entering={FadeIn.duration(180)}>
+                      <T v="caption" c={color.text2}>
+                        {m.design}
+                      </T>
+                    </Animated.View>
+                  ) : null}
+                </View>
+              </Press>
+            ) : null}
+            <MilestoneRoles {...(m.roles ? { roles: m.roles } : {})} />
             {m.checker ? (
               // Its checker (a Claude of its own, off the Mac's sidebar): watched live, or read once it said (1.39).
               <Press scaleTo={0.98} onPress={() => router.push(convHref(m.checker!))}>

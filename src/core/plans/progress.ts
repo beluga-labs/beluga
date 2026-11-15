@@ -91,6 +91,13 @@ export interface MilestoneView {
   readonly agentNow?: TaskPulse;
 }
 
+/**
+ * Its architect is writing its design (the plan has an agent for its architecture): asked, not
+ * written yet, and its work not started. Its work starts once the design is in.
+ */
+export const designing = (plan: Pick<Plan, 'archAgent'>, m: Pick<MilestoneView, 'state' | 'agent' | 'run'>): boolean =>
+  Boolean(plan.archAgent && m.state === 'running' && !m.agent && !m.run.design && m.run.designAsked !== undefined);
+
 /** The one thing a plan waits for (the page's main button). */
 export type NextStep =
   | { readonly kind: 'approve' }

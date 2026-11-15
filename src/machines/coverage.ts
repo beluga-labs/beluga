@@ -710,6 +710,10 @@ export const MACHINE: Record<Method, MachineSide> = {
   'external.status': 'drive',
   'external.stopAgent': 'drive',
   'external.stopAll': 'drive',
+  // Who works each of a plan's roles (checks, architecture, hard fixes): a pick from a list.
+  'plans.setCheckAgent': 'drive',
+  'plans.setArchAgent': 'drive',
+  'plans.setFixAgent': 'drive',
 };
 
 /** A method a screen driving a computer may not call (unknown names are left to the API, which refuses them). */

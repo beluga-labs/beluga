@@ -61,6 +61,8 @@ export function moveRunning(view: PlanView, busy: (channel: string) => boolean):
     for (const t of m.tasks) if ((t.state === 'running' || t.state === 'asking') && t.worktree !== m.agent?.worktree) out.push(t.issue?.key ?? `“${t.task.title}”`);
     const checker = m.run.checker;
     if (checker && !m.run.passedAt && busy(`ws:${checker}`)) out.push(`the check of “${m.milestone.title}”`);
+    const architect = m.run.architect;
+    if (architect && !m.run.passedAt && busy(`ws:${architect}`)) out.push(`the design of “${m.milestone.title}”`);
   }
   return [...new Set(out)];
 }
@@ -105,7 +107,7 @@ export function landPlan(plan: Plan, to: Landing): Plan {
   const carried = new Set(to.branches);
   const runs = Object.fromEntries(
     Object.entries(plan.runs).map(([mid, run]) => {
-      const { agent, checker: _c, checkAsked, check, mergeFailed: _f, resumeFrom, ...rest } = run;
+      const { agent, checker: _c, architect: _a, designAsked: _d, checkAsked, check, mergeFailed: _f, resumeFrom, ...rest } = run;
       // A check that was asked and not answered is asked again there; one that was answered stays.
       const answered = check && checkAsked !== undefined && check.at >= checkAsked;
       const from = !run.passedAt ? (agent?.branch && carried.has(agent.branch) ? agent.branch : resumeFrom) : undefined;

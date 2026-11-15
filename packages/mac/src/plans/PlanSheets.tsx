@@ -1,8 +1,8 @@
 import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AUTONOMIES, AUTONOMY_INFO, type Autonomy, DEFAULT_AUTONOMY, TESTS_AT, TESTS_AT_INFO, type TestsAt } from '@beluga/core/plans/model.js';
 import { agentForChoice } from '@beluga/ui/agent-choice.js';
+import { planRoleDefaults } from '@beluga/shared/auto-route.js';
 import { Field, FormSheet, Popup, TextArea } from '../components/FormSheet.js';
-import { YOUR_AGENT, useAgentEntries } from '../components/agent-options.js';
 import { Icon, type IconName } from '../components/Icon.js';
 import { cx } from '../components/ui.js';
 import { useApp } from '../lib/beluga.js';
@@ -11,6 +11,9 @@ import { myRuntime } from '../chat/ModelPicker.js';
 import { sendToComputer, useStartDeps } from '../machines/start-there.js';
 import { useTasksPrefs } from '../tasks/use-tasks.js';
 import { modeChange } from './plans-model.js';
+import { PLAN_ROLES, type PlanRole, roleStart, rolesInput } from './plan-roles-model.js';
+import { PlanRoles } from './PlanRoles.js';
+import { useDefaultAutonomy } from './use-default-autonomy.js';
 import { usePlanActions, usePlanView, usePlans } from './use-plans.js';
 import p from './plans.module.css';
 import { chordLabel } from '../lib/shortcuts-model.js';
@@ -20,8 +23,9 @@ const AUTONOMY_ICON: Record<Autonomy, IconName> = { step: 'hand', gated: 'flag',
 
 /**
  * A new plan: what it's for (Claude plans from it, reading the code) and how far it runs on its
- * own. Opened from a project it's that project's (no picker). More options: who works its
- * milestones and tasks (BLG-497; your default agent unless you pick another).
+ * own. Opened from a project it's that project's (no picker). More options: who does each part
+ * of it (BLG-497), as the tiers say unless you pick another: the strongest model designs it and
+ * takes over what's hard, an everyday one writes the code, one between checks it (plan-roles-model.ts).
  */
 export function NewPlanSheet({ projectId, close }: { projectId?: string; close: () => void }) {
   const startDeps = useStartDeps();
@@ -34,18 +38,33 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
   const [goal, setGoal] = useState('');
   const known = projectId !== undefined && projects.some((p) => p.id === projectId);
   const [project, setProject] = useState((known ? projectId : projects.some((p) => p.id === prefs.project) ? prefs.project : projects[0]?.id) ?? '');
-  const [autonomy, setAutonomy] = useState<Autonomy>(DEFAULT_AUTONOMY);
+  const startsAs = useDefaultAutonomy();
+  const [autonomy, setAutonomy] = useState<Autonomy>(startsAs);
   const [testsAt, setTestsAt] = useState<TestsAt>('milestone');
-  const agents = useAgentEntries();
   const runtimes = useApp((s) => s.runtimes);
-  const [agent, setAgent] = useState(YOUR_AGENT);
+  const route = useApp((s) => s.prefs.autoRoute);
+  const tiers = useMemo(() => planRoleDefaults(route, runtimes), [route, runtimes]);
+  // Each role's pick (undefined: where the tiers start it, which follows your models as they come and go).
+  const [picked, setPicked] = useState<Partial<Record<PlanRole, string>>>({});
+  const picks = Object.fromEntries(PLAN_ROLES.map((r) => [r, picked[r] ?? roleStart(r, tiers)])) as Record<PlanRole, string>;
   const [more, setMore] = useState(false);
+  // The sidebar's own "Add a Project…", one click away (every OS has it; not every one has a File menu).
+  const addProject = (): void => {
+    close();
+    actions.run({ type: 'add_project' });
+  };
+  const create = async (): Promise<void> => {
+    const roles = rolesInput(picks, tiers, (v) => agentForChoice(v, runtimes));
+    const input = { goal: goal.trim(), autonomy, testsAt, ...roles };
+    // Runs on one of your computers (BLG-788): the plan is made there and opens at once; held, the sheet stays.
+    const sent = sendToComputer(startDeps, project, roles.agent?.runtime ?? myRuntime(prefsNow()), { kind: 'plan', input });
+    if (sent === 'held') return;
+    close();
+    if (sent === 'sent') return;
+    await act(() => api.create({ projectId: project, ...input }));
+  };
+
   if (!projects.length) {
-    // The sidebar's own "Add a Project…", one click away (every OS has it; not every one has a File menu).
-    const addProject = (): void => {
-      close();
-      actions.run({ type: 'add_project' });
-    };
     return <FormSheet title="New Plan" intro="Plans belong to a project: a folder with your code. Add one first." submitLabel="Add a Project…" onSubmit={addProject} onCancel={close} />;
   }
   const name = projects.find((p) => p.id === project)?.name;
@@ -58,16 +77,7 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
       width={600}
       canSubmit={Boolean(goal.trim() && project)}
       onCancel={close}
-      onSubmit={async () => {
-        const chosen = agent !== YOUR_AGENT ? agentForChoice(agent, runtimes) : undefined;
-        const input = { goal: goal.trim(), autonomy, testsAt, ...(chosen ? { agent: chosen } : {}) };
-        // Runs on one of your computers (BLG-788): the plan is made there and opens at once; held, the sheet stays.
-        const sent = sendToComputer(startDeps, project, chosen?.runtime ?? myRuntime(prefsNow()), { kind: 'plan', input });
-        if (sent === 'held') return;
-        close();
-        if (sent === 'sent') return;
-        await act(() => api.create({ projectId: project, ...input }));
-      }}
+      onSubmit={create}
     >
       <div className={p.newPlan}>
         <label className={p.newPlanLabel} htmlFor="plan-goal">
@@ -98,11 +108,9 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
         </button>
         {more ? (
           <>
-            <div className={p.newPlanRow}>
-              <span className={p.newPlanLabel}>Agent</span>
-              <Popup label="Agent" value={agent} options={agents} onChange={setAgent} />
-            </div>
-            <div className={p.newPlanHint}>Who works its milestones and tasks: each worktree runs this agent and model.</div>
+            <PlanRoles tiers={tiers} picks={picks} onPick={(role, v) => setPicked((was) => ({ ...was, [role]: v }))} reveal />
+            <div className={p.newPlanHint}>The strongest model designs it and takes over what’s hard (fix tasks after a failed check, conflicts, a task that stopped twice), an everyday one writes the code, one in between checks it. Change any of them later in Plan Settings.</div>
+            <div className={p.newPlanHint}>A task whose model fails, or that stops twice, first goes up the steps in Settings › Auto Route › When a Model Fails.</div>
           </>
         ) : null}
       </div>
@@ -134,7 +142,7 @@ function GoalBox({ value, onChange }: { value: string; onChange: (v: string) => 
 }
 
 /** Step by Step, Check-ins, Autopilot: three cards you can read without hovering (a radio group; the arrows move). */
-function AutonomyCards({ value, onChange, current }: { value: Autonomy; onChange: (a: Autonomy) => void; current?: Autonomy }) {
+export function AutonomyCards({ value, onChange, current }: { value: Autonomy; onChange: (a: Autonomy) => void; current?: Autonomy }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;

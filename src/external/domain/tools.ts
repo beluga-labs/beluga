@@ -288,6 +288,9 @@ export const MORE_STATE_TOOLS = [
   'plan_set_parallel',
   'plan_set_tests_at',
   'plan_set_work_agent',
+  'plan_set_check_agent',
+  'plan_set_arch_agent',
+  'plan_set_fix_agent',
   'plan_tidy_up',
   'plan_pass',
   'plan_recheck',
@@ -780,6 +783,9 @@ export const TOOL_ACCESS: ToolAccess<ExternalTool> = {
   plan_set_parallel: 'state_write',
   plan_set_tests_at: 'state_write',
   plan_set_work_agent: 'state_write',
+  plan_set_check_agent: 'state_write',
+  plan_set_arch_agent: 'state_write',
+  plan_set_fix_agent: 'state_write',
   plan_tidy_up: 'state_write',
   plan_pass: 'destructive',
   plan_recheck: 'launch_or_send',
@@ -1032,4 +1038,6 @@ export const NOT_EXPOSED: Readonly<Record<string, 'chat_only' | 'checker_only'>>
   plan_gate: 'checker_only',
   // A draft's reviewer records what it found (BLG-772): a fresh agent, not the one that wrote it.
   plan_review: 'checker_only',
+  // A milestone's architect records its design: a conversation Beluga makes for it, never an outside agent.
+  plan_design: 'checker_only',
 };

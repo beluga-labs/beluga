@@ -154,7 +154,7 @@ export class PlanMover {
     this.deps.board.movedAway(planIssueIds(plan), to.name, by);
     const ctl = this.deps.controller;
     if (ctl) {
-      const put = [plan.home, ...Object.values(plan.runs).flatMap((r) => [r.agent ? `${WS}${r.agent.worktree}` : '', r.checker ? `${WS}${r.checker}` : ''])].filter((c) => c.startsWith(WS));
+      const put = [plan.home, ...Object.values(plan.runs).flatMap((r) => [r.agent ? `${WS}${r.agent.worktree}` : '', r.checker ? `${WS}${r.checker}` : '', r.architect ? `${WS}${r.architect}` : ''])].filter((c) => c.startsWith(WS));
       for (const c of new Set(put)) await ctl.archive(c.slice(WS.length), false, { quiet: true }).catch(() => undefined);
     }
     return after;
