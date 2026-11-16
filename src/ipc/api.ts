@@ -553,7 +553,7 @@ export const API = {
   ...REVENUECAT_API,
   // ---- supporting Beluga: the star and coffee asks merges bring (support-api.ts)
   ...SUPPORT_API,
-  // ---- usage statistics: your level (Off, Limited, On), the ask after an update, what's sent (telemetry-api.ts)
+  // ---- usage statistics: your level (Off, Essential, On), the ask after an update, what's sent (telemetry-api.ts)
   ...TELEMETRY_API,
   // ---- your stats in the Usage tab: counted by the daemon, pastes and dictation from the Mac (stats-api.ts)
   ...STATS_API,

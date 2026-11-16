@@ -9,7 +9,7 @@ import { Rise, Words } from './fx.js';
 import s from './onboarding.module.css';
 
 /**
- * Usage statistics (BLG-922), the last setting: Off, Limited or On, with Limited already picked.
+ * Usage statistics (BLG-922), the last setting: Off, Essential or On, with Essential already picked.
  * Continue, Finish or Skip keep it; only builds that can send show this step (onboarding-model.ts).
  */
 export function ShareStep() {
@@ -21,7 +21,7 @@ export function ShareStep() {
     setPicked(l);
     void api.telemetry.choose(l, 'onboarding').catch(() => undefined);
   };
-  // Arriving here picks Limited for you (what Continue keeps), unless you chose before.
+  // Arriving here picks Essential for you (what Continue keeps), unless you chose before.
   useEffect(() => {
     if (!level) void api.telemetry.choose(DEFAULT_LEVEL, 'onboarding').catch(() => undefined);
   }, []);

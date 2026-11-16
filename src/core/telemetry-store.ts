@@ -12,7 +12,7 @@
  *   agent's answers), masked on this computer before anything leaves it. Never files or commands.
  *
  * Nothing is sent before a level is chosen. A new install chooses at the end of the onboarding
- * (Limited preselected; Skip keeps it). One that updated asks once (Share, Later, No thanks).
+ * (Essential preselected; Skip keeps it). One that updated asks once (Share, Later, No thanks).
  */
 
 export const TELEMETRY_LEVELS = ['off', 'limited', 'on'] as const;

@@ -12,7 +12,7 @@ import t from './telemetry.module.css';
 
 /**
  * The ask after an update (core/telemetry-store.ts): once, at a calm moment, never while one of
- * your agents is running. Share keeps the level picked (Limited unless you pick another), Later asks
+ * your agents is running. Share keeps the level picked (Essential unless you pick another), Later asks
  * again in a few days or a few merges, No thanks is final. Closing it is Later.
  */
 export function TelemetrySheets() {

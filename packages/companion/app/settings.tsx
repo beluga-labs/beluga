@@ -314,12 +314,12 @@ export default function Settings() {
                   onChange={chooseShare}
                   options={[
                     { key: 'off', label: 'Off' },
-                    { key: 'limited', label: 'Limited' },
+                    { key: 'limited', label: 'Essential' },
                     { key: 'on', label: 'On' },
                   ]}
                 />
                 <T v="caption" c={color.text3} style={{ paddingHorizontal: 6 }}>
-                  {share === 'off' ? 'Nothing is sent.' : share === 'limited' ? 'Only how you use Beluga’s own features.' : 'Also your agents’ sessions, sent anonymously.'} Beluga is free and open source: this is how it gets better for you.
+                  {share === 'off' ? 'Nothing is sent.' : share === 'limited' ? 'Only the very essential data.' : 'How you use Beluga and its statistics, sent anonymously.'} Beluga is free and open source: this is how it gets better for you.
                 </T>
               </View>
             ) : null}

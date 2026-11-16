@@ -11,7 +11,7 @@ Only Beluga's own releases can send. When a release is built, `scripts/build-sid
 
 Statistics go to two [Ratel](https://ratel.sh) projects, each with its own **ingest-only** key. A key can add data to one project, and it can't read anything back. That's why it's safe inside an app.
 
-- **The Beluga project** (`BELUGA_TELEMETRY_PRODUCT_KEY`, `productKey` in the file): Beluga's own data. Which features are used, calls to Beluga's own tools, app moments, this computer's kind. Sent at Limited and On.
+- **The Beluga project** (`BELUGA_TELEMETRY_PRODUCT_KEY`, `productKey` in the file): Beluga's own data. Which features are used, calls to Beluga's own tools, app moments, this computer's kind. Sent at Essential and On.
 - **The agents project** (`BELUGA_TELEMETRY_KEY`, `key`): your agents' sessions. Their turns, tokens and cost, every tool they call, Claude Code's own telemetry, and the masked text. Sent at On only.
 
 Without a product key, both go to the one project.
@@ -27,12 +27,12 @@ A build from source has no such file. It never asks, never shows the setting, an
 | Level | What's sent |
 | --- | --- |
 | **Off** | Nothing. |
-| **Limited** | How Beluga's own features are used, to the Beluga project. No agent sessions, no text. See the next section. |
-| **On** | Limited, plus your agents' sessions to the agents project: their turns, Claude Code's own telemetry, and the text of your own conversations, masked first. |
+| **Essential** | How Beluga's own features are used, to the Beluga project. No agent sessions, no text. See the next section. |
+| **On** | Essential, plus your agents' sessions to the agents project: their turns, Claude Code's own telemetry, and the text of your own conversations, masked first. |
 
 Nothing is sent before a level is chosen.
 
-- **New installs** choose on the last step of the onboarding, where Limited is already picked. Continue, Finish and Skip all keep it.
+- **New installs** choose on the last step of the onboarding, where Essential is already picked. Continue, Finish and Skip all keep it.
 - **Installs that updated** get one ask, at a calm moment, never while one of your agents is running:
   - **Share** keeps the level you picked.
   - **Later** asks again in 3 days or after 5 merged pull requests, whichever comes first.
@@ -46,9 +46,9 @@ You can change the level any time in **Settings › General › Usage statistics
 - **Calls to Beluga's tools** from those runs aren't sent either.
 - **Claude Code's own telemetry** isn't turned on for those runs.
 - **The level in Settings › General** still applies to every other project, and changing it keeps your exclusions.
-- **Feature counts and this computer's kind** aren't tied to a project, so they're still sent at Limited and On.
+- **Feature counts and this computer's kind** aren't tied to a project, so they're still sent at Essential and On.
 
-## What Limited sends
+## What Essential sends
 
 All of it goes to the Beluga project.
 
@@ -102,7 +102,7 @@ Text is masked on your computer before it's queued:
 
 Text longer than 32,000 characters is cut first. Masking runs a turn at a time between other work, so it never holds a run up.
 
-Never sent at any level: files and their contents, tool inputs and outputs, commands, and other people's messages. Limited sends no paths and nothing about your agents' sessions beyond their calls to Beluga's tools. On sends the text as you and your agent wrote it, so a path you typed goes too, with the home folder replaced.
+Never sent at any level: files and their contents, tool inputs and outputs, commands, and other people's messages. Essential sends no paths and nothing about your agents' sessions beyond their calls to Beluga's tools. On sends the text as you and your agent wrote it, so a path you typed goes too, with the home folder replaced.
 
 ## How it's sent
 

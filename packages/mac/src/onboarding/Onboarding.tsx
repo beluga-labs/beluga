@@ -68,7 +68,7 @@ export function useOnboarding(): { open: boolean; start: Step; close: (how: 'fin
     arrive,
     close: (how) => {
       saveMark(localStorage, APP_VERSION, how);
-      // Finished or skipped before its step: usage statistics stay at Limited, as the step has it (BLG-922).
+      // Finished or skipped before its step: usage statistics stay at Essential, as the step has it (BLG-922).
       if (telemetry.available && !telemetry.level) void api.telemetry.choose(DEFAULT_LEVEL, 'onboarding').catch(() => undefined);
       void api.telemetry.mark('onboarding_done', how).catch(() => undefined);
       clearPlace(localStorage);

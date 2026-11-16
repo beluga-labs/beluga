@@ -11,7 +11,7 @@ import { belugaEnv } from '../core/beluga-env.js';
  *
  * Two Ratel projects, two keys at the same url:
  * - `productKey`: Beluga's own data (features used, Beluga's own MCP tools, app moments, this
- *   computer's kind), sent at Limited and On;
+ *   computer's kind), sent at Essential and On;
  * - `key`: your agents' sessions (turns, tokens, every tool, Claude Code's own telemetry, the
  *   masked text), sent at On only.
  * Without a `productKey`, both go to `key` (one project).
@@ -26,7 +26,7 @@ export const ReleaseConfig = z.object({
   url: z.string().url().refine((u) => u.startsWith('https://') || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(u), 'https only (or this computer)'),
   /** The agents project's key (your agents' sessions, at On). */
   key: z.string().min(8).max(400),
-  /** The Beluga project's key (Beluga's own data, at Limited and On); else `key`. */
+  /** The Beluga project's key (Beluga's own data, at Essential and On); else `key`. */
   productKey: z.string().min(8).max(400).optional(),
 });
 export type ReleaseConfig = z.infer<typeof ReleaseConfig>;

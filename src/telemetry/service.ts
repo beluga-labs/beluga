@@ -28,7 +28,7 @@ import { type TurnFacts, belugaToolSpans } from './turn.js';
 /**
  * Usage statistics for this daemon: the level you chose, the ask, and what's collected and sent to
  * Ratel, in two projects (src/telemetry/config.ts):
- * - Beluga's own project, at Limited and On: features used, calls to Beluga's own tools, app
+ * - Beluga's own project, at Essential and On: features used, calls to Beluga's own tools, app
  *   moments, this computer's kind;
  * - the agents project, at On only: your agents' turns (tokens, every tool, the masked text) and
  *   Claude Code's own telemetry.
@@ -215,7 +215,7 @@ export class TelemetryService {
     }
     if (this.level === 'on') void this.otel?.start().catch(() => undefined);
     else {
-      // Limited: your agents' sessions don't go, not even what was waiting.
+      // Essential: your agents' sessions don't go, not even what was waiting.
       this.otel?.stop();
       if (this.agents !== this.product) this.agents?.clear();
     }
