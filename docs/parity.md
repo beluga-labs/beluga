@@ -357,9 +357,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `workspaces.moveUndo` | ✓ a worktree's ⋯ › Continue On ▸: a new one whose move didn't finish is archived again |
 | `workspaces.restore` | ✓ |
 | `workspaces.archivePlan` | ✓ the Archive dialog says how much space it frees |
-| `workspaces.deletePlan` | ✓ the Delete dialog says how many commits were never pushed or merged, and leads with Archive (the phone's Delete step says it too) |
+| `workspaces.deletePlan` | ✓ the Delete dialog says how many commits were never pushed or merged, and leads with Archive (the phone's Delete step says it too); the Overview's Delete for picked rows names each worktree that would lose some |
 | `workspaces.freeSpace` | ✓ Free Up Space on a worktree: clears its dependencies, builds and caches |
-| `workspaces.remove` | ✓ |
+| `workspaces.remove` | ✓ also the Overview's picked rows (⌘-click, Shift-click or ⌘A, live or archived), deleted together after one question that names any unpushed commits (⌘⌫ or the bar's Delete…) |
 | `workspaces.commit` | ✓ |
 | `workspaces.merge` | ✓ |
 | `workspaces.land` | ✓ Straight to main (BLG-973): the branch control's Land on main Now (a worktree that goes straight to main, with work waiting); the phone's branch step `land` |
