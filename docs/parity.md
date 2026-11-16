@@ -464,6 +464,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `env.claudeDotenv` | ✓ Settings › Environment › Your agent (and a .env approval's Always) |
 | `attachments.add` | ✓ |
 | `attachments.addFile` | ✓ a pasted path of an image becomes a waiting thumbnail |
+| `attachments.addText` | ✓ a very long paste waits as a file chip and goes as its first lines and the file (BLG-988) |
 | `attachments.reattach` | ✓ a queued message pulled back to edit gets its images back as thumbnails |
 | `attachments.expand` | ✓ |
 | `attachments.read` | ✓ images shown in messages |

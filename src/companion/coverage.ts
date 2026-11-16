@@ -258,6 +258,7 @@ export const PHONE: Record<Method, Side> = {
   // ---- images in a message: a photo from the phone goes in as bytes, never as a Mac path
   'attachments.add': 'phone',
   'attachments.addFile': 'mac',
+  'attachments.addText': 'mac',
   'attachments.expand': 'phone',
   'attachments.read': 'phone',
   'attachments.open': 'mac',
