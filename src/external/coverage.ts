@@ -468,6 +468,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'git.fetch': 'covered',
   'git.fetchIfStale': 'covered',
   'git.updateMain': 'covered',
+  'git.pushMain': 'covered',
   'git.stashAndUpdate': 'covered',
   'git.moveAndUpdate': 'covered',
   'git.switchToDefault': 'covered',

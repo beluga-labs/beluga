@@ -551,6 +551,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'git.fetch': 'drive',
   'git.fetchIfStale': 'drive',
   'git.updateMain': 'drive',
+  'git.pushMain': 'drive',
   'git.stashAndUpdate': 'drive',
   'git.moveAndUpdate': 'drive',
   'git.switchToDefault': 'drive',

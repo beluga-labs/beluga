@@ -740,6 +740,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `preview.snapshot` | ✓ a live preview's ••• › Save as Picture (a PNG in the worktree's .beluga/scratch/previews); with a phone paired, each preview's newest picture is kept there too, for the phone to show |
 | `git.fetch` | ✓ Fetch on a project's home (“fetched 3 min ago”, or why it couldn't: sign-in needed, offline) |
 | `git.fetchIfStale` | ✓ opening a project's home fetches quietly when the last fetch is a few minutes old (the daemon also fetches every project every ~15 min, or as Settings › Workspaces › Fetch in the background says: slower, or never) |
+| `git.pushMain` | ✓ Push main to origin (BLG-985): a Straight to main worktree's branch control (first when everything's on main and some isn't pushed, else in its menu) and the project home's bar when main has commits origin doesn't; on top of origin's new commits, never forced. The phone's branch step `push_main` |
 | `git.updateMain` | ✓ Update main on a project's home: fetch and fast-forward the default branch; what can't fast-forward asks (changes in the way, or Let Your Agent Handle It) |
 | `git.stashAndUpdate` | ✓ the “changes in the way” alert › Stash and Update (and put them back) |
 | `git.moveAndUpdate` | ✓ the “changes in the way” alert › Move to Worktree |
