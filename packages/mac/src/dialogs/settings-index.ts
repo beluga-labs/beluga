@@ -131,6 +131,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Give your agent a scratch folder', 'Screenshots, logs and notes go to .beluga/scratch/.', 'scratch screenshots logs notes'],
     ['Show the Scratch tab', 'Watch that folder live in the right panel.', 'scratch tab panel'],
   ]),
+  ...rows('claude', 'Chat plans', [['A chat can run its own plan', 'The chat writes and runs a plan in its Plan tab.', 'plan chat close earlier plans tab']]),
   ...rows('claude', 'Pull requests and templates', [
     ['Pull request instructions', 'How your agent writes pull requests.', 'pr prompt github'],
     ['Templates', 'Ways to start a task.', 'task templates start'],

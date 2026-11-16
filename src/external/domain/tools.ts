@@ -1028,6 +1028,9 @@ export const NOT_EXPOSED: Readonly<Record<string, 'chat_only' | 'checker_only'>>
   // Your own MCP servers, and a sign-in to one opened in your browser (BLG-353): for your own agent's runs only.
   mcp_servers: 'chat_only',
   mcp_sign_in: 'chat_only',
+  // A chat opens and closes its own plan (the chatPlans pref): an external agent has no chat of its own.
+  plan_open: 'chat_only',
+  plan_close: 'chat_only',
   // A milestone's checker records its verdict. An outside agent never passes its own work.
   plan_gate: 'checker_only',
   // A draft's reviewer records what it found (BLG-772): a fresh agent, not the one that wrote it.

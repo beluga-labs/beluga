@@ -98,7 +98,7 @@ export interface AgentHostDeps {
   /** Sentinels (your own runs): their tools, and a sentinel run's brief in its Claude step's conversation (core/sentinel). */
   readonly sentinel?: (channel: string, from: string) => { readonly tools: import('../agent/types.js').SentinelTools; readonly dashboard?: import('../agent/types.js').DashboardTools; readonly brief: string; readonly inRun: boolean } | undefined;
   /** A plan's home conversation (your own runs): its plan tools and what Claude is told about the plan (core/plans). */
-  readonly plans?: (channel: string, from: string, chain?: () => import('../agent/types.js').ChatChain) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string; readonly checker?: boolean } | undefined;
+  readonly plans?: (channel: string, from: string, chain?: () => import('../agent/types.js').ChatChain) => { readonly tools?: import('../agent/types.js').PlanTools; readonly brief?: string; readonly checker?: boolean; readonly opener?: boolean } | undefined;
   /** Child threads (core/threads): their tools, bound to this chat. Your own runs only, with the flag on (see runAgent). */
   readonly threads?: (channel: string) => import('../agent/types.js').ThreadTools | undefined;
   /** MCP Apps (Settings › Experimental): what apps in this conversation told the model since its last turn, taken by this one. */
@@ -1181,7 +1181,9 @@ export class AgentHost {
    */
   private missesPlanTools(lane: Lane, from: string, channel: string): boolean {
     if (!lane.current || lane.runPlanTools || from !== this.selfId) return false;
-    return Boolean(this.deps.plans?.(channel, from)?.tools);
+    // A chat that can still only open a plan (chatPlans' opener) misses nothing: its run has those tools.
+    const plans = this.deps.plans?.(channel, from);
+    return Boolean(plans?.tools && !plans.opener);
   }
 
   private sendFollowUp(lane: Lane, from: string, body: BodyOf<'agent_request'>): boolean {
@@ -1571,13 +1573,15 @@ export class AgentHost {
       const previewBrief = from === this.selfId && place && experimentOn(this.store.getState().prefs.experiments, 'previews') ? buildPreviewAppend() : undefined;
       // A plan's home conversation (a main folder's chat, often): the plan's tools.
       const plans = from !== this.selfId || place?.syncMain ? undefined : this.deps.plans?.(body.channel, from, () => ({ ...chain }));
-      // Syncing main never gets them, so it never counts as missing them.
-      lane.runPlanTools = Boolean(plans?.tools || place?.syncMain);
+      // A plan's home (its head Claude), not a chat that can only open one (chatPlans' plan_open): that chat stays as it is.
+      const planHome = plans?.tools && !plans.opener;
+      // Syncing main never gets them, so it never counts as missing them. An opener run has only plan_open: once that makes the plan, it misses them.
+      lane.runPlanTools = Boolean(planHome || place?.syncMain);
       // Your own runs get the board: a run doing a task gets it, and the tools to keep it true. A main
       // folder's chat too (BLG-626): the board is Beluga's, not a file there, so the folder stays read-only.
       // A plan's own conversation too, for tasks outside the plan. Not while syncing main, nor in a
       // milestone's checker (it has only plan_get and plan_gate).
-      const planFirst = body.plan && !plans?.tools;
+      const planFirst = body.plan && !planHome;
       // Sentinels (your own runs): a sentinel run's Claude step gets its brief, and the task tools (it makes tasks).
       const sentinel = from === this.selfId && !place?.syncMain ? this.deps.sentinel?.(body.channel, from) : undefined;
       const noBoard = place?.syncMain || (place?.askOnly && plans?.checker && !sentinel?.inRun);
@@ -1622,7 +1626,7 @@ export class AgentHost {
       };
       // The plan's head Claude orchestrates: it may change things where it runs (your approvals and
       // Beluga's secrets rules still apply), not only read like other main-folder chats.
-      const runPlace = plans?.tools && place?.askOnly && !place.syncMain ? withoutAskOnly(place) : place;
+      const runPlace = planHome && place?.askOnly && !place.syncMain ? withoutAskOnly(place) : place;
       const final = await Promise.race([gone, exited, outsideYourHand(() => agent.run({
         ...(scratch ? { scratchDir: scratch } : {}),
         ...this.links.linkOf(body.channel),
@@ -1676,7 +1680,7 @@ export class AgentHost {
         askUser: (question) => this.deps.questions.ask(askTo, body.requestId, body.channel, question),
         plan: body.plan,
         // A plan's conversation plans; it doesn't move to a worktree.
-        ...(move && !plans?.tools ? { continueInWorktree: move } : {}),
+        ...(move && !planHome ? { continueInWorktree: move } : {}),
         // Your own Claude in a worktree keeps the project's setup true for the next one.
         ...(worktree && from === this.selfId && body.channel.startsWith('ws:') ? (({ setup }) => (setup ? { setup } : {}))({ setup: this.deps.setup?.(body.channel) }) : {}),
         onProcess: (p) => {

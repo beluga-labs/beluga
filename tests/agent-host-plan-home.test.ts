@@ -19,6 +19,8 @@ import { waitFor } from './helpers.js';
 
 const ME = 'me';
 const HOME = 'ws:home';
+/** A project chat with chatPlans on: it can only open a plan (BLG-415). */
+const CHAT = 'ws:chat';
 
 function setup() {
   const store = new Store(initialState('room', 'auto'));
@@ -34,7 +36,7 @@ function setup() {
       return `answered ${input.prompt}`;
     },
   };
-  const place = (channel: string) => ({ cwd: dir, additionalDirectories: [], autoEdit: channel !== HOME, onSession: () => undefined, ...(channel === HOME ? { askOnly: { project: 'p' }, fixup: path.join(dir, 'fix') } : {}) });
+  const place = (channel: string) => ({ cwd: dir, additionalDirectories: [], autoEdit: channel !== HOME, onSession: () => undefined, ...(channel === HOME || channel === CHAT ? { askOnly: { project: 'p' }, fixup: path.join(dir, 'fix') } : {}) });
   const host = new AgentHost({
     store,
     selfId: () => ME,
@@ -49,7 +51,7 @@ function setup() {
     approvalTimeoutMs: () => 60_000,
     refreshUsage: async () => undefined,
     workspaces: { place, refreshWorkspace: async () => undefined, manager: { list: [] } } as never,
-    plans: (channel) => (channel === HOME ? { tools: {} as never, brief: 'head' } : undefined),
+    plans: (channel) => (channel === HOME ? { tools: {} as never, brief: 'head' } : channel === CHAT ? { tools: {} as never, brief: 'open', opener: true } : undefined),
   });
   const ask = (requestId: string, prompt: string, channel: string): Promise<void> => host.onAgentRequest(ME, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel, urgent: false, plan: false });
   return { host, runs, release, ask };
@@ -68,6 +70,15 @@ describe('the plan’s own conversation', () => {
     expect(t.runs.some((r) => r.prompt === 'task 5')).toBe(false);
     t.release.forEach((r) => r());
     await waitFor(() => t.runs.some((r) => r.prompt === 'task 5'));
+  });
+
+  it('a chat that can only open a plan stays questions-only, with plan_open mounted (BLG-415)', async () => {
+    const t = setup();
+    await t.ask('c1', 'turn this into a plan', CHAT);
+    await waitFor(() => t.runs.length === 1);
+    expect(t.runs[0]!.place?.askOnly).toBeDefined();
+    expect(t.runs[0]!.planTools).toBeDefined();
+    expect(t.runs[0]!.planBrief).toBe('open');
   });
 
   it('isn’t questions-only: its Claude may change things (and still fixes conflicts in a hidden worktree)', async () => {
@@ -111,6 +122,7 @@ describe('a conversation that became a plan’s home mid-run', () => {
     const runs: AgentRunInput[] = [];
     const steered: string[] = [];
     let planned = false;
+    let opener = false;
     const agent: AgentBackend = {
       async run(input: AgentRunInput) {
         runs.push(input);
@@ -135,10 +147,11 @@ describe('a conversation that became a plan’s home mid-run', () => {
       refreshUsage: async () => undefined,
       workspaces: { place: () => ({ cwd: dir, additionalDirectories: [], autoEdit: true, onSession: () => undefined }), refreshWorkspace: async () => undefined, inChannel: () => undefined, agentIn: () => undefined, manager: { list: [] } } as never,
       // The plan exists once Plan with Tasks is picked (plans.here).
-      plans: (channel) => (channel === HOME && planned ? { tools: { get: () => 'plan' } as never, brief: 'planning' } : undefined),
+      // With chatPlans, a chat that can only open a plan has the opener's tools until plan_open makes one.
+      plans: (channel) => (channel !== HOME ? undefined : planned ? { tools: { get: () => 'plan' } as never, brief: 'planning' } : opener ? { tools: { get: () => 'no plan' } as never, brief: 'open', opener: true } : undefined),
     });
     const ask = (requestId: string, prompt: string, urgent: boolean): Promise<void> => host.onAgentRequest(ME, { kind: 'agent_request', requestId, prompt, viaAgent: false, channel: HOME, urgent, plan: false });
-    return { runs, steered, ask, plan: () => (planned = true) };
+    return { runs, steered, ask, plan: () => (planned = true), opener: () => (opener = true) };
   }
 
   it('a message sent now starts a run with the plan tools instead of being steered in', async () => {
@@ -152,6 +165,21 @@ describe('a conversation that became a plan’s home mid-run', () => {
     expect(t.steered).toEqual([]);
     expect(t.runs[1]!.prompt).toContain('plan the machines idea');
     expect(t.runs[1]!.planTools).toBeDefined();
+  });
+
+  it('a run that only could open a plan (plan_open) takes no message once the plan is open (BLG-415)', async () => {
+    const t = midRun();
+    t.opener();
+    void t.ask('r1', 'turn this into a plan', false);
+    await waitFor(() => t.runs.length === 1);
+    void t.ask('r2', 'one more thing', true);
+    await waitFor(() => t.steered.length === 1);
+    // plan_open made the plan during the run: the run has no plan_write, so the next message starts its own run.
+    t.plan();
+    void t.ask('r3', 'add a milestone for docs', true);
+    await waitFor(() => t.runs.length === 2);
+    expect(t.steered).toEqual(['one more thing']);
+    expect(t.runs[1]!.prompt).toContain('add a milestone for docs');
   });
 
   it('without a plan, it is steered in as before', async () => {
