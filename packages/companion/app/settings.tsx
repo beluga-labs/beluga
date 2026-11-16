@@ -314,7 +314,7 @@ export default function Settings() {
                   onChange={chooseShare}
                   options={[
                     { key: 'off', label: 'Off' },
-                    { key: 'limited', label: 'Limited' },
+                    { key: 'limited', label: 'Essential' },
                     { key: 'on', label: 'On' },
                   ]}
                 />

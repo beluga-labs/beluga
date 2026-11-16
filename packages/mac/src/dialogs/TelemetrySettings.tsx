@@ -3,7 +3,7 @@ import { useApi, useApp } from '../lib/beluga.js';
 import { LEVELS } from '../lib/telemetry.js';
 import { Group, Row, Select } from './settings-controls.js';
 
-/** Settings › General › Usage statistics: Off, Limited, On. Only in builds that can send them. */
+/** Settings › General › Usage statistics: Off, Essential, On. Only in builds that can send them. */
 export function TelemetrySettingsGroup() {
   const api = useApi();
   const telemetry = useApp((st) => st.telemetry);

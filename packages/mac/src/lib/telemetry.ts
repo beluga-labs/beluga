@@ -21,7 +21,7 @@ export interface LevelChoice {
 
 export const LEVELS: readonly LevelChoice[] = [
   { level: 'off', label: 'Off', detail: 'Nothing is sent.' },
-  { level: 'limited', label: 'Limited', detail: 'Only the very essential data.' },
+  { level: 'limited', label: 'Essential', detail: 'Only the very essential data.' },
   { level: 'on', label: 'On', detail: 'How you use Beluga and its statistics, sent anonymously.' },
 ];
 

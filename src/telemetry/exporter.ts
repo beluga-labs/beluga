@@ -1,6 +1,5 @@
 import { type OtlpLog, type OtlpSpan, type Sender, logsRequest, tracesRequest } from './otlp.js';
 import { type TurnFacts, turnSpans } from './turn.js';
-import type { ReleaseConfig } from './config.js';
 
 /**
  * Sends what was collected, in batches, without ever getting in the way: nothing here runs while a
@@ -11,10 +10,11 @@ import type { ReleaseConfig } from './config.js';
  */
 
 export interface ExporterDeps {
-  readonly config: ReleaseConfig;
+  /** One Ratel project: its ingest base and its ingest-only key. */
+  readonly config: { readonly url: string; readonly key: string };
   readonly sender: () => Sender;
-  /** Masks a turn's text (level "on"); turns without text pass as they are. */
-  readonly prepare: (turn: TurnFacts) => TurnFacts;
+  /** Masks a turn's text (level "on"); undefined drops the turn (the level went down since). */
+  readonly prepare: (turn: TurnFacts) => TurnFacts | undefined;
   readonly fetch?: typeof fetch;
   readonly flushMs?: number;
   readonly now?: () => number;
@@ -75,6 +75,13 @@ export class Exporter {
     if (this.turns.length >= SOON) void this.flush();
   }
 
+  /** Spans already built (nothing in them to mask): sent with the next batch. */
+  spans(list: readonly OtlpSpan[]): void {
+    if (this.refused || !list.length) return;
+    this.unsent = [...this.unsent, ...list].slice(-MAX_SPANS);
+    if (this.unsent.length >= SOON * 5) void this.flush();
+  }
+
   log(record: OtlpLog): void {
     if (this.refused) return;
     this.logs.push(record);
@@ -98,7 +105,8 @@ export class Exporter {
     for (const t of turns) {
       // A tick between turns: masking a long conversation never holds the daemon up.
       await new Promise((r) => setImmediate(r));
-      spans.push(...turnSpans(this.deps.prepare(t), sender.installId));
+      const ready = this.deps.prepare(t);
+      if (ready) spans.push(...turnSpans(ready, sender.installId));
     }
     // post() takes what it sent off the front of each list: what's left is what didn't go.
     if (!(await this.post('traces', spans, (part) => tracesRequest(sender, part)))) {

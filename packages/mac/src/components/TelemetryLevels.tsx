@@ -2,7 +2,7 @@ import type { TelemetryLevel } from '@beluga/core/telemetry-store.js';
 import { LEVELS } from '../lib/telemetry.js';
 import s from './telemetry-levels.module.css';
 
-/** Off, Limited, On: one radio group, each with a line saying what it sends. */
+/** Off, Essential, On: one radio group, each with a line saying what it sends. */
 export function TelemetryLevels({ value, onChange, name = 'telemetry-level' }: { readonly value: TelemetryLevel; readonly onChange: (level: TelemetryLevel) => void; readonly name?: string }) {
   return (
     <div className={s.levels} role="radiogroup" aria-label="Usage statistics">

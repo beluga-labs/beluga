@@ -162,3 +162,52 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   }
   return spans;
 }
+
+/** One of Beluga's own MCP tools (mcp__beluga__send_chat, mcp__beluga_board__task_update…), as every runtime names them. */
+export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.test(name);
+
+/**
+ * A turn as Beluga's own project sees it: only the calls to Beluga's own tools, under an
+ * `invoke_agent` root that says which agent ran and where. No model, tokens, cost, length, text or
+ * other tools: those are your agents' sessions (turnSpans, at On). Nothing when it used none.
+ */
+export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
+  const tools = f.tools.filter((t) => isBelugaTool(t.name));
+  if (!tools.length) return [];
+  const trace = traceId();
+  const root = spanId();
+  const conversation = f.session ? pseudonym(installId, f.session) : undefined;
+  return [
+    {
+      traceId: trace,
+      spanId: root,
+      name: `invoke_agent ${f.runtime}`,
+      kind: 1,
+      startTimeUnixNano: nanos(f.startedAt),
+      endTimeUnixNano: nanos(f.endedAt),
+      attributes: attrs({
+        'gen_ai.operation.name': 'invoke_agent',
+        'gen_ai.agent.name': f.runtime,
+        ...(conversation ? { 'gen_ai.conversation.id': conversation } : {}),
+        'beluga.runtime': f.runtime,
+        'beluga.place': f.place,
+        'beluga.own': f.own,
+        'beluga.outcome': f.outcome,
+        'beluga.tools': tools.length,
+        'beluga.tool_errors': tools.filter((t) => !t.ok).length,
+      }),
+      status: { code: f.outcome === 'error' ? 2 : 1 },
+    },
+    ...tools.map((t) => ({
+      traceId: trace,
+      spanId: spanId(),
+      parentSpanId: root,
+      name: `execute_tool ${t.name}`,
+      kind: 1,
+      startTimeUnixNano: nanos(t.startedAt),
+      endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
+      attributes: attrs({ 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': t.name, 'gen_ai.tool.call.id': t.id, 'beluga.sub_agent': t.sub || undefined, ...(t.ok ? {} : { 'error.type': 'tool_error' }) }),
+      status: { code: t.ok ? 1 : 2 },
+    })),
+  ];
+}

@@ -23,11 +23,15 @@ import { Masker } from './mask.js';
 import type { ObserveDeps } from './observe.js';
 import { type AttrValue, event } from './otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from './record.js';
-import type { TurnFacts } from './turn.js';
+import { type TurnFacts, belugaToolSpans } from './turn.js';
 
 /**
- * Usage statistics for this daemon: the level you chose, the ask, and, when it's on, what's
- * collected (turns, features, Claude Code's own telemetry, this computer's kind) and sent to Ratel.
+ * Usage statistics for this daemon: the level you chose, the ask, and what's collected and sent to
+ * Ratel, in two projects (src/telemetry/config.ts):
+ * - Beluga's own project, at Essential and On: features used, calls to Beluga's own tools, app
+ *   moments, this computer's kind;
+ * - the agents project, at On only: your agents' turns (tokens, every tool, the masked text) and
+ *   Claude Code's own telemetry.
  * In a build that can't send (no release config), it publishes `available: false` and does nothing.
  */
 
@@ -55,18 +59,16 @@ export interface TelemetryDeps {
 
 const TICK_MS = 60_000;
 
-/** A turn without its text (a level below On). */
-const withoutText = (t: TurnFacts): TurnFacts => {
-  const { text: _text, ...rest } = t;
-  return rest;
-};
 const DAY_MS = 24 * 60 * 60_000;
 /** The secret values are read again at most this often. */
 const SECRETS_MS = 60_000;
 
 export class TelemetryService {
   private record: TelemetryRecord;
-  private readonly exporter?: Exporter;
+  /** Beluga's own project. */
+  private readonly product?: Exporter;
+  /** Your agents' sessions (the same exporter as `product` when the release has one key). */
+  private readonly agents?: Exporter;
   private otel?: ClaudeOtel;
   private readonly masker = new Masker(os.homedir());
   private secretsAt = 0;
@@ -77,10 +79,12 @@ export class TelemetryService {
   constructor(private readonly deps: TelemetryDeps) {
     this.record = deps.file === null ? { installId: randomUUID() } : loadTelemetryRecord(...(deps.file ? [deps.file] : [])).record;
     if (deps.config) {
-      const config = deps.config;
-      this.exporter = new Exporter({ config, sender: () => ({ installId: this.record.installId, version: deps.version }), prepare: (t) => this.prepare(t), ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.now ? { now: deps.now } : {}) });
-      // Claude Code's own telemetry only in a real release (the demo runs no Claude).
-      if (!deps.pretend) this.otel = new ClaudeOtel({ emit: (r) => this.level !== 'off' && this.exporter?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
+      const { url, key, productKey } = deps.config;
+      const common = { sender: () => ({ installId: this.record.installId, version: deps.version }), ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.now ? { now: deps.now } : {}) };
+      this.agents = new Exporter({ ...common, config: { url, key }, prepare: (t) => this.prepare(t) });
+      this.product = productKey ? new Exporter({ ...common, config: { url, key: productKey }, prepare: (t) => t }) : this.agents;
+      // Claude Code's own telemetry only in a real release (the demo runs no Claude), and only at On.
+      if (!deps.pretend) this.otel = new ClaudeOtel({ emit: (r) => this.level === 'on' && this.agents?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
     }
     this.publish();
     // The ask counts merges: told again when the count changes.
@@ -96,7 +100,7 @@ export class TelemetryService {
     this.applyLevel();
     this.timer = setInterval(() => this.tick(), this.deps.tickMs ?? TICK_MS);
     this.timer.unref?.();
-    this.exporter?.start();
+    for (const e of this.exporters()) e.start();
   }
 
   async stop(): Promise<void> {
@@ -105,7 +109,7 @@ export class TelemetryService {
     this.tick();
     this.otel?.stop();
     featureCounter.enable(false);
-    await this.exporter?.stop();
+    await Promise.all(this.exporters().map((e) => e.stop()));
   }
 
   /** What a runtime's backend reports its turns through (src/telemetry/hook.ts). */
@@ -113,11 +117,25 @@ export class TelemetryService {
     return {
       level: () => this.level,
       excluded: (input) => this.excludedRun(input),
-      // The level now, not when the run started: off drops it, anything but on drops its text.
-      turn: (f) => this.level !== 'off' && this.exporter?.turn(this.level === 'on' ? f : withoutText(f)),
-      env: (rt) => (rt === 'claude' || rt === 'local' ? this.otel?.env() : undefined),
+      // The level now, not when the run started: off drops it, limited keeps only Beluga's own tools.
+      turn: (f) => this.turn(f),
+      env: (rt) => (this.level === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
       calls: (session, from, to) => this.otel?.callsFor(session, from, to) ?? [],
     };
+  }
+
+  /** A turn ended: its calls to Beluga's tools to Beluga's project; at On, the whole turn to the agents project. */
+  private turn(f: TurnFacts): void {
+    const level = this.level;
+    if (level === 'off') return;
+    if (level === 'on') this.agents?.turn(f);
+    // One project: the whole turn already has Beluga's tools in it.
+    if (level !== 'on' || this.product !== this.agents) this.product?.spans(belugaToolSpans(f, this.record.installId));
+  }
+
+  /** Each project once (one exporter when the release has one key). */
+  private exporters(): Exporter[] {
+    return [...new Set([this.product, this.agents].filter((e): e is Exporter => Boolean(e)))];
   }
 
   /** A level chosen in the onboarding or in Settings. */
@@ -157,7 +175,7 @@ export class TelemetryService {
   /** A moment a screen reports (only at a level that sends). */
   mark(name: Mark, detail?: string): void {
     if (this.level === 'off') return;
-    this.exporter?.log(event(name, this.now(), { ...(detail ? { detail: detail.slice(0, 40) } : {}) }));
+    this.product?.log(event(name, this.now(), { ...(detail ? { detail: detail.slice(0, 40) } : {}) }));
   }
 
 
@@ -184,25 +202,30 @@ export class TelemetryService {
     }
     this.applyLevel();
     this.publish();
-    if (this.level !== 'off') this.exporter?.log(event('level', this.now(), { level: this.level, via, ...(answer ? { answer } : {}) }));
+    if (this.level !== 'off') this.product?.log(event('level', this.now(), { level: this.level, via, ...(answer ? { answer } : {}) }));
   }
 
   private applyLevel(): void {
     const on = this.level !== 'off';
     featureCounter.enable(on);
     if (!on) {
-      this.exporter?.clear();
+      for (const e of this.exporters()) e.clear();
       this.otel?.stop();
       return;
     }
-    void this.otel?.start().catch(() => undefined);
+    if (this.level === 'on') void this.otel?.start().catch(() => undefined);
+    else {
+      // Essential: your agents' sessions don't go, not even what was waiting.
+      this.otel?.stop();
+      if (this.agents !== this.product) this.agents?.clear();
+    }
     if (this.now() - this.lastDevice > DAY_MS) this.device();
   }
 
   private device(): void {
     this.lastDevice = this.now();
     const runtimes = this.deps.runtimes?.() ?? [];
-    this.exporter?.log(event('device', this.now(), deviceFacts({ app_version: this.deps.version, level: this.level, runtimes: runtimes.join(',') || undefined } satisfies Record<string, AttrValue>)));
+    this.product?.log(event('device', this.now(), deviceFacts({ app_version: this.deps.version, level: this.level, runtimes: runtimes.join(',') || undefined } satisfies Record<string, AttrValue>)));
   }
 
   /** Each minute: what got used, summed; once a day, this computer's kind. */
@@ -212,15 +235,15 @@ export class TelemetryService {
     if (due !== this.deps.store.getState().telemetry.due) this.publish();
     if (this.level === 'off') return;
     const { since, counts } = featureCounter.drain(this.now());
-    for (const c of counts) this.exporter?.log(event('feature', since, { method: c.method, calls: c.calls, errors: c.errors, total_ms: c.totalMs, max_ms: c.maxMs, window_s: Math.round((this.now() - since) / 1000) }));
+    for (const c of counts) this.product?.log(event('feature', since, { method: c.method, calls: c.calls, errors: c.errors, total_ms: c.totalMs, max_ms: c.maxMs, window_s: Math.round((this.now() - since) / 1000) }));
     if (this.now() - this.lastDevice > DAY_MS) this.device();
   }
 
-  /** A turn's text, masked (level "on"); the secret values read again at most once a minute. */
-  private prepare(t: TurnFacts): TurnFacts {
+  /** A whole turn as it's sent: dropped below On, its text masked (the secret values read again at most once a minute). */
+  private prepare(t: TurnFacts): TurnFacts | undefined {
+    // Turned down since it was queued: it doesn't go.
+    if (this.level !== 'on') return undefined;
     if (!t.text) return t;
-    // Turned down since it was queued: its text doesn't go.
-    if (this.level !== 'on') return withoutText(t);
     if (this.now() - this.secretsAt > SECRETS_MS) {
       this.secretsAt = this.now();
       try {

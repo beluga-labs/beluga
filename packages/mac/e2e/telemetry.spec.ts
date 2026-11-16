@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures.js';
 
 /**
- * Usage statistics (BLG-922): Off, Limited, On in Settings › General, and the ask
+ * Usage statistics (BLG-922): Off, Essential, On in Settings › General, and the ask
  * after an update. The demo shows them as a release would and never sends anything.
  */
 
@@ -29,23 +29,23 @@ test('Settings › General has the level', async ({ page }) => {
   await page.keyboard.press('Enter');
   const level = dialog.getByRole('combobox', { name: 'Share usage statistics' });
   await expect(level).toBeVisible();
-  await expect(level).toContainText('Limited');
+  await expect(level).toContainText('Essential');
   await both(page, dialog, 'telemetry-settings');
   await expect(dialog.getByRole('button', { name: /See What/ })).toHaveCount(0);
 });
 
 // With BELUGA_DEMO_ASKS=telemetry the demo has updated and not answered: the ask comes by itself.
-test('the ask after an update: Limited picked, Later closes it', async ({ page }) => {
+test('the ask after an update: Essential picked, Later closes it', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_ASKS !== 'telemetry', 'needs BELUGA_DEMO_ASKS=telemetry');
   await page.goto('/');
   const sheet = page.getByRole('dialog', { name: 'Help make Beluga better' });
   await expect(sheet).toBeVisible({ timeout: 15_000 });
-  await expect(sheet.getByRole('radio', { name: /Limited/ })).toBeChecked();
-  await expect(sheet.getByRole('button', { name: 'Share (Limited)' })).toBeVisible();
+  await expect(sheet.getByRole('radio', { name: /Essential/ })).toBeChecked();
+  await expect(sheet.getByRole('button', { name: 'Share (Essential)' })).toBeVisible();
   await both(page, sheet, 'telemetry-ask');
   await sheet.getByRole('radio', { name: /^Off/ }).check();
   await expect(sheet.getByRole('button', { name: 'Keep It Off' })).toBeVisible();
-  await sheet.getByRole('radio', { name: /Limited/ }).check();
+  await sheet.getByRole('radio', { name: /Essential/ }).check();
   await sheet.getByRole('button', { name: 'Later' }).last().click();
   await expect(sheet).toBeHidden();
   await page.waitForTimeout(3000);
