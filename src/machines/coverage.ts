@@ -24,6 +24,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'session.setPrefs': 'drive',
   'session.setPlanMode': 'drive',
   'session.setAutopilot': 'drive',
+  'session.setBuildWith': 'drive',
   'session.setClaudeSharing': 'drive',
   'session.rename': 'drive',
   'session.zoom': 'drive',

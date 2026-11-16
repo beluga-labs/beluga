@@ -142,6 +142,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `session.setPrefs` | ✓ |
 | `session.setPlanMode` | ✓ |
 | `session.setAutopilot` | ✓ the composer's mode menu › Full Autopilot (BLG-981), and its Autopilot chip to turn it off; a plan's own conversation switches its plan; the phone's conversation ⋯ › Full Autopilot (1.58) |
+| `session.setBuildWith` | ✓ the composer's mode menu › Build With ▸ under Plan First and Plan with Tasks (BLG-982): the agent in the chat plans, the picked one builds once you approve (Plan First hands the chat over; Plan with Tasks makes it the plan's builder); the banner and the plan card say who builds. Mac only for now |
 | `session.compact` | ✓ (context meter › Compact now) |
 | `session.btw` | ✓ (`/btw` in the composer: the side-question card above the box) |
 | `session.btwDismiss` | ✓ (the side-question card's ✕, or esc) |

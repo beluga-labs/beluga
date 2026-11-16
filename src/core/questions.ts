@@ -9,6 +9,11 @@ export interface QuestionDeps {
   /** How long Claude waits for a friend's answer before carrying on without one (yours: no limit). */
   readonly timeoutMs: () => number;
   readonly toast: (text: string, level?: 'info' | 'warn') => void;
+  /**
+   * You approved your own agent's plan in a chat that builds with another agent (BLG-982): Beluga
+   * hands the plan over → what the planning agent is told instead (it stops there). Undefined: no handoff.
+   */
+  readonly handOff?: (channel: string, plan: string) => ClaudeAnswer | undefined;
 }
 
 const SKIP: ClaudeAnswer = { kind: 'skip' };
@@ -126,7 +131,8 @@ export class QuestionBroker {
     // Approving Claude's plan ends planning in that conversation: what you send next is acted on.
     if (answer.kind === 'plan' && answer.approve && this.deps.store.getState().planMode[q.channel]) this.deps.store.dispatch({ type: 'plan_mode', channel: q.channel, on: false });
     const self = this.deps.selfId();
-    if (q.owner === self) this.settle(qid, self, answer);
+    const handed = q.owner === self && answer.kind === 'plan' && answer.approve && q.question.kind === 'plan' ? this.deps.handOff?.(q.channel, q.question.plan) : undefined;
+    if (q.owner === self) this.settle(qid, self, handed ?? answer);
     else this.deps.send({ kind: 'agent_answer', qid, answer }, { to: q.owner });
   }
 

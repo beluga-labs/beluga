@@ -120,6 +120,17 @@ describe('who plans, builds and checks a plan (BLG-982)', () => {
     expect(t.plans.need(plan.id).runs.safe!.check!.by).toMatchObject({ kind: 'claude', agent: LOCAL });
   });
 
+  it('Plan with Tasks in a chat that builds with another agent: that agent builds, the chat’s plans it', async () => {
+    const t = setup();
+    const chat = await (t.work as unknown as { deps: { controller: WorkspaceController } }).deps.controller.newChat('api', 'Ideas');
+    t.patchWs(chat!.id, { agent: CLAUDE } as Partial<Workspace>);
+    t.store.dispatch({ type: 'build_with', channel: `ws:${chat!.id}`, agent: CODEX });
+    const plan = t.work.here(`ws:${chat!.id}`);
+    expect(plan).toMatchObject({ agent: CODEX, planner: CLAUDE });
+    // Used once: the pick is spent.
+    expect(t.store.getState().buildWith).toEqual({});
+  });
+
   it('saves and reads back each part, and lets go of one that doesn’t read', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'plan-roles-'));
     try {

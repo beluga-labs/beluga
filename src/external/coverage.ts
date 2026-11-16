@@ -43,6 +43,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'session.setPrefs': 'gated',
   'session.setPlanMode': 'covered',
   'session.setAutopilot': { refused: AUTOPILOT },
+  'session.setBuildWith': { refused: 'Who builds what a chat plans is the person’s pick in its mode menu; plan_set_role_agent changes a plan’s builder.' },
   'session.setClaudeSharing': 'gated',
   'session.rename': 'gated',
   'session.zoom': 'ui_only',

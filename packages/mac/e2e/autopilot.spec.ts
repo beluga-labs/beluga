@@ -103,3 +103,34 @@ test('New Plan: one sentence for its agents, Mix Agents for one per part, and Ne
   await expect(page.getByRole('button', { name: 'Approve Plan' })).toHaveCount(0, { timeout: 20_000 });
   await both(page, '05-plan-approved', () => page.locator('main'));
 });
+
+test('Plan First, built by Codex: picked from the mode menu, Claude plans and Codex takes over once you approve', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await expect(sidebar(page)).toBeVisible();
+  const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
+  if (!(await row.isVisible())) await sidebar(page).getByRole('button', { name: 'bob-api' }).first().click({ position: { x: 60, y: 10 } });
+  await row.click();
+  // Act has no Build With: it's for planning.
+  await page.getByRole('button', { name: /^Mode: / }).click();
+  await expect(menu(page).getByRole('menuitem', { name: /^Build With/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await composer(page).press('Shift+Tab');
+  await page.getByRole('button', { name: 'Mode: Plan First' }).click();
+  await menu(page).getByRole('menuitem', { name: /^Build With/ }).hover();
+  await both(page, '06-build-with-menu', () => page.locator('main'));
+  await menu(page).getByRole('menuitem', { name: 'Codex', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'then Codex builds it' })).toBeVisible();
+
+  await composer(page).fill('Add login to the API');
+  await composer(page).press('Enter');
+  await expect(page.getByRole('button', { name: 'Approve plan' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('then Codex builds it, or type what to change below')).toBeVisible();
+  await page.getByRole('button', { name: 'Approve plan' }).click();
+  await expect(page.getByText('Claude planned it; Codex builds it now.')).toBeVisible({ timeout: 30_000 });
+  // The conversation is Codex's now, and Codex answers (the demo's Codex echoes the plan's last line).
+  await expect(page.getByRole('button', { name: 'Agent, model and effort' })).toContainText('Codex');
+  await expect(page.getByText(/^echo: /).last()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/plan is handed over/).first()).toBeVisible();
+  await both(page, '07-codex-builds', () => page.locator('main'));
+});

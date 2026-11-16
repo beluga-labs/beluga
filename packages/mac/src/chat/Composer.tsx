@@ -29,6 +29,7 @@ import { chordLabel } from '../lib/shortcuts-model.js';
 import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
 import { ModelPicker, myRuntime } from './ModelPicker.js';
 import { AutopilotChip, useAutopilot } from './AutopilotChip.js';
+import { useBuildWith } from './BuildWith.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
 import { boxChats, plainWords } from './chat-box.js';
@@ -237,6 +238,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   const plan = state.planMode[channel] === true;
   // Full Autopilot (BLG-981): a stand-in agent answers what your agent asks here; picked from the mode menu.
   const autopilot = useAutopilot(channel);
+  // Plan here, build with another agent (BLG-982): under Plan First and Plan with Tasks in the same menu.
+  const buildWith = useBuildWith(channel);
   // Plan with Tasks: this conversation is a plan's home (milestones and tasks, approved onto the board).
   const homePlan = planForHome(state.plans, channel);
   // Picked but nothing sent yet: only the box knows. The plan is made with the first message, so
@@ -750,7 +753,10 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
               <Icon name={mode === 'tasks' ? 'graph' : 'wand'} size={11} />
               {mode === 'plan' ? 'Planning' : MODE_INFO[mode].label}
             </span>
-            <span className={s.planHint}>{MODE_INFO[mode].banner}</span>
+            <span className={s.planHint}>
+              {MODE_INFO[mode].banner}
+              {buildWith.builder ? `; then ${agentName(buildWith.builder)} builds it` : ''}
+            </span>
             <span className={s.flex} />
             {mode === 'tasks' && homePlan ? (
               <button type="button" className={s.planLink} onClick={() => actions.run({ type: 'view', view: { kind: 'plan', id: homePlan.id } })}>
@@ -814,6 +820,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 { label: 'Open the Plan', onSelect: () => actions.run({ type: 'view', view: { kind: 'plan', id: homePlan.id } }) },
                 // While it's a draft nothing is on the board: it can go (asked first when it has something in it).
                 ...(tasksMode ? [{ label: 'Discard the Draft', danger: true, separate: true, onSelect: () => setMode('act') }] : []),
+                buildWith.item,
                 autopilot.item,
               ]}
             >
@@ -830,6 +837,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 ...(['act', 'plan', 'tasks'] as const)
                   .filter((m) => m !== 'tasks' || canPlanTasks || tasksMode)
                   .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: mode === m, onSelect: () => setMode(m) })),
+                ...(channel.startsWith('ws:') && mode !== 'act' ? [buildWith.item] : []),
                 ...(channel.startsWith('ws:') ? [autopilot.item] : []),
               ]}
             >

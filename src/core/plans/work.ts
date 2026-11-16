@@ -283,7 +283,11 @@ export class PlansWork {
     const ws = channel.startsWith(WS) ? this.deps.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.id === channel.slice(WS.length)) : undefined;
     const project = ws ? this.deps.store.getState().projects.find((p) => p.id === ws.projectId && p.root) : undefined;
     if (!ws || !project) throw new Error('Plans belong to a project: start one from a conversation in a project');
-    return this.plans.create({ projectId: project.id, home: channel, ...(autonomy ? { autonomy } : {}) }, this.me());
+    // Picked in the mode menu (BLG-982): another agent builds it; the one in this chat plans it, as it is.
+    const builder = this.deps.store.getState().buildWith[channel];
+    if (builder) this.deps.store.dispatch({ type: 'build_with', channel });
+    const planner = builder ? this.deps.board.myClaude(channel).agent : undefined;
+    return this.plans.create({ projectId: project.id, home: channel, ...(autonomy ? { autonomy } : {}), ...(builder ? { agent: builder } : {}), ...(planner ? { planner } : {}) }, this.me());
   }
 
   /** Approve the draft: its tasks go on the board, and the plan runs (or carries on with the changes). */

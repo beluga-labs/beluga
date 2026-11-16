@@ -26,6 +26,7 @@ export const PHONE: Record<Method, Side> = {
   'session.setPrefs': 'mac',
   'session.setPlanMode': 'mac',
   'session.setAutopilot': 'phone',
+  'session.setBuildWith': 'mac',
   'session.setClaudeSharing': 'mac',
   'session.rename': 'mac',
   'session.zoom': 'mac',

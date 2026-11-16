@@ -100,6 +100,7 @@ export const HANDLERS = {
   'session.setPrefs': (s, prefs) => s.setPrefs(prefs),
   'session.setPlanMode': (s, channel, on) => s.setPlanMode(channel, on),
   'session.setAutopilot': (s, channel, on) => s.setAutopilot(channel, on),
+  'session.setBuildWith': (s, channel, agent) => s.setBuildWith(channel, agent ?? null),
   'session.setClaudeSharing': (s, policy) => s.setClaudeSharing(policy),
   'session.rename': (s, name) => s.rename(name),
   'session.zoom': (s, dir) => s.zoom(dir),

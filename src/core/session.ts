@@ -21,7 +21,7 @@ import { localRuntime } from '../agent/runtime/local.js';
 import { LOCAL_RUNTIME } from '../shared/local-endpoints.js';
 import type { LocalEndpoints } from './local-endpoints.js';
 import type { IncomingMessage, PeerClient } from '../net/peer-client.js';
-import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type MessageVia, type PeerInfo, type Profile } from '../protocol.js';
+import { type AgentRef, Body, type BodyInput, type BodyOf, CLAUDE_AGENT, type ClaudeAnswer, chatMessageId, defaultAgentOf, type FsEntry, MAX_TEXT, type MessageVia, type PeerInfo, type Profile } from '../protocol.js';
 import { type UsageUpdate, withUsage } from '../agent/usage.js';
 import { dialoguesOf } from './dialogues/registry.js';
 import { agentName } from '../shared/agent-label.js';
@@ -1058,6 +1058,45 @@ export class Session {
       plans.setFullAuto(plan.id, on);
     } else this.store.dispatch({ type: 'autopilot', channel, on });
     this.toast(on ? 'Full Autopilot: what your agent asks here, a stand-in agent answers for you' : 'Autopilot off: what your agent asks waits for you again', 'success');
+  }
+
+  /**
+   * Plan here, build with another agent (BLG-982): who builds what's planned in this conversation
+   * once you approve it (null: the agent that planned it). Plan First hands the conversation over;
+   * Plan with Tasks makes it the plan's builder (a plan already here: its builder from now on).
+   */
+  setBuildWith(channel: string, agent: AgentRef | null): void {
+    const plan = planForHome(this.store.getState().plans, channel);
+    const plans = plansOf(this);
+    if (plan && plan.status !== 'done' && plans) {
+      this.toast(plans.setRoleAgent(plan.id, 'builder', agent), 'success');
+      return;
+    }
+    this.store.dispatch({ type: 'build_with', channel, ...(agent ? { agent } : {}) });
+    const who = agent ? agentName(agent, { model: true }) : undefined;
+    this.toast(who ? `${who} builds what’s planned here, once you approve it` : 'The agent that plans here builds it too', 'success');
+  }
+
+  /**
+   * You approved a plan your agent proposed in a chat that builds with another agent (QuestionBroker's
+   * handOff): the planning agent is told to stop there, and once its turn ends the conversation moves
+   * to the builder (a quiet handoff: it gets the recent conversation), which is asked to build the plan.
+   * → what the planning agent is told; undefined when the builder is the agent already here.
+   */
+  handOffPlan(channel: string, plan: string): ClaudeAnswer | undefined {
+    const builder = this.store.getState().buildWith[channel];
+    if (!builder) return undefined;
+    const here = this.workspaces?.agentOf(channel, this.agentRef);
+    this.store.dispatch({ type: 'build_with', channel });
+    if (here && here.runtime === builder.runtime && (!builder.model || builder.model === here.model)) return undefined;
+    const who = agentName(builder, { model: true });
+    const planner = here ? agentName(here) : 'Your agent';
+    void this.host.idle(channel).then(() => {
+      if (!this.workbench?.setAgent(channel, builder, 'quiet')) return this.toast(`Couldn’t move this conversation to ${who}`, 'warn');
+      this.store.dispatch({ type: 'system', channel, text: `${planner} planned it; ${who} builds it now.`, level: 'info' });
+      this.askOwnClaude(`The user approved this plan. Build it now, step by step, and say what you did:\n\n${plan}`, channel, false, false);
+    });
+    return { kind: 'plan', approve: false, feedback: `The user approved your plan, and ${who} builds it in this conversation from here. Change nothing more: end your turn now with one line saying the plan is handed over.` };
   }
 
   /** Plan first in this conversation: Claude investigates read-only, then proposes a plan. */
