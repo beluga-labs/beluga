@@ -14,7 +14,7 @@ import { observedBackend } from '../src/telemetry/observe.js';
 import { event, pseudonym } from '../src/telemetry/otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from '../src/telemetry/record.js';
 import { TelemetryService } from '../src/telemetry/service.js';
-import { type TurnFacts, turnSpans } from '../src/telemetry/turn.js';
+import { type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
 import { parseArgs } from '../src/ipc/api.js';
 
 /** Usage statistics: the choice and the ask, masking, the spans Ratel reads, sending, and what a run tells it. */
@@ -158,6 +158,13 @@ describe('the release config', () => {
     expect(releaseConfig(env({ TELEMETRY_URL: 'http://127.0.0.1:4318', TELEMETRY_KEY: 'rtl_pub_abcdef123456' }))?.url).toBe('http://127.0.0.1:4318');
   });
 
+  it('can carry a second key for Beluga\'s own project (the same key twice is one project)', () => {
+    const base = { TELEMETRY_URL: 'https://ratel.example', TELEMETRY_KEY: 'rtl_pub_agents_123456' };
+    expect(releaseConfig(env({ ...base, TELEMETRY_PRODUCT_KEY: 'rtl_pub_beluga_123456' }))).toEqual({ url: 'https://ratel.example', key: 'rtl_pub_agents_123456', productKey: 'rtl_pub_beluga_123456' });
+    expect(releaseConfig(env({ ...base, TELEMETRY_PRODUCT_KEY: 'rtl_pub_agents_123456' }))).toEqual({ url: 'https://ratel.example', key: 'rtl_pub_agents_123456' });
+    expect(releaseConfig(env({ TELEMETRY_URL: 'https://ratel.example', TELEMETRY_PRODUCT_KEY: 'rtl_pub_beluga_123456' }))).toBeUndefined();
+  });
+
   it('BELUGA_TELEMETRY=0 turns it off whatever else says', () => {
     expect(releaseConfig(env({ TELEMETRY: '0', TELEMETRY_URL: 'https://ratel.example', TELEMETRY_KEY: 'rtl_pub_abcdef123456' }))).toBeUndefined();
   });
@@ -279,6 +286,38 @@ describe('a turn as spans (the shape Ratel reads)', () => {
     expect(tools[0]!.parentSpanId).toBe(chats[0]!.spanId);
     expect(tools[1]!.parentSpanId).toBe(chats[1]!.spanId);
     expect(attr(chats[0]!, 'gen_ai.response.finish_reasons')).toEqual({ arrayValue: { values: [{ stringValue: 'tool_call' }] } });
+  });
+});
+
+describe("a turn as Beluga's own project sees it", () => {
+  const withBeluga = () =>
+    turn({
+      tools: [
+        { id: 't1', name: 'Bash', startedAt: 2_000, endedAt: 2_500, ok: true },
+        { id: 't2', name: 'mcp__beluga_board__task_update', startedAt: 3_000, endedAt: 3_100, ok: true },
+        { id: 't3', name: 'mcp__beluga__send_chat', startedAt: 4_000, endedAt: 4_200, ok: false },
+        { id: 't4', name: 'mcp__github__search', startedAt: 5_000, endedAt: 5_100, ok: true },
+      ],
+      text: { prompt: 'my words', answer: 'its words' },
+    });
+
+  it("knows Beluga's tools by their server, and no one else's", () => {
+    expect(['mcp__beluga__send_chat', 'mcp__beluga_sentinel__sentinel_create', 'mcp__beluga_view__show'].every(isBelugaTool)).toBe(true);
+    expect(['Bash', 'mcp__github__search', 'mcp__belugafan__x', 'beluga__send_chat'].some(isBelugaTool)).toBe(false);
+  });
+
+  it("only Beluga's tool calls, under a root with no model, tokens, cost or text", () => {
+    const [root, ...tools] = belugaToolSpans(withBeluga(), ID);
+    expect(tools.map((t) => attr(t, 'gen_ai.tool.name'))).toEqual([{ stringValue: 'mcp__beluga_board__task_update' }, { stringValue: 'mcp__beluga__send_chat' }]);
+    expect(tools.every((t) => t.parentSpanId === root!.spanId)).toBe(true);
+    expect(tools[1]!.status).toEqual({ code: 2 });
+    expect(attr(root!, 'beluga.place')).toEqual({ stringValue: 'worktree' });
+    const body = JSON.stringify([root, ...tools]);
+    for (const leak of ['claude-opus-5-5', 'gen_ai.usage', 'cost', 'chars', 'my words', 'its words', 'Bash', 'github', 'sess-1']) expect(body).not.toContain(leak);
+  });
+
+  it("nothing when the turn used none of Beluga's tools", () => {
+    expect(belugaToolSpans(turn(), ID)).toEqual([]);
   });
 });
 
@@ -512,5 +551,69 @@ describe('the service', () => {
     featureCounter.call('session.submit', 3, true);
     expect(featureCounter.drain().counts).toEqual([]);
     await service.stop();
+  });
+
+  describe('two projects', () => {
+    const AGENTS = 'rtl_pub_agents_123456';
+    const BELUGA = 'rtl_pub_beluga_123456';
+    const belugaTurn = () => turn({ tools: [{ id: 'b1', name: 'mcp__beluga_sentinel__sentinel_create', startedAt: 2_000, endedAt: 2_100, ok: true }, { id: 't1', name: 'mcp__github__search', startedAt: 3_000, endedAt: 3_100, ok: true }], text: { prompt: 'my words', answer: 'its words' } });
+    const setup = (keys: { key: string; productKey?: string }) => {
+      const sent: Array<{ key: string; url: string; body: string }> = [];
+      const fetch = vi.fn(async (url: string, init: RequestInit) => {
+        sent.push({ url, key: String((init.headers as Record<string, string>).authorization).replace('Bearer ', ''), body: String(init.body) });
+        return new Response('', { status: 202 });
+      }) as unknown as typeof globalThis.fetch;
+      const service = new TelemetryService({ store: store(), version: '1', file: null, secrets: () => [], config: { url: 'https://ratel.example', ...keys }, fetch });
+      return { service, sent, to: (key: string) => sent.filter((x) => x.key === key).map((x) => x.body).join('\n') };
+    };
+
+    it("Limited: only Beluga's own data, all to Beluga's project; no sessions, no Claude Code telemetry", async () => {
+      const { service, sent, to } = setup({ key: AGENTS, productKey: BELUGA });
+      service.choose('limited', 'settings');
+      expect(service.observeDeps().env?.('claude')).toBeUndefined();
+      service.observeDeps().turn(belugaTurn());
+      service.mark('onboarding_done');
+      await service.stop();
+      expect(sent.length).toBeGreaterThan(0);
+      expect(to(AGENTS)).toBe('');
+      const beluga = to(BELUGA);
+      expect(beluga).toContain('mcp__beluga_sentinel__sentinel_create');
+      expect(beluga).toContain('ratel.beluga.onboarding_done');
+      expect(beluga).toContain('ratel.beluga.level');
+      for (const leak of ['github', 'claude-opus-5-5', 'gen_ai.usage', 'my words']) expect(beluga).not.toContain(leak);
+    });
+
+    it("On: the whole turn to the agents project too, and Beluga's own data stays in its project", async () => {
+      const { service, to } = setup({ key: AGENTS, productKey: BELUGA });
+      service.choose('on', 'settings');
+      service.observeDeps().turn(belugaTurn());
+      service.mark('onboarding_done');
+      await service.stop();
+      const agents = to(AGENTS);
+      expect(agents).toContain('mcp__github__search');
+      expect(agents).toContain('gen_ai.usage.input_tokens');
+      expect(agents).toContain('my words');
+      expect(agents).not.toContain('ratel.beluga.onboarding_done');
+      expect(to(BELUGA)).toContain('mcp__beluga_sentinel__sentinel_create');
+      expect(to(BELUGA)).not.toContain('my words');
+    });
+
+    it('a turn queued at On never reaches the agents project once the level is Limited', async () => {
+      const { service, to } = setup({ key: AGENTS, productKey: BELUGA });
+      service.choose('on', 'settings');
+      service.observeDeps().turn(belugaTurn());
+      service.choose('limited', 'settings');
+      await service.stop();
+      expect(to(AGENTS)).toBe('');
+      expect(to(BELUGA)).toContain('mcp__beluga_sentinel__sentinel_create');
+    });
+
+    it("one key: one project, and Beluga's tools are never sent twice", async () => {
+      const { service, to } = setup({ key: AGENTS });
+      service.choose('on', 'settings');
+      service.observeDeps().turn(belugaTurn());
+      await service.stop();
+      expect(to(AGENTS).split('execute_tool mcp__beluga_sentinel__sentinel_create')).toHaveLength(2);
+    });
   });
 });
