@@ -23,15 +23,15 @@ const MAX_FACES = 64;
 /** Glyph widths looked at to tell a font with no monospace flag is one anyway. */
 const MAX_METRICS = 4096;
 
-/** Where this computer keeps fonts, yours first. */
+/** Where this computer keeps fonts, yours first (in that system's own path style). */
 export function fontDirs(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string[] {
-  if (platform === 'darwin') return [path.join(home, 'Library/Fonts'), '/Library/Fonts', '/Network/Library/Fonts', '/System/Library/Fonts'];
+  if (platform === 'darwin') return [path.posix.join(home, 'Library/Fonts'), '/Library/Fonts', '/Network/Library/Fonts', '/System/Library/Fonts'];
   if (platform === 'win32') {
     const local = env.LOCALAPPDATA ?? path.win32.join(home, 'AppData', 'Local');
     return [path.win32.join(local, 'Microsoft', 'Windows', 'Fonts'), path.win32.join(env.SystemRoot ?? env.windir ?? 'C:\\Windows', 'Fonts')];
   }
-  const data = env.XDG_DATA_HOME ?? path.join(home, '.local/share');
-  return [path.join(data, 'fonts'), path.join(home, '.fonts'), '/usr/local/share/fonts', '/usr/share/fonts'];
+  const data = env.XDG_DATA_HOME ?? path.posix.join(home, '.local/share');
+  return [path.posix.join(data, 'fonts'), path.posix.join(home, '.fonts'), '/usr/local/share/fonts', '/usr/share/fonts'];
 }
 
 /** What one face in a font file says about itself. */
