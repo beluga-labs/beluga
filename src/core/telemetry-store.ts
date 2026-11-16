@@ -5,9 +5,11 @@
  * kept in ~/.beluga/telemetry.json (src/telemetry/record.ts). Browser-safe: the Mac app runs it.
  *
  * - off: nothing is sent.
- * - limited: what Beluga does, without any text: runs, tools, features, errors, this computer's kind.
- * - on: limited, plus the text of your own conversations (your prompts and the agent's answers),
- *   masked on this computer before anything leaves it. Never files, paths or commands.
+ * - limited: Beluga's own data, to Beluga's project: features used, calls to Beluga's own tools,
+ *   app moments, this computer's kind. No agent sessions, no text.
+ * - on: limited, plus your agents' sessions, to the agents project: turns, tokens, every tool,
+ *   Claude Code's own telemetry, and the text of your own conversations (your prompts and the
+ *   agent's answers), masked on this computer before anything leaves it. Never files or commands.
  *
  * Nothing is sent before a level is chosen. A new install chooses at the end of the onboarding
  * (Limited preselected; Skip keeps it). One that updated asks once (Share, Later, No thanks).
