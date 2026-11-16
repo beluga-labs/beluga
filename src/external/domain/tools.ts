@@ -226,6 +226,7 @@ export const WORK_TOOLS = [
   'issue_fix',
   'issue_to_task',
   'issue_comment',
+  'git_push_main',
 ] as const;
 
 /** Files and terminals with no run in between, and adding or removing projects. */
@@ -731,6 +732,7 @@ export const TOOL_ACCESS: ToolAccess<ExternalTool> = {
   issue_fix: 'destructive',
   issue_to_task: 'state_write',
   issue_comment: 'destructive',
+  git_push_main: 'destructive',
   file_list: 'read',
   file_read: 'read',
   file_find: 'read',

@@ -150,7 +150,7 @@ export const PHONE: Record<Method, Side> = {
   'workspaces.remove': 'mac',
   'workspaces.commit': 'mac',
   'workspaces.merge': 'mac',
-  // The phone lands through its branch steps (companion.branchStep: land, land_on, land_off).
+  // The phone lands through its branch steps (companion.branchStep: land, land_on, land_off, push_main).
   'workspaces.land': 'mac',
   'workspaces.setLandOnBase': 'mac',
   'workspaces.prepareRemoval': 'mac',
@@ -533,6 +533,8 @@ export const PHONE: Record<Method, Side> = {
   'git.fetch': 'mac',
   'git.fetchIfStale': 'mac',
   'git.updateMain': 'mac',
+  // The phone pushes main through a Straight to main worktree's branch step (companion.branchStep: push_main).
+  'git.pushMain': 'mac',
   'git.stashAndUpdate': 'mac',
   'git.moveAndUpdate': 'mac',
   'git.switchToDefault': 'mac',
