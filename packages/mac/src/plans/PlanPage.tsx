@@ -38,7 +38,7 @@ import { revealLabel } from '../lib/os-words.js';
 import { useActions } from '../lib/actions.js';
 import { onMachine } from '../machines/pane-model.js';
 import { useMoveTo } from './move-to.js';
-import { PlanAgentsButton, rolePick } from './AgentRoles.js';
+import { PlanAgentsButton } from './AgentRoles.js';
 
 const PlanCanvas = lazy(() => import('./PlanCanvas.js'));
 
@@ -149,7 +149,6 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   }, [plan.id, setPrefs]);
   const { api, act, openList, openWorktree } = usePlanActions();
   const { client } = useBeluga();
-  const runtimes = useApp((s) => s.runtimes);
   const startWith = useStartWith();
   const mine = useMyAgent();
   // The plan's conversation (its chat, the head Claude's last turn) loads with the page, the chat shown or not.
@@ -310,8 +309,8 @@ function Page({ view, prefs, setPrefs, picked, setPicked }: { view: PlanView; pr
   // Move To ▸ another computer of yours (BLG-806): Pause and Move To while something runs in it.
   const moveTo = useMoveTo(plan, view, step);
   // Who plans, builds and checks it (BLG-982), from the header's Agents: from now on; milestones at work keep theirs (the toast says so).
-  const roleAgent = (role: PlanRole, v: string): void =>
-    void act(() => api.setRoleAgent(plan.id, role, rolePick(plan, role, v, runtimes, mine))).then((said) => {
+  const roleAgent = (role: PlanRole, agent: AgentRef | null): void =>
+    void act(() => api.setRoleAgent(plan.id, role, agent)).then((said) => {
       if (typeof said === 'string') toast(client, said, 'success');
     });
   const more: ActionItem[] = [

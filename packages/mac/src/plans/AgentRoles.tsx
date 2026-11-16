@@ -8,7 +8,8 @@ import { Popup } from '../components/FormSheet.js';
 import { Icon } from '../components/Icon.js';
 import { ActionsDropdown, type ActionItem } from '../components/SpecMenu.js';
 import { Button } from '../components/ui.js';
-import { YOUR_AGENT, agentMenuItems, useAgentEntries } from '../components/agent-options.js';
+import { YOUR_AGENT, agentOnlyItems, useAgentEntries } from '../components/agent-options.js';
+import { useApp } from '../lib/beluga.js';
 import { useMyAgent } from '../lib/agent-words.js';
 import p from './plans.module.css';
 
@@ -87,17 +88,24 @@ function roleName(plan: Plan, role: PlanRole, mine: AgentRef): string {
 
 /**
  * A plan's agents in its header: one name when one agent plays every part, else how many; its menu
- * names who plans, builds and checks, each a submenu to change it from here on.
+ * names who plans, builds and checks, each a short submenu of agents (no models: each runs its
+ * default) to change it from here on. `pick` gets null for "your agent" (the builder) or "same as
+ * the builder" (the planner, the checker).
  */
-export function PlanAgentsButton({ plan, pick }: { plan: Plan; pick: (role: PlanRole, value: string) => void }) {
-  const entries = useAgentEntries();
+export function PlanAgentsButton({ plan, pick }: { plan: Plan; pick: (role: PlanRole, agent: AgentRef | null) => void }) {
+  const runtimes = useApp((s) => s.runtimes);
   const mine = useMyAgent();
   const names = PLAN_ROLES.map((r) => roleName(plan, r, mine));
   const one = new Set(names).size === 1;
   const items: ActionItem[] = PLAN_ROLES.map((role, i) => ({
     label: `${PLAN_ROLE_INFO[role].label}: ${names[i]}`,
     hint: PLAN_ROLE_INFO[role].hint,
-    submenu: agentMenuItems(entries, roleAgent(plan, role), (v) => pick(role, v)),
+    submenu: [
+      role === 'builder'
+        ? { label: `Your Agent (${agentName(mine)})`, hint: 'Whatever your default agent is', checked: !plan.agent, onSelect: () => pick(role, null) }
+        : { label: 'Same as the Builder', hint: `${roleName(plan, 'builder', mine)} does this part too`, checked: !plan[role], onSelect: () => pick(role, null) },
+      ...agentOnlyItems(runtimes, role === 'builder' ? plan.agent : plan[role], (agent) => pick(role, agent)).map((row, j) => (j === 0 ? { ...row, separate: true } : row)),
+    ],
     onSelect: () => undefined,
   }));
   const tip = PLAN_ROLES.map((r, i) => `${PLAN_ROLE_INFO[r].label}: ${names[i]}`).join(' · ');
@@ -108,14 +116,4 @@ export function PlanAgentsButton({ plan, pick }: { plan: Plan; pick: (role: Plan
       </Button>
     </ActionsDropdown>
   );
-}
-
-/**
- * A pick in a part's menu, as plans.setRoleAgent takes it. "Your agent" for the builder is null (your
- * default); for the planner or checker it's your default named, unless the builder is your default
- * too (then null: one agent again).
- */
-export function rolePick(plan: Pick<Plan, 'agent'>, role: PlanRole, value: string, runtimes: readonly RuntimeChoice[], mine: AgentRef): AgentRef | null {
-  if (value !== YOUR_AGENT) return agentForChoice(value, runtimes);
-  return role === 'builder' || !plan.agent ? null : mine;
 }

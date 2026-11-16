@@ -1,9 +1,8 @@
 import type { AgentRef } from '@beluga/protocol.js';
 import { planForHome } from '@beluga/core/plans/model.js';
 import { agentName } from '@beluga/shared/agent-label.js';
-import { agentForChoice } from '@beluga/ui/agent-choice.js';
 import type { ActionItem } from '../components/SpecMenu.js';
-import { agentMenuItems, useAgentEntries } from '../components/agent-options.js';
+import { agentOnlyItems } from '../components/agent-options.js';
 import { useApi, useApp } from '../lib/beluga.js';
 
 const sameAgent = (a: AgentRef | undefined, b: AgentRef | undefined): boolean => a?.runtime === b?.runtime && a?.model === b?.model && a?.label === b?.label;
@@ -15,7 +14,6 @@ const sameAgent = (a: AgentRef | undefined, b: AgentRef | undefined): boolean =>
  */
 export function useBuildWith(channel: string): { readonly builder?: AgentRef; readonly item: ActionItem } {
   const api = useApi();
-  const entries = useAgentEntries();
   const runtimes = useApp((s) => s.runtimes);
   // A plan already here: its builder; else what's picked for the next plan made here.
   const builder = useApp((s) => {
@@ -30,11 +28,8 @@ export function useBuildWith(channel: string): { readonly builder?: AgentRef; re
     separate: true,
     submenu: [
       { label: 'The Agent Planning Here', hint: 'It plans and builds', checked: !builder, onSelect: () => pick(null) },
-      ...agentMenuItems(
-        entries.filter((e) => 'section' in e),
-        builder,
-        (value) => pick(agentForChoice(value, runtimes)),
-      ).map((row, i) => (i === 0 ? { ...row, separate: true } : row)),
+      // Just the agents, no models: the builder starts on its default; the chat's own picker changes that later.
+      ...agentOnlyItems(runtimes, builder, pick).map((row, i) => (i === 0 ? { ...row, separate: true } : row)),
     ],
     onSelect: () => undefined,
   };
