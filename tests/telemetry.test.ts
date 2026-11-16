@@ -58,6 +58,31 @@ describe('the choice and the ask', () => {
     expect(answerAsk(later, 'later', 'limited', { merges: 3, now: 2 }).ask?.times).toBe(2);
   });
 
+  it('an update from a version without usage statistics asks; Later (or closing it) is kept across restarts and asks again', async () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'tel-')), 'telemetry.json');
+    let now = 1_000_000;
+    const config = { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' };
+    const start = () => {
+      const s = new Store(initialState('test', 'ask'));
+      return { s, service: new TelemetryService({ store: s, version: '1', file, secrets: () => [], config, now: () => now, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch }) };
+    };
+    // No telemetry.json: the version before had none.
+    const first = start();
+    expect(first.s.getState().telemetry).toMatchObject({ available: true, due: true });
+    first.service.answer('later', 'limited');
+    expect(first.s.getState().telemetry.due).toBe(false);
+    await first.service.stop();
+    // The next start remembers Later, and asks again once it's due.
+    now += 60_000;
+    const second = start();
+    expect(second.s.getState().telemetry.due).toBe(false);
+    await second.service.stop();
+    now += LATER_MS;
+    const third = start();
+    expect(third.s.getState().telemetry.due).toBe(true);
+    await third.service.stop();
+  });
+
   it('a level chosen in Settings after Later settles the ask (Off as No thanks)', () => {
     const later = answerAsk(fresh, 'later', 'limited', { merges: 0, now: 0 });
     for (const level of ['off', 'on'] as const) {
