@@ -161,6 +161,22 @@ test('dark: maybe a key, and the pill', async ({ page }) => {
   await page.screenshot({ path: shot('13-pick-pill-dark.png'), clip: await around(page, 120) });
 });
 
+test('a key chip in the box ends before the next word, short names too', async ({ page }) => {
+  await open(page, 'add-auth');
+  const names = ['DB_URL', 'TOKEN', 'RTL_API_KEY', 'STAGING_PASSWORD'];
+  await page.evaluate(async (names) => {
+    const m = await import('/src/lib/boot.ts');
+    const c = (await m.connect(m.capabilities(() => ({ ok: true, message: '' })))) as unknown as { store: { getState: () => { projects: Array<{ workspaces: Array<{ id: string; name: string }> }> } }; api: { env: { keepPasted: (w: object, rows: object[]) => Promise<unknown> } } };
+    const id = c.store.getState().projects.flatMap((p) => p.workspaces).find((w) => w.name === 'add-auth')!.id;
+    await c.api.env.keepPasted({ workspaceId: id }, names.map((n) => ({ key: n, value: `Zp3Xc8Vb1Nm6Lk2J${n}` })));
+  }, names);
+  await composer(page).fill(names.map((n) => `use $${n} and`).join('\n'));
+  await expect(page.locator('[data-key-chip]')).toHaveCount(names.length);
+  await page.waitForTimeout(300);
+  const over = await page.evaluate(() => [...document.querySelectorAll('[data-key-chip]')].map((chip) => chip.getBoundingClientRect().right - chip.parentElement!.firstElementChild!.getBoundingClientRect().right));
+  for (const o of over) expect(o).toBeLessThanOrEqual(0.5);
+});
+
 // ---------------------------------------------------------------- frames for a GIF (GIF=<folder>)
 
 test('GIF: maybe a key, then a word picked', async ({ page }) => {

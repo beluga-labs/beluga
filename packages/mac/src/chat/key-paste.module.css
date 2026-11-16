@@ -294,18 +294,19 @@
  *
  * The room is "$NAME" in the box's own font, so the name is drawn in that font too, at the other
  * chips' size: the icon takes the "$"'s place and the chip ends where the words end. (In mono it
- * came out about a fifth narrower, leaving a bare stretch before the caret.) A name too short to
- * fit the icon and padding in its room lets the chip run a hair past it, never cut.
+ * came out about a fifth narrower, leaving a bare stretch before the caret.) It ends a hair before
+ * its room does, so the space after it stays a space: a name too long for that is drawn a little
+ * smaller (--fit, set by useKeyChipFit), never cut and never over the next word.
  */
 .keyChip.keyChip {
   --keep: var(--worktree);
   inset: -1px auto -1px 0;
   width: max-content;
-  min-width: 100%;
+  min-width: calc(100% - 2px);
   align-items: center;
   justify-content: flex-start;
-  gap: 2px;
-  padding: 0 3px;
+  gap: 1px;
+  padding: 0 3px 0 2px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--keep) 14%, var(--bg));
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--keep) 36%, transparent);
@@ -320,6 +321,7 @@
 }
 .keyChipName {
   min-width: 0;
+  font-size: calc(1em * var(--fit, 1));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
