@@ -7,7 +7,7 @@ import { remoteScratch } from '../core/friend-share/scratch.js';
 import type { AddResult, WorkspaceController } from '../core/workspace-controller.js';
 import type { Workbench } from '../core/workbench.js';
 import { browseDir, listLocalDirs, localDirKey, openWithSystem } from '../core/local.js';
-import { ATTACHMENT_SHARE, type FetchShared, attachmentOnDisk, chipText, expandChips, importImageFitting, mediaTypeOf, pathInfo, publishForRoom, reattach, readAttachment, registerAttachment, roomAttachmentsDir, saveImageBytes } from '../core/attachments.js';
+import { ATTACHMENT_SHARE, type FetchShared, attachmentOnDisk, chipText, expandChips, importImageFitting, mediaTypeOf, pathInfo, publishForRoom, reattach, readAttachment, registerAttachment, roomAttachmentsDir, saveImageBytes, savePastedText } from '../core/attachments.js';
 import { fetchBytes } from '../core/downloads.js';
 import { testDatabase } from '../core/views/sources.js';
 import { existsSync, statSync } from 'node:fs';
@@ -396,6 +396,7 @@ export const HANDLERS = {
     const a = registerAttachment(saved, statSync(saved).size);
     return { n: a.n, chip: chipText(a.n), file: path.basename(saved) };
   },
+  'attachments.addText': (_s, text) => savePastedText(text),
   'attachments.reattach': (_s, file) => {
     const a = reattach(file);
     if (!a) throw new Error('That image is gone from this computer');

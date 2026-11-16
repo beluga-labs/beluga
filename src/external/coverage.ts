@@ -230,6 +230,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'env.checkEndpoints': 'gated',
   'attachments.add': 'ui_only',
   'attachments.addFile': 'ui_only',
+  'attachments.addText': 'ui_only',
   'attachments.reattach': 'ui_only',
   'attachments.expand': 'ui_only',
   'attachments.read': { refused: NO_SCOPE },

@@ -508,6 +508,8 @@ export const API = {
   'attachments.add': args(z.enum(['png', 'jpg', 'jpeg', 'gif', 'webp']), z.string().max(6_000_000)),
   // An image file on this Mac (its path was pasted), copied in and made smaller if it's too big. → { n, chip, file }
   'attachments.addFile': args(path),
+  // A long paste kept as a text file (BLG-988): it goes with the message as its path. → PathInfo
+  'attachments.addText': args(z.string().min(1).max(2_000_000)),
   // An image you linked in a message (its file name), waiting in the box again. → { n, chip }
   'attachments.reattach': args(z.string().min(1).max(255)),
   // `only`: the images waiting in the box (others' "[image N]" stay words). `shown`: the number each

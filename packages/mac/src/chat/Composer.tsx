@@ -215,13 +215,14 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // the words, so a new chat or worktree page keeps its own too.
   // Comments on the changes waiting above the box (CommentCards): enough to send on their own.
   const commentsWaiting = useWaitingComments(draftKey).length > 0;
-  const ready = !!buffer.trim() || commentsWaiting;
   // A chat's link pasted here becomes a chip. In a friend's worktree, one of yours can take a copy along (see send).
   const chipLinks = (text: string): string | undefined => {
     const words = chatLinksToMentions(text, (r) => chatChipOf(resolveChat(client.store.getState(), r)).label);
     return words && boxChats(words);
   };
   const att = useAttachments({ channel: draftKey, box: ref, text: () => ui.get().buffer, setText: (buffer, cursor) => ui.patch({ buffer, cursor }), chipLinks });
+  // A long paste waiting as a file (BLG-988) is enough to send on its own too.
+  const ready = !!buffer.trim() || commentsWaiting || att.files.length > 0;
   // A plan or a question waiting above the box: what you type answers it (the turn is waiting on you, not working).
   const answering = state.answering;
   // During a turn, the preference selects the main action. The secondary action uses the other choice.
@@ -351,6 +352,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   });
   // `resend`: Send pressed while a paste was still being looked at, and it held no key.
   const resendRef = useRef<() => void>(() => undefined);
+  // The latest Send, for one held while a long paste was kept as a file (see att.whenSaved).
+  const sendLatest = useRef<(secondary?: boolean, copied?: boolean) => void>(() => undefined);
   // The box's words set as typing would (set() comes further down).
   const setRef = useRef<(text: string) => void>(() => undefined);
   const keys = useKeyPaste({ target: shared ? undefined : keyTarget, box: boxKey, agent: agentHere, text: () => ui.get().buffer, setText: (t) => setRef.current(t), input: ref, resend: () => resendRef.current(), inputClass: s.input ?? '' });
@@ -544,6 +547,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     const urgent = sendsUrgent(prefs.sendDuringTurn, { busy: queueing, canSteer, secondary });
     // A key card is asking: Send keeps the keys first (the message then says $NAME), never sends a key by accident.
     if (keys.asking) return keys.keep();
+    // A long paste still being kept as a file (BLG-988): it's waited for (moments), then this Send goes.
+    if (att.whenSaved(() => sendLatest.current(secondary, copied))) return;
     const typed = buffer.trim();
     if (aside) {
       if (!typed) return;
@@ -612,6 +617,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   };
   // The latest Send, for one held while a paste was looked at (see useKeyPaste).
   resendRef.current = () => send(false);
+  sendLatest.current = send;
   // Speaking instead of typing (Settings › Voice): the words come here when this is the box you're in; Send right away sends them as ↩ would.
   useDictationTarget(ref, () => send(false), draftKey);
   const dictation = useDictation();

@@ -253,6 +253,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   // ---- attachments
   'attachments.add': 'drive',
   'attachments.addFile': 'drive',
+  'attachments.addText': 'drive',
   'attachments.reattach': 'drive',
   'attachments.expand': 'drive',
   'attachments.read': 'drive',
