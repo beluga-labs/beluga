@@ -28,6 +28,7 @@ import { sendsToTerminal } from '../lib/convo-mode.js';
 import { chordLabel } from '../lib/shortcuts-model.js';
 import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../lib/os-words.js';
 import { ModelPicker, myRuntime } from './ModelPicker.js';
+import { AutopilotChip, useAutopilot } from './AutopilotChip.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
 import { boxChats, plainWords } from './chat-box.js';
@@ -234,6 +235,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
     : steerBlock === 'plan' ? `Queue: in Plan First, this waits for ${agentHere}'s current turn to finish`
     : steerBlock ? `Queue: ${agentHere} cannot steer. This waits for the current turn to finish` : `Queue: this waits for ${agentHere}'s current turn to finish`;
   const plan = state.planMode[channel] === true;
+  // Full Autopilot (BLG-981): a stand-in agent answers what your agent asks here; picked from the mode menu.
+  const autopilot = useAutopilot(channel);
   // Plan with Tasks: this conversation is a plan's home (milestones and tasks, approved onto the board).
   const homePlan = planForHome(state.plans, channel);
   // Picked but nothing sent yet: only the box knows. The plan is made with the first message, so
@@ -811,6 +814,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 { label: 'Open the Plan', onSelect: () => actions.run({ type: 'view', view: { kind: 'plan', id: homePlan.id } }) },
                 // While it's a draft nothing is on the board: it can go (asked first when it has something in it).
                 ...(tasksMode ? [{ label: 'Discard the Draft', danger: true, separate: true, onSelect: () => setMode('act') }] : []),
+                autopilot.item,
               ]}
             >
               <button type="button" className={cx(s.chip, s.chipOn)} title="This conversation is the plan’s own: its agent plans and runs it here" aria-label={`Mode: ${MODE_INFO.tasks.label}`}>
@@ -822,9 +826,12 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           ) : !shared ? (
             <ActionsDropdown
               align="start"
-              items={(['act', 'plan', 'tasks'] as const)
-                .filter((m) => m !== 'tasks' || canPlanTasks || tasksMode)
-                .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: mode === m, onSelect: () => setMode(m) }))}
+              items={[
+                ...(['act', 'plan', 'tasks'] as const)
+                  .filter((m) => m !== 'tasks' || canPlanTasks || tasksMode)
+                  .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: mode === m, onSelect: () => setMode(m) })),
+                ...(channel.startsWith('ws:') ? [autopilot.item] : []),
+              ]}
             >
               <button type="button" className={cx(s.chip, mode !== 'act' && s.chipOn)} title={mode === 'tasks' ? MODE_INFO[mode].hint : `${MODE_INFO[mode].hint} (${shortcutKeys('composer-mode') ?? 'Settings › Keyboard'} switches acting and planning first)`} aria-label={`Mode: ${MODE_INFO[mode].label}`}>
                 <Icon name={mode === 'tasks' ? 'graph' : 'wand'} size={12} />
@@ -833,6 +840,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
               </button>
             </ActionsDropdown>
           ) : null}
+          {!shared ? <AutopilotChip channel={channel} /> : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}
           {/* Where new work runs (BLG-786); a chat that runs somewhere already says where. Only with a computer paired. */}

@@ -892,6 +892,11 @@ export function createMockBackend(bridge: RoomBridge, pace = 1): AgentBackend {
       await new Promise((r) => setTimeout(r, 400 * pace));
       return mockPlanTitle(goal);
     },
+    // Full Autopilot's stand-in: a beat of thought, then yes, with the agent's own pick for any question (core/autopilot fills it in).
+    standIn: async (req) => {
+      await sleep(700 * pace, req.signal ?? new AbortController().signal);
+      return JSON.stringify({ approve: true, allow: true, answers: {}, why: 'It keeps to the goal you set and is what your agent recommended.' });
+    },
     titleChat: async (content) => {
       await new Promise((r) => setTimeout(r, 400 * pace));
       const latest = content.split('\n\n').filter((part) => part.startsWith('User: ')).at(-1);

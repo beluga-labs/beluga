@@ -35,7 +35,9 @@ import { existsSync } from 'node:fs';
 import { type Attention, type Location, type MyShare, type Prefs, type Store, peerName } from './store.js';
 import { WorkspaceController } from './workspace-controller.js';
 import { QuestionBroker } from './questions.js';
-import { isPlanHome } from './plans/model.js';
+import { isPlanHome, planForHome } from './plans/model.js';
+import { plansOf } from './plans/registry.js';
+import type { StandInRequest } from '../agent/stand-in.js';
 import type { Conversation } from '../agent/transcript.js';
 import { slugify } from '../agent/namer.js';
 import type { ScriptFix, SetupFix, WorkedOutScripts } from '../agent/setup-fixer.js';
@@ -916,10 +918,14 @@ export class Session {
    * can't run on the endpoint yet), never quietly to Anthropic otherwise. Claude, the demo, tests: the backend's.
    */
   private sideRoute(project?: string): SideRoute {
+    return this.sideRouteOn(this.agentFor(project));
+  }
+
+  /** Where a side call on `agent` goes: its runtime's one-shot call, else Claude's (as sideRoute). */
+  private sideRouteOn(agent: AgentRef): SideRoute {
     const rt = this.opts.runtime;
     if (!this.runtime || !rt) return { claude: () => this.agent };
     const claude = (): AgentBackend | undefined => (this.runtime?.id === CLAUDE_AGENT.runtime ? this.agent : this.backendFor(CLAUDE_AGENT.runtime));
-    const agent = this.agentFor(project);
     if (agent.runtime === CLAUDE_AGENT.runtime) return { claude };
     if (agent.runtime === LOCAL_RUNTIME) return { claude: async () => ((await this.claudeSignedIn()) ? claude() : undefined) };
     const own = rt.runtimes(agent.runtime);
@@ -1029,6 +1035,29 @@ export class Session {
   /** A pull request reviewed before a sentinel merges it (undefined without an agent to ask, or on trouble). */
   async reviewPr(input: import('../agent/pr-reviewer.js').PrReviewInput): Promise<import('../agent/pr-reviewer.js').PrReview | undefined> {
     return routeSideCall(this.sideRoute(), (on) => on.reviewPr?.(input), undefined);
+  }
+
+  /**
+   * Full Autopilot's stand-in (BLG-981): what your agent asked, answered for you by `agent` (a plan's
+   * planner), else your default agent, with Claude when that one can't. Throws when none could answer.
+   */
+  async standIn(req: StandInRequest, agent?: AgentRef): Promise<string> {
+    const out = await routeSideCall(agent ? this.sideRouteOn(agent) : this.sideRoute(), (on) => on.standIn?.(req), undefined);
+    if (out === undefined) throw new Error('no agent here could answer');
+    return out;
+  }
+
+  /**
+   * Full Autopilot in a conversation (BLG-981): a stand-in agent answers what your agent asks there,
+   * so it never waits on you. A plan's own conversation switches its plan (and so all its work).
+   */
+  setAutopilot(channel: string, on: boolean): void {
+    const plan = planForHome(this.store.getState().plans, channel);
+    const plans = plansOf(this);
+    if (plan && plan.status !== 'done' && plans) {
+      plans.setFullAuto(plan.id, on);
+    } else this.store.dispatch({ type: 'autopilot', channel, on });
+    this.toast(on ? 'Full Autopilot: what your agent asks here, a stand-in agent answers for you' : 'Autopilot off: what your agent asks waits for you again', 'success');
   }
 
   /** Plan first in this conversation: Claude investigates read-only, then proposes a plan. */

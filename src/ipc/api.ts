@@ -165,6 +165,8 @@ export const API = {
   'session.copyText': args(str, z.string().max(500)),
   'session.setPrefs': args(PrefsPatch),
   'session.setPlanMode': args(channel, bool),
+  // Full Autopilot in a conversation (BLG-981): a stand-in agent answers what your agent asks there (a plan's own: the plan).
+  'session.setAutopilot': args(channel, bool),
   'session.setClaudeSharing': args(Policy),
   'session.rename': args(z.string().max(64)),
   'session.zoom': args(z.enum(['in', 'out', 'reset'])),

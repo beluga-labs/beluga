@@ -9,7 +9,7 @@ import { z } from 'zod';
  * ignores what it doesn't know. A breaking change bumps the major, and the Mac keeps answering the
  * previous major for a release.
  */
-export const COMPANION_PROTO = { major: 1, minor: 57 } as const;
+export const COMPANION_PROTO = { major: 1, minor: 58 } as const;
 
 /**
  * What came in which minor, for a phone talking to an older Mac: it subscribes to a topic (and
@@ -150,8 +150,12 @@ export const COMPANION_PROTO = { major: 1, minor: 57 } as const;
  * neither ticked nor explained, and whether its work already merged. An older Mac sends none; an older phone shows none.
  * 1.57 (BLG-401): `ConvView.schedules`, `TurnView.origin.sentinel`, `queue[].origin.sentinel`: a chat's
  * schedules (Run and Pause only), and a message one of your sentinels sent says so.
+ * 1.58 (BLG-981, BLG-982): Full Autopilot, a stand-in agent answering for you: a chat's
+ * (`ConvView.autopilot`, `session.setAutopilot`) and a plan's (`PlanView.fullAuto`, `plans.setFullAuto`);
+ * and who plans, builds and checks a plan (`PlanView.planner` / `checker`, `plans.setRoleAgent`). An
+ * older Mac sends none, and the phone offers neither.
  */
-export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54, sharedMark: 55, chatSchedules: 57 } as const;
+export const SINCE = { tasks: 4, openOnMac: 4, icon: 4, merge: 4, draftTask: 4, viewFetch: 4, assistant: 5, askModes: 5, files: 7, terminal: 7, branchSteps: 8, subAgent: 10, gone: 11, worktreePhotos: 12, keepAwake: 13, awayBeat: 13, macChats: 14, voice: 16, control: 17, video: 18, proof: 19, sentinel: 21, dashboard: 22, sentinelChat: 23, severalTasks: 24, documents: 25, widgets: 26, forget: 27, dismiss: 27, editPrompt: 28, docRefs: 29, keptData: 29, chatEdits: 30, agentPicker: 32, providers: 33, dialogues: 34, workAgents: 35, terminalView: 36, reactions: 41, cancelSteer: 43, triage: 44, draftReview: 45, threads: 47, threadAgents: 47, seen: 48, computers: 49, externalAgents: 50, chatLinks: 51, chatOrigin: 52, queuedOrigin: 53, telemetry: 54, sharedMark: 55, chatSchedules: 57, autopilot: 58, planRoles: 58 } as const;
 
 /** One frame's biggest payload, and a file piece. */
 export const MAX_COMPANION_FRAME = 1024 * 1024;
@@ -742,6 +746,11 @@ export const ConvView = z.object({
    * (sentinel.run) and pauses or turns on (sentinel.pause) one; it never makes or changes one.
    */
   schedules: z.array(z.object({ id, name: z.string().max(200), sentence: z.string().max(200), nextAt: z.number().optional(), paused: z.boolean(), running: z.boolean() })).max(20).optional(),
+  /**
+   * 1.58 (BLG-981): Full Autopilot is on here: a stand-in agent answers what your agent asks. `plan`:
+   * on through the plan it works for (named; switched on the plan, not here). Off: left out.
+   */
+  autopilot: z.object({ plan: z.string().max(300).optional() }).optional(),
 });
 export type ConvView = z.infer<typeof ConvView>;
 
@@ -792,6 +801,10 @@ export const PlanView = z.object({
   /** 1.35 (BLG-498): who works its milestones and tasks from here on (none: your default), and the list to change it from (`plans.setWorkAgent`). */
   agent: AgentRefView.optional(),
   agents: AgentPickerView.optional(),
+  /** 1.58 (BLG-982): who plans it and who checks it, when not `agent` (`plans.setRoleAgent`); BLG-981: Full Autopilot (`plans.setFullAuto`). */
+  planner: AgentRefView.optional(),
+  checker: AgentRefView.optional(),
+  fullAuto: z.boolean().optional(),
   /** 1.45 (BLG-772): what the plan has decided, in order (a replaced one marked), and its draft's review before approval. */
   decisions: z.array(z.object({ text: z.string().max(1000), replaced: z.boolean().optional() })).max(60).optional(),
   review: z
