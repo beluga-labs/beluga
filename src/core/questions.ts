@@ -6,7 +6,7 @@ export interface QuestionDeps {
   readonly store: Store;
   readonly selfId: () => string;
   readonly send: (body: BodyInput, opts: { to: string }) => boolean;
-  /** How long Claude waits for an answer before carrying on without one. */
+  /** How long Claude waits for a friend's answer before carrying on without one (yours: no limit). */
   readonly timeoutMs: () => number;
   readonly toast: (text: string, level?: 'info' | 'warn') => void;
 }
@@ -30,7 +30,7 @@ const MAX_WAITING = 20;
  * are only accepted from that person, and nobody waits forever.
  */
 export class QuestionBroker {
-  private readonly waiting = new Map<string, { peer: string; channel: string; resolve: (a: ClaudeAnswer) => void; timer: NodeJS.Timeout }>();
+  private readonly waiting = new Map<string, { peer: string; channel: string; resolve: (a: ClaudeAnswer) => void; timer?: NodeJS.Timeout }>();
   /** Requests you sent → whose Claude got them, so only that Claude can ask you things. */
   private readonly mine = new Map<string, { target: string; channel: string }>();
   /** Cards Beluga itself put on your screen (a plan task that's yours to decide): no timeout, answered here. */
@@ -71,16 +71,21 @@ export class QuestionBroker {
   ask(requester: string, requestId: string, channel: string, question: ClaudeQuestion): Promise<ClaudeAnswer> {
     if (this.waiting.size >= MAX_WAITING) return Promise.resolve(SKIP);
     const qid = randomUUID();
+    const mine = requester === this.deps.selfId();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (!this.waiting.delete(qid)) return;
-        this.deps.store.dispatch({ type: 'question_remove', qid, unanswered: true });
-        this.deps.toast(`Your agent's ${question.kind === 'plan' ? 'plan' : 'question'} went unanswered, so it carried on without it`, 'warn');
-        resolve(SKIP);
-      }, this.deps.timeoutMs());
-      timer.unref();
-      this.waiting.set(qid, { peer: requester, channel, resolve, timer });
-      if (requester === this.deps.selfId()) {
+      // Your own agent's plan or question waits for you (as in Claude Code): skipping it after a
+      // while read as a declined plan when you came back to it. Stop ends it. A friend's times out.
+      const timer = mine
+        ? undefined
+        : setTimeout(() => {
+            if (!this.waiting.delete(qid)) return;
+            this.deps.store.dispatch({ type: 'question_remove', qid, unanswered: true });
+            this.deps.toast(`Your agent's ${question.kind === 'plan' ? 'plan' : 'question'} went unanswered, so it carried on without it`, 'warn');
+            resolve(SKIP);
+          }, this.deps.timeoutMs());
+      timer?.unref();
+      this.waiting.set(qid, { peer: requester, channel, resolve, ...(timer ? { timer } : {}) });
+      if (mine) {
         this.deps.store.dispatch({ type: 'question_add', question: { qid, requestId, owner: requester, channel, question, picked: {} } });
       } else if (!this.deps.send({ kind: 'agent_question', requestId, qid, channel, question }, { to: requester })) {
         this.settle(qid, requester, SKIP);
