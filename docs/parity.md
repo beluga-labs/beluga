@@ -141,6 +141,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `session.copyText` | ✓ |
 | `session.setPrefs` | ✓ |
 | `session.setPlanMode` | ✓ |
+| `session.setAutopilot` | ✓ the composer's mode menu › Full Autopilot (BLG-981), and its Autopilot chip to turn it off; a plan's own conversation switches its plan; the phone's conversation ⋯ › Full Autopilot (1.58) |
+| `session.setBuildWith` | ✓ the composer's mode menu › Build With ▸ under Plan First and Plan with Tasks (BLG-982): the agent in the chat plans, the picked one builds once you approve (Plan First hands the chat over; Plan with Tasks makes it the plan's builder); the banner and the plan card say who builds. Mac only for now |
 | `session.compact` | ✓ (context meter › Compact now) |
 | `session.btw` | ✓ (`/btw` in the composer: the side-question card above the box) |
 | `session.btwDismiss` | ✓ (the side-question card's ✕, or esc) |
@@ -675,7 +677,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `team.answerKnock` | ✓ the knock's card in the worktree's chat (Let In as Editor, Let In as Viewer; ••• › Not Now) and the bell's row; the phone's card (Let In as Editor / Not Now / Let In as Viewer) |
 | `team.befriend` | ✓ the team badge on a project's row › its card › Add Friend beside someone on the team who isn't a friend (BLG-510); and Tasks › the faces beside Active and Backlog › someone › their card › Add Friend (BLG-906); they Accept like any friend request |
 | `team.leave` | ✓ project ••• › Leave Team with Ata (Leave Team with several teammates: off it for everyone, BLG-510) |
-| `plans.create` | ✓ Plans › New Plan (a goal; the agent plans in a conversation of its own in the project's main folder; More options › Agent picks who works its milestones and tasks, BLG-497); the phone's Ask › a project › Plan (1.5); Your Mac's `start_plan` (quietly) |
+| `plans.create` | ✓ Plans › New Plan (a goal; the agent plans in a conversation of its own in the project's main folder; How it runs › Autopilot › Never wait for me is Full Autopilot, BLG-981; Agents says “Planned, built and checked by …”, its Mix Agents a picker per part, BLG-982); the phone's Ask › a project › Plan (1.5); Your Mac's `start_plan` (quietly) |
 | `plans.here` | ✓ the composer's mode menu › Plan with Tasks (the agent plans in the conversation you're in) |
 | `plans.approve` | ✓ Approve Plan / Apply Changes on a plan's page and its strip above the conversation; Approve Plan's ▾ › Approve, worked by ▸ (BLG-506: `plans.setWorkAgent`, then approve) |
 | `plans.discard` | ✓ Discard Draft / Discard Changes on a plan's page |
@@ -685,7 +687,9 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu); the phone plan page's autonomy chip (1.5) |
 | `plans.setPaused` | ✓ Pause / Resume on a plan's page |
 | `plans.setParallel` | ✓ a plan's ⋯ › Run at Once ▸ |
-| `plans.setWorkAgent` | ✓ a plan's ⋯ › Agent for Its Work ▸ (BLG-498): who works the milestones and tasks that start from now on (ones at work keep theirs, the toast says so); the phone's plan page › ⋯ › Agent for its work (1.35) |
+| `plans.setWorkAgent` | ✓ Approve Plan's ▾ › Approve, worked by ▸ and Verify, Then Approve ▸ (BLG-506); the header's agents button › Builder ▸ goes through `plans.setRoleAgent` (BLG-982); the phone's plan page › ⋯ › Agent for its work, with a Mac before 1.58 |
+| `plans.setRoleAgent` | ✓ a plan's header agents button (one name, or “3 Agents”) › Planner ▸ · Builder ▸ · Checker ▸ (BLG-982): who plans, builds or checks from now on (the toast says what changes); the phone's plan page › ⋯ › Plans with / Builds with / Checks with (1.58) |
+| `plans.setFullAuto` | ✓ a plan's “Runs on …” › Autopilot › Never wait for me (BLG-981); the header then says Runs on Full Autopilot; the phone's How it runs › Full Autopilot (1.58) |
 | `plans.setTestsAt` | ✓ a plan's ⋯ › When to Run Tests ▸ (each milestone, or once at the end) |
 | `plans.pass` | ✓ Pass Milestone on a plan's page |
 | `plans.recheck` | ✓ Check Again on a milestone the agent is checking or that failed its check |

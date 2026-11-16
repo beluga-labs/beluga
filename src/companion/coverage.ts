@@ -25,6 +25,8 @@ export const PHONE: Record<Method, Side> = {
   'session.copyText': 'mac',
   'session.setPrefs': 'mac',
   'session.setPlanMode': 'mac',
+  'session.setAutopilot': 'phone',
+  'session.setBuildWith': 'mac',
   'session.setClaudeSharing': 'mac',
   'session.rename': 'mac',
   'session.zoom': 'mac',
@@ -465,6 +467,8 @@ export const PHONE: Record<Method, Side> = {
   'plans.setTestsAt': 'mac',
   // Who works the plan's milestones and tasks from here on (BLG-498): a pick from a list.
   'plans.setWorkAgent': 'phone',
+  'plans.setRoleAgent': 'phone',
+  'plans.setFullAuto': 'phone',
   'plans.tidyUp': 'mac',
   'plans.pass': 'phone',
   'plans.recheck': 'phone',
