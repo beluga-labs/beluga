@@ -12623,7 +12623,7 @@
  "Checks each milestone against its criteria, and reviews drafts": "按标准检查每个里程碑，并审阅草稿",
  "{0} Agents": "{0} 个智能体",
  "{0} does this part too": "这部分也由 {0} 来做",
- "Planned": "规划",
- "built": "构建",
- "and checked": "检查"
+ "Planned by": "规划：",
+ "built by": "构建：",
+ "and checked by": "检查："
 }
