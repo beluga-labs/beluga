@@ -244,7 +244,7 @@ export class TelemetryService {
   private prepare(t: TurnFacts): TurnFacts | undefined {
     // Turned down since it was queued: it doesn't go.
     if (this.level !== 'on') return undefined;
-    if (!t.text) return t;
+    if (!t.text && !t.tools.some((tool) => tool.input || tool.output !== undefined)) return t;
     if (this.now() - this.secretsAt > SECRETS_MS) {
       this.secretsAt = this.now();
       try {
@@ -253,7 +253,24 @@ export class TelemetryService {
         // The patterns still run.
       }
     }
-    return { ...t, text: { prompt: this.masker.mask(t.text.prompt), answer: this.masker.mask(t.text.answer) } };
+    return {
+      ...t,
+      ...(t.text ? { text: { prompt: this.masker.mask(t.text.prompt), answer: this.masker.mask(t.text.answer) } } : {}),
+      // What each tool was given and gave back: every string in it, before a span is built from it.
+      tools: t.tools.map((tool) => ({
+        ...tool,
+        ...(tool.input ? { input: this.masked(tool.input) as Readonly<Record<string, unknown>> } : {}),
+        ...(tool.output !== undefined ? { output: this.masker.mask(tool.output) } : {}),
+      })),
+    };
+  }
+
+  /** A tool's input with every string in it masked (its keys and shape kept). */
+  private masked(v: unknown): unknown {
+    if (typeof v === 'string') return this.masker.mask(v);
+    if (Array.isArray(v)) return v.map((x) => this.masked(x));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, this.masked(x)]));
+    return v;
   }
 
   private view() {

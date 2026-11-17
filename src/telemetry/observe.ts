@@ -1,5 +1,6 @@
 import type { SubAgentEvent } from '../agent/types.js';
 import type { AgentBackend, AgentRunInput } from '../agent/types.js';
+import { CLAUDE_BUILT_INS } from '../shared/skills.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
 import type { Refusal } from './claude-otel.js';
@@ -58,6 +59,12 @@ const parseUsage = (text: string): (TurnUsage & { session?: string }) | undefine
   }
 };
 
+/** The skill or custom command a message starts with ("/loop-do fix it"), never one of Claude Code's own commands. */
+export function slashOf(words: string | undefined): string | undefined {
+  const name = /^\/\/?([\w.:-]{1,64})(?:\s|$)/.exec(words?.trimStart() ?? '')?.[1];
+  return name && !CLAUDE_BUILT_INS.has(name) ? name : undefined;
+}
+
 const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => (a ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite, cost: a.cost + b.cost } : b);
 
 export function observedBackend(backend: AgentBackend, runtime: string, deps: ObserveDeps): AgentBackend {
@@ -69,6 +76,10 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       const startedAt = now();
       // Yours: you asked for it on this computer (only then does the run carry the words you typed).
       const own = input.ownWords !== undefined;
+      // What a tool was given and gave back is kept only at On; it goes only on a run of yours (typed, or started for you).
+      const detail = level === 'on';
+      const content = detail && (own || input.ownerMcp === true);
+      const slash = detail ? slashOf(input.ownWords) : undefined;
       let usage: TurnUsage | undefined;
       let session = input.place?.resume;
       let compactions = 0;
@@ -103,7 +114,19 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
         if (record.kind !== 'tool' || !record.tool) return;
         const ok = record.status !== 'error' && !record.isError;
         // Only the class of a failure is kept: its words stay in the step.
-        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok, ...(ok ? {} : { error: toolErrorType(record) }), ...(record.parent ? { parent: record.parent } : {}) });
+        tools.set(record.id, {
+          id: record.id,
+          name: record.tool,
+          startedAt: record.startedAt,
+          ...(record.endedAt ? { endedAt: record.endedAt } : {}),
+          ok,
+          ...(ok ? {} : { error: toolErrorType(record) }),
+          ...(record.parent ? { parent: record.parent } : {}),
+          ...(detail && record.input ? { input: record.input } : {}),
+          ...(detail && record.output !== undefined ? { output: record.output } : {}),
+          ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+          ...(record.native ? { native: record.native } : {}),
+        });
       };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
@@ -132,6 +155,8 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               ...(calls?.length ? { calls } : {}),
               tools: [...tools.values()].map((t) => (!t.ok && refused?.has(t.id) ? { ...t, error: refused.get(t.id)! } : t)),
               own,
+              ...(content ? { content } : {}),
+              ...(slash ? { slash } : {}),
               place: placeOf(input),
               subagents: subs.size,
               compactions,

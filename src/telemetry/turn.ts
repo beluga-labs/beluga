@@ -1,4 +1,5 @@
 import { type OtlpSpan, attrs, nanos, pseudonym, spanId, traceId } from './otlp.js';
+import { toolDetail } from './tool-detail.js';
 
 /**
  * One turn of an agent, as Beluga saw it (src/telemetry/observe.ts), and that turn as spans.
@@ -26,6 +27,16 @@ export interface TurnTool {
   readonly error?: string;
   /** A sub-agent's step: the id of the tool call that started that sub-agent. */
   readonly parent?: string;
+  /** Level "on": what the call was given (bounded, secrets redacted; masked before it's turned into spans). */
+  readonly input?: Readonly<Record<string, unknown>>;
+  /** Level "on": what came back (bounded; masked before it's turned into spans). */
+  readonly output?: string;
+  /** A command's exit code, when the runtime gave it (Codex). */
+  readonly exitCode?: number;
+  /** The runtime's own name for the tool, when Beluga renamed it ("commandExecution" → "Bash"). */
+  readonly native?: string;
+  /** A Skill call: where Claude Code said the skill lives ("userSettings", "projectSettings", "plugin"…). */
+  readonly skillSource?: string;
 }
 
 /** One model request (Claude Code's own telemetry has one per request: src/telemetry/claude-otel.ts). */
@@ -60,6 +71,10 @@ export interface TurnFacts {
   readonly tools: readonly TurnTool[];
   /** Your own turn, or one someone else asked for (a friend, a friend's agent). */
   readonly own: boolean;
+  /** Its tools' arguments and results may go: level "on", and a run of yours (never a friend's or a guest's). */
+  readonly content?: boolean;
+  /** The skill or custom command you started the turn with ("/loop-do …"), by name. */
+  readonly slash?: string;
   /** Where it ran: a worktree, a project, a chat, a plan, a sentinel… */
   readonly place: string;
   readonly subagents: number;
@@ -141,6 +156,8 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.answer_chars': f.answerChars,
         // The turn's whole cost, under its own name: a chat span's is ratel.usage.cost_usd, so a sum never counts twice.
         'ratel.run.cost_usd': f.usage?.cost,
+        'ratel.skill.name': f.slash,
+        'ratel.skill.trigger': f.slash ? 'slash_command' : undefined,
         'error.type': f.errorKind,
       }),
       status: { code: f.outcome === 'error' ? 2 : 1 },
@@ -182,23 +199,31 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   // A tool goes under the request that asked for it: the last one that ended before it started.
   const parentOf = (at: number): string => [...chats].reverse().find((c) => c.end <= at + 1)?.span.spanId ?? chats[0]?.span.spanId ?? root;
   for (const t of f.tools) {
+    const detail = toolDetail(t, f.content === true);
     spans.push({
       traceId: trace,
       spanId: spanId(),
       parentSpanId: parentOf(t.startedAt),
-      name: `execute_tool ${t.name}`,
+      name: `execute_tool ${detail.name}`,
       kind: 1,
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: toolAttrs(t, who),
+      attributes: attrs({ ...toolAttrs(t, who), 'gen_ai.tool.name': detail.name, ...detail.attributes }),
       status: { code: t.ok ? 1 : 2 },
     });
   }
   return spans;
 }
 
-const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string>>) =>
-  attrs({ 'gen_ai.operation.name': 'execute_tool', ...who, 'gen_ai.tool.name': t.name, 'gen_ai.tool.call.id': t.id, 'ratel.agent.parent_call_id': t.parent, 'error.type': t.ok ? undefined : (t.error ?? 'tool_error') });
+/** What every tool span says, in both projects: which call, whose, and how it failed. Never what it was given. */
+const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string>>) => ({
+  'gen_ai.operation.name': 'execute_tool',
+  ...who,
+  'gen_ai.tool.name': t.name,
+  'gen_ai.tool.call.id': t.id,
+  'ratel.agent.parent_call_id': t.parent,
+  'error.type': t.ok ? undefined : (t.error ?? 'tool_error'),
+});
 
 /** One of Beluga's own MCP tools (mcp__beluga__send_chat, mcp__beluga_board__task_update…), as every runtime names them. */
 export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.test(name);
@@ -243,7 +268,7 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       kind: 1,
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: toolAttrs(t, who),
+      attributes: attrs(toolAttrs(t, who)),
       status: { code: t.ok ? 1 : 2 },
     })),
   ];
