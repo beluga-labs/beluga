@@ -377,7 +377,8 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         ...usageAttrs(c.call.usage),
         // What the model saw: a request's own input, or (the turn told as one) what the run last reported.
         'ratel.context.tokens': told ? c.call.usage.input + c.call.usage.cacheRead + c.call.usage.cacheWrite || undefined : f.contextTokens,
-        'ratel.context.window': f.contextWindow,
+        // The window is the turn's own model's: a sub-agent may run another.
+        'ratel.context.window': c.scope ? undefined : f.contextWindow,
         // The turn as one request spans its waits for a person: said apart, so they aren't read as model time.
         'ratel.wait.human_ms': !told && f.waits?.length ? waitMs : undefined,
         // The tools the model had, on the turn's first request: names and kinds, never descriptions.
@@ -534,6 +535,9 @@ export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.t
 export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   const tools = f.tools.filter((t) => isBelugaTool(t.name));
   if (!tools.length) return [];
+  // As in the whole turn: a call you declined, or didn't answer, is a wait and not a failed tool.
+  const waited = waitsByTool(f);
+  const failed = (t: TurnTool): boolean => !t.ok && !waited.of(t).some(unanswered);
   const trace = traceId();
   const root = spanId();
   const conversation = f.session ? pseudonym(installId, f.session) : undefined;
@@ -554,7 +558,7 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.own': f.own,
         'ratel.run.outcome': f.outcome,
         'ratel.run.tool_calls': tools.length,
-        'ratel.run.tool_errors': tools.filter((t) => !t.ok).length,
+        'ratel.run.tool_errors': tools.filter(failed).length,
       }),
       status: { code: f.outcome === 'error' ? 2 : 1 },
     },
@@ -566,8 +570,8 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       kind: 1,
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: attrs(toolAttrs(t, who)),
-      status: { code: t.ok ? 1 : 2 },
+      attributes: attrs({ ...toolAttrs(t, who), ...(failed(t) || t.ok ? {} : { 'error.type': undefined, 'ratel.wait.outcome': waited.of(t).at(-1)?.outcome }) }),
+      status: { code: failed(t) ? 2 : 1 },
     })),
   ];
 }

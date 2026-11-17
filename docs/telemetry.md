@@ -54,7 +54,7 @@ All of it goes to the Beluga project.
 
 - **Calls to Beluga's own tools,** for every runtime (Claude, Codex, OpenCode, Copilot, local models). These are the tools named `mcp__beluga…`, such as `mcp__beluga_board__task_update` or `mcp__beluga_sentinel__sentinel_create`. For each turn that used one:
   - which agent ran it and where (a worktree, a project, a plan, a sentinel, a friend's task), and how the turn ended;
-  - each Beluga tool call by name, how long it took and whether it failed. A failure has a kind, never its message: a timeout, a refusal, a stop, a failed command, a rejected input, or another error. A tool's input and output are never sent.
+  - each Beluga tool call by name, how long it took and whether it failed. A failure has a kind, never its message: a timeout, a refusal, a stop, a failed command, a rejected input, or another error. A call that you declined, or didn't answer, isn't a failure: it says so instead. A tool's input and output are never sent.
 
   No model, tokens, cost, other tools or text. A turn that used none of Beluga's tools sends nothing. It's sent as OpenTelemetry spans: an `invoke_agent` span with `execute_tool` spans under it.
 - **Features used:** the name of each action a screen takes, i.e. an API method such as `session.submit`, with how often, how many failed and how long they took, summed per minute. Never what was in it.

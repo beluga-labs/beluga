@@ -8,7 +8,7 @@ import { attachObserver, liveObserver } from '../src/telemetry/hook.js';
 import { type ObserveDeps, observedBackend } from '../src/telemetry/observe.js';
 import { TelemetryService } from '../src/telemetry/service.js';
 import type { OtlpSpan } from '../src/telemetry/otlp.js';
-import { type TurnFacts, type TurnTool, DEFINITIONS_MAX, HOOK_EVENTS_MAX, turnSpans } from '../src/telemetry/turn.js';
+import { type TurnFacts, type TurnTool, DEFINITIONS_MAX, HOOK_EVENTS_MAX, belugaToolSpans, turnSpans } from '../src/telemetry/turn.js';
 
 /** What a turn says around its tool calls (AOBS-6): where it ran, waits for a person, compactions, hooks, the tools it had. */
 
@@ -132,6 +132,18 @@ describe('waiting for a person', () => {
     expect(value(op(f, 'execute_tool')[0]!, 'ratel.wait.human_ms')).toBe(2_000);
   });
 
+  it("Beluga's own project sees the same: a Beluga tool you declined is not a failed tool there either", () => {
+    const f = turn([tool({ id: 'm1', name: 'mcp__beluga__send_file', ok: false, error: 'denied' }), tool({ id: 'm2', name: 'mcp__beluga__send_chat', ok: false, error: 'tool_error', startedAt: 5_000, endedAt: 5_100 })], {
+      waits: [{ kind: 'permission', tool: 'mcp__beluga__send_file', startedAt: 2_010, endedAt: 2_400, outcome: 'declined' }],
+    });
+    const [root, declined, broken] = belugaToolSpans(f, ID);
+    expect(value(root!, 'ratel.run.tool_errors')).toBe(1);
+    expect(value(declined!, 'error.type')).toBeUndefined();
+    expect(declined!.status?.code).toBe(1);
+    expect(value(declined!, 'ratel.wait.outcome')).toBe('declined');
+    expect(value(broken!, 'error.type')).toBe('tool_error');
+  });
+
   it('a wait with no step of its own is on the turn; a turn told as one request says its wait there too (not model time)', () => {
     const f = turn([], { waits: [{ kind: 'plan', tool: 'ExitPlanMode', startedAt: 3_000, endedAt: 5_000, outcome: 'approved' }] });
     const root = rootOf(f);
@@ -175,6 +187,14 @@ describe('what the model saw', () => {
     expect(value(first!, 'ratel.context.tokens')).toBe(1_210);
     expect(value(second!, 'ratel.context.tokens')).toBe(5_020);
     expect(value(first!, 'ratel.context.window')).toBe(200_000);
+  });
+
+  it("the window is the turn's own model's: a sub-agent's request (another model, perhaps) does not say it", () => {
+    const agent = tool({ id: 'a1', name: 'Agent', input: { subagent_type: 'Explore' }, startedAt: 2_000, endedAt: 6_000 });
+    const [own, sub] = op(turn([agent], { contextWindow: 200_000, calls: [call(1_900), call(4_000, { model: 'claude-haiku-5-5', agentName: 'Explore', agentId: 'ag1' })] }), 'chat');
+    expect(value(own!, 'ratel.context.window')).toBe(200_000);
+    expect(value(sub!, 'ratel.context.tokens')).toBe(1_210);
+    expect(value(sub!, 'ratel.context.window')).toBeUndefined();
   });
 
   it('a turn told as one request says the context as the run last reported it, not the sum of its requests', () => {
