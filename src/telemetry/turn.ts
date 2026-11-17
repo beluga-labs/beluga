@@ -3,8 +3,8 @@ import { agentTypeOf, toolDetail } from './tool-detail.js';
 
 /**
  * One turn of an agent, as Beluga saw it (src/telemetry/observe.ts), and that turn as spans.
- * Text is here only at level "on", and only for your own turns; it's masked before it's turned
- * into spans (src/telemetry/exporter.ts).
+ * Text is here only at level "on", and only for your own turns; so is what each tool was given and
+ * gave back. Both are masked before they're turned into spans (src/telemetry/service.ts).
  */
 
 export interface TurnUsage {
@@ -13,7 +13,10 @@ export interface TurnUsage {
   readonly output: number;
   readonly cacheRead: number;
   readonly cacheWrite: number;
+  /** In dollars. 0: the runtime reports none (Codex), so none is sent and a price book prices the tokens. */
   readonly cost: number;
+  /** Output tokens spent thinking (part of `output`), when the runtime says. */
+  readonly thinking?: number;
 }
 
 export interface TurnTool {
@@ -89,6 +92,8 @@ export interface TurnFacts {
   readonly compactions: number;
   readonly promptChars: number;
   readonly answerChars: number;
+  /** Its stretches of thinking: how long they took in all, and how many. Never what was thought. */
+  readonly thinking?: { readonly ms: number; readonly blocks: number };
   /** Level "on", your own turn: the text, already masked. */
   readonly text?: { readonly prompt: string; readonly answer: string };
 }
@@ -106,9 +111,13 @@ const usageAttrs = (u: TurnUsage | undefined) =>
         'gen_ai.usage.output_tokens': u.output,
         'gen_ai.usage.cache_read.input_tokens': u.cacheRead,
         'gen_ai.usage.cache_creation.input_tokens': u.cacheWrite,
-        'ratel.usage.cost_usd': u.cost,
+        'gen_ai.usage.reasoning.output_tokens': u.thinking,
+        'ratel.usage.cost_usd': known(u.cost),
       }
     : {};
+
+/** A cost, when the runtime reported one (zero is "not known": Codex reports none). */
+const known = (cost: number | undefined): number | undefined => (cost ? cost : undefined);
 
 /** A model's id without the variant some pickers add ("claude-opus-5-5[1m]"): the price book has the id. */
 const bare = (model: string | undefined): string | undefined => model?.replace(/\[[^\]]*\]$/, '') || undefined;
@@ -221,7 +230,11 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.prompt_chars': f.promptChars,
         'ratel.run.answer_chars': f.answerChars,
         // The turn's whole cost, under its own name: a chat span's is ratel.usage.cost_usd, so a sum never counts twice.
-        'ratel.run.cost_usd': f.usage?.cost,
+        'ratel.run.cost_usd': known(f.usage?.cost),
+        // Thinking: how long and how many tokens, never its words.
+        'ratel.run.thinking_ms': f.thinking?.ms,
+        'ratel.run.thinking_blocks': f.thinking?.blocks,
+        'ratel.run.thinking_tokens': f.usage?.thinking,
         'ratel.skill.name': f.slash,
         'ratel.skill.trigger': f.slash ? 'slash_command' : undefined,
         'error.type': f.errorKind,

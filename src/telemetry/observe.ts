@@ -53,11 +53,21 @@ export function errorKind(err: unknown): string {
   return typeof err;
 }
 
-const parseUsage = (text: string): (TurnUsage & { session?: string }) | undefined => {
+const parseUsage = (text: string): (TurnUsage & { session?: string; compactions?: number }) | undefined => {
   try {
-    const u = JSON.parse(text) as Partial<TurnUsage> & { session?: string };
+    const u = JSON.parse(text) as Partial<TurnUsage> & { session?: string; compactions?: number };
     const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-    return { input: n(u.input), output: n(u.output), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite), cost: n(u.cost), ...(typeof u.session === 'string' ? { session: u.session } : {}) };
+    return {
+      input: n(u.input),
+      output: n(u.output),
+      cacheRead: n(u.cacheRead),
+      cacheWrite: n(u.cacheWrite),
+      cost: n(u.cost),
+      ...(n(u.thinking) > 0 ? { thinking: n(u.thinking) } : {}),
+      ...(typeof u.session === 'string' ? { session: u.session } : {}),
+      // A runtime that says its compactions with its usage, not as events of their own (Codex).
+      ...(n(u.compactions) > 0 ? { compactions: n(u.compactions) } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -78,7 +88,10 @@ function skillSources(tools: readonly TurnTool[], sources: readonly string[]): R
   return new Map(calls.length === sources.length ? calls.map((t, i) => [t.id, sources[i]!] as const) : []);
 }
 
-const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => (a ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite, cost: a.cost + b.cost } : b);
+const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => {
+  const thinking = (a?.thinking ?? 0) + (b.thinking ?? 0);
+  return { input: (a?.input ?? 0) + b.input, output: (a?.output ?? 0) + b.output, cacheRead: (a?.cacheRead ?? 0) + b.cacheRead, cacheWrite: (a?.cacheWrite ?? 0) + b.cacheWrite, cost: (a?.cost ?? 0) + b.cost, ...(thinking > 0 ? { thinking } : {}) };
+};
 
 export function observedBackend(backend: AgentBackend, runtime: string, deps: ObserveDeps): AgentBackend {
   return Object.assign(Object.create(backend) as AgentBackend, {
@@ -99,14 +112,17 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
+      const thinking = { ms: 0, blocks: 0 };
       const onEvent: AgentRunInput['onEvent'] = (kind, text) => {
         input.onEvent(kind, text);
         try {
           if (kind === 'usage') {
             const u = parseUsage(text);
             if (u) {
-              usage = addUsage(usage, u);
-              session = u.session ?? session;
+              const { session: said, compactions: compacted, ...tokens } = u;
+              usage = addUsage(usage, tokens);
+              session = said ?? session;
+              compactions += compacted ?? 0;
             }
           } else if (kind === 'compact') compactions++;
           else if (kind === 'context') {
@@ -124,6 +140,11 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       };
       const onStep = (record: StepRecord): void => {
         input.onStep?.(record);
+        // Thinking: only how long it took and that it happened; its words stay in the step.
+        if (record.kind === 'thinking') {
+          thinking.ms += record.durationMs ?? 0;
+          thinking.blocks++;
+        }
         if (record.kind !== 'tool' || !record.tool) return;
         const ok = record.status !== 'error' && !record.isError;
         // Only the class of a failure is kept: its words stay in the step.
@@ -182,6 +203,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               compactions,
               promptChars: input.prompt.length,
               answerChars: answer.length,
+              ...(thinking.blocks ? { thinking: { ...thinking } } : {}),
               // At "on", your own turns' text: the words you typed (never what Beluga added to the prompt,
               // nor the context: other people's words), and the answer. Masked before it's sent.
               ...(level === 'on' && input.ownWords !== undefined ? { text: { prompt: input.ownWords, answer } } : {}),

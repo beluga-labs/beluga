@@ -18,6 +18,10 @@ interface Block {
   readonly content?: unknown;
   readonly is_error?: boolean;
   readonly thinking?: unknown;
+  /** A tool_use: the runtime's own name for the tool, when `name` is Claude Code's for it (Codex). */
+  readonly native?: string;
+  /** A tool_result: the command's exit code, when the runtime gives it apart from the output (Codex). */
+  readonly exit_code?: number | null;
 }
 
 /** The parts of an SDK message the recorder reads. */
@@ -128,6 +132,7 @@ export class StepRecorder {
       input,
       ...(truncated ? { truncated: true } : {}),
       ...(parent ? { parent } : {}),
+      ...(block.native ? { native: block.native } : {}),
     });
   }
 
@@ -144,6 +149,7 @@ export class StepRecorder {
       durationMs: now - rec.startedAt,
       output: out.text,
       ...(error ? { isError: true } : {}),
+      ...(typeof block.exit_code === 'number' ? { exitCode: block.exit_code } : {}),
       ...(out.truncated || rec.truncated ? { truncated: true } : {}),
     });
   }

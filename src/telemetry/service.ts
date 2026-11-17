@@ -30,7 +30,8 @@ import { type TurnFacts, belugaToolSpans } from './turn.js';
  * Ratel, in two projects (src/telemetry/config.ts):
  * - Beluga's own project, at Essential and On: features used, calls to Beluga's own tools, app
  *   moments, this computer's kind;
- * - the agents project, at On only: your agents' turns (tokens, every tool, the masked text) and
+ * - the agents project, at On only: your agents' turns (tokens, every tool with its masked arguments
+ *   and result, the masked text) and
  *   Claude Code's own telemetry.
  * In a build that can't send (no release config), it publishes `available: false` and does nothing.
  */
@@ -242,7 +243,7 @@ export class TelemetryService {
     if (this.now() - this.lastDevice > DAY_MS) this.device();
   }
 
-  /** A whole turn as it's sent: dropped below On, its text masked (the secret values read again at most once a minute). */
+  /** A whole turn as it's sent: dropped below On, its text and its tools' arguments and results masked (the secret values read again at most once a minute). */
   private prepare(t: TurnFacts): TurnFacts | undefined {
     // Turned down since it was queued: it doesn't go.
     if (this.level !== 'on') return undefined;

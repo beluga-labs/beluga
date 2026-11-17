@@ -3,8 +3,11 @@ import { createHash, randomBytes } from 'node:crypto';
 /**
  * OTLP JSON, in the shape Ratel Cloud reads best (its mapper pins gen_ai semconv v1.42):
  * - one turn of an agent is one trace: an `invoke_agent` root (no usage on it, so it's never
- *   counted as a model call), `chat` spans under it with the tokens, and `execute_tool` spans under
- *   the chat they followed;
+ *   counted as a model call), `chat` spans under it with the tokens, each `execute_tool` span under
+ *   the chat that asked for it, and a sub-agent as an `invoke_agent` span under the call that
+ *   started it, with its own chats and tools below (src/telemetry/turn.ts);
+ * - a tool's arguments and result (level "on", your own runs, masked) as
+ *   `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` (src/telemetry/tool-detail.ts);
  * - text (level "on" only) as `gen_ai.input.messages` on the first chat span and
  *   `gen_ai.output.messages` in the last one's `gen_ai.client.inference.operation.details` event;
  * - everything else (features used, this computer, the app) as `ratel.beluga.*` log records, the

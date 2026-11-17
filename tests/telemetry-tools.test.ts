@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
+import { usageOf } from '../src/agent/runtime/claude/runner.js';
+import { CodexEvents, usageEvent } from '../src/agent/runtime/codex/events.js';
 import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { observedBackend } from '../src/telemetry/observe.js';
 import type { OtlpSpan } from '../src/telemetry/otlp.js';
@@ -415,5 +417,92 @@ describe("Claude Code's own telemetry: what ties a tool to its request and its s
     await vi.waitFor(() => expect(facts).toHaveLength(1));
     expect(facts[0]!.tools[0]).toMatchObject({ name: 'Skill', requestId: 'req_1', skillSource: 'projectSettings' });
     expect(facts[0]!.tools[1]).toMatchObject({ name: 'Bash', requestId: 'req_2', agentId: 'ag1' });
+  });
+});
+
+describe('Codex turns, and thinking', () => {
+  const run = async (runtime: string, script: (i: AgentRunInput) => void): Promise<TurnFacts> => {
+    const facts: TurnFacts[] = [];
+    const backend = { run: async (i: AgentRunInput) => (script(i), 'done') } as AgentBackend;
+    const input = { prompt: 'go', ownWords: 'go', requesterName: 'kay', viaAgent: false, context: [], scope: 'folder', onEvent: () => undefined, onFileTouched: () => undefined } as unknown as AgentRunInput;
+    await observedBackend(backend, runtime, { level: () => 'on', turn: (f) => facts.push(f) }).run(input);
+    return facts[0]!;
+  };
+  const chat = (spans: OtlpSpan[]): OtlpSpan => spans.find((s) => value(s, 'gen_ai.operation.name') === 'chat')!;
+
+  it('a Codex command step carries its exit code and Codex\'s own name for the tool; its compactions are counted', () => {
+    const steps: Array<{ tool?: string; exitCode?: number; native?: string; output?: string; kind: string }> = [];
+    const events: Array<[string, string]> = [];
+    const ev = new CodexEvents('/repo', { onEvent: (k, t) => void events.push([k, t]), onStep: (r) => void steps.push(r) });
+    ev.beginTurn({ onEvent: (k, t) => void events.push([k, t]), onStep: (r) => void steps.push(r) });
+    const command = { type: 'commandExecution' as const, id: 'c1', command: "/bin/zsh -lc 'npm test'", cwd: '/repo', status: 'inProgress' as const, aggregatedOutput: null, exitCode: null, durationMs: null };
+    ev.handle('item/started', { item: command });
+    ev.handle('item/completed', { item: { ...command, status: 'failed', aggregatedOutput: '3 tests failed', exitCode: 1, durationMs: 900 } });
+    ev.handle('item/completed', { item: { type: 'mcpToolCall', id: 'm1', server: 'github', tool: 'search', status: 'completed', arguments: { q: 'x' }, result: { content: 'ok' }, error: null } });
+    ev.handle('thread/compacted', {});
+    ev.handle('thread/compacted', {});
+    ev.handle('thread/tokenUsage/updated', { tokenUsage: { last: { totalTokens: 130, inputTokens: 100, cachedInputTokens: 40, outputTokens: 30, reasoningOutputTokens: 12 } } });
+    const said = ev.endTurn();
+    const done = steps.filter((s) => s.kind === 'tool' && s.output !== undefined);
+    expect(done[0]).toMatchObject({ tool: 'Bash', native: 'commandExecution', exitCode: 1, output: '3 tests failed' });
+    expect(done[1]).toMatchObject({ tool: 'mcp__github__search', native: 'mcpToolCall' });
+    expect(done[1]!.exitCode).toBeUndefined();
+    expect(said.compactions).toBe(2);
+    expect(JSON.parse(usageEvent(said.usage!, 'thr-1', { compactions: said.compactions }))).toEqual({ input: 60, output: 30, cacheRead: 40, cacheWrite: 0, cost: 0, session: 'thr-1', thinking: 12, compactions: 2 });
+    // What the chat shows is unchanged.
+    expect(events.filter(([k]) => k === 'compact')).toHaveLength(0);
+    // A new turn counts from zero.
+    ev.beginTurn({ onEvent: () => undefined });
+    expect(ev.endTurn().compactions).toBe(0);
+  });
+
+  it('a Codex turn tells its compactions and its reasoning tokens, and sends no cost it does not know', async () => {
+    const f = await run('codex', (i) => {
+      i.onEvent('usage', JSON.stringify({ input: 60, output: 30, cacheRead: 40, cacheWrite: 0, cost: 0, session: 'thr-1', thinking: 12, compactions: 2 }));
+      i.onEvent('usage', JSON.stringify({ input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0, session: 'thr-1', thinking: 3, compactions: 1 }));
+    });
+    expect(f.compactions).toBe(3);
+    expect(f.usage).toMatchObject({ output: 35, thinking: 15, cost: 0 });
+    const spans = turnSpans({ ...f, model: 'gpt-5.2-codex' }, ID);
+    expect(value(spans[0]!, 'ratel.run.compactions')).toBe(3);
+    expect(value(spans[0]!, 'ratel.run.thinking_tokens')).toBe(15);
+    expect(value(chat(spans), 'gen_ai.usage.reasoning.output_tokens')).toBe(15);
+    expect(value(chat(spans), 'gen_ai.usage.output_tokens')).toBe(35);
+    // Zero is "not known" (Codex reports none): left out, so a price book prices the tokens.
+    expect(value(chat(spans), 'ratel.usage.cost_usd')).toBeUndefined();
+    expect(value(spans[0]!, 'ratel.run.cost_usd')).toBeUndefined();
+    expect(value(chat(spans), 'gen_ai.request.model')).toBe('gpt-5.2-codex');
+  });
+
+  it('a cost the runtime knows still goes, on the request and on the turn', async () => {
+    const f = await run('claude', (i) => i.onEvent('usage', JSON.stringify({ input: 60, output: 30, cacheRead: 40, cacheWrite: 0, cost: 0.02, session: 's1' })));
+    const spans = turnSpans(f, ID);
+    expect(value(chat(spans), 'ratel.usage.cost_usd')).toBe(0.02);
+    expect(value(spans[0]!, 'ratel.run.cost_usd')).toBe(0.02);
+  });
+
+  it('thinking goes as how long it took and how many tokens, never as its words', async () => {
+    const f = await run('claude', (i) => {
+      i.onStep?.({ id: 'think-1', kind: 'thinking', title: 'Thought for 2s', status: 'done', startedAt: 1_000, endedAt: 3_000, durationMs: 2_000, text: 'the plan is to rename the secret tulip function' });
+      i.onStep?.({ id: 'think-2', kind: 'thinking', title: 'Thought for 1s', status: 'done', startedAt: 4_000, endedAt: 5_000, durationMs: 1_000, hidden: true });
+      i.onEvent('usage', JSON.stringify({ input: 60, output: 300, cacheRead: 40, cacheWrite: 0, cost: 0.02, session: 's1', thinking: 95 }));
+    });
+    expect(f.thinking).toEqual({ ms: 3_000, blocks: 2 });
+    const spans = turnSpans(f, ID);
+    expect(value(spans[0]!, 'ratel.run.thinking_ms')).toBe(3_000);
+    expect(value(spans[0]!, 'ratel.run.thinking_blocks')).toBe(2);
+    expect(value(spans[0]!, 'ratel.run.thinking_tokens')).toBe(95);
+    expect(JSON.stringify(f)).not.toContain('tulip');
+    expect(JSON.stringify(spans)).not.toContain('tulip');
+    // A turn without thinking says nothing about it.
+    const plain = turnSpans(await run('claude', () => undefined), ID);
+    expect(value(plain[0]!, 'ratel.run.thinking_ms')).toBeUndefined();
+  });
+
+  it("Claude's turn usage carries the thinking tokens its result reports", () => {
+    const model = { inputTokens: 4, outputTokens: 274, cacheReadInputTokens: 10, cacheCreationInputTokens: 2 };
+    expect(usageOf({ 'claude-haiku-5-5': model }, 0.01, 's1', { output_tokens_details: { thinking_tokens: 95 } })).toEqual({ input: 4, output: 274, cacheRead: 10, cacheWrite: 2, cost: 0.01, session: 's1', thinking: 95 });
+    expect(usageOf({ 'claude-haiku-5-5': model }, 0.01, 's1')).toEqual({ input: 4, output: 274, cacheRead: 10, cacheWrite: 2, cost: 0.01, session: 's1' });
+    expect(usageOf({ 'claude-haiku-5-5': model }, 0.01, 's1', { output_tokens_details: { thinking_tokens: 0 } })).not.toHaveProperty('thinking');
   });
 });
