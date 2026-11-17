@@ -45,6 +45,7 @@ import { TERMINAL_IMPORT_API } from './terminal-import-api.js';
 import { AGENT_TERM_API } from './agent-term-api.js';
 import { HANDOFF_MODES } from '../shared/agent-handoff.js';
 import { FETCH_EVERY_MAX, FETCH_EVERY_MIN } from '../shared/background-fetch.js';
+import { AUTOPILOT_WAIT_MAX } from '../shared/autopilot-wait.js';
 
 /**
  * Everything a client can ask Beluga to do, in one list. The daemon validates every call
@@ -124,6 +125,8 @@ export const PrefsPatch = z
     // Minutes between background fetches; 0: never on its own (#479).
     fetchEvery: z.union([z.literal(0), z.number().int().min(FETCH_EVERY_MIN).max(FETCH_EVERY_MAX)]),
     prOnReview: bool,
+    // Minutes Autopilot waits for your answer; 0: until you answer (BLG-998).
+    autopilotWait: z.number().int().min(0).max(AUTOPILOT_WAIT_MAX),
     scratchFolder: bool,
     subagents: z.enum(['full', 'compact', 'hidden']),
     hiddenButtons: z.array(z.string().max(40)).max(40),
