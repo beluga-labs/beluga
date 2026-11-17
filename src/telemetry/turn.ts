@@ -29,6 +29,8 @@ export interface TurnTool {
 /** One model request (Claude Code's own telemetry has one per request: src/telemetry/claude-otel.ts). */
 export interface TurnCall {
   readonly model?: string;
+  /** What asked for it, in Claude Code's words: "sdk" (the turn itself), "generate_session_title"… */
+  readonly source?: string;
   readonly at: number;
   readonly durationMs: number;
   readonly usage: TurnUsage;

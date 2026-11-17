@@ -63,6 +63,12 @@ function settingsEnv(file: string, cache: { stamp?: string; env?: Record<string,
 const MAX_BODY = 4 * 1024 * 1024;
 const KEEP_CALLS_MS = 15 * 60_000;
 const MAX_CALLS_PER_SESSION = 2_000;
+const MAX_REFUSED_PER_SESSION = 500;
+/** The scope Claude Code's events come under. */
+const CLAUDE_SCOPE = /^com\.anthropic\.claude_code\b/;
+
+/** How a tool call was refused: someone (or a rule) said no, or the user interrupted. */
+export type Refusal = 'denied' | 'aborted';
 
 type Json = Record<string, unknown>;
 
@@ -98,6 +104,7 @@ export class ClaudeOtel {
   private port?: number;
   private readonly token = randomBytes(16).toString('hex');
   private readonly calls = new Map<string, TurnCall[]>();
+  private readonly refused = new Map<string, { readonly at: number; readonly tools: Map<string, Refusal> }>();
   private readonly settingsCache: { stamp?: string; env?: Record<string, unknown> } = {};
 
   constructor(private readonly deps: ClaudeOtelDeps) {}
@@ -120,6 +127,7 @@ export class ClaudeOtel {
     this.server = undefined;
     this.port = undefined;
     this.calls.clear();
+    this.refused.clear();
   }
 
   /** What a Claude run's process gets, or nothing (not listening, or the user sends Claude Code's telemetry elsewhere). */
@@ -155,6 +163,13 @@ export class ClaudeOtel {
     return mine;
   }
 
+  /** The tool calls of a session that were refused, by tool call id (taken: each is used once). Never sent by id. */
+  refusedFor(session: string): ReadonlyMap<string, Refusal> {
+    const mine = this.refused.get(session)?.tools ?? new Map<string, Refusal>();
+    this.refused.delete(session);
+    return mine;
+  }
+
   /** Read one export. → the status to answer. Exposed for tests. */
   async receive(req: IncomingMessage): Promise<number> {
     if (req.method !== 'POST') return 405;
@@ -176,15 +191,16 @@ export class ClaudeOtel {
     const now = this.deps.now?.() ?? Date.now();
     for (const rl of (json.resourceLogs as Json[]) ?? []) {
       for (const sl of (rl.scopeLogs as Json[]) ?? []) {
+        const scope = String((sl.scope as Json | undefined)?.name ?? '');
         for (const r of (sl.logRecords as Json[]) ?? []) {
           const a = attrMap(r.attributes);
-          // Only Claude Code's own events (named claude_code.*): anything else that found this port is dropped.
-          const raw = String(a.get('event.name') ?? plain(r.body) ?? '');
-          if (!/^claude_code\.[a-z_]{1,60}$/.test(raw)) continue;
-          const name = raw.slice('claude_code.'.length);
+          // Only Claude Code's own events: anything else that found this port is dropped.
+          const name = eventName(a.get('event.name'), plain(r.body), scope);
+          if (!name) continue;
           const at = msOf(r.timeUnixNano, msOf(r.observedTimeUnixNano, now));
           const session = typeof a.get('session.id') === 'string' ? (a.get('session.id') as string) : undefined;
           if ((name === 'api_request' || name === 'api_error') && session) this.call(session, at, name, a);
+          if (name === 'tool_decision' && session) this.decision(session, at, a);
           if (NOT_FORWARDED.has(name)) continue;
           this.deps.emit(event(`claude_code.${name}`, at, this.kept(a, session)));
         }
@@ -216,8 +232,10 @@ export class ClaudeOtel {
 
   private call(session: string, at: number, name: string, a: Map<string, AttrValue>): void {
     const model = a.get('model');
+    const source = a.get('query_source');
     const call: TurnCall = {
       ...(typeof model === 'string' ? { model } : {}),
+      ...(typeof source === 'string' ? { source } : {}),
       at,
       durationMs: num(a.get('duration_ms')),
       usage: { input: num(a.get('input_tokens')), output: num(a.get('output_tokens')), cacheRead: num(a.get('cache_read_tokens')), cacheWrite: num(a.get('cache_creation_tokens')), cost: num(a.get('cost_usd')) },
@@ -227,6 +245,16 @@ export class ClaudeOtel {
     list.push(call);
     if (list.length > MAX_CALLS_PER_SESSION) list.shift();
     this.calls.set(session, list);
+  }
+
+  /** A refused tool call, kept by its id until its turn asks (the id itself never leaves). */
+  private decision(session: string, at: number, a: Map<string, AttrValue>): void {
+    const id = a.get('tool_use_id');
+    if (a.get('decision') !== 'reject' || typeof id !== 'string') return;
+    const tools = this.refused.get(session)?.tools ?? new Map<string, Refusal>();
+    tools.set(id, a.get('source') === 'user_abort' ? 'aborted' : 'denied');
+    if (tools.size > MAX_REFUSED_PER_SESSION) tools.delete(tools.keys().next().value!);
+    this.refused.set(session, { at, tools });
   }
 
   /** Only the listed fields, and the session as an id that can't be traced back. */
@@ -243,7 +271,23 @@ export class ClaudeOtel {
       if (fresh.length) this.calls.set(s, fresh);
       else this.calls.delete(s);
     }
+    for (const [s, r] of this.refused) if (now - r.at >= KEEP_CALLS_MS) this.refused.delete(s);
   }
+}
+
+/**
+ * A log record's event, without its `claude_code.` prefix, or nothing when it isn't Claude Code's.
+ * Claude Code puts the bare name in `event.name` ("api_request") and the full one in the body
+ * ("claude_code.api_request"), under its own scope. A full name in `event.name` is read too.
+ */
+function eventName(attr: AttrValue, body: AttrValue, scope: string): string | undefined {
+  const full = (v: AttrValue): string | undefined => (typeof v === 'string' ? /^claude_code\.([a-z_]{1,60})$/.exec(v)?.[1] : undefined);
+  const named = full(attr);
+  if (named) return named;
+  const inBody = full(body);
+  if (typeof attr !== 'string') return inBody;
+  if (!/^[a-z_]{1,60}$/.test(attr)) return undefined;
+  return inBody === attr || (body === undefined && CLAUDE_SCOPE.test(scope)) ? attr : undefined;
 }
 
 function readBody(req: IncomingMessage): Promise<string | undefined> {

@@ -496,6 +496,56 @@ describe("Claude Code's own telemetry", () => {
     expect(emitted).toEqual([]);
   });
 
+  // What Claude Code 2.1 really sends: the bare name in `event.name`, the full name in the body, its own scope.
+  const real = (records: Array<Record<string, string | number>>, scope = 'com.anthropic.claude_code.events') => ({
+    resourceLogs: [{ scopeLogs: [{ scope: { name: scope }, logRecords: records.map((r) => ({ timeUnixNano: '5000000000', body: { stringValue: `claude_code.${r['event.name']}` }, attributes: kv(r) })) }] }],
+  });
+
+  it('reads the names Claude Code really sends: bare in event.name, claude_code.* in the body', () => {
+    const emitted: unknown[] = [];
+    const otel = new ClaudeOtel({ emit: (r) => emitted.push(r), installId: () => ID, now: () => 5_000 });
+    otel.logs(
+      real([
+        { 'event.name': 'api_request', 'session.id': 'S1', model: 'claude-haiku-5-5', query_source: 'generate_session_title', duration_ms: 100, input_tokens: 1, output_tokens: 2 },
+        { 'event.name': 'api_request', 'session.id': 'S1', model: 'claude-opus-5-5', query_source: 'sdk', duration_ms: 900, input_tokens: 10, output_tokens: 20, cache_read_tokens: 30, cache_creation_tokens: 40, cost_usd: 1 },
+        { 'event.name': 'tool_result', 'session.id': 'S1', tool_name: 'Bash', success: 'true', duration_ms: 12 },
+      ]),
+    );
+    expect(otel.callsFor('S1', 0, 10_000)).toMatchObject([
+      { model: 'claude-haiku-5-5', source: 'generate_session_title' },
+      { model: 'claude-opus-5-5', source: 'sdk', at: 5_000, durationMs: 900, usage: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, cost: 1 } },
+    ]);
+    expect(JSON.stringify(emitted)).toContain('ratel.beluga.claude_code.tool_result');
+    expect(JSON.stringify(emitted)).not.toContain('claude_code.api_request');
+  });
+
+  it('a bare name counts only with Claude Code\'s body or scope (another program that found the port)', () => {
+    const emitted: unknown[] = [];
+    const otel = new ClaudeOtel({ emit: (r) => emitted.push(r), installId: () => ID, now: () => 5_000 });
+    const record = { timeUnixNano: '5000000000', attributes: kv({ 'event.name': 'api_request', 'session.id': 'S1', model: 'm', input_tokens: 1 }) };
+    otel.logs({ resourceLogs: [{ scopeLogs: [{ scope: { name: 'some.other.program' }, logRecords: [record, { ...record, body: { stringValue: 'claude_code.tool_result' } }] }] }] });
+    expect(otel.callsFor('S1', 0, 10_000)).toEqual([]);
+    expect(emitted).toEqual([]);
+    // Its scope alone is enough (a version that leaves the body out).
+    otel.logs({ resourceLogs: [{ scopeLogs: [{ scope: { name: 'com.anthropic.claude_code.events' }, logRecords: [record] }] }] });
+    expect(otel.callsFor('S1', 0, 10_000)).toHaveLength(1);
+  });
+
+  it('keeps which tool calls were refused, and how, for the turn (never forwarded by id)', () => {
+    const emitted: unknown[] = [];
+    const otel = new ClaudeOtel({ emit: (r) => emitted.push(r), installId: () => ID, now: () => 5_000 });
+    otel.logs(
+      real([
+        { 'event.name': 'tool_decision', 'session.id': 'S1', tool_name: 'Bash', tool_use_id: 'toolu_ok', decision: 'accept', source: 'config' },
+        { 'event.name': 'tool_decision', 'session.id': 'S1', tool_name: 'Bash', tool_use_id: 'toolu_no', decision: 'reject', source: 'user_reject' },
+        { 'event.name': 'tool_decision', 'session.id': 'S1', tool_name: 'Edit', tool_use_id: 'toolu_esc', decision: 'reject', source: 'user_abort' },
+      ]),
+    );
+    expect([...otel.refusedFor('S1')]).toEqual([['toolu_no', 'denied'], ['toolu_esc', 'aborted']]);
+    expect(otel.refusedFor('S1').size).toBe(0);
+    expect(JSON.stringify(emitted)).not.toContain('toolu_');
+  });
+
   it('leaves alone someone who set it up in Claude Code\'s own settings', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
     writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ env: { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://their-collector' } }));
