@@ -26,8 +26,8 @@ export interface ObserveDeps {
   readonly calls?: (session: string, from: number, to: number) => readonly TurnCall[];
   /** The tool calls of a session Claude Code said were refused, by tool call id (claude-otel.ts). */
   readonly refused?: (session: string) => ReadonlyMap<string, Refusal>;
-  /** The tool calls of a session, by tool call id: the request that asked for each and the sub-agent that made it (claude-otel.ts). */
-  readonly links?: (session: string) => ReadonlyMap<string, ToolLink>;
+  /** For these tool calls of a session, by tool call id: the request that asked for each and the sub-agent that made it (claude-otel.ts). */
+  readonly links?: (session: string, ids: readonly string[]) => ReadonlyMap<string, ToolLink>;
   /** Where each skill the model called in a time window lives, in order (claude-otel.ts). */
   readonly skills?: (session: string, from: number, to: number) => readonly string[];
   /** How long after a turn to wait for those reports (Claude Code sends them every second or so). */
@@ -173,7 +173,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           try {
             const calls = session ? deps.calls?.(session, startedAt, endedAt + 1_000) : undefined;
             const refused = session ? deps.refused?.(session) : undefined;
-            const links = session ? deps.links?.(session) : undefined;
+            const links = session ? deps.links?.(session, [...tools.keys()]) : undefined;
             const sources = skillSources([...tools.values()], session ? (deps.skills?.(session, startedAt, endedAt + 1_000) ?? []) : []);
             const model = input.place?.model ?? input.model;
             const effort = input.place?.effort;

@@ -178,6 +178,8 @@ describe('secrets never leave this computer in a tool call', () => {
     urlPassword: 'hunter2hunter2',
     inline: 'p4ssw0rd-value-xyz',
     email: 'kay.person@example.com',
+    // Nothing in its shape says it is a secret: only the key it sits under does.
+    bare: 'correct horse battery',
   };
   const leaky = (): TurnFacts =>
     turn([
@@ -187,7 +189,7 @@ describe('secrets never leave this computer in a tool call', () => {
         input: { command: `API_TOKEN=${SECRETS.inline} curl -H "Authorization: Bearer ${SECRETS.anthropic}" https://kay:${SECRETS.urlPassword}@db.example.com/x && echo ${SECRETS.env}` },
         output: `user ${SECRETS.email} in ${HOME}/project has key ${SECRETS.github} and ${SECRETS.env}`,
       }),
-      tool({ id: 't2', name: 'mcp__github__create_secret', input: { name: 'DEPLOY', nested: { value: SECRETS.env, list: [SECRETS.github] } }, output: `stored ${SECRETS.anthropic}` }),
+      tool({ id: 't2', name: 'mcp__github__create_secret', input: { name: 'DEPLOY', nested: { value: SECRETS.env, list: [SECRETS.github] }, password: SECRETS.bare, headers: { Authorization: SECRETS.bare } }, output: `stored ${SECRETS.anthropic}` }),
     ]);
 
   it('arguments and results go masked: saved values, keys by shape, key=value, URL passwords, emails, the home folder', async () => {
@@ -374,11 +376,13 @@ describe("Claude Code's own telemetry: what ties a tool to its request and its s
     expect(calls[0]).toMatchObject({ requestId: 'req_1', source: 'sdk' });
     expect(calls[0]!.agentId).toBeUndefined();
     expect(calls[1]).toMatchObject({ requestId: 'req_2', agentId: 'ag1', agentName: 'Explore' });
-    const links = otel.linksFor('s1');
+    // A turn takes only its own tool calls: the next turn's, already reported, stay for it.
+    const links = otel.linksFor('s1', ['toolu_agent', 'toolu_unknown']);
     expect(links.get('toolu_agent')).toEqual({ requestId: 'req_1' });
-    expect(links.get('toolu_bash')).toEqual({ requestId: 'req_2', agentId: 'ag1' });
+    expect(links.has('toolu_bash')).toBe(false);
+    expect(otel.linksFor('s1', ['toolu_bash']).get('toolu_bash')).toEqual({ requestId: 'req_2', agentId: 'ag1' });
     // Taken once, and none of these ids is forwarded.
-    expect(otel.linksFor('s1').size).toBe(0);
+    expect(otel.linksFor('s1', ['toolu_agent', 'toolu_bash']).size).toBe(0);
     for (const id of ['req_1', 'req_2', 'toolu_', 'ag1', 'kay@example.com']) expect(JSON.stringify(emitted), id).not.toContain(id);
   });
 

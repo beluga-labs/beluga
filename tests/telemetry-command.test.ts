@@ -73,6 +73,13 @@ describe('the command a shell line is about', () => {
     expect(primary('   \n ')).toBeUndefined();
   });
 
+  it('a line continued with a backslash is one line, and a comment is not a command', () => {
+    expect(primary('gh pr create --draft \\\n  --title "x" \\\n  --body "y"')).toBe('gh pr create');
+    expect(primary('git \\\n  commit -m "x"')).toBe('git commit');
+    expect(commandFacts('# build first && rm -rf /\nnpm run build # then; echo done')).toEqual({ command: 'npm', subcommand: 'run build', commands: ['npm'], segments: 1 });
+    expect(primary('echo a#b')).toBe('echo');
+  });
+
   it('a subshell or a group is what is in it', () => {
     expect(primary('(cd pkg && npm ci)')).toBe('npm ci');
     expect(primary('{ make build; }')).toBe('make build');

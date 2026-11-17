@@ -186,10 +186,20 @@ export class ClaudeOtel {
     return mine;
   }
 
-  /** The tool calls of a session, by tool call id: which request asked for each, and which sub-agent made it (taken: each is used once). */
-  linksFor(session: string): ReadonlyMap<string, ToolLink> {
-    const mine = this.links.get(session)?.tools ?? new Map<string, ToolLink>();
-    this.links.delete(session);
+  /**
+   * Which request asked for each of these tool calls, and which sub-agent made it, by tool call id
+   * (taken: each is used once). Only the ids asked for: another turn's calls stay for that turn.
+   */
+  linksFor(session: string, ids: Iterable<string>): ReadonlyMap<string, ToolLink> {
+    const kept = this.links.get(session)?.tools;
+    const mine = new Map<string, ToolLink>();
+    if (!kept) return mine;
+    for (const id of ids) {
+      const link = kept.get(id);
+      if (link) mine.set(id, link);
+      kept.delete(id);
+    }
+    if (!kept.size) this.links.delete(session);
     return mine;
   }
 

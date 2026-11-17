@@ -172,7 +172,9 @@ function segmentsOf(line: string): string[][][] {
     const c = line[i]!;
     const next = line[i + 1];
     if (c === '\\' && quote !== "'") {
-      word += line[++i] ?? '';
+      // A backslash before a new line continues the line; before anything else it keeps that character.
+      if (next !== '\n') word += next ?? '';
+      i++;
       continue;
     }
     if (quote) {
@@ -237,6 +239,12 @@ function segmentsOf(line: string): string[][][] {
     }
     if (c === '(' || c === ')') {
       endWord();
+      continue;
+    }
+    // A comment runs to the end of its line.
+    if (c === '#' && !word) {
+      const stop = line.indexOf('\n', i);
+      i = (stop < 0 ? line.length : stop) - 1;
       continue;
     }
     if (c === ' ' || c === '\t' || c === '\r') {
