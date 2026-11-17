@@ -19,9 +19,10 @@
 ## What it does
 
 - **[Run several tasks at once](#run-several-tasks-at-once)**: every task gets its own worktree, branch and agent, and they all run side by side.
-- **[Watch each step](#watch-each-step)**: the files your agent reads, the commands it runs and its screenshots show up as it works, and a message changes its course.
+- **[Screenshots and logs as they land](#screenshots-and-logs-as-they-land)**: what your agent makes on the way shows up in Scratch while it's still working.
 - **[Tables, charts and diagrams in the chat](#tables-charts-and-diagrams-in-the-chat)**: ask about your data and get a table you can sort; ask how code works and get a diagram.
 - **[Ask a friend's agent](#ask-a-friends-agent)**: tag a friend and your agent asks theirs to do it on their Mac, after they click Allow.
+- **[Invite a friend into your session](#invite-a-friend-into-your-session)**: they watch your agent work live, or talk to it with you.
 - **[Sentinel](#sentinel)**: work you describe once runs on a schedule or when something happens, and leaves a report.
 - **[Run it on a server](#run-it-on-a-server)**: put it on a computer that stays on, then use it from your phone or any browser.
 
@@ -60,18 +61,18 @@ Describe a task and Beluga makes a fresh worktree for it: its own folder, branch
 </p>
 <p align="center"><sub><b>A worktree per task</b>: the sidebar shows who is working, what is ready to merge and what needs you. Changes, diffs, files and terminals sit beside the chat; commit, open a pull request or merge in one click.</sub></p>
 
-## Watch each step
+## Screenshots and logs as they land
 
 <p align="center">
   <picture>
-    <source media="(min-width: 700px)" srcset="assets/scenes/agents-dark.gif">
-    <img src="assets/scenes/agents-dark-still.png" alt="An agent at work on api feat/rate-limits: its steps arrive one by one beside three sub-agents and a screenshot, then you steer it mid-run and it switches course" width="720">
+    <source media="(min-width: 700px)" srcset="assets/scenes/scratch-dark.gif">
+    <img src="assets/scenes/scratch-dark-still.png" alt="Asked to check the login page on a phone, the agent is still working while a screenshot at 375 px, the console log and the layout as JSON land in its Scratch folder one by one, each a click to open" width="720">
   </picture>
 </p>
 
-Every file your agent reads, command it runs and sub-agent or background task it starts shows up as it happens. If it heads the wrong way, send a message and it changes course without starting over.
+Ask your agent to check a page or run the tests, and what it makes on the way lands in the **Scratch** tab as it goes: the screenshot it just took, the test log, the JSON an API sent back. Open any of it while the run is still going; you don't wait for the end. Your agent attaches the best of it to the task as proof.
 
-The **Scratch** tab shows what your agent makes along the way (screenshots of the page it just checked, test runs, logs, the JSON an API sent back) as each file lands, so you can check its work for yourself. Your agent attaches the best of it to the task as proof.
+Every file it reads and command it runs shows up in the conversation too. If it heads the wrong way, send a message and it changes course without starting over.
 
 <p align="center">
   <picture>
@@ -169,12 +170,23 @@ People your friend trusts can skip the pop-up. Secrets like `.env` files and key
 
 More: [what friends' agents can do](docs/network.md#what-your-friends-agents-can-do-here) · [security](docs/security.md) · [the friends network](docs/network.md)
 
+## Invite a friend into your session
+
+<p align="center">
+  <picture>
+    <source media="(min-width: 700px)" srcset="assets/scenes/together-dark.gif">
+    <img src="assets/scenes/together-dark-still.png" alt="Your agent is adding a coupon field; you press Share and invite Ada to Work here. She joins, asks the same agent to make the coupon optional, and it answers you both. Then the same with Follow, where she watches each step live" width="720">
+  </picture>
+</p>
+
+Press **Share** on a worktree and pick a friend. **Work here** lets them talk to your agent in that conversation; **Follow** lets them watch it work, step by step, as it happens. Everyone in the session shows in its header with whether they're here right now.
+
 ## Sentinel
 
 <p align="center">
   <picture>
     <source media="(min-width: 700px)" srcset="assets/scenes/sentinel-dark.gif">
-    <img src="assets/scenes/sentinel-dark-still.png" alt="A sentence becomes a sentinel: When the tests fail on GitHub, have my agent fix them in a worktree and merge once the checks pass. It is built, turned on, runs its steps and leaves a report" width="840">
+    <img src="assets/scenes/sentinel-dark-still.png" alt="Sentinel at a glance: a sentence in three colours, when, what your agent does and what you get, and the same three as cards that light up in turn as the moment comes, the agent works and a report lands. Fix the build, then Failed payments" width="760">
   </picture>
 </p>
 

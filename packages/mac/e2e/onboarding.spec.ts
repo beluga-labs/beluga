@@ -118,7 +118,7 @@ test('a permission macOS already allows shows as allowed, and the tour shows a r
   await page.goto('/');
   const welcome = page.getByRole('dialog', { name: 'Welcome to Beluga' });
   await welcome.getByRole('button', { name: /Set Up Beluga/ }).click();
-  // Your agents, then the tour's first two.
+  // Your agents, then the tour's first two (worktrees, Scratch).
   await expect(welcome.getByRole('heading', { name: 'Which agent is yours?' })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -141,33 +141,49 @@ test('a permission macOS already allows shows as allowed, and the tour shows a r
   await expect(welcome.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
 });
 
-test('the tour explains Sentinel: a sentence becomes a sentinel, then real ones at work', async ({ page }) => {
+test('the tour can be played with: Scratch, a friend’s agent, a shared session and Sentinel (BLG-989)', async ({ page }) => {
   await page.goto('/');
   const welcome = page.getByRole('dialog', { name: 'Welcome to Beluga' });
   await welcome.getByRole('button', { name: /Set Up Beluga/ }).click();
   await expect(welcome.getByRole('heading', { name: 'Which agent is yours?' })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
-  for (const heading of ['Run several tasks at the same time.', 'Watch each step as your agent works.', 'Ask about your data and get a table back.', 'Run tasks on your other computers.', 'Ask a friend’s agent for help.']) {
-    await expect(welcome.getByRole('heading', { name: heading })).toBeVisible();
-    await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
-  }
+  const next = (): Promise<void> => welcome.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(welcome.getByRole('heading', { name: 'Run several tasks at the same time.' })).toBeVisible();
+  await next();
 
-  // A sentence becomes a sentinel: its trigger, its steps, its access; the names pick another.
+  // Scratch: files land while the agent works, and one opens.
+  await expect(welcome.getByRole('heading', { name: 'Watch screenshots and logs arrive as your agent works.' })).toBeVisible();
+  await welcome.getByRole('radio', { name: 'Run the tests' }).click();
+  await welcome.getByRole('button', { name: 'Open test-run.log' }).click();
+  await expect(welcome.getByText('27 passed, 1 failed').last()).toBeVisible();
+  await welcome.getByRole('button', { name: 'Close' }).click();
+  await next();
+  await expect(welcome.getByRole('heading', { name: 'Ask about your data and get a table back.' })).toBeVisible();
+  await next();
+  await expect(welcome.getByRole('heading', { name: 'Run tasks on your other computers.' })).toBeVisible();
+  await next();
+
+  // A friend's agent: pick the errand, Allow as Ada, the result comes back.
+  await expect(welcome.getByRole('heading', { name: 'Your agent can ask a friend’s agent.' })).toBeVisible();
+  await welcome.getByRole('radio', { name: 'A page Ada is signed in to' }).click();
+  await welcome.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(welcome.getByText('staging-dashboard.png')).toBeVisible({ timeout: 10_000 });
+  await next();
+
+  // A shared session: Share, Follow, Invite; Ada joins to follow along.
+  await expect(welcome.getByRole('heading', { name: 'Invite a friend into your session.' })).toBeVisible();
+  await welcome.getByRole('button', { name: 'Share' }).click();
+  await welcome.getByRole('radio', { name: /^Follow/ }).click();
+  await welcome.getByRole('button', { name: 'Invite', exact: true }).click();
+  await expect(welcome.getByText('Ada joined to follow along')).toBeVisible();
+  await next();
+
+  // Sentinel, once: pick a use case and its run plays to a report.
   await expect(welcome.getByRole('heading', { name: 'Start work every morning, or when tests fail.' })).toBeVisible();
-  await expect(welcome.getByText('Every day at 7:00')).toBeVisible();
-  await welcome.getByRole('tab', { name: 'Site watch' }).click();
+  await welcome.getByRole('radio', { name: /Site watch/ }).click();
   await expect(welcome.getByText('When example.com stops answering')).toBeVisible();
-  await expect(welcome.getByText('Run a script')).toBeVisible();
-  await expect(welcome.getByText('Call a service')).toBeVisible();
   await expect(welcome.getByText('Back up', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
-
-  // Sentinel at work: its page's films, each with the sentence that sets it up.
-  await expect(welcome.getByRole('heading', { name: 'A few sentinels to start from.' })).toBeVisible();
-  await welcome.getByRole('tab', { name: 'Failing tests' }).click();
-  await expect(welcome.getByText('When the tests break, your agent fixes them and asks you to merge')).toBeVisible();
-  await expect(welcome.getByText(/When the tests fail on GitHub for one of my projects/)).toBeVisible();
-  await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
+  await next();
   await expect(welcome.getByRole('heading', { name: 'See what each project earns.' })).toBeVisible();
 });
 

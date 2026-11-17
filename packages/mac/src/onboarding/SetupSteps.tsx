@@ -195,7 +195,7 @@ export function AllSettings({ pane, label, delay = 0.55 }: { readonly pane: Sett
 }
 
 /** How much room each fire has above its box: enough for the two starters' flames, not the tallest a custom one can reach. */
-const FIRE_ROOM = 150;
+const FIRE_ROOM = 130;
 
 /**
  * The message box's fire: the pixel fire and the flame side by side, each burning in a box like the
@@ -221,7 +221,7 @@ export function Fire() {
         <Words text="Pick a fire for your message box." />
       </h2>
       <Rise delay={0.2} className={s.body}>
-        When you set the effort to Max, flames burn around the box you type in, so you can see at a glance that you’re on Max. Type in either box to try it.
+        On Max effort, flames burn around the box you type in. Type in either one to try it.
       </Rise>
       <div className={s.fires} role="radiogroup" aria-label="Fire">
         {fires.map((x, i) => {
