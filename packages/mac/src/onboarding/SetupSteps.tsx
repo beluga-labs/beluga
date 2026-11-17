@@ -194,6 +194,27 @@ export function AllSettings({ pane, label, delay = 0.55 }: { readonly pane: Sett
   );
 }
 
+/**
+ * When the fire burns, in one choice (Settings › Fire & Confetti keeps these as two, Where and
+ * When it burns): all the time on Max, all the time on every effort, or only while you type.
+ */
+type When = 'max' | 'everywhere' | 'typing';
+const WHEN: Readonly<Record<When, Pick<FireLook, 'where' | 'show'>>> = {
+  max: { where: 'max', show: 'always' },
+  everywhere: { where: 'everywhere', show: 'always' },
+  typing: { where: 'everywhere', show: 'typing' },
+};
+const WHEN_OPTIONS: ReadonlyArray<{ value: When; label: string }> = [
+  { value: 'max', label: 'On Max Only' },
+  { value: 'everywhere', label: 'Always' },
+  { value: 'typing', label: 'While Typing' },
+];
+const WHEN_DETAIL: Readonly<Record<When, string>> = {
+  max: 'Only on Max effort, so it tells you you’re on Max.',
+  everywhere: 'With every model and every effort.',
+  typing: 'Only while you type, then it goes out.',
+};
+
 /** How much room each fire has above its box: enough for the two starters' flames, not the tallest a custom one can reach. */
 const FIRE_ROOM = 130;
 
@@ -209,12 +230,17 @@ export function Fire() {
     const next = { ...getPrefs().maxFire, ...patch };
     setPrefs({ maxFire: { ...next, preset: presetOf(next) } });
   };
-  const picked = starterOf(look);
+  // Burning only while typing is a "when", not another fire: the fire it burns is still Pixel or Flame.
+  const typing = look.show === 'typing';
+  const picked = starterOf(typing ? { ...look, show: 'always' } : look);
   const fires = STARTERS.filter((x) => x.id !== 'none');
   const on = picked !== 'none';
+  /** A fire's look, burning when this step says (always, or while typing). */
+  const lit = (x: (typeof STARTERS)[number]): Partial<FireLook> => (typing && x.id !== 'none' ? { ...x.set, show: 'typing' } : x.set);
   const choose = (id: string): void => {
-    if (picked !== id) set(STARTERS.find((x) => x.id === id)!.set);
+    if (picked !== id) set(lit(STARTERS.find((x) => x.id === id)!));
   };
+  const when: When = typing ? 'typing' : look.where === 'max' ? 'max' : 'everywhere';
   return (
     <div className={cx(s.setup, s.fireSetup)}>
       <h2 className={s.title}>
@@ -228,7 +254,7 @@ export function Fire() {
           const chosen = picked === x.id;
           return (
             <motion.div key={x.id} className={s.fireOption} data-on={chosen ? '' : undefined} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: EASE_OUT, delay: 0.3 + i * 0.08 }} onPointerDown={() => choose(x.id)}>
-              <Preview look={{ ...look, ...x.set, preset: presetOf({ ...look, ...x.set }) }} room={FIRE_ROOM} className={s.fireStage} label={`Try the ${x.name} fire`} onFocus={() => choose(x.id)} />
+              <Preview look={{ ...look, ...lit(x), preset: presetOf({ ...look, ...lit(x) }) }} room={FIRE_ROOM} className={s.fireStage} label={`Try the ${x.name} fire`} onFocus={() => choose(x.id)} />
               <button type="button" role="radio" aria-checked={chosen} className={s.firePick} onClick={() => choose(x.id)}>
                 <span className={s.radio}>{chosen ? <motion.span layoutId="fire-dot" className={s.radioDot} transition={SPRING} /> : null}</span>
                 <span className={s.fireText}>
@@ -245,16 +271,8 @@ export function Fire() {
           <Switch label="Fire around the message box" on={on} onChange={(v) => set(STARTERS.find((x) => x.id === (v ? 'flame' : 'none'))!.set)} />
         </SetupRow>
         {on ? (
-          <SetupRow index={1} label="When it burns" detail={look.where === 'max' ? 'Only on Max effort, so it tells you you’re on Max.' : 'With every model and every effort.'}>
-            <Choice
-              label="When it burns"
-              value={look.where}
-              onChange={(where) => set({ where })}
-              options={[
-                { value: 'max', label: 'On Max Only' },
-                { value: 'everywhere', label: 'Always' },
-              ]}
-            />
+          <SetupRow index={1} label="When it burns" detail={WHEN_DETAIL[when]}>
+            <Choice label="When it burns" value={when} onChange={(w) => set(WHEN[w])} options={WHEN_OPTIONS} />
           </SetupRow>
         ) : null}
       </Glass>

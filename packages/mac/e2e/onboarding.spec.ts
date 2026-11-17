@@ -49,6 +49,15 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await expect(welcome.getByRole('radio', { name: 'Always' })).toHaveCount(0);
   await welcome.getByRole('radio', { name: /^Pixel/ }).click();
   await expect.poll(async () => (await fire()).typing).toBe('pixels');
+  // While Typing: the same fire, burning only as you type (BLG-989).
+  await welcome.getByRole('radio', { name: 'While Typing' }).click();
+  await expect.poll(async () => (await fire()).show).toBe('typing');
+  await expect(welcome.getByRole('radio', { name: /^Pixel/ })).toHaveAttribute('aria-checked', 'true');
+  await welcome.getByRole('radio', { name: /^Flame/ }).click();
+  await expect.poll(async () => (await fire()).preset).toBe('hades');
+  await expect.poll(async () => (await fire()).show).toBe('typing');
+  await welcome.getByRole('radio', { name: 'On Max Only' }).click();
+  await expect.poll(async () => (await fire()).show).toBe('always');
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
 
   // The settings apply as they're changed.

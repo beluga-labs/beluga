@@ -12251,5 +12251,6 @@
  "Your agent finds the database, runs the query and answers with a table you can sort, search and chart.": "你的智能体会找到数据库、运行查询，并用一张可以排序、搜索、做成图表的表格回答你。",
  "Your agent saves what it makes to a Scratch folder as it goes. Open any of it right away, without waiting for the run to end.": "你的智能体会边做边把产出存进 Scratch 文件夹。随时都能打开查看，不用等它跑完。",
  "Total $52.80": "合计 $52.80",
- "27 passed, 1 failed": "27 个通过，1 个失败"
+ "27 passed, 1 failed": "27 个通过，1 个失败",
+ "Only while you type, then it goes out.": "只在你打字时燃烧，停下就熄灭。"
 }
