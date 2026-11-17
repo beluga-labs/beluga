@@ -80,9 +80,17 @@ Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. 
   - **thinking:** how long it took and how many tokens, never what was thought;
   - how many sub-agents and compactions;
   - the length of the prompt and the answer;
-  - where it ran.
+  - where it ran: the kind of place, and by name the project (as the repo), the branch, the worktree, the board task (`BLG-42`) and the pull request's number. Names are sent as they are, not hashed;
+  - **the agent's own program:** its version, how it asks before acting (its permission mode), and the effort;
+  - **waits for a person:** each time the run waited for you (an approval, a `.env` file, a question, a plan to approve), how long, and how it ended (approved, declined, answered, skipped, or no answer in time). A step that failed only because you said no, or didn't answer, is sent as a wait, not as a failed tool. What a question asked is sent on runs of yours only, masked. Your answer, a plan's text and the command you approved are never part of it;
+  - **permission decisions:** for each tool call, whether it was let run and what decided (you, a rule, a hook);
+  - **compactions:** when, what started each one (you or the agent), and the context's size before and after. Never the summary;
+  - **hooks:** each time Claude Code ran hooks, which event (`PreToolUse`), the hook's name, where it's set, how long it took and how it ended. Never what a hook printed;
+  - **the context's size** at each model request, and the window's size;
+  - **the tools the model was given,** by name, and the names of its MCP servers. Never their descriptions or schemas;
+  - **what a call changed:** for a file edit, the file's extension and how many lines went in and out (never its path); for a command, whether it made a commit, opened a pull request or ran tests, worked out from program names and subcommands only.
 
-  It's sent as OpenTelemetry spans in the `gen_ai` shape Ratel reads: an `invoke_agent` span, a `chat` span for each model request, and each `execute_tool` span under the request that asked for it. A cost the runtime doesn't report (Codex) isn't sent as zero: it's left out.
+  It's sent as OpenTelemetry spans in the `gen_ai` shape Ratel reads: an `invoke_agent` span, a `chat` span for each model request, and each `execute_tool` span under the request that asked for it. Waits, permission decisions, compactions and hooks are events on those spans. A cost the runtime doesn't report (Codex) isn't sent as zero: it's left out.
 - **Claude Code's own telemetry,** caught on your computer and filtered before it's queued. Beluga only turns it on at On:
   - each model request's model, tokens, cost and duration;
   - tool results and permission decisions;

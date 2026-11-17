@@ -378,7 +378,7 @@ describe("Claude Code's own telemetry: what ties a tool to its request and its s
     expect(calls[1]).toMatchObject({ requestId: 'req_2', agentId: 'ag1', agentName: 'Explore' });
     // A turn takes only its own tool calls: the next turn's, already reported, stay for it.
     const links = otel.linksFor('s1', ['toolu_agent', 'toolu_unknown']);
-    expect(links.get('toolu_agent')).toEqual({ requestId: 'req_1' });
+    expect(links.get('toolu_agent')).toEqual({ requestId: 'req_1', decision: 'allow', decisionSource: 'config' });
     expect(links.has('toolu_bash')).toBe(false);
     expect(otel.linksFor('s1', ['toolu_bash']).get('toolu_bash')).toEqual({ requestId: 'req_2', agentId: 'ag1' });
     // Taken once, and none of these ids is forwarded.

@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
+import { harnessFacts } from '../src/agent/runtime/claude/runner.js';
+import { Store, initialState } from '../src/core/store.js';
+import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { commandFacts } from '../src/telemetry/command.js';
+import { attachObserver, liveObserver } from '../src/telemetry/hook.js';
+import { type ObserveDeps, observedBackend } from '../src/telemetry/observe.js';
+import { TelemetryService } from '../src/telemetry/service.js';
 import type { OtlpSpan } from '../src/telemetry/otlp.js';
 import { type TurnFacts, type TurnTool, DEFINITIONS_MAX, HOOK_EVENTS_MAX, turnSpans } from '../src/telemetry/turn.js';
 
@@ -243,5 +250,191 @@ describe('what a call changed', () => {
     expect(value(root, 'ratel.run.commits')).toBe(1);
     expect(value(root, 'ratel.run.prs_opened')).toBe(1);
     expect(value(op(f, 'execute_tool')[0]!, 'ratel.tool.effects')).toEqual(['test']);
+  });
+});
+
+describe('a run, observed: what happens around its tools', () => {
+  const input = (over: Partial<AgentRunInput> = {}): AgentRunInput => ({ prompt: 'fix it', ownWords: 'fix it', requesterName: 'kay', viaAgent: false, context: [], scope: 'folder', onEvent: () => undefined, onFileTouched: () => undefined, canUseTool: async () => true, ...over }) as AgentRunInput;
+  const backend = (script: (i: AgentRunInput) => void | Promise<void>): AgentBackend => ({ run: async (i: AgentRunInput) => (await script(i), 'done') }) as AgentBackend;
+  const observe = async (script: (i: AgentRunInput) => void | Promise<void>, given: AgentRunInput, deps: Partial<ObserveDeps> = {}, clock?: { now: number }): Promise<TurnFacts> => {
+    const facts: TurnFacts[] = [];
+    await observedBackend(backend(script), 'claude', { level: () => 'on', turn: (f) => facts.push(f), ...(clock ? { now: () => clock.now } : {}), ...deps }).run(given);
+    // A turn whose session has reports to wait for is told a moment later.
+    await vi.waitFor(() => expect(facts).toHaveLength(1));
+    return facts[0]!;
+  };
+
+  it('times each wait for a person: an approval, a .env file, a question, a plan; and what the person said', async () => {
+    const clock = { now: 1_000 };
+    const later = <T,>(ms: number, v: T) => async (): Promise<T> => ((clock.now += ms), v);
+    const f = await observe(
+      async (i) => {
+        await i.canUseTool('Bash', { command: 'git push' });
+        await i.canUseTool('Bash', { command: 'rm -rf x' });
+        await i.canUseSecret?.('Read', { file_path: '.env' });
+        await i.askUser?.({ kind: 'question', questions: [{ question: 'Which database?', header: 'DB', options: [], multiSelect: false }] });
+        await i.askUser?.({ kind: 'question', questions: [{ question: 'Still there?', header: '', options: [], multiSelect: false }] });
+        await i.askUser?.({ kind: 'plan', plan: 'step one' });
+      },
+      input({
+        canUseTool: vi.fn().mockImplementationOnce(later(4_000, true)).mockImplementationOnce(later(2_000, false)),
+        canUseSecret: later(1_500, true),
+        askUser: vi
+          .fn()
+          .mockImplementationOnce(later(9_000, { kind: 'answers', answers: { 'Which database?': 'Postgres' } }))
+          .mockImplementationOnce(later(300_000, { kind: 'skip' }))
+          .mockImplementationOnce(later(7_000, { kind: 'plan', approve: false, feedback: 'no' })),
+      }),
+      {},
+      clock,
+    );
+    expect(f.waits).toEqual([
+      { kind: 'permission', tool: 'Bash', startedAt: 1_000, endedAt: 5_000, outcome: 'approved' },
+      { kind: 'permission', tool: 'Bash', startedAt: 5_000, endedAt: 7_000, outcome: 'declined' },
+      { kind: 'secret', tool: 'Read', startedAt: 7_000, endedAt: 8_500, outcome: 'approved' },
+      { kind: 'question', tool: 'AskUserQuestion', startedAt: 8_500, endedAt: 17_500, outcome: 'answered', question: 'Which database?' },
+      { kind: 'question', tool: 'AskUserQuestion', startedAt: 17_500, endedAt: 317_500, outcome: 'timeout', question: 'Still there?' },
+      { kind: 'plan', tool: 'ExitPlanMode', startedAt: 317_500, endedAt: 324_500, outcome: 'declined' },
+    ]);
+    // The answer, the plan and the command are never kept.
+    for (const leak of ['Postgres', 'step one', 'rm -rf']) expect(JSON.stringify(f.waits)).not.toContain(leak);
+  });
+
+  it('an approval settled at once (a rule of yours, not you) is not a wait; the run still gets its answer', async () => {
+    const said: boolean[] = [];
+    const f = await observe(async (i) => void said.push(await i.canUseTool('Bash', {})), input({ canUseTool: async () => false }));
+    expect(said).toEqual([false]);
+    expect(f.waits).toBeUndefined();
+  });
+
+  it("a friend's or a guest's run keeps how long it waited, never what was asked", async () => {
+    const { ownWords: _w, ...friend } = input({ requesterName: 'bob', askUser: async () => ({ kind: 'skip' }) });
+    const clock = { now: 0 };
+    const f = await observe(async (i) => { const p = i.askUser?.({ kind: 'question', questions: [{ question: 'Secret plan?', header: '', options: [], multiSelect: false }] }); clock.now = 900; await p; }, friend as AgentRunInput, {}, clock);
+    expect(f.waits).toEqual([{ kind: 'question', tool: 'AskUserQuestion', startedAt: 0, endedAt: 900, outcome: 'skipped' }]);
+  });
+
+  it('keeps each compaction with its sizes (its summary is neither kept nor counted twice), and the context as last reported', async () => {
+    const f = await observe((i) => {
+      i.onEvent('context', JSON.stringify({ used: 181_000, window: 200_000, model: 'claude-opus-5-5' }));
+      i.onEvent('compact', JSON.stringify({ pre: 181_000, post: 21_000, trigger: 'auto', key: 'k1', window: 200_000 }));
+      i.onEvent('compact', JSON.stringify({ key: 'k1', summary: 'what we did so far' }));
+      i.onEvent('context', JSON.stringify({ used: 24_000, window: 200_000 }));
+      i.onEvent('context', JSON.stringify({ compacting: false, window: 200_000 }));
+    }, input(), { now: () => 4_000 });
+    expect(f.compactions).toBe(1);
+    expect(f.compacted).toEqual([{ at: 4_000, trigger: 'auto', pre: 181_000, post: 21_000 }]);
+    expect(f.contextTokens).toBe(24_000);
+    expect(f.contextWindow).toBe(200_000);
+    expect(JSON.stringify(f)).not.toContain('what we did');
+  });
+
+  it('says where it ran, what the agent said about itself, its hooks and what decided each tool call', async () => {
+    const heard: unknown[] = [];
+    const f = await observe(
+      (i) => {
+        i.onEvent('usage', JSON.stringify({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, session: 's1' }));
+        i.onHarness?.({ version: '2.1.323', permissionMode: 'acceptEdits', tools: ['Bash', 'mcp__gh__search'], mcpServers: ['gh'] });
+        i.onStep?.({ id: 't1', kind: 'tool', tool: 'Bash', title: 'Bash', status: 'done', startedAt: 1, endedAt: 2 });
+      },
+      input({ effort: 'high', onHarness: (h) => heard.push(h) }),
+      {
+        settleMs: 0,
+        context: () => ({ repo: 'beluga', branch: 'feat/x', worktree: 'x', task: 'BLG-1', pr: 7 }),
+        hooks: (session) => (session === 's1' ? [{ at: 5, event: 'PreToolUse', name: 'PreToolUse:Bash', source: 'sdk', durationMs: 3, outcome: 'success', count: 1 }] : []),
+        links: () => new Map([['t1', { requestId: 'r1', decision: 'allow' as const, decisionSource: 'config' }]]),
+      },
+    );
+    expect(f.context).toEqual({ repo: 'beluga', branch: 'feat/x', worktree: 'x', task: 'BLG-1', pr: 7 });
+    expect(f.harness).toEqual({ version: '2.1.323', permissionMode: 'acceptEdits', tools: ['Bash', 'mcp__gh__search'], mcpServers: ['gh'] });
+    expect(f.effort).toBe('high');
+    expect(f.hooks).toHaveLength(1);
+    expect(f.tools[0]).toMatchObject({ decision: 'allow', decisionSource: 'config', requestId: 'r1' });
+    // The run's own listener still hears it.
+    expect(heard).toHaveLength(1);
+  });
+});
+
+describe('what Claude Code says about itself when a run starts', () => {
+  it('its version, how it asks, its tools and its MCP servers: names only', () => {
+    const init = { type: 'system', subtype: 'init', cwd: '/Users/kay/code', claude_code_version: '2.1.323', permissionMode: 'acceptEdits', tools: ['Bash', 'Read', 7, ''], mcp_servers: [{ name: 'beluga_board', status: 'connected' }, { status: 'failed' }], slash_commands: ['x'], apiKeySource: 'none' };
+    expect(harnessFacts(init)).toEqual({ version: '2.1.323', permissionMode: 'acceptEdits', tools: ['Bash', 'Read'], mcpServers: ['beluga_board'] });
+    expect(harnessFacts({})).toEqual({});
+  });
+});
+
+describe("Claude Code's own telemetry: hooks and decisions", () => {
+  const kv = (o: Record<string, string | number>) => Object.entries(o).map(([key, v]) => ({ key, value: typeof v === 'number' ? { intValue: String(v) } : { stringValue: v } }));
+  const logs = (records: Array<Record<string, string | number>>) => ({ resourceLogs: [{ scopeLogs: [{ scope: { name: 'com.anthropic.claude_code.events' }, logRecords: records.map((r) => ({ timeUnixNano: '5000000000', attributes: kv(r) })) }] }] });
+
+  it('keeps each hook run for the turn: which, how long, how it ended', () => {
+    const otel = new ClaudeOtel({ emit: () => undefined, installId: () => ID, now: () => 5_000 });
+    otel.logs(
+      logs([
+        { 'event.name': 'hook_execution_start', 'session.id': 'S1', hook_event: 'PreToolUse', hook_name: 'PreToolUse:Bash', num_hooks: 1 },
+        { 'event.name': 'hook_execution_complete', 'session.id': 'S1', hook_event: 'PreToolUse', hook_name: 'PreToolUse:Bash', hook_source: 'sdk', num_hooks: 1, num_success: 1, num_blocking: 0, num_non_blocking_error: 0, num_cancelled: 0, total_duration_ms: 12 },
+        { 'event.name': 'hook_execution_complete', 'session.id': 'S1', hook_event: 'Stop', hook_name: 'Stop', hook_source: 'user', num_hooks: 2, num_success: 1, num_blocking: 1, num_non_blocking_error: 0, num_cancelled: 0, total_duration_ms: 340 },
+        { 'event.name': 'hook_execution_complete', 'session.id': 'S1', hook_event: 'PostToolUse', hook_name: 'PostToolUse:Edit', hook_source: 'project', num_hooks: 1, num_success: 0, num_blocking: 0, num_non_blocking_error: 1, num_cancelled: 0, total_duration_ms: 8 },
+      ]),
+    );
+    expect(otel.hooksFor('S1', 0, 10_000)).toEqual([
+      { at: 5_000, event: 'PreToolUse', name: 'PreToolUse:Bash', source: 'sdk', durationMs: 12, outcome: 'success', count: 1 },
+      { at: 5_000, event: 'Stop', name: 'Stop', source: 'user', durationMs: 340, outcome: 'blocked', count: 2 },
+      { at: 5_000, event: 'PostToolUse', name: 'PostToolUse:Edit', source: 'project', durationMs: 8, outcome: 'error', count: 1 },
+    ]);
+    expect(otel.hooksFor('S1', 0, 10_000)).toEqual([]);
+  });
+
+  it('keeps what decided each tool call, with its request', () => {
+    const otel = new ClaudeOtel({ emit: () => undefined, installId: () => ID, now: () => 5_000 });
+    otel.logs(
+      logs([
+        { 'event.name': 'tool_decision', 'session.id': 'S1', tool_name: 'Bash', tool_use_id: 't1', request_id: 'r1', decision: 'accept', source: 'config' },
+        { 'event.name': 'tool_result', 'session.id': 'S1', tool_name: 'Bash', tool_use_id: 't1', request_id: 'r1' },
+        { 'event.name': 'tool_decision', 'session.id': 'S1', tool_name: 'Write', tool_use_id: 't2', decision: 'reject', source: 'hook' },
+      ]),
+    );
+    expect([...otel.linksFor('S1', ['t1', 't2'])]).toEqual([
+      ['t1', { requestId: 'r1', decision: 'allow', decisionSource: 'config' }],
+      ['t2', { decision: 'deny', decisionSource: 'hook' }],
+    ]);
+  });
+});
+
+describe('the daemon ties them together', () => {
+  it('every report of the service reaches a run (the requests, refusals, links, skills and hooks of its session, and where it ran)', () => {
+    const seen: string[] = [];
+    const note = <T,>(name: string, v: T) => () => (seen.push(name), v);
+    attachObserver({ level: () => 'on', turn: () => undefined, calls: note('calls', []), refused: note('refused', new Map()), links: note('links', new Map()), skills: note('skills', []), hooks: note('hooks', []), context: note('context', undefined) });
+    try {
+      const live = liveObserver();
+      live.calls?.('s', 0, 1);
+      live.refused?.('s');
+      live.links?.('s', []);
+      live.skills?.('s', 0, 1);
+      live.hooks?.('s', 0, 1);
+      live.context?.({} as AgentRunInput);
+      expect(seen).toEqual(['calls', 'refused', 'links', 'skills', 'hooks', 'context']);
+    } finally {
+      attachObserver(undefined);
+    }
+  });
+
+  it('the service says where a run is from the projects and the board, and masks what a wait asked', async () => {
+    const s = new Store(initialState('test', 'ask'));
+    const ws = { id: 'w1', projectId: 'p1', projectRoot: '/code/beluga', name: 'aobs-6', path: '/wt/aobs-6', kind: 'worktree', branch: 'feat/aobs-6', createdAt: 1, external: false };
+    s.dispatch({ type: 'projects', projects: [{ id: 'p1', name: 'beluga', root: '/code/beluga', base: 'main', workspaces: [ws] }] } as never);
+    s.dispatch({ type: 'board_init', state: { enabled: true, issues: [{ id: 'i1', key: 'AOBS-6', worktrees: ['w1'], pr: { number: 579, url: 'https://github.com/o/r/pull/579', state: 'OPEN', title: 't', draft: true, checks: 'none' } }], projects: {}, autoTasks: false } } as never);
+    const bodies: string[] = [];
+    const fetch = vi.fn(async (_u: string, init: RequestInit) => (bodies.push(String(init.body)), new Response('', { status: 202 }))) as unknown as typeof globalThis.fetch;
+    const service = new TelemetryService({ store: s, version: '1', file: null, secrets: () => ['hunter2-secret'], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch });
+    service.choose('on', 'settings');
+    const place = { cwd: '/wt/aobs-6/src', additionalDirectories: [], autoEdit: true, onSession: () => undefined };
+    expect(service.observeDeps().context?.({ place } as unknown as AgentRunInput)).toEqual({ repo: 'beluga', branch: 'feat/aobs-6', worktree: 'aobs-6', task: 'AOBS-6', pr: 579 });
+    expect(service.observeDeps().context?.({ place: { ...place, cwd: '/elsewhere' } } as unknown as AgentRunInput)).toBeUndefined();
+    service.observeDeps().turn(turn([tool({ id: 'q1', name: 'AskUserQuestion' })], { waits: [{ kind: 'question', tool: 'AskUserQuestion', startedAt: 2_050, endedAt: 2_400, outcome: 'answered', question: 'Is the password hunter2-secret?' }] }));
+    await service.stop();
+    expect(bodies.join('')).toContain('ratel.wait.question');
+    expect(bodies.join('')).not.toContain('hunter2-secret');
   });
 });

@@ -11,6 +11,14 @@ import type { ArgsRuntime } from '../shared/agent-args.js';
 /** How far a request may reach on the owner's computer. */
 export type AccessScope = 'folder' | 'full';
 
+/** A runtime's word about itself at the start of a run (AgentRunInput.onHarness). Names only, never descriptions. */
+export interface HarnessFacts {
+  readonly version?: string;
+  readonly permissionMode?: string;
+  readonly tools?: readonly string[];
+  readonly mcpServers?: readonly string[];
+}
+
 export interface AgentRunInput {
   readonly prompt: string;
   /** Instructions for the agent's own terminal (BLG-534), not a turn: visuals as tokens, no fences (agent/terminal-prompt.ts). */
@@ -45,6 +53,11 @@ export interface AgentRunInput {
    * this computer only: kept beside the chat, never sent anywhere (see core/step-book.ts).
    */
   readonly onStep?: (record: StepRecord) => void;
+  /**
+   * What the agent's own program said about itself when the run started: its version, how it asks
+   * before acting, the tools the model was given and its MCP servers. Usage statistics only.
+   */
+  readonly onHarness?: (facts: HarnessFacts) => void;
   /** Model for this run (an alias like "sonnet" or a full id); unset: the default. */
   readonly model?: string;
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
