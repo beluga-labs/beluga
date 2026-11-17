@@ -225,3 +225,27 @@ describe('Your computers in the tour (BLG-813)', () => {
     for (const line of [copy!.eyebrow, copy!.title, copy!.body, ...copy!.points]) expect(line).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+/**
+ * The tour's words stay plain (BLG-989): a title is one sentence that names what you can do, and no
+ * line leans on the tics that make copy read as generated.
+ */
+describe('the tour’s words', () => {
+  const copies = Object.entries(TOUR_COPY);
+
+  it('titles are one short sentence each', () => {
+    for (const [step, copy] of copies) {
+      expect(copy!.title.split(/(?<=[.!?])\s+/).filter(Boolean), step).toHaveLength(1);
+      expect(copy!.title.split(' ').length, step).toBeLessThanOrEqual(9);
+    }
+  });
+
+  it('no line uses a contrast reveal, an em dash or an exclamation mark', () => {
+    for (const [step, copy] of copies) {
+      for (const line of [copy!.eyebrow, copy!.title, copy!.body, ...copy!.points]) {
+        expect(line, step).not.toMatch(/—|!|\bnot just\b|\bit’s not\b|\bnot only\b/i);
+        expect(line, step).not.toMatch(/\b(seamless|robust|powerful|unlock|streamline|supercharge|effortless)/i);
+      }
+    }
+  });
+});

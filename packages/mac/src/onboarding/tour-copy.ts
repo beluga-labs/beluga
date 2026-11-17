@@ -2,7 +2,12 @@ import type { IconName } from '../components/Icon.js';
 import type { Step } from './onboarding-model.js';
 import { thisComputer } from '../lib/os-words.js';
 
-/** The tour's words, one idea a step. Every line says what the app really does. */
+/**
+ * The tour's words, one idea a step. Every line says what the app really does, plainly enough for
+ * someone who has never heard of it: the title names what you can do, the body says what you do
+ * and what happens, the points are things you could check on screen. No slogans, no "not X, but Y",
+ * no clauses piled onto the end of a sentence.
+ */
 export interface TourCopy {
   readonly eyebrow: string;
   readonly icon: IconName;
@@ -13,66 +18,66 @@ export interface TourCopy {
 
 export const TOUR_COPY: Readonly<Partial<Record<Step, TourCopy>>> = {
   parallel: {
-    eyebrow: 'Parallel',
+    eyebrow: 'Worktrees',
     icon: 'branch',
-    title: 'Work on everything at once.',
-    body: 'Every task gets its own worktree on its own branch, with an agent working in it. Run as many as you like, in one repository or across all of them.',
-    points: ['Worktrees and branches made for you', 'Pull requests opened and followed on GitHub', 'Sub-agents for the pieces in between'],
+    title: 'Run several tasks at the same time.',
+    body: 'Describe a task and Beluga makes a worktree for it: a separate folder on its own branch, with an agent working inside. Agents never edit each other’s files, so you can start the next task while the first one runs.',
+    points: ['The folder and branch are made and named for you', 'Pull requests are opened and their checks shown', 'Works in one repository or across all of them'],
   },
   agents: {
-    eyebrow: 'Live',
+    eyebrow: 'Following along',
     icon: 'eye',
-    title: 'See every agent work. Steer any of them.',
-    body: 'Steps arrive as your agent works: the files it reads, the commands it runs, the screenshots it takes, the sub-agents and background tasks it starts. Say something mid-run and it changes course.',
-    points: ['Sub-agents and background commands, live', 'Screenshots, logs and test output in one place', 'Redirect a run, or queue what comes next'],
+    title: 'Watch each step as your agent works.',
+    body: 'Every file your agent reads, command it runs and screenshot it takes shows up as it happens. If it heads the wrong way, type a message and it changes course without starting over.',
+    points: ['Sub-agents and background commands show too', 'Test output, logs and screenshots stay in the conversation', 'Queue your next message while it works'],
   },
   tables: {
-    eyebrow: 'In the chat',
+    eyebrow: 'Your data',
     icon: 'table',
-    title: 'Answers you can sort, not just read.',
-    body: 'Ask about your data and your agent finds the database, picks the way in (Postgres, SQLite, a file, a URL), connects and runs the query. The answer comes back as a live table in the conversation.',
-    points: ['Headings sort, long tables search and page', 'A table turns into a chart in a click', 'File trees, JSON, terminal output and diagrams too'],
+    title: 'Ask about your data and get a table back.',
+    body: 'Ask something like “which customers pay the most?”. Your agent finds the database (Postgres, SQLite, a file or a URL), runs the query and answers with a table you can sort, search and turn into a chart.',
+    points: ['Click a heading to sort by it', 'Turn a table into a chart with one click', 'Diagrams, file trees and JSON show the same way'],
   },
   machines: {
     eyebrow: 'Your computers',
     icon: 'server',
-    title: 'Your app here. The work on any computer.',
-    body: `Pair a Mac mini at home, a cloud server or a Linux box, and any task can run there while you follow it from ${thisComputer()} or your phone. Make one your Always On, and it keeps working, and answers your friends, while you’re away.`,
-    points: ['Pick where a task runs, beside the mode and model', 'Close the lid, and your phone keeps up', 'One Always On computer stands in for you'],
+    title: 'Run tasks on your other computers.',
+    body: `Pair a Mac mini, a Linux box or a cloud server, then choose it when you start a task: the work runs there, and you follow it from ${thisComputer()} or your phone. Mark one computer as Always On and it keeps working while this one sleeps.`,
+    points: ['Choose the computer next to the model when you start a task', 'Close your laptop and the task keeps running', 'Your Always On computer answers friends while you’re away'],
   },
   friends: {
-    eyebrow: 'Together',
+    eyebrow: 'Friends',
     icon: 'people',
-    title: 'Your agent, and your friends’ agents.',
-    body: 'Add friends and your agents work together. Yours asks theirs for what only their computer has: a file, an account, a page they’re signed in to. They allow it, the result comes back, and yours carries on. Computer to computer, end-to-end encrypted.',
-    points: ['Files, screenshots and errands between computers', 'You approve, or trust a friend once', 'Invite to one project, or to everything'],
+    title: 'Ask a friend’s agent for help.',
+    body: 'When your agent needs something only a friend’s computer has, like a file or a site they’re signed in to, it asks their agent. Your friend clicks Allow, the result comes back and your agent carries on. The connection is end-to-end encrypted.',
+    points: ['Your friend approves each request, or trusts you once', 'Files and screenshots come back to you', 'Share one project with a friend, or all of them'],
   },
   sentinel: {
     eyebrow: 'Sentinel',
     icon: 'sentinel',
-    title: 'Say when. Say what. Beluga keeps watch.',
-    body: 'A sentinel is work you describe once, in a sentence. It waits for its moment (seven in the morning, a failing test, a Stripe payment, your site going quiet), then works through its steps in order and leaves you a report.',
-    points: ['When: a schedule, GitHub, Stripe, Sentry, a site, a webhook', 'Then: an agent, a script, a service, a pull request, a merge', 'Starts paused. You choose if the agent may look, work or ship'],
+    title: 'Start work every morning, or when tests fail.',
+    body: 'Write what you want in a sentence, like “every morning at 7, sum up what changed and send it to my phone”. Beluga turns it into a sentinel: a trigger and a list of steps. When the trigger fires, the steps run in order and you get a report.',
+    points: ['Triggers: a time, GitHub, Stripe, Sentry, a site going down, a webhook', 'Steps: an agent, a script, a pull request, a merge', 'New sentinels start paused, and you choose what the agent may change'],
   },
   uses: {
-    eyebrow: 'Sentinel at work',
+    eyebrow: 'Sentinel examples',
     icon: 'pulse',
-    title: 'Real work, done while you sleep.',
-    body: 'A few of the sentinels people set up first. Tell Ask Sentinel what you want in your own words and your agent builds it, steps and all, ready for you to turn on.',
-    points: ['A fix waiting for your merge by morning', 'Your numbers on a board, your desktop and your phone', 'Every run kept, with its report'],
+    title: 'A few sentinels to start from.',
+    body: 'Tell Ask Sentinel what you want in your own words. Your agent builds the sentinel, steps and all, and leaves it paused for you to check and turn on.',
+    points: ['A pull request with last night’s fix, ready to merge', 'Your numbers on a dashboard, on your desktop and phone', 'Every run kept, with its report'],
   },
   earnings: {
     eyebrow: 'Earnings',
     icon: 'gauge',
-    title: 'Know what every project earns.',
-    body: 'Connect Stripe or RevenueCat and each project shows its revenue right next to the work, kept up to date as sales come in.',
-    points: [`A read-only key, kept on ${thisComputer()}`, 'Per project and per month', 'In the currency you think in'],
+    title: 'See what each project earns.',
+    body: 'Connect Stripe or RevenueCat and each project shows its revenue next to its work, updated as sales come in.',
+    points: [`Uses a read-only key, stored on ${thisComputer()}`, 'Revenue per project and per month', 'Shown in your own currency'],
   },
   archive: {
     eyebrow: 'Archive',
     icon: 'archive',
-    title: 'Archive without a second thought.',
-    body: 'Done with a worktree? Archive it. Its folder goes, node_modules and builds with it, so your disk stays light. The branch and the whole conversation stay.',
-    points: ['Folders removed, branches kept', 'Every conversation kept', 'Restore checks the branch out again'],
+    title: 'Clear out finished worktrees.',
+    body: 'When a task is done, archive its worktree. Beluga deletes the folder, node_modules and build output included, to free up disk space. The branch and the conversation stay, and Restore brings the folder back.',
+    points: ['Folder deleted, branch kept', 'The whole conversation kept', 'Restore checks the branch out again'],
   },
 };

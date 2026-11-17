@@ -26,19 +26,19 @@ export function Hello({ onStart }: { readonly onStart: () => void }) {
         Beluga
       </Rise>
       <h1 className={s.heroTitle}>
-        <Words text="Every project. Every agent." delay={1.75} />
+        <Words text="An agent for every task," delay={1.75} />
         <br />
         {/* One span, not word by word: the line's sheen has to run across all of it. */}
         <motion.span className={s.heroSoft} initial={still ? false : { opacity: 0, y: '0.25em', filter: 'blur(10px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} transition={{ duration: 0.9, ease: EASE_OUT, delay: 2.05 }}>
-          All at once.
+          all running at once.
         </motion.span>
       </h1>
       <Rise delay={2.45} className={s.heroBody}>
-        Claude Code, Codex, OpenCode, GitHub Copilot or a model of your own, working across all your repositories in parallel. Everything they do, in view. Your friends’ agents, one message away.
+        Beluga runs Claude Code, Codex, OpenCode, GitHub Copilot or a local model on each of your tasks, each in its own copy of the repository. You watch them work, answer when they ask, and merge what’s done.
       </Rise>
       <Rise delay={2.75}>
         <GlowButton onClick={onStart} autoFocus>
-          Get Started <Icon name="arrowRight" size={13} />
+          Set Up Beluga <Icon name="arrowRight" size={13} />
         </GlowButton>
       </Rise>
     </div>
