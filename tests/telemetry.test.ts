@@ -314,6 +314,81 @@ describe('a turn as spans (the shape Ratel reads)', () => {
   });
 });
 
+describe('a turn as spans: what Ratel Cloud keeps', () => {
+  const op = (s: Parameters<typeof attr>[0]) => attr(s, 'gen_ai.operation.name')?.stringValue;
+  const call = (model: string, at: number, output = 2, source = 'sdk') => ({ model, source, at, durationMs: 300, usage: { input: 1, output, cacheRead: 3, cacheWrite: 4, cost: 0.01 } });
+
+  it('the model is the id that answered, not the name picked; the name picked is kept beside it', () => {
+    const spans = turnSpans(turn({ model: 'opus', resolvedModel: 'claude-opus-5-5[1m]' }), ID);
+    const [root, chat] = spans;
+    expect(attr(root!, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-opus-5-5' });
+    expect(attr(root!, 'ratel.model.alias')).toEqual({ stringValue: 'opus' });
+    expect(attr(chat!, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-opus-5-5' });
+    expect(attr(chat!, 'gen_ai.response.model')).toEqual({ stringValue: 'claude-opus-5-5' });
+    expect(chat!.name).toBe('chat claude-opus-5-5');
+    // Picked by its id already: nothing to add.
+    expect(attr(turnSpans(turn(), ID)[0]!, 'ratel.model.alias')).toBeUndefined();
+  });
+
+  it('without the id from the run, the requests say which model the name picked was', () => {
+    const calls = [call('claude-haiku-5-5', 1_500, 900, 'generate_session_title'), call('claude-opus-5-5', 1_900), call('claude-opus-5-5', 2_900)];
+    const root = turnSpans(turn({ model: 'opus', calls }), ID)[0]!;
+    expect(attr(root, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-opus-5-5' });
+    // No model picked (the default): the one that wrote the most.
+    const { model: _m, ...rest } = turn({ calls });
+    expect(attr(turnSpans(rest, ID)[0]!, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-haiku-5-5' });
+    // Nothing to go by: the name picked, as before.
+    expect(attr(turnSpans(turn({ model: 'opus' }), ID)[0]!, 'gen_ai.request.model')).toEqual({ stringValue: 'opus' });
+  });
+
+  it('each request is a chat span with its own tokens, cost and what asked for it', () => {
+    const spans = turnSpans(turn({ model: 'opus', calls: [call('claude-haiku-5-5', 1_500, 7, 'generate_session_title'), call('claude-opus-5-5', 1_900, 20)] }), ID);
+    const chats = spans.filter((s) => op(s) === 'chat');
+    expect(chats.map((c) => attr(c, 'gen_ai.request.model')?.stringValue)).toEqual(['claude-haiku-5-5', 'claude-opus-5-5']);
+    expect(chats.map((c) => attr(c, 'gen_ai.usage.output_tokens')?.intValue)).toEqual(['7', '20']);
+    expect(chats.map((c) => attr(c, 'ratel.request.source')?.stringValue)).toEqual(['generate_session_title', 'sdk']);
+    expect(attr(chats[1]!, 'ratel.usage.cost_usd')).toEqual({ doubleValue: 0.01 });
+  });
+
+  it('no beluga.* attribute is left (Ratel Cloud drops them): ratel.* names instead', () => {
+    const facts = turn({ effort: 'high', compactions: 2, subagents: 1, tools: [{ id: 't1', name: 'Read', startedAt: 2_000, endedAt: 2_500, ok: true, parent: 'toolu_agent' }, { id: 't2', name: 'mcp__beluga__send_chat', startedAt: 3_000, ok: true }] });
+    for (const spans of [turnSpans(facts, ID), belugaToolSpans(facts, ID)]) {
+      expect(spans.flatMap((s) => s.attributes.map((a) => a.key)).filter((k) => !/^(gen_ai|ratel|mcp)\.|^error\.type$/.test(k))).toEqual([]);
+    }
+    const [root, chat, tool] = turnSpans(facts, ID);
+    const got = Object.fromEntries(root!.attributes.filter((a) => a.key.startsWith('ratel.')).map((a) => [a.key, Object.values(a.value)[0]]));
+    expect(got).toEqual({
+      'ratel.harness.name': 'claude',
+      'ratel.harness.effort': 'high',
+      'ratel.run.place': 'worktree',
+      'ratel.run.own': true,
+      'ratel.run.outcome': 'ok',
+      'ratel.run.tool_calls': '2',
+      'ratel.run.tool_errors': '0',
+      'ratel.run.subagents': '1',
+      'ratel.run.compactions': '2',
+      'ratel.run.prompt_chars': '20',
+      'ratel.run.answer_chars': '30',
+      'ratel.run.cost_usd': 0.12,
+    });
+    expect(attr(chat!, 'ratel.usage.cost_usd')).toEqual({ doubleValue: 0.12 });
+    expect(attr(tool!, 'ratel.agent.parent_call_id')).toEqual({ stringValue: 'toolu_agent' });
+    const own = belugaToolSpans(facts, ID);
+    expect(own[0]!.attributes.filter((a) => a.key.startsWith('ratel.')).map((a) => a.key)).toEqual(['ratel.harness.name', 'ratel.run.place', 'ratel.run.own', 'ratel.run.outcome', 'ratel.run.tool_calls', 'ratel.run.tool_errors']);
+  });
+
+  it('every span says which conversation and which agent (a batch that splits still resolves its session)', () => {
+    const facts = turn({ tools: [{ id: 't1', name: 'mcp__beluga__send_chat', startedAt: 2_000, ok: true }] });
+    for (const spans of [turnSpans(facts, ID), belugaToolSpans(facts, ID)]) {
+      expect(spans.length).toBeGreaterThan(1);
+      for (const s of spans) {
+        expect(attr(s, 'gen_ai.conversation.id'), s.name).toEqual({ stringValue: pseudonym(ID, 'sess-1') });
+        expect(attr(s, 'gen_ai.agent.name'), s.name).toEqual({ stringValue: 'claude' });
+      }
+    }
+  });
+});
+
 describe("a turn as Beluga's own project sees it", () => {
   const withBeluga = () =>
     turn({
@@ -336,7 +411,7 @@ describe("a turn as Beluga's own project sees it", () => {
     expect(tools.map((t) => attr(t, 'gen_ai.tool.name'))).toEqual([{ stringValue: 'mcp__beluga_board__task_update' }, { stringValue: 'mcp__beluga__send_chat' }]);
     expect(tools.every((t) => t.parentSpanId === root!.spanId)).toBe(true);
     expect(tools[1]!.status).toEqual({ code: 2 });
-    expect(attr(root!, 'beluga.place')).toEqual({ stringValue: 'worktree' });
+    expect(attr(root!, 'ratel.run.place')).toEqual({ stringValue: 'worktree' });
     const body = JSON.stringify([root, ...tools]);
     for (const leak of ['claude-opus-5-5', 'gen_ai.usage', 'cost', 'chars', 'my words', 'its words', 'Bash', 'github', 'sess-1']) expect(body).not.toContain(leak);
   });
@@ -444,6 +519,19 @@ describe('a run, observed', () => {
     expect(facts[1]!.own).toBe(false);
     expect(facts[2]!.text).toEqual({ prompt: 'fix it', answer: 'done!' });
     for (const leak of ['tulip', 'carried', '.beluga/wt-1']) expect(JSON.stringify(facts), leak).not.toContain(leak);
+  });
+
+  it('tells the model\'s id as the run reported it, beside the name that was picked', async () => {
+    const facts: TurnFacts[] = [];
+    const script = (i: AgentRunInput) => {
+      i.onEvent('context', JSON.stringify({ used: 10, window: 200_000, model: 'claude-opus-5-5' }));
+      i.onEvent('context', JSON.stringify({ compacting: false, window: 200_000 }));
+    };
+    await observedBackend(backend('ok', script), 'claude', { level: () => 'limited', turn: (f) => facts.push(f) }).run(input({ model: 'opus' }));
+    expect(facts[0]).toMatchObject({ model: 'opus', resolvedModel: 'claude-opus-5-5' });
+    // Nothing reported (another runtime): only the name picked.
+    await observedBackend(backend('ok'), 'codex', { level: () => 'limited', turn: (f) => facts.push(f) }).run(input({ model: 'gpt-5.2-codex' }));
+    expect(facts[1]!.resolvedModel).toBeUndefined();
   });
 
   it('a failing run still fails the same way, and says only the kind of error', async () => {

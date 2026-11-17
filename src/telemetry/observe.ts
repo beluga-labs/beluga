@@ -68,6 +68,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       let usage: TurnUsage | undefined;
       let session = input.place?.resume;
       let compactions = 0;
+      let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
       const onEvent: AgentRunInput['onEvent'] = (kind, text) => {
@@ -80,6 +81,11 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               session = u.session ?? session;
             }
           } else if (kind === 'compact') compactions++;
+          else if (kind === 'context') {
+            // The run's own word for its model (Claude's init message): an id, where the picker may hold a name ("opus").
+            const reported = (JSON.parse(text) as { model?: unknown }).model;
+            if (typeof reported === 'string' && reported) resolvedModel = reported;
+          }
           else if (kind === 'sub') {
             const e = JSON.parse(text) as Partial<SubAgentEvent>;
             if (e.id && e.kind !== 'background') subs.add(e.id);
@@ -91,7 +97,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       const onStep = (record: StepRecord): void => {
         input.onStep?.(record);
         if (record.kind !== 'tool' || !record.tool) return;
-        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok: record.status !== 'error' && !record.isError, ...(record.parent ? { sub: true } : {}) });
+        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok: record.status !== 'error' && !record.isError, ...(record.parent ? { parent: record.parent } : {}) });
       };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
@@ -108,6 +114,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
             deps.turn({
               runtime,
               ...(model ? { model } : {}),
+              ...(resolvedModel && resolvedModel !== model ? { resolvedModel } : {}),
               ...(effort ? { effort } : {}),
               ...(session ? { session } : {}),
               startedAt,
