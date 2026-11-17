@@ -157,14 +157,14 @@
 /* ── Scratch ──────────────────────────────────────────────── */
 
 .scratch {
-  width: 560px;
+  width: 580px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 268px;
+  grid-template-columns: minmax(0, 1fr) 288px;
   min-height: 276px;
 }
 .talk {
@@ -367,9 +367,14 @@
 }
 .log span {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
-  white-space: nowrap;
+  /* Wraps rather than running out of its tile. */
+  overflow-wrap: anywhere;
+}
+.log span svg {
+  flex: none;
+  margin-top: 0.15em;
 }
 .log [data-tone='ok'] {
   color: var(--ok);

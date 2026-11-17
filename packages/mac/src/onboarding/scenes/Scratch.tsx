@@ -36,7 +36,7 @@ export const SCRATCH_RUNS: readonly Run[] = [
     doing: ['Opening the login page at 375 px', 'Reading the console', 'Measuring the layout'],
     files: [
       { name: 'login-375px.png', kind: 'shot', page: 'phone' },
-      { name: 'console.log', kind: 'log', lines: [{ text: 'GET /login 200' }, { text: 'Sign In is below the screen', tone: 'warn' }, { text: 'GET /api/session 401' }] },
+      { name: 'console.log', kind: 'log', lines: [{ text: 'GET /login 200' }, { text: 'Sign In off screen', tone: 'warn' }, { text: 'GET /api/session 401' }] },
       { name: 'layout.json', kind: 'json', rows: [['viewport', '375 × 812'], ['button.top', '860'], ['visible', 'false']] },
     ],
     answer: 'At 375 px the Sign In button is below the screen. Fixing it now.',

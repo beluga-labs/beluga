@@ -8,6 +8,8 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await page.goto('/');
   const welcome = page.getByRole('dialog', { name: 'Welcome to Beluga' });
   await expect(welcome).toBeVisible();
+  // At launch it covers the window from its first frame: no fade-in for the app to show through.
+  expect(await welcome.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
   // The beluga opens the welcome, and comes back on the last step.
   await expect(welcome.getByRole('img', { name: 'Beluga' })).toBeVisible();
   await welcome.getByRole('button', { name: /Set Up Beluga/ }).click();
