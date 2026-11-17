@@ -45,7 +45,13 @@ export const ClientFrame = z.discriminatedUnion('t', [
     kind: z.enum(['mac', 'cli', 'test']),
     version: z.string().max(40),
     launchDir: z.string().max(4096).optional(),
-    caps: z.array(z.enum(CAPS)).max(CAPS.length).default([]),
+    // A newer screen offers caps this daemon doesn't know: those are left out, never the whole hello
+    // (it was dropped, and the screen only saw "the daemon did not answer").
+    caps: z
+      .array(z.string().max(40))
+      .max(32)
+      .default([])
+      .transform((caps) => caps.filter((c): c is Cap => (CAPS as readonly string[]).includes(c))),
   }),
   z.object({ t: z.literal('call'), id, method: z.string().max(100), args: z.array(z.unknown()).max(20) }),
   z.object({
