@@ -37,6 +37,9 @@ beforeEach(() => {
   mkdirSync(repo);
   execFileSync('git', ['init', '--bare', '-q', '-b', 'main', origin]);
   git(repo, 'init', '-q', '-b', 'main');
+  // The repo's own identity: pushDefault's rebase commits, and a CI runner has none of its own.
+  git(repo, 'config', 'user.email', 't@t');
+  git(repo, 'config', 'user.name', 'T');
   commit(repo, 'a.txt', 'one\n');
   git(repo, 'remote', 'add', 'origin', origin);
   git(repo, 'push', '-q', '-u', 'origin', 'main');
