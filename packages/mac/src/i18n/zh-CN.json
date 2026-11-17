@@ -12614,5 +12614,16 @@
  "an OpenAI API key": "OpenAI API 密钥",
  "an OpenRouter API key": "OpenRouter API 密钥",
  "an npm token": "npm 令牌",
- "an xAI API key": "xAI API 密钥"
+ "an xAI API key": "xAI API 密钥",
+ "Planner": "规划者",
+ "Builder": "构建者",
+ "Checker": "检查者",
+ "Writes the plan with you, in its own conversation": "和你一起写计划，在它自己的对话里",
+ "Works the milestones and tasks, each in its worktree": "完成里程碑和任务，每个都在自己的工作树里",
+ "Checks each milestone against its criteria, and reviews drafts": "按标准检查每个里程碑，并审阅草稿",
+ "{0} Agents": "{0} 个智能体",
+ "{0} does this part too": "这部分也由 {0} 来做",
+ "Planned": "规划",
+ "built": "构建",
+ "and checked": "检查"
 }
