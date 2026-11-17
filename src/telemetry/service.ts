@@ -122,6 +122,8 @@ export class TelemetryService {
       env: (rt) => (this.level === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
       calls: (session, from, to) => this.otel?.callsFor(session, from, to) ?? [],
       refused: (session) => this.otel?.refusedFor(session) ?? new Map(),
+      links: (session) => this.otel?.linksFor(session) ?? new Map(),
+      skills: (session, from, to) => this.otel?.skillsFor(session, from, to) ?? [],
     };
   }
 

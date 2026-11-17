@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
+import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { observedBackend } from '../src/telemetry/observe.js';
 import type { OtlpSpan } from '../src/telemetry/otlp.js';
 import { TelemetryService } from '../src/telemetry/service.js';
@@ -203,5 +204,216 @@ describe('secrets never leave this computer in a tool call', () => {
     expect(body).toContain('[redacted]');
     for (const [kind, secret] of Object.entries(SECRETS)) expect(body, kind).not.toContain(secret);
     if (HOME.length > 1) expect(body).not.toContain(HOME);
+  });
+});
+
+describe('the span tree: each tool under the request that asked for it', () => {
+  const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 0.01 };
+  const byName = (spans: OtlpSpan[], name: string): OtlpSpan => spans.find((s) => s.name === name)!;
+  const parentName = (spans: OtlpSpan[], s: OtlpSpan): string | undefined => spans.find((p) => p.spanId === s.parentSpanId)?.name;
+
+  it('a tool goes under the chat span of its own request, whatever the clocks say', () => {
+    // Claude Code reports a request when it ends: a tool can start before its own request's report (a streamed call).
+    const spans = turnSpans(
+      turn([tool({ id: 't1', name: 'Read', startedAt: 2_000, endedAt: 2_100, requestId: 'req_b' }), tool({ id: 't2', name: 'Grep', startedAt: 2_050, endedAt: 2_200, requestId: 'req_a' })], {
+        calls: [
+          { model: 'claude-opus-5-5', source: 'sdk', requestId: 'req_a', at: 1_900, durationMs: 500, usage },
+          { model: 'claude-opus-5-5', source: 'sdk', requestId: 'req_b', at: 2_900, durationMs: 400, usage },
+        ],
+      }),
+      ID,
+    );
+    const chats = spans.filter((s) => value(s, 'gen_ai.operation.name') === 'chat');
+    expect(byName(spans, 'execute_tool Read').parentSpanId).toBe(chats[1]!.spanId);
+    expect(byName(spans, 'execute_tool Grep').parentSpanId).toBe(chats[0]!.spanId);
+    // The ids that tie them never leave.
+    expect(JSON.stringify(spans)).not.toContain('req_');
+  });
+
+  it('the session-title request is never the parent of a tool, by id or by time', () => {
+    const title = { model: 'claude-haiku-5-5', source: 'generate_session_title', requestId: 'req_title', at: 1_500, durationMs: 200, usage };
+    const main = { model: 'claude-opus-5-5', source: 'sdk', requestId: 'req_main', at: 2_900, durationMs: 400, usage };
+    // By time alone the title request "ended before" both tools.
+    const spans = turnSpans(turn([tool({ id: 't1', name: 'Read', startedAt: 2_000 }), tool({ id: 't2', name: 'Grep', startedAt: 2_100, requestId: 'req_title' })], { calls: [title, main] }), ID);
+    const chats = spans.filter((s) => value(s, 'gen_ai.operation.name') === 'chat');
+    const titleSpan = chats.find((c) => value(c, 'ratel.request.source') === 'generate_session_title')!;
+    const tools = spans.filter((s) => value(s, 'gen_ai.operation.name') === 'execute_tool');
+    expect(tools).toHaveLength(2);
+    for (const t of tools) expect(t.parentSpanId).not.toBe(titleSpan.spanId);
+    expect(tools[0]!.parentSpanId).toBe(chats.find((c) => c !== titleSpan)!.spanId);
+    // Only the title request: the tool hangs from the root.
+    const alone = turnSpans(turn([tool({ id: 't1', name: 'Read', startedAt: 2_000 })], { calls: [title] }), ID);
+    expect(byName(alone, 'execute_tool Read').parentSpanId).toBe(alone[0]!.spanId);
+    // What you typed goes on the turn's own first request, not on the title's.
+    const worded = turnSpans(turn([], { calls: [title, main], text: { prompt: 'fix the login', answer: 'fixed' } }), ID);
+    const withPrompt = worded.filter((s) => value(s, 'gen_ai.input.messages') !== undefined);
+    expect(withPrompt).toHaveLength(1);
+    expect(value(withPrompt[0]!, 'ratel.request.source')).toBe('sdk');
+  });
+
+  it('an Agent call is an invoke_agent span under its tool span, with the sub-agent\'s requests and tools below it', () => {
+    const spans = turnSpans(
+      turn(
+        [
+          // A background launch: the Agent call itself returns at once, the sub-agent works on after it.
+          tool({ id: 'agent-1', name: 'Agent', startedAt: 2_000, endedAt: 2_050, requestId: 'req_main1', input: { subagent_type: 'Explore', prompt: 'look around' } }),
+          tool({ id: 's1', name: 'Bash', startedAt: 2_600, endedAt: 2_900, parent: 'agent-1', requestId: 'req_sub1', agentId: 'ag1', input: { command: 'ls src' } }),
+          tool({ id: 't9', name: 'Bash', startedAt: 4_100, endedAt: 4_200, requestId: 'req_main2', input: { command: 'echo finished' } }),
+        ],
+        {
+          subagents: 1,
+          calls: [
+            { model: 'claude-opus-5-5', source: 'sdk', requestId: 'req_main1', at: 1_950, durationMs: 800, usage },
+            { model: 'claude-haiku-5-5', source: 'agent:builtin:Explore', requestId: 'req_sub1', agentId: 'ag1', agentName: 'Explore', at: 2_550, durationMs: 400, usage },
+            { model: 'claude-haiku-5-5', source: 'agent:builtin:Explore', requestId: 'req_sub2', agentId: 'ag1', agentName: 'Explore', at: 3_400, durationMs: 300, usage },
+            { model: 'claude-opus-5-5', source: 'sdk', requestId: 'req_main2', at: 4_000, durationMs: 500, usage },
+          ],
+        },
+      ),
+      ID,
+    );
+    const root = spans[0]!;
+    const launch = byName(spans, 'execute_tool Agent');
+    const agent = byName(spans, 'invoke_agent Explore');
+    expect(agent.parentSpanId).toBe(launch.spanId);
+    expect(value(agent, 'gen_ai.operation.name')).toBe('invoke_agent');
+    expect(value(agent, 'gen_ai.agent.name')).toBe('Explore');
+    expect(value(agent, 'ratel.agent.parent_call_id')).toBe('agent-1');
+    expect(value(agent, 'gen_ai.request.model')).toBe('claude-haiku-5-5');
+    expect(value(agent, 'gen_ai.conversation.id')).toBe(value(root, 'gen_ai.conversation.id'));
+    // It lasts as long as the sub-agent's work, not as long as the call that started it.
+    expect(agent.startTimeUnixNano).toBe(launch.startTimeUnixNano);
+    expect(BigInt(agent.endTimeUnixNano)).toBe(3_400n * 1_000_000n);
+    // No usage on it: its requests carry the tokens, so nothing is counted twice.
+    expect(agent.attributes.some((a) => a.key.startsWith('gen_ai.usage.'))).toBe(false);
+
+    const subChats = spans.filter((s) => value(s, 'gen_ai.operation.name') === 'chat' && s.parentSpanId === agent.spanId);
+    expect(subChats).toHaveLength(2);
+    expect(subChats.every((c) => value(c, 'gen_ai.agent.name') === 'Explore' && value(c, 'ratel.agent.parent_call_id') === 'agent-1')).toBe(true);
+    expect(byName(spans, 'execute_tool Bash:ls').parentSpanId).toBe(subChats[0]!.spanId);
+    expect(value(byName(spans, 'execute_tool Bash:ls'), 'gen_ai.agent.name')).toBe('Explore');
+
+    const mainChats = spans.filter((s) => value(s, 'gen_ai.operation.name') === 'chat' && s.parentSpanId === root.spanId);
+    expect(mainChats).toHaveLength(2);
+    expect(launch.parentSpanId).toBe(mainChats[0]!.spanId);
+    expect(byName(spans, 'execute_tool Bash:echo').parentSpanId).toBe(mainChats[1]!.spanId);
+    // The turn's model is its own, not the sub-agent's.
+    expect(value(root, 'gen_ai.request.model')).toBe('claude-opus-5-5');
+    expect(parentName(spans, agent)).toBe('execute_tool Agent');
+  });
+
+  it('a sub-agent that used no tool is found by its type; one whose requests never came still holds its tools (Codex)', () => {
+    const quiet = turnSpans(
+      turn([tool({ id: 'agent-1', name: 'Agent', startedAt: 2_000, endedAt: 3_000, input: { subagent_type: 'Plan' } })], {
+        calls: [
+          { model: 'claude-opus-5-5', source: 'sdk', at: 1_950, durationMs: 800, usage },
+          { model: 'claude-opus-5-5', source: 'agent:builtin:Plan', agentId: 'ag7', agentName: 'Plan', at: 2_800, durationMs: 700, usage },
+        ],
+      }),
+      ID,
+    );
+    const plan = byName(quiet, 'invoke_agent Plan');
+    expect(quiet.filter((s) => s.parentSpanId === plan.spanId).map((s) => value(s, 'gen_ai.operation.name'))).toEqual(['chat']);
+
+    const codex = turnSpans(
+      turn([tool({ id: 'thr-2', name: 'Agent', startedAt: 2_000, endedAt: 5_000, input: { description: 'Scout' } }), tool({ id: 'c1', name: 'Bash', startedAt: 2_500, endedAt: 2_700, parent: 'thr-2', input: { command: 'rg TODO' } })], { runtime: 'codex', model: 'gpt-5.2-codex' }),
+      ID,
+    );
+    const scout = byName(codex, 'invoke_agent general-purpose');
+    expect(byName(codex, 'execute_tool Bash:rg').parentSpanId).toBe(scout.spanId);
+    expect(parentName(codex, scout)).toBe('execute_tool Agent');
+  });
+
+  it('a sub-agent inside a sub-agent nests the same way', () => {
+    const spans = turnSpans(
+      turn([
+        tool({ id: 'a1', name: 'Agent', startedAt: 2_000, endedAt: 6_000, input: { subagent_type: 'general-purpose' } }),
+        tool({ id: 'a2', name: 'Agent', startedAt: 2_500, endedAt: 5_000, parent: 'a1', input: { subagent_type: 'Explore' } }),
+        tool({ id: 'r1', name: 'Read', startedAt: 3_000, endedAt: 3_100, parent: 'a2' }),
+      ]),
+      ID,
+    );
+    const outer = byName(spans, 'invoke_agent general-purpose');
+    const inner = byName(spans, 'invoke_agent Explore');
+    const innerLaunch = spans.find((s) => s.spanId === inner.parentSpanId)!;
+    expect(innerLaunch.name).toBe('execute_tool Agent');
+    expect(innerLaunch.parentSpanId).toBe(outer.spanId);
+    expect(byName(spans, 'execute_tool Read').parentSpanId).toBe(inner.spanId);
+  });
+});
+
+describe("Claude Code's own telemetry: what ties a tool to its request and its sub-agent", () => {
+  const SCOPE = 'com.anthropic.claude_code.events';
+  /** A real clock: the receiver reads a record's own time only when it looks like one. */
+  const T = 1_700_000_000_000;
+  const str = (v: string) => ({ stringValue: v });
+  const record = (name: string, at: number, fields: Record<string, string>) => ({
+    timeUnixNano: `${BigInt(T + at) * 1_000_000n}`,
+    body: str(`claude_code.${name}`),
+    attributes: [{ key: 'event.name', value: str(name) }, { key: 'session.id', value: str('s1') }, { key: 'user.email', value: str('kay@example.com') }, ...Object.entries(fields).map(([key, v]) => ({ key, value: str(v) }))],
+  });
+  const logs = (...records: unknown[]) => ({ resourceLogs: [{ scopeLogs: [{ scope: { name: SCOPE }, logRecords: records }] }] });
+  const receiver = () => {
+    const emitted: unknown[] = [];
+    return { otel: new ClaudeOtel({ emit: (r) => emitted.push(r), installId: () => ID, now: () => T + 10_000 }), emitted };
+  };
+
+  it('keeps each request\'s id and its sub-agent, and each tool call\'s request and sub-agent, for the turn', () => {
+    const { otel, emitted } = receiver();
+    otel.logs(
+      logs(
+        record('api_request', 2_000, { model: 'claude-opus-5-5', query_source: 'sdk', request_id: 'req_1', duration_ms: '500' }),
+        record('tool_decision', 2_010, { decision: 'accept', source: 'config', tool_name: 'Agent', tool_use_id: 'toolu_agent', request_id: 'req_1' }),
+        record('api_request', 3_000, { model: 'claude-haiku-5-5', query_source: 'agent:builtin:Explore', request_id: 'req_2', 'agent.name': 'Explore', agent_id: 'ag1', duration_ms: '300' }),
+        record('tool_result', 3_100, { tool_name: 'Bash', tool_use_id: 'toolu_bash', request_id: 'req_2', agent_id: 'ag1', success: 'true' }),
+      ),
+    );
+    const calls = otel.callsFor('s1', T, T + 5_000);
+    expect(calls[0]).toMatchObject({ requestId: 'req_1', source: 'sdk' });
+    expect(calls[0]!.agentId).toBeUndefined();
+    expect(calls[1]).toMatchObject({ requestId: 'req_2', agentId: 'ag1', agentName: 'Explore' });
+    const links = otel.linksFor('s1');
+    expect(links.get('toolu_agent')).toEqual({ requestId: 'req_1' });
+    expect(links.get('toolu_bash')).toEqual({ requestId: 'req_2', agentId: 'ag1' });
+    // Taken once, and none of these ids is forwarded.
+    expect(otel.linksFor('s1').size).toBe(0);
+    for (const id of ['req_1', 'req_2', 'toolu_', 'ag1', 'kay@example.com']) expect(JSON.stringify(emitted), id).not.toContain(id);
+  });
+
+  it('keeps where each skill the model called lives, in order, and never its name', () => {
+    const { otel, emitted } = receiver();
+    otel.logs(
+      logs(
+        record('skill_activated', 2_000, { 'skill.name': 'custom_skill', 'skill.source': 'projectSettings', invocation_trigger: 'nested-skill' }),
+        record('skill_activated', 2_500, { 'skill.name': 'custom_skill', 'skill.source': 'userSettings', invocation_trigger: 'user-slash' }),
+        record('skill_activated', 9_000, { 'skill.name': 'custom_skill', 'skill.source': 'plugin', invocation_trigger: 'nested-skill' }),
+      ),
+    );
+    expect(otel.skillsFor('s1', T + 1_000, T + 5_000)).toEqual(['projectSettings']);
+    expect(otel.skillsFor('s1', T + 1_000, T + 5_000)).toEqual([]);
+    expect(JSON.stringify(emitted)).not.toContain('custom_skill');
+  });
+
+  it('a turn\'s tools get their request, their sub-agent and their skill\'s source', async () => {
+    const facts: TurnFacts[] = [];
+    const backend = {
+      run: async (i: AgentRunInput) => {
+        i.onEvent('usage', JSON.stringify({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0.01, session: 's1' }));
+        i.onStep?.({ id: 'toolu_skill', kind: 'tool', tool: 'Skill', title: 'Skill greet', status: 'done', startedAt: 1, endedAt: 2, input: { skill: 'greet' } });
+        i.onStep?.({ id: 'toolu_bash', kind: 'tool', tool: 'Bash', title: 'Bash ls', status: 'done', startedAt: 3, endedAt: 4, parent: 'toolu_agent', input: { command: 'ls' } });
+        return 'done';
+      },
+    } as AgentBackend;
+    const input = { prompt: 'go', ownWords: 'go', requesterName: 'kay', viaAgent: false, context: [], scope: 'folder', onEvent: () => undefined, onFileTouched: () => undefined } as unknown as AgentRunInput;
+    await observedBackend(backend, 'claude', {
+      level: () => 'on',
+      turn: (f) => facts.push(f),
+      links: () => new Map([['toolu_bash', { requestId: 'req_2', agentId: 'ag1' }], ['toolu_skill', { requestId: 'req_1' }]]),
+      skills: () => ['projectSettings'],
+      settleMs: 0,
+    }).run(input);
+    await vi.waitFor(() => expect(facts).toHaveLength(1));
+    expect(facts[0]!.tools[0]).toMatchObject({ name: 'Skill', requestId: 'req_1', skillSource: 'projectSettings' });
+    expect(facts[0]!.tools[1]).toMatchObject({ name: 'Bash', requestId: 'req_2', agentId: 'ag1' });
   });
 });

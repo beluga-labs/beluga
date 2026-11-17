@@ -1,5 +1,5 @@
 import { type OtlpSpan, attrs, nanos, pseudonym, spanId, traceId } from './otlp.js';
-import { toolDetail } from './tool-detail.js';
+import { agentTypeOf, toolDetail } from './tool-detail.js';
 
 /**
  * One turn of an agent, as Beluga saw it (src/telemetry/observe.ts), and that turn as spans.
@@ -35,6 +35,9 @@ export interface TurnTool {
   readonly exitCode?: number;
   /** The runtime's own name for the tool, when Beluga renamed it ("commandExecution" → "Bash"). */
   readonly native?: string;
+  /** The id of the model request that asked for it, and of the sub-agent that made it (Claude Code's own; never sent). */
+  readonly requestId?: string;
+  readonly agentId?: string;
   /** A Skill call: where Claude Code said the skill lives ("userSettings", "projectSettings", "plugin"…). */
   readonly skillSource?: string;
 }
@@ -48,6 +51,11 @@ export interface TurnCall {
   readonly durationMs: number;
   readonly usage: TurnUsage;
   readonly error?: string;
+  /** The request's id, to tie a tool call to the request that asked for it. Never sent. */
+  readonly requestId?: string;
+  /** A sub-agent's request: Claude Code's id for that sub-agent (never sent), and its type ("Explore"). */
+  readonly agentId?: string;
+  readonly agentName?: string;
 }
 
 export type TurnOutcome = 'ok' | 'error' | 'stopped';
@@ -107,29 +115,86 @@ const bare = (model: string | undefined): string | undefined => model?.replace(/
 
 /**
  * The turn's model as an id a price book knows. The run's own word for it, else the name picked,
- * is checked against its requests: they hold the id a name stands for ("opus" → "claude-opus-5-5").
- * Nothing reported or picked: the model that wrote the most.
+ * is checked against its own requests (never a sub-agent's): they hold the id a name stands for
+ * ("opus" → "claude-opus-5-5"). Nothing reported or picked: the model that wrote the most.
  */
 function modelOf(f: TurnFacts): string | undefined {
   const named = bare(f.resolvedModel) ?? bare(f.model);
+  return mostWritten((f.calls ?? []).filter((c) => !c.agentId && !c.agentName), named) ?? named;
+}
+
+/** Of these requests, the model that wrote the most (only ids that hold `named`, when given). */
+function mostWritten(calls: readonly TurnCall[], named?: string): string | undefined {
   const written = new Map<string, number>();
-  for (const c of f.calls ?? []) {
+  for (const c of calls) {
     const id = bare(c.model);
     if (id && (!named || id.includes(named))) written.set(id, (written.get(id) ?? 0) + c.usage.output);
   }
-  return [...written].sort((x, y) => y[1] - x[1])[0]?.[0] ?? named;
+  return [...written].sort((x, y) => y[1] - x[1])[0]?.[0];
 }
 
+/** The tools that start a sub-agent, as Claude Code names them (Codex's launches are recorded as Agent too). */
+const LAUNCHERS = new Set(['Agent', 'Task']);
+/** A request that isn't part of the turn's own loop: it never asked for a tool. */
+const TITLE = 'generate_session_title';
+
+/** A sub-agent: the call that started it, and the span its work goes under. */
+interface SubAgent {
+  readonly call: TurnTool;
+  readonly type: string;
+  readonly span: string;
+}
+
+/** One model request as its span, and whose it is ('' the turn's own, else the id of the call that started the sub-agent). */
+interface Chat {
+  readonly call: TurnCall;
+  readonly scope: string;
+  readonly span: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * A turn as one trace:
+ *   invoke_agent <runtime>                 the turn
+ *   ├── chat <model>                       one per model request
+ *   │   ├── execute_tool <tool>            under the request that asked for it
+ *   │   └── execute_tool Agent
+ *   │       └── invoke_agent <type>        a sub-agent: its own requests and tools below it, the same way
+ *   └── chat <model>
+ */
 export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   const trace = traceId();
   const root = spanId();
   const conversation = f.session ? pseudonym(installId, f.session) : undefined;
   const provider = PROVIDERS[f.runtime] ?? f.runtime;
-  // On every span: Ratel resolves a span's session from its own attributes when a batch splits.
-  const who = { ...(conversation ? { 'gen_ai.conversation.id': conversation } : {}), 'gen_ai.agent.name': f.runtime };
-  const common = { 'gen_ai.provider.name': provider, ...who };
   const model = modelOf(f);
   const picked = bare(f.model);
+  const agents = subAgentsOf(f);
+  // On every span: Ratel resolves a span's session from its own attributes when a batch splits.
+  const who = (scope: string) => ({ ...(conversation ? { 'gen_ai.conversation.id': conversation } : {}), 'gen_ai.agent.name': agents.get(scope)?.type ?? f.runtime, 'ratel.agent.parent_call_id': scope || undefined });
+
+  // The model requests: Claude Code's own (one per request) when they came, else the turn's total as one.
+  const calls: TurnCall[] = f.calls?.length ? [...f.calls].sort((a, b) => a.at - b.at) : f.usage ? [{ ...(model ? { model } : {}), at: f.endedAt, durationMs: f.endedAt - f.startedAt, usage: f.usage }] : [];
+  const scopeOf = callScopes(f, calls, agents);
+  const chats: Chat[] = calls.map((call) => ({ call, scope: scopeOf(call), span: spanId(), start: Math.max(f.startedAt, call.at - call.durationMs), end: call.at }));
+  const looped = (scope: string): Chat[] => chats.filter((c) => c.scope === scope && c.call.source !== TITLE);
+  const own = looped('');
+  // What you typed goes on the turn's own first request, and its answer on its last.
+  const first = own[0] ?? chats[0];
+  const last = own.at(-1) ?? chats.at(-1);
+
+  /** Where a scope's spans hang: the sub-agent's span, or the turn's. */
+  const home = (scope: string): string => agents.get(scope)?.span ?? root;
+  /** The request that asked for a tool: its own by id, else the last of its scope that ended before it started. */
+  const parentOf = (t: TurnTool): string => {
+    const scope = t.parent && agents.has(t.parent) ? t.parent : '';
+    const asked = t.requestId ? chats.find((c) => c.call.requestId === t.requestId && c.call.source !== TITLE) : undefined;
+    if (asked) return asked.span;
+    const mine = looped(scope);
+    return ([...mine].reverse().find((c) => c.end <= t.startedAt + 1) ?? mine[0])?.span ?? home(scope);
+  };
+
   const spans: OtlpSpan[] = [
     {
       traceId: trace,
@@ -140,7 +205,8 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       endTimeUnixNano: nanos(f.endedAt),
       attributes: attrs({
         'gen_ai.operation.name': 'invoke_agent',
-        ...common,
+        'gen_ai.provider.name': provider,
+        ...who(''),
         'gen_ai.request.model': model,
         'ratel.model.alias': picked !== model ? picked : undefined,
         'ratel.harness.name': f.runtime,
@@ -163,60 +229,105 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       status: { code: f.outcome === 'error' ? 2 : 1 },
     },
   ];
-  // The model requests: Claude Code's own (one per request) when they came, else the turn's total as one.
-  const calls: TurnCall[] = f.calls?.length ? [...f.calls].sort((a, b) => a.at - b.at) : f.usage ? [{ ...(model ? { model } : {}), at: f.endedAt, durationMs: f.endedAt - f.startedAt, usage: f.usage }] : [];
-  const chats = calls.map((c, i) => {
-    const id = spanId();
-    const last = i === calls.length - 1;
-    const start = Math.max(f.startedAt, c.at - c.durationMs);
+  for (const c of chats) {
     const text = f.text;
-    const answered = bare(c.model) ?? model;
-    const span: OtlpSpan = {
-      traceId: trace,
-      spanId: id,
-      parentSpanId: root,
-      name: `chat ${answered ?? f.runtime}`,
-      kind: 3,
-      startTimeUnixNano: nanos(start),
-      endTimeUnixNano: nanos(c.at),
-      attributes: attrs({
-        'gen_ai.operation.name': 'chat',
-        ...common,
-        'gen_ai.request.model': answered,
-        'gen_ai.response.model': answered,
-        'ratel.request.source': c.source,
-        ...usageAttrs(c.usage),
-        'gen_ai.response.finish_reasons': [c.error ? 'error' : finish(f, last)],
-        'error.type': c.error,
-        ...(text && i === 0 ? { 'gen_ai.input.messages': JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: text.prompt }] }]) } : {}),
-      }),
-      ...(text && last ? { events: [{ name: 'gen_ai.client.inference.operation.details', timeUnixNano: nanos(c.at), attributes: attrs({ 'gen_ai.output.messages': JSON.stringify([{ role: 'assistant', parts: [{ type: 'text', content: text.answer }], finish_reason: finish(f, true) }]) }) }] } : {}),
-      status: { code: c.error ? 2 : 1 },
-    };
-    return { span, start, end: c.at };
-  });
-  spans.push(...chats.map((c) => c.span));
-  // A tool goes under the request that asked for it: the last one that ended before it started.
-  const parentOf = (at: number): string => [...chats].reverse().find((c) => c.end <= at + 1)?.span.spanId ?? chats[0]?.span.spanId ?? root;
-  for (const t of f.tools) {
-    const detail = toolDetail(t, f.content === true);
+    const answered = bare(c.call.model) ?? model;
+    // The last request of a loop ended it; the ones before it each asked for a tool.
+    const ended = c === looped(c.scope).at(-1) || c.call.source === TITLE;
     spans.push({
       traceId: trace,
-      spanId: spanId(),
-      parentSpanId: parentOf(t.startedAt),
+      spanId: c.span,
+      parentSpanId: home(c.scope),
+      name: `chat ${answered ?? f.runtime}`,
+      kind: 3,
+      startTimeUnixNano: nanos(c.start),
+      endTimeUnixNano: nanos(c.end),
+      attributes: attrs({
+        'gen_ai.operation.name': 'chat',
+        'gen_ai.provider.name': provider,
+        ...who(c.scope),
+        'gen_ai.request.model': answered,
+        'gen_ai.response.model': answered,
+        'ratel.request.source': c.call.source,
+        ...usageAttrs(c.call.usage),
+        'gen_ai.response.finish_reasons': [c.call.error ? 'error' : finish(f, ended)],
+        'error.type': c.call.error,
+        ...(text && c === first ? { 'gen_ai.input.messages': JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: text.prompt }] }]) } : {}),
+      }),
+      ...(text && c === last ? { events: [{ name: 'gen_ai.client.inference.operation.details', timeUnixNano: nanos(c.end), attributes: attrs({ 'gen_ai.output.messages': JSON.stringify([{ role: 'assistant', parts: [{ type: 'text', content: text.answer }], finish_reason: finish(f, true) }]) }) }] } : {}),
+      status: { code: c.call.error ? 2 : 1 },
+    });
+  }
+  for (const t of f.tools) {
+    const scope = t.parent && agents.has(t.parent) ? t.parent : '';
+    const detail = toolDetail(t, f.content === true);
+    const id = spanId();
+    spans.push({
+      traceId: trace,
+      spanId: id,
+      parentSpanId: parentOf(t),
       name: `execute_tool ${detail.name}`,
       kind: 1,
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: attrs({ ...toolAttrs(t, who), 'gen_ai.tool.name': detail.name, ...detail.attributes }),
+      // A sub-agent's step says which sub-agent, even when the call that started it isn't in this turn.
+      attributes: attrs({ ...toolAttrs(t, who(scope)), 'gen_ai.tool.name': detail.name, ...detail.attributes }),
+      status: { code: t.ok ? 1 : 2 },
+    });
+    const agent = agents.get(t.id);
+    if (!agent) continue;
+    // The sub-agent it started: as long as its work (a background launch returns at once), with no usage of its own.
+    const work = [...chats.filter((c) => c.scope === t.id).map((c) => c.end), ...f.tools.filter((x) => x.parent === t.id).map((x) => x.endedAt ?? x.startedAt)];
+    spans.push({
+      traceId: trace,
+      spanId: agent.span,
+      parentSpanId: id,
+      name: `invoke_agent ${agent.type}`,
+      kind: 1,
+      startTimeUnixNano: nanos(t.startedAt),
+      endTimeUnixNano: nanos(Math.max(t.endedAt ?? t.startedAt, ...work)),
+      attributes: attrs({
+        'gen_ai.operation.name': 'invoke_agent',
+        'gen_ai.provider.name': provider,
+        ...who(t.id),
+        'gen_ai.request.model': mostWritten(chats.filter((c) => c.scope === t.id).map((c) => c.call)),
+        'error.type': t.ok ? undefined : (t.error ?? 'tool_error'),
+      }),
       status: { code: t.ok ? 1 : 2 },
     });
   }
   return spans;
 }
 
+/** The calls of a turn that started a sub-agent: every Agent call, and any call other steps name as their parent. */
+function subAgentsOf(f: TurnFacts): Map<string, SubAgent> {
+  const parents = new Set(f.tools.flatMap((t) => (t.parent ? [t.parent] : [])));
+  return new Map(f.tools.filter((t) => LAUNCHERS.has(t.name) || parents.has(t.id)).map((t) => [t.id, { call: t, type: agentTypeOf(t), span: spanId() }]));
+}
+
+/**
+ * Whose each request is: '' the turn's own, else the id of the call that started its sub-agent.
+ * Claude Code names a request's sub-agent (an id of its own, and its type); the same id is on the
+ * sub-agent's tool calls, whose steps name the call that started it. A sub-agent that used no tool
+ * is matched by its type to a call that started one, each call taken once. No match: the turn's own.
+ */
+function callScopes(f: TurnFacts, calls: readonly TurnCall[], agents: ReadonlyMap<string, SubAgent>): (call: TurnCall) => string {
+  const owner = new Map<string, string>();
+  for (const t of f.tools) if (t.agentId && t.parent && agents.has(t.parent)) owner.set(t.agentId, t.parent);
+  const taken = new Set(owner.values());
+  for (const c of calls) {
+    const key = c.agentId ?? (c.agentName ? `name:${c.agentName}` : undefined);
+    if (!key || owner.has(key)) continue;
+    const started = [...agents.values()].filter((a) => a.type === c.agentName && a.call.startedAt <= c.at && !taken.has(a.call.id)).sort((x, y) => x.call.startedAt - y.call.startedAt)[0];
+    if (!started) continue;
+    owner.set(key, started.call.id);
+    taken.add(started.call.id);
+  }
+  return (c) => owner.get(c.agentId ?? (c.agentName ? `name:${c.agentName}` : '')) ?? '';
+}
+
 /** What every tool span says, in both projects: which call, whose, and how it failed. Never what it was given. */
-const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string>>) => ({
+const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string | undefined>>) => ({
   'gen_ai.operation.name': 'execute_tool',
   ...who,
   'gen_ai.tool.name': t.name,

@@ -3,7 +3,7 @@ import type { AgentBackend, AgentRunInput } from '../agent/types.js';
 import { CLAUDE_BUILT_INS } from '../shared/skills.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
-import type { Refusal } from './claude-otel.js';
+import type { Refusal, ToolLink } from './claude-otel.js';
 import { toolErrorType } from './tool-error.js';
 import type { TurnCall, TurnFacts, TurnOutcome, TurnTool, TurnUsage } from './turn.js';
 
@@ -26,6 +26,10 @@ export interface ObserveDeps {
   readonly calls?: (session: string, from: number, to: number) => readonly TurnCall[];
   /** The tool calls of a session Claude Code said were refused, by tool call id (claude-otel.ts). */
   readonly refused?: (session: string) => ReadonlyMap<string, Refusal>;
+  /** The tool calls of a session, by tool call id: the request that asked for each and the sub-agent that made it (claude-otel.ts). */
+  readonly links?: (session: string) => ReadonlyMap<string, ToolLink>;
+  /** Where each skill the model called in a time window lives, in order (claude-otel.ts). */
+  readonly skills?: (session: string, from: number, to: number) => readonly string[];
   /** How long after a turn to wait for those reports (Claude Code sends them every second or so). */
   readonly settleMs?: number;
   readonly now?: () => number;
@@ -63,6 +67,15 @@ const parseUsage = (text: string): (TurnUsage & { session?: string }) | undefine
 export function slashOf(words: string | undefined): string | undefined {
   const name = /^\/\/?([\w.:-]{1,64})(?:\s|$)/.exec(words?.trimStart() ?? '')?.[1];
   return name && !CLAUDE_BUILT_INS.has(name) ? name : undefined;
+}
+
+/**
+ * Where each Skill call's skill lives, by tool call id. Claude Code reports a skill the model called
+ * without the call's id, so they are paired in order, and only when there is one report for each call.
+ */
+function skillSources(tools: readonly TurnTool[], sources: readonly string[]): ReadonlyMap<string, string> {
+  const calls = tools.filter((t) => t.name === 'Skill' && t.ok).sort((a, b) => a.startedAt - b.startedAt);
+  return new Map(calls.length === sources.length ? calls.map((t, i) => [t.id, sources[i]!] as const) : []);
 }
 
 const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => (a ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite, cost: a.cost + b.cost } : b);
@@ -139,6 +152,8 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           try {
             const calls = session ? deps.calls?.(session, startedAt, endedAt + 1_000) : undefined;
             const refused = session ? deps.refused?.(session) : undefined;
+            const links = session ? deps.links?.(session) : undefined;
+            const sources = skillSources([...tools.values()], session ? (deps.skills?.(session, startedAt, endedAt + 1_000) ?? []) : []);
             const model = input.place?.model ?? input.model;
             const effort = input.place?.effort;
             deps.turn({
@@ -153,7 +168,12 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               ...(err !== undefined ? { errorKind: errorKind(err) } : {}),
               ...(usage ? { usage } : {}),
               ...(calls?.length ? { calls } : {}),
-              tools: [...tools.values()].map((t) => (!t.ok && refused?.has(t.id) ? { ...t, error: refused.get(t.id)! } : t)),
+              tools: [...tools.values()].map((t) => ({
+                ...t,
+                ...(!t.ok && refused?.has(t.id) ? { error: refused.get(t.id)! } : {}),
+                ...links?.get(t.id),
+                ...(sources.has(t.id) ? { skillSource: sources.get(t.id)! } : {}),
+              })),
               own,
               ...(content ? { content } : {}),
               ...(slash ? { slash } : {}),
@@ -170,7 +190,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
             // Never the run's problem.
           }
         };
-        if ((deps.calls || deps.refused) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
+        if ((deps.calls || deps.refused || deps.links || deps.skills) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
         else done();
       };
       return backend.run(observed).then(
