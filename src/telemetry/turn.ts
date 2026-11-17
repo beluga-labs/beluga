@@ -22,6 +22,8 @@ export interface TurnTool {
   readonly startedAt: number;
   readonly endedAt?: number;
   readonly ok: boolean;
+  /** Failed: the class of failure (src/telemetry/tool-error.ts), never its message. */
+  readonly error?: string;
   /** A sub-agent's step: the id of the tool call that started that sub-agent. */
   readonly parent?: string;
 }
@@ -196,7 +198,7 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
 }
 
 const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string>>) =>
-  attrs({ 'gen_ai.operation.name': 'execute_tool', ...who, 'gen_ai.tool.name': t.name, 'gen_ai.tool.call.id': t.id, 'ratel.agent.parent_call_id': t.parent, ...(t.ok ? {} : { 'error.type': 'tool_error' }) });
+  attrs({ 'gen_ai.operation.name': 'execute_tool', ...who, 'gen_ai.tool.name': t.name, 'gen_ai.tool.call.id': t.id, 'ratel.agent.parent_call_id': t.parent, 'error.type': t.ok ? undefined : (t.error ?? 'tool_error') });
 
 /** One of Beluga's own MCP tools (mcp__beluga__send_chat, mcp__beluga_board__task_update…), as every runtime names them. */
 export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.test(name);

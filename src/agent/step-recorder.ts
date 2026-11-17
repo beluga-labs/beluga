@@ -37,6 +37,9 @@ export interface StepRecorderOptions {
   readonly now?: () => number;
 }
 
+/** What a step that never finished says came back (its run stopped, or failed, first). */
+export const STOPPED_OUTPUT = 'Stopped before it finished';
+
 const blocksOf = (content: unknown): Block[] => (Array.isArray(content) ? (content as Block[]).filter((b) => b && typeof b === 'object') : []);
 
 export class StepRecorder {
@@ -84,7 +87,7 @@ export class StepRecorder {
     const now = this.now();
     for (const rec of [...this.open.values()]) {
       this.open.delete(rec.id);
-      this.opts.emit({ ...rec, status: failed ? 'error' : 'done', endedAt: now, durationMs: now - rec.startedAt, ...(failed ? { isError: true, output: rec.output ?? 'Stopped before it finished' } : {}) });
+      this.opts.emit({ ...rec, status: failed ? 'error' : 'done', endedAt: now, durationMs: now - rec.startedAt, ...(failed ? { isError: true, output: rec.output ?? STOPPED_OUTPUT } : {}) });
     }
   }
 

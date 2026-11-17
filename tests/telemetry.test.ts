@@ -15,6 +15,9 @@ import { event, pseudonym } from '../src/telemetry/otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from '../src/telemetry/record.js';
 import { TelemetryService } from '../src/telemetry/service.js';
 import { type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
+import { toolErrorType } from '../src/telemetry/tool-error.js';
+import { StepRecorder } from '../src/agent/step-recorder.js';
+import type { StepRecord } from '../src/shared/steps.js';
 import { parseArgs } from '../src/ipc/api.js';
 
 /** Usage statistics: the choice and the ask, masking, the spans Ratel reads, sending, and what a run tells it. */
@@ -386,6 +389,66 @@ describe('a turn as spans: what Ratel Cloud keeps', () => {
         expect(attr(s, 'gen_ai.agent.name'), s.name).toEqual({ stringValue: 'claude' });
       }
     }
+  });
+});
+
+describe('why a tool call failed (its class, never its words)', () => {
+  const failed = (tool: string, output: string): StepRecord => ({ id: 'x', kind: 'tool', tool, title: tool, status: 'error', startedAt: 1, endedAt: 2, isError: true, output });
+
+  it('tells a timeout, a refusal, a stop, a failed command and a rejected input from any other failure', () => {
+    const cases: Array<[string, string, string]> = [
+      ['Bash', 'Command timed out after 2m 0s', 'timeout'],
+      ['mcp__github__search', 'MCP error -32001: Request timed out', 'timeout'],
+      ['Bash', "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file).", 'denied'],
+      ['Write', "Claude requested permissions to write to /tmp/x, but you haven't granted it yet.", 'denied'],
+      ['Bash', 'Permission to use Bash has been denied.', 'denied'],
+      ['AskUserQuestion', 'The user skipped this question. Continue with your best judgment and say what you assumed.', 'denied'],
+      ['Bash', 'Declined.', 'denied'],
+      ['Bash', '[Request interrupted by user for tool use]', 'aborted'],
+      ['Bash', 'Exit code 1\nnpm ERR! missing script: tset', 'nonzero_exit'],
+      ['Bash', 'Exited with code 127', 'nonzero_exit'],
+      ['Read', '<tool_use_error>InputValidationError: Read failed due to the following issue:\nThe required parameter `file_path` is missing</tool_use_error>', 'validation'],
+      ['mcp__beluga_board__task_update', 'MCP error -32602: Invalid arguments for tool task_update: [{"code":"invalid_enum_value"}]', 'validation'],
+      ['Read', 'File does not exist.', 'tool_error'],
+      // A command that failed for its own reasons, though its output speaks of a timeout or a denial.
+      ['Bash', 'Exit code 1\nError: connect ETIMEDOUT: request timed out\npermission denied', 'nonzero_exit'],
+      // Only a command has an exit code.
+      ['Read', 'Exit code 1', 'tool_error'],
+    ];
+    for (const [tool, output, type] of cases) expect(toolErrorType(failed(tool, output)), output).toBe(type);
+    // What Claude Code said about the call (a refusal) wins over what its words look like.
+    expect(toolErrorType(failed('Bash', 'Not allowed here.'), 'denied')).toBe('denied');
+    expect(toolErrorType(failed('Bash', 'Exit code 1'), 'aborted')).toBe('aborted');
+  });
+
+  it('a step still open when its run stops was aborted', () => {
+    const seen: StepRecord[] = [];
+    const recorder = new StepRecorder({ emit: (r) => seen.push(r), now: () => 10 });
+    recorder.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'sleep 99' } }] } });
+    recorder.finish(true);
+    expect(toolErrorType(seen.at(-1)!)).toBe('aborted');
+  });
+
+  it('a turn\'s failed tools carry their class to error.type, in both projects', async () => {
+    const facts: TurnFacts[] = [];
+    const run = { run: async (i: AgentRunInput) => {
+      i.onEvent('usage', JSON.stringify({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0, session: 's1' }));
+      i.onStep?.(failed('Bash', 'Exit code 2\nboom'));
+      i.onStep?.({ ...failed('mcp__beluga__send_chat', 'Not now.'), id: 'y' });
+      i.onStep?.({ ...failed('Read', 'File does not exist.'), id: 'z' });
+      i.onStep?.({ id: 'ok', kind: 'tool', tool: 'Read', title: 'Read', status: 'done', startedAt: 1, endedAt: 2 });
+      return 'done';
+    } } as unknown as AgentBackend;
+    const base = { prompt: 'p', ownWords: 'p', requesterName: 'kay', viaAgent: false, context: [], scope: 'folder', onEvent: () => undefined } as unknown as AgentRunInput;
+    const taken: string[] = [];
+    await observedBackend(run, 'claude', { level: () => 'limited', turn: (f) => facts.push(f), settleMs: 0, calls: () => [], refused: (s) => (taken.push(s), new Map([['y', 'denied' as const]])) }).run(base);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(taken).toEqual(['s1']);
+    expect(facts[0]!.tools.map((t) => t.error)).toEqual(['nonzero_exit', 'denied', 'tool_error', undefined]);
+    expect(JSON.stringify(facts)).not.toContain('boom');
+    const types = (spans: ReturnType<typeof turnSpans>) => spans.filter((s) => attr(s, 'gen_ai.operation.name')?.stringValue === 'execute_tool').map((s) => attr(s, 'error.type')?.stringValue);
+    expect(types(turnSpans(facts[0]!, ID))).toEqual(['nonzero_exit', 'denied', 'tool_error', undefined]);
+    expect(types(belugaToolSpans(facts[0]!, ID))).toEqual(['denied']);
   });
 });
 

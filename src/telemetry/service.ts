@@ -121,6 +121,7 @@ export class TelemetryService {
       turn: (f) => this.turn(f),
       env: (rt) => (this.level === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
       calls: (session, from, to) => this.otel?.callsFor(session, from, to) ?? [],
+      refused: (session) => this.otel?.refusedFor(session) ?? new Map(),
     };
   }
 
