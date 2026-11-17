@@ -17,7 +17,7 @@ const HEAD = 600;
 const EXIT = /^Exit(?:ed with)? code (?!0\b)-?\d+/;
 const ABORTED = /^\[Request interrupted/;
 const DENIED = /doesn't want to (?:proceed|take this action)|tool use was rejected|haven't granted it|has been denied|permission (?:was )?denied by|user skipped this question|^Declined\.?$|blocked by (?:a |the )?hook/i;
-const TIMEOUT = /\btimed out\b|\btimeout\b/i;
+const TIMEOUT = /\btimed out\b|\btimeout (?:exceeded|reached|expired|after|of)\b|\bETIMEDOUT\b|deadline exceeded/i;
 const VALIDATION = /InputValidationError|Invalid tool parameters|Invalid arguments|Invalid params|-32602|invalid_type|required parameter/i;
 
 /**

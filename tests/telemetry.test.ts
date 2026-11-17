@@ -410,6 +410,9 @@ describe('why a tool call failed (its class, never its words)', () => {
       ['Read', '<tool_use_error>InputValidationError: Read failed due to the following issue:\nThe required parameter `file_path` is missing</tool_use_error>', 'validation'],
       ['mcp__beluga_board__task_update', 'MCP error -32602: Invalid arguments for tool task_update: [{"code":"invalid_enum_value"}]', 'validation'],
       ['Read', 'File does not exist.', 'tool_error'],
+      // A word about timeouts is not a timeout.
+      ['mcp__github__search', 'Unknown option: timeout', 'tool_error'],
+      ['WebFetch', 'Request failed: timeout exceeded', 'timeout'],
       // A command that failed for its own reasons, though its output speaks of a timeout or a denial.
       ['Bash', 'Exit code 1\nError: connect ETIMEDOUT: request timed out\npermission denied', 'nonzero_exit'],
       // Only a command has an exit code.
