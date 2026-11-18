@@ -284,6 +284,8 @@ const samePr = (a: PullRequest | undefined, b: PullRequest | undefined): boolean
 const repoOfPr = (url: string): string => url.replace(/\/pull\/\d+.*$/, '').toLowerCase();
 
 /** All an error said (a push's whole output, not just its line). */
+/** GitHub's answer when the branch adds nothing to its base. */
+const NOTHING_TO_PR = /No commits between/i;
 const rawOf = (err: unknown): string => (err && typeof err === 'object' && 'raw' in err && typeof err.raw === 'string' ? err.raw : err instanceof Error ? err.message : String(err));
 /** An error's first line ("no reason given" when it has none). */
 const firstLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n').find((l) => l.trim())?.trim() ?? 'no reason given';
@@ -545,6 +547,12 @@ export class Workbench {
       try {
         pr = await (this.deps.createPr ?? createPr)(ws.path, { base: fork?.branch ?? base, head: branch, ...text, ...(opts.draft ? { draft: true } : {}), ...(opts.https ? { https: true } : {}), ...(fork ? { to: fork } : {}) });
       } catch (err) {
+        // Its work is already on the base (merged or pushed there before): there's nothing to review, so no error.
+        if (NOTHING_TO_PR.test(rawOf(err))) {
+          const message = `Nothing to open a pull request for: everything on ${branch} is already on ${fork ? `${fork.owner}/${fork.repo}’s ` : ''}${fork?.branch ?? base}`;
+          this.deps.toast(message, 'info');
+          return { ok: false, message };
+        }
         return this.troubleOr(ws, err, 'GitHub didn’t open the pull request');
       }
       this.troubles.delete(id);
