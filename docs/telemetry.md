@@ -12,7 +12,7 @@ Only Beluga's own releases can send. When a release is built, `scripts/build-sid
 Statistics go to two [Ratel](https://ratel.sh) projects, each with its own **ingest-only** key. A key can add data to one project, and it can't read anything back. That's why it's safe inside an app.
 
 - **The Beluga project** (`BELUGA_TELEMETRY_PRODUCT_KEY`, `productKey` in the file): Beluga's own data. Which features are used, calls to Beluga's own tools, app moments, this computer's kind. Sent at Essential and On.
-- **The agents project** (`BELUGA_TELEMETRY_KEY`, `key`): your agents' sessions. Their turns, tokens and cost, every tool they call, Claude Code's own telemetry, and the masked text. Sent at On only.
+- **The agents project** (`BELUGA_TELEMETRY_KEY`, `key`): your agents' sessions. Their turns, tokens and cost, every tool they call with what it was given and what came back (masked), Claude Code's own telemetry, and the masked text. Sent at On only.
 
 Without a product key, both go to the one project.
 
@@ -28,7 +28,7 @@ A build from source has no such file. It never asks, never shows the setting, an
 | --- | --- |
 | **Off** | Nothing. |
 | **Essential** | How Beluga's own features are used, to the Beluga project. No agent sessions, no text. See the next section. |
-| **On** | Essential, plus your agents' sessions to the agents project: their turns, Claude Code's own telemetry, and the text of your own conversations, masked first. |
+| **On** | Essential, plus your agents' sessions to the agents project: their turns, their tool calls with arguments and results, Claude Code's own telemetry, and the text of your own conversations. Text, arguments and results are masked first. |
 
 Nothing is sent before a level is chosen.
 
@@ -69,19 +69,27 @@ Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. 
   - the runtime and model, the effort;
   - tokens and cache tokens, cost, how long it took, how it ended;
   - the kind of error, never its message;
-  - every tool call by name, how long it took, whether it failed and the kind of failure (as above). That covers Beluga's own tools and other MCP servers' tools, e.g. `mcp__github__search`. A tool's input and output are never sent.
+  - every tool call by name, how long it took, whether it failed and the kind of failure (as above). That covers Beluga's own tools and other MCP servers' tools, e.g. `mcp__github__search`;
+  - what kind of call it was, worked out on your computer:
+    - **a command** (`Bash`): the program it ran, as the tool's name (`Bash:git`), its subcommand for a few known tools (`commit`, `pr create`, `run build`), the names of every program in the line, how many parts the line had, and the exit code. Only program names and subcommands, never their arguments;
+    - **an MCP tool:** its server and its own name, apart (`beluga_board`, `task_update`);
+    - **a skill:** its name, where it lives (your settings, the project's, a plugin), and whether the model called it or you typed it as a slash command;
+    - **Codex:** Codex's own name for the tool beside the one Beluga shows (`commandExecution` for `Bash`);
+  - **what each tool was given and what came back,** on runs of yours only, masked and cut. See the next section;
+  - **sub-agents:** each one as its own `invoke_agent` span, named by its type (`Explore`), with its model requests and its tool calls under it;
+  - **thinking:** how long it took and how many tokens, never what was thought;
   - how many sub-agents and compactions;
   - the length of the prompt and the answer;
   - where it ran.
 
-  It's sent as OpenTelemetry spans in the `gen_ai` shape Ratel reads: an `invoke_agent` span, then `chat` and `execute_tool` spans.
+  It's sent as OpenTelemetry spans in the `gen_ai` shape Ratel reads: an `invoke_agent` span, a `chat` span for each model request, and each `execute_tool` span under the request that asked for it. A cost the runtime doesn't report (Codex) isn't sent as zero: it's left out.
 - **Claude Code's own telemetry,** caught on your computer and filtered before it's queued. Beluga only turns it on at On:
   - each model request's model, tokens, cost and duration;
   - tool results and permission decisions;
   - compactions, MCP connections, lines changed, commits and pull requests.
 
-  Claude Code adds your email, organization and account ids, and those are always dropped. So are prompts, answers, commands, file paths and error messages. Only events and counters named `claude_code.*` are kept. Beluga never turns on Claude Code's prompt or tool-detail logging. If you already send Claude Code's telemetry somewhere yourself, in your environment, your Beluga variables or Claude Code's `settings.json`, Beluga leaves that alone.
-- **The text of your conversations,** below.
+  Claude Code adds your email, organization and account ids, and those are always dropped. So are prompts, answers, commands, file paths and error messages. Its ids for a request and for a sub-agent are used on your computer to put each tool call under the request that asked for it, and are never sent. Only events and counters named `claude_code.*` are kept. Beluga never turns on Claude Code's prompt or tool-detail logging. If you already send Claude Code's telemetry somewhere yourself, in your environment, your Beluga variables or Claude Code's `settings.json`, Beluga leaves that alone.
+- **The text of your conversations, and your tools' arguments and results,** below.
 
 ## The text On adds, and how it's masked
 
@@ -91,9 +99,11 @@ The words you typed and your agent's answers, on turns you asked for yourself on
 - compactions;
 - room chat, friends' messages, and anything else from other people, even when it's part of the conversation.
 
-If you change the level, it's checked again when a turn is queued and when it's sent. Turns and text already waiting don't go once you leave On.
+**What each tool was given and what came back** (a command's text, a file's path and the lines read or written, an MCP tool's arguments and its answer) is sent the same way, on runs that are yours: the ones you typed, and the ones Beluga started for you (a task's agent, a sentinel). A run a friend, a friend's agent or a guest asked for sends neither, only what kind of call it was. Each is masked like the text, then cut to about 4,000 characters. A tool's output is already cut to its start and end when it's long, before any of this.
 
-Text is masked on your computer before it's queued:
+If you change the level, it's checked again when a turn is queued and when it's sent. Turns, text and tool calls already waiting don't go once you leave On.
+
+Text, arguments and results are masked on your computer before a span is built from them:
 
 1. **Exact values:** your saved variables, every project's `.env` and `.env.local` values, and your endpoints' keys. Values shorter than 6 characters, and plain words like `production`, aren't treated as secrets.
 2. **Keys by their shape:** Anthropic, OpenAI, GitHub, GitLab, Slack, Stripe, AWS, Google, npm, Hugging Face, Ratel and Sentry keys, JWTs, Bearer tokens, and private key blocks.
@@ -102,7 +112,7 @@ Text is masked on your computer before it's queued:
 
 Text longer than 32,000 characters is cut first. Masking runs a turn at a time between other work, so it never holds a run up.
 
-Never sent at any level: files and their contents, tool inputs and outputs, commands, and other people's messages. Essential sends no paths and nothing about your agents' sessions beyond their calls to Beluga's tools. On sends the text as you and your agent wrote it, so a path you typed goes too, with the home folder replaced.
+Never sent at any level: other people's messages, thinking, and what a tool was given or gave back on a run that isn't yours. Essential sends no paths, no tool inputs or outputs, no commands, and nothing about your agents' sessions beyond their calls to Beluga's tools. On sends the text as you and your agent wrote it, and your tools' arguments and results as they were, masked: a path, a command or the part of a file a tool read goes too, with secrets taken out and the home folder replaced. To keep a project's commands and files out, leave that project out (above), or use Essential.
 
 ## How it's sent
 

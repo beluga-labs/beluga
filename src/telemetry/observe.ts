@@ -1,8 +1,9 @@
 import type { SubAgentEvent } from '../agent/types.js';
 import type { AgentBackend, AgentRunInput } from '../agent/types.js';
+import { CLAUDE_BUILT_INS } from '../shared/skills.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
-import type { Refusal } from './claude-otel.js';
+import type { Refusal, ToolLink } from './claude-otel.js';
 import { toolErrorType } from './tool-error.js';
 import type { TurnCall, TurnFacts, TurnOutcome, TurnTool, TurnUsage } from './turn.js';
 
@@ -25,6 +26,10 @@ export interface ObserveDeps {
   readonly calls?: (session: string, from: number, to: number) => readonly TurnCall[];
   /** The tool calls of a session Claude Code said were refused, by tool call id (claude-otel.ts). */
   readonly refused?: (session: string) => ReadonlyMap<string, Refusal>;
+  /** For these tool calls of a session, by tool call id: the request that asked for each and the sub-agent that made it (claude-otel.ts). */
+  readonly links?: (session: string, ids: readonly string[]) => ReadonlyMap<string, ToolLink>;
+  /** Where each skill the model called in a time window lives, in order (claude-otel.ts). */
+  readonly skills?: (session: string, from: number, to: number) => readonly string[];
   /** How long after a turn to wait for those reports (Claude Code sends them every second or so). */
   readonly settleMs?: number;
   readonly now?: () => number;
@@ -48,17 +53,45 @@ export function errorKind(err: unknown): string {
   return typeof err;
 }
 
-const parseUsage = (text: string): (TurnUsage & { session?: string }) | undefined => {
+const parseUsage = (text: string): (TurnUsage & { session?: string; compactions?: number }) | undefined => {
   try {
-    const u = JSON.parse(text) as Partial<TurnUsage> & { session?: string };
+    const u = JSON.parse(text) as Partial<TurnUsage> & { session?: string; compactions?: number };
     const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-    return { input: n(u.input), output: n(u.output), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite), cost: n(u.cost), ...(typeof u.session === 'string' ? { session: u.session } : {}) };
+    return {
+      input: n(u.input),
+      output: n(u.output),
+      cacheRead: n(u.cacheRead),
+      cacheWrite: n(u.cacheWrite),
+      cost: n(u.cost),
+      ...(n(u.thinking) > 0 ? { thinking: n(u.thinking) } : {}),
+      ...(typeof u.session === 'string' ? { session: u.session } : {}),
+      // A runtime that says its compactions with its usage, not as events of their own (Codex).
+      ...(n(u.compactions) > 0 ? { compactions: n(u.compactions) } : {}),
+    };
   } catch {
     return undefined;
   }
 };
 
-const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => (a ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite, cost: a.cost + b.cost } : b);
+/** The skill or custom command a message starts with ("/loop-do fix it"), never one of Claude Code's own commands. */
+export function slashOf(words: string | undefined): string | undefined {
+  const name = /^\/\/?([\w.:-]{1,64})(?:\s|$)/.exec(words?.trimStart() ?? '')?.[1];
+  return name && !CLAUDE_BUILT_INS.has(name) ? name : undefined;
+}
+
+/**
+ * Where each Skill call's skill lives, by tool call id. Claude Code reports a skill the model called
+ * without the call's id, so they are paired in order, and only when there is one report for each call.
+ */
+function skillSources(tools: readonly TurnTool[], sources: readonly string[]): ReadonlyMap<string, string> {
+  const calls = tools.filter((t) => t.name === 'Skill' && t.ok).sort((a, b) => a.startedAt - b.startedAt);
+  return new Map(calls.length === sources.length ? calls.map((t, i) => [t.id, sources[i]!] as const) : []);
+}
+
+const addUsage = (a: TurnUsage | undefined, b: TurnUsage): TurnUsage => {
+  const thinking = (a?.thinking ?? 0) + (b.thinking ?? 0);
+  return { input: (a?.input ?? 0) + b.input, output: (a?.output ?? 0) + b.output, cacheRead: (a?.cacheRead ?? 0) + b.cacheRead, cacheWrite: (a?.cacheWrite ?? 0) + b.cacheWrite, cost: (a?.cost ?? 0) + b.cost, ...(thinking > 0 ? { thinking } : {}) };
+};
 
 export function observedBackend(backend: AgentBackend, runtime: string, deps: ObserveDeps): AgentBackend {
   return Object.assign(Object.create(backend) as AgentBackend, {
@@ -69,20 +102,27 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       const startedAt = now();
       // Yours: you asked for it on this computer (only then does the run carry the words you typed).
       const own = input.ownWords !== undefined;
+      // What a tool was given and gave back is kept only at On; it goes only on a run of yours (typed, or started for you).
+      const detail = level === 'on';
+      const content = detail && (own || input.ownerMcp === true);
+      const slash = detail ? slashOf(input.ownWords) : undefined;
       let usage: TurnUsage | undefined;
       let session = input.place?.resume;
       let compactions = 0;
       let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
+      const thinking = { ms: 0, blocks: 0 };
       const onEvent: AgentRunInput['onEvent'] = (kind, text) => {
         input.onEvent(kind, text);
         try {
           if (kind === 'usage') {
             const u = parseUsage(text);
             if (u) {
-              usage = addUsage(usage, u);
-              session = u.session ?? session;
+              const { session: said, compactions: compacted, ...tokens } = u;
+              usage = addUsage(usage, tokens);
+              session = said ?? session;
+              compactions += compacted ?? 0;
             }
           } else if (kind === 'compact') compactions++;
           else if (kind === 'context') {
@@ -100,10 +140,27 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       };
       const onStep = (record: StepRecord): void => {
         input.onStep?.(record);
+        // Thinking: only how long it took and that it happened; its words stay in the step.
+        if (record.kind === 'thinking') {
+          thinking.ms += record.durationMs ?? 0;
+          thinking.blocks++;
+        }
         if (record.kind !== 'tool' || !record.tool) return;
         const ok = record.status !== 'error' && !record.isError;
         // Only the class of a failure is kept: its words stay in the step.
-        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok, ...(ok ? {} : { error: toolErrorType(record) }), ...(record.parent ? { parent: record.parent } : {}) });
+        tools.set(record.id, {
+          id: record.id,
+          name: record.tool,
+          startedAt: record.startedAt,
+          ...(record.endedAt ? { endedAt: record.endedAt } : {}),
+          ok,
+          ...(ok ? {} : { error: toolErrorType(record) }),
+          ...(record.parent ? { parent: record.parent } : {}),
+          ...(detail && record.input ? { input: record.input } : {}),
+          ...(detail && record.output !== undefined ? { output: record.output } : {}),
+          ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
+          ...(record.native ? { native: record.native } : {}),
+        });
       };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
@@ -116,6 +173,8 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           try {
             const calls = session ? deps.calls?.(session, startedAt, endedAt + 1_000) : undefined;
             const refused = session ? deps.refused?.(session) : undefined;
+            const links = session ? deps.links?.(session, [...tools.keys()]) : undefined;
+            const sources = skillSources([...tools.values()], session ? (deps.skills?.(session, startedAt, endedAt + 1_000) ?? []) : []);
             const model = input.place?.model ?? input.model;
             const effort = input.place?.effort;
             deps.turn({
@@ -130,13 +189,21 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               ...(err !== undefined ? { errorKind: errorKind(err) } : {}),
               ...(usage ? { usage } : {}),
               ...(calls?.length ? { calls } : {}),
-              tools: [...tools.values()].map((t) => (!t.ok && refused?.has(t.id) ? { ...t, error: refused.get(t.id)! } : t)),
+              tools: [...tools.values()].map((t) => ({
+                ...t,
+                ...(!t.ok && refused?.has(t.id) ? { error: refused.get(t.id)! } : {}),
+                ...links?.get(t.id),
+                ...(sources.has(t.id) ? { skillSource: sources.get(t.id)! } : {}),
+              })),
               own,
+              ...(content ? { content } : {}),
+              ...(slash ? { slash } : {}),
               place: placeOf(input),
               subagents: subs.size,
               compactions,
               promptChars: input.prompt.length,
               answerChars: answer.length,
+              ...(thinking.blocks ? { thinking: { ...thinking } } : {}),
               // At "on", your own turns' text: the words you typed (never what Beluga added to the prompt,
               // nor the context: other people's words), and the answer. Masked before it's sent.
               ...(level === 'on' && input.ownWords !== undefined ? { text: { prompt: input.ownWords, answer } } : {}),
@@ -145,7 +212,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
             // Never the run's problem.
           }
         };
-        if ((deps.calls || deps.refused) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
+        if ((deps.calls || deps.refused || deps.links || deps.skills) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
         else done();
       };
       return backend.run(observed).then(

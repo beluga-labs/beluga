@@ -186,10 +186,17 @@ export function toQuestion(input: Record<string, unknown>): ClaudeQuestion | und
 }
 
 /** Tokens and cost of a run, summed over every model it used (sub-agents included). */
-export function usageOf(modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }>, cost: number, session: string) {
+export function usageOf(
+  modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }>,
+  cost: number,
+  session: string,
+  /** The result's own usage: how many of its output tokens were thinking (usage statistics send the count, never the words). */
+  usage?: { readonly output_tokens_details?: { readonly thinking_tokens?: number } | null } | null,
+) {
   const all = Object.values(modelUsage);
   const sum = (pick: (u: (typeof all)[number]) => number): number => all.reduce((n, u) => n + (pick(u) || 0), 0);
-  return { input: sum((u) => u.inputTokens), output: sum((u) => u.outputTokens), cacheRead: sum((u) => u.cacheReadInputTokens), cacheWrite: sum((u) => u.cacheCreationInputTokens), cost, session };
+  const thinking = usage?.output_tokens_details?.thinking_tokens;
+  return { input: sum((u) => u.inputTokens), output: sum((u) => u.outputTokens), cacheRead: sum((u) => u.cacheReadInputTokens), cacheWrite: sum((u) => u.cacheCreationInputTokens), cost, session, ...(typeof thinking === 'number' && thinking > 0 ? { thinking } : {}) };
 }
 
 /** Claude Code's name for a model, without its "(recommended)": the picker says "Default", not "Default (recommended)". */
@@ -668,7 +675,7 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
             remember(msg.session_id);
             await report.result(msg.modelUsage, breakdownReader(q));
             const turn = turns.current();
-            turn.onEvent('usage', JSON.stringify(usageOf(msg.modelUsage ?? {}, msg.total_cost_usd ?? 0, msg.session_id)));
+            turn.onEvent('usage', JSON.stringify(usageOf(msg.modelUsage ?? {}, msg.total_cost_usd ?? 0, msg.session_id, msg.usage as Parameters<typeof usageOf>[3])));
             // A turn that ended on an API error (a usage limit, an outage) is a failure, whatever its subtype.
             const ok = msg.subtype === 'success' && !msg.is_error;
             if (!ok) failedResult = msg.subtype === 'success' ? msg.result : [`Agent stopped: ${msg.subtype.replace(/_/g, ' ')}`, ...(msg.errors ?? [])].join('\n');

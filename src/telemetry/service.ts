@@ -19,7 +19,8 @@ import type { ReleaseConfig } from './config.js';
 import { deviceFacts } from './device.js';
 import { Exporter } from './exporter.js';
 import { featureCounter } from './features.js';
-import { Masker } from './mask.js';
+import { SECRET_KEY } from '../shared/steps.js';
+import { Masker, REDACTED } from './mask.js';
 import type { ObserveDeps } from './observe.js';
 import { type AttrValue, event } from './otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from './record.js';
@@ -30,7 +31,8 @@ import { type TurnFacts, belugaToolSpans } from './turn.js';
  * Ratel, in two projects (src/telemetry/config.ts):
  * - Beluga's own project, at Essential and On: features used, calls to Beluga's own tools, app
  *   moments, this computer's kind;
- * - the agents project, at On only: your agents' turns (tokens, every tool, the masked text) and
+ * - the agents project, at On only: your agents' turns (tokens, every tool with its masked arguments
+ *   and result, the masked text) and
  *   Claude Code's own telemetry.
  * In a build that can't send (no release config), it publishes `available: false` and does nothing.
  */
@@ -122,6 +124,8 @@ export class TelemetryService {
       env: (rt) => (this.level === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
       calls: (session, from, to) => this.otel?.callsFor(session, from, to) ?? [],
       refused: (session) => this.otel?.refusedFor(session) ?? new Map(),
+      links: (session, ids) => this.otel?.linksFor(session, ids) ?? new Map(),
+      skills: (session, from, to) => this.otel?.skillsFor(session, from, to) ?? [],
     };
   }
 
@@ -240,11 +244,11 @@ export class TelemetryService {
     if (this.now() - this.lastDevice > DAY_MS) this.device();
   }
 
-  /** A whole turn as it's sent: dropped below On, its text masked (the secret values read again at most once a minute). */
+  /** A whole turn as it's sent: dropped below On, its text and its tools' arguments and results masked (the secret values read again at most once a minute). */
   private prepare(t: TurnFacts): TurnFacts | undefined {
     // Turned down since it was queued: it doesn't go.
     if (this.level !== 'on') return undefined;
-    if (!t.text) return t;
+    if (!t.text && !t.tools.some((tool) => tool.input || tool.output !== undefined)) return t;
     if (this.now() - this.secretsAt > SECRETS_MS) {
       this.secretsAt = this.now();
       try {
@@ -253,7 +257,24 @@ export class TelemetryService {
         // The patterns still run.
       }
     }
-    return { ...t, text: { prompt: this.masker.mask(t.text.prompt), answer: this.masker.mask(t.text.answer) } };
+    return {
+      ...t,
+      ...(t.text ? { text: { prompt: this.masker.mask(t.text.prompt), answer: this.masker.mask(t.text.answer) } } : {}),
+      // What each tool was given and gave back: every string in it, before a span is built from it.
+      tools: t.tools.map((tool) => ({
+        ...tool,
+        ...(tool.input ? { input: this.masked(tool.input) as Readonly<Record<string, unknown>> } : {}),
+        ...(tool.output !== undefined ? { output: this.masker.mask(tool.output) } : {}),
+      })),
+    };
+  }
+
+  /** A tool's input with every string in it masked (its keys and shape kept). A value under a secret's name goes whole. */
+  private masked(v: unknown, key?: string): unknown {
+    if (typeof v === 'string') return key && SECRET_KEY.test(key) && v ? REDACTED : this.masker.mask(v);
+    if (Array.isArray(v)) return v.map((x) => this.masked(x, key));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, this.masked(x, k)]));
+    return v;
   }
 
   private view() {
