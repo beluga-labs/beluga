@@ -28,6 +28,7 @@ import { CONTINUE_PROMPT } from '../shared/run-failure.js';
 import type { NoticeEvent } from './notify.js';
 import { type SearchSource, searchConversations } from './search.js';
 import { type LogItem, type MergedMark, type Prefs, type Store, mergedText, shippedText } from './store.js';
+import type { Effort } from '../shared/settings-schema.js';
 import { lastLogAt } from './triage/facts.js';
 import { triageKey } from './triage/model.js';
 import { addTemplate, loadTemplates, removeTemplate } from './templates.js';
@@ -427,6 +428,21 @@ export class Workbench {
     }
     this.deps.setPrefs({ model: value || undefined });
     this.deps.toast(`New conversations use ${label}`, 'success');
+  }
+
+  /**
+   * Pick how hard a conversation's agent thinks ('auto': it decides, whatever Settings says); a
+   * conversation keeps its own, so another chat's pick never changes it. `channel` undefined (or
+   * not a conversation) sets the default for new ones.
+   */
+  setEffort(channel: string | undefined, effort: Effort | 'auto'): void {
+    const id = channel?.startsWith('ws:') ? channel.slice(3) : undefined;
+    if (id && this.manager.find(id)) {
+      this.manager.setEffort(id, effort === 'auto' ? null : effort);
+      void this.deps.controller.refresh();
+      return;
+    }
+    this.deps.setPrefs({ effort: effort === 'auto' ? undefined : effort });
   }
 
   /**

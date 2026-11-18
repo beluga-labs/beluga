@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type PickerState, agentPicker, pickAction } from '../src/shared/agent-picker.js';
+import { type PickerState, agentPicker, effortIn, pickAction } from '../src/shared/agent-picker.js';
 import { runtimeChoices } from '../src/shared/agent-runtimes.js';
 import { modelMenu } from '../src/ui/settings-menus.js';
 import type { AppState } from '../src/core/store.js';
@@ -68,6 +68,17 @@ describe('agentPicker', () => {
     // New conversations take your default's models only.
     const d = agentPicker(st, 'draft');
     expect(pickAction(d, d.groups[1]!, 'gpt-5-codex')).toBeUndefined();
+  });
+});
+
+describe('effortIn', () => {
+  it('is each conversation’s own effort, Auto picked there included; else the default', () => {
+    const st = { prefs: { effort: 'high' as const }, projects: [{ workspaces: [{ id: 'a', effort: 'max' as const }, { id: 'b', effort: null }, { id: 'c' }] }] };
+    expect(effortIn(st, 'ws:a')).toBe('max');
+    expect(effortIn(st, 'ws:b')).toBeUndefined();
+    expect(effortIn(st, 'ws:c')).toBe('high');
+    expect(effortIn(st, 'room')).toBe('high');
+    expect(effortIn({ ...st, prefs: {} }, 'ws:c')).toBeUndefined();
   });
 });
 
