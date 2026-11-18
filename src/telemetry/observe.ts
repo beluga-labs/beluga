@@ -2,6 +2,8 @@ import type { SubAgentEvent } from '../agent/types.js';
 import type { AgentBackend, AgentRunInput } from '../agent/types.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
+import type { Refusal } from './claude-otel.js';
+import { toolErrorType } from './tool-error.js';
 import type { TurnCall, TurnFacts, TurnOutcome, TurnTool, TurnUsage } from './turn.js';
 
 /**
@@ -21,6 +23,8 @@ export interface ObserveDeps {
   readonly env?: (runtime: string) => Readonly<Record<string, string>> | undefined;
   /** The model requests Claude Code reported for a session in a time window (claude-otel.ts). */
   readonly calls?: (session: string, from: number, to: number) => readonly TurnCall[];
+  /** The tool calls of a session Claude Code said were refused, by tool call id (claude-otel.ts). */
+  readonly refused?: (session: string) => ReadonlyMap<string, Refusal>;
   /** How long after a turn to wait for those reports (Claude Code sends them every second or so). */
   readonly settleMs?: number;
   readonly now?: () => number;
@@ -68,6 +72,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       let usage: TurnUsage | undefined;
       let session = input.place?.resume;
       let compactions = 0;
+      let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
       const onEvent: AgentRunInput['onEvent'] = (kind, text) => {
@@ -80,6 +85,11 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               session = u.session ?? session;
             }
           } else if (kind === 'compact') compactions++;
+          else if (kind === 'context') {
+            // The run's own word for its model (Claude's init message): an id, where the picker may hold a name ("opus").
+            const reported = (JSON.parse(text) as { model?: unknown }).model;
+            if (typeof reported === 'string' && reported) resolvedModel = reported;
+          }
           else if (kind === 'sub') {
             const e = JSON.parse(text) as Partial<SubAgentEvent>;
             if (e.id && e.kind !== 'background') subs.add(e.id);
@@ -91,7 +101,9 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       const onStep = (record: StepRecord): void => {
         input.onStep?.(record);
         if (record.kind !== 'tool' || !record.tool) return;
-        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok: record.status !== 'error' && !record.isError, ...(record.parent ? { sub: true } : {}) });
+        const ok = record.status !== 'error' && !record.isError;
+        // Only the class of a failure is kept: its words stay in the step.
+        tools.set(record.id, { id: record.id, name: record.tool, startedAt: record.startedAt, ...(record.endedAt ? { endedAt: record.endedAt } : {}), ok, ...(ok ? {} : { error: toolErrorType(record) }), ...(record.parent ? { parent: record.parent } : {}) });
       };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
@@ -103,11 +115,13 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
         const done = (): void => {
           try {
             const calls = session ? deps.calls?.(session, startedAt, endedAt + 1_000) : undefined;
+            const refused = session ? deps.refused?.(session) : undefined;
             const model = input.place?.model ?? input.model;
             const effort = input.place?.effort;
             deps.turn({
               runtime,
               ...(model ? { model } : {}),
+              ...(resolvedModel && resolvedModel !== model ? { resolvedModel } : {}),
               ...(effort ? { effort } : {}),
               ...(session ? { session } : {}),
               startedAt,
@@ -116,7 +130,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               ...(err !== undefined ? { errorKind: errorKind(err) } : {}),
               ...(usage ? { usage } : {}),
               ...(calls?.length ? { calls } : {}),
-              tools: [...tools.values()],
+              tools: [...tools.values()].map((t) => (!t.ok && refused?.has(t.id) ? { ...t, error: refused.get(t.id)! } : t)),
               own,
               place: placeOf(input),
               subagents: subs.size,
@@ -131,7 +145,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
             // Never the run's problem.
           }
         };
-        if (deps.calls && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
+        if ((deps.calls || deps.refused) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
         else done();
       };
       return backend.run(observed).then(
