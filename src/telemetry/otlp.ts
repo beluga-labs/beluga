@@ -8,6 +8,9 @@ import { createHash, randomBytes } from 'node:crypto';
  *   started it, with its own chats and tools below (src/telemetry/turn.ts);
  * - a tool's arguments and result (level "on", your own runs, masked) as
  *   `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` (src/telemetry/tool-detail.ts);
+ * - what happens around the tools as span events: `ratel.compaction` and `ratel.hook` on the root,
+ *   `ratel.permission.decision` and `ratel.human.wait` on the tool that waited (the root when none);
+ *   the tools the model had as `gen_ai.tool.definitions` on the turn's first chat span;
  * - text (level "on" only) as `gen_ai.input.messages` on the first chat span and
  *   `gen_ai.output.messages` in the last one's `gen_ai.client.inference.operation.details` event;
  * - everything else (features used, this computer, the app) as `ratel.beluga.*` log records, the

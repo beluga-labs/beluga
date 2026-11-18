@@ -51,7 +51,7 @@ describe('the command a shell line is about', () => {
 
   it('a compound command is named by its last meaningful segment, with every command and the segment count kept', () => {
     const f = commandFacts('cd /repo && git add -A && git commit -m "a; b && c" || echo failed');
-    expect(f).toEqual({ command: 'git', subcommand: 'commit', commands: ['cd', 'git', 'git', 'echo'], segments: 4 });
+    expect(f).toEqual({ command: 'git', subcommand: 'commit', commands: ['cd', 'git', 'git', 'echo'], segments: 4, effects: ['commit'] });
     expect(primary('npm run build && echo done')).toBe('npm run build');
     expect(primary('sleep 2; echo hi')).toBe('echo');
     expect(commandFacts('a; b\nc')?.segments).toBe(3);

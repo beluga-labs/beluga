@@ -17,7 +17,11 @@ export interface CommandFacts {
   readonly commands: readonly string[];
   /** How many segments the line has (split on `&&`, `||`, `;` and new lines). */
   readonly segments: number;
+  /** What the line did that matters afterwards, each once: a commit, a pull request opened, a test run. */
+  readonly effects?: readonly CommandEffect[];
 }
+
+export type CommandEffect = 'commit' | 'pr_open' | 'test';
 
 /** A line longer than this is cut before it is read. */
 const MAX_LINE = 20_000;
@@ -73,6 +77,12 @@ const GROUPS: Readonly<Record<string, ReadonlySet<string>>> = {
   docker: new Set(['compose', 'buildx', 'image', 'container', 'volume', 'network', 'system']),
 };
 
+/** Programs that run tests whatever comes after them. */
+const TEST_RUNNERS = new Set(['vitest', 'jest', 'pytest', 'playwright', 'mocha', 'rspec', 'phpunit', 'ava', 'tox', 'nox']);
+/** Tools whose `test` subcommand runs tests (`npm test`, `npm run test:unit`, `cargo test`, `make test`). */
+const TEST_TOOLS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'go', 'make', 'deno', 'dotnet', 'gradle', 'mvn']);
+const TEST_SUBCOMMAND = /^(?:run(?:-script)? )?test(?:[:._-][\w:.-]*)?$/;
+
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const PROGRAM = /^[A-Za-z0-9_][A-Za-z0-9_.+@-]{0,39}$/;
 const SUBCOMMAND = /^[A-Za-z][A-Za-z0-9:_.-]{0,23}$/;
@@ -83,17 +93,29 @@ export function commandFacts(line: string): CommandFacts | undefined {
   if (!segments.length) return undefined;
   const firsts = segments.map((s) => s[0]!);
   const primary = lastWhere(firsts, (c) => !SETUP.has(c.name) && !TRIVIAL.has(c.name)) ?? lastWhere(firsts, (c) => !SETUP.has(c.name)) ?? firsts.at(-1)!;
+  const effects = EFFECTS.filter((e) => segments.some((s) => effectOf(s[0]!) === e));
   return {
     command: primary.name,
     ...(primary.subcommand ? { subcommand: primary.subcommand } : {}),
     commands: segments.flatMap((s) => s.map((c) => c.name)).slice(0, MAX_COMMANDS),
     segments: segments.length,
+    ...(effects.length ? { effects } : {}),
   };
 }
 
 interface Named {
   readonly name: string;
   readonly subcommand?: string;
+}
+
+const EFFECTS: readonly CommandEffect[] = ['commit', 'pr_open', 'test'];
+
+/** What a segment's command did that matters afterwards, from its name and subcommand alone. */
+function effectOf(c: Named): CommandEffect | undefined {
+  if (c.name === 'git' && c.subcommand === 'commit') return 'commit';
+  if (c.name === 'gh' && c.subcommand === 'pr create') return 'pr_open';
+  if (TEST_RUNNERS.has(c.name) || (TEST_TOOLS.has(c.name) && TEST_SUBCOMMAND.test(c.subcommand ?? ''))) return 'test';
+  return undefined;
 }
 
 const lastWhere = <T>(list: readonly T[], test: (v: T) => boolean): T | undefined => [...list].reverse().find(test);

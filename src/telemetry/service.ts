@@ -24,7 +24,8 @@ import { Masker, REDACTED } from './mask.js';
 import type { ObserveDeps } from './observe.js';
 import { type AttrValue, event } from './otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from './record.js';
-import { type TurnFacts, belugaToolSpans } from './turn.js';
+import { issueForWorkspace } from '../core/board/model.js';
+import { type RunContext, type TurnFacts, belugaToolSpans } from './turn.js';
 
 /**
  * Usage statistics for this daemon: the level you chose, the ask, and what's collected and sent to
@@ -126,6 +127,31 @@ export class TelemetryService {
       refused: (session) => this.otel?.refusedFor(session) ?? new Map(),
       links: (session, ids) => this.otel?.linksFor(session, ids) ?? new Map(),
       skills: (session, from, to) => this.otel?.skillsFor(session, from, to) ?? [],
+      hooks: (session, from, to) => this.otel?.hooksFor(session, from, to) ?? [],
+      context: (input) => this.runContext(input),
+    };
+  }
+
+  /**
+   * Where a run is, from what Beluga already knows (no git is run): its project as the repo, and its
+   * worktree with its branch, the board task it is doing and its pull request. Names as they are.
+   */
+  private runContext(input: AgentRunInput): RunContext | undefined {
+    const cwd = input.place?.cwd;
+    if (!cwd) return undefined;
+    const state = this.deps.store.getState();
+    const inside = (base: string): boolean => Boolean(base) && (cwd === base || cwd.startsWith(base.endsWith('/') ? base : `${base}/`));
+    const project = state.projects.find((p) => p.root === projectOfFolder(state.projects, cwd));
+    if (!project) return undefined;
+    const ws = project.workspaces.filter((w) => inside(w.path)).sort((a, b) => b.path.length - a.path.length)[0];
+    const issue = ws ? issueForWorkspace(state.board, ws.id) : undefined;
+    const pr = input.place?.openPr?.number ?? issue?.pr?.number;
+    return {
+      repo: project.name,
+      ...(ws?.branch ? { branch: ws.branch } : {}),
+      ...(ws ? { worktree: ws.name } : {}),
+      ...(issue ? { task: issue.key } : {}),
+      ...(pr !== undefined ? { pr } : {}),
     };
   }
 
@@ -248,7 +274,7 @@ export class TelemetryService {
   private prepare(t: TurnFacts): TurnFacts | undefined {
     // Turned down since it was queued: it doesn't go.
     if (this.level !== 'on') return undefined;
-    if (!t.text && !t.tools.some((tool) => tool.input || tool.output !== undefined)) return t;
+    if (!t.text && !t.tools.some((tool) => tool.input || tool.output !== undefined) && !t.waits?.some((w) => w.question)) return t;
     if (this.now() - this.secretsAt > SECRETS_MS) {
       this.secretsAt = this.now();
       try {
@@ -260,6 +286,8 @@ export class TelemetryService {
     return {
       ...t,
       ...(t.text ? { text: { prompt: this.masker.mask(t.text.prompt), answer: this.masker.mask(t.text.answer) } } : {}),
+      // What a wait asked you, the same way.
+      ...(t.waits ? { waits: t.waits.map((w) => (w.question ? { ...w, question: this.masker.mask(w.question) } : w)) } : {}),
       // What each tool was given and gave back: every string in it, before a span is built from it.
       tools: t.tools.map((tool) => ({
         ...tool,

@@ -5,13 +5,14 @@ import path from 'node:path';
 import { type IncomingMessage, type Server, createServer } from 'node:http';
 import type { AttrValue, OtlpLog } from './otlp.js';
 import { event, pseudonym } from './otlp.js';
-import type { TurnCall } from './turn.js';
+import type { TurnCall, TurnHook } from './turn.js';
 
 /**
  * Claude Code's own telemetry (code.claude.com/docs/en/monitoring-usage), caught on this computer:
  * Claude runs Beluga starts export to a receiver here (127.0.0.1, a token of its own), never
  * anywhere else. From it come each model request (model, tokens, cost, how long), for the turn's
- * spans, and its other events and counters (tools, permission decisions, compactions, MCP
+ * spans, the hooks that ran and what decided each tool call, for the turn's events, and its other
+ * events and counters (tools, permission decisions, compactions, MCP
  * connections, lines changed, commits, pull requests) as `ratel.beluga.claude_code.*` records.
  *
  * Only the fields listed in KEEP survive: Claude Code always adds your email, organization and
@@ -68,6 +69,7 @@ const MAX_CALLS_PER_SESSION = 2_000;
 const MAX_REFUSED_PER_SESSION = 500;
 const MAX_LINKS_PER_SESSION = 5_000;
 const MAX_SKILLS_PER_SESSION = 500;
+const MAX_HOOKS_PER_SESSION = 2_000;
 /** The scope Claude Code's events come under. */
 const CLAUDE_SCOPE = /^com\.anthropic\.claude_code\b/;
 
@@ -78,6 +80,9 @@ export type Refusal = 'denied' | 'aborted';
 export interface ToolLink {
   readonly requestId?: string;
   readonly agentId?: string;
+  /** Whether Claude Code let it run, and what decided ("config", "hook", "user_temporary"…). These two are sent. */
+  readonly decision?: 'allow' | 'deny';
+  readonly decisionSource?: string;
 }
 
 type Json = Record<string, unknown>;
@@ -96,6 +101,7 @@ const attrMap = (list: unknown): Map<string, AttrValue> => new Map(((list as Arr
 
 /** A field of that name when the value is text, else nothing. */
 const text = <K extends string>(key: K, v: AttrValue): { [P in K]?: string } => (typeof v === 'string' && v ? ({ [key]: v } as { [P in K]?: string }) : {});
+const short = (v: AttrValue): AttrValue => (typeof v === 'string' ? v.slice(0, 80) : undefined);
 const num = (v: AttrValue): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : 0);
 const msOf = (nano: unknown, fallback: number): number => {
   const s = typeof nano === 'string' || typeof nano === 'number' ? String(nano) : '';
@@ -119,6 +125,7 @@ export class ClaudeOtel {
   private readonly refused = new Map<string, { readonly at: number; readonly tools: Map<string, Refusal> }>();
   private readonly links = new Map<string, { at: number; readonly tools: Map<string, ToolLink> }>();
   private readonly skills = new Map<string, Array<{ readonly at: number; readonly source: string }>>();
+  private readonly hooks = new Map<string, TurnHook[]>();
   private readonly settingsCache: { stamp?: string; env?: Record<string, unknown> } = {};
 
   constructor(private readonly deps: ClaudeOtelDeps) {}
@@ -144,6 +151,7 @@ export class ClaudeOtel {
     this.refused.clear();
     this.links.clear();
     this.skills.clear();
+    this.hooks.clear();
   }
 
   /** What a Claude run's process gets, or nothing (not listening, or the user sends Claude Code's telemetry elsewhere). */
@@ -212,6 +220,15 @@ export class ClaudeOtel {
     return list.filter((s) => s.at >= from && s.at <= to).map((s) => s.source);
   }
 
+  /** The hooks that ran in a session in a window, in order (taken: each is used once). */
+  hooksFor(session: string, from: number, to: number): TurnHook[] {
+    const list = this.hooks.get(session) ?? [];
+    const rest = list.filter((h) => h.at < from || h.at > to);
+    if (rest.length) this.hooks.set(session, rest);
+    else this.hooks.delete(session);
+    return list.filter((h) => h.at >= from && h.at <= to);
+  }
+
   /** Read one export. → the status to answer. Exposed for tests. */
   async receive(req: IncomingMessage): Promise<number> {
     if (req.method !== 'POST') return 405;
@@ -245,6 +262,7 @@ export class ClaudeOtel {
           if (name === 'tool_decision' && session) this.decision(session, at, a);
           if ((name === 'tool_decision' || name === 'tool_result') && session) this.link(session, at, a);
           if (name === 'skill_activated' && session) this.skill(session, at, a);
+          if (name === 'hook_execution_complete' && session) this.hook(session, at, a);
           if (NOT_FORWARDED.has(name)) continue;
           this.deps.emit(event(`claude_code.${name}`, at, this.kept(a, session)));
         }
@@ -309,7 +327,10 @@ export class ClaudeOtel {
     const id = a.get('tool_use_id');
     if (typeof id !== 'string') return;
     const tools = this.links.get(session)?.tools ?? new Map<string, ToolLink>();
-    tools.set(id, { ...tools.get(id), ...text('requestId', a.get('request_id')), ...text('agentId', a.get('agent_id')) });
+    const decided = a.get('decision');
+    const decision = decided === 'accept' ? { decision: 'allow' as const } : decided === 'reject' ? { decision: 'deny' as const } : {};
+    const source = a.get('source');
+    tools.set(id, { ...tools.get(id), ...text('requestId', a.get('request_id')), ...text('agentId', a.get('agent_id')), ...decision, ...(decided !== undefined && typeof source === 'string' && source ? { decisionSource: source.slice(0, 40) } : {}) });
     if (tools.size > MAX_LINKS_PER_SESSION) tools.delete(tools.keys().next().value!);
     this.links.set(session, { at, tools });
   }
@@ -322,6 +343,17 @@ export class ClaudeOtel {
     list.push({ at, source: source.slice(0, 40) });
     if (list.length > MAX_SKILLS_PER_SESSION) list.shift();
     this.skills.set(session, list);
+  }
+
+  /** The hooks of one event, done: how long they took together, and the worst way one of them ended. */
+  private hook(session: string, at: number, a: Map<string, AttrValue>): void {
+    const event = a.get('hook_event');
+    if (typeof event !== 'string' || !event) return;
+    const outcome = num(a.get('num_blocking')) > 0 ? 'blocked' : num(a.get('num_non_blocking_error')) > 0 ? 'error' : num(a.get('num_cancelled')) > 0 ? 'cancelled' : 'success';
+    const list = this.hooks.get(session) ?? [];
+    list.push({ at, event: event.slice(0, 40), ...text('name', short(a.get('hook_name'))), ...text('source', short(a.get('hook_source'))), durationMs: num(a.get('total_duration_ms')), outcome, count: num(a.get('num_hooks')) || 1 });
+    if (list.length > MAX_HOOKS_PER_SESSION) list.shift();
+    this.hooks.set(session, list);
   }
 
   /** Only the listed fields, and the session as an id that can't be traced back. */
@@ -340,6 +372,11 @@ export class ClaudeOtel {
     }
     for (const [s, r] of this.refused) if (now - r.at >= KEEP_CALLS_MS) this.refused.delete(s);
     for (const [s, l] of this.links) if (now - l.at >= KEEP_CALLS_MS) this.links.delete(s);
+    for (const [s, list] of this.hooks) {
+      const fresh = list.filter((h) => now - h.at < KEEP_CALLS_MS);
+      if (fresh.length) this.hooks.set(s, fresh);
+      else this.hooks.delete(s);
+    }
     for (const [s, list] of this.skills) {
       const fresh = list.filter((k) => now - k.at < KEEP_CALLS_MS);
       if (fresh.length) this.skills.set(s, fresh);

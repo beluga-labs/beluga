@@ -30,7 +30,7 @@ import { runToolSuites } from '../../run-tools.js';
 import { sdkServers } from './sdk-mount.js';
 import { ownerMcpServers } from './owner-mcp.js';
 import { McpConnect, claudeMcpSession } from './mcp-connect.js';
-import type { AgentBackend, AgentRunInput, FollowUp, LiveStatus, RoomBridge, RunProcess, Steer } from '../../types.js';
+import type { AgentBackend, AgentRunInput, FollowUp, HarnessFacts, LiveStatus, RoomBridge, RunProcess, Steer } from '../../types.js';
 import { keepLines, trackedSpawn } from './claude-process.js';
 import { keptBashInput } from '../../../workspaces/test-procs.js';
 import { SCRATCH_DIR } from '../../../shared/scratch-dir.js';
@@ -226,6 +226,19 @@ export function imageContent(text: string, files: readonly string[]): PromptCont
 }
 
 /** The text of the tool results in a message from Claude Code (what its commands printed). */
+/** Claude Code's first message of a run, as what it says about itself: names only (its tools, its MCP servers). */
+export function harnessFacts(init: { readonly claude_code_version?: unknown; readonly permissionMode?: unknown; readonly tools?: unknown; readonly mcp_servers?: unknown }): HarnessFacts {
+  const names = (list: unknown, of: (v: unknown) => unknown): string[] => (Array.isArray(list) ? list.map(of).filter((n): n is string => typeof n === 'string' && Boolean(n)).map((n) => n.slice(0, 128)) : []);
+  const tools = names(init.tools, (t) => t);
+  const servers = names(init.mcp_servers, (s) => (s as { name?: unknown } | null)?.name);
+  return {
+    ...(typeof init.claude_code_version === 'string' ? { version: init.claude_code_version.slice(0, 40) } : {}),
+    ...(typeof init.permissionMode === 'string' ? { permissionMode: init.permissionMode.slice(0, 40) } : {}),
+    ...(tools.length ? { tools } : {}),
+    ...(servers.length ? { mcpServers: servers } : {}),
+  };
+}
+
 function toolOutput(content: unknown): string {
   if (!Array.isArray(content)) return '';
   return content.map((b) => (b && typeof b === 'object' && 'type' in b && b.type === 'tool_result' && 'content' in b ? resultText(b.content) : '')).join('\n');
@@ -609,7 +622,10 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
           lastEventAt = Date.now();
           background.observe(msg as Parameters<BackgroundAgents['observe']>[0]);
           watchQuiet();
-          if (msg.type === 'system' && msg.subtype === 'init') remember(msg.session_id);
+          if (msg.type === 'system' && msg.subtype === 'init') {
+            remember(msg.session_id);
+            input.onHarness?.(harnessFacts(msg));
+          }
           // Claude Code retrying the API (busy, a limit, no network): said on the working line, not a silent "Starting" (BLG-403).
           if (msg.type === 'system' && msg.subtype === 'api_retry') input.onEvent('progress', retryWords(msg.error_status, msg.attempt, msg.max_retries, Boolean(msg.no_response)));
           if (msg.type === 'rate_limit_event') {

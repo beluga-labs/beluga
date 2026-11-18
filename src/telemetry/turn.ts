@@ -1,4 +1,5 @@
-import { type OtlpSpan, attrs, nanos, pseudonym, spanId, traceId } from './otlp.js';
+import { commandFacts } from './command.js';
+import { type AttrValue, type OtlpSpan, attrs, nanos, pseudonym, spanId, traceId } from './otlp.js';
 import { agentTypeOf, toolDetail } from './tool-detail.js';
 
 /**
@@ -6,6 +7,13 @@ import { agentTypeOf, toolDetail } from './tool-detail.js';
  * Text is here only at level "on", and only for your own turns; so is what each tool was given and
  * gave back. Both are masked before they're turned into spans (src/telemetry/service.ts).
  */
+
+/** At most this many declared tools go on a turn (the count says how many there were). */
+export const DEFINITIONS_MAX = 512;
+/** At most this many hook events go on a turn (the count and the total time say the rest). */
+export const HOOK_EVENTS_MAX = 200;
+/** A question's words are cut to this (masked first). */
+export const QUESTION_MAX = 1_000;
 
 export interface TurnUsage {
   /** Fresh input tokens (cache not included, as Beluga's usage events count them). */
@@ -43,6 +51,67 @@ export interface TurnTool {
   readonly agentId?: string;
   /** A Skill call: where Claude Code said the skill lives ("userSettings", "projectSettings", "plugin"…). */
   readonly skillSource?: string;
+  /** Whether it was let run, and what decided, in Claude Code's words ("config", "hook", "user_temporary"…). */
+  readonly decision?: 'allow' | 'deny';
+  readonly decisionSource?: string;
+}
+
+/** Where a turn ran, by name (plain: the owner's own repos). */
+export interface RunContext {
+  readonly repo?: string;
+  readonly branch?: string;
+  readonly worktree?: string;
+  /** The board task its worktree is doing ("BLG-42"). */
+  readonly task?: string;
+  /** Its open pull request's number. */
+  readonly pr?: number;
+}
+
+/** What the agent's own program said about itself when the run started. */
+export interface Harness {
+  readonly version?: string;
+  /** How it asks before acting: "default", "acceptEdits", "plan", "bypassPermissions". */
+  readonly permissionMode?: string;
+  /** The tools the model was given, by name, and the MCP servers they come from. */
+  readonly tools?: readonly string[];
+  readonly mcpServers?: readonly string[];
+}
+
+/** The context was compacted: when, what started it, and its size before and after. */
+export interface TurnCompaction {
+  readonly at: number;
+  readonly trigger?: string;
+  readonly pre?: number;
+  readonly post?: number;
+}
+
+export type WaitKind = 'permission' | 'secret' | 'question' | 'plan';
+export type WaitOutcome = 'approved' | 'declined' | 'answered' | 'skipped' | 'timeout';
+
+/** The run waited for a person: an approval (a tool, a .env file), a question, a plan to approve. */
+export interface TurnWait {
+  readonly kind: WaitKind;
+  /** The tool that waited, as the agent named it. */
+  readonly tool?: string;
+  readonly startedAt: number;
+  readonly endedAt: number;
+  readonly outcome: WaitOutcome;
+  /** Level "on", a run whose content may go: what was asked (masked before it's turned into spans). */
+  readonly question?: string;
+}
+
+/** Hooks that ran for one event (Claude Code's own report): which, how long in all, how they ended. */
+export interface TurnHook {
+  readonly at: number;
+  /** "PreToolUse", "SessionStart", "Stop"… */
+  readonly event: string;
+  readonly name?: string;
+  /** Where the hook is set: "user", "project", "plugin", "sdk"… */
+  readonly source?: string;
+  readonly durationMs: number;
+  readonly outcome: 'success' | 'blocked' | 'error' | 'cancelled';
+  /** How many hooks ran for it. */
+  readonly count: number;
 }
 
 /** One model request (Claude Code's own telemetry has one per request: src/telemetry/claude-otel.ts). */
@@ -96,6 +165,15 @@ export interface TurnFacts {
   readonly thinking?: { readonly ms: number; readonly blocks: number };
   /** Level "on", your own turn: the text, already masked. */
   readonly text?: { readonly prompt: string; readonly answer: string };
+  readonly context?: RunContext;
+  readonly harness?: Harness;
+  /** Each compaction of the turn, when the runtime says them one by one (`compactions` counts them all). */
+  readonly compacted?: readonly TurnCompaction[];
+  readonly waits?: readonly TurnWait[];
+  readonly hooks?: readonly TurnHook[];
+  /** The context as the run last reported it: tokens in the window, and the window's size. */
+  readonly contextTokens?: number;
+  readonly contextWindow?: number;
 }
 
 const PROVIDERS: Readonly<Record<string, string>> = { claude: 'anthropic', local: 'local', codex: 'openai', copilot: 'github', opencode: 'opencode' };
@@ -183,7 +261,16 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   // On every span: Ratel resolves a span's session from its own attributes when a batch splits.
   const who = (scope: string) => ({ ...(conversation ? { 'gen_ai.conversation.id': conversation } : {}), 'gen_ai.agent.name': agents.get(scope)?.type ?? f.runtime, 'ratel.agent.parent_call_id': scope || undefined });
 
+  const waited = waitsByTool(f);
+  const waitMs = (f.waits ?? []).reduce((n, w) => n + lasted(w), 0);
+  // A step that failed only because a person said no, or said nothing, is a wait and not a failed tool.
+  const failed = (t: TurnTool): boolean => !t.ok && !waited.of(t).some(unanswered);
+  const effects = f.tools.flatMap((t) => (t.name === 'Bash' && typeof t.input?.command === 'string' ? (commandFacts(t.input.command)?.effects ?? []).map((effect) => ({ effect, ok: t.ok })) : []));
+  const did = (effect: string, ok?: boolean): number | undefined => effects.filter((e) => e.effect === effect && (ok === undefined || e.ok === ok)).length || undefined;
+  const hooks = [...(f.hooks ?? [])].sort((a, b) => a.at - b.at);
+
   // The model requests: Claude Code's own (one per request) when they came, else the turn's total as one.
+  const told = Boolean(f.calls?.length);
   const calls: TurnCall[] = f.calls?.length ? [...f.calls].sort((a, b) => a.at - b.at) : f.usage ? [{ ...(model ? { model } : {}), at: f.endedAt, durationMs: f.endedAt - f.startedAt, usage: f.usage }] : [];
   const scopeOf = callScopes(f, calls, agents);
   const chats: Chat[] = calls.map((call) => ({ call, scope: scopeOf(call), span: spanId(), start: Math.max(f.startedAt, call.at - call.durationMs), end: call.at }));
@@ -219,12 +306,28 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'gen_ai.request.model': model,
         'ratel.model.alias': picked !== model ? picked : undefined,
         'ratel.harness.name': f.runtime,
+        'ratel.harness.version': f.harness?.version,
+        'ratel.harness.permission_mode': f.harness?.permissionMode,
         'ratel.harness.effort': f.effort,
         'ratel.run.place': f.place,
+        'ratel.run.repo': f.context?.repo,
+        'ratel.run.branch': f.context?.branch,
+        'ratel.run.worktree': f.context?.worktree,
+        'ratel.run.task': f.context?.task,
+        'ratel.run.pr': f.context?.pr,
         'ratel.run.own': f.own,
         'ratel.run.outcome': f.outcome,
         'ratel.run.tool_calls': f.tools.length,
-        'ratel.run.tool_errors': f.tools.filter((t) => !t.ok).length,
+        'ratel.run.tool_errors': f.tools.filter(failed).length,
+        // Time spent waiting for a person, apart: it is neither a tool's time nor the model's.
+        'ratel.run.human_waits': f.waits?.length || undefined,
+        'ratel.run.human_wait_ms': f.waits?.length ? waitMs : undefined,
+        'ratel.run.hooks': hooks.length || undefined,
+        'ratel.run.hook_ms': hooks.length ? hooks.reduce((n, h) => n + h.durationMs, 0) : undefined,
+        'ratel.run.commits': did('commit', true),
+        'ratel.run.prs_opened': did('pr_open', true),
+        'ratel.run.test_runs': did('test'),
+        'ratel.run.test_failures': did('test', false),
         'ratel.run.subagents': f.subagents,
         'ratel.run.compactions': f.compactions,
         'ratel.run.prompt_chars': f.promptChars,
@@ -239,9 +342,18 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.skill.trigger': f.slash ? 'slash_command' : undefined,
         'error.type': f.errorKind,
       }),
+      ...withEvents([
+        ...(f.compacted ?? []).map((c) => spanEvent('ratel.compaction', c.at, { 'ratel.compaction.trigger': c.trigger, 'ratel.compaction.pre_tokens': c.pre, 'ratel.compaction.post_tokens': c.post })),
+        ...hooks.slice(0, HOOK_EVENTS_MAX).map((h) =>
+          spanEvent('ratel.hook', h.at, { 'ratel.hook.event': h.event, 'ratel.hook.name': h.name, 'ratel.hook.source': h.source, 'ratel.hook.duration_ms': h.durationMs, 'ratel.hook.outcome': h.outcome, 'ratel.hook.count': h.count }),
+        ),
+        // A wait no step of this turn owns.
+        ...waited.loose.map((w) => waitEvent(w, w.tool, f.content === true)),
+      ]),
       status: { code: f.outcome === 'error' ? 2 : 1 },
     },
   ];
+  const declared = f.harness?.tools;
   for (const c of chats) {
     const text = f.text;
     const answered = bare(c.call.model) ?? model;
@@ -263,6 +375,20 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'gen_ai.response.model': answered,
         'ratel.request.source': c.call.source,
         ...usageAttrs(c.call.usage),
+        // What the model saw: a request's own input, or (the turn told as one) what the run last reported.
+        'ratel.context.tokens': told ? c.call.usage.input + c.call.usage.cacheRead + c.call.usage.cacheWrite || undefined : f.contextTokens,
+        // The window is the turn's own model's: a sub-agent may run another.
+        'ratel.context.window': c.scope ? undefined : f.contextWindow,
+        // The turn as one request spans its waits for a person: said apart, so they aren't read as model time.
+        'ratel.wait.human_ms': !told && f.waits?.length ? waitMs : undefined,
+        // The tools the model had, on the turn's first request: names and kinds, never descriptions.
+        ...(declared?.length && c === first
+          ? {
+              'gen_ai.tool.definitions': JSON.stringify(declared.slice(0, DEFINITIONS_MAX).map((name) => ({ type: name.startsWith('mcp__') ? 'extension' : 'function', name }))),
+              'ratel.tool.declared_count': declared.length,
+              'ratel.mcp.servers': f.harness?.mcpServers?.length ? f.harness.mcpServers : undefined,
+            }
+          : {}),
         'gen_ai.response.finish_reasons': [c.call.error ? 'error' : finish(f, ended)],
         'error.type': c.call.error,
         ...(text && c === first ? { 'gen_ai.input.messages': JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: text.prompt }] }]) } : {}),
@@ -275,6 +401,9 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
     const scope = t.parent && agents.has(t.parent) ? t.parent : '';
     const detail = toolDetail(t, f.content === true);
     const id = spanId();
+    const waits = waited.of(t);
+    const ok = !failed(t);
+    const asked = waits.at(-1);
     spans.push({
       traceId: trace,
       spanId: id,
@@ -284,8 +413,19 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
       // A sub-agent's step says which sub-agent, even when the call that started it isn't in this turn.
-      attributes: attrs({ ...toolAttrs(t, who(scope)), 'gen_ai.tool.name': detail.name, ...detail.attributes }),
-      status: { code: t.ok ? 1 : 2 },
+      attributes: attrs({
+        ...toolAttrs(t, who(scope)),
+        'gen_ai.tool.name': detail.name,
+        ...detail.attributes,
+        ...(asked ? { 'ratel.wait.kind': asked.kind, 'ratel.wait.outcome': asked.outcome, 'ratel.wait.human_ms': waits.reduce((n, w) => n + lasted(w), 0) } : {}),
+        ...(ok ? { 'error.type': undefined } : {}),
+      }),
+      ...withEvents([
+        ...waits.map((w) => waitEvent(w, detail.name, f.content === true)),
+        // No one was asked: what Claude Code itself decided, and by what.
+        ...(!waits.some(isPermission) && t.decision ? [spanEvent('ratel.permission.decision', t.startedAt, { 'gen_ai.tool.name': detail.name, 'ratel.permission.decision': t.decision, 'ratel.permission.source': t.decisionSource })] : []),
+      ]),
+      status: { code: ok ? 1 : 2 },
     });
     const agent = agents.get(t.id);
     if (!agent) continue;
@@ -310,6 +450,41 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
     });
   }
   return spans;
+}
+
+type SpanEvent = NonNullable<OtlpSpan['events']>[number];
+
+const spanEvent = (name: string, at: number, fields: Readonly<Record<string, AttrValue>>): SpanEvent => ({ name, timeUnixNano: nanos(at), attributes: attrs(fields) });
+const withEvents = (events: readonly SpanEvent[]): { events?: readonly SpanEvent[] } => (events.length ? { events } : {});
+
+const lasted = (w: TurnWait): number => Math.max(0, w.endedAt - w.startedAt);
+const isPermission = (w: TurnWait): boolean => w.kind === 'permission' || w.kind === 'secret';
+/** The person said no, or said nothing. */
+const unanswered = (w: TurnWait): boolean => w.outcome === 'declined' || w.outcome === 'skipped' || w.outcome === 'timeout';
+
+/**
+ * A wait as its event: an approval is a permission decision (what you decided, how long you took),
+ * a question or a plan is a human wait. What was asked goes only when the run's content may.
+ */
+function waitEvent(w: TurnWait, tool: string | undefined, content: boolean): SpanEvent {
+  const wait = { 'ratel.wait.kind': w.kind, 'ratel.wait.outcome': w.outcome, 'ratel.wait.human_ms': lasted(w) };
+  if (isPermission(w)) return spanEvent('ratel.permission.decision', w.endedAt, { 'gen_ai.tool.name': tool, 'ratel.permission.decision': w.outcome === 'approved' ? 'allow' : 'deny', 'ratel.permission.source': 'user', ...wait });
+  return spanEvent('ratel.human.wait', w.endedAt, { 'gen_ai.tool.name': tool, ...wait, 'ratel.wait.question': content && w.question ? w.question.slice(0, QUESTION_MAX) : undefined });
+}
+
+/**
+ * Each wait with the step that waited: the latest step of that tool that had started and not ended
+ * when the wait began (a wait carries no call id). `loose`: the waits no step of this turn owns.
+ */
+function waitsByTool(f: TurnFacts): { readonly of: (t: TurnTool) => readonly TurnWait[]; readonly loose: readonly TurnWait[] } {
+  const by = new Map<string, TurnWait[]>();
+  const loose: TurnWait[] = [];
+  for (const w of [...(f.waits ?? [])].sort((a, b) => a.startedAt - b.startedAt)) {
+    const owner = f.tools.filter((t) => t.name === w.tool && t.startedAt <= w.startedAt + 1 && (t.endedAt === undefined || t.endedAt + 1 >= w.startedAt)).sort((a, b) => b.startedAt - a.startedAt)[0];
+    if (owner) by.set(owner.id, [...(by.get(owner.id) ?? []), w]);
+    else loose.push(w);
+  }
+  return { of: (t) => by.get(t.id) ?? [], loose };
 }
 
 /** The calls of a turn that started a sub-agent: every Agent call, and any call other steps name as their parent. */
@@ -360,6 +535,9 @@ export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.t
 export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   const tools = f.tools.filter((t) => isBelugaTool(t.name));
   if (!tools.length) return [];
+  // As in the whole turn: a call you declined, or didn't answer, is a wait and not a failed tool.
+  const waited = waitsByTool(f);
+  const failed = (t: TurnTool): boolean => !t.ok && !waited.of(t).some(unanswered);
   const trace = traceId();
   const root = spanId();
   const conversation = f.session ? pseudonym(installId, f.session) : undefined;
@@ -380,7 +558,7 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.own': f.own,
         'ratel.run.outcome': f.outcome,
         'ratel.run.tool_calls': tools.length,
-        'ratel.run.tool_errors': tools.filter((t) => !t.ok).length,
+        'ratel.run.tool_errors': tools.filter(failed).length,
       }),
       status: { code: f.outcome === 'error' ? 2 : 1 },
     },
@@ -392,8 +570,8 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
       kind: 1,
       startTimeUnixNano: nanos(t.startedAt),
       endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: attrs(toolAttrs(t, who)),
-      status: { code: t.ok ? 1 : 2 },
+      attributes: attrs({ ...toolAttrs(t, who), ...(failed(t) || t.ok ? {} : { 'error.type': undefined, 'ratel.wait.outcome': waited.of(t).at(-1)?.outcome }) }),
+      status: { code: failed(t) ? 2 : 1 },
     })),
   ];
 }

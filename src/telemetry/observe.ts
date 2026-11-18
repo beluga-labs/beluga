@@ -5,7 +5,7 @@ import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
 import type { Refusal, ToolLink } from './claude-otel.js';
 import { toolErrorType } from './tool-error.js';
-import type { TurnCall, TurnFacts, TurnOutcome, TurnTool, TurnUsage } from './turn.js';
+import type { Harness, RunContext, TurnCall, TurnCompaction, TurnFacts, TurnHook, TurnOutcome, TurnTool, TurnUsage, TurnWait, WaitKind, WaitOutcome } from './turn.js';
 
 /**
  * A runtime's backend that also tells usage statistics what each turn did, whatever the runtime:
@@ -30,12 +30,20 @@ export interface ObserveDeps {
   readonly links?: (session: string, ids: readonly string[]) => ReadonlyMap<string, ToolLink>;
   /** Where each skill the model called in a time window lives, in order (claude-otel.ts). */
   readonly skills?: (session: string, from: number, to: number) => readonly string[];
+  /** The hooks Claude Code ran for a session in a time window (claude-otel.ts). */
+  readonly hooks?: (session: string, from: number, to: number) => readonly TurnHook[];
+  /** Where a run is: its repo, branch, worktree, task and pull request (service.ts). */
+  readonly context?: (input: AgentRunInput) => RunContext | undefined;
   /** How long after a turn to wait for those reports (Claude Code sends them every second or so). */
   readonly settleMs?: number;
   readonly now?: () => number;
 }
 
 const SETTLE_MS = 6_000;
+/** An approval settled faster than this was a rule's, not a person's: no one was waited for. */
+const HUMAN_MIN_MS = 100;
+/** Beluga stops waiting for an answer after this long (core/session.ts approvalTimeoutMs). */
+const HUMAN_TIMEOUT_MS = 5 * 60_000;
 
 /** Where a turn ran, in one word. */
 export function placeOf(input: AgentRunInput): string {
@@ -109,6 +117,11 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       let usage: TurnUsage | undefined;
       let session = input.place?.resume;
       let compactions = 0;
+      const compacted: TurnCompaction[] = [];
+      const waits: TurnWait[] = [];
+      let harness: Harness | undefined;
+      let contextTokens: number | undefined;
+      let contextWindow: number | undefined;
       let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
@@ -124,11 +137,19 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               session = said ?? session;
               compactions += compacted ?? 0;
             }
-          } else if (kind === 'compact') compactions++;
-          else if (kind === 'context') {
+          } else if (kind === 'compact') {
+            // A compaction says its sizes; its summary comes apart (the same compaction, and its words stay here).
+            const c = JSON.parse(text) as { pre?: unknown; post?: unknown; trigger?: unknown };
+            if (typeof c.pre !== 'number') return;
+            compactions++;
+            compacted.push({ at: now(), ...(typeof c.trigger === 'string' ? { trigger: c.trigger.slice(0, 20) } : {}), pre: c.pre, ...(typeof c.post === 'number' ? { post: c.post } : {}) });
+            if (typeof c.post === 'number') contextTokens = c.post;
+          } else if (kind === 'context') {
             // The run's own word for its model (Claude's init message): an id, where the picker may hold a name ("opus").
-            const reported = (JSON.parse(text) as { model?: unknown }).model;
-            if (typeof reported === 'string' && reported) resolvedModel = reported;
+            const said = JSON.parse(text) as { model?: unknown; used?: unknown; window?: unknown };
+            if (typeof said.model === 'string' && said.model) resolvedModel = said.model;
+            if (typeof said.used === 'number' && said.used > 0) contextTokens = said.used;
+            if (typeof said.window === 'number' && said.window > 0) contextWindow = said.window;
           }
           else if (kind === 'sub') {
             const e = JSON.parse(text) as Partial<SubAgentEvent>;
@@ -162,11 +183,43 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           ...(record.native ? { native: record.native } : {}),
         });
       };
+      /** A wait for a person, timed: the run gets the same answer, and only how it ended is kept. */
+      const waited = async <T>(kind: WaitKind, tool: string, ask: () => Promise<T>, ended: (answer: T) => 'approved' | 'answered' | 'declined' | 'skipped', question?: string): Promise<T> => {
+        const from = now();
+        const answer = await ask();
+        try {
+          const to = now();
+          const said = ended(answer);
+          const outcome: WaitOutcome = (said === 'declined' || said === 'skipped') && to - from >= HUMAN_TIMEOUT_MS - 1_000 ? 'timeout' : said;
+          // What was asked goes only on a run whose content may (never a friend's or a guest's).
+          if (to - from >= HUMAN_MIN_MS || kind === 'question' || kind === 'plan') waits.push({ kind, tool, startedAt: from, endedAt: to, outcome, ...(content && question ? { question } : {}) });
+        } catch {
+          // Never the run's problem.
+        }
+        return answer;
+      };
+      const yes = (ok: boolean) => (ok ? 'approved' : 'declined');
+      const asks: Partial<AgentRunInput> = {
+        canUseTool: (tool, toolInput) => waited('permission', tool, () => input.canUseTool(tool, toolInput), yes),
+        ...(input.canUseSecret ? { canUseSecret: (tool, toolInput) => waited('secret', tool, () => input.canUseSecret!(tool, toolInput), yes) } : {}),
+        ...(input.askUser
+          ? {
+              askUser: (q) =>
+                q.kind === 'plan'
+                  ? waited('plan', 'ExitPlanMode', () => input.askUser!(q), (a) => (a.kind === 'plan' ? yes(a.approve) : 'skipped'))
+                  : waited('question', 'AskUserQuestion', () => input.askUser!(q), (a) => (a.kind === 'answers' ? 'answered' : 'skipped'), q.questions.map((x) => x.question).join('\n')),
+            }
+          : {}),
+        onHarness: (facts) => {
+          input.onHarness?.(facts);
+          harness = facts;
+        },
+      };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
       const offered = deps.env?.(runtime);
       const extra = offered && !Object.keys(offered).some((k) => input.env?.[k] !== undefined) ? offered : undefined;
-      const observed: AgentRunInput = { ...input, onEvent, onStep, ...(place ? { place } : {}), ...(extra ? { env: { ...input.env, ...extra } } : {}) };
+      const observed: AgentRunInput = { ...input, ...asks, onEvent, onStep, ...(place ? { place } : {}), ...(extra ? { env: { ...input.env, ...extra } } : {}) };
       const finish = (outcome: TurnOutcome, answer: string, err?: unknown): void => {
         const endedAt = now();
         const done = (): void => {
@@ -175,8 +228,10 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
             const refused = session ? deps.refused?.(session) : undefined;
             const links = session ? deps.links?.(session, [...tools.keys()]) : undefined;
             const sources = skillSources([...tools.values()], session ? (deps.skills?.(session, startedAt, endedAt + 1_000) ?? []) : []);
+            const hooks = session ? deps.hooks?.(session, startedAt, endedAt + 1_000) : undefined;
+            const context = deps.context?.(input);
             const model = input.place?.model ?? input.model;
-            const effort = input.place?.effort;
+            const effort = input.place?.effort ?? input.effort;
             deps.turn({
               runtime,
               ...(model ? { model } : {}),
@@ -207,12 +262,19 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               // At "on", your own turns' text: the words you typed (never what Beluga added to the prompt,
               // nor the context: other people's words), and the answer. Masked before it's sent.
               ...(level === 'on' && input.ownWords !== undefined ? { text: { prompt: input.ownWords, answer } } : {}),
+              ...(context ? { context } : {}),
+              ...(harness ? { harness } : {}),
+              ...(compacted.length ? { compacted } : {}),
+              ...(waits.length ? { waits: [...waits] } : {}),
+              ...(hooks?.length ? { hooks } : {}),
+              ...(contextTokens !== undefined ? { contextTokens } : {}),
+              ...(contextWindow !== undefined ? { contextWindow } : {}),
             });
           } catch {
             // Never the run's problem.
           }
         };
-        if ((deps.calls || deps.refused || deps.links || deps.skills) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
+        if ((deps.calls || deps.refused || deps.links || deps.skills || deps.hooks) && session) setTimeout(done, deps.settleMs ?? SETTLE_MS).unref?.();
         else done();
       };
       return backend.run(observed).then(
