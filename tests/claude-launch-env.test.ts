@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { HookCallback, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunInput } from '../src/agent/types.js';
-import { claudeLaunchEnv, withSignInHint, withZshCompat } from '../src/agent/runtime/claude/runner.js';
+import { claudeLaunchEnv, withAppsHost, withSignInHint, withZshCompat } from '../src/agent/runtime/claude/runner.js';
 import { ZSH_COMPAT, ZSH_COMPAT_FILE } from '../src/agent/runtime/claude/zsh-compat.js';
 import { failureTitle } from '../src/shared/run-failure.js';
 import { room } from './runtime-conformance.js';
@@ -224,7 +224,8 @@ describe.skipIf(process.platform === 'win32')("zsh-compat in Claude Code's launc
     const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-zsh-'));
     const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
     await backend.run(input(dir, { ownerMcp: true, channel: 'ws:1' }));
-    expect(sdk.options?.env).toBeUndefined();
+    // The daemon's own environment as it was, with only the MCP Apps host flag added.
+    expect(sdk.options?.env).toEqual({ ...process.env, CLAUDE_CODE_MCP_APPS_HOST: '1' });
     const append = (sdk.options?.systemPrompt as { append?: string } | undefined)?.append ?? '';
     if (existsSync('/bin/zsh')) expect(append).toContain('Your shell commands run in zsh, not bash.');
   });
@@ -235,5 +236,40 @@ describe.skipIf(process.platform === 'win32')("zsh-compat in Claude Code's launc
     expect(withZshCompat(scrubbed, {})).toBe(scrubbed);
     expect(withZshCompat(scrubbed, { CLAUDE_ENV_FILE: '/b/zsh-compat.sh' })).toEqual({ ...scrubbed, CLAUDE_ENV_FILE: '/b/zsh-compat.sh' });
     expect(withZshCompat(undefined, { CLAUDE_ENV_FILE: '/b/zsh-compat.sh' }, { PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_ENV_FILE: '/b/zsh-compat.sh' });
+  });
+});
+
+/** A run that draws MCP Apps tells its servers so (CLAUDE_CODE_MCP_APPS_HOST): they send their view-only `_meta` then. */
+describe('the MCP Apps host flag in Claude Code’s launch', () => {
+  afterEach(() => {
+    sdk.options = undefined;
+    restore();
+  });
+
+  it('is on for your own run, over the environment it inherits', async () => {
+    plant();
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-apps-'));
+    const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
+    await backend.run(input(dir, { ownerMcp: true, channel: 'ws:1' }));
+    expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBe('1');
+    expect(sdk.options?.env?.ANTHROPIC_API_KEY).toBe('planted-api');
+  });
+
+  it('is off for a friend’s or a guest’s run (they draw no app)', async () => {
+    plant();
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-apps-'));
+    const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
+    await backend.run(input(dir, { channel: 'room', env: { BELUGA_WORKTREE: dir } }));
+    expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBeUndefined();
+    await backend.run(input(dir, { guest: true, ownerMcp: true, channel: 'room' }));
+    expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBeUndefined();
+  });
+
+  it('adds the flag only where apps are tracked', () => {
+    const scrubbed = { PATH: '/usr/bin', CI: '1' };
+    expect(withAppsHost(undefined, { ownerMcp: true }, { PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_CODE_MCP_APPS_HOST: '1' });
+    expect(withAppsHost(scrubbed, { ownerMcp: true })).toEqual({ ...scrubbed, CLAUDE_CODE_MCP_APPS_HOST: '1' });
+    expect(withAppsHost(scrubbed, { ownerMcp: true, guest: true })).toEqual(scrubbed);
+    expect(withAppsHost(undefined, {})).toBeUndefined();
   });
 });

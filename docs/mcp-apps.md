@@ -25,13 +25,43 @@ Claude Code is the one MCP client: Beluga opens no second connection and uses th
 and sign-ins as your runs.
 
 1. A run's tool call whose tool has a `ui://` resource keeps it on its step (`StepApp`: the
-   server, the tool, the resource and the result's `structuredContent`, bounded). Claude Code's
-   `mcpServerStatus()` gives each tool's `_meta.ui`.
+   server, the tool, the resource, and the result's `structuredContent` and `_meta`, each bounded
+   to 256 KB). Claude Code's `mcpServerStatus()` gives each tool's `_meta.ui`.
 2. `apps.get` reads the resource once through `readMcpResource` (in an idle Claude Code session
    of its own, kept for the app's calls: the run may be over) and serves it on the app host: a loopback server of its own
    (`127.0.0.1:47792`, or any free port), one page per id nobody can guess.
 3. The Mac draws it in an iframe with `sandbox="allow-scripts allow-same-origin allow-forms"` on
    that origin (never the window's), with no referrer, and hands it the tool's input and result.
+
+## The result's `_meta`
+
+A server may keep data in a result's `_meta` that is meant for its view and never for the model:
+hosts hand the model `content` (and some `structuredContent`), and `_meta` only to the view. Ratel
+Cloud's session replay works that way (`_meta["sh.ratel/view"]`). Beluga hands the view the whole
+result as SEP-1865's CallToolResult: `content`, `structuredContent`, `_meta` and `isError`.
+
+- **Where it comes from.** Claude Code puts the server's result in the run's user message as
+  `tool_use_result` (`{ content, structuredContent, _meta }`), beside the `tool_result` block the
+  model reads; `_meta` is never in that block. The tracker keeps it on the step as
+  `StepApp.resultMeta` (`src/mcp-apps/domain/result.ts`): an object only, under 256 KB as JSON
+  (apart from `structuredContent`'s 256 KB), else left out. An app's own `tools/call` gets the
+  `_meta` of `mcp_call`'s answer the same way (`src/mcp-apps/adapters/sdk-mcp-call.ts`).
+- **The server has to know there is a view.** Servers like Ratel send their view data only to a
+  client that declares the MCP Apps extension (`io.modelcontextprotocol/ui` with
+  `text/html;profile=mcp-app`) at `initialize`, and Claude Code declares it only with
+  `CLAUDE_CODE_MCP_APPS_HOST` set. Beluga sets it on the runs that keep apps (your own runs and
+  Full trust; never a friend's or a guest's: `withAppsHost` in
+  `src/agent/runtime/claude/runner.ts`) and on the Claude Code sessions that answer apps
+  (`claudeMcpSession` in `mcp-connect.ts`). Such a server may also tell your Claude, in its
+  instructions or results, that you already see the data in the view.
+- **Why not call the tool again for its view.** Calling the tool a second time through the apps
+  session would only be safe for `readOnlyHint` tools, costs the server a second run, and could
+  show different data from what the model read. Claude Code already has the result the model got,
+  `_meta` included, so Beluga keeps that one.
+- **It never reaches the model.** `_meta` stays on the step's app (the Mac's frame only): not in
+  the step's text, not in a later turn, not on the phone (which gets `hasApp` alone), and it is
+  the first thing dropped when a run's steps grow too big. It is untrusted third-party data, like
+  `structuredContent`.
 
 ## The sandbox and the CSP
 
@@ -59,10 +89,10 @@ Beluga refused or couldn't run gets `-32000` with the reason, so the app can say
 | Method | Supported | What Beluga does |
 | --- | --- | --- |
 | `ui/initialize` | ✓ | Protocol `2026-01-26`, `hostCapabilities` (`serverTools`, `serverResources`, `message`, `updateModelContext`, `openLinks`) and `hostContext` (theme, `displayMode`, `availableDisplayModes`, size, locale, `platform: desktop`) |
-| `ui/notifications/initialized` | ✓ | Sends `ui/notifications/tool-input`, then `ui/notifications/tool-result` (when the tool came back) |
+| `ui/notifications/initialized` | ✓ | Sends `ui/notifications/tool-input`, then `ui/notifications/tool-result` (when the tool came back): the CallToolResult with the step's text as `content`, its `structuredContent`, its `_meta` and `isError` |
 | `ui/notifications/size-changed` | ✓ | Follows the height, up to 720 px in the chat |
 | `ping` | ✓ | Answers `{}` |
-| `tools/call` | ✓ | `apps.call`, through the tool gate (below) |
+| `tools/call` | ✓ | `apps.call`, through the tool gate (below): the server's `content`, `structuredContent`, `_meta` and `isError` |
 | `resources/read` | ✓ | `apps.read`: `ui://` resources of the app's own server only |
 | `ui/message` | ✓ | `apps.message`: asks you first, with the words (Allow / Allow Always / Decline; Always per tool of a server). Refused while your Claude works in that chat, or while the app's last message waits for you. Allowed, the text goes into the app's chat as yours, marked "Sent by the <tool> app", and starts a turn of your Claude |
 | `ui/update-model-context` | ✓ | `apps.context`: kept per app instance (an update replaces the last one), added to your Claude's next turn in that chat, then dropped |
