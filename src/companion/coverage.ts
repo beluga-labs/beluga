@@ -198,6 +198,7 @@ export const PHONE: Record<Method, Side> = {
   'workbench.setScript': 'mac',
   'workbench.shareScripts': 'mac',
   'workbench.setModel': 'phone',
+  'workbench.setEffort': 'mac',
   'workbench.setAgent': 'phone',
   'workbench.createPr': 'mac',
   'workbench.quickPr': 'mac',

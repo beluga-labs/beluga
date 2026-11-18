@@ -176,6 +176,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'workbench.setScript': 'covered',
   'workbench.shareScripts': 'gated',
   'workbench.setModel': 'covered',
+  'workbench.setEffort': 'covered',
   'workbench.setAgent': 'covered',
   'workbench.createPr': 'covered',
   'workbench.quickPr': 'covered',
