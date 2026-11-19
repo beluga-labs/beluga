@@ -33,6 +33,23 @@ and sign-ins as your runs.
 3. The Mac draws it in an iframe with `sandbox="allow-scripts allow-same-origin allow-forms"` on
    that origin (never the window's), with no referrer, and hands it the tool's input and result.
 
+### claude.ai connectors
+
+A connector you added on claude.ai (`claude.ai Ratel Cloud`, say) is an MCP server like the
+others: its tools can have apps, and they work the same way, with the same tool gate. No settings
+file names them. Claude Code fetches them from your claude.ai account, also in the idle session,
+but a second or so after the session opens, so at first the session doesn't list them at all.
+The session for an app (`withServer` in `src/agent/runtime/claude/mcp-connect.ts`) therefore
+waits until the app's own server is listed and started (up to 12 s), not just until no listed
+server is still starting.
+
+When Claude Code never lists the server, the frame says what to check rather than "server not
+found". For a connector: that it is still connected on claude.ai, and that Claude Code is signed
+in with your claude.ai account (with an API key it loads no connectors). Claude Code also skips a
+connector when one of your own MCP servers has the same address, and uses that server, under
+its own name. A step recorded with the connector then can't find its server, but calling the tool
+again records the app under your server's name.
+
 ## The sandbox and the CSP
 
 Each page is served with a Content-Security-Policy made from its resource's `_meta.ui.csp`
