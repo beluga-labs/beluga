@@ -442,9 +442,9 @@ function Canvas({ view, keys, selected, onSelect, onStart, startable }: PlanCanv
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} className={p.dots} />
         <Panel position="bottom-left" className={p.zoom}>
-          <IconButton icon="minus" label="Zoom Out" onClick={() => void flow.zoomOut({ duration: 200 })} />
-          <IconButton icon="plus" label="Zoom In" onClick={() => void flow.zoomIn({ duration: 200 })} />
-          <IconButton icon="outline" label="Fit to View" onClick={() => fit(350)} />
+          <IconButton size="small" icon="minus" label="Zoom Out" onClick={() => void flow.zoomOut({ duration: 200 })} />
+          <IconButton size="small" icon="plus" label="Zoom In" onClick={() => void flow.zoomIn({ duration: 200 })} />
+          <IconButton size="small" icon="outline" label="Fit to View" onClick={() => fit(350)} />
         </Panel>
       </ReactFlow>
       {failed ? <div className={p.canvasNote}>Couldn’t lay this plan out.</div> : !laid ? <div className={p.canvasNote}>Laying out…</div> : null}

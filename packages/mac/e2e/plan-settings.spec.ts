@@ -4,7 +4,8 @@ import { openWork } from './helpers.js';
 
 /**
  * Plan Settings: a plan's ••• › Plan Settings… changes what New Plan asked once the plan
- * exists: when its tests run, saved with Save, is there when the sheet opens again.
+ * exists, with New Plan's own Agents row: Mix Agents gives the checker another agent and model,
+ * Save keeps it (and when its tests run), and it's there when the sheet opens again.
  */
 
 const SHOTS = process.env.E2E_SHOTS ?? path.join(import.meta.dirname, '../../../.beluga/scratch');
@@ -29,31 +30,47 @@ async function openSettings(page: Page) {
   return sheet;
 }
 
-test('Plan Settings: change when a plan’s tests run; kept when it opens again', async ({ page }) => {
+test('Plan Settings: mix the agents of a plan already made, and when its tests run; kept when it opens again', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openPlan(page);
 
   let sheet = await openSettings(page);
-  // What New Plan asked: the project shown, how it runs, its tests.
+  // What New Plan asked: the project shown, how it runs, its agents as one sentence, its tests.
   await expect(sheet).toContainText('bob-api');
   await expect(sheet.getByRole('radiogroup')).toBeVisible();
+  const agents = sheet.getByRole('group', { name: 'Agents' });
+  await expect(agents).toContainText('Planned, built and checked by');
   const tests = sheet.getByRole('combobox', { name: 'When to run tests' });
   await expect(tests).toContainText('Each Milestone');
   // Nothing moved yet: nothing to save. Save is in view without scrolling the sheet.
   await expect(sheet.getByRole('button', { name: 'Save' })).toBeDisabled();
   await expect(sheet.getByRole('button', { name: 'Save' })).toBeInViewport({ ratio: 1 });
 
+  // Mix Agents: a picker per part; the checker gets a model of its own.
+  await agents.getByRole('button', { name: 'Mix Agents' }).click();
+  await expect(agents.getByRole('combobox')).toHaveCount(3);
+  await agents.getByRole('combobox', { name: 'Checker' }).click();
+  await page.getByRole('option', { name: /^Claude · Opus/ }).first().click();
+  await expect(agents.getByRole('combobox', { name: 'Checker' })).toContainText('Claude · Opus');
   await tests.click();
   await page.getByRole('option', { name: /Only at the End/ }).click();
-  await sheet.screenshot({ path: path.join(SHOTS, 'fork-plan-settings-en.png') });
+  await sheet.screenshot({ path: path.join(SHOTS, 'plan-settings-en.png') });
   await sheet.getByRole('button', { name: 'Save' }).click();
   await expect(sheet).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'Plan settings saved' })).toBeVisible();
 
-  // Open again, after the window loads again (what the daemon keeps, not the page): kept.
+  // Open again, after the window loads again (what the daemon keeps, not the page): mixed, both kept.
   await openPlan(page);
   sheet = await openSettings(page);
+  await expect(sheet.getByRole('group', { name: 'Agents' }).getByRole('combobox', { name: 'Checker' })).toContainText('Claude · Opus');
   await expect(sheet.getByRole('combobox', { name: 'When to run tests' })).toContainText('Only at the End');
   await expect(sheet.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+  // One Agent gives the checker back to the builder.
+  await sheet.getByRole('group', { name: 'Agents' }).getByRole('button', { name: 'One Agent' }).click();
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(sheet).toHaveCount(0);
+  sheet = await openSettings(page);
+  await expect(sheet.getByRole('group', { name: 'Agents' })).toContainText('Planned, built and checked by');
   await sheet.getByRole('button', { name: 'Cancel' }).click();
 });
