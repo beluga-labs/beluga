@@ -59,7 +59,11 @@ Never more than one large button in a view outside the toolbar. One row never mi
 
 - **Push button** (`Button`, a sheet's or an alert's buttons): plain, primary (the accent, for the
   default action), danger, merge. Height, padding and text by size; at least 76px wide in a sheet's
-  or an alert's button row.
+  or an alert's button row. A sheet's or an alert's buttons are filled, a light grey on the sheet
+  (macOS 26 draws them so; a white one on a white sheet hardly shows). One that can't be pressed is
+  drawn as a plain one, its words dimmed, as AppKit draws a disabled default button: a primary,
+  default or Merge button never keeps its colour faded (white words on pale blue can't be read).
+  This lives in the shared controls (`ui.module.css`, `alert.module.css`), never a page's own CSS.
 - **Icon button** (`IconButton`): square at its size (28 × 28, 22 × 22, 20 × 20), the icon
   16, 14 or 13px and centred, no bezel until hovered or pressed. One without a `size` keeps the
   28 × 26 it had until its screen moves onto the scale (steps 3 and 4).
