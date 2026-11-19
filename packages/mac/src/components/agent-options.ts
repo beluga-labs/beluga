@@ -74,7 +74,7 @@ export function useStartWith(): (current: AgentRef | undefined, pick: (agent: Ag
 
 /**
  * Just the agents, one row each with its mark (Claude, Codex, OpenCode…), no models: for a menu
- * that asks who does a part of the work (Build With ▸, a plan's Planner ▸). The agent runs its
+ * that asks who does a part of the work (Build With ▸). The agent runs its
  * default model; its own model picker changes that later. One not set up here is greyed, saying why.
  * `current` is checked by its runtime; `pick` gets the agent.
  */
