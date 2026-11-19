@@ -31,13 +31,20 @@ export interface McpSession {
 /** `env`, when given, is Claude Code's whole environment (else Beluga's own). */
 export type OpenMcpSession = (cwd: string, servers: NonNullable<Options['mcpServers']>, env?: Readonly<Record<string, string | undefined>>) => McpSession;
 
-/** A Claude Code session that takes no prompt: only asked about its MCP servers. */
+/**
+ * Claude Code tells its MCP servers it draws MCP Apps (the `io.modelcontextprotocol/ui` extension
+ * at `initialize`), so a server sends its view-only data in a result's `_meta`. Set on your runs that
+ * keep apps (runner.ts withAppsHost) and on these sessions, whose tools/call answer apps.
+ */
+export const MCP_APPS_HOST_ENV: Readonly<Record<string, string>> = { CLAUDE_CODE_MCP_APPS_HOST: '1' };
+
+/** A Claude Code session that takes no prompt: only asked about its MCP servers (and an app's calls and reads). */
 export function claudeMcpSession(claudePath?: string): OpenMcpSession {
   return (cwd, mcpServers, env) => {
     const idle = (async function* () {
       await new Promise(() => undefined);
     })() as AsyncIterable<never>;
-    return query({ prompt: idle, options: { cwd, settingSources: [], mcpServers, ...(env ? { env: { ...env } } : {}), ...claudeExecutable(claudePath) } }) as unknown as McpSession;
+    return query({ prompt: idle, options: { cwd, settingSources: [], mcpServers, env: { ...(env ?? process.env), ...MCP_APPS_HOST_ENV }, ...claudeExecutable(claudePath) } }) as unknown as McpSession;
   };
 }
 
