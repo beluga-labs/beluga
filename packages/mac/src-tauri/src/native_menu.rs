@@ -10,8 +10,10 @@
 
 use serde::Deserialize;
 
-/// One row of a menu, as the page sends it.
+/// One row of a menu, as the page sends it. Only the Mac builds the menu from it: elsewhere
+/// the command says no without reading a field.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[serde(rename_all = "camelCase")]
 pub struct NativeItem {
     /// "item" (the default), "separator" or "header".
