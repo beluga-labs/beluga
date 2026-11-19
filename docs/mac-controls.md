@@ -97,7 +97,28 @@ draw it with an SVG displacement filter, which WebKit doesn't). The tokens are `
 `:root[data-os='mac'][data-transparency='full']`. Windows, Linux and the flat window keep the look
 above.
 
-## Chinese and English
+## Menus
+
+In the app on a Mac, the app's menus are the Mac's own: an `NSMenu` built in
+`src-tauri/src/native_menu.rs`, fed by `lib/native-menu.ts`. That covers a pop-up button's choices
+(`Select`, its chosen row over the button as an `NSPopUpButton` opens), a button's pull-down
+(`ActionsDropdown`, the ••• menus, and the pickers built like them: Runs On, the Overview's
+project filter, a task's pickers, a person's card) and right-click menus (`SpecContext`, a
+terminal tab, a person in the room). A row keeps what the web menu shows: its name through `t()`,
+a hint as the line under it (macOS 14.4's subtitle), its shortcut on the right, a checkmark,
+section headers, submenus, and its icon as a template image the system tints.
+
+- A menu never opens squeezed into a scrolling one while the screen has room: one that wouldn't
+  fit where it opens moves (above its button, or up over the pointer) first.
+- A pop-up whose list is long enough for a search field keeps the web menu and its field, as does
+  a picker you type in or tick several things in.
+- If the menu can't be shown (an older shell), the web menu opens instead, so a press never does
+  nothing.
+
+Browsers, Windows and Linux keep the web menus. Those open on the side they fit on
+(`FitContent` in `components/SpecMenu.tsx`: below the button, else above, else beside it) and
+scroll without a bar only when the window is too short for them.
+
 
 The same control has to read well with either language in it (`<html lang>` is `en` or `zh-CN`).
 
