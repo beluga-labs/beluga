@@ -149,6 +149,26 @@ describe('the control tokens', () => {
     expect(rule(select, '.trigger')).toContain('var(--control-bezel)');
     expect(rule(select, '.chevrons')).toContain('var(--control-accent)');
   });
+
+  it('draw a default, primary or Merge button that can’t be pressed as a plain one, never a faded colour', () => {
+    // AppKit's disabled default button: its colour goes and its words dim. Faded, the accent left
+    // white words on pale blue that couldn't be read (a sheet's Save, a page's Send).
+    const block = (css: string, head: string): string => {
+      const body = strip(css);
+      const at = body.indexOf(head);
+      expect(at, head).toBeGreaterThanOrEqual(0);
+      return body.slice(at, body.indexOf('}', at));
+    };
+    const ui = block(read('components', 'ui.module.css'), '.primary:disabled,\n.merge:disabled {');
+    expect(ui).toContain('color: var(--text)');
+    expect(ui).toContain('var(--control-bezel)');
+    expect(ui).not.toMatch(/accent|merge\)/);
+    const alert = block(read('components', 'alert.module.css'), '.default:disabled,\n.destructive:disabled {');
+    expect(alert).toContain('color: var(--text)');
+    expect(alert).toContain('var(--sheet-button)');
+    // A sheet's buttons are filled, as macOS 26 draws them on a sheet: a white one on a white sheet hardly shows.
+    expect(block(read('components', 'alert.module.css'), '\n.button {')).toContain('background: var(--sheet-button)');
+  });
 });
 
 describe('Liquid Glass', () => {

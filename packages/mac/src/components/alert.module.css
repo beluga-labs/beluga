@@ -128,15 +128,21 @@
 .flex {
   flex: 1;
 }
-/* A sheet's or an alert's push buttons (NSButton): the control colours of tokens.css at AppKit's regular size. */
+/*
+ * A sheet's or an alert's push buttons (NSButton) at AppKit's regular size. On a sheet, macOS 26
+ * draws them filled, a light grey on the sheet's own colour (a lighter one in dark), with no edge:
+ * a white button with a hairline on a white sheet hardly shows.
+ */
 .button {
+  --sheet-button: color-mix(in srgb, var(--text) 8%, var(--bg-raised));
   min-width: 76px;
   height: var(--control-h);
   padding: 0 12px;
   border-radius: var(--control-radius);
   font-size: var(--control-text);
-  background: linear-gradient(var(--control-top), var(--control));
-  box-shadow: var(--control-bezel);
+  color: var(--text);
+  background: var(--sheet-button);
+  box-shadow: none;
   font-weight: 400;
   white-space: nowrap;
   transition: background var(--dur-fast);
@@ -160,11 +166,16 @@
 .default:active:not(:disabled) {
   background: color-mix(in srgb, var(--control-accent) 86%, var(--text));
 }
-/* While the window isn't key the default button is drawn as any other, as AppKit's is. */
-:global(:root[data-window='idle']) .default:not(.destructive) {
-  background: linear-gradient(var(--control-top), var(--control));
+/*
+ * While the window isn't key, or while it can't be pressed, the default button is drawn as any
+ * other, as AppKit's is: grey, its words dimmed with the rest of it (never faded white on pale blue).
+ */
+:global(:root[data-window='idle']) .default:not(.destructive),
+.default:disabled,
+.destructive:disabled {
+  background: var(--sheet-button);
   color: var(--text);
-  box-shadow: var(--control-bezel);
+  box-shadow: none;
 }
 .destructive {
   background: linear-gradient(color-mix(in srgb, var(--error) 84%, var(--control-lift)), var(--error));

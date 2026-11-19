@@ -49,9 +49,6 @@
 .merge:active:not(:disabled) {
   background: color-mix(in srgb, var(--merge) 86%, black);
 }
-.merge:disabled {
-  background: color-mix(in srgb, var(--merge) 40%, var(--bg-hover));
-}
 .quiet {
   color: var(--text-2);
 }
@@ -72,6 +69,18 @@
 }
 .button:disabled {
   opacity: var(--control-disabled);
+}
+/*
+ * A primary or Merge button that can't be pressed is drawn as a plain one, as AppKit draws a
+ * disabled default button: its colour goes and its words dim with the rest of it. Faded, the
+ * accent left white words on pale blue that couldn't be read. The sheets' buttons do the same
+ * (alert.module.css); a danger button is plain already and keeps its red words, dimmed.
+ */
+.primary:disabled,
+.merge:disabled {
+  background: linear-gradient(var(--control-top), var(--control));
+  color: var(--text);
+  box-shadow: var(--control-bezel);
 }
 /* Keyboard focus: the ring outside the bezel, not an outline. */
 .button:focus-visible {

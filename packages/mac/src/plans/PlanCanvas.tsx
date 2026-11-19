@@ -12,7 +12,7 @@ import { useSharpZoom } from '../components/graph/sharp-zoom.js';
 import { breath, turn, useLive } from '../lib/live-motion.js';
 import { MILESTONE_STATE, type MilestoneJoin, type PlanGraphShape, TASK_STATE, changeMarks, gateId, graphShape, groupId, lockWords, milestoneJoin, milestoneLink, milestoneNowWords, startingMilestones, taskNodeId, taskWords } from './plans-model.js';
 import { COMPACT_STATES, FOLDS_KEY, type Folds, MILESTONE, type MilestoneFrame, PLAN_GAPS, arrowHead, isFolded, joinAt, labelAt, milestoneAnchors, milestoneFrame, milestoneRoute, placeMilestones, readFolds, taskSize, withFold } from './plan-layout.js';
-import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
+import { useCardClock, useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useGlide } from './use-glide.js';
 import { LiveDot, LockMark, TaskChatMark, TaskStateIcon } from './marks.js';
 import p from './plans.module.css';
@@ -472,7 +472,7 @@ function Glow() {
 const TaskNode = memo(function TaskNode({ data }: NodeProps<Node<TaskData, 'task'>>) {
   const { view: t } = data;
   // A started task says how it's doing now (its step and for how long, or that it stopped).
-  const now = useClock(t.pulse?.kind === 'working' || t.pulse?.kind === 'command');
+  const now = useCardClock(t.pulse?.kind === 'working' || t.pulse?.kind === 'command');
   const info = taskWords(t, now);
   if (COMPACT_STATES.has(t.state)) {
     // Finished: a slim row (its tick, key and title); its details are a click away.
