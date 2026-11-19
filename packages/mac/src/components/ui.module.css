@@ -445,10 +445,21 @@
   border: 0.5px solid color-mix(in srgb, var(--merge) 70%, var(--text));
   box-shadow: var(--control-drop), var(--control-accent-sheen);
 }
+/* The track's ring is drawn on its own layer and takes no room, so the segments sit the same 1px from
+   its top and its bottom whatever the ring rounds to (Chromium makes a 0.5px border 1px, and a track
+   at a fractional position then put more room above a segment than below it). */
 :global(:root[data-os='mac'][data-transparency='full']) .segmented {
-  padding: 0.5px;
-  border: 0.5px solid var(--hairline);
+  position: relative;
+  padding: 1px;
   box-shadow: none;
+}
+:global(:root[data-os='mac'][data-transparency='full']) .segmented::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 0.5px solid var(--hairline);
+  border-radius: inherit;
+  pointer-events: none;
 }
 :global(:root[data-os='mac'][data-transparency='full']) .segment {
   border: 0.5px solid transparent;
