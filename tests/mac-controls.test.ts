@@ -150,3 +150,70 @@ describe('the control tokens', () => {
     expect(rule(select, '.chevrons')).toContain('var(--control-accent)');
   });
 });
+
+describe('Liquid Glass', () => {
+  const GATE = ":root[data-os='mac'][data-transparency='full']";
+  const SHEETS_WITH_GLASS = [
+    ['layout', 'Shell.module.css'],
+    ['layout', 'Sidebar.module.css'],
+    ['layout', 'SidebarSearch.module.css'],
+    ['layout', 'panel', 'panel.module.css'],
+    ['views', 'overview', 'filter-bar.module.css'],
+    ['components', 'ui.module.css'],
+    ['components', 'form.module.css'],
+    ['components', 'select.module.css'],
+    ['components', 'alert.module.css'],
+    ['tasks', 'NewTaskSheet.module.css'],
+  ] as const;
+
+  it('turns capsules on only on a Mac whose window blurs', () => {
+    expect(block(':root', '--control-h')).not.toContain('999px');
+    const glass = block(GATE, '--control-radius-large');
+    for (const name of ['--control-radius-large', '--control-radius', '--control-radius-small']) expect(glass).toMatch(new RegExp(`${name}: 999px;`));
+    for (const name of ['--glass-inset', '--glass-radius', '--glass-fill', '--glass-edge', '--glass-rim', '--glass-drop', '--glass-chip', '--glass-ring']) expect(glass).toContain(`${name}:`);
+    expect(block(`${GATE}[data-theme='dark']`, '--glass-edge')).toContain('--glass-drop:');
+    // A capsule's ring is a border: the bezel keeps no 0.5px spread shadow where the controls are capsules.
+    expect(glass).toMatch(/--control-bezel: var\(--control-drop\), var\(--control-sheen\);/);
+  });
+
+  it('makes a track a capsule when the controls in it are (New Task’s priority scale)', () => {
+    const css = strip(read('tasks', 'NewTaskSheet.module.css'));
+    expect(css).toMatch(/\.step \{[^}]*border-radius: var\(--control-radius\)/);
+    const scale = css.split('}').find((r) => r.includes(`:global(${GATE}) .scale {`));
+    expect(scale).toContain('border-radius: 999px;');
+    // The chosen step sits in the middle: its shadow has no drop below that would fill the gap under it.
+    const on = [strip(read('tasks', 'NewTaskSheet.module.css')), strip(read('components', 'ui.module.css'))]
+      .flatMap((c) => c.split('}'))
+      .filter((r) => r.includes(`:global(${GATE}) .stepOn {`) || r.includes(`:global(${GATE}) .segmentOn {`));
+    expect(on).toHaveLength(2);
+    for (const rule of on) expect(rule).toMatch(/box-shadow: 0 0 /);
+  });
+
+  it('draws a capsule’s ring as a real border, never a 0.5px shadow WebKit breaks up', () => {
+    for (const parts of [['components', 'ui.module.css'], ['components', 'alert.module.css'], ['components', 'form.module.css'], ['layout', 'SidebarSearch.module.css'], ['views', 'overview', 'filter-bar.module.css'], ['tasks', 'NewTaskSheet.module.css']] as const) {
+      const gated = strip(read(...parts)).split('}').filter((r) => r.slice(0, r.indexOf('{')).includes(`:global(${GATE}`));
+      expect(gated.some((r) => /border(?:-color)?: /.test(r)), parts.join('/')).toBe(true);
+      for (const rule of gated) expect(rule, parts.join('/')).not.toMatch(/0 0 0 0\.5px/);
+    }
+    const ui = strip(read('components', 'ui.module.css'));
+    for (const cls of ['.plain', '.primary', '.merge', '.segmented', '.segment', '.segmentOn']) expect(ui).toMatch(new RegExp(`:global\\(${GATE.replace(/[[\]().'=]/g, '\\$&')}\\) \\${cls}\\b`));
+  });
+
+  it('keeps every glass rule behind that switch, in its component’s own stylesheet', () => {
+    for (const parts of SHEETS_WITH_GLASS) {
+      const rules = strip(read(...parts)).split('}').map((r) => r.trim()).filter((r) => r.includes('{'));
+      const gated = rules.filter((r) => r.slice(0, r.indexOf('{')).includes(`:global(${GATE}`));
+      expect(gated.length, parts.join('/')).toBeGreaterThan(0);
+      // The glass tokens are used only where the glass is on.
+      for (const rule of rules.filter((r) => r.slice(r.indexOf('{')).includes('--glass-'))) expect(gated, parts.join('/')).toContain(rule);
+    }
+  });
+
+  it('floats the sidebar and the panel, and puts the toolbar’s icon buttons on glass', () => {
+    expect(strip(read('layout', 'Sidebar.module.css'))).toMatch(/\.sidebar \{[^}]*backdrop-filter: blur/);
+    expect(strip(read('layout', 'panel', 'panel.module.css'))).toMatch(/\.panel \{[^}]*border-radius: var\(--glass-radius\)/);
+    // The window toolbar is the one header that is a drag region (layout/Toolbar.tsx).
+    expect(read('layout', 'Toolbar.tsx')).toMatch(/<header[^>]*data-tauri-drag-region/);
+    expect(strip(read('components', 'ui.module.css'))).toContain(`:global(${GATE} header[data-tauri-drag-region]) .iconButton {`);
+  });
+});

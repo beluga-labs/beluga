@@ -76,6 +76,27 @@ Never more than one large button in a view outside the toolbar. One row never mi
 
 Keyboard focus is the same everywhere: a 3px accent ring outside the control (`--focus-ring`).
 
+## Liquid Glass
+
+On a Mac whose window blurs what's behind it (`data-transparency='full'`: not with macOS's or the
+app's Reduce transparency, not on a solid theme), the window is drawn as macOS 26 draws its own apps:
+
+- The sidebar and the right panel are panes of glass, 8px in from the window's edges, with 16px
+  corners, a light rim and a soft drop; the window behind them is the content's colour.
+- Controls are capsules: `--control-radius-*` are 999px. A text area keeps 8px corners, or its
+  corners would cut into the text. A capsule's ring is a real 0.5px border, since WebKit breaks a
+  0.5px shadow up round the ends.
+- The window toolbar's icon buttons sit on glass capsules.
+- A pop-up button is its value and one chevron, with no bezel, as macOS 26's settings draw it; a soft
+  capsule shows under it on hover and while its menu is open. Its menu is a rounded card, the row
+  under the pointer on a soft grey and the checkmark at the row's end.
+
+It is CSS only and still: nothing follows the pointer, and there is no refraction (the web versions
+draw it with an SVG displacement filter, which WebKit doesn't). The tokens are `--glass-*` in
+`styles/tokens.css`; each rule sits in its component's own stylesheet under
+`:root[data-os='mac'][data-transparency='full']`. Windows, Linux and the flat window keep the look
+above.
+
 ## Chinese and English
 
 The same control has to read well with either language in it (`<html lang>` is `en` or `zh-CN`).

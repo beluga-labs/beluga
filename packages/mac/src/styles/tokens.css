@@ -203,3 +203,31 @@
     --accent: #007aff;
   }
 }
+
+/*
+ * Liquid Glass (docs/mac-controls.md): the window as macOS 26 draws its own apps. Only on a Mac
+ * whose window blurs (data-transparency='full', lib/prefs.ts: not with Reduce transparency, not on
+ * a solid theme); Windows, Linux and the flat window keep the look above. CSS only, and still: the
+ * refraction some web versions draw is an SVG displacement filter WebKit doesn't draw.
+ */
+:root[data-os='mac'][data-transparency='full'] {
+  --control-radius-large: 999px;
+  --control-radius: 999px;
+  --control-radius-small: 999px;
+  --glass-inset: 8px;
+  --glass-radius: 16px;
+  --glass-fill: color-mix(in srgb, var(--bg-sidebar-solid) 72%, transparent);
+  --glass-edge: rgba(255, 255, 255, 0.7);
+  --glass-rim: rgba(0, 0, 0, 0.1);
+  --glass-drop: 0 10px 30px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --glass-chip: color-mix(in srgb, var(--bg-raised, #fff) 70%, transparent);
+  --glass-ring: inset 0 0 0 0.5px var(--glass-edge), 0 0 0 0.5px var(--glass-rim);
+  /* A capsule's ring is a real 0.5px border (each control draws it): WebKit breaks a 0.5px shadow up round the ends. */
+  --control-bezel: var(--control-drop), var(--control-sheen);
+}
+:root[data-os='mac'][data-transparency='full'][data-theme='dark'] {
+  --glass-edge: rgba(255, 255, 255, 0.16);
+  --glass-rim: rgba(0, 0, 0, 0.5);
+  --glass-drop: 0 12px 34px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --glass-chip: color-mix(in srgb, var(--text) 9%, transparent);
+}

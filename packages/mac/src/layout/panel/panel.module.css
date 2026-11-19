@@ -905,3 +905,14 @@
 .rowOn .ago {
   color: inherit;
 }
+
+/* Liquid Glass: the panel is the same glass as the sidebar, on the right. */
+:global(:root[data-os='mac'][data-transparency='full']) .panel {
+  height: auto;
+  margin: var(--glass-inset) var(--glass-inset) var(--glass-inset) 0;
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-ring), var(--glass-drop);
+}
+:global(:root[data-os='mac'][data-transparency='full']) .inner {
+  border-left: 0;
+}
