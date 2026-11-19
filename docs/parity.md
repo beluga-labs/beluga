@@ -686,13 +686,13 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.verify` | ✓ Approve Plan's ▾ › Verify, Then Approve on a plan's page and its strip above the conversation; ••• › Verify the Plan; Verify, Then Approve on the findings line once Fix was sent (BLG-772); the phone's approve card |
 | `plans.fixReview` | ✓ Fix on the findings line and the plan page's main button, when verifying found something (BLG-772); the phone's card too |
 | `plans.edit` | ✓ editing a plan's outline (rename, criteria, move, remove, what waits on what) |
-| `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu); the phone plan page's autonomy chip (1.5) |
+| `plans.setAutonomy` | ✓ Step by Step · Check-ins · Autopilot on a plan's page (a milestone's own from its menu), and a plan's ⋯ › Plan Settings… › How it runs (what changes is said before Save); the phone plan page's autonomy chip (1.5) |
 | `plans.setPaused` | ✓ Pause / Resume on a plan's page |
 | `plans.setParallel` | ✓ a plan's ⋯ › Run at Once ▸ |
 | `plans.setWorkAgent` | ✓ Approve Plan's ▾ › Approve, worked by ▸ and Verify, Then Approve ▸ (BLG-506); the header's agents button › Builder ▸ goes through `plans.setRoleAgent` (BLG-982); the phone's plan page › ⋯ › Agent for its work, with a Mac before 1.58 |
 | `plans.setRoleAgent` | ✓ a plan's header agents button (one name, or “3 Agents”) › Planner ▸ · Builder ▸ · Checker ▸ (BLG-982): who plans, builds or checks from now on (the toast says what changes); the phone's plan page › ⋯ › Plans with / Builds with / Checks with (1.58) |
 | `plans.setFullAuto` | ✓ a plan's “Runs on …” › Autopilot › Never wait for me (BLG-981); the header then says Runs on Full Autopilot; the phone's How it runs › Full Autopilot (1.58) |
-| `plans.setTestsAt` | ✓ a plan's ⋯ › When to Run Tests ▸ (each milestone, or once at the end) |
+| `plans.setTestsAt` | ✓ a plan's ⋯ › When to Run Tests ▸ (each milestone, or once at the end), and ⋯ › Plan Settings… › When to run tests |
 | `plans.pass` | ✓ Pass Milestone on a plan's page |
 | `plans.recheck` | ✓ Check Again on a milestone the agent is checking or that failed its check |
 | `plans.openPr` | ✓ Open PR on a plan whose every milestone passed (plan/<slug> → main) |
