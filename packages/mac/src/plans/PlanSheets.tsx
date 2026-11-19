@@ -103,7 +103,7 @@ export function NewPlanSheet({ projectId, close }: { projectId?: string; close: 
 }
 
 /** Autopilot, all the way: nothing waits for you (BLG-981). Under the cards, only with Autopilot picked. */
-function FullAutoBox({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export function FullAutoBox({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className={p.fullAuto}>
       <Checkbox checked={checked} onChange={onChange} label="Never wait for me" detail="A stand-in agent answers what the plan’s agents would ask you, so it keeps going. A secret, a friend’s request or a task only you can do still waits for you." />
@@ -225,7 +225,7 @@ export function PlanModeSheet({ planId, close }: { planId: string; close: () => 
 }
 
 /** Turning Full Autopilot on or off on a plan already on Autopilot, in the words modeChange uses. */
-function fullAutoChange(on: boolean): { readonly title: string; readonly from: string; readonly now?: string } {
+export function fullAutoChange(on: boolean): { readonly title: string; readonly from: string; readonly now?: string } {
   return on
     ? { title: 'Never Wait for Me', from: 'From now on, what the plan’s agents would ask you a stand-in agent answers, and the plan carries on. A secret or a friend’s request still waits for you.', now: 'Anything waiting on you now is answered in a moment.' }
     : { title: 'Answer Myself Again', from: 'From now on, what the plan’s agents ask waits for you again. The plan stays on Autopilot.' };

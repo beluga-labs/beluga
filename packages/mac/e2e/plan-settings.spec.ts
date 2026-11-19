@@ -74,3 +74,31 @@ test('Plan Settings: mix the agents of a plan already made, and when its tests r
   await expect(sheet.getByRole('group', { name: 'Agents' })).toContainText('Planned, built and checked by');
   await sheet.getByRole('button', { name: 'Cancel' }).click();
 });
+
+test('Plan Settings: Never wait for me under Autopilot, saved with the rest, ticked when it opens again', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openPlan(page);
+
+  let sheet = await openSettings(page);
+  // Not on Autopilot: no box. On it: Never wait for me, as How It Runs and New Plan have it.
+  await expect(sheet.getByRole('checkbox', { name: /Never wait for me/ })).toHaveCount(0);
+  await sheet.getByRole('radio', { name: /^Autopilot/ }).click();
+  const box = sheet.getByRole('checkbox', { name: /Never wait for me/ });
+  await expect(box).not.toBeChecked();
+  await box.click();
+  await expect(box).toBeChecked();
+  await sheet.screenshot({ path: path.join(SHOTS, 'plan-settings-never-wait.png') });
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Runs on Full Autopilot/ })).toBeVisible();
+
+  // Open again: Autopilot, the box ticked, nothing to save. Unticked, it says questions come back to you.
+  sheet = await openSettings(page);
+  await expect(sheet.getByRole('radio', { name: /^Autopilot/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(sheet.getByRole('checkbox', { name: /Never wait for me/ })).toBeChecked();
+  await expect(sheet.getByRole('button', { name: 'Save' })).toBeDisabled();
+  await sheet.getByRole('checkbox', { name: /Never wait for me/ }).click();
+  await expect(sheet.getByRole('status', { name: 'What changes' })).toContainText('waits for you again');
+  await sheet.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('button', { name: /Runs on Autopilot/ })).toBeVisible();
+});

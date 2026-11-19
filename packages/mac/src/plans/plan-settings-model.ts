@@ -1,5 +1,5 @@
 import type { AgentRef } from '../../../../src/protocol.js';
-import { PLAN_ROLES, type Plan, type PlanRole } from '../../../../src/core/plans/model.js';
+import { type Autonomy, PLAN_ROLES, type Plan, type PlanRole } from '../../../../src/core/plans/model.js';
 import { choiceForAgent } from '../../../../src/ui/agent-choice.js';
 
 /**
@@ -37,4 +37,23 @@ const same = (a: AgentRef | undefined, b: AgentRef | undefined): boolean => a?.r
 export function roleChanges(was: RoleAgents, now: RoleAgents): Array<readonly [PlanRole, AgentRef | null]> {
   const order: readonly PlanRole[] = ['builder', ...PLAN_ROLES.filter((r) => r !== 'builder')];
   return order.flatMap((role) => (same(was[KEY[role]], now[KEY[role]]) ? [] : [[role, now[KEY[role]] ?? null] as const]));
+}
+
+/** How a plan runs, as Plan Settings shows it: its autonomy, and Never wait for me (Full Autopilot, only on Autopilot). */
+export interface HowItRuns {
+  readonly autonomy: Autonomy;
+  readonly full: boolean;
+}
+
+/**
+ * What Save sends for how the plan runs (How It Runs' own calls): Never wait for me turned on is
+ * plans.setFullAuto(true), which puts the plan on Autopilot too; turned off on Autopilot is
+ * setFullAuto(false); any other way to run is setAutonomy, which ends Full Autopilot. Nothing moved: nothing.
+ */
+export function runsChange(was: HowItRuns, now: HowItRuns): { readonly fullAuto: boolean } | { readonly autonomy: Autonomy } | undefined {
+  const full = now.autonomy === 'autopilot' && now.full;
+  if (now.autonomy === was.autonomy && full === was.full) return undefined;
+  if (full) return { fullAuto: true };
+  if (was.full && now.autonomy === 'autopilot') return { fullAuto: false };
+  return { autonomy: now.autonomy };
 }

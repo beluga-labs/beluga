@@ -691,7 +691,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `plans.setParallel` | ✓ a plan's ⋯ › Run at Once ▸ |
 | `plans.setWorkAgent` | ✓ Approve Plan's ▾ › Approve, worked by ▸ and Verify, Then Approve ▸ (BLG-506); the header's agents button › Builder ▸ goes through `plans.setRoleAgent` (BLG-982); the phone's plan page › ⋯ › Agent for its work, with a Mac before 1.58 |
 | `plans.setRoleAgent` | ✓ a plan's header agents button (one name, or “3 Agents”) › Planner ▸ · Builder ▸ · Checker ▸ (BLG-982): who plans, builds or checks from now on (the toast says what changes); ⋯ › Plan Settings… › Agents, New Plan's own row (one agent, or Mix Agents: any runtime and model per part), saved with the rest of the sheet; the phone's plan page › ⋯ › Plans with / Builds with / Checks with (1.58) |
-| `plans.setFullAuto` | ✓ a plan's “Runs on …” › Autopilot › Never wait for me (BLG-981); the header then says Runs on Full Autopilot; the phone's How it runs › Full Autopilot (1.58) |
+| `plans.setFullAuto` | ✓ a plan's “Runs on …” › Autopilot › Never wait for me (BLG-981), and ⋯ › Plan Settings… › Autopilot › Never wait for me (saved with the rest of the sheet); the header then says Runs on Full Autopilot; the phone's How it runs › Full Autopilot (1.58) |
 | `plans.setTestsAt` | ✓ a plan's ⋯ › When to Run Tests ▸ (each milestone, or once at the end), and ⋯ › Plan Settings… › When to run tests |
 | `plans.pass` | ✓ Pass Milestone on a plan's page |
 | `plans.recheck` | ✓ Check Again on a milestone the agent is checking or that failed its check |

@@ -5,18 +5,19 @@ import { toast, useApp, useBeluga } from '../lib/beluga.js';
 import { useMyAgent } from '../lib/agent-words.js';
 import { RunsOnLabel } from '../chat/RunsOn.js';
 import { AgentRoles, type RoleChoice, rolesInput } from './AgentRoles.js';
-import { AutonomyCards } from './PlanSheets.js';
+import { AutonomyCards, FullAutoBox, fullAutoChange } from './PlanSheets.js';
 import { modeChange } from './plans-model.js';
 import { usePlanActions, usePlanView, usePlans } from './use-plans.js';
 import p from './plans.module.css';
-import { picksOfPlan, roleChanges } from './plan-settings-model.js';
+import { picksOfPlan, roleChanges, runsChange } from './plan-settings-model.js';
 
 /**
  * Plan Settings: what New Plan asked, in one place once the plan exists. Its project, shown;
  * how it runs, who plans, builds and checks it (New Plan's own Agents row, Mix Agents and all:
  * any runtime, any model per part) and when its tests run, changed here and saved together.
- * Only what moved is sent, through the plan's own setters (plans.setAutonomy, setRoleAgent,
- * setTestsAt); the toast says what each did. Full Autopilot stays in the header's How It Runs.
+ * Only what moved is sent, through the plan's own setters (plans.setAutonomy, setFullAuto,
+ * setRoleAgent, setTestsAt); the toast says what each did. Never wait for me (Full Autopilot) sits
+ * under the cards when Autopilot is picked, as in How It Runs and New Plan.
  */
 export function PlanSettingsSheet({ planId, close }: { planId: string; close: () => void }) {
   const plan = usePlans().plans.find((x) => x.id === planId);
@@ -27,15 +28,18 @@ export function PlanSettingsSheet({ planId, close }: { planId: string; close: ()
   const runtimes = useApp((s) => s.runtimes);
   const mine = useMyAgent();
   // What the plan had when the sheet opened: what Save compares with, so a change made elsewhere meanwhile isn't undone.
-  const [was] = useState(() => (plan ? { autonomy: plan.autonomy, testsAt: plan.testsAt, picks: picksOfPlan(plan) as RoleChoice } : undefined));
+  const [was] = useState(() => (plan ? { autonomy: plan.autonomy, full: Boolean(plan.fullAuto), testsAt: plan.testsAt, picks: picksOfPlan(plan) as RoleChoice } : undefined));
   const [picks, setPicks] = useState(was?.picks);
   const [mode, setMode] = useState<Autonomy | undefined>(was?.autonomy);
+  const [full, setFull] = useState(was?.full ?? false);
   const [testsAt, setTestsAt] = useState<TestsAt | undefined>(was?.testsAt);
   if (!plan || !view || !was || !picks || !mode || !testsAt) return <FormSheet title="Plan Settings" intro="This plan is gone." submitLabel="OK" hideSubmit onSubmit={close} onCancel={close} />;
 
-  const change = mode !== was.autonomy ? modeChange(view, mode) : undefined;
+  const runs = runsChange(was, { autonomy: mode, full });
+  // What changes, in How It Runs' words: Never wait for me on or off alone, else the new way to run.
+  const change = !runs ? undefined : 'fullAuto' in runs && mode === was.autonomy ? fullAutoChange(runs.fullAuto) : modeChange(view, mode);
   const roles = roleChanges(rolesInput(was.picks, runtimes, mine), rolesInput(picks, runtimes, mine));
-  const dirty = Boolean(change) || testsAt !== was.testsAt || roles.length > 0;
+  const dirty = Boolean(runs) || testsAt !== was.testsAt || roles.length > 0;
   const save = async (): Promise<void> => {
     close();
     const said: string[] = [];
@@ -45,7 +49,8 @@ export function PlanSettingsSheet({ planId, close }: { planId: string; close: ()
       if (r === undefined) ok = false;
       else if (typeof r === 'string' && r) said.push(r);
     };
-    if (change) await run(async () => (await api.setAutonomy(plan.id, mode)) ?? true);
+    if (runs && 'fullAuto' in runs) await run(async () => (await api.setFullAuto(plan.id, runs.fullAuto)) ?? true);
+    else if (runs) await run(async () => (await api.setAutonomy(plan.id, runs.autonomy)) ?? true);
     for (const [role, agent] of roles) await run(() => api.setRoleAgent(plan.id, role, agent));
     if (testsAt !== was.testsAt) {
       await run(async () => (await api.setTestsAt(plan.id, testsAt)) ?? true);
@@ -78,6 +83,7 @@ export function PlanSettingsSheet({ planId, close }: { planId: string; close: ()
           How it runs
         </div>
         <AutonomyCards value={mode} onChange={setMode} current={plan.autonomy} />
+        {mode === 'autopilot' ? <FullAutoBox checked={full} onChange={setFull} /> : null}
         {/* What changes, before Save confirms it (as How It Runs says it). */}
         {change ? (
           <div className={p.modeConfirm} role="status" aria-label="What changes">
