@@ -13,7 +13,7 @@ import { type FlowStep, MILESTONE_STATE, branchFlow, milestoneNowWords, taskWord
 import { LiveDot, TaskChatMark, TaskStateIcon, TonePill } from './marks.js';
 import { openDecision } from './plan-ask-model.js';
 import { PlanFeed } from './PlanFeed.js';
-import { useCheckerChat, useClock, usePlanActions } from './use-plans.js';
+import { useCardClock, useCheckerChat, useClock, usePlanActions } from './use-plans.js';
 import { useStartWith } from '../components/agent-options.js';
 import { SplitButton } from '../components/SplitButton.js';
 import { useMyAgent } from '../lib/agent-words.js';
@@ -160,7 +160,7 @@ function BranchFlow({ view }: { view: PlanView }) {
 
 function TaskHead({ t }: { t: TaskView }) {
   // Its state in words, with what it's doing now (the step and its time, a stall, a usage limit).
-  const now = useClock(t.pulse?.kind === 'working' || t.pulse?.kind === 'command');
+  const now = useCardClock(t.pulse?.kind === 'working' || t.pulse?.kind === 'command');
   const info = taskWords(t, now);
   return (
     <>
