@@ -9,8 +9,9 @@ import type { CatalogServer, McpToolCatalog } from './ports/tool-catalog.js';
 /**
  * Follows a run's SDK messages beside the StepRecorder and puts on each step of a UI tool what its
  * app needs (shared/mcp-apps.ts): the server, the `ui://` resource, and the result's structured
- * content and `_meta` (for the view only: the model reads the tool_result, never these). The lookup of a tool's `_meta` is async: a step recorded before it came back is sent
- * again, with its app, through `emit`. It records apps only while the turn's `system/init` says
+ * content and `_meta` (for the view only: the model reads the tool_result, never these). The lookup
+ * of a tool's `_meta` is async: a step recorded before it came back is sent again, with its app,
+ * through `emit`. It records apps only while the turn's `system/init` says
  * Claude Code has both MCP Apps capabilities (domain/capabilities.ts): without them the chat looks
  * as it did before MCP Apps.
  */

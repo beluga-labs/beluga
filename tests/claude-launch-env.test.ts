@@ -224,8 +224,7 @@ describe.skipIf(process.platform === 'win32')("zsh-compat in Claude Code's launc
     const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-zsh-'));
     const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
     await backend.run(input(dir, { ownerMcp: true, channel: 'ws:1' }));
-    // The daemon's own environment as it was, with only the MCP Apps host flag added.
-    expect(sdk.options?.env).toEqual({ ...process.env, CLAUDE_CODE_MCP_APPS_HOST: '1' });
+    expect(sdk.options?.env).toBeUndefined();
     const append = (sdk.options?.systemPrompt as { append?: string } | undefined)?.append ?? '';
     if (existsSync('/bin/zsh')) expect(append).toContain('Your shell commands run in zsh, not bash.');
   });
@@ -246,13 +245,20 @@ describe('the MCP Apps host flag in Claude Code’s launch', () => {
     restore();
   });
 
-  it('is on for your own run, over the environment it inherits', async () => {
+  it('is on for a run you watch, over the environment it inherits', async () => {
     plant();
     const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-apps-'));
     const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
-    await backend.run(input(dir, { ownerMcp: true, channel: 'ws:1' }));
+    await backend.run(input(dir, { ownerMcp: true, appsShown: true, channel: 'ws:1' }));
     expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBe('1');
     expect(sdk.options?.env?.ANTHROPIC_API_KEY).toBe('planted-api');
+  });
+
+  it('is off for your own run nobody watches (a Sentinel run, an external agent’s): its answer is all that is read', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'beluga-launch-apps-'));
+    const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
+    await backend.run(input(dir, { ownerMcp: true, channel: 'ws:1', env: { BELUGA_WORKTREE: dir } }));
+    expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBeUndefined();
   });
 
   it('is off for a friend’s or a guest’s run (they draw no app)', async () => {
@@ -261,15 +267,16 @@ describe('the MCP Apps host flag in Claude Code’s launch', () => {
     const backend = createClaudeBackend({ cwd: dir, autoEdit: false, additionalDirectories: [], bridge: room });
     await backend.run(input(dir, { channel: 'room', env: { BELUGA_WORKTREE: dir } }));
     expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBeUndefined();
-    await backend.run(input(dir, { guest: true, ownerMcp: true, channel: 'room' }));
+    await backend.run(input(dir, { guest: true, ownerMcp: true, appsShown: true, channel: 'room' }));
     expect(sdk.options?.env?.CLAUDE_CODE_MCP_APPS_HOST).toBeUndefined();
   });
 
-  it('adds the flag only where apps are tracked', () => {
+  it('adds the flag only to a run whose apps are tracked and shown', () => {
     const scrubbed = { PATH: '/usr/bin', CI: '1' };
-    expect(withAppsHost(undefined, { ownerMcp: true }, { PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_CODE_MCP_APPS_HOST: '1' });
-    expect(withAppsHost(scrubbed, { ownerMcp: true })).toEqual({ ...scrubbed, CLAUDE_CODE_MCP_APPS_HOST: '1' });
-    expect(withAppsHost(scrubbed, { ownerMcp: true, guest: true })).toEqual(scrubbed);
-    expect(withAppsHost(undefined, {})).toBeUndefined();
+    expect(withAppsHost(undefined, { ownerMcp: true, appsShown: true }, { PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_CODE_MCP_APPS_HOST: '1' });
+    expect(withAppsHost(scrubbed, { ownerMcp: true, appsShown: true })).toEqual({ ...scrubbed, CLAUDE_CODE_MCP_APPS_HOST: '1' });
+    expect(withAppsHost(scrubbed, { ownerMcp: true })).toBe(scrubbed);
+    expect(withAppsHost(scrubbed, { ownerMcp: true, appsShown: true, guest: true })).toBe(scrubbed);
+    expect(withAppsHost(undefined, { appsShown: true })).toBeUndefined();
   });
 });

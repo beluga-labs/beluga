@@ -49,11 +49,15 @@ result as SEP-1865's CallToolResult: `content`, `structuredContent`, `_meta` and
 - **The server has to know there is a view.** Servers like Ratel send their view data only to a
   client that declares the MCP Apps extension (`io.modelcontextprotocol/ui` with
   `text/html;profile=mcp-app`) at `initialize`, and Claude Code declares it only with
-  `CLAUDE_CODE_MCP_APPS_HOST` set. Beluga sets it on the runs that keep apps (your own runs and
-  Full trust; never a friend's or a guest's: `withAppsHost` in
-  `src/agent/runtime/claude/runner.ts`) and on the Claude Code sessions that answer apps
-  (`claudeMcpSession` in `mcp-connect.ts`). Such a server may also tell your Claude, in its
-  instructions or results, that you already see the data in the view.
+  `CLAUDE_CODE_MCP_APPS_HOST` set. Such a server may also tell your Claude, in its instructions or
+  results, that you already see the data in the view, so it says less. So Beluga sets the flag
+  only on runs whose apps you watch (`appsShown`, set in `src/core/agent-host.ts`; `withAppsHost`
+  in `src/agent/runtime/claude/runner.ts`): a run you sent yourself. A Sentinel run, an external
+  agent's run (even at Full trust) and a friend's or a guest's run go without it: their answer
+  is all anyone reads, and the app still draws from `structuredContent` as before. The Claude
+  Code sessions that answer an app's own calls have it too (`claudeMcpSession` in
+  `mcp-connect.ts`). A run you sent from the phone has it as well: the app is there when you
+  open the chat on the Mac.
 - **Why not call the tool again for its view.** Calling the tool a second time through the apps
   session would only be safe for `readOnlyHint` tools, costs the server a second run, and could
   show different data from what the model read. Claude Code already has the result the model got,
