@@ -41,7 +41,7 @@ pop-up and a button on one row line up without adjusting anything.
 - Rows of a list or table: a row's own actions (Merge, Open, Retry).
 - Cards (tasks, sentinels, usage), and the header of a card or panel section.
 - The right panel's and the dock's own toolbars and switchers (Changes / History, the shells'
-  buttons, the dock's Terminal / Background).
+  buttons).
 - Controls inside a conversation: an answer's actions, a step's buttons, a question's choices.
 - Filter bars over a list.
 
@@ -50,8 +50,13 @@ pop-up and a button on one row line up without adjusting anything.
 - The main action of onboarding, a welcome or an empty state ("Add Project", "Turn On").
 - The window's toolbar: its buttons, icon buttons (28 × 28), segmented control and search field.
   This is AppKit's unified toolbar, whose items are 28px tall. The title row goes across the
-  window, so the sidebar's buttons there, its search field and the right panel's view switcher
-  (Changes / Files / Scratch / Info) are Large too.
+  window, so the sidebar's buttons there and its search field are Large too.
+
+The docks' tabs (the right panel's Changes / Files / Scratch / Info and Terminal / Background, and
+what you put beside the chat) are not on this scale: they are editor tabs, not a segmented control.
+Every strip's are the same: flat, as wide as their icon and name need, one height (`--tab-h` in
+`styles/dock.css`), the tab you're on in the content's own background with a line of the accent
+along its top.
 
 Never more than one large button in a view outside the toolbar. One row never mixes sizes.
 

@@ -82,9 +82,14 @@ describe('the control tokens', () => {
     for (const sel of ['main', 'more']) expect(branch).toMatch(new RegExp(`\\n\\.${sel} \\{[^}]*height: var\\(--control-h-large\\)`));
     expect(branch).not.toMatch(/\.more\s*\{[^}]*box-shadow/);
     expect(strip(read('layout', 'SidebarSearch.module.css'))).toContain('height: var(--control-h-large)');
-    const panel = strip(read('layout', 'panel', 'panel.module.css'));
-    expect(panel).toContain('height: calc(var(--control-h-large) - 4px)');
-    expect(panel).toMatch(/\.dockTabs \.tab \{[^}]*height: var\(--control-h-small\)/);
+    // The panel's and the center's tabs are Dockview's strips (styles/dock.css): editor tabs, not a
+    // segmented control, one height for every strip's (the tabs and the strip they stand in).
+    const dock = strip(read('styles', 'dock.css'));
+    expect(dock).toMatch(/--tab-h: \d+px/);
+    expect(dock).toContain('--dv-tabs-and-actions-container-height: var(--tab-h)');
+    expect(dock).toMatch(/\.dv-tab \{[^}]*height: var\(--tab-h\)/);
+    expect(dock).toMatch(/\.dv-tab \{[^}]*font-size: var\(--control-text\)/);
+    expect(dock).not.toMatch(/\.dv-tab[^{]*\{[^}]*height:\s*\d+px/);
   });
 
   it('give sheets Regular fields and buttons (step 3)', () => {
