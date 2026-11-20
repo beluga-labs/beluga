@@ -92,9 +92,12 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await expect(welcome.getByRole('button', { name: /Pair a Phone/ })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
 
-  // Usage statistics (BLG-922), the last setting: nothing picked (Finish with none is Off), a privacy notice; a click picks.
+  // Usage statistics (BLG-922), the last setting, with a privacy notice. It shows the level chosen before, and none
+  // for an install that never chose (Finish with none is Off). The demo has chosen Essential unless BELUGA_DEMO_ASKS=telemetry.
   await expect(welcome.getByRole('heading', { name: 'Help make Beluga better.' })).toBeVisible();
-  for (const level of [/^Off/, /Essential/, /^On/]) await expect(welcome.getByRole('radio', { name: level })).not.toBeChecked();
+  const unchosen = process.env.BELUGA_DEMO_ASKS === 'telemetry';
+  for (const level of [/^Off/, /^On/]) await expect(welcome.getByRole('radio', { name: level })).not.toBeChecked();
+  await expect(welcome.getByRole('radio', { name: /Essential/ })).toBeChecked({ checked: !unchosen });
   await expect(welcome.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
   await welcome.getByRole('radio', { name: /^On/ }).check();
   await expect(welcome.getByRole('radio', { name: /^On/ })).toBeChecked();
