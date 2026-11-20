@@ -1,0 +1,245 @@
+/*
+ * Beluga's look for Dockview: the window's frame (layout/Workbench.tsx, a Gridview) and the right
+ * panel's dock (layout/RightPanel.tsx). Dockview's own stylesheet comes first; this gives it
+ * Beluga's colours (so every theme, light or dark, carries over) and its tabs their shape.
+ * The class is DOCK_THEME's (RightPanel.tsx).
+ */
+
+.dockview-theme-beluga {
+  --dv-group-view-background-color: var(--bg-sunken);
+  --dv-tabs-and-actions-container-background-color: var(--bg);
+  --dv-tabs-and-actions-container-font-size: 0.92rem;
+  --dv-tabs-and-actions-container-height: 38px;
+  --dv-activegroup-visiblepanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: var(--text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-2);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-2);
+  --dv-tab-divider-color: transparent;
+  --dv-tab-font-size: inherit;
+  --dv-tab-margin: 0;
+  --dv-separator-border: var(--hairline);
+  --dv-paneview-header-border-color: var(--hairline);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  --dv-drag-over-border-color: var(--accent);
+  --dv-tabs-container-scrollbar-color: var(--text-3);
+  --dv-icon-hover-background-color: var(--bg-hover);
+  --dv-scrollbar-background-color: var(--bg-press);
+  /* A divider is a hairline until you reach for it: then your accent, as every divider here. */
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--accent);
+  --dv-active-sash-transition-duration: var(--dur-fast);
+  --dv-active-sash-transition-delay: 80ms;
+  --dv-border-radius: 0px;
+  --dv-tab-border-radius: 5px;
+  --dv-overlay-z-index: 40;
+  color: inherit;
+  font: inherit;
+}
+
+/* The frame: its regions bring their own backgrounds and edges (the sidebar's blur shows through). */
+.dockview-theme-beluga > .dv-grid-view,
+.dockview-theme-beluga > .dv-grid-view .dv-view {
+  background: transparent;
+}
+.dockview-theme-beluga .dv-dockview {
+  background: var(--bg-sunken);
+}
+
+/* ---- a group's strip: the top row continues the toolbar */
+
+.dockview-theme-beluga .dv-groupview {
+  outline: none;
+}
+.dockview-theme-beluga .dv-groupview > .dv-tabs-and-actions-container {
+  align-items: center;
+  padding: 0 8px 0 12px;
+  border-bottom: 0.5px solid var(--hairline);
+  container-type: inline-size;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='lead'] {
+  --dv-tabs-and-actions-container-height: var(--titlebar-h);
+  /* The tab you're on is raised (Dockview's own rule paints it from these, over any plain background rule). */
+  --dv-activegroup-visiblepanel-tab-background-color: var(--segment-on);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--segment-on);
+}
+.dockview-theme-beluga .dv-groupview[data-strip='lead'] > .dv-tabs-and-actions-container {
+  padding: 0 12px;
+}
+
+/* Tabs as one segmented strip across the group: the one you're on is raised. */
+.dockview-theme-beluga .dv-groupview[data-strip='lead'] .dv-scrollable {
+  flex: 1 1 auto;
+}
+.dockview-theme-beluga .dv-tabs-container {
+  flex: 1 1 auto;
+  gap: 1px;
+  /* The panel's views, in the window's title row: the toolbar's Large (docs/mac-controls.md). */
+  height: var(--control-h-large);
+  padding: 2px;
+  border-radius: var(--control-radius-large);
+  background: var(--segment-track);
+}
+.dockview-theme-beluga .dv-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(var(--control-h-large) - 4px);
+  padding: 0;
+  border-radius: var(--control-radius);
+  font-weight: 500;
+  cursor: default;
+  outline: none;
+  transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.dockview-theme-beluga .dv-tab:hover {
+  color: var(--text);
+}
+.dockview-theme-beluga .dv-tab.dv-active-tab {
+  background: var(--segment-on);
+  color: var(--text);
+  box-shadow: var(--control-bezel);
+}
+.dockview-theme-beluga .dv-tab:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* The strip's empty end (where a tab can be dropped; in the top row it moves the window). */
+.dockview-theme-beluga .dv-void-container {
+  flex: 0 0 12px;
+  min-width: 0;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='lead'] > .dv-tabs-and-actions-container {
+  padding-right: 0;
+}
+
+/*
+ * A group under another one is a dock of its own (the terminal's, to start with): a darker
+ * background, a firm edge with a soft shadow over what's above, plain underlined tabs instead of
+ * the top row's segmented ones. Folded, it's a slim bar: its tabs and a chevron.
+ */
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] {
+  --dv-tabs-and-actions-container-height: 32px;
+  --dv-tabs-and-actions-container-background-color: var(--bg-sidebar-solid);
+  box-shadow: 0 -1px 0 var(--hairline), 0 -6px 14px -10px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme='light'] .dockview-theme-beluga .dv-groupview[data-strip='dock'] {
+  box-shadow: 0 -1px 0 var(--hairline), 0 -4px 10px -8px rgba(0, 0, 0, 0.12);
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] > .dv-tabs-and-actions-container {
+  padding: 0 2px 0 10px;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tabs-container {
+  flex: 0 1 auto;
+  gap: 2px;
+  height: 22px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-void-container {
+  flex: 1 1 12px;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab {
+  flex: none;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 0.86rem;
+  color: var(--text-3);
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab.dv-active-tab,
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab.dv-active-tab:hover {
+  background: none;
+  box-shadow: inset 0 -2px 0 var(--text-2);
+  border-radius: 0;
+  color: var(--text);
+}
+/* A dock's tabs are their names (the top row's have icons). */
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab svg {
+  display: none;
+}
+.dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab svg + span > span {
+  padding-left: 0;
+}
+[data-folded='true'] .dockview-theme-beluga .dv-groupview[data-strip='dock'] .dv-tab.dv-active-tab {
+  box-shadow: none;
+  color: var(--text-2);
+}
+[data-folded='true'] .dockview-theme-beluga .dv-groupview[data-strip='dock'] > .dv-tabs-and-actions-container {
+  border-bottom: 0;
+}
+
+/* Narrow: the names stay whole; the icons go first. */
+@container (max-width: 420px) {
+  .dockview-theme-beluga .dv-tab svg {
+    display: none;
+  }
+  .dockview-theme-beluga .dv-tab svg + span > span {
+    padding-left: 0;
+  }
+}
+
+/*
+ * A box Dockview keeps in the page while its tab is hidden or moved (the chat, the terminal). Its
+ * own stylesheet gives it a layer of its own (a transform, paint containment), which would make
+ * every fixed-position thing inside (a menu's backdrop, a drop target over the message box) fixed
+ * to the box instead of the window.
+ */
+.dockview-theme-beluga .dv-render-overlay {
+  contain: none;
+  transform: none;
+  will-change: auto;
+  backface-visibility: visible;
+}
+
+/* The terminal put away under the chat (⌘J): its kept box is out of the way too, not left over the conversation. */
+.dockview-theme-beluga .dv-render-overlay:has([data-away='true']) {
+  display: none;
+}
+
+/* ---- the center's dock: the chat, and what you put beside it */
+
+[data-dock='center'] .dockview-theme-beluga .dv-dockview,
+[data-dock='center'].dockview-theme-beluga .dv-dockview {
+  background: var(--bg);
+}
+/* Under the toolbar, a group's strip needs no shadow of its own. */
+[data-dock='center'] .dv-groupview[data-strip='dock'] {
+  box-shadow: none;
+}
+
+/* ---- dividers */
+
+.dockview-theme-beluga .dv-sash {
+  z-index: 5;
+}
+:root[data-motion='reduce'] .dockview-theme-beluga .dv-sash {
+  transition: none !important;
+}
+
+/* ---- dragging a tab: where it lands */
+
+.dockview-theme-beluga .dv-drop-target-anchor,
+.dockview-theme-beluga .dv-drop-target-selection {
+  border-radius: 6px;
+}
+:root[data-motion='reduce'] .dockview-theme-beluga .dv-drop-target-anchor,
+:root[data-motion='reduce'] .dockview-theme-beluga .dv-drop-target-selection,
+:root[data-motion='reduce'] .dockview-theme-beluga .dv-tab {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* What sits before a strip's tabs (the terminal's mark on a dock) is centred on the tabs' line. */
+.dockview-theme-beluga .dv-pre-actions-container,
+.dockview-theme-beluga .dv-pre-actions-container > .dv-react-part {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}

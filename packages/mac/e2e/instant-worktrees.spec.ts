@@ -28,10 +28,11 @@ test.beforeEach(async ({ page }) => {
 test('Terminal and Background are a dock of their own, folded to a slim bar', async ({ page }) => {
   await showProject(page, 'add-auth');
   await sidebar(page).getByRole('button', { name: 'add-auth', exact: true }).click();
-  const bottom = panel(page).locator('section[data-pane="bottom"]');
+  // The panel is a dock (Dockview): the group under the top one is the terminal's.
+  const bottom = panel(page).locator('.dv-groupview[data-lead="false"]');
   await expect(bottom).toBeVisible();
-  const top = panel(page).locator('section[data-pane="top"] > header');
-  const dockHead = bottom.locator('header');
+  const top = panel(page).locator('.dv-groupview[data-lead="true"] > .dv-tabs-and-actions-container');
+  const dockHead = bottom.locator('> .dv-tabs-and-actions-container');
   // Its own background, not the top pane's.
   const bg = (sel: typeof top) => sel.evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(await bg(dockHead)).not.toBe(await bg(top));
@@ -39,13 +40,13 @@ test('Terminal and Background are a dock of their own, folded to a slim bar', as
   await expect(panel(page).getByRole('button', { name: 'Hide the terminal dock' })).toBeVisible();
   await panel(page).screenshot({ path: path.join(SHOTS, '03-dock-open.png') });
   await panel(page).getByRole('button', { name: 'Hide the terminal dock' }).click();
-  await expect(panel(page).locator('#panel-body-bottom')).toHaveCount(0);
+  await expect(panel(page).locator('[data-panel-dock="true"]:visible')).toHaveCount(0);
   const bar = (await dockHead.boundingBox())!;
-  expect(bar.height).toBeLessThanOrEqual(30);
+  expect(bar.height).toBeLessThanOrEqual(32);
   await panel(page).screenshot({ path: path.join(SHOTS, '04-dock-folded.png') });
-  // Clicking the bar itself opens it again.
-  await dockHead.click({ position: { x: bar.width - 60, y: bar.height / 2 } });
-  await expect(panel(page).locator('#panel-body-bottom')).toBeVisible();
+  // Any of its tabs opens it again (the one it already shows, too).
+  await bottom.getByRole('tab', { name: 'Terminal', exact: true }).click();
+  await expect(panel(page).locator('[data-panel-dock="true"]:visible')).toBeVisible();
 });
 
 test('a worktree’s right-click menu has Delete… beside Archive…; archiving takes it out of the sidebar at once', async ({ page }) => {

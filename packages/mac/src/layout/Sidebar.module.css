@@ -1,7 +1,8 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: var(--sidebar-w);
+  /* As wide as its region in the frame (Workbench.tsx): you drag its divider. */
+  width: 100%;
   flex: none;
   height: 100%;
   background: var(--bg-sidebar);
