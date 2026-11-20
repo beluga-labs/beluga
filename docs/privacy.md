@@ -38,14 +38,27 @@ You can withdraw it at any time: set **Settings › General › Usage statistics
 
 ## Who receives it
 
-**Ratel Cloud** (ratel.sh) receives and stores it. Ratel Cloud is run by the controller itself, so nobody else gets your data as a controller.
+**Ratel Cloud** (cloud.ratel.sh) receives and stores it. Beluga sends it straight there, with no CDN or proxy in front. Ratel Cloud is run by the controller itself, so nobody else gets your data as a controller.
 
 These subprocessors help us run it:
 
 | Name | Purpose | Location | Transfer safeguard |
 | --- | --- | --- | --- |
-| TODO(owner) | Hosting and infrastructure of Ratel Cloud | TODO(owner) | TODO(owner) |
-| TODO(owner) | Beluga's ingest endpoint (`BELUGA_TELEMETRY_URL`) | TODO(owner) | TODO(owner) |
+| Amazon Web Services EMEA SARL | Hosting, load balancer, database (RDS PostgreSQL), application logs (CloudWatch), storage | Frankfurt, Germany (eu-central-1) | EU: none needed |
+| Amazon Web Services EMEA SARL (Amazon Bedrock, Anthropic Claude models) | AI analysis of sessions (signals, labels, intents) | EU regions only | EU: none needed |
+| OpenAI, L.L.C. | AI judging of tool choices and session quality | United States | EU-US Data Privacy Framework / Standard Contractual Clauses |
+| Datadog, Inc. (EU site) | Operational monitoring of service logs (metadata only, no session content) | EU (datadoghq.eu) | EU: none needed |
+| PostHog Inc. (EU Cloud) | Product analytics and error tracking of the service (metadata only) | EU | EU: none needed |
+
+AI providers process the data only to provide the analysis and do not use it to train their models.
+
+We tell you before we add a new subprocessor here.
+
+## IP addresses
+
+Ratel's ingest service does not store or log the IP address your usage statistics come from. It uses it only briefly, in memory, to limit request rates. Ratel's load balancer access logs (AWS, Frankfurt) keep it for up to 90 days for security.
+
+Beluga itself adds no IP address and no computer name to what it sends.
 
 ## Transfers outside the EU
 
@@ -66,7 +79,9 @@ You can ask us to:
 - stop using it at all (objection);
 - and you can withdraw your consent at any time, as above.
 
-Write to privacy@ratel.sh. Data is kept under your install id, not your name, so we can only find it if you send that id. It's the `installId` in `~/.beluga/telemetry.json` on your Mac.
+Write to privacy@ratel.sh. Data is kept under your install ID, not your name, so we can only find it if you send that ID. Find your install ID in Settings › General › Usage statistics and include it in your request. (It's also the `installId` in `~/.beluga/telemetry.json`.)
+
+**Reset ID**, beside it, starts a new random ID. What was sent before stays linked to the old ID, so keep a copy of the old one if you want to make a request about that data.
 
 If you think we handle your data wrongly, you can complain to the Italian data protection authority, the **Garante per la protezione dei dati personali** ([www.garanteprivacy.it](https://www.garanteprivacy.it)), or to the authority where you live or work.
 
