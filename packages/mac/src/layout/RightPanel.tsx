@@ -185,6 +185,7 @@ function MainHead() {
   const label = CHATS.has(kind) ? 'Chat' : 'Page';
   return (
     <div className={s.tabIn} data-tab={MAIN} title={`${label} · tabs dragged here from the panel sit beside it`}>
+      <Icon name={label === 'Chat' ? 'chat' : 'fileText'} size={13} />
       <span className={s.tabName}>
         <span>{label}</span>
       </span>
@@ -193,7 +194,8 @@ function MainHead() {
 }
 
 /**
- * A tab in a group's strip: its name, and what it carries (changed files, something running).
+ * A tab in a group's strip: its icon and name, and what it carries (changed files, something running).
+ * Every strip's tabs are flat editor tabs (styles/dock.css: Dockview's Light shape in Beluga's colours), the same in the panel's top row, the docks under it and beside the chat.
  * Drag it along the strip, onto another group, to an edge to split there, or beside the chat; right-click to move it.
  */
 function SlotHead({ api, containerApi }: IDockviewPanelHeaderProps) {
@@ -252,14 +254,7 @@ function TabHead(props: IDockviewPanelHeaderProps) {
 function GroupActions({ group }: IDockviewHeaderActionsProps) {
   const { place, folded } = useContext(DockContext);
   if (place !== 'panel' || isLead(group)) return null;
-  return <IconButton size="small" icon={folded ? 'chevronUp' : 'chevronDown'} label={folded ? 'Show the terminal dock' : 'Hide the terminal dock'} keys={shortcutKeys('toggle-dock')} className={s.paneToggle} onClick={() => setDockOpen(folded)} />;
-}
-
-/** Before a dock's tabs (a group under another one, in the panel): the terminal's mark, so its strip never reads as more tabs of what's above it. */
-function GroupMark({ group }: IDockviewHeaderActionsProps) {
-  const { place } = useContext(DockContext);
-  if (place !== 'panel' || isLead(group)) return null;
-  return <Icon name="terminal" size={12} className={s.dockMark} />;
+  return <IconButton icon={folded ? 'chevronUp' : 'chevronDown'} label={folded ? 'Show the terminal dock' : 'Hide the terminal dock'} keys={shortcutKeys('toggle-dock')} className={s.paneToggle} onClick={() => setDockOpen(folded)} />;
 }
 
 /** Changes' second view, switched at its top: what changed, or the branch's History. */
@@ -529,7 +524,9 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
     for (const group of dock.groups) {
       if (fold && !isLead(group)) {
         if (!heights.has(group.id)) heights.set(group.id, group.api.height);
-        group.api.setConstraints({ minimumWidth: GROUP_MIN_W, minimumHeight: DOCK_HEAD, maximumHeight: DOCK_HEAD });
+        // As tall as its strip (the toolbar's height, from the styles).
+        const strip = group.element.querySelector<HTMLElement>('.dv-tabs-and-actions-container')?.offsetHeight || DOCK_HEAD;
+        group.api.setConstraints({ minimumWidth: GROUP_MIN_W, minimumHeight: strip, maximumHeight: strip });
         continue;
       }
       group.api.setConstraints({ minimumWidth: GROUP_MIN_W, minimumHeight: GROUP_MIN_H, maximumHeight: Number.MAX_SAFE_INTEGER });
@@ -706,7 +703,7 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
   return (
     <DockContext.Provider value={shared}>
       <div ref={root} className={cx(s.dockRoot, place === 'center' && s.centerDock)} data-dock={place} data-folded={folded}>
-        <DockviewReact className={s.dockview} theme={DOCK_THEME} components={components} defaultTabComponent={TabHead} prefixHeaderActionsComponent={GroupMark} rightHeaderActionsComponent={GroupActions} disableFloatingGroups onReady={(e) => setApi(e.api)} />
+        <DockviewReact className={s.dockview} theme={DOCK_THEME} components={components} defaultTabComponent={TabHead} rightHeaderActionsComponent={GroupActions} disableFloatingGroups onReady={(e) => setApi(e.api)} />
       </div>
     </DockContext.Provider>
   );

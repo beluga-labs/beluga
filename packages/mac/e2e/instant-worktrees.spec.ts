@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
   await expect(sidebar(page)).toBeVisible();
 });
 
-test('Terminal and Background are a dock of their own, folded to a slim bar', async ({ page }) => {
+test('Terminal and Background are a group of their own under the top one, with the same strip; folded, just that strip', async ({ page }) => {
   await showProject(page, 'add-auth');
   await sidebar(page).getByRole('button', { name: 'add-auth', exact: true }).click();
   // The panel is a dock (Dockview): the group under the top one is the terminal's.
@@ -33,16 +33,19 @@ test('Terminal and Background are a dock of their own, folded to a slim bar', as
   await expect(bottom).toBeVisible();
   const top = panel(page).locator('.dv-groupview[data-lead="true"] > .dv-tabs-and-actions-container');
   const dockHead = bottom.locator('> .dv-tabs-and-actions-container');
-  // Its own background, not the top pane's.
+  // Its strip is the same as the top group's: the same background, the same tabs.
   const bg = (sel: typeof top) => sel.evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(await bg(dockHead)).not.toBe(await bg(top));
+  expect(await bg(dockHead)).toBe(await bg(top));
+  const tabHeight = (sel: typeof top) => sel.getByRole('tab').first().evaluate((el) => el.getBoundingClientRect().height);
+  expect(await tabHeight(dockHead)).toBe(await tabHeight(top));
   if (await panel(page).getByRole('button', { name: 'Show the terminal dock' }).isVisible()) await panel(page).getByRole('button', { name: 'Show the terminal dock' }).click();
   await expect(panel(page).getByRole('button', { name: 'Hide the terminal dock' })).toBeVisible();
   await panel(page).screenshot({ path: path.join(SHOTS, '03-dock-open.png') });
   await panel(page).getByRole('button', { name: 'Hide the terminal dock' }).click();
   await expect(panel(page).locator('[data-panel-dock="true"]:visible')).toHaveCount(0);
   const bar = (await dockHead.boundingBox())!;
-  expect(bar.height).toBeLessThanOrEqual(32);
+  // Folded, the dock is just its strip.
+  expect((await bottom.boundingBox())!.height).toBeLessThanOrEqual(bar.height + 1);
   await panel(page).screenshot({ path: path.join(SHOTS, '04-dock-folded.png') });
   // Any of its tabs opens it again (the one it already shows, too).
   await bottom.getByRole('tab', { name: 'Terminal', exact: true }).click();

@@ -173,8 +173,8 @@ export const SIDEBAR_DEFAULT = 248;
 
 /** How much of the panel's height the top group takes, to start with. */
 export const PANES_DEFAULT = 0.58;
-/** A group under another one is a dock: folded (⌘J, its chevron) it's just its tabs, this tall. */
-export const DOCK_HEAD = 32;
+/** A group under another one is a dock: folded (⌘J, its chevron) it's just its strip of tabs (this tall, where it can't be measured). */
+export const DOCK_HEAD = 36;
 
 export const SPLIT_MIN = 0.18;
 export const SPLIT_MAX = 0.75;
