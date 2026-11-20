@@ -92,9 +92,10 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await expect(welcome.getByRole('button', { name: /Pair a Phone/ })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
 
-  // Usage statistics (BLG-922), the last setting: Essential picked, and Finish keeps it.
+  // Usage statistics (BLG-922), the last setting: nothing picked (Finish with none is Off), a privacy notice; a click picks.
   await expect(welcome.getByRole('heading', { name: 'Help make Beluga better.' })).toBeVisible();
-  await expect(welcome.getByRole('radio', { name: /Essential/ })).toBeChecked();
+  for (const level of [/^Off/, /Essential/, /^On/]) await expect(welcome.getByRole('radio', { name: level })).not.toBeChecked();
+  await expect(welcome.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
   await welcome.getByRole('radio', { name: /^On/ }).check();
   await expect(welcome.getByRole('radio', { name: /^On/ })).toBeChecked();
   await welcome.getByRole('radio', { name: /Essential/ }).check();

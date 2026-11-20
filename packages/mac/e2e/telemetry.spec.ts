@@ -30,19 +30,23 @@ test('Settings › General has the level', async ({ page }) => {
   const level = dialog.getByRole('combobox', { name: 'Share usage statistics' });
   await expect(level).toBeVisible();
   await expect(level).toContainText('Essential');
+  await expect(dialog.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
   await both(page, dialog, 'telemetry-settings');
   await expect(dialog.getByRole('button', { name: /See What/ })).toHaveCount(0);
 });
 
 // With BELUGA_DEMO_ASKS=telemetry the demo has updated and not answered: the ask comes by itself.
-test('the ask after an update: Essential picked, Later closes it', async ({ page }) => {
+test('the ask after an update: nothing picked, Share waits for a pick, Later closes it', async ({ page }) => {
   test.skip(process.env.BELUGA_DEMO_ASKS !== 'telemetry', 'needs BELUGA_DEMO_ASKS=telemetry');
   await page.goto('/');
   const sheet = page.getByRole('dialog', { name: 'Help make Beluga better' });
   await expect(sheet).toBeVisible({ timeout: 15_000 });
-  await expect(sheet.getByRole('radio', { name: /Essential/ })).toBeChecked();
-  await expect(sheet.getByRole('button', { name: 'Share (Essential)' })).toBeVisible();
+  for (const level of [/^Off/, /Essential/, /^On/]) await expect(sheet.getByRole('radio', { name: level })).not.toBeChecked();
+  await expect(sheet.getByRole('button', { name: 'Share', exact: true })).toBeDisabled();
+  await expect(sheet.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
   await both(page, sheet, 'telemetry-ask');
+  await sheet.getByRole('radio', { name: /Essential/ }).check();
+  await expect(sheet.getByRole('button', { name: 'Share (Essential)' })).toBeEnabled();
   await sheet.getByRole('radio', { name: /^Off/ }).check();
   await expect(sheet.getByRole('button', { name: 'Keep It Off' })).toBeVisible();
   await sheet.getByRole('radio', { name: /Essential/ }).check();

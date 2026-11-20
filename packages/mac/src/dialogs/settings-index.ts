@@ -61,7 +61,7 @@ export const SETTINGS: readonly Entry[] = [
   ]),
   group('general', 'Usage statistics', 'Off, Essential or On.', 'telemetry analytics privacy statistics share data improve'),
   ...rows('general', 'Usage statistics', [
-    ['Share usage statistics', 'Off sends nothing; Essential only the essentials; On how you use Beluga.', 'telemetry analytics privacy share data level'],
+    ['Share usage statistics', 'Off sends nothing; Essential only the essentials; On how you use Beluga.', 'telemetry analytics privacy notice gdpr share data level'],
   ]),
   ...rows('general', 'Writing', [
     ['Send with', 'Return or Command-Return sends a message.', 'enter return send message newline new line keyboard'],

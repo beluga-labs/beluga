@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { APP_VERSION } from '../lib/boot.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
-import { DEFAULT_LEVEL } from '@beluga/core/telemetry-store.js';
+import { levelOnLeave } from '@beluga/core/telemetry-store.js';
 import { usePrefs } from '../lib/prefs.js';
 import { usePrivacyAccess } from '../lib/privacy.js';
 import { AccessStepView } from './AccessSteps.js';
@@ -73,8 +73,9 @@ export function useOnboarding(): { open: boolean; start: Step; fade: boolean; cl
     arrive,
     close: (how) => {
       saveMark(localStorage, APP_VERSION, how);
-      // Finished or skipped before its step: usage statistics stay at Essential, as the step has it (BLG-922).
-      if (telemetry.available && !telemetry.level) void api.telemetry.choose(DEFAULT_LEVEL, 'onboarding').catch(() => undefined);
+      // Finished or skipped with no level picked: usage statistics are Off. Only a click shares (BLG-922).
+      const kept = levelOnLeave(telemetry);
+      if (kept) void api.telemetry.choose(kept, 'onboarding').catch(() => undefined);
       void api.telemetry.mark('onboarding_done', how).catch(() => undefined);
       clearPlace(localStorage);
       setOpen(false);
