@@ -14,6 +14,8 @@ Write to **privacy@ratel.sh** for anything on this page.
 
 Nothing, unless you choose a level. Beluga picks none for you: Skip, or Finish with no level picked, is Off.
 
+Sharing is voluntary. No law or contract requires it. If you choose Off, everything in Beluga works the same.
+
 | Level | What's sent |
 | --- | --- |
 | **Off** | Nothing. |
@@ -35,6 +37,8 @@ We don't sell it. We don't use it for ads. We don't build a profile of you or ma
 Your consent: Article 6(1)(a) GDPR. Reading and storing the install id on your computer also needs your consent under Article 122 of the Italian Privacy Code (Legislative Decree 196/2003).
 
 You can withdraw it at any time: set **Settings › General › Usage statistics** to Off, or set Usage statistics to Off in the phone's **Settings**. Anything not sent yet is cleared. Withdrawal doesn't make what was sent before it unlawful.
+
+The IP address your usage statistics come from is handled on another basis: our legitimate interest, Article 6(1)(f) GDPR, in keeping the service secure and available. That covers the rate limiting in memory and the load balancer logs (see [IP addresses](#ip-addresses)).
 
 ## Who receives it
 
@@ -58,6 +62,8 @@ We tell you before we add a new subprocessor here.
 
 Ratel's ingest service does not store or log the IP address your usage statistics come from. It uses it only briefly, in memory, to limit request rates. Ratel's load balancer access logs (AWS, Frankfurt) keep it for up to 90 days for security.
 
+We do this on the basis of our legitimate interest (Article 6(1)(f) GDPR): keeping the service secure and available, and protecting it from abuse. You can object to it (see [Your rights](#your-rights)).
+
 Beluga itself adds no IP address and no computer name to what it sends.
 
 ## Transfers outside the EU
@@ -76,8 +82,8 @@ You can ask us to:
 - correct it (rectification);
 - delete it (erasure);
 - keep it but stop using it (restriction);
-- stop using it at all (objection);
-- and you can withdraw your consent at any time, as above.
+- stop using your IP address for security and rate limiting (objection, Article 21 GDPR). This right applies to that processing, because it rests on our legitimate interest;
+- and you can withdraw your consent to the usage statistics at any time, as above. They rest on your consent, so withdrawal is the right that applies to them, not objection.
 
 Write to privacy@ratel.sh. Data is kept under your install ID, not your name, so we can only find it if you send that ID. Find your install ID in Settings › General › Usage statistics and include it in your request. (It's also the `installId` in `~/.beluga/telemetry.json`.)
 

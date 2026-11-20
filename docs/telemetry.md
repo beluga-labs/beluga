@@ -62,7 +62,7 @@ All of it goes to the Beluga project.
 - **App moments:** the onboarding's steps, the ask being shown, and the level you chose. Names only.
 - **This computer's kind,** once a day: the operating system and its version, the chip, the number of cores, memory rounded to a gigabyte, the language, the Beluga and Node versions, and which agents are installed. No name, no address, no time zone, no screen size.
 
-Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. It counts installs and isn't linked to anything else. Settings › General › Usage statistics shows it (once a level that sends is chosen), with **Copy** and **Reset ID**: a new id from then on, what was waiting is dropped, and what was sent stays under the old one. Conversations are identified by a hash of that id and the agent's session id, never the session id itself.
+Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. It counts installs and isn't linked to anything else. Settings › General › Usage statistics shows it once a level is chosen, Off too (you need it for a request after you withdraw), with **Copy** and **Reset ID**: a new id from then on, what was waiting and the feature counts not yet sent are dropped, and what was sent stays under the old one. Conversations are identified by a hash of that id and the agent's session id, never the session id itself.
 
 ## What On adds to the agents project
 
