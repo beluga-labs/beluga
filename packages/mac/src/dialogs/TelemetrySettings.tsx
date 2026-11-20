@@ -26,12 +26,15 @@ export function TelemetrySettingsGroup() {
       >
         <Select<TelemetryLevel> label="Share usage statistics" value={level} onChange={(v) => void api.telemetry.choose(v, 'settings')} options={LEVELS.map((l) => ({ value: l.level, label: l.label, description: l.detail }))} />
       </Row>
-      {level !== 'off' ? <InstallIdRow level={level} /> : null}
+      <InstallIdRow level={level} />
     </Group>
   );
 }
 
-/** The random id your statistics go under: include it in a privacy request. Reset ID starts a new one; what was sent stays under the old. */
+/**
+ * The random id your statistics go under: include it in a privacy request. Shown once any level is chosen,
+ * Off too (a request after you withdraw). Reset ID starts a new one; what was sent stays under the old.
+ */
 function InstallIdRow({ level }: { readonly level: TelemetryLevel }) {
   const api = useApi();
   const [id, setId] = useState<string>();

@@ -113,6 +113,13 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await page.reload();
   await expect(page.getByRole('navigation').first()).toBeVisible();
   await expect(welcome).toHaveCount(0);
+
+  // The level picked in the welcome stands after it closes: closing sends Off only when nothing was picked here.
+  await page.keyboard.press('Meta+,');
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('combobox', { name: 'Search settings' }).fill('usage statistics');
+  await page.keyboard.press('Enter');
+  await expect(settings.getByRole('combobox', { name: 'Share usage statistics' })).toContainText('Essential');
 });
 
 test('Skip Setup leaves at once, and the palette brings the welcome back', async ({ page }) => {

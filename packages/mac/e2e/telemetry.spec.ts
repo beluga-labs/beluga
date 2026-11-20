@@ -38,6 +38,15 @@ test('Settings › General has the level', async ({ page }) => {
   const before = await id.textContent();
   await dialog.getByRole('button', { name: 'Reset ID' }).click();
   await expect(id).not.toHaveText(before ?? '');
+  // Withdrawn, the id is still there (for an erasure request), with its Copy.
+  const after = await id.textContent();
+  await level.click();
+  await page.getByRole('option', { name: /^Off/ }).click();
+  await expect(level).toContainText('Off');
+  await expect(id).toHaveText(after ?? '');
+  await level.click();
+  await page.getByRole('option', { name: /Essential/ }).click();
+  await expect(level).toContainText('Essential');
   await both(page, dialog, 'telemetry-settings');
   await expect(dialog.getByRole('button', { name: /See What/ })).toHaveCount(0);
 });

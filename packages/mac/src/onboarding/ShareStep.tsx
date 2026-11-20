@@ -12,13 +12,14 @@ import s from './onboarding.module.css';
  * on Essential or On shares; Continue, Finish or Skip with nothing picked is Off (levelOnLeave, when the
  * onboarding closes). Only builds that can send show this step (onboarding-model.ts).
  */
-export function ShareStep() {
+export function ShareStep({ onPick }: { readonly onPick?: () => void }) {
   const api = useApi();
   const level = useApp((st) => st.telemetry.level);
   // Yours at once (the daemon's copy follows a moment later).
   const [picked, setPicked] = useState<TelemetryLevel | undefined>(level);
   const pick = (l: TelemetryLevel): void => {
     setPicked(l);
+    onPick?.();
     void api.telemetry.choose(l, 'onboarding').catch(() => undefined);
   };
   return (
