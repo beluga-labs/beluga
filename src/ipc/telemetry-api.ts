@@ -9,7 +9,7 @@ import { z } from 'zod';
 const level = z.enum(['off', 'limited', 'on']);
 
 export const TELEMETRY_API = {
-  // A level chosen at the end of the onboarding (Skip keeps Essential) or in Settings.
+  // A level chosen at the end of the onboarding (nothing picked; Skip is Off) or in Settings.
   'telemetry.choose': { args: z.tuple([level, z.enum(['onboarding', 'settings'])]) },
   // The ask answered: share (at that level), later (in a few days or a few merges), never (No thanks).
   'telemetry.answer': { args: z.tuple([z.enum(['share', 'later', 'never']), level]) },

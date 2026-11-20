@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
-import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askDue, chooseLevel, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
+import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askAnswer, askDue, chooseLevel, levelOnLeave, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
 import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { releaseConfig } from '../src/telemetry/config.js';
 import { Exporter } from '../src/telemetry/exporter.js';
@@ -111,6 +111,24 @@ describe('the choice and the ask', () => {
     expect(again.fresh).toBe(false);
     expect(again.record).toMatchObject({ installId: first.record.installId, level: 'on', via: 'settings' });
     expect(JSON.parse(readFileSync(file, 'utf8')).installId).toBe(first.record.installId);
+  });
+
+  it('the onboarding picks nothing for you: leaving it with no level picked is Off', () => {
+    const view = (record: TelemetryRecord, available = true) => telemetryView(record, ctx({ available }));
+    expect(levelOnLeave(view(fresh))).toBe('off');
+    expect(levelOnLeave(view(chooseLevel(fresh, 'limited', 'onboarding', 1)))).toBeUndefined();
+    expect(levelOnLeave(view(chooseLevel(fresh, 'on', 'onboarding', 1)))).toBeUndefined();
+    // A build that can't send has nothing to choose.
+    expect(levelOnLeave(view(fresh, false))).toBeUndefined();
+    // Off, kept from the onboarding, is a choice: the ask never comes after it.
+    expect(askDue(chooseLevel(fresh, levelOnLeave(view(fresh))!, 'onboarding', 1), ctx())).toBe(false);
+  });
+
+  it('the ask picks nothing for you: only a level you pick shares, Off is No thanks', () => {
+    expect(askAnswer(undefined)).toBeUndefined();
+    expect(askAnswer('off')).toEqual({ answer: 'never', level: 'off' });
+    expect(askAnswer('limited')).toEqual({ answer: 'share', level: 'limited' });
+    expect(askAnswer('on')).toEqual({ answer: 'share', level: 'on' });
   });
 
   it('only screens choose: the API checks the levels and the places', () => {
