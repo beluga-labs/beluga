@@ -348,6 +348,9 @@ export const PHONE: Record<Method, Side> = {
   // A project's Settings sheet is the Mac's.
   'telemetry.exclude': 'mac',
   'telemetry.mark': 'mac',
+  // The install id and Reset ID are Settings › General on the Mac (settings stay off the phone).
+  'telemetry.installId': 'mac',
+  'telemetry.resetId': 'mac',
   // ---- your stats: the Usage tab's charts and what the composer saw (the phone keeps its plan meters)
   'stats.get': 'mac',
   'stats.leaderboard': 'mac',

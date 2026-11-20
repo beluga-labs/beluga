@@ -4,14 +4,15 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
-import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askAnswer, askDue, chooseLevel, levelOnLeave, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
+import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askAnswer, askDue, chooseLevel, levelOnLeave, resetInstallId, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
 import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { releaseConfig } from '../src/telemetry/config.js';
+import { deviceFacts } from '../src/telemetry/device.js';
 import { Exporter } from '../src/telemetry/exporter.js';
 import { featureCounter } from '../src/telemetry/features.js';
 import { Masker, REDACTED, secretWorthy } from '../src/telemetry/mask.js';
 import { observedBackend } from '../src/telemetry/observe.js';
-import { event, pseudonym } from '../src/telemetry/otlp.js';
+import { event, logsRequest, pseudonym, tracesRequest } from '../src/telemetry/otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from '../src/telemetry/record.js';
 import { TelemetryService } from '../src/telemetry/service.js';
 import { type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
@@ -131,12 +132,47 @@ describe('the choice and the ask', () => {
     expect(askAnswer('on')).toEqual({ answer: 'share', level: 'on' });
   });
 
+  it('a reset install id is a new random one; the rest of the record stays', () => {
+    const chosen = chooseLevel(fresh, 'on', 'settings', 1);
+    const reset = resetInstallId(chosen, '0f1e2d3c-4b5a-4968-8776-655443322110');
+    expect(reset).toEqual({ ...chosen, installId: '0f1e2d3c-4b5a-4968-8776-655443322110' });
+  });
+
+  it('shows the install id only once a level that sends is chosen; Reset ID keeps a new one in telemetry.json', async () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'tel-id-')), 'telemetry.json');
+    const s = new Store(initialState('test', 'ask'));
+    const service = new TelemetryService({ store: s, version: '1', file, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
+    expect(service.installId()).toBeUndefined();
+    service.choose('off', 'settings');
+    expect(service.installId()).toBeUndefined();
+    service.choose('limited', 'settings');
+    const before = service.installId();
+    expect(before).toBe(loadTelemetryRecord(file).record.installId);
+    const after = service.resetId();
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^[0-9a-f-]{36}$/);
+    expect(service.installId()).toBe(after);
+    expect(loadTelemetryRecord(file).record).toMatchObject({ installId: after, level: 'limited' });
+    await service.stop();
+  });
+
   it('only screens choose: the API checks the levels and the places', () => {
     expect(() => parseArgs('telemetry.choose', ['loud', 'settings'])).toThrow();
     expect(() => parseArgs('telemetry.choose', ['on', 'ask'])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['anything', undefined])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['preview_opened', undefined])).toThrow();
     expect(parseArgs('telemetry.answer', ['later', 'limited'])).toEqual(['later', 'limited']);
+  });
+});
+
+describe('no address leaves this computer', () => {
+  it('neither the device facts nor the resource carry an IP address or a host name', () => {
+    const facts = deviceFacts({ app_version: '1' });
+    const sender = { installId: ID, version: '1' };
+    const sent = JSON.stringify([facts, tracesRequest(sender, []), logsRequest(sender, [])]);
+    expect(sent).not.toMatch(/host\.(name|ip)|client\.address|hostname|"ip"/i);
+    expect(sent).not.toContain(os.hostname());
+    for (const nets of Object.values(os.networkInterfaces())) for (const n of nets ?? []) if (!n.internal) expect(sent).not.toContain(n.address);
   });
 });
 

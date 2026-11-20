@@ -109,6 +109,11 @@ export function chooseLevel(record: TelemetryRecord, level: TelemetryLevel, via:
   return { ...record, level, chosenAt: now, via, ...settled };
 }
 
+/** The record with a new install id (Reset ID): what was sent before stays under the old one, nothing links the two. */
+export function resetInstallId(record: TelemetryRecord, installId: string): TelemetryRecord {
+  return { ...record, installId };
+}
+
 /** The record after the ask was answered: Share keeps `level`, No thanks turns it off, Later changes nothing yet. */
 export function answerAsk(record: TelemetryRecord, answer: TelemetryAnswer, level: TelemetryLevel, ctx: Omit<AskContext, 'available'>): TelemetryRecord {
   const asked: TelemetryAsked = { round: ASK_ROUND, answer, at: ctx.now, merges: ctx.merges, times: (record.ask?.times ?? 0) + 1 };
