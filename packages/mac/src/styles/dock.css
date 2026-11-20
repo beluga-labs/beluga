@@ -189,3 +189,10 @@
   transition: none !important;
   animation: none !important;
 }
+
+/* Dockview wraps what's at a strip's end in a box of its own: the chevron is centred in that too. */
+.dockview-theme-beluga .dv-right-actions-container > .dv-react-part {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
