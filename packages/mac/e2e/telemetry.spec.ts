@@ -31,6 +31,13 @@ test('Settings › General has the level', async ({ page }) => {
   await expect(level).toBeVisible();
   await expect(level).toContainText('Essential');
   await expect(dialog.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
+  // The install id, for a privacy request: Copy, and Reset ID makes a new one.
+  const id = dialog.getByText(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  await expect(id).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+  const before = await id.textContent();
+  await dialog.getByRole('button', { name: 'Reset ID' }).click();
+  await expect(id).not.toHaveText(before ?? '');
   await both(page, dialog, 'telemetry-settings');
   await expect(dialog.getByRole('button', { name: /See What/ })).toHaveCount(0);
 });
