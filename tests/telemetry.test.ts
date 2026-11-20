@@ -121,6 +121,8 @@ describe('the choice and the ask', () => {
     expect(levelOnLeave(view(chooseLevel(fresh, 'on', 'onboarding', 1)))).toBeUndefined();
     // A build that can't send has nothing to choose.
     expect(levelOnLeave(view(fresh, false))).toBeUndefined();
+    // Picked in this onboarding, before the daemon's copy came back: the pick stands, no Off after it.
+    expect(levelOnLeave(view(fresh), true)).toBeUndefined();
     // Off, kept from the onboarding, is a choice: the ask never comes after it.
     expect(askDue(chooseLevel(fresh, levelOnLeave(view(fresh))!, 'onboarding', 1), ctx())).toBe(false);
   });
@@ -138,21 +140,35 @@ describe('the choice and the ask', () => {
     expect(reset).toEqual({ ...chosen, installId: '0f1e2d3c-4b5a-4968-8776-655443322110' });
   });
 
-  it('shows the install id only once a level that sends is chosen; Reset ID keeps a new one in telemetry.json', async () => {
+  it('shows the install id once a level is chosen, Off too (for a request after withdrawal); Reset ID keeps a new one in telemetry.json', async () => {
     const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'tel-id-')), 'telemetry.json');
     const s = new Store(initialState('test', 'ask'));
     const service = new TelemetryService({ store: s, version: '1', file, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
-    expect(service.installId()).toBeUndefined();
-    service.choose('off', 'settings');
+    // Never chosen: the id isn't kept anywhere yet, and nothing was sent under it.
     expect(service.installId()).toBeUndefined();
     service.choose('limited', 'settings');
     const before = service.installId();
     expect(before).toBe(loadTelemetryRecord(file).record.installId);
+    // Withdrawn: the id stays, for an access or erasure request.
+    service.choose('off', 'settings');
+    expect(service.installId()).toBe(before);
+    // Reset at Off is allowed (nothing is sent anyway), and kept.
     const after = service.resetId();
     expect(after).not.toBe(before);
     expect(after).toMatch(/^[0-9a-f-]{36}$/);
     expect(service.installId()).toBe(after);
-    expect(loadTelemetryRecord(file).record).toMatchObject({ installId: after, level: 'limited' });
+    expect(loadTelemetryRecord(file).record).toMatchObject({ installId: after, level: 'off' });
+    await service.stop();
+  });
+
+  it('Reset ID drops the feature counts made before it, so none go under the new id', async () => {
+    const s = new Store(initialState('test', 'ask'));
+    const service = new TelemetryService({ store: s, version: '1', file: null, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
+    service.choose('limited', 'settings');
+    featureCounter.drain();
+    featureCounter.call('session.submit', 5, true);
+    service.resetId();
+    expect(featureCounter.drain().counts).toEqual([]);
     await service.stop();
   });
 

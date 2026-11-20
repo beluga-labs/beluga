@@ -122,9 +122,13 @@ export function answerAsk(record: TelemetryRecord, answer: TelemetryAnswer, leve
   return { ...record, ask: asked };
 }
 
-/** The level to keep when the onboarding ends: Off when none was picked (consent is never assumed), else nothing to choose. */
-export function levelOnLeave(view: Pick<TelemetryView, 'available' | 'level'>): TelemetryLevel | undefined {
-  return view.available && !view.level ? 'off' : undefined;
+/**
+ * The level to keep when the onboarding ends: Off when none was picked (consent is never assumed), else
+ * nothing to choose. `pickedHere`: a level was clicked in this onboarding. It counts even before the
+ * daemon's copy reaches `view`, so a quick Finish never sends Off after your pick.
+ */
+export function levelOnLeave(view: Pick<TelemetryView, 'available' | 'level'>, pickedHere = false): TelemetryLevel | undefined {
+  return view.available && !view.level && !pickedHere ? 'off' : undefined;
 }
 
 /** The ask's main button: nothing until you pick a level; Off is No thanks, Essential or On is Share at it. */

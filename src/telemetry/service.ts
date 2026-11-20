@@ -176,18 +176,23 @@ export class TelemetryService {
     this.changed(via);
   }
 
-  /** This install's random id, for a privacy request: only once a level that sends is chosen (Settings shows it). */
+  /**
+   * This install's random id, for a privacy request (Settings shows it): once any level is chosen, Off
+   * too, so it's still there after you withdraw. Before a choice it isn't kept anywhere and nothing went under it.
+   */
   installId(): string | undefined {
-    return this.record.level && this.record.level !== 'off' ? this.record.installId : undefined;
+    return this.record.level ? this.record.installId : undefined;
   }
 
   /**
-   * Reset ID: a new random id from now on. What was sent stays under the old id; what was still
-   * waiting is dropped, so nothing goes under the new id that the old one made. No event says it happened.
+   * Reset ID: a new random id from now on, at any level (at Off nothing is sent anyway). What was sent
+   * stays under the old id; what was still waiting, and the feature counts not yet summed, are dropped,
+   * so nothing goes under the new id that the old one made. No event says it happened.
    */
   resetId(): string {
     this.record = resetInstallId(this.record, randomUUID());
     for (const e of this.exporters()) e.clear();
+    featureCounter.drain(this.now());
     this.save();
     return this.record.installId;
   }
