@@ -70,6 +70,9 @@
   --merged: #8a63d2;
   --warn: #b36b00;
   --error: #c4352e;
+  /* A red to fill a button with (Delete), and its words: light's red already is one. */
+  --error-fill: var(--error);
+  --on-error-fill: var(--bg);
   --info: #2f6cb3;
   /* Claude's sub-agents at work: violet, apart from the main Claude's copper. */
   --subagent: #7656c9;
@@ -110,6 +113,10 @@
   --merged: #b294f0;
   --warn: #e3a64a;
   --error: #ef7a72;
+  /* Dark's red is a pastel for words and icons: as a button's face it read as a disabled button.
+     A Delete button is the full red it was before the controls were drawn as macOS's, in white. */
+  --error-fill: #d9483f;
+  --on-error-fill: #ffffff;
   --info: #79aef0;
   --subagent: #ab93f3;
   --worktree: #66c6bb;
@@ -157,6 +164,11 @@
   --control-accent-edge: color-mix(in srgb, var(--control-accent) 70%, var(--text));
   --control-accent-sheen: inset 0 0.5px 0 color-mix(in srgb, var(--control-lift) 28%, transparent);
   --on-accent: var(--bg);
+  /* A destructive default button (Delete): the theme's red as a face, rising a little to its top. */
+  --control-destructive: var(--error-fill);
+  --control-destructive-top: color-mix(in srgb, var(--control-destructive) 84%, var(--control-lift));
+  --control-destructive-press: color-mix(in srgb, var(--control-destructive) 86%, var(--text));
+  --on-destructive: var(--on-error-fill);
   /* disabledControlTextColor, as an opacity on the whole control. */
   --control-disabled: 0.5;
   /* textBackgroundColor: a field's well. */
@@ -176,6 +188,9 @@
   --control-sheen: inset 0 0.5px 0 color-mix(in srgb, var(--text) 18%, transparent);
   --control-lift: var(--text);
   --on-accent: var(--text);
+  /* Flat, never lifted toward the light words (that paled it); pressed, it darkens. */
+  --control-destructive-top: var(--control-destructive);
+  --control-destructive-press: color-mix(in srgb, var(--control-destructive) 86%, var(--bg-sunken));
   --text-bg: color-mix(in srgb, var(--bg-raised) 92%, var(--text));
   --segment-track: color-mix(in srgb, var(--text) 9%, transparent);
   --segment-on: color-mix(in srgb, var(--bg-raised) 70%, var(--text));
