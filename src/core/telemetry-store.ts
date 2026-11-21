@@ -21,7 +21,7 @@ export const TELEMETRY_LEVELS = ['off', 'limited', 'on'] as const;
 export type TelemetryLevel = (typeof TELEMETRY_LEVELS)[number];
 
 /** The privacy notice for usage statistics, linked wherever a level is chosen. */
-export const PRIVACY_NOTICE_URL = 'https://github.com/beluga-labs/beluga/blob/main/docs/privacy.md';
+export { PRIVACY_NOTICE_URL } from '../shared/privacy.js';
 
 /** Where a level was chosen. */
 export type TelemetryVia = 'onboarding' | 'ask' | 'settings';
