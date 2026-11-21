@@ -9,7 +9,6 @@
   --font-mono: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', monospace;
   --text-size: 13px;
   --accent: AccentColor;
-  --sidebar-w: 248px;
   --inspector-w: 296px;
   --titlebar-h: 52px;
   --chat-max: 100%;
@@ -137,9 +136,11 @@
   --control-text-large: 13px;
   --control-text: 13px;
   --control-text-small: 12px;
-  --control-radius-large: 7px;
-  --control-radius: 5px;
-  --control-radius-small: 4px;
+  /* Softly rounded, Beluga's own: a big button's corner a little rounder than a small one's, never a
+     capsule (that's the Round shape, below: Settings › Appearance). */
+  --control-radius-large: 8px;
+  --control-radius: 7px;
+  --control-radius-small: 6px;
   /* controlColor: a button's face, rising a little to its top edge; and its pressed face. */
   --control: var(--bg-raised);
   --control-top: var(--bg-raised);
@@ -210,10 +211,7 @@
  * a solid theme); Windows, Linux and the flat window keep the look above. CSS only, and still: the
  * refraction some web versions draw is an SVG displacement filter WebKit doesn't draw.
  */
-:root[data-os='mac'][data-transparency='full'] {
-  --control-radius-large: 999px;
-  --control-radius: 999px;
-  --control-radius-small: 999px;
+:root[data-os='mac'][data-transparency='full'][data-look='macos'] {
   --glass-inset: 8px;
   --glass-radius: 16px;
   --glass-fill: color-mix(in srgb, var(--bg-sidebar-solid) 72%, transparent);
@@ -225,7 +223,14 @@
   /* A capsule's ring is a real 0.5px border (each control draws it): WebKit breaks a 0.5px shadow up round the ends. */
   --control-bezel: var(--control-drop), var(--control-sheen);
 }
-:root[data-os='mac'][data-transparency='full'][data-theme='dark'] {
+/* The macOS style (Settings › Appearance › Style, off by default): buttons, fields and segmented
+   controls are capsules, as macOS 26 draws them (its glass panes: Liquid Glass, below). */
+:root[data-look='macos'] {
+  --control-radius-large: 999px;
+  --control-radius: 999px;
+  --control-radius-small: 999px;
+}
+:root[data-os='mac'][data-transparency='full'][data-look='macos'][data-theme='dark'] {
   --glass-edge: rgba(255, 255, 255, 0.16);
   --glass-rim: rgba(0, 0, 0, 0.5);
   --glass-drop: 0 12px 34px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
