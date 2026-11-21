@@ -258,7 +258,8 @@ export function ScratchTab({ of }: { of: ScratchOf }) {
   const [picked, setPicked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const [wanted, setWanted] = useState<ScratchView>('claude');
+  // Not picked yet: the tab picks (what you sent, while your agent has saved nothing).
+  const [wanted, setWanted] = useState<ScratchView>();
   const split = useMemo(() => splitSent(list?.files ?? [], wanted, isSentPath), [list, wanted]);
   const files = split.shown;
   const sort: ScratchSort = prefs.scratchSort === 'viewable' ? 'viewable' : 'newest';
@@ -342,6 +343,7 @@ export function ScratchTab({ of }: { of: ScratchOf }) {
           </div>
         </div>
         {working && !sentView ? <NextFileRow /> : null}
+        {!rows.length && !sentView && !working ? <p className={k.viewEmpty}>Nothing saved by your agent yet. Screenshots, logs and notes it saves while it works show up here.</p> : null}
         <div ref={listRef} className={s.list} role="listbox" aria-label={sentView ? 'Files you sent' : 'Scratch files'} tabIndex={0} onKeyDown={onKey}>
           {rows.map((f) => {
             const { root: folder, dir, name } = scratchPlace(f.path, sentView ? [SENT_DIR] : SHOWN_SCRATCH_DIRS);

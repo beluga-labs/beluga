@@ -76,11 +76,7 @@
   --dv-activegroup-hiddenpanel-tab-color: var(--text-2);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--text-2);
 }
-/* The panel's top row continues the window's title row: its tabs are as tall (less the gap over a
-   glass panel), from the window's top edge down to the toolbar's line, which theirs meets. */
-.dockview-theme-beluga .dv-groupview[data-strip='lead'] {
-  --tab-h: calc(var(--titlebar-h) - var(--glass-inset, 0px));
-}
+/* (The panel's top row is as short as the docks under it: a title row's height there was empty room.) */
 /* Icons only (a narrow strip): a little less room each side of them. */
 .dockview-theme-beluga .dv-groupview[data-compact='others'] .dv-tab:not(.dv-active-tab),
 .dockview-theme-beluga .dv-groupview[data-compact='all'] .dv-tab {
