@@ -27,7 +27,7 @@ import { UpdateSheet } from '../components/Update';
 import { appUpdate } from '../modules/app-update';
 import { appVersion, autoOn, checkForUpdate, checkOn, setAuto, setCheck, updatesAvailable, useUpdate } from '../lib/update';
 import { VOICE_MODELS } from '../../../src/shared/voice-models';
-import { PRIVACY_NOTICE_URL } from '../../../src/core/telemetry-store';
+import { PRIVACY_NOTICE_URL } from '../../../src/shared/privacy';
 
 /**
  * The phone's own settings. On top: your Mac, notifications on or off, Storage, sign out. Everything else
