@@ -1,6 +1,6 @@
 # Usage statistics
 
-Beluga is free and open source. We can't see how it's used, so people who choose to share usage statistics are how we learn what to fix and build next. This page says exactly what is sent at each level. The code that does it is in `src/telemetry/`.
+Beluga is free and open source. We can't see how it's used, so people who choose to share usage statistics are how we learn what to fix and build next. This page says exactly what is sent at each level. The code that does it is in `src/telemetry/`. Who receives it, why, for how long and your rights are in the [privacy notice](privacy.md).
 
 ## Who can send
 
@@ -32,10 +32,11 @@ A build from source has no such file. It never asks, never shows the setting, an
 
 Nothing is sent before a level is chosen.
 
-- **New installs** choose on the last step of the onboarding, where Essential is already picked. Continue, Finish and Skip all keep it.
-- **Installs that updated** get one ask, at a calm moment, never while one of your agents is running:
-  - **Share** keeps the level you picked.
-  - **Later** asks again in 3 days or after 5 merged pull requests, whichever comes first.
+- **New installs** choose on the last step of the onboarding. No level is picked for you: only a click on Essential or On shares. Skip, or Continue and Finish with nothing picked, is Off.
+- **Installs that updated** get one ask, at a calm moment, never while one of your agents is running. No level is picked for you there either:
+  - **Share** shares at the level you picked. It waits until you pick one.
+  - **Keep It Off** (Off picked) is the same as No thanks.
+  - **Later**, or closing it, sends nothing and asks again in 3 days or after 5 merged pull requests, whichever comes first.
   - **No thanks** turns it off and never asks again.
 
 You can change the level any time in **Settings › General › Usage statistics**, or in the phone's **Settings**. Turning it off clears anything not sent yet.
@@ -61,7 +62,7 @@ All of it goes to the Beluga project.
 - **App moments:** the onboarding's steps, the ask being shown, and the level you chose. Names only.
 - **This computer's kind,** once a day: the operating system and its version, the chip, the number of cores, memory rounded to a gigabyte, the language, the Beluga and Node versions, and which agents are installed. No name, no address, no time zone, no screen size.
 
-Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. It counts installs and isn't linked to anything else. Conversations are identified by a hash of that id and the agent's session id, never the session id itself.
+Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. It counts installs and isn't linked to anything else. Settings › General › Usage statistics shows it once a level is chosen, Off too (you need it for a request after you withdraw), with **Copy** and **Reset ID**: a new id from then on, what was waiting and the feature counts not yet sent are dropped, and what was sent stays under the old one. Conversations are identified by a hash of that id and the agent's session id, never the session id itself.
 
 ## What On adds to the agents project
 

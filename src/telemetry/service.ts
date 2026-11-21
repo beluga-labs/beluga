@@ -12,6 +12,7 @@ import {
   effectiveLevel,
   excludeProject,
   projectOfFolder,
+  resetInstallId,
   telemetryView,
 } from '../core/telemetry-store.js';
 import { ClaudeOtel } from './claude-otel.js';
@@ -175,6 +176,27 @@ export class TelemetryService {
     this.changed(via);
   }
 
+  /**
+   * This install's random id, for a privacy request (Settings shows it): once any level is chosen, Off
+   * too, so it's still there after you withdraw. Before a choice it isn't kept anywhere and nothing went under it.
+   */
+  installId(): string | undefined {
+    return this.record.level ? this.record.installId : undefined;
+  }
+
+  /**
+   * Reset ID: a new random id from now on, at any level (at Off nothing is sent anyway). What was sent
+   * stays under the old id; what was still waiting, and the feature counts not yet summed, are dropped,
+   * so nothing goes under the new id that the old one made. No event says it happened.
+   */
+  resetId(): string {
+    this.record = resetInstallId(this.record, randomUUID());
+    for (const e of this.exporters()) e.clear();
+    featureCounter.drain(this.now());
+    this.save();
+    return this.record.installId;
+  }
+
   /** A project left out of usage statistics, or back in (its Settings). */
   exclude(root: string, excluded: boolean): void {
     this.record = excludeProject(this.record, root, excluded);
@@ -224,16 +246,19 @@ export class TelemetryService {
   }
 
   private changed(via: TelemetryVia, answer?: TelemetryAnswer): void {
-    if (this.deps.file !== null) {
-      try {
-        saveTelemetryRecord(this.record, ...(this.deps.file ? [this.deps.file] : []));
-      } catch {
-        // Kept in memory: it asks again next start, the lesser problem.
-      }
-    }
+    this.save();
     this.applyLevel();
     this.publish();
     if (this.level !== 'off') this.product?.log(event('level', this.now(), { level: this.level, via, ...(answer ? { answer } : {}) }));
+  }
+
+  private save(): void {
+    if (this.deps.file === null) return;
+    try {
+      saveTelemetryRecord(this.record, ...(this.deps.file ? [this.deps.file] : []));
+    } catch {
+      // Kept in memory: it asks again next start, the lesser problem.
+    }
   }
 
   private applyLevel(): void {

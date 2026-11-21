@@ -4,14 +4,15 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentBackend, AgentRunInput } from '../src/agent/types.js';
 import { Store, initialState } from '../src/core/store.js';
-import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askDue, chooseLevel, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
+import { ASK_ROUND, LATER_MERGES, LATER_MS, type TelemetryRecord, answerAsk, askAnswer, askDue, chooseLevel, levelOnLeave, resetInstallId, effectiveLevel, excludeProject, projectOfFolder, telemetryView } from '../src/core/telemetry-store.js';
 import { ClaudeOtel } from '../src/telemetry/claude-otel.js';
 import { releaseConfig } from '../src/telemetry/config.js';
+import { deviceFacts } from '../src/telemetry/device.js';
 import { Exporter } from '../src/telemetry/exporter.js';
 import { featureCounter } from '../src/telemetry/features.js';
 import { Masker, REDACTED, secretWorthy } from '../src/telemetry/mask.js';
 import { observedBackend } from '../src/telemetry/observe.js';
-import { event, pseudonym } from '../src/telemetry/otlp.js';
+import { event, logsRequest, pseudonym, tracesRequest } from '../src/telemetry/otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from '../src/telemetry/record.js';
 import { TelemetryService } from '../src/telemetry/service.js';
 import { type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
@@ -113,12 +114,81 @@ describe('the choice and the ask', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).installId).toBe(first.record.installId);
   });
 
+  it('the onboarding picks nothing for you: leaving it with no level picked is Off', () => {
+    const view = (record: TelemetryRecord, available = true) => telemetryView(record, ctx({ available }));
+    expect(levelOnLeave(view(fresh))).toBe('off');
+    expect(levelOnLeave(view(chooseLevel(fresh, 'limited', 'onboarding', 1)))).toBeUndefined();
+    expect(levelOnLeave(view(chooseLevel(fresh, 'on', 'onboarding', 1)))).toBeUndefined();
+    // A build that can't send has nothing to choose.
+    expect(levelOnLeave(view(fresh, false))).toBeUndefined();
+    // Picked in this onboarding, before the daemon's copy came back: the pick stands, no Off after it.
+    expect(levelOnLeave(view(fresh), true)).toBeUndefined();
+    // Off, kept from the onboarding, is a choice: the ask never comes after it.
+    expect(askDue(chooseLevel(fresh, levelOnLeave(view(fresh))!, 'onboarding', 1), ctx())).toBe(false);
+  });
+
+  it('the ask picks nothing for you: only a level you pick shares, Off is No thanks', () => {
+    expect(askAnswer(undefined)).toBeUndefined();
+    expect(askAnswer('off')).toEqual({ answer: 'never', level: 'off' });
+    expect(askAnswer('limited')).toEqual({ answer: 'share', level: 'limited' });
+    expect(askAnswer('on')).toEqual({ answer: 'share', level: 'on' });
+  });
+
+  it('a reset install id is a new random one; the rest of the record stays', () => {
+    const chosen = chooseLevel(fresh, 'on', 'settings', 1);
+    const reset = resetInstallId(chosen, '0f1e2d3c-4b5a-4968-8776-655443322110');
+    expect(reset).toEqual({ ...chosen, installId: '0f1e2d3c-4b5a-4968-8776-655443322110' });
+  });
+
+  it('shows the install id once a level is chosen, Off too (for a request after withdrawal); Reset ID keeps a new one in telemetry.json', async () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), 'tel-id-')), 'telemetry.json');
+    const s = new Store(initialState('test', 'ask'));
+    const service = new TelemetryService({ store: s, version: '1', file, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
+    // Never chosen: the id isn't kept anywhere yet, and nothing was sent under it.
+    expect(service.installId()).toBeUndefined();
+    service.choose('limited', 'settings');
+    const before = service.installId();
+    expect(before).toBe(loadTelemetryRecord(file).record.installId);
+    // Withdrawn: the id stays, for an access or erasure request.
+    service.choose('off', 'settings');
+    expect(service.installId()).toBe(before);
+    // Reset at Off is allowed (nothing is sent anyway), and kept.
+    const after = service.resetId();
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^[0-9a-f-]{36}$/);
+    expect(service.installId()).toBe(after);
+    expect(loadTelemetryRecord(file).record).toMatchObject({ installId: after, level: 'off' });
+    await service.stop();
+  });
+
+  it('Reset ID drops the feature counts made before it, so none go under the new id', async () => {
+    const s = new Store(initialState('test', 'ask'));
+    const service = new TelemetryService({ store: s, version: '1', file: null, secrets: () => [], config: { url: 'https://ratel.example', key: 'rtl_pub_xxxxxxxx' }, fetch: (async () => new Response('', { status: 202 })) as unknown as typeof fetch });
+    service.choose('limited', 'settings');
+    featureCounter.drain();
+    featureCounter.call('session.submit', 5, true);
+    service.resetId();
+    expect(featureCounter.drain().counts).toEqual([]);
+    await service.stop();
+  });
+
   it('only screens choose: the API checks the levels and the places', () => {
     expect(() => parseArgs('telemetry.choose', ['loud', 'settings'])).toThrow();
     expect(() => parseArgs('telemetry.choose', ['on', 'ask'])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['anything', undefined])).toThrow();
     expect(() => parseArgs('telemetry.mark', ['preview_opened', undefined])).toThrow();
     expect(parseArgs('telemetry.answer', ['later', 'limited'])).toEqual(['later', 'limited']);
+  });
+});
+
+describe('no address leaves this computer', () => {
+  it('neither the device facts nor the resource carry an IP address or a host name', () => {
+    const facts = deviceFacts({ app_version: '1' });
+    const sender = { installId: ID, version: '1' };
+    const sent = JSON.stringify([facts, tracesRequest(sender, []), logsRequest(sender, [])]);
+    expect(sent).not.toMatch(/host\.(name|ip)|client\.address|hostname|"ip"/i);
+    expect(sent).not.toContain(os.hostname());
+    for (const nets of Object.values(os.networkInterfaces())) for (const n of nets ?? []) if (!n.internal) expect(sent).not.toContain(n.address);
   });
 });
 

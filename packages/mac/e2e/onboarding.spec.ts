@@ -92,9 +92,13 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await expect(welcome.getByRole('button', { name: /Pair a Phone/ })).toBeVisible();
   await welcome.getByRole('button', { name: 'Continue', exact: true }).click();
 
-  // Usage statistics (BLG-922), the last setting: Essential picked, and Finish keeps it.
+  // Usage statistics (BLG-922), the last setting, with a privacy notice. It shows the level chosen before, and none
+  // for an install that never chose (Finish with none is Off). The demo has chosen Essential unless BELUGA_DEMO_ASKS=telemetry.
   await expect(welcome.getByRole('heading', { name: 'Help make Beluga better.' })).toBeVisible();
-  await expect(welcome.getByRole('radio', { name: /Essential/ })).toBeChecked();
+  const unchosen = process.env.BELUGA_DEMO_ASKS === 'telemetry';
+  for (const level of [/^Off/, /^On/]) await expect(welcome.getByRole('radio', { name: level })).not.toBeChecked();
+  await expect(welcome.getByRole('radio', { name: /Essential/ })).toBeChecked({ checked: !unchosen });
+  await expect(welcome.getByRole('button', { name: 'Privacy notice' })).toBeVisible();
   await welcome.getByRole('radio', { name: /^On/ }).check();
   await expect(welcome.getByRole('radio', { name: /^On/ })).toBeChecked();
   await welcome.getByRole('radio', { name: /Essential/ }).check();
@@ -109,6 +113,13 @@ test('a fresh install walks through the welcome, picks a look, and never sees it
   await page.reload();
   await expect(page.getByRole('navigation').first()).toBeVisible();
   await expect(welcome).toHaveCount(0);
+
+  // The level picked in the welcome stands after it closes: closing sends Off only when nothing was picked here.
+  await page.keyboard.press('Meta+,');
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('combobox', { name: 'Search settings' }).fill('usage statistics');
+  await page.keyboard.press('Enter');
+  await expect(settings.getByRole('combobox', { name: 'Share usage statistics' })).toContainText('Essential');
 });
 
 test('Skip Setup leaves at once, and the palette brings the welcome back', async ({ page }) => {

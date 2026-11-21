@@ -341,6 +341,8 @@ export const MACHINE: Record<Method, MachineSide> = {
   'telemetry.answer': 'drive',
   'telemetry.exclude': 'drive',
   'telemetry.mark': 'drive',
+  'telemetry.installId': 'drive',
+  'telemetry.resetId': 'drive',
   // ---- stats
   'stats.get': 'drive',
   'stats.leaderboard': 'drive',

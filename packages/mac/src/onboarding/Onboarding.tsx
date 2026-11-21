@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { APP_VERSION } from '../lib/boot.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
-import { DEFAULT_LEVEL } from '@beluga/core/telemetry-store.js';
+import { levelOnLeave } from '@beluga/core/telemetry-store.js';
 import { usePrefs } from '../lib/prefs.js';
 import { usePrivacyAccess } from '../lib/privacy.js';
 import { AccessStepView } from './AccessSteps.js';
@@ -42,9 +42,11 @@ function arrive(): void {
   setTimeout(() => delete app.dataset.arriving, 2000);
 }
 
-export function useOnboarding(): { open: boolean; start: Step; fade: boolean; close: (how: 'finished' | 'skipped') => void; arrive: () => void } {
+export function useOnboarding(): { open: boolean; start: Step; fade: boolean; close: (how: 'finished' | 'skipped') => void; arrive: () => void; picked: () => void } {
   const api = useApi();
   const telemetry = useApp((st) => st.telemetry);
+  // A level clicked in this onboarding (ShareStep): known here at once, before the daemon's copy comes back.
+  const pickedHere = useRef(false);
   const [open, setOpen] = useState(() => shouldShow(localStorage, window.location.search));
   // Where it opens: the step it was left on (macOS's "Quit & Reopen" after a permission), or the welcome.
   const [start, setStart] = useState<Step>(() => resumeAt(localStorage) ?? 'hello');
@@ -59,6 +61,7 @@ export function useOnboarding(): { open: boolean; start: Step; fade: boolean; cl
   }, []);
   useEffect(() => {
     const show = (): void => {
+      pickedHere.current = false;
       setStart('hello');
       setFade(true);
       setOpen(true);
@@ -71,10 +74,15 @@ export function useOnboarding(): { open: boolean; start: Step; fade: boolean; cl
     start,
     fade,
     arrive,
+    picked: () => {
+      pickedHere.current = true;
+    },
     close: (how) => {
       saveMark(localStorage, APP_VERSION, how);
-      // Finished or skipped before its step: usage statistics stay at Essential, as the step has it (BLG-922).
-      if (telemetry.available && !telemetry.level) void api.telemetry.choose(DEFAULT_LEVEL, 'onboarding').catch(() => undefined);
+      // Finished or skipped with no level picked: usage statistics are Off. Only a click shares (BLG-922).
+      // A pick made here counts even if the daemon hasn't told the store yet: Off never follows it.
+      const kept = levelOnLeave(telemetry, pickedHere.current);
+      if (kept) void api.telemetry.choose(kept, 'onboarding').catch(() => undefined);
       void api.telemetry.mark('onboarding_done', how).catch(() => undefined);
       clearPlace(localStorage);
       setOpen(false);
@@ -113,7 +121,7 @@ function Progress({ step, steps, go }: { readonly step: Step; readonly steps: re
  * then the app. A full window of its own over the app (which is already there
  * underneath, so finishing simply lifts this away).
  */
-export function Onboarding({ start = 'hello', fade = false, onClose, onArrive }: { readonly start?: Step; readonly fade?: boolean; readonly onClose: (how: 'finished' | 'skipped') => void; readonly onArrive?: () => void }) {
+export function Onboarding({ start = 'hello', fade = false, onClose, onArrive, onPick }: { readonly start?: Step; readonly fade?: boolean; readonly onClose: (how: 'finished' | 'skipped') => void; readonly onArrive?: () => void; readonly onPick?: () => void }) {
   const { ui } = useBeluga();
   const api = useApi();
   const prefs = usePrefs();
@@ -275,7 +283,7 @@ export function Onboarding({ start = 'hello', fade = false, onClose, onArrive }:
               {inAccess(step) ? <AccessStepView step={step} access={privacy.access} recheck={privacy.recheck} go={go} /> : null}
               {step === 'popups' ? <Popups /> : null}
               {step === 'phone' ? <PhoneStep /> : null}
-              {step === 'share' ? <ShareStep /> : null}
+              {step === 'share' ? <ShareStep onPick={onPick} /> : null}
               {step === 'ready' ? <Ready projects={projects} onOpen={() => finish('finished')} onAddProject={() => finish('finished', () => ui.patch({ addProject: true }))} /> : null}
             </motion.section>
           </AnimatePresence>
