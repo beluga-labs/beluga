@@ -178,11 +178,11 @@
   box-shadow: none;
 }
 .destructive {
-  background: linear-gradient(color-mix(in srgb, var(--error) 84%, var(--control-lift)), var(--error));
-  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--error) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
+  background: linear-gradient(var(--control-destructive-top), var(--control-destructive));
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--control-destructive) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
 }
 .destructive:active:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 86%, var(--text));
+  background: color-mix(in srgb, var(--control-destructive) 86%, var(--text));
 }
 .destructiveText {
   color: var(--error);
@@ -265,6 +265,6 @@
   box-shadow: var(--control-bezel);
 }
 :global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .destructive {
-  border-color: color-mix(in srgb, var(--error) 70%, var(--text));
+  border-color: color-mix(in srgb, var(--control-destructive) 70%, var(--text));
   box-shadow: var(--control-drop), var(--control-accent-sheen);
 }
