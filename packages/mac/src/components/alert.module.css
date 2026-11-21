@@ -179,10 +179,11 @@
 }
 .destructive {
   background: linear-gradient(var(--control-destructive-top), var(--control-destructive));
+  color: var(--on-destructive);
   box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--control-destructive) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
 }
 .destructive:active:not(:disabled) {
-  background: color-mix(in srgb, var(--control-destructive) 86%, var(--text));
+  background: var(--control-destructive-press);
 }
 .destructiveText {
   color: var(--error);
