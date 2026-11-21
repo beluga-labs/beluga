@@ -144,29 +144,31 @@
   --control-text: 13px;
   --control-text-small: 12px;
   /* Softly rounded, Beluga's own: a big button's corner a little rounder than a small one's, never a
-     capsule (that's the Round shape, below: Settings › Appearance). */
-  --control-radius-large: 8px;
-  --control-radius: 7px;
-  --control-radius-small: 6px;
-  /* controlColor: a button's face, rising a little to its top edge; and its pressed face. */
+     capsule (that's the Round shape, below: Settings › Appearance). Crisp rather than pill-like. */
+  --control-radius-large: 6px;
+  --control-radius: 5px;
+  --control-radius-small: 4px;
+  /* controlColor: a button's face, flat (no gradient); a shade deeper under the pointer, deeper still pressed. */
   --control: var(--bg-raised);
-  --control-top: var(--bg-raised);
+  --control-hover: color-mix(in srgb, var(--bg-raised) 94%, var(--text));
   --control-press: color-mix(in srgb, var(--bg-raised) 88%, var(--text));
-  /* The bezel: a hairline edge, a soft drop under it, and (dark) a lit top edge. */
+  /* The bezel: a hairline edge and a soft drop under it. */
   --control-edge: var(--hairline-strong);
   --control-drop: 0 0.5px 1px var(--hairline-strong);
   --control-sheen: inset 0 0 0 0 transparent;
   --control-bezel: 0 0 0 0.5px var(--control-edge), var(--control-drop), var(--control-sheen);
-  /* controlAccentColor, rising toward the light; what's drawn on it. */
+  /* controlAccentColor, flat; under the pointer it shifts a little toward the words' colour (darker
+     in light, lighter in dark); what's drawn on it. */
   --control-accent: var(--accent);
   --control-lift: var(--bg);
-  --control-accent-top: color-mix(in srgb, var(--control-accent) 84%, var(--control-lift));
+  --control-accent-hover: color-mix(in srgb, var(--control-accent) 90%, var(--text));
+  --control-accent-press: color-mix(in srgb, var(--control-accent) 82%, var(--text));
   --control-accent-edge: color-mix(in srgb, var(--control-accent) 70%, var(--text));
-  --control-accent-sheen: inset 0 0.5px 0 color-mix(in srgb, var(--control-lift) 28%, transparent);
+  --control-accent-sheen: inset 0 0 0 0 transparent;
   --on-accent: var(--bg);
-  /* A destructive default button (Delete): the theme's red as a face, rising a little to its top. */
+  /* A destructive default button (Delete): the theme's red as a flat face. */
   --control-destructive: var(--error-fill);
-  --control-destructive-top: color-mix(in srgb, var(--control-destructive) 84%, var(--control-lift));
+  --control-destructive-hover: color-mix(in srgb, var(--control-destructive) 92%, var(--text));
   --control-destructive-press: color-mix(in srgb, var(--control-destructive) 86%, var(--text));
   --on-destructive: var(--on-error-fill);
   /* disabledControlTextColor, as an opacity on the whole control. */
@@ -181,15 +183,14 @@
 }
 :root[data-theme='dark'] {
   --control: color-mix(in srgb, var(--bg-raised) 74%, var(--text));
-  --control-top: color-mix(in srgb, var(--bg-raised) 70%, var(--text));
+  --control-hover: color-mix(in srgb, var(--bg-raised) 68%, var(--text));
   --control-press: color-mix(in srgb, var(--bg-raised) 62%, var(--text));
   --control-edge: color-mix(in srgb, var(--bg-sunken) 60%, transparent);
   --control-drop: 0 0.5px 1px color-mix(in srgb, var(--bg-sunken) 70%, transparent);
-  --control-sheen: inset 0 0.5px 0 color-mix(in srgb, var(--text) 18%, transparent);
   --control-lift: var(--text);
   --on-accent: var(--text);
-  /* Flat, never lifted toward the light words (that paled it); pressed, it darkens. */
-  --control-destructive-top: var(--control-destructive);
+  /* Never lifted toward the light words (that paled it); pressed, it darkens. */
+  --control-destructive-hover: color-mix(in srgb, var(--control-destructive) 92%, var(--bg-sunken));
   --control-destructive-press: color-mix(in srgb, var(--control-destructive) 86%, var(--bg-sunken));
   --text-bg: color-mix(in srgb, var(--bg-raised) 92%, var(--text));
   --segment-track: color-mix(in srgb, var(--text) 9%, transparent);
