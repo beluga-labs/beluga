@@ -258,6 +258,12 @@ function FileDiff({ wsId, path, onClose }: { wsId: string; path: string; onClose
 }
 
 /** The right panel's Changes: the changed files and, picked one, its diff under them. */
+/**
+ * The file open under the list, per worktree: still open when the tab is drawn again (the panel
+ * hidden and shown, a diff shown full size and back, the tab moved to another group).
+ */
+const openFiles = new Map<string, string>();
+
 export function ChangesTab({ wsId }: { wsId: string }) {
   const api = useApi();
   const { client } = useBeluga();
@@ -269,7 +275,12 @@ export function ChangesTab({ wsId }: { wsId: string }) {
   // Show Changes from the Files tab: that file, once the list is here.
   const [asked] = useState(() => peekChangeAsk(wsId));
   useEffect(forgetChangeAsk, []);
-  const [open, setOpen] = useState<string>();
+  const [open, setShown] = useState<string | undefined>(() => openFiles.get(wsId));
+  const setOpen = (path: string | undefined): void => {
+    if (path) openFiles.set(wsId, path);
+    else openFiles.delete(wsId);
+    setShown(path);
+  };
   const inFocus = usePanelRuntime((r) => r.focus?.wsId === wsId && r.focus.kind === 'diff');
   // Open full size, the diff is across the center (no second copy here). Else under the list, or beside it in a wide tab.
   const split = useSplit(Boolean(open) && !inFocus);

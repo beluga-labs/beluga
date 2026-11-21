@@ -42,9 +42,33 @@ const ICONS: Record<PanelTab, IconName> = {
 const SLIDE_MS = 200;
 /** A drag of a divider is saved once it stops, not at every step. */
 const SAVE_MS = 250;
-/** No group gets narrower or (unfolded) shorter than this. */
-const GROUP_MIN_W = 200;
+/** No group gets narrower or (unfolded) shorter than this (Info and a file's preview still read well). */
+const GROUP_MIN_W = 260;
 const GROUP_MIN_H = 96;
+/** The chat's group: room for the message box and its controls, less only when the window has no more to give. */
+const CHAT_MIN_W = 460;
+const CHAT_FLOOR_W = 340;
+/** Room kept free at a strip's end, so a tab can still be dropped there. */
+const TAB_SLACK = 16;
+
+/**
+ * Tabs that don't all fit show their icon only: first the ones you're not on, then all of them
+ * (their name stays for VoiceOver and the tooltip). Instead of Dockview's overflow list, which hid
+ * a tab behind a menu as soon as a strip got narrow.
+ */
+function fitTabs(group: DockviewGroupPanel): void {
+  const el = group.element;
+  const header = el.querySelector<HTMLElement>(':scope > .dv-tabs-and-actions-container');
+  if (!header || header.hidden || !header.clientWidth) return;
+  const tabs = [...header.querySelectorAll<HTMLElement>('.dv-tab')];
+  const actions = header.querySelector<HTMLElement>('.dv-right-actions-container')?.offsetWidth ?? 0;
+  const room = header.clientWidth - actions - TAB_SLACK;
+  const need = (): number => tabs.reduce((sum, tab) => sum + tab.offsetWidth, 0);
+  for (const level of ['none', 'others', 'all'] as const) {
+    el.dataset.compact = level;
+    if (level === 'all' || need() <= room) return;
+  }
+}
 
 /** Beluga's look for Dockview (styles/dock.css gives its colours from Beluga's own). */
 export const DOCK_THEME: DockviewTheme = { name: 'beluga', className: 'dockview-theme-beluga', dndOverlayMounting: 'relative', dndPanelOverlay: 'content', dndTabIndicator: 'line' };
@@ -474,6 +498,10 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
   const live = useRef({ key: saveKey, reset, heights: new Map<string, number>(), leads: '', save: undefined as ReturnType<typeof setTimeout> | undefined });
   const folded = place === 'panel' && !prefs.bottomOpen;
   const components = useMemo(() => ({ tab: TabBody, ...(main ? { main } : {}) }), [main]);
+  // The most the center can be given (the window, less the sidebar and the narrowest panel): the chat's minimum gives way to it.
+  const { centerRoom } = useContext(FrameContext);
+  const room = useRef(centerRoom);
+  room.current = centerRoom;
 
   const ours = (run: () => void): void => {
     applying.current++;
@@ -488,6 +516,9 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
   const mark = (dock: DockviewApi): void => {
     const box = root.current?.getBoundingClientRect();
     if (!box?.height) return;
+    // Beside the chat: the groups that share its width (not the terminal under it).
+    const beside = place === 'center' ? dock.groups.filter((g) => !hasMain(g) && !(g.panels.length === 1 && g.panels[0]!.id === 'terminal')).length : 0;
+    const chatMin = Math.max(CHAT_FLOOR_W, Math.min(CHAT_MIN_W, room.current - beside * GROUP_MIN_W));
     for (const group of dock.groups) {
       // Dockview names each group a region after its tab: the tab's content is the region here (the Terminal, a file's preview), and its strip the tab list.
       group.element.removeAttribute('role');
@@ -497,6 +528,13 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
         // The chat alone has no strip: it's the center, as ever.
         const alone = group.panels.length === 1 && hasMain(group);
         if (group.header.hidden !== alone) group.header.hidden = alone;
+        // The chat keeps room for its message box; what's beside it, room to read.
+        const min = String(hasMain(group) ? chatMin : GROUP_MIN_W);
+        if (group.element.dataset.minWidth !== min) {
+          group.element.dataset.minWidth = min;
+          group.api.setConstraints({ minimumWidth: Number(min), minimumHeight: GROUP_MIN_H });
+        }
+        fitTabs(group);
         continue;
       }
       const lead = group.element.getBoundingClientRect().top - box.top < 2;
@@ -507,6 +545,7 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
       const strip = group.element.querySelector('.dv-void-container');
       if (lead) strip?.setAttribute('data-tauri-drag-region', '');
       else strip?.removeAttribute('data-tauri-drag-region');
+      fitTabs(group);
     }
     const docked = place === 'panel' ? dock.groups.filter((g) => !isLead(g)) : [];
     setDock(place, dock.groups.map(slotsOfGroup), docked.flatMap((g) => slotsOfGroup(g) as PanelTab[]));
@@ -652,6 +691,8 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
     const offs = [
       api.onDidLayoutChange(() => mark(api)),
       api.onDidActivePanelChange((e) => {
+        // The tab you're on keeps its name in a tight strip: the others make room for it.
+        if (e.panel?.group) fitTabs(e.panel.group);
         if (e.origin !== 'user') return;
         tabPicked();
         note(api);
@@ -685,8 +726,27 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
     el?.addEventListener('pointerdown', sash, true);
     el?.addEventListener('drop', touched, true);
     el?.addEventListener('dragend', touched, true);
+    // Quit, reload or close the window right after arranging something: it's saved first, not lost with the wait.
+    const flush = (): void => {
+      if (live.current.save) save(api, live.current.key);
+    };
+    const hidden = (): void => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', hidden);
+    // A narrower or wider dock (the window, a divider): its tabs fit again.
+    const resized = new ResizeObserver(() => {
+      for (const group of api.groups) fitTabs(group);
+    });
+    if (el) resized.observe(el);
     return () => {
       cancelAnimationFrame(frame);
+      resized.disconnect();
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', hidden);
       el?.removeEventListener('pointerdown', sash, true);
       el?.removeEventListener('drop', touched, true);
       el?.removeEventListener('dragend', touched, true);
@@ -699,11 +759,21 @@ function TabDock({ place, settled = true, onMinWidth, main }: { place: DockPlace
     };
   }, [api]);
 
+  // A window with less room for the center: the chat's minimum gives way.
+  useLayoutEffect(() => {
+    if (api && place === 'center') mark(api);
+  }, [api, centerRoom]);
+
   const shared = useMemo<DockShared>(() => ({ place, badges, settled, folded, tick }), [place, JSON.stringify(badges), settled, folded, tick]);
+  // A badge came or went (a count, a dot): the tabs fit again.
+  useLayoutEffect(() => {
+    if (api) for (const group of api.groups) fitTabs(group);
+  }, [api, shared]);
   return (
     <DockContext.Provider value={shared}>
+      {/* Dockview's own announcements are off: it changes tabs for every view you open (not you), so VoiceOver heard "Terminal opened" at each one. */}
       <div ref={root} className={cx(s.dockRoot, place === 'center' && s.centerDock)} data-dock={place} data-folded={folded}>
-        <DockviewReact className={s.dockview} theme={DOCK_THEME} components={components} defaultTabComponent={TabHead} rightHeaderActionsComponent={GroupActions} disableFloatingGroups onReady={(e) => setApi(e.api)} />
+        <DockviewReact className={s.dockview} theme={DOCK_THEME} components={components} defaultTabComponent={TabHead} rightHeaderActionsComponent={GroupActions} disableFloatingGroups disableTabsOverflowList announcements={false} onReady={(e) => setApi(e.api)} />
       </div>
     </DockContext.Provider>
   );

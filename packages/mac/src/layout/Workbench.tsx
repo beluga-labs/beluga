@@ -11,6 +11,8 @@ import { ResizeHandle, useWindowWidth } from './panel/ResizeHandle.js';
 import s from './Shell.module.css';
 
 const STEP = 24;
+/** What the glass panes' gaps and the dividers take from the center's room. */
+const ROOM_SLACK = 24;
 
 function SidebarRegion({ api }: IGridviewPanelProps) {
   const prefs = usePrefs();
@@ -33,7 +35,7 @@ function SidebarRegion({ api }: IGridviewPanelProps) {
 
 function CenterRegion() {
   return (
-    <div className={s.region}>
+    <div className={s.region} data-region="center">
       {/* This Mac's center, or a page on one of your computers drawn with its client (BLG-784). */}
       <CenterPane />
     </div>
@@ -102,12 +104,14 @@ export function Workbench() {
     if (panelOpen && panel.width !== panelWidth) panel.setSize({ width: panelWidth });
   }, [frame, panelOpen, panelWidth, panelFloor, panelMax]);
 
-  // The center never gets narrower than the groups in its dock (the chat, and what's beside it).
-  const centerFloor = Math.max(CENTER_FLOOR, centerMin);
+  // The center never gets narrower than the groups in its dock (the chat, and what's beside it),
+  // nor asks for more than the window has (its dock's groups give way first: centerRoom).
+  const centerRoom = Math.max(CENTER_FLOOR, windowWidth - sidebarWidth - (panelOpen ? PANEL_MIN : 0) - ROOM_SLACK);
+  const centerFloor = Math.min(centerRoom, Math.max(CENTER_FLOOR, centerMin));
   useLayoutEffect(() => {
     if (frame) regionApi(frame, 'center')?.setConstraints({ minimumWidth: centerFloor });
   }, [frame, centerFloor]);
-  const shared = useMemo(() => ({ onPanelMin: setPanelMin, onCenterMin: setCenterMin, onPanelOpen: setPanelOpen, panelOpen }), [panelOpen]);
+  const shared = useMemo(() => ({ onPanelMin: setPanelMin, onCenterMin: setCenterMin, onPanelOpen: setPanelOpen, panelOpen, centerRoom }), [panelOpen, centerRoom]);
 
   // A divider you dragged: the width is kept when you let go (a window that got narrower changes nothing you chose).
   useEffect(() => {
@@ -140,11 +144,12 @@ export function Workbench() {
       delete document.documentElement.dataset.resizing;
       keep();
     };
-    // Double-click a divider: that side goes back to its usual width.
+    // Double-click a divider: that side goes back to its usual width. Which side is where it is
+    // (left of the center's middle: the sidebar's), whichever regions show.
     const twice = (e: MouseEvent): void => {
-      const at = ownSash(e.target);
-      if (at < 0) return;
-      const sidebarSash = getPrefs().sidebar && at === 0;
+      if (ownSash(e.target) < 0) return;
+      const center = el.querySelector('[data-region="center"]')?.getBoundingClientRect();
+      const sidebarSash = center ? e.clientX < center.left + center.width / 2 : false;
       setPrefs(sidebarSash ? { sidebarWidth: SIDEBAR_DEFAULT } : { panelWidth: PANEL_DEFAULT });
     };
     el.addEventListener('pointerdown', down, true);

@@ -76,6 +76,16 @@
   --dv-activegroup-hiddenpanel-tab-color: var(--text-2);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--text-2);
 }
+/* The panel's top row continues the window's title row: its strip is as tall (less the gap over a
+   glass panel), its tabs along the bottom, so its line meets the toolbar's. */
+.dockview-theme-beluga .dv-groupview[data-strip='lead'] {
+  --dv-tabs-and-actions-container-height: calc(var(--titlebar-h) - var(--glass-inset, 0px));
+}
+/* Icons only (a narrow strip): a little less room each side of them. */
+.dockview-theme-beluga .dv-groupview[data-compact='others'] .dv-tab:not(.dv-active-tab),
+.dockview-theme-beluga .dv-groupview[data-compact='all'] .dv-tab {
+  --tab-pad: 11px;
+}
 .dockview-theme-beluga .dv-groupview > .dv-tabs-and-actions-container {
   align-items: flex-end;
   padding: 0;
@@ -170,7 +180,9 @@
 
 /* ---- dividers */
 
-.dockview-theme-beluga .dv-sash {
+/* Over the regions' content, under every menu, popover and sheet (Dockview's own 99 put a divider
+   over a menu that crossed it: the click went to the divider). As specific as Dockview's rule. */
+.dockview-theme-beluga .dv-split-view-container .dv-sash-container .dv-sash {
   z-index: 5;
 }
 :root[data-motion='reduce'] .dockview-theme-beluga .dv-sash {

@@ -12,5 +12,7 @@ export interface Frame {
    */
   readonly onPanelOpen: (open: boolean) => void;
   readonly panelOpen: boolean;
+  /** The most the center can be given: the window, less the sidebar and (open) the narrowest panel. */
+  readonly centerRoom: number;
 }
-export const FrameContext = createContext<Frame>({ onPanelMin: () => undefined, onCenterMin: () => undefined, onPanelOpen: () => undefined, panelOpen: false });
+export const FrameContext = createContext<Frame>({ onPanelMin: () => undefined, onCenterMin: () => undefined, onPanelOpen: () => undefined, panelOpen: false, centerRoom: Number.MAX_SAFE_INTEGER });

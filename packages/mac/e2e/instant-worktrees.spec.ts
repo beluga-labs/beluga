@@ -56,6 +56,8 @@ test('a worktree’s right-click menu has Delete… beside Archive…; archiving
   await showProject(page, 'add-auth');
   const row = sidebar(page).getByRole('button', { name: 'add-auth', exact: true });
   await row.click({ button: 'right' });
+  // The menu is drawn before its items are read (on a busy Mac it can take a frame or two).
+  await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
   const items = await page.getByRole('menuitem').allTextContents();
   expect(items).toEqual(expect.arrayContaining(['Archive…', 'Delete…']));
   expect(items.indexOf('Delete…')).toBe(items.indexOf('Archive…') + 1);

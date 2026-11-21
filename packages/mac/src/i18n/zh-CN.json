@@ -12654,5 +12654,7 @@
  "Started a new Antigravity conversation (the last one couldn’t be opened)": "已开始新的 Antigravity 对话（上一个无法打开）",
  "The Antigravity CLI isn’t installed on this {0}. Install it (curl -fsSL https://antigravity.google/cli/install.sh | bash), then try again.": "这台 {0} 上没有安装 Antigravity CLI。请安装它（curl -fsSL https://antigravity.google/cli/install.sh | bash），然后再试一次。",
  "Beluga runs Claude Code, Codex, OpenCode, GitHub Copilot, Antigravity or a local model on each of your tasks, each in its own copy of the repository. You watch them work, answer when they ask, and merge what’s done.": "Beluga 让 Claude Code、Codex、OpenCode、GitHub Copilot、Antigravity 或本地模型分别处理你的每个任务，每个都在仓库的独立副本里。你看着它们工作，在它们提问时回答，然后合并完成的工作。",
- "{who} asks": "{who} 提问"
+ "{who} asks": "{who} 提问",
+ "Round buttons and floating glass panes, as macOS 26 draws its apps.": "圆形按钮和悬浮的玻璃面板，与 macOS 26 的应用一致。",
+ "Softly rounded buttons, with the sidebar and panel the window’s full height.": "柔和圆角的按钮，侧边栏和面板占满窗口高度。"
 }

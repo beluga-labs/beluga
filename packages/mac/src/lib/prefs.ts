@@ -23,6 +23,12 @@ export interface UiPrefs {
   /** Text size: 12–16 px for body text. */
   readonly textSize: number;
   readonly density: 'compact' | 'comfortable';
+  /**
+   * The window's style (Settings › Appearance › Style): Beluga's own (softly rounded controls, the
+   * sidebar and panel full height), or macOS 26's (capsule controls, floating glass panes) where the
+   * window blurs. See docs/mac-controls.md.
+   */
+  readonly look: 'beluga' | 'macos';
   /** How wide the conversation can get (characters, roughly). */
   readonly chatWidth: 'narrow' | 'wide' | 'full';
   /** You picked chatWidth in Settings (before, Wide was saved as the default without you choosing it: BLG-697). */
@@ -178,6 +184,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   accent: 'system',
   textSize: 13,
   density: 'comfortable',
+  look: 'beluga',
   chatWidth: 'full',
   chatWidthPicked: false,
   inspector: true,
@@ -275,7 +282,7 @@ function load(): UiPrefs {
   try {
     // Older versions docked the terminal beside or under the chat: see migratePrefs.
     const saved = { ...DEFAULT_PREFS, ...(migratePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>) as Partial<UiPrefs>) };
-    return { ...saved, sendDuringTurn: saved.sendDuringTurn === 'steer' ? 'steer' : 'queue', panelLayout: normalizeLayout(saved.panelLayout), panelShown: shownOf(saved.panelShown), dockLayouts: layoutsOf(saved.dockLayouts), centerTabs: centerOf(saved.centerTabs), sidebarWidth: widthOf(saved.sidebarWidth), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system' };
+    return { ...saved, sendDuringTurn: saved.sendDuringTurn === 'steer' ? 'steer' : 'queue', panelLayout: normalizeLayout(saved.panelLayout), panelShown: shownOf(saved.panelShown), dockLayouts: layoutsOf(saved.dockLayouts), centerTabs: centerOf(saved.centerTabs), sidebarWidth: widthOf(saved.sidebarWidth), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system', look: saved.look === 'macos' ? 'macos' : 'beluga' };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -363,6 +370,7 @@ export function apply(p: UiPrefs = shown): void {
   root.dataset.palette = theme.id;
   root.dataset.edges = theme.lit ? 'lit' : 'soft';
   root.dataset.density = p.density;
+  root.dataset.look = p.look;
   root.dataset.motion = p.reduceMotion ? 'reduce' : 'full';
   // Only a Mac's window blurs what's behind it: Linux and Windows get the solid look. A theme's own
   // sidebar is opaque (its colours, true black on OLED), so the blur under it would only cost.

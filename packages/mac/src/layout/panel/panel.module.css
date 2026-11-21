@@ -91,6 +91,17 @@
 .tabIn > .tabDot {
   margin-left: 5px;
 }
+/* A strip too narrow for every name (RightPanel.tsx fitTabs): the tabs you're not on show their
+   icon only, then all of them. The name stays, out of sight, for VoiceOver; the tooltip says it. */
+:global(.dv-groupview[data-compact='others']) :global(.dv-tab:not(.dv-active-tab)) .tabName,
+:global(.dv-groupview[data-compact='all']) .tabName {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .paneToggle {
   flex: none;
   margin: 0 4px;
@@ -723,12 +734,12 @@
 }
 
 /* Liquid Glass: the panel is the same glass as the sidebar, on the right. */
-:global(:root[data-os='mac'][data-transparency='full']) .panel {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .panel {
   height: auto;
   margin: var(--glass-inset) var(--glass-inset) var(--glass-inset) 0;
   border-radius: var(--glass-radius);
   box-shadow: var(--glass-ring), var(--glass-drop);
 }
-:global(:root[data-os='mac'][data-transparency='full']) .inner {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .inner {
   border-left: 0;
 }

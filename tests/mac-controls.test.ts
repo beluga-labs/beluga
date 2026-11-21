@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_PREFS } from '../packages/mac/src/lib/prefs.js';
 
 /**
  * The Mac app's controls are drawn from one set of tokens (styles/tokens.css, "Controls"), named
@@ -52,11 +53,11 @@ describe('the control tokens', () => {
     const px = (name: string): number => Number(new RegExp(`${name}:\\s*(\\d+)px`).exec(base)?.[1]);
     expect([px('--control-h-small'), px('--control-h'), px('--control-h-large')]).toEqual([20, 22, 28]);
     expect([px('--control-text-small'), px('--control-text'), px('--control-text-large')]).toEqual([12, 13, 13]);
-    expect([px('--control-radius-small'), px('--control-radius'), px('--control-radius-large')]).toEqual([4, 5, 7]);
+    expect([px('--control-radius-small'), px('--control-radius'), px('--control-radius-large')]).toEqual([6, 7, 8]);
     // No text under 12px (Chinese doesn't read there), so no mini size.
     expect(tokens).not.toContain('--control-h-mini');
     const doc = readFileSync(path.join('docs', 'mac-controls.md'), 'utf8');
-    for (const row of ['| **Large** | 28px | 13px | 7px', '| **Regular** (default) | 22px | 13px | 5px', '| **Small** | 20px | 12px | 4px']) expect(doc).toContain(row);
+    for (const row of ['| **Large** | 28px | 13px | 8px', '| **Regular** (default) | 22px | 13px | 7px', '| **Small** | 20px | 12px | 6px']) expect(doc).toContain(row);
   });
 
   it('give each size a class to the shared controls that take one', () => {
@@ -177,7 +178,8 @@ describe('the control tokens', () => {
 });
 
 describe('Liquid Glass', () => {
-  const GATE = ":root[data-os='mac'][data-transparency='full']";
+  // Liquid Glass: only with the macOS style (Settings › Appearance › Style) on a Mac whose window blurs.
+  const GATE = ":root[data-os='mac'][data-transparency='full'][data-look='macos']";
   const SHEETS_WITH_GLASS = [
     ['layout', 'Shell.module.css'],
     ['layout', 'Sidebar.module.css'],
@@ -191,10 +193,16 @@ describe('Liquid Glass', () => {
     ['tasks', 'NewTaskSheet.module.css'],
   ] as const;
 
-  it('turns capsules on only on a Mac whose window blurs', () => {
+  it('makes controls capsules and the panes glass only with the macOS style (Settings › Appearance), never by default', () => {
+    expect(DEFAULT_PREFS.look).toBe('beluga');
+    // The style is put on the page (lib/prefs.ts apply) for the styles to follow.
+    expect(read('lib', 'prefs.ts')).toContain('root.dataset.look = p.look;');
     expect(block(':root', '--control-h')).not.toContain('999px');
-    const glass = block(GATE, '--control-radius-large');
-    for (const name of ['--control-radius-large', '--control-radius', '--control-radius-small']) expect(glass).toMatch(new RegExp(`${name}: 999px;`));
+    const round = block(":root[data-look='macos']", '--control-radius-large');
+    for (const name of ['--control-radius-large', '--control-radius', '--control-radius-small']) expect(round).toMatch(new RegExp(`${name}: 999px;`));
+    // The glass window keeps the shape you chose: it sets no corner of its own.
+    const glass = block(GATE, '--glass-inset');
+    expect(glass).not.toContain('--control-radius');
     for (const name of ['--glass-inset', '--glass-radius', '--glass-fill', '--glass-edge', '--glass-rim', '--glass-drop', '--glass-chip', '--glass-ring']) expect(glass).toContain(`${name}:`);
     expect(block(`${GATE}[data-theme='dark']`, '--glass-edge')).toContain('--glass-drop:');
     // A capsule's ring is a border: the bezel keeps no 0.5px spread shadow where the controls are capsules.
@@ -205,7 +213,7 @@ describe('Liquid Glass', () => {
     const css = strip(read('tasks', 'NewTaskSheet.module.css'));
     expect(css).toMatch(/\.step \{[^}]*border-radius: var\(--control-radius\)/);
     const scale = css.split('}').find((r) => r.includes(`:global(${GATE}) .scale {`));
-    expect(scale).toContain('border-radius: 999px;');
+    expect(scale).toContain('border-radius: calc(var(--control-radius) + 2px);');
     // The chosen step sits in the middle: its shadow has no drop below that would fill the gap under it.
     const on = [strip(read('tasks', 'NewTaskSheet.module.css')), strip(read('components', 'ui.module.css'))]
       .flatMap((c) => c.split('}'))

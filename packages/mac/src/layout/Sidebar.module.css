@@ -542,7 +542,7 @@
 }
 
 /* Liquid Glass: a pane of glass, inset from the window's edges, its width kept by giving the inset back. */
-:global(:root[data-os='mac'][data-transparency='full']) .sidebar {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .sidebar {
   /* (Its region in the frame is as wide as you dragged it: Workbench.tsx.) */
   width: calc(100% - var(--glass-inset));
   height: calc(100% - 2 * var(--glass-inset));

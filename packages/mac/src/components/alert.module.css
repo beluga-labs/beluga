@@ -253,18 +253,18 @@
 }
 
 /* Liquid Glass: the buttons are capsules, so their 0.5px ring is a real border (see ui.module.css). */
-:global(:root[data-os='mac'][data-transparency='full']) .button {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .button {
   border: 0.5px solid var(--control-edge);
 }
-:global(:root[data-os='mac'][data-transparency='full']) .default {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .default {
   border-color: var(--control-accent-edge);
   box-shadow: var(--control-drop), var(--control-accent-sheen);
 }
-:global(:root[data-os='mac'][data-transparency='full'][data-window='idle']) .default:not(.destructive) {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos'][data-window='idle']) .default:not(.destructive) {
   border-color: var(--control-edge);
   box-shadow: var(--control-bezel);
 }
-:global(:root[data-os='mac'][data-transparency='full']) .destructive {
+:global(:root[data-os='mac'][data-transparency='full'][data-look='macos']) .destructive {
   border-color: color-mix(in srgb, var(--error) 70%, var(--text));
   box-shadow: var(--control-drop), var(--control-accent-sheen);
 }
