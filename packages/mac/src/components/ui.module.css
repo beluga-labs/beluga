@@ -9,7 +9,11 @@
   font-size: var(--control-text);
   font-weight: 400;
   white-space: nowrap;
-  transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
+  transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+/* Every push button answers the pointer: a shade deeper on hover (below, per style), pressed in a touch. */
+.button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .small {
   gap: 5px;
@@ -26,25 +30,34 @@
   font-size: var(--control-text-large);
 }
 .plain {
-  background: linear-gradient(var(--control-top), var(--control));
+  background: var(--control);
   box-shadow: var(--control-bezel);
+}
+.plain:hover:not(:disabled) {
+  background: var(--control-hover);
 }
 .plain:active:not(:disabled) {
   background: var(--control-press);
 }
 .primary {
-  background: linear-gradient(var(--control-accent-top), var(--control-accent));
+  background: var(--control-accent);
   color: var(--on-accent);
-  box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop), var(--control-accent-sheen);
+  box-shadow: 0 0 0 0.5px var(--control-accent-edge), var(--control-drop);
+}
+.primary:hover:not(:disabled) {
+  background: var(--control-accent-hover);
 }
 .primary:active:not(:disabled) {
-  background: color-mix(in srgb, var(--control-accent) 86%, var(--text));
+  background: var(--control-accent-press);
 }
 /* Merging changes your main branch: green, as GitHub's Merge, and never the everyday blue. */
 .merge {
-  background: linear-gradient(color-mix(in srgb, var(--merge) 86%, var(--control-lift)), var(--merge));
+  background: var(--merge);
   color: white;
-  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--merge) 70%, var(--text)), var(--control-drop), var(--control-accent-sheen);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--merge) 70%, var(--text)), var(--control-drop);
+}
+.merge:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--merge) 90%, black);
 }
 .merge:active:not(:disabled) {
   background: color-mix(in srgb, var(--merge) 86%, black);
@@ -61,8 +74,11 @@
 }
 .danger {
   color: var(--error);
-  background: linear-gradient(var(--control-top), var(--control));
+  background: var(--control);
   box-shadow: var(--control-bezel);
+}
+.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 8%, var(--control));
 }
 .danger:active:not(:disabled) {
   background: color-mix(in srgb, var(--error) 12%, var(--control));
@@ -78,7 +94,7 @@
  */
 .primary:disabled,
 .merge:disabled {
-  background: linear-gradient(var(--control-top), var(--control));
+  background: var(--control);
   color: var(--text);
   box-shadow: var(--control-bezel);
 }

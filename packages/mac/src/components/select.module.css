@@ -10,13 +10,16 @@
   height: var(--control-h);
   padding: 0 3px 0 8px;
   border-radius: var(--control-radius);
-  background: linear-gradient(var(--control-top), var(--control));
+  background: var(--control);
   box-shadow: var(--control-bezel);
   color: var(--text);
   font-size: var(--control-text);
   text-align: left;
   white-space: nowrap;
   transition: background var(--dur-fast), box-shadow var(--dur-fast);
+}
+.trigger:hover:not(:disabled) {
+  background: var(--control-hover);
 }
 .trigger:active:not(:disabled),
 .trigger[aria-expanded='true'] {
@@ -93,8 +96,7 @@
   margin-left: auto;
   padding: 3px 4.5px;
   border-radius: 4px;
-  background: linear-gradient(var(--control-accent-top), var(--control-accent));
-  box-shadow: var(--control-accent-sheen);
+  background: var(--control-accent);
   color: var(--on-accent);
 }
 .small .chevrons {
