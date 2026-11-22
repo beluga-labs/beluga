@@ -451,9 +451,8 @@ export function useAttachments({ channel, box, text, setText, chipLinks, finderD
       const at = r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom } : undefined;
       return dropHits(at, x, y, appDropScale()) ? at : undefined;
     };
-    void import('@tauri-apps/api/webview').then(async ({ getCurrentWebview }) => {
-      const un = await getCurrentWebview().onDragDropEvent((e) => {
-        const p = e.payload;
+    void import('../lib/file-drop.js').then(async ({ onFileDrop }) => {
+      const un = await onFileDrop((p) => {
         if (p.type === 'leave') return setDragOver(undefined);
         const here = zoneAt(p.position.x, p.position.y);
         if (p.type === 'drop') {

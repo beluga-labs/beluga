@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { imageReadOf } from '../packages/mac/src/chat/steps/image-read.js';
 import { dropHits, dropScale, droppedFiles, sameBox } from '../packages/mac/src/chat/drop-model.js';
+import { carriesFiles, dropPosition } from '../packages/mac/src/lib/file-drop.js';
 
 /** A step reading a picture shows its name as a badge (BLG-19). */
 describe('image reads in steps', () => {
@@ -67,5 +68,28 @@ describe('Finder drops', () => {
     ]);
     expect(got.files.map((f) => f.path)).toEqual(['/a.png', '/b.txt']);
     expect(got.skipped).toBe(2);
+  });
+});
+
+/** On Windows the page takes the drag itself (so a panel tab can be dragged too) and reports it as the app would. */
+describe('files dropped on the page (Windows)', () => {
+  it('takes a drag of files, never one of the page itself', () => {
+    expect(carriesFiles(['Files'])).toBe(true);
+    expect(carriesFiles(['text/plain', 'Files'])).toBe(true);
+    expect(carriesFiles(['text/plain'])).toBe(false);
+    expect(carriesFiles([])).toBe(false);
+    expect(carriesFiles(undefined)).toBe(false);
+  });
+
+  it('says where in the units the app uses, so the same place is hit at any scaling', () => {
+    const box = { left: 100, top: 50, right: 500, bottom: 450 };
+    for (const dpr of [1, 1.5, 2]) {
+      const scale = dropScale('windows', dpr);
+      const at = dropPosition(200, 100, scale);
+      expect(at).toEqual({ x: 200 * dpr, y: 100 * dpr });
+      expect(dropHits(box, at.x, at.y, scale)).toBe(true);
+      const out = dropPosition(600, 100, scale);
+      expect(dropHits(box, out.x, out.y, scale)).toBe(false);
+    }
   });
 });

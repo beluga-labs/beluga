@@ -8,6 +8,8 @@
 mod daemon;
 #[cfg(target_os = "macos")]
 mod drag_inside;
+#[cfg(windows)]
+mod drop_paths;
 mod export;
 mod focus;
 mod i18n;
@@ -361,6 +363,11 @@ pub fn run() {
                     // SAFETY: with_webview runs this on the main thread with the window's live WKWebView.
                     unsafe { drag_inside::install(webview.inner().cast()) }
                 });
+            }
+            // Files dropped on the window, with their paths (src/drop_paths.rs).
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                drop_paths::install(&window);
             }
             menu::tray(&handle)?;
             spout::start(&handle);
