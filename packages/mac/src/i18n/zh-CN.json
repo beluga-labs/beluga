@@ -4877,7 +4877,7 @@
  "Older comments are on GitHub": "更早的评论在 GitHub 上",
  "Ollama isn't answering. Start it (OLLAMA_CONTEXT_LENGTH=32768 ollama serve).": "Ollama 没有响应。请启动它（OLLAMA_CONTEXT_LENGTH=32768 ollama serve）。",
  "Ollama on {0}": "{0} 上的 Ollama",
- "Ollama on {0}, or any Anthropic-compatible address (LiteLLM, a company proxy). Same tools and features; how good the answers are depends on the model. Pick Local model in the agent box you type in.": "{0} 上的 Ollama，或任何兼容 Anthropic 的地址（LiteLLM、公司代理）。工具和功能相同；回答质量取决于模型。在输入框的智能体菜单中选择“本地模型”。",
+ "Ollama on {0}, or any Anthropic- or OpenAI-compatible address (LiteLLM, a company proxy, a gateway). Same tools and features; how good the answers are depends on the model. Pick Local model in the agent box you type in.": "{0} 上的 Ollama，或任何兼容 Anthropic 或 OpenAI 的地址（LiteLLM、公司代理、网关）。工具和功能相同；回答质量取决于模型。在输入框的智能体菜单中选择“本地模型”。",
  "Ollama on {0}, or any endpoint you add. Free, on your own models.": "{0} 上的 Ollama，或你添加的任何端点。免费，使用你自己的模型。",
  "Ollama or another server on your computer.": "你电脑上的 Ollama 或其他服务器。",
  "On": "开",
@@ -12661,5 +12661,9 @@
  "Beluga runs Claude Code, Codex, OpenCode, GitHub Copilot, Antigravity or a local model on each of your tasks, each in its own copy of the repository. You watch them work, answer when they ask, and merge what’s done.": "Beluga 让 Claude Code、Codex、OpenCode、GitHub Copilot、Antigravity 或本地模型分别处理你的每个任务，每个都在仓库的独立副本里。你看着它们工作，在它们提问时回答，然后合并完成的工作。",
  "{who} asks": "{who} 提问",
  "Round buttons and floating glass panes, as macOS 26 draws its apps.": "圆形按钮和悬浮的玻璃面板，与 macOS 26 的应用一致。",
- "Softly rounded buttons, with the sidebar and panel the window’s full height.": "柔和圆角的按钮，侧边栏和面板占满窗口高度。"
+ "Softly rounded buttons, with the sidebar and panel the window’s full height.": "柔和圆角的按钮，侧边栏和面板占满窗口高度。",
+ "Format": "格式",
+ "It has /v1/messages: Claude Code calls it directly": "它有 /v1/messages：Claude Code 直接调用",
+ "It has only /v1/chat/completions: Beluga translates on this computer": "它只有 /v1/chat/completions：Beluga 在这台电脑上转换格式",
+ "· OpenAI format": "· OpenAI 格式"
 }
