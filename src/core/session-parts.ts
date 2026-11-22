@@ -132,7 +132,7 @@ export function createSessionParts(session: Session, opts: SessionOptions): Sess
         savedChats: (loaded) => assistantOf(session)?.savedChats(loaded) ?? [],
         loadSavedChat: (id) => assistantOf(session)?.loadSaved(id),
         setPrefs: (prefs) => session.setPrefs(prefs),
-        confirm: (title, detail) => session.ask('request', title, detail),
+        confirm: (title, detail, channel) => session.ask('request', title, detail, undefined, channel),
         open: opts.open,
         listModels: async () => (await session.backend?.listModels?.()) as readonly ModelChoice[] | undefined,
         ...(opts.updateAgent ? { updateAgent: opts.updateAgent } : {}),

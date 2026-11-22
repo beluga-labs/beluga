@@ -14,9 +14,9 @@ pop-up and a button on one row line up without adjusting anything.
 
 | Size | Height | Text | Corner | Icon | Padding (button) | Checkbox | Switch |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Large** | 28px | 13px | 8px | 16px | 0 16px | 14px | 32 × 19 |
-| **Regular** (default) | 22px | 13px | 7px | 14px | 0 12px | 14px | 32 × 19 |
-| **Small** | 20px | 12px | 6px | 12px | 0 8px | 12px | 26 × 15 |
+| **Large** | 28px | 13px | 6px | 16px | 0 16px | 14px | 32 × 19 |
+| **Regular** (default) | 22px | 13px | 5px | 14px | 0 12px | 14px | 32 × 19 |
+| **Small** | 20px | 12px | 4px | 12px | 0 8px | 12px | 26 × 15 |
 
 - AppKit's mini size (16px, 9pt) is left out: Chinese and Japanese text don't read at that size.
 - Small uses 12px text, a point above AppKit's 11pt, for the same reason.
@@ -31,8 +31,11 @@ pop-up and a button on one row line up without adjusting anything.
 ## Shape
 
 Controls are **softly rounded** by default: a little rounder than a plain web button, never as
-round as a macOS 26 capsule. A big call to action (Create PR, Add Project) has the 8px corner;
+round as a macOS 26 capsule. A big call to action (Create PR, Add Project) has the 6px corner;
 regular and small controls a slightly smaller one, so on their shorter height they look as soft.
+Faces are flat, never a gradient or a lit top edge, and every button answers the pointer: a
+shade deeper on hover (`--control-hover`, `--control-accent-hover`), deeper still and pressed
+in a touch (`scale(0.97)`) while held.
 
 Settings › Appearance › Style has a second style, **macOS**: buttons, fields and segmented
 controls become capsules, as macOS 26 draws them (`:root[data-look='macos']` sets

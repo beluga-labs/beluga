@@ -36,9 +36,9 @@ const SHEETS = [
 describe('the control tokens', () => {
   it('are defined for light, and dark changes only the surfaces', () => {
     const base = block(':root', '--control-h');
-    for (const name of ['--control', '--control-top', '--control-press', '--control-edge', '--control-bezel', '--control-accent', '--on-accent', '--text-bg', '--segment-track', '--segment-on', '--focus-ring']) expect(base).toContain(`${name}:`);
+    for (const name of ['--control', '--control-hover', '--control-press', '--control-accent-hover', '--control-edge', '--control-bezel', '--control-accent', '--on-accent', '--text-bg', '--segment-track', '--segment-on', '--focus-ring']) expect(base).toContain(`${name}:`);
     const dark = block(":root[data-theme='dark']", '--control');
-    expect(dark).not.toContain('--control-h');
+    expect(dark).not.toMatch(/--control-h(?:-small|-large)?:/);
     expect(dark).not.toContain('--focus-ring');
   });
 
@@ -53,11 +53,11 @@ describe('the control tokens', () => {
     const px = (name: string): number => Number(new RegExp(`${name}:\\s*(\\d+)px`).exec(base)?.[1]);
     expect([px('--control-h-small'), px('--control-h'), px('--control-h-large')]).toEqual([20, 22, 28]);
     expect([px('--control-text-small'), px('--control-text'), px('--control-text-large')]).toEqual([12, 13, 13]);
-    expect([px('--control-radius-small'), px('--control-radius'), px('--control-radius-large')]).toEqual([6, 7, 8]);
+    expect([px('--control-radius-small'), px('--control-radius'), px('--control-radius-large')]).toEqual([4, 5, 6]);
     // No text under 12px (Chinese doesn't read there), so no mini size.
     expect(tokens).not.toContain('--control-h-mini');
     const doc = readFileSync(path.join('docs', 'mac-controls.md'), 'utf8');
-    for (const row of ['| **Large** | 28px | 13px | 8px', '| **Regular** (default) | 22px | 13px | 7px', '| **Small** | 20px | 12px | 6px']) expect(doc).toContain(row);
+    for (const row of ['| **Large** | 28px | 13px | 6px', '| **Regular** (default) | 22px | 13px | 5px', '| **Small** | 20px | 12px | 4px']) expect(doc).toContain(row);
   });
 
   it('give each size a class to the shared controls that take one', () => {
