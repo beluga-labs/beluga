@@ -174,6 +174,8 @@ export interface TurnFacts {
   /** The context as the run last reported it: tokens in the window, and the window's size. */
   readonly contextTokens?: number;
   readonly contextWindow?: number;
+  /** In a project left out of usage statistics: it goes only to your own trace destinations. */
+  readonly leftOut?: boolean;
 }
 
 const PROVIDERS: Readonly<Record<string, string>> = { claude: 'anthropic', local: 'local', codex: 'openai', copilot: 'github', antigravity: 'google', opencode: 'opencode' };

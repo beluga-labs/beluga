@@ -71,12 +71,15 @@ export interface Sender {
   readonly version: string;
 }
 
-const resource = (s: Sender): { attributes: OtlpAttr[] } => ({
-  attributes: attrs({ 'service.name': 'beluga', 'service.version': s.version, 'deployment.environment.name': 'production', 'user.id': s.installId }),
+/** Extra resource attributes a destination reads its project from (Arize's `openinference.project.name`). */
+export type ExtraResource = Readonly<Record<string, string>>;
+
+const resource = (s: Sender, extra: ExtraResource = {}): { attributes: OtlpAttr[] } => ({
+  attributes: attrs({ 'service.name': 'beluga', 'service.version': s.version, 'deployment.environment.name': 'production', 'user.id': s.installId, ...extra }),
 });
 
-export function tracesRequest(sender: Sender, spans: readonly OtlpSpan[]): unknown {
-  return { resourceSpans: [{ resource: resource(sender), scopeSpans: [{ scope: { name: 'beluga', version: sender.version }, spans }] }] };
+export function tracesRequest(sender: Sender, spans: readonly OtlpSpan[], extra?: ExtraResource): unknown {
+  return { resourceSpans: [{ resource: resource(sender, extra), scopeSpans: [{ scope: { name: 'beluga', version: sender.version }, spans }] }] };
 }
 
 export function logsRequest(sender: Sender, records: readonly OtlpLog[]): unknown {
