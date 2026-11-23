@@ -15,7 +15,7 @@ import { usePrefs } from '../lib/prefs.js';
 import { Markdown } from '../chat/Markdown.js';
 import { plainText } from '../chat/message-menu.js';
 import { GroupAvatar, PersonAvatar } from './Avatars.js';
-import { ASK_EVENT, NetComposer, type Outgoing, QUOTE_EVENT, useChannelTasks } from './NetComposer.js';
+import { ASK_EVENT, NetComposer, type Outgoing, QUOTE_EVENT, useChannelWorld } from './NetComposer.js';
 import { MessageFiles } from './ChatFiles.js';
 import { ReactButton, ReactionChips, useNetReact } from './Reactions.js';
 import r from './reactions.module.css';
@@ -25,7 +25,7 @@ import { NotesBox } from '../call/NotesBox.js';
 import { MissedCall } from '../call/MissedCall.js';
 import type { CallNotesView, MissedCallView } from '@beluga/shared/calls.js';
 import { addBlobs, addPaths } from './attachments.js';
-import { type RunPlace, askedLine, authorLabel, channelName, channelWorld, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
+import { type RunPlace, askedLine, authorLabel, channelName, isMain, liveIn, liveLine, runPlaces } from './chat-model.js';
 import { conversationOf, dayLabel, keepsFollowing, membersLine, mergeMessages, presenceLine, sameDay, shownState, unreadLine, unreadSince } from './net-model.js';
 import { showWaiting, useChatPeople } from './use-chat-people.js';
 import { openNet } from './net-sheets.js';
@@ -612,8 +612,7 @@ function Conversation({ id }: { id: string }) {
     () => (friend ? [{ peerId: friend.peerId, name: friend.name }] : (group?.members.filter((m) => !m.self).map((m) => ({ peerId: m.peerId, name: m.name })) ?? [])),
     [friend?.peerId, friend?.name, group?.members],
   );
-  const sharedTasks = useChannelTasks(people);
-  const world = useMemo(() => channelWorld(me, people, sharedTasks), [me, people, sharedTasks]);
+  const world = useChannelWorld(me, people);
   // Your Claude, asked here, waits for your OK to ask someone ("Ask Alice's Claude?"), or asked
   // someone whose card is in your DM with them (not in this channel): shown here until it's over.
   const tasks = useApp((st) => st.gateway.tasks);
