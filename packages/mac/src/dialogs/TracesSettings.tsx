@@ -42,7 +42,7 @@ export function TraceLogo({ id, size = 22 }: { readonly id: TraceProviderId; rea
 
 const STATE: Readonly<Record<TraceState, { readonly tone: 'ok' | 'warn' | 'error' | 'muted'; readonly words: string }>> = {
   off: { tone: 'muted', words: 'Off' },
-  waiting: { tone: 'muted', words: 'Connected. Traces go after your next turn.' },
+  waiting: { tone: 'ok', words: 'Connected. Traces go after your next turn.' },
   sending: { tone: 'ok', words: 'Sending' },
   refused: { tone: 'error', words: 'Key refused' },
   failing: { tone: 'warn', words: 'Not going through' },
