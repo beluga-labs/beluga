@@ -112,22 +112,26 @@ export class BoardWork {
    */
   async sweepShipped(): Promise<number> {
     const find = this.deps.findPr;
-    if (!find) return 0;
     const live = new Set(this.workspaces().filter((w) => !w.archived).map((w) => w.id));
     const roots = new Map(this.deps.store.getState().projects.flatMap((p) => (p.root ? [[p.id, p.root] as const] : [])));
     const waiting = new Map<string, { readonly root: string; readonly branch: string; readonly ids: string[] }>();
+    let moved = 0;
     for (const issue of this.board.list()) {
       const via = issue.carriedBy ?? issue.worktrees.at(-1);
       const root = roots.get(issue.projectId);
-      if (!issue.branch || !root || issue.archivedAt !== undefined || (via && live.has(via))) continue;
-      // Held after its merge (BLG-952): already merged, waiting on its criteria, not on gh.
-      if ((issue.status !== 'in_progress' && issue.status !== 'in_review') || issue.mergedHeld) continue;
+      if (issue.archivedAt !== undefined || (via && live.has(via))) continue;
+      // Held after its merge (BLG-952) with its worktree deleted: nothing can settle its criteria, so Done (BLG-1022).
+      if (issue.mergedHeld) {
+        if (!via && isOpen(issue.status) && this.board.releaseMerged(issue.id).status === 'done') moved++;
+        continue;
+      }
+      if (!issue.branch || !root || (issue.status !== 'in_progress' && issue.status !== 'in_review')) continue;
       const key = `${root}\0${issue.branch}`;
       const group = waiting.get(key) ?? { root, branch: issue.branch, ids: [] };
       group.ids.push(issue.id);
       waiting.set(key, group);
     }
-    let moved = 0;
+    if (!find) return moved;
     for (const { root, branch, ids } of waiting.values()) {
       let pr: IssuePr | undefined;
       try {

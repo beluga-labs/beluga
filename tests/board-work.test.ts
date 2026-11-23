@@ -623,6 +623,33 @@ describe('work that ships from another task’s worktree (BLG-29)', () => {
     expect(board.need(live.key).status).toBe('in_review');
     work.stop();
   });
+
+  it('the sweep finishes a task held after its merge whose worktree was deleted, and leaves a live one held (BLG-1022)', async () => {
+    const store = new Store(initialState('room'));
+    store.dispatch({ type: 'projects', projects: [project('api', 'bob-api', [{ ...ws('w2', 'api', 'live'), archived: false } as Workspace])] });
+    const board = new Board({ store, dir: null, projectName: () => 'bob-api' });
+    const asked: string[] = [];
+    const work = new BoardWork({ store, board, selfId: () => 'p-me', selfName: () => 'Kay', askClaude: () => undefined, sweepMs: 0, findPr: async (_dir, branch) => (asked.push(branch), undefined) });
+    const merged = { number: 5, url: 'u', state: 'MERGED' as const, title: 'x', draft: false, checks: 'passing' as const };
+    const brief = { acceptance: '- [ ] Works' };
+    const gone = board.create({ projectId: 'api', title: 'Gone', status: 'in_progress', brief }, work.me());
+    board.linkWorktree(gone.key, 'w-gone', { branch: 'beluga/gone' }, work.me());
+    board.prChanged('w-gone', merged);
+    const live = board.create({ projectId: 'api', title: 'Live', status: 'in_progress', brief }, work.me());
+    board.linkWorktree(live.key, 'w2', { branch: 'beluga/live' }, work.me());
+    board.prChanged('w2', merged);
+    // Held before a worktree going away released it, as board.json keeps it: its worktree already deleted.
+    const held = board.need(gone.key);
+    board.remove(held.id);
+    board.putMoved([{ ...held, worktrees: [] }], {});
+    expect(board.need(gone.key)).toMatchObject({ status: 'in_review', mergedHeld: true });
+    expect(await work.sweepShipped()).toBe(1);
+    expect(asked).toEqual([]);
+    expect(board.need(gone.key).status).toBe('done');
+    expect(board.need(gone.key).activity.at(-1)?.text).toBe('its work is merged and its worktree is gone; a criterion is neither ticked nor explained (“Works”): moved this from In Review to Done');
+    expect(board.need(live.key)).toMatchObject({ status: 'in_review', mergedHeld: true });
+    work.stop();
+  });
 });
 
 describe('what Claude is told about tasks (BLG-25)', () => {
