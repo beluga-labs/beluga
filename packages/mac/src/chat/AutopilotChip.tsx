@@ -31,6 +31,7 @@ export function useAutopilot(channel: string): AutopilotHere & { readonly fixed:
     hint: fixed ? `On for the plan “${here.planTitle}”: switch it on the plan’s page` : 'In any mode: a stand-in agent answers your agent’s questions, so it never waits for you',
     icon: 'bot',
     checked: here.on,
+    toggle: true,
     disabled: fixed,
     separate: true,
     onSelect: toggle,

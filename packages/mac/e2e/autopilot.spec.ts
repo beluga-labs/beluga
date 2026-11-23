@@ -34,12 +34,15 @@ test('a chat on Full Autopilot: the stand-in approves the plan and says why; one
   await composer(page).press('Shift+Tab');
   await expect(page.getByRole('button', { name: 'Mode: Plan First' })).toBeVisible();
 
-  // The mode menu has it, under the modes.
+  // The mode menu has it, under the modes, as a switch (BLG-1023): it flips in place and the menu stays open.
   await page.getByRole('button', { name: 'Mode: Plan First' }).click();
-  const item = menu(page).getByRole('menuitem', { name: /Full Autopilot/ });
-  await expect(item).toBeVisible();
+  const item = menu(page).getByRole('menuitemcheckbox', { name: /Full Autopilot/ });
+  await expect(item).toHaveAttribute('aria-checked', 'false');
   await both(page, '01-mode-menu', () => page.locator('main'));
   await item.click();
+  await expect(item).toHaveAttribute('aria-checked', 'true');
+  await both(page, '01b-switch-on', () => page.locator('main'));
+  await page.keyboard.press('Escape');
   const chip = page.getByRole('button', { name: 'Turn off Full Autopilot' });
   await expect(chip).toBeVisible();
 
@@ -55,7 +58,7 @@ test('a chat on Full Autopilot: the stand-in approves the plan and says why; one
   await chip.click();
   await expect(chip).toHaveCount(0);
   await page.getByRole('button', { name: /^Mode: / }).click();
-  await expect(menu(page).getByRole('menuitem', { name: /Full Autopilot/ })).not.toHaveAttribute('data-checked', 'true');
+  await expect(menu(page).getByRole('menuitemcheckbox', { name: /Full Autopilot/ })).toHaveAttribute('aria-checked', 'false');
   await page.keyboard.press('Escape');
 });
 
