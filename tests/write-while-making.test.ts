@@ -101,6 +101,8 @@ async function solo(dir: string) {
 
 type Head = { number: number; branch: string; base: string };
 const mine = (state: () => ReturnType<Store['getState']>, channel: string): string[] => state().log.filter((l) => l.channel === channel && l.type === 'chat').map((l) => (l.type === 'chat' ? l.text : ''));
+type Card = Extract<ReturnType<Store['getState']>['log'][number], { type: 'agent' }>;
+const cards = (state: () => ReturnType<Store['getState']>, channel: string): Card[] => state().log.filter((l): l is Card => l.channel === channel && l.type === 'agent');
 
 describe('writing in a worktree while it is being made', () => {
   it('shows your message at once, and its agent gets it once the worktree is made', { timeout: 20_000 }, async () => {
@@ -110,17 +112,28 @@ describe('writing in a worktree while it is being made', () => {
     const channel = 'ws:wt-0123456789ab';
     await waitFor(() => kay.session.workspaces!.isMaking(channel), 2000);
     expect(kay.session.submit('Review this pull request', { channel })).toBe(true);
-    // In its conversation now, nobody asked yet: there's no folder for its agent.
+    // Sent, never queued: in its conversation now, nobody asked yet (there's no folder for its agent).
     expect(mine(kay.state, channel)).toEqual(['Review this pull request']);
+    expect(kay.state().log.find((l) => l.channel === channel && l.type === 'chat')).not.toHaveProperty('queued');
     expect(kay.runs).toHaveLength(0);
+    // Its agent's card is under it already, making the worktree as its first step.
+    await waitFor(() => cards(kay.state, channel).length === 1, 2000);
+    const card = cards(kay.state, channel)[0]!;
+    expect(card).toMatchObject({ status: 'started', steps: ['make_worktree pr-12'] });
+    const step = () => kay.session.host.stepsFor(channel, card.id).steps[0];
+    expect(step()).toMatchObject({ tool: 'make_worktree', status: 'running', label: 'Made the worktree pr-12', doing: 'Making the worktree pr-12' });
     answer({ number: 12, branch: 'fix/email', base: 'main' });
     const ws = await job;
     expect(ws?.id).toBe('wt-0123456789ab');
     await waitFor(() => kay.runs.length === 1, 4000);
+    expect(step()).toMatchObject({ status: 'done' });
     expect(kay.runs[0]!.prompt).toContain('Review this pull request');
     expect(kay.runs[0]!.place?.cwd).toBe(ws!.path);
-    // Said once: asked under the line already shown.
+    // Said once, one card: its agent goes on in the card that made the worktree.
     expect(mine(kay.state, channel)).toEqual(['Review this pull request']);
+    await waitFor(() => cards(kay.state, channel)[0]?.status === 'done', 4000);
+    expect(cards(kay.state, channel)).toHaveLength(1);
+    expect(cards(kay.state, channel)[0]!.text).toBe('Looked.');
   });
 
   it('a Retry of the same message while it waits is the same message', { timeout: 20_000 }, async () => {
@@ -139,11 +152,8 @@ describe('writing in a worktree while it is being made', () => {
     expect(mine(kay.state, channel)).toEqual(['Run the tests']);
   });
 
-  it('says your message was not sent when the worktree can’t be made', { timeout: 20_000 }, async () => {
+  it('its card says the message was not sent when the worktree can’t be made', { timeout: 20_000 }, async () => {
     const kay = await solo(repo());
-    const toasts: string[] = [];
-    const toast = kay.session.toast.bind(kay.session);
-    kay.session.toast = (text, level) => (toasts.push(text), toast(text, level));
     let fail!: (err: Error) => void;
     const job = kay.session.workspaces!.openPull(kay.pid, 12, () => new Promise<Head>((_, reject) => (fail = reject)), { id: 'wt-0123456789ad' });
     const channel = 'ws:wt-0123456789ad';
@@ -151,8 +161,24 @@ describe('writing in a worktree while it is being made', () => {
     kay.session.submit('Review this pull request', { channel });
     fail(new Error('gh is not signed in'));
     await expect(job).rejects.toThrow('gh is not signed in');
-    await waitFor(() => toasts.some((t) => /wasn’t sent/.test(t)), 2000);
-    expect(toasts.join(' ')).toMatch(/The worktree wasn’t made, so your message “Review this pull request” wasn’t sent/);
+    await waitFor(() => cards(kay.state, channel)[0]?.status === 'error', 2000);
+    expect(cards(kay.state, channel)[0]!.text).toMatch(/The worktree couldn’t be made, so this wasn’t sent/);
+    expect(kay.session.host.stepsFor(channel, cards(kay.state, channel)[0]!.id).steps[0]).toMatchObject({ status: 'error' });
+    expect(kay.runs).toHaveLength(0);
+  });
+
+  it('Stop on its card while the worktree is made takes the message back, and its agent never gets it', { timeout: 20_000 }, async () => {
+    const kay = await solo(repo());
+    let answer!: (pull: Head) => void;
+    const job = kay.session.workspaces!.openPull(kay.pid, 12, () => new Promise<Head>((r) => (answer = r)), { id: 'wt-0123456789ae' });
+    const channel = 'ws:wt-0123456789ae';
+    await waitFor(() => kay.session.workspaces!.isMaking(channel), 2000);
+    kay.session.submit('Review this pull request', { channel });
+    expect(kay.session.host.stopRun(channel)).toEqual({ stopped: true, returned: ['Review this pull request'] });
+    await waitFor(() => cards(kay.state, channel)[0]?.status === 'error', 2000);
+    answer({ number: 12, branch: 'fix/email', base: 'main' });
+    expect((await job)?.id).toBe('wt-0123456789ae');
+    await new Promise((r) => setTimeout(r, 200));
     expect(kay.runs).toHaveLength(0);
   });
 
@@ -162,6 +188,21 @@ describe('writing in a worktree while it is being made', () => {
     expect(kay.session.workspaces!.holdAsk(`ws:${ws!.id}`, { go: () => undefined, drop: () => undefined })).toBe(false);
     kay.session.submit('Hello', { channel: `ws:${ws!.id}` });
     await waitFor(() => kay.runs.length === 1, 4000);
+  });
+});
+
+describe('a new worktree’s first message', () => {
+  it('has its agent’s card at once, making the worktree as its first step, then its agent’s work', { timeout: 20_000 }, async () => {
+    const kay = await solo(repo());
+    const job = kay.session.workspaces!.startWorktree(kay.pid, 'Add request logging', async () => 'request-logging', { id: 'wt-0123456789af', nameLater: true });
+    const channel = 'ws:wt-0123456789af';
+    await waitFor(() => cards(kay.state, channel).length === 1, 2000);
+    expect(cards(kay.state, channel)[0]).toMatchObject({ steps: ['make_worktree add-request-logging'] });
+    await job;
+    await waitFor(() => cards(kay.state, channel)[0]?.status === 'done', 4000);
+    expect(kay.runs).toHaveLength(1);
+    expect(cards(kay.state, channel)).toHaveLength(1);
+    expect(kay.session.host.stepsFor(channel, cards(kay.state, channel)[0]!.id).steps[0]).toMatchObject({ tool: 'make_worktree', status: 'done' });
   });
 });
 

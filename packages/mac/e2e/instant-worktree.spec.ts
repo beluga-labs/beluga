@@ -68,10 +68,16 @@ test('you can write to a pull request’s worktree while it is being made, and i
   daemon.release();
   const main = page.locator('main');
   await expect(main.locator('[data-mine="true"]').getByText('Review this pull request')).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: '../../.beluga/scratch/pr-49-card-making.png' });
   await expect(page.getByText(/Pull request #49 “Read-only API keys”, checked out on feat\/read-only-keys/)).toBeVisible({ timeout: 15_000 });
   // Said once, and its agent answers it there.
   await expect(main.locator('[data-mine="true"]').getByText('Review this pull request')).toHaveCount(1);
   await expect(main.getByRole('button', { name: 'Show Steps' }).first()).toBeVisible({ timeout: 15_000 });
+  // Its card's first step made the worktree; its agent's work followed on the same card.
+  await expect(main.locator('[data-turn]')).toHaveCount(1);
+  await main.getByRole('button', { name: 'Show Steps' }).first().click();
+  await main.getByRole('button', { name: /earlier steps/ }).first().click();
+  await expect(main.getByText('Made the worktree pr-49')).toBeVisible();
   await page.screenshot({ path: '../../.beluga/scratch/pr-49-after-made.png' });
 });
 

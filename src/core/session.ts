@@ -695,21 +695,26 @@ export class Session {
   }
 
   /**
-   * A message written in a worktree whose page shows while git still makes it (BLG-942): drawn in
-   * its conversation now, and asked of its agent once it's made; if it can't be, a toast says your
-   * message wasn't sent. False when the worktree isn't being made (the message goes as usual).
+   * A message written in a worktree whose page shows while git still makes it (BLG-942, BLG-1013):
+   * sent like any other, never queued. Its agent's card shows under it at once, making the worktree
+   * as its first step; its agent goes on from there once it's made. If it can't be made, the card
+   * says why. False when the worktree isn't being made (the message goes as usual).
    */
   private holdWhileMaking(prompt: string, channel: string, urgent: boolean, terminal: boolean, id: string | undefined): boolean {
     const ctl = this.workspaces;
-    if (!ctl?.isMaking(channel)) return false;
+    const ws = ctl?.beingMade(channel);
+    if (!ctl || !ws) return false;
     if (id && this.sentById.has(id)) return true;
     const requestId = this.showAsk(prompt, channel);
     if (id) this.sentById.set(id, requestId);
-    const words = prompt.replace(/\s+/g, ' ').trim();
-    const short = words.length > 60 ? `${words.slice(0, 59)}…` : words;
+    // Seen as its terminal, the message opens that instead of a card: it just waits for the worktree.
+    const step = terminal ? undefined : this.host.beforeRuns.start(channel, requestId, prompt, { tool: 'make_worktree', input: { name: ws.name } });
     ctl.holdAsk(channel, {
-      go: () => void (terminal ? this.startInTerminal(prompt, channel, requestId) : this.askOwnClaude(prompt, channel, urgent, false, requestId)),
-      drop: () => this.toast(`The worktree wasn’t made, so your message “${short}” wasn’t sent`, 'warn'),
+      go: () => {
+        if (step && !step.finish()) return;
+        void (terminal ? this.startInTerminal(prompt, channel, requestId) : this.askOwnClaude(prompt, channel, urgent, false, requestId));
+      },
+      drop: () => (step ? step.fail('The worktree couldn’t be made, so this wasn’t sent to your agent.') : this.toast('The worktree couldn’t be made, so your message wasn’t sent', 'warn')),
     });
     return true;
   }
