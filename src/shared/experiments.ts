@@ -4,13 +4,13 @@
  * that explains each one). Browser-safe: data only.
  */
 
-export const EXPERIMENTS = ['previews', 'chat-schedules'] as const;
+export const EXPERIMENTS = ['previews'] as const;
 export type Experiment = (typeof EXPERIMENTS)[number];
 
 /** Experiments that are on by default: the switch stays, as an off switch. */
-export const DEFAULT_ON: readonly Experiment[] = ['chat-schedules'];
+export const DEFAULT_ON: readonly Experiment[] = [];
 
-/** How the list says "off" for an experiment that is on by default ("-chat-schedules"). */
+/** How the list says "off" for an experiment that is on by default ("-<id>"). */
 const offMark = (id: Experiment): string => `-${id}`;
 
 export interface ExperimentInfo {
@@ -40,18 +40,6 @@ export const EXPERIMENT_INFO: Readonly<Record<Experiment, ExperimentInfo>> = {
     ],
     keywords: 'preview component react render storybook page html props live',
     cost: 'Each preview is built on this computer when it scrolls into view, which takes a moment of CPU and some memory. Beluga lets it go when you look away, and while this is off nothing of it runs at all.',
-  },
-  'chat-schedules': {
-    id: 'chat-schedules',
-    title: 'Chat schedules',
-    summary: 'Let a sentinel send a prompt into one of your own chats on a schedule, or once at a time you pick.',
-    changes: [
-      'A sentinel can have a chat step: it sends your prompt into one of your chats, waits for the answer and keeps its first line in the run.',
-      'The message in the chat says which sentinel sent it.',
-      'Only your own chats: a chat shared with a contributor is refused, and the sentinel pauses with the reason.',
-    ],
-    keywords: 'schedule chat prompt every day later once remind wake sentinel',
-    cost: 'Each run starts a turn of your agent, so it uses your subscription as if you sent the prompt yourself. While this is off no chat step runs.',
   },
 };
 
