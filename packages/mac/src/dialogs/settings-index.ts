@@ -142,7 +142,7 @@ export const SETTINGS: readonly Entry[] = [
   ]),
 
   // Traces: one row per tool, made from shared/trace-destinations.ts (Ratel first).
-  ...TRACE_PROVIDERS.map((p): Entry => ({ pane: 'traces', label: p.name, detail: p.blurb, keywords: `${p.by ?? ''} ${p.keywords ?? ''} opentelemetry otel traces observability`.trim() })),
+  ...TRACE_PROVIDERS.map((p): Entry => ({ pane: 'traces', label: p.name, keywords: `${p.by ?? ''} ${p.keywords ?? ''} opentelemetry otel traces observability`.trim() })),
 
   // Notifications
   ...rows('notifications', undefined, [

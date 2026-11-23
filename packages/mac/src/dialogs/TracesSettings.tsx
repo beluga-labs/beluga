@@ -203,16 +203,14 @@ export function TracesSettings() {
               {p.name}
               {p.by ? <span className={t.by}> by {p.by}</span> : null}
             </div>
-            <div className={s.rowDetail}>
-              {view ? (
+            {view ? (
+              <div className={s.rowDetail}>
                 <span className={t.state}>
                   <Dot tone={STATE[view.state].tone} />
                   {stateWords(view)}
                 </span>
-              ) : (
-                p.blurb
-              )}
-            </div>
+              </div>
+            ) : null}
           </div>
           <div className={s.control}>
             {view ? <Switch label={`Send to ${p.name}`} on={view.on} onChange={(on) => void run(() => api.traces.save({ id: p.id, on }), false)} /> : null}

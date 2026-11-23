@@ -34,8 +34,6 @@ export interface TraceProvider {
   readonly name: string;
   /** Whose product it is, when that's how people know it ("LangChain"). */
   readonly by?: string;
-  /** One line: what you see there. */
-  readonly blurb: string;
   /** Where the key is, in the tool's own words. */
   readonly where: string;
   /** Its own page for sending OpenTelemetry. */
@@ -135,7 +133,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'ratel',
     name: 'Ratel Cloud',
-    blurb: 'Every turn, tool call, token and cost, in a project of your own.',
     where: 'Your project’s Settings › API keys on cloud.ratel.sh',
     docs: 'https://www.ratel.sh/docs/platform/send-data/opentelemetry',
     keywords: 'ratel cloud badger',
@@ -145,7 +142,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'braintrust',
     name: 'Braintrust',
-    blurb: 'Logs in a Braintrust project, to score and compare.',
     where: 'Settings › API keys on braintrust.dev',
     docs: 'https://www.braintrust.dev/docs/integrations/sdk-integrations/opentelemetry',
     fields: [secret('key', 'API key', 'sk-…'), { key: 'project', label: 'Project', kind: 'text', placeholder: 'My project' }, US_EU],
@@ -157,7 +153,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'posthog',
     name: 'PostHog',
-    blurb: 'LLM analytics beside your product’s own events.',
     where: 'Project settings › Project API key on posthog.com',
     docs: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
     keywords: 'llm analytics hedgehog',
@@ -168,7 +163,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
     id: 'langsmith',
     name: 'LangSmith',
     by: 'LangChain',
-    blurb: 'Runs in a LangSmith project, with every step.',
     where: 'Settings › API Keys on smith.langchain.com',
     docs: 'https://docs.langchain.com/langsmith/trace-with-opentelemetry',
     keywords: 'langchain langgraph',
@@ -184,7 +178,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'arize',
     name: 'Arize',
-    blurb: 'Arize AX, or a Phoenix of your own.',
     where: 'Space settings › API Keys on app.arize.com',
     docs: 'https://arize.com/docs/ax/integrations/platforms/claude-managed-agents/claude-managed-agents-tracing',
     keywords: 'phoenix arize ax openinference',
@@ -217,7 +210,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
     id: 'logfire',
     name: 'Logfire',
     by: 'Pydantic',
-    blurb: 'Live traces you can query with SQL.',
     where: 'Your project’s Settings › Write tokens on logfire.pydantic.dev',
     docs: 'https://pydantic.dev/docs/logfire/how-to-guides/alternative-clients/',
     keywords: 'pydantic logfire',
@@ -227,7 +219,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'sentry',
     name: 'Sentry',
-    blurb: 'Agent runs as traces in your Sentry project.',
     where: 'Project settings › Client Keys (DSN) on sentry.io',
     docs: 'https://docs.sentry.io/concepts/otlp/',
     fields: [secret('dsn', 'DSN', 'https://…@o123.ingest.us.sentry.io/456')],
@@ -236,7 +227,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'newrelic',
     name: 'New Relic',
-    blurb: 'Traces in New Relic’s distributed tracing.',
     where: 'API keys › INGEST - LICENSE on one.newrelic.com',
     docs: 'https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/',
     keywords: 'newrelic nr',
@@ -246,7 +236,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'datadog',
     name: 'Datadog',
-    blurb: 'LLM Observability, straight from the spans: no Agent.',
     where: 'Organization settings › API keys on datadoghq.com',
     docs: 'https://docs.datadoghq.com/llm_observability/instrument/otel_instrumentation/',
     keywords: 'dd llm observability apm',
@@ -279,7 +268,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'langfuse',
     name: 'Langfuse',
-    blurb: 'Traces, sessions and costs, cloud or your own.',
     where: 'Project settings › API Keys on cloud.langfuse.com',
     docs: 'https://langfuse.com/integrations/native/opentelemetry',
     fields: [
@@ -299,7 +287,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'databricks',
     name: 'Databricks',
-    blurb: 'MLflow traces in your workspace’s Unity Catalog.',
     where: 'Settings › Developer › Access tokens in your workspace',
     docs: 'https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog',
     keywords: 'mlflow unity catalog lakehouse',
@@ -318,7 +305,6 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'otlp',
     name: 'Another OTLP endpoint',
-    blurb: 'Any collector or tool that takes OTLP over HTTP.',
     where: 'Your collector’s or tool’s own settings',
     docs: 'https://opentelemetry.io/docs/specs/otlp/#otlphttp',
     keywords: 'opentelemetry collector otel grafana tempo jaeger honeycomb custom',
