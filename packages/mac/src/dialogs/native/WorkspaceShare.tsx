@@ -9,6 +9,7 @@ import { Icon, type IconName } from '../../components/Icon.js';
 import { Avatar, Button } from '../../components/ui.js';
 import { toast, useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { openNet } from '../../network/net-sheets.js';
+import { openSheet } from '../../lib/sheets.js';
 import { Select } from '../settings-controls.js';
 import type { NativeMenuProps } from './index.js';
 import { Choice, Section, Sheet, Tag } from './parts.js';
@@ -141,6 +142,18 @@ export function WorkspaceShareSheet({ menu, close }: NativeMenuProps<'ws_share'>
           {shared.length ? null : <div className={s.empty}>Only you so far.</div>}
         </div>
       </Section>
+      {ws.kind === 'worktree' && ws.branch ? (
+        <Section
+          title="When someone forks it"
+          action={
+            <Button size="small" variant="quiet" onClick={() => (close(), openSheet({ kind: 'fork_carry', wsId: ws.id }))}>
+              What Forks Bring…
+            </Button>
+          }
+        >
+          <p className={s.hint}>Their fork gets its commits, changes, conversation and Scratch. Files git ignores, like .context/, stay here unless you pick them. Secrets go only if you tick each one.</p>
+        </Section>
+      ) : null}
       <p className={s.hint}>Your agent runs on your computer. Risky steps still ask you, unless you fully trust the person asking.</p>
     </Sheet>
   );

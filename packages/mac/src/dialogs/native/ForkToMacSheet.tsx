@@ -64,13 +64,14 @@ export function ForkToMacSheet({ owner, wsId, close }: { owner: string; wsId: st
         <ul className={s.list}>
           <Row icon="branch" title="Its commits and uncommitted changes" detail="Uncommitted work stays uncommitted, as it was" />
           <Row icon="folder" title="Its Scratch" detail="Screenshots, notes and logs the agent saved" />
+          <Row icon="folder" title={`What ${ownerName} picked of what git ignores`} detail="Working files like .context/, when they chose them. Your agent is told what came and what didn’t" />
           <Row icon="chat" title="The conversation" detail="Your agent remembers it and carries on" />
         </ul>
       </Field>
       <Field label="Stays behind">
         <div className={m.note}>
           <Icon name="eyeOff" size={14} />
-          <span>node_modules, build output and anything else git ignores, made again by the setup here. Never a .env file or a key.</span>
+          <span>{`node_modules, build output and anything else git ignores that ${ownerName} didn’t pick: the setup here makes what it can. A .env file or a key only comes if ${ownerName} ticked it.`}</span>
         </div>
       </Field>
       {full ? null : (

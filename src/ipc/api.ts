@@ -8,6 +8,7 @@ import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
 import { AUTO_CONTINUE_OFF_MAX } from '../shared/auto-continue.js';
 import { ENV_KEY, MAX_ENV_VALUE, MAX_ENV_VARS } from '../shared/env-vars.js';
 import { MAX_RANGE } from '../shared/text-range.js';
+import { CarryPicks } from '../shared/fork-carry.js';
 import { type ArgsRuntime, MAX_AGENT_ARGS, MAX_AGENT_ARG_LENGTH, agentArgsProblem } from '../shared/agent-args.js';
 import { NETWORK_API } from './network-api.js';
 import { STRIPE_API } from './stripe-api.js';
@@ -253,6 +254,10 @@ export const API = {
   'sharing.runHere': args(id, id, z.string().min(1).max(100_000)),
   // Fork a friend's shared worktree to this Mac: its changes, Scratch and conversation, as a worktree of yours (owner, worktree id, name?).
   'sharing.fork': args(id, id, z.string().max(120).optional()),
+  // What forks of your worktree bring besides its commits, Scratch and conversation (BLG-1017): what git ignores there, what's picked, its files and size, before any goes (worktree id, picks to try without keeping them?).
+  'sharing.forkCarry': args(id, opt(CarryPicks)),
+  // Pick what forks of your worktree bring: git-ignored paths, and each secret-looking file in them that may go (worktree id, picks) → the new preview.
+  'sharing.setForkCarry': args(id, CarryPicks),
 
   // ---- links into one project (or everything)
   'invites.create': args(LinkOptions),

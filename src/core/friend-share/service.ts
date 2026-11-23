@@ -22,7 +22,10 @@ import { trustOf } from '../trust.js';
 import { type FriendShareInput, type FriendSharing, historyFor, saidBy } from '../workspace-sharing.js';
 import { COPY_TTL_MS, cloneFrom, cloneFromBundle, cloneUrl, copiesHome, copyTarget, packProject } from './copy.js';
 import { ShareCourier, type ShareMesh } from './courier.js';
+import { type CarryNote, type CarryPicks, CarryPicksStore, type CarryPreview, carryPreview } from './carry.js';
+import { carriedWords, leftWords } from '../../shared/fork-carry.js';
 import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } from './fork.js';
+import { SCRATCH_DIR } from '../../shared/scratch-dir.js';
 import { HISTORY_TEXT, HISTORY_TEXT_LONG, type ShareMsg, historyPageOf } from './protocol.js';
 import { THIS_COMPUTER } from '../../shared/assistant.js';
 
@@ -39,7 +42,8 @@ import { THIS_COMPUTER } from '../../shared/assistant.js';
  * protocol.ts that say what's shared.
  *
  * Files: `project-shares.json` (what you share, with whom), `shared-projects.json` (what friends
- * share with you, and each worktree's recent conversation), `share-outbox.json` (what waits).
+ * share with you, and each worktree's recent conversation), `share-outbox.json` (what waits),
+ * `fork-carry.json` (what git ignores that forks of each of your worktrees bring, carry.ts).
  */
 
 /** What the service needs from the mesh node (net/mesh/mesh.ts); its mailbox comes through ShareMesh. */
@@ -155,9 +159,12 @@ export class FriendShares implements FriendSharing {
   private readonly forkNames = new Map<string, string>();
   /** Forks waiting for their project to be on this Mac first (their worktree's id → the project's key). */
   private readonly forksWaiting = new Map<string, string>();
+  /** What git ignores that forks of each of your worktrees bring (BLG-1017). */
+  private readonly carry: CarryPicksStore;
 
   constructor(private readonly opts: FriendSharesOptions) {
     this.courier = new ShareCourier(opts.mesh, path.join(opts.dir, 'share-outbox.json'), (to, m) => this.acked(to, m));
+    this.carry = new CarryPicksStore(path.join(opts.dir, 'fork-carry.json'));
   }
 
   private get state() {
@@ -860,6 +867,25 @@ export class FriendShares implements FriendSharing {
     return rec.url ? this.opts.session.workspaces?.manager.projectForRemote(rec.url).catch(() => undefined) : undefined;
   }
 
+  /** What forks of your worktree bring besides its commits, Scratch and conversation, before any goes (carry.ts). */
+  async forkCarry(wsId: string, trying?: CarryPicks): Promise<CarryPreview & { readonly picks: CarryPicks }> {
+    const picks = trying ?? this.carry.get(wsId);
+    return { ...(await carryPreview(this.forkableDir(wsId), SCRATCH_DIR, picks)), picks };
+  }
+
+  /** Change what forks of your worktree bring. → what they bring now. */
+  async setForkCarry(wsId: string, picks: CarryPicks): Promise<CarryPreview & { readonly picks: CarryPicks }> {
+    const dir = this.forkableDir(wsId);
+    this.carry.set(wsId, picks);
+    return { ...(await carryPreview(dir, SCRATCH_DIR, picks)), picks };
+  }
+
+  private forkableDir(wsId: string): string {
+    const ws = this.opts.session.workspaces?.manager.find(wsId);
+    if (!ws || ws.kind !== 'worktree' || ws.archived) throw new Error('Only a worktree can be forked');
+    return ws.path;
+  }
+
   /** A friend who works in your worktree wants a fork of it: pack it (fork.ts) and offer it to them alone. */
   private async onForkRequest(from: string, wsId: string, have: readonly string[]): Promise<void> {
     const fail = (error: string): void => void this.courier.send(from, { k: 'fork_failed', ws: wsId, error: error.slice(0, 300) }, { reliable: true });
@@ -872,7 +898,7 @@ export class FriendShares implements FriendSharing {
     const dir = path.join(this.opts.dir, 'outbox', share);
     const name = this.opts.mesh.nameFor(from);
     try {
-      const { size, meta } = await packFork({ id, dir: ws.path, name: ws.name, branch: ws.branch, ...(ws.sessionId ? { sessionId: ws.sessionId } : {}), history: this.historyOf(wsId, FORK_TEXT).slice(-HISTORY_KEPT), have, out: dir });
+      const { size, meta } = await packFork({ id, dir: ws.path, name: ws.name, branch: ws.branch, ...(ws.sessionId ? { sessionId: ws.sessionId } : {}), history: this.historyOf(wsId, FORK_TEXT).slice(-HISTORY_KEPT), have, out: dir, carry: this.carry.get(wsId) });
       this.opts.session.shareService.upsert({ name: share, root: dir, writable: false, private: true, allowed: [from] });
       this.outgoing.set(share, from);
       setTimeout(() => {
@@ -880,9 +906,11 @@ export class FriendShares implements FriendSharing {
         this.opts.session.shareService.remove(share);
         void fs.rm(dir, { recursive: true, force: true });
       }, COPY_TTL_MS).unref();
-      this.courier.send(from, { k: 'fork_ready', ws: wsId, share, size, files: meta.changed + meta.scratch }, { reliable: true });
-      const what = [meta.changed ? `${meta.changed} uncommitted ${meta.changed === 1 ? 'file' : 'files'}` : '', meta.scratch ? 'Scratch' : '', 'the conversation'].filter(Boolean).join(', ');
-      this.dispatch({ type: 'system', channel: `ws:${wsId}`, text: `${name} forked this worktree to their Mac (its commits, ${what}). This one stays as it is.` });
+      const carried = meta.carried?.sent.reduce((n, c) => n + c.files, 0) ?? 0;
+      this.courier.send(from, { k: 'fork_ready', ws: wsId, share, size, files: meta.changed + meta.scratch + carried }, { reliable: true });
+      const what = [meta.changed ? `${meta.changed} uncommitted ${meta.changed === 1 ? 'file' : 'files'}` : '', meta.scratch ? 'Scratch' : '', ...carriedWords(meta.carried), 'the conversation'].filter(Boolean).join(', ');
+      const left = leftWords(meta.carried, true);
+      this.dispatch({ type: 'system', channel: `ws:${wsId}`, text: `${name} forked this worktree to their Mac (its commits, ${what}). This one stays as it is.${left ? ` Stayed here: ${left}. Share › What Forks Bring picks what goes.` : ''}` });
     } catch (err) {
       void fs.rm(dir, { recursive: true, force: true });
       fail(errorText(err));
@@ -918,8 +946,8 @@ export class FriendShares implements FriendSharing {
       // Their code: your .env files and the setup only come in if you fully trust them (as a handoff's).
       const full = trustOf(this.state, from) === 'full';
       const ws = await ctl.manager.createWorktreeOn(project.id, name, branch, got.meta.sessionId ? { forkFromSession: got.meta.sessionId } : {}, { copyEnv: full });
-      await placeFork(ws.path, got);
-      ctl.manager.saveHistory(ws.id, this.forkLog(rec, m.ws, ws.id, branch, got.meta, got.history, full));
+      const note = await placeFork(ws.path, got, rec.ownerName);
+      ctl.manager.saveHistory(ws.id, this.forkLog(rec, m.ws, ws.id, branch, { ...got.meta, carried: note }, got.history, full));
       await ctl.refresh();
       ctl.open(ws.id);
       if (full) this.opts.session.workbench?.onWorktreeCreated(ws);
@@ -937,16 +965,18 @@ export class FriendShares implements FriendSharing {
   }
 
   /** A fork's conversation, as its owner's worktree shows it, then where it came from. */
-  private forkLog(rec: Received, theirWs: string, wsId: string, branch: string, meta: { changed: number; scratch: number; sessionId?: string | undefined }, history: ForkHistory, full: boolean): LogItem[] {
+  private forkLog(rec: Received, theirWs: string, wsId: string, branch: string, meta: { changed: number; scratch: number; sessionId?: string | undefined; carried?: CarryNote | undefined }, history: ForkHistory, full: boolean): LogItem[] {
     const channel = `ws:${wsId}`;
     const state = this.state;
     const theirs = rec.worktrees.find((w) => w.id === theirWs)?.name ?? 'worktree';
-    const came = [meta.changed ? `${meta.changed} uncommitted ${meta.changed === 1 ? 'file' : 'files'} (still uncommitted here)` : '', meta.scratch ? `${meta.scratch} ${meta.scratch === 1 ? 'file' : 'files'} in Scratch` : '', 'the conversation'].filter(Boolean).join(', ');
+    const came = [meta.changed ? `${meta.changed} uncommitted ${meta.changed === 1 ? 'file' : 'files'} (still uncommitted here)` : '', meta.scratch ? `${meta.scratch} ${meta.scratch === 1 ? 'file' : 'files'} in Scratch` : '', ...carriedWords(meta.carried), 'the conversation'].filter(Boolean).join(', ');
+    const left = leftWords(meta.carried, false);
     const now = Date.now();
     return [
       ...history.map((h, i): LogItem => ({ id: `fk-${wsId}-${i}`, type: 'system', channel, text: `${clean(h.from)}: ${clean(h.text)}`, ts: h.ts, level: 'info', said: saidBy(state, rec.owner, h) })),
       { id: `fk-${wsId}-from`, type: 'system', channel, text: `Forked from ${rec.ownerName}’s ${theirs}, on your branch ${branch}: its commits, ${came}.${meta.sessionId ? ' Your agent remembers the conversation.' : ''} ${rec.ownerName}’s worktree goes on without this one.`, ts: now, level: 'info' },
-      ...(full ? [] : [{ id: `fk-${wsId}-setup`, type: 'system' as const, channel, text: `Setup didn’t run and your .env files weren’t copied, because this came from ${rec.ownerName}. Look it over, then use Terminal → Run setup.`, ts: now, level: 'warn' as const }]),
+      ...(left ? [{ id: `fk-${wsId}-left`, type: 'system' as const, channel, text: `Stayed on ${rec.ownerName}’s computer: ${left}. Your agent knows, and asks for what it needs.`, ts: now, level: 'info' as const }] : []),
+      ...(full ? [] : [{ id: `fk-${wsId}-setup`, type: 'system' as const, channel, text: `Setup didn’t run and your .env files weren’t copied, because this came from ${rec.ownerName}. Look it over${meta.carried?.sent.length ? ' (with the files they sent: .beluga/fork.json lists them)' : ''}, then use Terminal → Run setup.`, ts: now, level: 'warn' as const }]),
     ];
   }
 

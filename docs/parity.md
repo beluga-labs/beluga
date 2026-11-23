@@ -196,6 +196,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sharing.earlier` | ✓ scrolling back in a friend's worktree |
 | `sharing.runHere` | ✓ a friend's worktree's "Runs on" chip › This Mac |
 | `sharing.fork` | ✓ a friend's worktree's header › Fork to My Mac (a sheet: what comes over, what stays behind, a name), Getting <project>… while a project not on this Mac yet is cloned or copied first, then Open My Fork |
+| `sharing.forkCarry` | ✓ a worktree's Share › When someone forks it › What Forks Bring… (what git ignores, the secret-looking files in a pick, the files that would go, size and warnings) |
+| `sharing.setForkCarry` | ✓ What Forks Bring › Save |
 | `invites.create` | ✓ |
 | `invites.revoke` | ✓ |
 | `invites.copyLink` | ✓ |

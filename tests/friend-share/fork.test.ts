@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { buildForkedAppend } from '../../src/agent/fork-prompt.js';
 import { encodeProjectDir } from '../../src/agent/runtime/claude/claude-sessions.js';
 import { createDemoWorkspaces } from '../../src/demo.js';
 import type { SharedFork } from '../../src/core/friend-share-store.js';
@@ -107,6 +108,79 @@ describe('forking a friend’s worktree to your Mac', () => {
     // The two uncommitted files and Scratch's (the demo's worktree may have more of its own).
     expect(copying[0]!.files).toBeGreaterThanOrEqual(3);
     expect(copying.at(-1)!.received).toBe(copying[0]!.total);
+  }, 60_000 * SLOW);
+
+  it('brings the git-ignored context its owner picked, a secret only when ticked, and tells the forked agent what stayed (BLG-1017)', async () => {
+    net = await crowd();
+    const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
+    const kay = await mac(net, 'kay', { workspaces: await createDemoWorkspaces() });
+    macs.push(ata, kay);
+    await befriend(ata.person, kay.person);
+    const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
+    const theirs = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && !w.external && w.branch)!;
+
+    // As in FlyingPapers: 22 benchmark docs and a key in git-ignored .context/, the prod key in .env,
+    // and a script that reads them (committed, so it's in kay's fork from the start).
+    const at = (rel: string, text: string): void => {
+      mkdirSync(path.dirname(path.join(theirs.path, rel)), { recursive: true });
+      writeFileSync(path.join(theirs.path, rel), text);
+    };
+    at('.gitignore', '.context/\n.env\n.beluga/\n');
+    for (let i = 1; i <= 22; i++) at(`.context/jev-bench/docs/doc-${i}.md`, `doc ${i}\n`);
+    at('.context/jev-bench/typesafe.env', 'TYPESAFE_KEY=ts-key-123\n');
+    at('.env', 'SUPABASE_SERVICE_ROLE=prod-secret-xyz\n');
+    at(
+      'run.mjs',
+      [
+        "import { existsSync, readdirSync, readFileSync } from 'node:fs';",
+        "const want = Array.from({ length: 22 }, (_, i) => `.context/jev-bench/docs/doc-${i + 1}.md`);",
+        'const missing = want.filter((f) => !existsSync(f)).length;',
+        "const key = readFileSync('.context/jev-bench/typesafe.env', 'utf8').trim().split('=')[1];",
+        'console.log(`${want.length - missing} of ${want.length} documents found, key ${key ? "set" : "missing"}`);',
+      ].join('\n'),
+    );
+    git(theirs.path, 'add', '.gitignore', 'run.mjs');
+    git(theirs.path, '-c', 'user.name=ata', '-c', 'user.email=ata@example.com', 'commit', '-qm', 'bench script');
+    await ata.session.workspaces!.refresh();
+
+    // What ata sees before anything goes, then picks: .context/, and its key ticked; .env stays.
+    const before = await ata.shares.forkCarry(theirs.id);
+    expect(before.candidates.map((c) => c.path).sort()).toEqual(['.context/', '.env']);
+    const tried = await ata.shares.forkCarry(theirs.id, { paths: ['.context/'], secrets: [] });
+    expect(tried.files.find((f) => f.path === '.context/jev-bench/typesafe.env')).toMatchObject({ secret: true, goes: false });
+    expect((await ata.shares.forkCarry(theirs.id)).picks.paths).toEqual([]);
+    const saved = await ata.shares.setForkCarry(theirs.id, { paths: ['.context/'], secrets: ['.context/jev-bench/typesafe.env'] });
+    expect(saved.count).toBe(23);
+
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
+    await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.copy?.state === 'ready'));
+    await kay.shares.fork(ata.id, theirs.id, 'bench');
+    const fork = await settle(() => {
+      const f = kay.store.getState().forks[theirs.id];
+      if (f?.state === 'failed') throw new Error(f.error);
+      return f?.state === 'ready' ? f : undefined;
+    });
+    const mine = kay.session.workspaces!.manager.find(fork.wsId!)!;
+
+    // The forked worktree runs the script on its own: every doc and the key came, the .env didn't.
+    const out = execFileSync(process.execPath, ['run.mjs'], { cwd: mine.path, encoding: 'utf8' }).trim();
+    expect(out).toBe('22 of 22 documents found, key set');
+    expect(existsSync(path.join(mine.path, '.env'))).toBe(false);
+    expect(git(mine.path, 'status', '--porcelain')).not.toContain('.context');
+
+    // Both Macs say what came and what stayed.
+    const said = kay.session.workspaces!.manager.loadHistory<LogItem>(mine.id).flatMap((l) => (l.type === 'system' ? [l.text] : []));
+    expect(said.find((t) => t.startsWith('Forked from ata’s'))).toContain('.context/ (23 files)');
+    expect(said.find((t) => t.startsWith('Stayed on ata’s computer'))).toContain('.env (a secret)');
+    const told = ata.store.getState().log.find((l) => l.type === 'system' && l.channel === `ws:${theirs.id}` && l.text.startsWith('kay forked this worktree'));
+    expect(told?.type === 'system' ? told.text : '').toContain('Stayed here: .env (a secret, not ticked)');
+
+    // Kay's agent is told in its instructions, from the fork's own note.
+    expect(JSON.parse(readFileSync(path.join(mine.path, '.beluga', 'fork.json'), 'utf8'))).toMatchObject({ owner: 'ata', secrets: ['.context/jev-bench/typesafe.env'], left: [{ path: '.env', why: 'secret' }] });
+    kay.session.submit('run the bench', { channel: `ws:${mine.id}` });
+    const run = await settle(() => kay.runs.find((r) => r.place?.cwd === mine.path));
+    expect(run.place?.forked).toMatchObject({ owner: 'ata', sent: [{ path: '.context/', files: 23 }] });
+    expect(buildForkedAppend(run.place!.forked!)).toContain('- .env: a secret');
   }, 60_000 * SLOW);
 
   it('forking before the project is on your Mac gets it here first, then forks', async () => {

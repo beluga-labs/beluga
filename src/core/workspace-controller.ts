@@ -151,6 +151,7 @@ import { isUnder } from '../shared/path-inside.js';
 import { randomUUID } from 'node:crypto';
 import { type HeldAsk, HeldAsks } from './held-asks.js';
 import type { BeforeStep, Preparing } from './before-run.js';
+import { type ForkNote, forkNoteOf } from './friend-share/carry.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -768,11 +769,18 @@ export class WorkspaceController {
       ...(ws.model ? { model: ws.model } : {}),
       ...(ws.effort !== undefined ? { effort: ws.effort } : {}),
       ...(ws.prShipped && ws.kind === 'worktree' ? { shipped: ws.prShipped } : {}),
+      ...this.forkedOf(ws),
       ...this.openPrOf(ws),
       ...this.landsOnOf(ws),
       ...(syncMain ? { syncMain } : {}),
       ...(ws.askOnly && this.fixups.has(ws.id) ? { fixup: this.fixups.get(ws.id)! } : {}),
     };
+  }
+
+  /** A worktree forked from a friend's (BLG-1017): what came with it and what stayed with them, for its agent. */
+  private forkedOf(ws: Workspace): { forked?: ForkNote } {
+    const note = ws.kind === 'worktree' ? forkNoteOf(ws.path) : undefined;
+    return note ? { forked: note } : {};
   }
 
   /**
