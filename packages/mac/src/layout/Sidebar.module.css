@@ -372,16 +372,57 @@
   color: var(--claude);
 }
 
+/* The title row's end: the sidebar's own toggle, on the right. */
+.titleEnd {
+  margin-left: auto;
+  display: inline-flex;
+}
+/* The bottom card: the room and Invite with Usage and Settings on the right, then you. */
+.dock {
+  flex: none;
+  margin: 6px 8px 8px;
+  border: 0.5px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
 .footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 38px;
-  padding: 0 12px 0 16px;
-  border-top: 0.5px solid var(--hairline);
+  height: 46px;
+  padding: 0 8px 0 14px;
   flex: none;
   color: var(--text-2);
   font-size: 0.92rem;
+}
+.friends {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.friends > button:first-child {
+  flex: 0 1 auto;
+}
+.dockTools {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Usage and Settings as framed square buttons, like the window's own toolbar buttons. */
+.dockButton {
+  width: 34px;
+  height: 30px;
+  border: 0.5px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+.dockButton svg {
+  width: 17px;
+  height: 17px;
 }
 .footerLabel {
   flex: 1;
@@ -405,9 +446,8 @@
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
-/* Usage, as an icon above the sidebar: it turns amber when most of the week is used. */
+/* Usage, in the bottom card: it turns amber when most of the week is used. */
 .usage {
-  margin-left: auto;
   display: inline-flex;
 }
 .usage[data-level='mid'] button {

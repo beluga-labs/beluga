@@ -192,12 +192,11 @@ export function SelfBar() {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button type="button" className={s.me} aria-label={`Your status: ${selfLine(self.presence)}`}>
-          <PersonAvatar name={self.name} id={self.peerId} state={self.presence.state} size={26} />
+          <PersonAvatar name={self.name} id={self.peerId} state={self.presence.state} size={32} />
           <span className={s.meText}>
             <span className={s.meName}>{self.name}</span>
             <span className={s.meStatus}>{selfLine(self.presence)}</span>
           </span>
-          <Icon name="chevronUp" size={11} className={s.meChevron} />
         </button>
       </Popover.Trigger>
       <Popover.Portal>

@@ -198,13 +198,13 @@
 
 /* You, at the bottom of the sidebar: your avatar, name and status (a button to change it). */
 .me {
-  --ring: var(--bg-sidebar-solid);
+  --ring: var(--bg-raised);
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
-  height: 42px;
+  height: 52px;
   margin: 0;
   padding: 0 10px 0 12px;
   border-top: 0.5px solid var(--hairline);
@@ -233,10 +233,6 @@
   font-size: 0.84rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.meChevron {
-  flex: none;
-  color: var(--text-3);
 }
 
 /* ---- the status menu */
