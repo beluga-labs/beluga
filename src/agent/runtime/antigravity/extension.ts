@@ -23,6 +23,8 @@ export function antigravityExtension(opts: AgyExtensionOptions = {}): AcpExtensi
   const data = opts.dataDir ?? agyDataDir();
   return {
     instructions: systemMeta,
+    // Over HTTP, as before the core: agy takes MCP servers over HTTP without saying so in its initialize.
+    mount: 'http',
     tools: { dialect: agyDialect, belugaToolOf },
     model: agyModel,
     effort: (effort) => {
