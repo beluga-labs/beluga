@@ -324,3 +324,15 @@ tr.picked,
   color: var(--text-2);
   font-size: 0.9rem;
 }
+
+/* A phone (BLG-6): the diff is for reading. A + on every line would cover the code, so commenting
+   on a line is the desktop's; a comment already made still shows its bubble. */
+@media (max-width: 700px) {
+  .commentBtn:not(.commentOn) {
+    display: none;
+  }
+  .commentBtn.commentOn {
+    min-width: 0;
+    min-height: 0;
+  }
+}
