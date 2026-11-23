@@ -13,7 +13,7 @@ Beluga runs an ACP agent (an agent with an [Agent Client Protocol](https://agent
   - A built-in agent installed from the Registry keeps its built-in id. The agents Beluga runs itself (Claude, Codex, Copilot, OpenCode, Antigravity) don't show in a search.
 - **A command of yours** (Add Command…): a name, a command, its ACP arguments and its variables. Its id is `acp-<name>`.
 
-Your list is kept in `~/.beluga/acp-agents.json` (0600): built-in ones by id, Registry ones and your commands whole. One you added shows in the agent pickers after the fixed agents, on the phone too. The phone can't add, remove or install one. An external agent can read the list but can't change it, since that would run a program on this computer.
+Your list is kept in `~/.beluga/acp-agents.json` (0600): built-in ones by id, Registry ones and your commands whole. One you added shows in the agent pickers after the fixed agents, on the phone too. The phone can't add, remove or install one. An external agent sees the list only on a screen (`ui_only`) and can't change it, since that would run a program on this computer.
 
 An ACP agent can run some steps without asking Beluga, so friends' tasks and guests stay with Claude (or Codex). It has no Compact, fork or /btw of Beluga's: the screens say so where those are (`acp` in `src/shared/runtime-fallbacks.ts`).
 
