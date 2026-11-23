@@ -2,6 +2,8 @@
 
 Beluga is free and open source. We can't see how it's used, so people who choose to share usage statistics are how we learn what to fix and build next. This page says exactly what is sent at each level. The code that does it is in `src/telemetry/`. Who receives it, why, for how long and your rights are in the [privacy notice](privacy.md).
 
+To send your agents' traces to your own tools (Ratel Cloud, Langfuse, Datadog and others), see [Your own traces](traces.md). That's separate from this page, and nothing here changes it.
+
 ## Who can send
 
 Only Beluga's own releases can send. When a release is built, `scripts/build-sidecar.mjs` writes `telemetry-release.json` beside the daemon, using `BELUGA_TELEMETRY_URL`, `BELUGA_TELEMETRY_KEY` and `BELUGA_TELEMETRY_PRODUCT_KEY`:
