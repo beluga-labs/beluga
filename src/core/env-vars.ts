@@ -12,6 +12,7 @@ import { ENV_KEY, type EnvKeys, type EnvVar, MAX_ENV_VALUE, MAX_ENV_VARS, envPro
 import { DEFAULT_EXAMPLE_FILE, EXAMPLE_FILES, exampleKeys, syncExample } from '../shared/env-example.js';
 import { type FoundKey, findKeys, mayHoldKey } from '../shared/key-detect.js';
 import { ENDPOINT_ID, type EndpointFormat, endpointIdFor } from '../shared/local-endpoints.js';
+import { TRACE_FIELD_KEY, TRACE_FIELD_MAX, TRACE_PROVIDER_IDS, type TraceProviderId, mergeTraceFields, traceFields, traceProvider } from '../shared/trace-destinations.js';
 import type { Project, Workspace } from '../workspaces/types.js';
 import { varsElsewhere } from './env-elsewhere.js';
 import { belugaHome } from './home.js';
@@ -29,6 +30,19 @@ export const Endpoint = z.object({
 });
 export type Endpoint = z.infer<typeof Endpoint>;
 const MAX_ENDPOINTS = 12;
+
+/**
+ * One of your own trace destinations (BLG-1014, shared/trace-destinations.ts): which tool, whether it's
+ * on, whether your text goes too, and what you pasted in (its keys too: kept here with your other
+ * secrets, never published; screens see only which are saved).
+ */
+export const TraceDestination = z.object({
+  id: z.enum(TRACE_PROVIDER_IDS),
+  on: z.boolean().default(true),
+  text: z.boolean().default(true),
+  fields: z.record(z.string().regex(TRACE_FIELD_KEY), z.string().max(TRACE_FIELD_MAX)).default({}),
+});
+export type TraceDestination = z.infer<typeof TraceDestination>;
 
 /** A key's prefix as kept in notKeys: `rtl_`, `acme_live_`. */
 export const NOT_KEY_PREFIX = /^[a-z][a-z0-9]{1,7}(?:_[a-z0-9]{2,4})?[_-]$/;
@@ -60,12 +74,16 @@ export const EnvFile = z.object({
   endpoints: z.array(Endpoint).max(MAX_ENDPOINTS).default([]),
   /** Prefixes you said aren't keys (`rtl_`, BLG-977): a paste is never asked about as maybe a key for them. */
   notKeys: z.array(z.string().regex(NOT_KEY_PREFIX)).max(MAX_NOT_KEYS).default([]),
+  /** Your own trace destinations (BLG-1014), one per tool. */
+  traces: z.array(TraceDestination).max(TRACE_PROVIDER_IDS.length).default([]),
+  /** The random id your own traces go under (a conversation's id is a hash of it and the session's). */
+  tracesId: z.string().uuid().optional(),
   /** 2: `dotenv` unset means on. Files without it said false for "never switched on". */
   v: z.number().optional(),
 });
 export type EnvFile = z.infer<typeof EnvFile>;
 
-const EMPTY: EnvFile = { global: {}, claudeDotenv: false, projects: {}, worktrees: {}, endpoints: [], notKeys: [], v: 2 };
+const EMPTY: EnvFile = { global: {}, claudeDotenv: false, projects: {}, worktrees: {}, endpoints: [], notKeys: [], traces: [], v: 2 };
 
 /** A file from before .env loaded by default: its "off" was only never switched on, so it's the default now. */
 function upgrade(file: EnvFile): EnvFile {
@@ -719,7 +737,44 @@ export class EnvVars {
         return [];
       }
     });
-    return [...Object.values(data.global), ...Object.values(data.projects).flatMap((p) => Object.values(p.vars)), ...Object.values(data.worktrees).flatMap((w) => Object.values(w.vars)), ...dotenvs, ...data.endpoints.flatMap((e) => (e.key ? [e.key] : []))];
+    return [...Object.values(data.global), ...Object.values(data.projects).flatMap((p) => Object.values(p.vars)), ...Object.values(data.worktrees).flatMap((w) => Object.values(w.vars)), ...dotenvs, ...data.endpoints.flatMap((e) => (e.key ? [e.key] : [])), ...data.traces.flatMap(traceSecrets)];
+  }
+
+  /** Your trace destinations, keys and all: for sending from this Mac only (never a screen: see telemetry/destinations.ts). */
+  traceDestinations(): readonly TraceDestination[] {
+    return this.data.traces;
+  }
+
+  /**
+   * Connect a tool, or change one. A secret field left empty keeps the one saved, unless its address
+   * changed (shared/trace-destinations.ts mergeTraceFields). `on` and `text` unset keep what it had
+   * (a new one: on, with text).
+   */
+  saveTraceDestination(change: { readonly id: TraceProviderId; readonly on?: boolean; readonly text?: boolean; readonly fields?: Readonly<Record<string, string>> }): void {
+    const provider = traceProvider(change.id);
+    if (!provider) throw new Error('Beluga doesn’t know that tool');
+    const list = this.data.traces;
+    const before = list.find((d) => d.id === change.id);
+    const fields = change.fields ? mergeTraceFields(provider, before?.fields ?? {}, change.fields) : (before?.fields ?? {});
+    const parsed = TraceDestination.safeParse({ id: change.id, on: change.on ?? before?.on ?? true, text: change.text ?? before?.text ?? true, fields: traceFields(provider, fields) });
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'That doesn’t look right');
+    this.data = { ...this.data, traces: before ? list.map((d) => (d.id === change.id ? parsed.data : d)) : [...list, parsed.data], tracesId: this.data.tracesId ?? crypto.randomUUID() };
+    this.save();
+  }
+
+  removeTraceDestination(id: string): void {
+    this.data = { ...this.data, traces: this.data.traces.filter((d) => d.id !== id) };
+    this.save();
+  }
+
+  /** The random id your own traces go under, made once. */
+  tracesId(): string {
+    const kept = this.data.tracesId;
+    if (kept) return kept;
+    const id = crypto.randomUUID();
+    this.data = { ...this.data, tracesId: id };
+    this.save();
+    return id;
   }
 
   /** Your endpoints, keys and all: for runs on this Mac only (never a screen: see local-endpoints.ts). */
@@ -858,4 +913,10 @@ function worktreeAt(project: Project, dir: string | undefined): { wsId?: string 
   const at = path.resolve(dir);
   const ws = project.workspaces.filter((w) => w.kind === 'worktree' && !w.archived && inside(at, w.path)).sort((a, b) => b.path.length - a.path.length)[0];
   return ws ? { wsId: ws.id } : {};
+}
+
+/** A destination's secret values (its keys, a DSN, a header list): masked out of everything sent. */
+function traceSecrets(d: TraceDestination): string[] {
+  const provider = traceProvider(d.id);
+  return (provider?.fields ?? []).flatMap((f) => (f.kind === 'secret' && d.fields[f.key] ? [d.fields[f.key]!] : []));
 }
