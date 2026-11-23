@@ -4,9 +4,9 @@ import type { RuntimeStatus } from '../types.js';
 import { ACP_AUTH_REQUIRED, ACP_SIGNED_OUT, acpSignedOut, modelRows } from '../acp/parts.js';
 import { type AgyConnect, findAgy, spawnAgy } from './connection.js';
 import { dropAgySession } from './sessions.js';
+import { AGY_MISSING, AGY_SIGN_IN } from './spec.js';
 
-export const AGY_MISSING = 'Install the Antigravity CLI: curl -fsSL https://antigravity.google/cli/install.sh | bash';
-export const AGY_SIGN_IN = 'Run agy in Terminal once to sign in with your Google account';
+export { AGY_MISSING, AGY_SIGN_IN };
 
 export { ACP_AUTH_REQUIRED, modelRows };
 /** Its words for "nobody is signed in", when it says so without ACP's code. */

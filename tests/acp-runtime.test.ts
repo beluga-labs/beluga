@@ -1,4 +1,7 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { addDirArgs, findAcpCommand } from '../src/agent/runtime/acp/connection.js';
+import type { AcpAgentSpec } from '../src/agent/runtime/acp/spec.js';
 import { CodexRpcError } from '../src/agent/runtime/codex/rpc.js';
 import { ACP_AUTH_REQUIRED, acpFailure, acpModel, acpSignedOut, declinedNote, modeValue, modelRows } from '../src/agent/runtime/acp/parts.js';
 import { RunFailedError } from '../src/shared/run-failure.js';
@@ -46,5 +49,43 @@ describe('the core’s small parts', () => {
       { id: 'thought_level', currentValue: 'low', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
     ]);
     expect(rows).toEqual([{ value: 'a', label: 'A', description: '', efforts: ['low', 'high'] }, { value: 'b', label: 'B', description: 'bee' }]);
+  });
+});
+
+/** An agent the core has never heard of. */
+const TOY: AcpAgentSpec = {
+  id: 'toy',
+  label: 'Toy',
+  command: 'toy',
+  args: ['acp'],
+  pathVar: 'BELUGA_TOY_PATH',
+  searchDirs: (platform, home) => (platform === 'win32' ? [path.win32.join(home, 'toys')] : [path.posix.join(home, 'toys'), '/opt/toys']),
+  addDirFlag: '--with',
+  missingWords: (where) => `Toy isn’t installed on this ${where}.`,
+  installFix: 'Install Toy',
+  signInFix: 'Sign in to Toy',
+};
+
+describe('finding an ACP agent', () => {
+  const at = (...files: string[]) => (f: string) => files.includes(f);
+
+  it('takes its variable outright, and nothing else when it names nothing that runs', () => {
+    expect(findAcpCommand(TOY, { BELUGA_TOY_PATH: '/x/toy', PATH: '/usr/bin' }, 'darwin', at('/x/toy', '/usr/bin/toy'), '/h')).toBe('/x/toy');
+    expect(findAcpCommand(TOY, { BELUGA_TOY_PATH: '/x/toy', PATH: '/usr/bin' }, 'darwin', at('/usr/bin/toy'), '/h')).toBeUndefined();
+  });
+
+  it('looks on PATH first, then in its own folders', () => {
+    expect(findAcpCommand(TOY, { PATH: '/usr/bin:/bin' }, 'linux', at('/bin/toy', '/h/toys/toy'), '/h')).toBe('/bin/toy');
+    expect(findAcpCommand(TOY, { PATH: '/usr/bin' }, 'linux', at('/opt/toys/toy'), '/h')).toBe('/opt/toys/toy');
+    expect(findAcpCommand(TOY, { PATH: '/usr/bin' }, 'linux', at(), '/h')).toBeUndefined();
+  });
+
+  it('finds its .exe on Windows', () => {
+    expect(findAcpCommand(TOY, { Path: 'C:\\bin' }, 'win32', at('C:\\h\\toys\\toy.exe'), 'C:\\h')).toBe('C:\\h\\toys\\toy.exe');
+  });
+
+  it('passes each extra folder with its own flag, and none for an agent without one', () => {
+    expect(addDirArgs(TOY, ['/a', '/b'])).toEqual(['--with', '/a', '--with', '/b']);
+    expect(addDirArgs({}, ['/a'])).toEqual([]);
   });
 });
