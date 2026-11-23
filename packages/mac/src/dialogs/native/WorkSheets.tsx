@@ -217,7 +217,7 @@ export function NativeSheets() {
     case 'new_sentinel':
       return <NewSentinelSheet {...(sheet.projectId ? { projectId: sheet.projectId } : {})} {...(sheet.way ? { way: sheet.way } : {})} close={close} />;
     case 'schedule':
-      return <ScheduleSheet channel={sheet.channel} {...(sheet.prompt ? { prompt: sheet.prompt } : {})} close={close} />;
+      return <ScheduleSheet channel={sheet.channel} {...(sheet.prompt ? { prompt: sheet.prompt } : {})} {...(sheet.onMade ? { onMade: sheet.onMade } : {})} close={close} />;
     case 'add_tile':
       return <AddTileSheet key={sheet.dashboardId} dashboardId={sheet.dashboardId} close={close} />;
     case 'sentinel_data':
