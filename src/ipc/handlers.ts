@@ -26,6 +26,7 @@ import { REVENUECAT_HANDLERS } from './revenuecat-handlers.js';
 import { SUPPORT_HANDLERS } from './support-handlers.js';
 import { TELEMETRY_HANDLERS } from './telemetry-handlers.js';
 import { ACP_HANDLERS } from './acp-handlers.js';
+import { TRACES_HANDLERS } from './traces-handlers.js';
 import { STATS_HANDLERS } from './stats-handlers.js';
 import { maybeStatsOf } from '../core/stats/counter.js';
 import { WEB_HANDLERS } from './web-handlers.js';
@@ -490,6 +491,7 @@ export const HANDLERS = {
   ...SUPPORT_HANDLERS,
   ...TELEMETRY_HANDLERS,
   ...ACP_HANDLERS,
+  ...TRACES_HANDLERS,
   ...STATS_HANDLERS,
   ...WEB_HANDLERS,
   ...DIAGNOSTICS_HANDLERS,

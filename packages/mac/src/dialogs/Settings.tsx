@@ -57,6 +57,7 @@ import { MachinesSettings } from './MachinesSettings.js';
 import { AccessSettings } from '../gateway/AccessSettings.js';
 import { UpdateAboutRow, UpdateSettingsGroup } from './UpdateSettings.js';
 import { TelemetrySettingsGroup } from './TelemetrySettings.js';
+import { TracesSettings } from './TracesSettings.js';
 import { GITHUB_URL } from '../lib/support.js';
 import { openExternal } from '../lib/system.js';
 import { shortcutKeys } from '../lib/shortcuts.js';
@@ -697,6 +698,7 @@ const BODY: Record<SettingsPane, () => ReactNode> = {
   general: General,
   appearance: Appearance,
   claude: AgentPane,
+  traces: TracesSettings,
   notifications: NotificationSettings,
   workspaces: Workspaces,
   terminal: TerminalSettings,

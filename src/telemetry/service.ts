@@ -17,6 +17,7 @@ import {
 } from '../core/telemetry-store.js';
 import { ClaudeOtel } from './claude-otel.js';
 import type { ReleaseConfig } from './config.js';
+import { type DestinationStore, TraceDestinations } from './destinations.js';
 import { deviceFacts } from './device.js';
 import { Exporter } from './exporter.js';
 import { featureCounter } from './features.js';
@@ -37,6 +38,10 @@ import { type RunContext, type TurnFacts, belugaToolSpans } from './turn.js';
  *   and result, the masked text) and
  *   Claude Code's own telemetry.
  * In a build that can't send (no release config), it publishes `available: false` and does nothing.
+ *
+ * Your own trace destinations (destinations.ts, BLG-1014) ride on the same watching of runs but are
+ * yours: with one on, every run is watched as at On (its text only where it may go), whatever the
+ * level, and what goes to usage statistics is still only what their level and exclusions allow.
  */
 
 /** App moments the screens report (the onboarding, the ask): names from this list only. */
@@ -59,6 +64,8 @@ export interface TelemetryDeps {
   readonly now?: () => number;
   /** How often features are summed and sent (tests: shorter). */
   readonly tickMs?: number;
+  /** Where your own trace destinations are kept (env.json); none: there are none. */
+  readonly destinations?: DestinationStore;
 }
 
 const TICK_MS = 60_000;
@@ -74,6 +81,8 @@ export class TelemetryService {
   /** Your agents' sessions (the same exporter as `product` when the release has one key). */
   private readonly agents?: Exporter;
   private otel?: ClaudeOtel;
+  /** Your own trace destinations, apart from usage statistics. */
+  readonly traces?: TraceDestinations;
   private readonly masker = new Masker(os.homedir());
   private secretsAt = 0;
   private timer?: ReturnType<typeof setInterval>;
@@ -87,9 +96,19 @@ export class TelemetryService {
       const common = { sender: () => ({ installId: this.record.installId, version: deps.version }), ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.now ? { now: deps.now } : {}) };
       this.agents = new Exporter({ ...common, config: { url, key }, prepare: (t) => this.prepare(t) });
       this.product = productKey ? new Exporter({ ...common, config: { url, key: productKey }, prepare: (t) => t }) : this.agents;
-      // Claude Code's own telemetry only in a real release (the demo runs no Claude), and only at On.
-      if (!deps.pretend) this.otel = new ClaudeOtel({ emit: (r) => this.level === 'on' && this.agents?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
     }
+    if (deps.destinations)
+      this.traces = new TraceDestinations({
+        store: deps.destinations,
+        version: deps.version,
+        mask: (t) => this.mask(t),
+        onActive: () => this.applyCapture(),
+        ...(deps.fetch ? { fetch: deps.fetch } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+      });
+    // Claude Code's own telemetry, caught here: never in the demo (it runs no Claude). Its records go
+    // only to usage statistics at On; its model requests make the turns' spans for both.
+    if (!deps.pretend && (deps.config || deps.destinations)) this.otel = new ClaudeOtel({ emit: (r) => this.level === 'on' && this.agents?.log(r), installId: () => this.record.installId, ...(deps.now ? { now: deps.now } : {}) });
     this.publish();
     // The ask counts merges: told again when the count changes.
     this.offs.push(deps.store.onAction((a) => a.type === 'support' && queueMicrotask(() => this.publish())));
@@ -100,11 +119,17 @@ export class TelemetryService {
     return effectiveLevel({ available: this.available, ...(this.record.level ? { level: this.record.level } : {}) });
   }
 
+  /** How closely runs are watched: as at On while one of your own destinations is, else the level. */
+  get capture(): TelemetryLevel {
+    return this.traces?.active ? 'on' : this.level;
+  }
+
   start(): void {
     this.applyLevel();
     this.timer = setInterval(() => this.tick(), this.deps.tickMs ?? TICK_MS);
     this.timer.unref?.();
     for (const e of this.exporters()) e.start();
+    this.traces?.start();
   }
 
   async stop(): Promise<void> {
@@ -113,17 +138,19 @@ export class TelemetryService {
     this.tick();
     this.otel?.stop();
     featureCounter.enable(false);
-    await Promise.all(this.exporters().map((e) => e.stop()));
+    await Promise.all([...this.exporters().map((e) => e.stop()), this.traces?.stop()]);
   }
 
   /** What a runtime's backend reports its turns through (src/telemetry/hook.ts). */
   observeDeps(): ObserveDeps {
     return {
-      level: () => this.level,
-      excluded: (input) => this.excludedRun(input),
+      level: () => this.capture,
+      // Left out of usage statistics: straight through, unless your own destinations still want it.
+      excluded: (input) => this.excludedRun(input) && !this.traces?.active,
+      leftOut: (input) => this.excludedRun(input),
       // The level now, not when the run started: off drops it, limited keeps only Beluga's own tools.
       turn: (f) => this.turn(f),
-      env: (rt) => (this.level === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
+      env: (rt) => (this.capture === 'on' && (rt === 'claude' || rt === 'local') ? this.otel?.env() : undefined),
       calls: (session, from, to) => this.otel?.callsFor(session, from, to) ?? [],
       refused: (session) => this.otel?.refusedFor(session) ?? new Map(),
       links: (session, ids) => this.otel?.linksFor(session, ids) ?? new Map(),
@@ -158,8 +185,9 @@ export class TelemetryService {
 
   /** A turn ended: its calls to Beluga's tools to Beluga's project; at On, the whole turn to the agents project. */
   private turn(f: TurnFacts): void {
+    this.traces?.turn(f);
     const level = this.level;
-    if (level === 'off') return;
+    if (level === 'off' || f.leftOut) return;
     if (level === 'on') this.agents?.turn(f);
     // One project: the whole turn already has Beluga's tools in it.
     if (level !== 'on' || this.product !== this.agents) this.product?.spans(belugaToolSpans(f, this.record.installId));
@@ -264,18 +292,17 @@ export class TelemetryService {
   private applyLevel(): void {
     const on = this.level !== 'off';
     featureCounter.enable(on);
-    if (!on) {
-      for (const e of this.exporters()) e.clear();
-      this.otel?.stop();
-      return;
-    }
-    if (this.level === 'on') void this.otel?.start().catch(() => undefined);
-    else {
-      // Essential: your agents' sessions don't go, not even what was waiting.
-      this.otel?.stop();
-      if (this.agents !== this.product) this.agents?.clear();
-    }
-    if (this.now() - this.lastDevice > DAY_MS) this.device();
+    if (!on) for (const e of this.exporters()) e.clear();
+    // Essential: your agents' sessions don't go, not even what was waiting.
+    else if (this.level !== 'on' && this.agents !== this.product) this.agents?.clear();
+    this.applyCapture();
+    if (on && this.now() - this.lastDevice > DAY_MS) this.device();
+  }
+
+  /** Claude Code's own telemetry is caught while runs are watched as at On (the level, or a destination of yours). */
+  private applyCapture(): void {
+    if (this.capture === 'on') void this.otel?.start().catch(() => undefined);
+    else this.otel?.stop();
   }
 
   private device(): void {
@@ -299,6 +326,11 @@ export class TelemetryService {
   private prepare(t: TurnFacts): TurnFacts | undefined {
     // Turned down since it was queued: it doesn't go.
     if (this.level !== 'on') return undefined;
+    return this.mask(t);
+  }
+
+  /** A turn with its text, questions and tools' arguments and results masked (whatever the level: your own destinations too). */
+  private mask(t: TurnFacts): TurnFacts {
     if (!t.text && !t.tools.some((tool) => tool.input || tool.output !== undefined) && !t.waits?.some((w) => w.question)) return t;
     if (this.now() - this.secretsAt > SECRETS_MS) {
       this.secretsAt = this.now();

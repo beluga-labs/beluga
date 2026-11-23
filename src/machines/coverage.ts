@@ -351,6 +351,11 @@ export const MACHINE: Record<Method, MachineSide> = {
   'telemetry.mark': 'drive',
   'telemetry.installId': 'drive',
   'telemetry.resetId': 'drive',
+  // ---- your own traces (Settings › Traces on that computer)
+  'traces.list': 'drive',
+  'traces.save': 'drive',
+  'traces.remove': 'drive',
+  'traces.test': 'drive',
   // ---- stats
   'stats.get': 'drive',
   'stats.leaderboard': 'drive',
