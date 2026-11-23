@@ -12,6 +12,8 @@ import type { Method } from '../ipc/api.js';
  */
 export type ExternalAccess = 'covered' | 'gated' | 'ui_only' | { readonly refused: string };
 
+/** Adding an ACP agent runs (or downloads) a program on this computer. */
+const INSTALLS = 'It downloads or runs a program on this computer: a person adds agents, in Settings.';
 const APPROVALS = 'An approval is a person\'s answer: no agent says yes to a step or a request.';
 const AUTOPILOT = 'Full Autopilot answers approvals for the person (BLG-981): only the person turns it on.';
 const GRANTS = 'An agent never reads or changes a grant, its own or another agent\'s.';
@@ -296,6 +298,13 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'stripe.refresh': 'gated',
   'support.answer': 'gated',
   // Consent to usage statistics is the person's own, made at a screen: never an agent's.
+  'acp.agents': 'ui_only',
+  'acp.catalog': 'ui_only',
+  'acp.search': 'ui_only',
+  'acp.add': { refused: INSTALLS },
+  'acp.addCommand': { refused: INSTALLS },
+  'acp.remove': { refused: INSTALLS },
+  'acp.install': { refused: INSTALLS },
   'telemetry.choose': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.answer': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
   'telemetry.exclude': { refused: 'Usage statistics are your own choice, made in Beluga itself.' },
