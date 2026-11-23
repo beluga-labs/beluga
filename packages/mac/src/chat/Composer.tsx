@@ -30,7 +30,7 @@ import { cmdReturn, returnName, thisComputer, upFirst, yourComputer } from '../l
 import { ModelPicker, myRuntime } from './ModelPicker.js';
 import { effortIn } from '@beluga/shared/agent-picker.js';
 import { AutopilotChip, useAutopilot } from './AutopilotChip.js';
-import { useBuildWith } from './BuildWith.js';
+import { BuildWithChip, useBuildWith } from './BuildWith.js';
 import { ContextMeter } from './ContextMeter.js';
 import { McpChip } from './McpChip.js';
 import { boxChats, plainWords } from './chat-box.js';
@@ -317,6 +317,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
   // Not in a Your Mac chat Beluga made for itself (a sentinel run's).
   const canScheduleHere = useApp((st) => canSchedule(channel, Boolean(shared), st.assistant.chats));
   const sched = useScheduleMode({ channel, can: canScheduleHere, words: () => ui.get().buffer, clear: () => ui.patch({ buffer: '', cursor: 0 }) });
+  // Who builds a plan made here: only while planning, and only with someone else to pick (BLG-1023).
+  const builds = channel.startsWith('ws:') && mode !== 'act' && !sched.on && buildWith.show;
   const [asideIn, setAsideIn] = useState<string | undefined>(undefined);
   const aside = canBtw && asideIn === channel;
   const btwOpen = useApp((st) => Boolean(st.btw?.[channel]));
@@ -857,7 +859,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                 { label: 'Open the Plan', onSelect: () => actions.run({ type: 'view', view: { kind: 'plan', id: homePlan.id } }) },
                 // While it's a draft nothing is on the board: it can go (asked first when it has something in it).
                 ...(tasksMode ? [{ label: 'Discard the Draft', danger: true, separate: true, onSelect: () => setMode('act') }] : []),
-                buildWith.item,
+                ...(buildWith.show ? [buildWith.item] : []),
                 autopilot.item,
               ]}
             >
@@ -877,8 +879,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
                   .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: !sched.on && mode === m, onSelect: () => { sched.leave(); setMode(m); } })),
                 ...(sched.item ? [sched.item] : []),
                 // Then this chat's switches, which hold in any mode: who builds a plan, and Full Autopilot.
-                ...(channel.startsWith('ws:') && mode !== 'act' && !sched.on ? [buildWith.item] : []),
-                ...(channel.startsWith('ws:') ? [{ ...autopilot.item, separate: !(mode !== 'act' && !sched.on) }] : []),
+                ...(builds ? [buildWith.item] : []),
+                ...(channel.startsWith('ws:') ? [{ ...autopilot.item, separate: !builds }] : []),
               ]}
             >
               {sched.on ? (
@@ -898,6 +900,8 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           ) : null}
           {/* Scheduling: when it sends, beside the mode. */}
           {sched.on ? sched.chip : null}
+          {/* Planning, built by another agent: who, beside the mode (× to have the agent here build it). */}
+          {builds && buildWith.builder ? <BuildWithChip builder={buildWith.builder} clear={buildWith.clear} /> : null}
           {!shared ? <AutopilotChip channel={channel} /> : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}

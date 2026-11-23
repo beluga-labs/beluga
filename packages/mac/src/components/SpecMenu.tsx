@@ -188,6 +188,8 @@ export interface ActionItem {
   readonly checked?: boolean;
   /** An on/off setting, not a choice (Full Autopilot): a switch on the right shows `checked`, and picking it keeps the menu open. */
   readonly toggle?: boolean;
+  /** Picking it keeps the menu open, so the change shows where it was made (a choice in a submenu: Builder ▸). */
+  readonly stay?: boolean;
   /** A colour dot before the name (a choice of colours: a tile's tint). */
   readonly swatch?: string;
   /** A submenu ("Move to Group ▸"): picking the row itself does nothing. */
@@ -238,9 +240,9 @@ function ActionRows({ items, Item, Separator, kit = DROPDOWN_SUB }: { items: rea
           <Item
             className={`${s.item} ${it.danger ? s.danger : ''}`}
             disabled={it.disabled}
-            // A switch flips in place: the menu stays open so you see it change.
+            // A switch flips in place, and a choice that stays shows on its row: the menu stays open so you see it change.
             onSelect={
-              it.toggle
+              it.toggle || it.stay
                 ? (e: Event) => {
                     e.preventDefault();
                     it.onSelect();
