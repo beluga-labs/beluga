@@ -433,6 +433,28 @@ describe('plan mode defines the task', () => {
     void board;
   });
 
+  it('after the plan is approved, the same run’s key-less calls reach the task it opened, and defining again rewrites it', () => {
+    const { store, work, open } = setup();
+    open(ws('w1', 'api', 'login-limit'));
+    const run = work.forRun('ws:w1', 'p-me', { plan: true })!;
+    run.tools!.define(def);
+    run.planApproved!();
+    expect(run.tools!.update(undefined, { status: 'in_progress' })).toContain('BOB-1');
+    expect(run.tools!.note(undefined, 'Started on the limiter')).toBe('Noted on BOB-1');
+    // Out of plan mode now: defining again rewrites the task, nothing waits for another approval.
+    expect(run.tools!.define({ ...def, title: 'Rate-limit sign-in' })).toBe('BOB-1 “Rate-limit sign-in” is defined');
+    expect(store.getState().board.issues).toHaveLength(1);
+  });
+
+  it('a task linked to the worktree after the run started is the one key-less calls reach', () => {
+    const { work, open } = setup({ autoTasks: true });
+    open(ws('w1', 'api', 'add-rate-limiting'));
+    const early = work.forRun('ws:w1', 'p-me')!.tools!;
+    // Another run (or the user) opens this worktree's task meanwhile.
+    work.forRun('ws:w1', 'p-me')!.tools!.define(def);
+    expect(early.note(undefined, 'Started on the limiter')).toBe('Noted on BOB-1');
+  });
+
   it('a plan approved in a main folder’s chat: the task waits, and the worktree it continues in does it', () => {
     const { store, work, open } = setup();
     open({ ...ws('m1', 'api', 'bob-api', 'chat'), askOnly: true } as Workspace);
