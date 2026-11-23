@@ -1,4 +1,5 @@
 import { acpAgents } from '../agent/runtime/acp/agents.js';
+import { builtinAcpAgent } from '../agent/runtime/acp/catalog.js';
 import { findAcpCommand } from '../agent/runtime/acp/connection.js';
 import { type AcpAgentEntry, installCommandOf, specOf } from '../agent/runtime/acp/entry.js';
 import { AcpRegistry } from '../agent/runtime/acp/registry.js';
@@ -29,6 +30,9 @@ export interface AcpAgentView {
   readonly installCommand?: string;
 }
 
+/** The demo's ACP agents (its scripted Antigravity): running beside its own agent, so listed as yours, without writing your list. */
+const besideAgents = (s: Session): AcpAgentEntry[] => s.besideRuntimes().flatMap((id) => (!acpAgents.has(id) && builtinAcpAgent(id) ? [builtinAcpAgent(id)!] : []));
+
 let registry: AcpRegistry | undefined;
 const theRegistry = (): AcpRegistry => (registry ??= new AcpRegistry(acpAgents));
 
@@ -57,8 +61,8 @@ const changed = (s: Session): void => {
 };
 
 export const ACP_HANDLERS = {
-  'acp.agents': () => ({ agents: acpAgents.list().map(view) }),
-  'acp.catalog': () => ({ agents: acpAgents.available().map(view) }),
+  'acp.agents': (s) => ({ agents: [...acpAgents.list().map(view), ...besideAgents(s).map((a) => ({ ...view(a), installed: true }))] }),
+  'acp.catalog': (s) => ({ agents: acpAgents.available().filter((a) => !besideAgents(s).some((b) => b.id === a.id)).map(view) }),
   'acp.add': (s, id) => {
     const entry = acpAgents.available().find((a) => a.id === id);
     if (!entry) return acpAgents.has(id) ? { ok: true as const, id } : { ok: false as const, error: 'Beluga doesn’t know that agent.' };

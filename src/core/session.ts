@@ -350,6 +350,11 @@ export class Session {
     return (this.opts.runtime?.runtimes(id) ?? this.opts.alsoRuntimes?.find((r) => r.id === id))?.capabilities.canSteer ?? false;
   }
 
+  /** The runtimes this Beluga runs beside its own (the demo's scripted Codex, OpenCode, Copilot and Antigravity). */
+  besideRuntimes(): readonly string[] {
+    return (this.opts.alsoRuntimes ?? []).map((r) => r.id);
+  }
+
   /** Whether this Mac can run that agent now: its runtime is here (a local model: its endpoint is set up). */
   runsAgent(agent: AgentRef): boolean {
     if (agent.runtime === LOCAL_RUNTIME && this.runtime) return Boolean(this.opts.runtime?.runtimes(CLAUDE_AGENT.runtime) && this.local.resolve(agent.model));
