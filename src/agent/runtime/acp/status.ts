@@ -52,3 +52,8 @@ async function check(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dropSession' |
     if (opened && drop) void drop(opened).catch(() => false);
   }
 }
+
+/** Forget what was found (an agent just added, installed or removed): the next look asks again. */
+export function forgetAcpStatus(): void {
+  cached.clear();
+}

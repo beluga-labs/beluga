@@ -94,7 +94,8 @@ export class AcpAgents {
   addWhole(entry: Omit<AcpAgentEntry, 'source'> & { readonly source: 'registry' | 'local' }): AddResult {
     const problem = entryProblem(entry);
     if (problem) return { ok: false, error: problem };
-    if (RESERVED.has(entry.id) || builtinAcpAgent(entry.id)) return { ok: false, error: `“${entry.id}” is taken by one of Beluga’s own agents.` };
+    // A built-in agent installed from the ACP Registry takes its built-in id, whole (its program is in Beluga's folder, not on PATH); a command of yours never does.
+    if (RESERVED.has(entry.id) || (entry.source === 'local' && builtinAcpAgent(entry.id))) return { ok: false, error: `“${entry.id}” is taken by one of Beluga’s own agents.` };
     const parsed = Whole.safeParse({ ...entry });
     if (!parsed.success) return { ok: false, error: 'That agent can’t be added as it is.' };
     const file = this.read();
