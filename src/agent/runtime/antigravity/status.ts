@@ -1,32 +1,24 @@
 import os from 'node:os';
-import type { ConfigOption, SessionResponse } from '../opencode/acp.js';
+import type { SessionResponse } from '../opencode/acp.js';
 import type { RuntimeStatus } from '../types.js';
-import { CodexRpcError } from '../codex/rpc.js';
+import { ACP_AUTH_REQUIRED, ACP_SIGNED_OUT, acpSignedOut, modelRows } from '../acp/parts.js';
 import { type AgyConnect, findAgy, spawnAgy } from './connection.js';
 import { dropAgySession } from './sessions.js';
 
 export const AGY_MISSING = 'Install the Antigravity CLI: curl -fsSL https://antigravity.google/cli/install.sh | bash';
 export const AGY_SIGN_IN = 'Run agy in Terminal once to sign in with your Google account';
 
-/** ACP's error code for "sign in first" (`auth_required`). */
-export const ACP_AUTH_REQUIRED = -32000;
+export { ACP_AUTH_REQUIRED, modelRows };
 /** Its words for "nobody is signed in", when it says so without ACP's code. */
-export const AGY_SIGNED_OUT = /auth(entication)?[ _]required|not (logged|signed) in|unauthenticated|log ?in (with|first)|\b401\b|invalid_grant/i;
+export const AGY_SIGNED_OUT = ACP_SIGNED_OUT;
+/** Signed out, as an ACP error says it: by its code, else its words. */
+export const signedOut = acpSignedOut;
+
 /**
  * Its words when your plan's quota has run out: the RESOURCE_EXHAUSTED status, a 429, the weekly or
  * five-hour limit. Not every "exceeded": a deadline or a context window is no limit of your plan's.
  */
 export const AGY_LIMIT = /resource.?exhausted|\b429\b|quota|rate.?limit|(weekly|five.?hour|usage) limit/i;
-
-/** Signed out, as an ACP error says it: by its code, else its words. */
-export const signedOut = (err: unknown): boolean => (err instanceof CodexRpcError && err.code === ACP_AUTH_REQUIRED) || AGY_SIGNED_OUT.test(err instanceof Error ? err.message : String(err));
-
-/** The session's options a picker reads: its models, and the thinking levels the current one takes. */
-export function modelRows(options: readonly ConfigOption[] | undefined): RuntimeStatus['models'] {
-  const model = options?.find((o) => o.id === 'model' || o.category === 'model');
-  const levels = options?.find((o) => o.id === 'thought_level' || o.category === 'thought_level')?.options.map((o) => o.value) ?? [];
-  return (model?.options ?? []).map((o) => ({ value: o.value, label: o.name, description: o.description ?? '', ...(o.value === model?.currentValue && levels.length ? { efforts: levels } : {}) }));
-}
 
 interface StatusDeps {
   readonly bin?: string;
