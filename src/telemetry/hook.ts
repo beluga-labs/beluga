@@ -20,6 +20,7 @@ const live: ObserveDeps = {
   level: () => current?.level() ?? 'off',
   turn: (f) => current?.turn(f),
   excluded: (input) => current?.excluded?.(input) ?? false,
+  leftOut: (input) => current?.leftOut?.(input) ?? false,
   env: (runtime) => current?.env?.(runtime),
   calls: (session, from, to) => current?.calls?.(session, from, to) ?? [],
   refused: (session) => current?.refused?.(session) ?? new Map(),
