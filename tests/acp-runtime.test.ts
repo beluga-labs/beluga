@@ -1,10 +1,16 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { addDirArgs, findAcpCommand } from '../src/agent/runtime/acp/connection.js';
+import { acpComplete } from '../src/agent/runtime/acp/complete.js';
+import type { AcpExtension } from '../src/agent/runtime/acp/extension.js';
 import type { AcpAgentSpec } from '../src/agent/runtime/acp/spec.js';
+import { acpStatus } from '../src/agent/runtime/acp/status.js';
+import { ScriptedAgy } from '../src/agent/runtime/antigravity/scripted.js';
+import { agyDialect, belugaToolOf } from '../src/agent/runtime/antigravity/tools.js';
 import { CodexRpcError } from '../src/agent/runtime/codex/rpc.js';
 import { ACP_AUTH_REQUIRED, acpFailure, acpModel, acpSignedOut, declinedNote, modeValue, modelRows } from '../src/agent/runtime/acp/parts.js';
 import { RunFailedError } from '../src/shared/run-failure.js';
+import { waitFor } from './helpers.js';
 
 /**
  * The ACP core on its own: nothing here names Antigravity. Antigravity's own behavior on the core
@@ -87,5 +93,36 @@ describe('finding an ACP agent', () => {
   it('passes each extra folder with its own flag, and none for an agent without one', () => {
     expect(addDirArgs(TOY, ['/a', '/b'])).toEqual(['--with', '/a', '--with', '/b']);
     expect(addDirArgs({}, ['/a'])).toEqual([]);
+  });
+});
+
+// ScriptedAgy speaks plain ACP in the shapes agy 1.5.8 sends: here it is only "a process that speaks ACP".
+
+describe('an ACP agent’s status', () => {
+  it('is missing in its own words when nothing runs', async () => {
+    const status = await acpStatus({ ...TOY, command: 'toy-acp-agent-for-tests', pathVar: 'BELUGA_TOY_NONE', searchDirs: () => [] }, {}, { now: 0 });
+    expect(status).toEqual({ state: 'missing', fix: 'Install Toy', models: [] });
+  });
+
+  it('is ready with the models a session offers, and drops the session it opened to look', async () => {
+    const agy = new ScriptedAgy();
+    const dropped: string[] = [];
+    const status = await acpStatus(TOY, {}, { connect: agy.connect, drop: async (id) => void dropped.push(id) });
+    expect(status.state).toBe('ready');
+    expect(status.models.length).toBeGreaterThan(0);
+    await waitFor(() => dropped.length === 1);
+  });
+});
+
+/** The least an extension may be: its instructions and its tools (Antigravity's shapes, which ScriptedAgy speaks). */
+const bare: AcpExtension = { instructions: (text) => ({ toy: { instructions: text } }), tools: { dialect: agyDialect, belugaToolOf } };
+
+describe('a side call on an ACP agent', () => {
+  it('answers in a conversation of its own, and drops it after', async () => {
+    const agy = new ScriptedAgy();
+    const dropped: string[] = [];
+    const text = await acpComplete(TOY, bare, { cwd: process.cwd(), prompt: 'hello', system: 'Answer.', tools: [] }, { connect: agy.connect, drop: async (id) => void dropped.push(id) });
+    expect(text).toContain('hello');
+    await waitFor(() => dropped.length === 1);
   });
 });
