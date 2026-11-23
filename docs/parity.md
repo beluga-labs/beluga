@@ -117,7 +117,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `project` | sheet and right-click menu |
 | `archived` | sheet and right-click menu |
 | `agents` | sheet |
-| `ws_share` | Share sheet: everyone in the room with an access popup (Can work here / Can follow / No access), Invite by Link…; the add row's What they can do also offers Can take it over for a worktree (what Hand off was, BLG-967; `takeOver` opens on it), and Write a handoff note |
+| `ws_share` | Share sheet: everyone in the room with an access popup (Can see / Can chat / Can fork / Can fork with secrets / Remove access: forks only for a friend over the network, in a worktree), Invite by Link…; the add row's What they can do also offers Can take it over for a worktree (what Hand off was, BLG-967; `takeOver` opens on it), and Write a handoff note |
 | `shared` | sheet (Chat / Files / Changes, who's in it, Leave… with an alert; the people button on its toolbar) and right-click menu |
 | `clear` | sheet |
 | `invite_person` | sheet: workspaces with Invite buttons, Work here / Follow |
@@ -196,6 +196,8 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `sharing.earlier` | ✓ scrolling back in a friend's worktree |
 | `sharing.runHere` | ✓ a friend's worktree's "Runs on" chip › This Mac |
 | `sharing.fork` | ✓ a friend's worktree's header › Fork to My Mac (a sheet: what comes over, what stays behind, a name), Getting <project>… while a project not on this Mac yet is cloned or copied first, then Open My Fork |
+| `sharing.forkCarry` | ✓ a worktree's Share › When someone forks it › What Forks Bring… (what git ignores, the secret-looking files in a pick, the files that would go, size and warnings) |
+| `sharing.setForkCarry` | ✓ What Forks Bring › Save |
 | `invites.create` | ✓ |
 | `invites.revoke` | ✓ |
 | `invites.copyLink` | ✓ |
