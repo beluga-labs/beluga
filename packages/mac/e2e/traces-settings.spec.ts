@@ -46,8 +46,12 @@ test('connect Ratel, test it, and see it under Connected without its key', async
   await expect(dialog.getByLabel('API key')).toHaveAttribute('placeholder', 'Saved (type to replace)');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: path.join(SHOTS, 'traces-4-dark.png') });
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // Away from the buttons: a shot of the list at rest, not of one being hovered.
+  await page.mouse.move(5, 5);
+  await expect(dialog.getByRole('button', { name: 'Connect…' }).first()).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'traces-4-dark.png'), animations: 'disabled' });
 
   await ratel.getByRole('button', { name: 'Edit…' }).click();
   await dialog.getByRole('button', { name: 'Disconnect' }).click();

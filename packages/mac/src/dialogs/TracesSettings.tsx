@@ -216,7 +216,7 @@ export function TracesSettings() {
           </div>
           <div className={s.control}>
             {view ? <Switch label={`Send to ${p.name}`} on={view.on} onChange={(on) => void run(() => api.traces.save({ id: p.id, on }), false)} /> : null}
-            <Button size="small" variant={isOpen ? 'plain' : 'quiet'} disabled={busy && !isOpen} onClick={() => toggle(p)}>
+            <Button size="small" variant="plain" disabled={busy && !isOpen} onClick={() => toggle(p)}>
               {isOpen ? 'Close' : view ? 'Edit…' : 'Connect…'}
             </Button>
           </div>
