@@ -146,6 +146,7 @@ import { FILE_MANAGER, THIS_COMPUTER } from '../shared/assistant.js';
 import { fallbackFor } from '../shared/runtime-fallbacks.js';
 import { SCRATCH_DIR, type ScratchFile, type ScratchTotal, ensureScratch, listScratch, scratchTotal } from '../workspaces/scratch.js';
 import { isUnder } from '../shared/path-inside.js';
+import { type HeldAsk, HeldAsks } from './held-asks.js';
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -210,6 +211,8 @@ export class WorkspaceController {
   private readonly moving = new Map<string, Promise<Workspace | undefined>>();
   /** Pull requests being checked out in a worktree, by project and number (openPull). */
   private readonly pulling = new Map<string, Promise<Workspace | undefined>>();
+  /** What you wrote in worktrees still being made, asked of their agent once they are (held-asks.ts). */
+  private readonly heldAsks = new HeldAsks();
 
   /** Hear about worktrees opening, merging, going and coming back. */
   /**
@@ -675,6 +678,7 @@ export class WorkspaceController {
     const ws = await this.bringIn(project, dir, sessionId, name, id);
     const shown = this.ahead.making.delete(id);
     this.publish();
+    this.heldAsks.release(id, ws === id);
     if (ws === id) {
       // Its page is open already (you may have gone elsewhere since: you stay there).
       if (shown) this.ensureLoaded(id);
@@ -941,6 +945,7 @@ export class WorkspaceController {
     } else if (shown) {
       this.deps.intend({ type: 'close_tab', id });
     }
+    this.heldAsks.release(id, ws?.id === id);
     return ws;
   }
 
@@ -989,6 +994,7 @@ export class WorkspaceController {
     this.deps.intend({ type: 'navigate', view: { kind: 'workspace', id, tab: 'chat' } });
     const leave = (): void => {
       if (this.ahead.making.delete(id)) this.publish();
+      this.heldAsks.release(id, false);
       this.deps.intend({ type: 'close_tab', id });
     };
     let pull: PullHead;
@@ -1012,15 +1018,17 @@ export class WorkspaceController {
     const shown = this.ahead.making.delete(id);
     this.publish();
     if (!ws) {
+      this.heldAsks.release(id, false);
       if (shown) this.deps.intend({ type: 'close_tab', id });
       return undefined;
     }
-    const pushes = pull.fork ? 'It’s from a fork, so pushing here doesn’t change it; git pull brings its new commits.' : 'Pushing here updates the pull request.';
+    const pushes =pull.fork ? 'It’s from a fork, so pushing here doesn’t change it; git pull brings its new commits.' : 'Pushing here updates the pull request.';
     this.deps.store.dispatch({ type: 'system', channel: `${WS_PREFIX}${ws.id}`, text: `Pull request #${pull.number}${pull.title ? ` “${pull.title}”` : ''}, checked out on ${ws.branch}. ${pushes}` });
     this.deps.toast(`#${pull.number} is checked out in ${ws.name}`, 'success');
     if (shown) this.ensureLoaded(ws.id);
     else this.open(ws.id);
     this.created(ws);
+    this.heldAsks.release(id, ws.id === id);
     return ws;
   }
 
@@ -1278,6 +1286,7 @@ export class WorkspaceController {
     const shown = this.ahead.making.delete(newId);
     this.publish();
     if (!ws) {
+      this.heldAsks.release(newId, false);
       this.deps.store.dispatch({ type: 'history', channel: to, items: [] });
       if (shown) this.deps.intend({ type: 'close_tab', id: newId });
       return undefined;
@@ -1292,6 +1301,7 @@ export class WorkspaceController {
     this.deps.store.dispatch({ type: 'system', channel: `${WS_PREFIX}${ws.id}`, text: `Forked from “${source?.name ?? 'its parent'}” with ${carried}. “${source?.name ?? 'Its parent'}” stays as it was.` });
     this.deps.toast(`Forked into ${ws.name}, with the conversation so far`, 'success');
     this.created(ws, { from: id });
+    this.heldAsks.release(newId, ws.id === newId);
     return ws;
   }
 
@@ -1947,6 +1957,17 @@ export class WorkspaceController {
   isMaking(channel: string): boolean {
     const id = workspaceIdOf(channel);
     return id !== undefined && this.ahead.making.has(id);
+  }
+
+  /**
+   * A message written in a worktree still being made: `ask` waits until it's made (then goes),
+   * or until it can't be (then is dropped). False when `channel` isn't one being made.
+   */
+  holdAsk(channel: string, ask: HeldAsk): boolean {
+    const id = workspaceIdOf(channel);
+    if (id === undefined || !this.ahead.making.has(id)) return false;
+    this.heldAsks.hold(id, ask);
+    return true;
   }
 }
 

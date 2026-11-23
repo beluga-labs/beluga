@@ -487,6 +487,7 @@ export class Session {
       // Claude knows to ask Ata's Claude (the room's own parse only knows people in the room).
       const onlyYours = parsed.kind === 'agent' && parsed.unknown.length === 0 && parsed.targets.every((t) => t === this.selfId);
       const prompt = parsed.kind === 'agent' && onlyYours ? parsed.prompt : parsed.text;
+      if (this.holdWhileMaking(prompt, channel, urgent, terminal, id)) return true;
       const ask = (): string | undefined => (terminal ? this.startInTerminal(prompt, channel) : this.askOwnClaude(prompt, channel, urgent));
       if (!id) {
         const sent = ask() !== undefined;
@@ -691,6 +692,26 @@ export class Session {
     }
     this.send({ kind: 'agent_request', requestId, prompt: prompt.slice(0, MAX_TEXT), viaAgent, channel, urgent, plan, ...(project ? { project: project.slice(0, 80) } : {}), ...(via ? { via } : {}), ...named, ...(chain ? { chain } : {}) }, { to: target });
     return requestId;
+  }
+
+  /**
+   * A message written in a worktree whose page shows while git still makes it (BLG-942): drawn in
+   * its conversation now, and asked of its agent once it's made; if it can't be, a toast says your
+   * message wasn't sent. False when the worktree isn't being made (the message goes as usual).
+   */
+  private holdWhileMaking(prompt: string, channel: string, urgent: boolean, terminal: boolean, id: string | undefined): boolean {
+    const ctl = this.workspaces;
+    if (!ctl?.isMaking(channel)) return false;
+    if (id && this.sentById.has(id)) return true;
+    const requestId = this.showAsk(prompt, channel);
+    if (id) this.sentById.set(id, requestId);
+    const words = prompt.replace(/\s+/g, ' ').trim();
+    const short = words.length > 60 ? `${words.slice(0, 59)}…` : words;
+    ctl.holdAsk(channel, {
+      go: () => void (terminal ? this.startInTerminal(prompt, channel, requestId) : this.askOwnClaude(prompt, channel, urgent, false, requestId)),
+      drop: () => this.toast(`The worktree wasn’t made, so your message “${short}” wasn’t sent`, 'warn'),
+    });
+    return true;
   }
 
   /**
