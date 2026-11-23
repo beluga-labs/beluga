@@ -10,6 +10,7 @@ import {
   traceTarget,
 } from '../shared/trace-destinations.js';
 import { type ExportTarget, Exporter, type SendStatus, postOtlp } from './exporter.js';
+import { shapeFor } from './dialects.js';
 import { type Sender, tracesRequest } from './otlp.js';
 import { tracesProto } from './otlp-proto.js';
 import { type TurnFacts, turnSpans } from './turn.js';
@@ -71,7 +72,13 @@ export function withoutText(t: TurnFacts): TurnFacts {
   };
 }
 
-const asExport = (t: TraceTarget): ExportTarget => ({ traces: t.traces, headers: t.headers, ...(t.resource ? { resource: t.resource } : {}), protobuf: true });
+/** Resource attributes a tool reads its user from (PostHog's distinct_id: else every event is anonymous). */
+const userResource = (id: TraceProviderId, user: string): Readonly<Record<string, string>> => (id === 'posthog' ? { 'posthog.distinct_id': user } : {});
+
+const asExport = (t: TraceTarget, extra: Readonly<Record<string, string>>): ExportTarget => {
+  const resource = { ...t.resource, ...extra };
+  return { traces: t.traces, headers: t.headers, ...(Object.keys(resource).length ? { resource } : {}), protobuf: true };
+};
 
 export class TraceDestinations {
   private readonly live = new Map<TraceProviderId, Live>();
@@ -146,8 +153,8 @@ export class TraceDestinations {
     const target = traceTarget(id, typed ? mergeTraceFields(provider, saved, typed) : saved);
     if ('error' in target) return { ok: false, words: `${target.error}.` };
     const now = this.deps.now?.() ?? Date.now();
-    const spans = turnSpans(testTurn(now), this.deps.store.tracesId());
-    const body = tracesProto(tracesRequest(this.sender(), spans, target.resource));
+    const spans = shapeFor(id, this.deps.store.tracesId())(turnSpans(testTurn(now), this.deps.store.tracesId()));
+    const body = tracesProto(tracesRequest(this.sender(), spans, { ...target.resource, ...userResource(id, this.deps.store.tracesId()) }));
     const { status, code } = await postOtlp(target.traces, target.headers, body, this.deps.fetch);
     return { ok: status === 'ok', words: testWords(status, code, provider.name, provider.checksKeyLater === true) };
   }
@@ -181,7 +188,7 @@ export class TraceDestinations {
       if (!d.on) continue;
       const target = traceTarget(d.id, d.fields);
       if ('error' in target) continue;
-      wanted.set(d.id, { sig: JSON.stringify([target, d.text]), target: asExport(target), text: d.text });
+      wanted.set(d.id, { sig: JSON.stringify([target, d.text]), target: asExport(target, userResource(d.id, this.deps.store.tracesId())), text: d.text });
     }
     for (const [id, l] of this.live) {
       if (wanted.get(id)?.sig === l.sig) continue;
@@ -194,6 +201,7 @@ export class TraceDestinations {
         target: w.target,
         sender: () => this.sender(),
         prepare: (t) => this.deps.mask(w.text ? t : withoutText(t)),
+        shape: shapeFor(id, this.deps.store.tracesId()),
         onSend: (status, code) => {
           const l = this.live.get(id);
           if (l?.exporter !== exporter) return;

@@ -267,7 +267,8 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
       return {
         traces: `https://otlp.${site}/v1/traces`,
         headers: { 'dd-api-key': f.key, 'dd-otlp-source': 'llmobs', 'dd-llmobs-enabled': 'true', 'dd-ml-app': f.app || 'beluga' },
-        resource: { dd_llmobs_enabled: 'true' },
+        // Its ML app is the service's name.
+        resource: { dd_llmobs_enabled: 'true', 'service.name': f.app || 'beluga' },
       };
     },
   },
@@ -293,7 +294,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'databricks',
     name: 'Databricks',
-    where: 'Settings › Developer › Access tokens in your workspace',
+    where: 'The token: Settings › Developer › Access tokens. The table: Catalog Explorer › your schema › the one ending in _otel_spans, once an MLflow experiment stores its traces there',
     docs: 'https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog',
     keywords: 'mlflow unity catalog lakehouse',
     fields: [

@@ -41,6 +41,8 @@ export interface ExporterDeps {
   readonly sender: () => Sender;
   /** Masks a turn's text (level "on"); undefined drops the turn (the level went down since). */
   readonly prepare: (turn: TurnFacts) => TurnFacts | undefined;
+  /** A turn's spans as this destination reads them best (its own attribute names beside gen_ai's); else as built. */
+  readonly shape?: (spans: OtlpSpan[]) => OtlpSpan[];
   readonly fetch?: typeof fetch;
   readonly flushMs?: number;
   readonly now?: () => number;
@@ -138,7 +140,10 @@ export class Exporter {
       // A tick between turns: masking a long conversation never holds the daemon up.
       await new Promise((r) => setImmediate(r));
       const ready = this.deps.prepare(t);
-      if (ready) spans.push(...turnSpans(ready, sender.installId));
+      if (ready) {
+        const built = turnSpans(ready, sender.installId);
+        spans.push(...(this.deps.shape ? this.deps.shape(built) : built));
+      }
     }
     // post() takes what it sent off the front of each list: what's left is what didn't go.
     if (!(await this.post('traces', spans, (part) => tracesRequest(sender, part, this.target.resource)))) {
