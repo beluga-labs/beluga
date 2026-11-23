@@ -260,6 +260,8 @@ describe('the destinations', () => {
     expect(Buffer.from(sent[0]!.body).toString('latin1')).toContain('Beluga test');
     expect(store.list()).toEqual([expect.objectContaining({ fields: { key: 'lsv2_saved', region: 'us' } })]);
     expect((await d.test('ratel', {})).ok).toBe(false);
+    // PostHog takes any trace and checks the key later: the test says so instead of promising.
+    expect((await d.test('posthog', { key: 'phc_maybe' })).words).toMatch(/checks the key only later/);
     // Nor in a test: a typed address with the key left empty sends no saved key there.
     d.save({ id: 'otlp', fields: { url: 'https://collector.mine.example', headers: 'x-key=saved-secret-1' } });
     await d.test('otlp', { url: 'https://other.example', headers: '' });

@@ -41,6 +41,11 @@ export interface TraceProvider {
   readonly fields: readonly TraceField[];
   /** Other words people search for it by. */
   readonly keywords?: string;
+  /**
+   * It takes any well-formed trace at once and checks the key later (PostHog: its project keys are
+   * public), so a wrong key is never refused: Send Test can say only that the trace went.
+   */
+  readonly checksKeyLater?: boolean;
   /** Its target from the fields, or an error in plain words. Fields are already trimmed. */
   readonly target: (f: Readonly<Record<string, string>>) => TraceTarget | { readonly error: string };
 }
@@ -156,6 +161,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
     where: 'Project settings › Project API key on posthog.com',
     docs: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
     keywords: 'llm analytics hedgehog',
+    checksKeyLater: true,
     fields: [secret('key', 'Project API key', 'phc_…'), US_EU],
     target: (f) => (f.key ? { traces: `https://${f.region === 'eu' ? 'eu' : 'us'}.i.posthog.com/i/v0/ai/otel`, headers: { authorization: `Bearer ${f.key}` } } : { error: 'Paste your project API key' }),
   },

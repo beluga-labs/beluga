@@ -149,7 +149,7 @@ export class TraceDestinations {
     const spans = turnSpans(testTurn(now), this.deps.store.tracesId());
     const body = tracesProto(tracesRequest(this.sender(), spans, target.resource));
     const { status, code } = await postOtlp(target.traces, target.headers, body, this.deps.fetch);
-    return { ok: status === 'ok', words: testWords(status, code, provider.name) };
+    return { ok: status === 'ok', words: testWords(status, code, provider.name, provider.checksKeyLater === true) };
   }
 
   private sender(): Sender {
@@ -230,7 +230,8 @@ function stateOf(d: TraceDestination, target: TraceTarget | { readonly error: st
   return { state: r?.lastSentAt ? 'sending' : 'waiting' };
 }
 
-function testWords(status: SendStatus, code: number, name: string): string {
+function testWords(status: SendStatus, code: number, name: string, later: boolean): string {
+  if (status === 'ok' && later) return `${name} took the test trace, but it checks the key only later. If “Beluga test” doesn’t show there in a minute, check the key and region.`;
   if (status === 'ok') return `${name} took the test trace. Look for “Beluga test” there.`;
   if (status === 'refused') return `${name} refused the key (HTTP ${code}).`;
   if (status === 'rejected') return `${name} answered HTTP ${code}. Check the project and region.`;
