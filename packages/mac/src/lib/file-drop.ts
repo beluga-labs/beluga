@@ -11,7 +11,7 @@
  */
 
 import { appDropScale } from '../chat/drop-model.js';
-import { keyPlatform } from './shortcuts-model.js';
+import { type KeyPlatform, keyPlatform } from './shortcuts-model.js';
 
 export interface DropPosition {
   readonly x: number;
@@ -27,6 +27,15 @@ export type FileDropListener = (e: FileDropEvent) => void;
 
 /** A drag that carries files (never one of the page's own: a tab, a card, a row). */
 export const carriesFiles = (types: Iterable<string> | undefined): boolean => !!types && [...types].includes('Files');
+
+/**
+ * Whether a box's own drop handler (the page's onDrop) takes a drag of files. Not when the app
+ * already hands that drop over by path: on Windows the page sees every drop from Explorer, and a
+ * box listening with onFileDrop gets it there too, so taking it here as well attached it twice.
+ * On a Mac and Linux the page never sees a drop from outside, so its handler only meets its own drags.
+ */
+export const boxTakesFiles = (o: { readonly platform: KeyPlatform; readonly inApp: boolean; readonly hearsAppDrops: boolean }): boolean =>
+  !(o.platform === 'windows' && o.inApp && o.hearsAppDrops);
 
 /** Where the pointer is in the page (CSS pixels), in the app's drop units. */
 export const dropPosition = (clientX: number, clientY: number, scale: number): DropPosition => ({ x: clientX * (scale || 1), y: clientY * (scale || 1) });
