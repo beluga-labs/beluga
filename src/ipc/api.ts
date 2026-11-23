@@ -504,7 +504,7 @@ export const API = {
   // Local and bring-your-own endpoints (BLG-449): → each with its URL and models, never its key (hasKey).
   'env.endpoints': args(),
   // Add (no id) or change one; key unset keeps it, '' removes it → its id.
-  'env.saveEndpoint': args(z.object({ id: opt(z.string().max(20)), label: z.string().min(1).max(40), baseUrl: z.string().min(1).max(500), key: opt(z.string().max(4000)), models: opt(z.array(z.string().max(40)).max(20)) })),
+  'env.saveEndpoint': args(z.object({ id: opt(z.string().max(20)), label: z.string().min(1).max(40), baseUrl: z.string().min(1).max(500), key: opt(z.string().max(4000)), models: opt(z.array(z.string().max(40)).max(20)), format: opt(z.enum(['anthropic', 'openai'])) })),
   'env.removeEndpoint': args(z.string().max(20)),
   // Look at every endpoint again now → the list, with which answer.
   'env.checkEndpoints': args(),
