@@ -89,3 +89,7 @@
 .spacer {
   flex: 1;
 }
+/* Connect… and Edit…: the row's control column is a quieter grey (settings .control), which read as disabled on a button. */
+.action {
+  color: var(--text);
+}
