@@ -73,7 +73,7 @@ export const BUILTIN_ACP_AGENTS: readonly AcpAgentEntry[] = [
     registryId: 'muse-code',
     pathVar: 'BELUGA_MUSE_PATH',
     searchDirs: ['~/.local/bin'],
-    install: 'Install Muse Code from the ACP Registry (Settings › Agents › ACP agents)',
+    install: 'Install Muse Code from the ACP Registry (Settings › Agent › ACP agents)',
     signIn: { words: 'Run muse in Terminal once to sign in', command: ['muse'] },
   },
   {

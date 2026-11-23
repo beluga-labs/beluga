@@ -12737,5 +12737,6 @@
  "{0} exited before the turn ended": "{0} 在这一轮结束前退出了",
  "Gemini, and the Claude and GPT-OSS models your Antigravity plan has": "Gemini，以及你的 Antigravity 套餐里的 Claude 和 GPT-OSS 模型",
  "Run {0} in Terminal once to sign in": "在终端运行一次 {0} 来登录",
+ "Install Muse Code from the ACP Registry (Settings › Agent › ACP agents)": "从 ACP Registry 安装 Muse Code（设置 › 智能体 › ACP 智能体）",
  "Install {0}": "安装 {0}"
 }
