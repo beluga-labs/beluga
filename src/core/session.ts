@@ -93,6 +93,8 @@ export interface SessionOptions {
   readonly alsoRuntimes?: readonly AgentRuntime[];
   readonly runtime?: {
     readonly runtimes: (id?: RuntimeId) => AgentRuntime | undefined;
+    /** Your ACP agents Beluga has no name for (Cursor, a Registry agent, a command of yours): the pickers list them after the fixed ones. */
+    readonly extra?: () => ReadonlyArray<{ readonly id: RuntimeId; readonly label: string }>;
     readonly agent?: RuntimeId;
     readonly options: Omit<RuntimeOptions, 'bridge'>;
   };
@@ -308,7 +310,7 @@ export class Session {
     // Each runtime's turns also reach usage statistics, when you chose to send them (src/telemetry/hook.ts).
     const make = (r: AgentRuntime): AgentBackend => observeRuntime(guardedBackend(r.create({ ...rt.options, bridge: this.bridge, ownEnv: this.ownEnv }), r.capabilities), r.id);
     // Every other runtime that has plan usage reports it too (Codex's windows on the usage tab).
-    const withUsage = KNOWN_RUNTIMES.map((r) => r.id).filter((id) => id !== main.id && rt.runtimes(id)?.capabilities.hasUsage);
+    const withUsage = [...KNOWN_RUNTIMES.map((r) => r.id), ...(rt.extra?.() ?? []).map((r) => r.id)].filter((id) => id !== main.id && rt.runtimes(id)?.capabilities.hasUsage);
     return routedBackend(
       make(main),
       main.id,

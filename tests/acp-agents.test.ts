@@ -9,6 +9,8 @@ import { ACP_CAPABILITIES, RUNTIME_ID, acpRuntimeId, entryProblem, installComman
 import { genericExtension } from '../src/agent/runtime/acp/generic.js';
 import { acpMode, sessionModelRows, withInstructions } from '../src/agent/runtime/acp/parts.js';
 import { createAcpRuntime } from '../src/agent/runtime/acp/runtime.js';
+import { runtimeChoices } from '../src/shared/agent-runtimes.js';
+import { fallbackFor, runtimeHas } from '../src/shared/runtime-fallbacks.js';
 import { ScriptedCopilot } from '../src/agent/runtime/copilot/scripted.js';
 import type { AgentRunInput } from '../src/agent/types.js';
 import { room, runtimeConformance } from './runtime-conformance.js';
@@ -191,5 +193,25 @@ describe('a run on a generic ACP agent', () => {
     const status = await generic(new ScriptedCopilot()).status!();
     expect(status.state).toBe('ready');
     expect(status.models[0]).toMatchObject({ value: '', label: 'Default' });
+  });
+});
+
+describe('your ACP agents in the pickers', () => {
+  it('lists them after the fixed agents, each only once you added it', () => {
+    const runs = (ids: string[]) => (id: string) => (ids.includes(id) ? {} : undefined);
+    expect(runtimeChoices(runs(['claude'])).map((c) => c.id)).toEqual(['claude', 'codex', 'opencode', 'copilot', 'local']);
+    const added = runtimeChoices(runs(['claude', 'antigravity', 'cursor']), [{ id: 'cursor', label: 'Cursor' }, { id: 'claude', label: 'Dup' }]);
+    expect(added.map((c) => c.id)).toEqual(['claude', 'codex', 'opencode', 'copilot', 'local', 'antigravity', 'cursor']);
+    expect(added.find((c) => c.id === 'cursor')).toMatchObject({ available: true, label: 'Cursor' });
+  });
+
+  it('says why where any of them does differently, Antigravity keeping its own words', () => {
+    for (const id of ['cursor', 'acp-dsh']) {
+      expect(fallbackFor(id, 'fork')).toMatch(/new conversation/);
+      expect(fallbackFor(id, 'guests')).toMatch(/guests/);
+      expect(runtimeHas(id, 'btw')).toBe(false);
+    }
+    expect(fallbackFor('antigravity', 'guests')).toMatch(/^Antigravity/);
+    expect(fallbackFor('claude', 'fork')).toBeUndefined();
   });
 });
