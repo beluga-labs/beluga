@@ -850,9 +850,7 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
           {keys.ghost}
         </div>
         <div className={s.bar}>
-          {sched.on ? (
-            sched.chip
-          ) : planHome && homePlan ? (
+          {planHome && homePlan ? (
             <ActionsDropdown
               align="start"
               items={[
@@ -873,22 +871,33 @@ export function Composer({ autoFocus = true }: { autoFocus?: boolean }) {
             <ActionsDropdown
               align="start"
               items={[
+                // The modes (BLG-1023): how what you send is taken. One is picked; Schedule is one of them.
                 ...(['act', 'plan', 'tasks'] as const)
                   .filter((m) => m !== 'tasks' || canPlanTasks || tasksMode)
-                  .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: mode === m, onSelect: () => setMode(m) })),
-                ...(channel.startsWith('ws:') && mode !== 'act' ? [buildWith.item] : []),
-                ...(channel.startsWith('ws:') ? [autopilot.item] : []),
-                // A message sent later, or every morning (BLG-1023): the box turns into a schedule.
+                  .map((m) => ({ label: MODE_INFO[m].label, hint: MODE_INFO[m].hint, checked: !sched.on && mode === m, onSelect: () => { sched.leave(); setMode(m); } })),
                 ...(sched.item ? [sched.item] : []),
+                // Then this chat's switches, which hold in any mode: who builds a plan, and Full Autopilot.
+                ...(channel.startsWith('ws:') && mode !== 'act' && !sched.on ? [buildWith.item] : []),
+                ...(channel.startsWith('ws:') ? [{ ...autopilot.item, separate: !(mode !== 'act' && !sched.on) }] : []),
               ]}
             >
-              <button type="button" className={cx(s.chip, mode !== 'act' && s.chipOn)} title={mode === 'tasks' ? MODE_INFO[mode].hint : `${MODE_INFO[mode].hint} (${shortcutKeys('composer-mode') ?? 'Settings › Keyboard'} switches acting and planning first)`} aria-label={`Mode: ${MODE_INFO[mode].label}`}>
-                <Icon name={mode === 'tasks' ? 'graph' : 'wand'} size={12} />
-                <span className={s.chipLabel}>{MODE_INFO[mode].label}</span>
-                <Icon name="chevronDown" size={9} />
-              </button>
+              {sched.on ? (
+                <button type="button" className={cx(s.chip, s.chipOn)} title="Scheduled: sent into this chat later, or again and again" aria-label="Mode: Schedule">
+                  <Icon name="clock" size={12} />
+                  <span className={s.chipLabel}>Schedule</span>
+                  <Icon name="chevronDown" size={9} />
+                </button>
+              ) : (
+                <button type="button" className={cx(s.chip, mode !== 'act' && s.chipOn)} title={mode === 'tasks' ? MODE_INFO[mode].hint : `${MODE_INFO[mode].hint} (${shortcutKeys('composer-mode') ?? 'Settings › Keyboard'} switches acting and planning first)`} aria-label={`Mode: ${MODE_INFO[mode].label}`}>
+                  <Icon name={mode === 'tasks' ? 'graph' : 'wand'} size={12} />
+                  <span className={s.chipLabel}>{MODE_INFO[mode].label}</span>
+                  <Icon name="chevronDown" size={9} />
+                </button>
+              )}
             </ActionsDropdown>
           ) : null}
+          {/* Scheduling: when it sends, beside the mode. */}
+          {sched.on ? sched.chip : null}
           {!shared ? <AutopilotChip channel={channel} /> : null}
           {canRunHere && sharedWs ? <RunOnChip wsId={sharedWs.id} ownerName={state.sharedProjects.find((p) => p.owner === sharedWs.owner)?.ownerName ?? 'Their'} value={runOn} onChange={setRunOn} /> : null}
           {!shared ? <ModelPicker channel={channel} {...(draftProject ? { draft: worktree.agent, onDraft: (agent: AgentRef | undefined) => setWorktree({ ...worktree, agent }) } : {})} /> : null}

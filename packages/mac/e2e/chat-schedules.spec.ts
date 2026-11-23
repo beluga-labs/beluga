@@ -104,6 +104,16 @@ test('esc leaves the mode; Custom… opens the sheet with the words, and making 
   await page.keyboard.press('Escape');
   await expect(composer(page)).not.toHaveAttribute('data-mode', 'schedule');
 
+  // Schedule is one of the modes, beside Act and the plans; Act takes the box back.
+  await composer(page).getByRole('button', { name: /^Mode: / }).click();
+  await shoot(page, '07-modes');
+  await page.getByRole('menuitem', { name: /^Schedule/ }).click();
+  await expect(composer(page)).toHaveAttribute('data-mode', 'schedule');
+  await expect(composer(page).getByRole('button', { name: 'Mode: Schedule' })).toBeVisible();
+  await composer(page).getByRole('button', { name: 'Mode: Schedule' }).click();
+  await page.getByRole('menuitem', { name: /^Act/ }).click();
+  await expect(composer(page)).not.toHaveAttribute('data-mode', 'schedule');
+
   await box(page).fill('/schedule Weekly recap');
   await composer(page).getByRole('button', { name: /^When: / }).click();
   await page.getByRole('menuitem', { name: /Custom/ }).click();

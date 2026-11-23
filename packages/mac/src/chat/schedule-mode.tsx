@@ -10,7 +10,7 @@ import { FIRST_PRESET, type SchedulePreset, presetHint, presetLabel, presetRepea
 import s from './composer.module.css';
 
 /**
- * The message box as a schedule (BLG-1023): '/schedule', the mode menu's Schedule a Message, or the
+ * The message box as a schedule (BLG-1023): '/schedule', the mode menu's Schedule, or the
  * Info panel's Schedules + turn the box into one. A banner says when it will send, the When chip
  * picks from plain presets (Custom… opens the full sheet), and Schedule makes the sentinel, on.
  * esc, or backspace in an empty box, goes back to an ordinary message.
@@ -143,7 +143,8 @@ export function useScheduleMode({ channel, can, words, clear }: { channel: strin
     </Tip>
   );
 
-  const item: ActionItem | undefined = can ? { label: 'Schedule a Message…', hint: 'Send it later, or every morning', icon: 'clock', separate: true, onSelect: enter } : undefined;
+  // One of the modes in the box's mode menu, beside Act and the plans.
+  const item: ActionItem | undefined = can ? { label: 'Schedule', hint: 'Send it later, or again and again', checked: on, onSelect: enter } : undefined;
 
   return { on, enter, leave, schedule, banner, chip, button, item };
 }
