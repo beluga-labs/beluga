@@ -1,16 +1,20 @@
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { addDirArgs, findAcpCommand } from '../src/agent/runtime/acp/connection.js';
 import { acpComplete } from '../src/agent/runtime/acp/complete.js';
 import type { AcpExtension } from '../src/agent/runtime/acp/extension.js';
 import type { AcpAgentSpec } from '../src/agent/runtime/acp/spec.js';
+import { createAcpBackend } from '../src/agent/runtime/acp/runner.js';
 import { acpStatus } from '../src/agent/runtime/acp/status.js';
 import { ScriptedAgy } from '../src/agent/runtime/antigravity/scripted.js';
 import { agyDialect, belugaToolOf } from '../src/agent/runtime/antigravity/tools.js';
 import { CodexRpcError } from '../src/agent/runtime/codex/rpc.js';
 import { ACP_AUTH_REQUIRED, acpFailure, acpModel, acpSignedOut, declinedNote, modeValue, modelRows } from '../src/agent/runtime/acp/parts.js';
+import type { AgentRunInput } from '../src/agent/types.js';
+import type { ClaudeQuestion } from '../src/protocol.js';
 import { RunFailedError } from '../src/shared/run-failure.js';
 import { waitFor } from './helpers.js';
+import { room } from './runtime-conformance.js';
 
 /**
  * The ACP core on its own: nothing here names Antigravity. Antigravity's own behavior on the core
@@ -124,5 +128,68 @@ describe('a side call on an ACP agent', () => {
     const text = await acpComplete(TOY, bare, { cwd: process.cwd(), prompt: 'hello', system: 'Answer.', tools: [] }, { connect: agy.connect, drop: async (id) => void dropped.push(id) });
     expect(text).toContain('hello');
     await waitFor(() => dropped.length === 1);
+  });
+});
+
+describe('a run on an ACP agent the core has never heard of', () => {
+  const run = (prompt: string, extra: { readonly model?: string } = {}) => {
+    const events: Array<[string, string]> = [];
+    const asked: ClaudeQuestion[] = [];
+    const input: AgentRunInput = {
+      prompt,
+      requesterName: 'kay',
+      viaAgent: false,
+      context: [],
+      scope: 'folder',
+      signal: new AbortController().signal,
+      onEvent: (k, t) => void events.push([k, t]),
+      onFileTouched: () => undefined,
+      canUseTool: async () => true,
+      askUser: async (q) => (asked.push(q), { kind: 'skip' }),
+      ...(extra.model ? { model: extra.model } : {}),
+    };
+    return { input, events, asked };
+  };
+  const toy = (agy: ScriptedAgy, ext: AcpExtension = bare) => createAcpBackend(TOY, ext, { cwd: process.cwd(), autoEdit: true, additionalDirectories: [], bridge: room, connect: agy.connect });
+  const deploy: ClaudeQuestion = { kind: 'question', questions: [{ question: 'Deploy?', header: '', options: [{ label: 'Yes', description: '' }], multiSelect: false }] };
+
+  it('answers, with Beluga’s instructions in the _meta its extension gives', async () => {
+    const agy = new ScriptedAgy();
+    expect(await toy(agy).run(run('hello').input)).toBe('echo: hello');
+    const meta = agy.sent('session/new')[0]?._meta as { toy?: { instructions?: string } } | undefined;
+    expect(meta?.toy?.instructions).toBeTruthy();
+  });
+
+  it('says what it can’t do in its own name', async () => {
+    const r = run('hello', { model: 'claude-opus-9' });
+    await toy(new ScriptedAgy()).run(r.input);
+    expect(r.events.some(([k, t]) => k === 'progress' && t.startsWith('Toy has no claude-opus-9'))).toBe(true);
+  });
+
+  it('asks nothing for a question tool it wasn’t told about', async () => {
+    const r = run('question');
+    await toy(new ScriptedAgy()).run(r.input);
+    expect(r.asked).toEqual([]);
+  });
+
+  it('asks a question its extension knows, and its answer is the next turn', async () => {
+    const r = run('question');
+    const ext: AcpExtension = { ...bare, questions: { tool: 'ask_question', detect: (raw) => (raw ? deploy : undefined), answer: () => 'The person skipped your question (ask_question).' } };
+    const answer = await toy(new ScriptedAgy(), ext).run(r.input);
+    expect(r.asked).toEqual([deploy]);
+    expect(answer).toContain('skipped: going on');
+  });
+
+  it('sends /compact on as a message when its extension has no compact of its own', async () => {
+    const r = run('/compact');
+    await toy(new ScriptedAgy()).run(r.input);
+    expect(r.events.some(([k]) => k === 'compact')).toBe(false);
+  });
+
+  it('reports no quota for an agent without one', async () => {
+    const reportUsage = vi.fn();
+    const b = createAcpBackend(TOY, bare, { cwd: process.cwd(), autoEdit: true, additionalDirectories: [], bridge: { ...room, reportUsage }, connect: new ScriptedAgy().connect });
+    await b.refreshUsage?.();
+    expect(reportUsage).not.toHaveBeenCalled();
   });
 });
