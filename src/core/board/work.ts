@@ -507,7 +507,9 @@ export class BoardWork {
     if (from !== this.deps.selfId()) return opts.friend?.id === from ? this.forFriend(channel, opts.friend) : undefined;
     const own = opts.plan ? undefined : this.runBrief(channel);
     const issue = own ? own.current : channel.startsWith(WS) ? issueForWorkspace(this.board.state(), channel.slice(WS.length)) : undefined;
-    const tools = this.toolsFor(channel, issue, Boolean(opts.plan));
+    // Plan mode lasts until you approve the plan: the same run then does the work, out of it.
+    let approved = false;
+    const tools = this.toolsFor(channel, issue, () => Boolean(opts.plan) && !approved);
     const parallel = this.parallelNote(channel, issue);
     const projectId = this.runProject(channel, issue);
     const boardId = issue ? boardOf(issue) : projectId;
@@ -524,7 +526,10 @@ export class BoardWork {
       brief,
       // Asked once per run: a plan without its task defined goes back to Claude to define it first.
       needsDefinition: () => !this.pending.has(channel) && !issue,
-      planApproved: () => this.applyDefinition(channel),
+      planApproved: () => {
+        approved = true;
+        this.applyDefinition(channel);
+      },
     };
   }
 
@@ -539,7 +544,7 @@ export class BoardWork {
     if (!projectId) return undefined;
     const boardId = issue ? boardOf(issue) : projectId;
     const home = { projectId, boardId, friend };
-    const tools = this.toolsFor(channel, issue, false, home);
+    const tools = this.toolsFor(channel, issue, () => false, home);
     const brief = (issue ? briefPrompt(this.board.state(), issue) : boardNote()) + friendNote(friend.name) + aboutPrompt(this.board.state(), projectId, boardId);
     return { tools, brief };
   }
@@ -756,7 +761,7 @@ export class BoardWork {
    * repos. A private task is the user's alone, so an agent never sees one.
    */
   toolsForAgent(agent: ExternalActor, visible: (projectId: string) => boolean): BoardTools {
-    return this.toolsFor('external', undefined, false, undefined, { by: this.agentActor(agent), name: agent.name, visible: (i) => !i.private && visible(i.projectId) });
+    return this.toolsFor('external', undefined, () => false, undefined, { by: this.agentActor(agent), name: agent.name, visible: (i) => !i.private && visible(i.projectId) });
   }
 
   /** An external agent as the board and plans record it. */
@@ -764,11 +769,13 @@ export class BoardWork {
     return { kind: 'claude', owner: this.deps.selfId(), ownerName: this.deps.selfName(), agent: this.agentIn(undefined), external: agent };
   }
 
-  private toolsFor(channel: string, initial: Issue | undefined, planning = false, home?: FriendHome, external?: { readonly by: Actor; readonly name: string; readonly visible: (issue: Issue) => boolean }): BoardTools {
+  private toolsFor(channel: string, initial: Issue | undefined, planning: () => boolean, home?: FriendHome, external?: { readonly by: Actor; readonly name: string; readonly visible: (issue: Issue) => boolean }): BoardTools {
     const board = this.board;
-    // The task this conversation is doing: the one it started with, or the one task_define opens
-    // during the run, so the calls after it (no key) reach it instead of failing.
-    let current = initial;
+    // The task this conversation is doing: the one it started with, the one task_define opens during
+    // the run, or the one its worktree has now (a plan approved mid-run, a task linked meanwhile), so
+    // the calls after it (no key) reach it instead of failing.
+    let defined: Issue | undefined;
+    const doing = (): Issue | undefined => defined ?? initial ?? issueForWorkspaceOf(board, channel);
     const by = (): Actor => external?.by ?? (home ? { ...this.myClaude(channel), for: { id: home.friend.id, name: home.friend.name.slice(0, 64) } } : this.myClaude(channel));
     const state = (): ReturnType<Board['state']> => board.state();
     // A friend's run (BLG-701) reaches its repo's board only, and never a private task.
@@ -777,7 +784,8 @@ export class BoardWork {
       throw new Error(`${home?.friend.name ?? 'They'} may only use this repo's board through you: ${what}`);
     };
     const pick = (key: string | undefined): Issue => {
-      const issue = key ? board.need(key) : current ? board.need(current.id) : undefined;
+      const now = key ? undefined : doing();
+      const issue = key ? board.need(key) : now ? board.need(now.id) : undefined;
       if (!issue) throw new Error('This conversation has no task of its own yet, so say which: pass key (like BOB-12; task_list finds it), or open this work’s task with task_define first');
       if (!reachable(issue)) onlyHome(`${issue.key} isn't on it`);
       return issue;
@@ -815,19 +823,20 @@ export class BoardWork {
       return `worktree ${place.name}${place.branch ? ` (${place.branch})` : ''}${`${WS}${place.id}` === channel ? ', this conversation' : working ? ', its agent is working there now' : ''}`;
     };
     return {
-      ...(current ? { current: current.key } : {}),
+      ...(initial ? { current: initial.key } : {}),
       define: (def) => {
         if (home) onlyHome('defining this conversation’s own task is the owner’s; open one with task_create');
-        if (planning) {
+        const current = doing();
+        if (planning()) {
           this.pending.set(channel, def);
           return `Saved “${def.title}”: it becomes ${current ? `the new brief of ${current.key}` : 'this work’s task in Tasks'} when the user approves your plan. Call ExitPlanMode now.`;
         }
         if (current) {
-          current = this.define(channel, def, current);
-          return `${current.key} “${def.title}” is defined`;
+          defined = this.define(channel, def, current);
+          return `${defined.key} “${def.title}” is defined`;
         }
         const issue = this.define(channel, def, undefined, { private: true });
-        current = issue;
+        defined = issue;
         const which = issue.worktrees.length ? 'this worktree’s task' : 'a task for this work';
         return `Opened ${issue.key} “${issue.title}”, ${which}: private (only the user sees it, until they Share with Team) and assigned to them. Tell the user you opened it and that it’s private: \`task:${issue.key}\`.`;
       },
@@ -841,6 +850,7 @@ export class BoardWork {
         // A board named: its tasks; a repo named: those running in it and on its board. Neither: this
         // task's board and this repo's tasks (a board may cover several repos, a repo be on several boards).
         const asBoard = f.project ? boardByName(f.project) : undefined;
+        const current = doing();
         const repo = f.project ? (asBoard ? undefined : projectByName(f.project)) : (current?.projectId ?? wsProject());
         const onBoard = asBoard ?? (f.project ? repo : current ? boardOf(current) : repo);
         if (home && f.project && onBoard !== home.boardId && repo !== home.projectId) onlyHome(`not ${f.project}'s`);
@@ -856,6 +866,7 @@ export class BoardWork {
       },
       create: (input) => {
         const parent = input.parent ? pick(input.parent) : undefined;
+        const current = doing();
         const boardId = input.board ? boardByName(input.board) : undefined;
         if (input.board && !boardId) throw new Error(`There's no board called ${input.board}`);
         const projectId = input.project ? projectByName(input.project) : (parent?.projectId ?? current?.projectId ?? wsProject() ?? (boardId ? reposOf(state(), boardId)[0] : undefined));
