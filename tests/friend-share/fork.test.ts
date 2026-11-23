@@ -59,7 +59,7 @@ describe('forking a friend’s worktree to your Mac', () => {
     await ata.session.workspaces!.refresh();
     ata.session.sendChat('let’s try the cache first', false, `ws:${theirs.id}`);
 
-    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute', fork: 'secrets' });
     await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.copy?.state === 'ready'));
 
     const seen: SharedFork[] = [];
@@ -152,7 +152,7 @@ describe('forking a friend’s worktree to your Mac', () => {
     const saved = await ata.shares.setForkCarry(theirs.id, { paths: ['.context/'], secrets: ['.context/jev-bench/typesafe.env'] });
     expect(saved.count).toBe(23);
 
-    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute', fork: 'secrets' });
     await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.copy?.state === 'ready'));
     await kay.shares.fork(ata.id, theirs.id, 'bench');
     const fork = await settle(() => {
@@ -183,6 +183,41 @@ describe('forking a friend’s worktree to your Mac', () => {
     expect(buildForkedAppend(run.place!.forked!)).toContain('- .env: a secret');
   }, 60_000 * SLOW);
 
+  it('“Can fork” brings the picked context but never a ticked secret; “Can chat” can’t fork at all (BLG-1019)', async () => {
+    net = await crowd();
+    const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
+    const kay = await mac(net, 'kay', { workspaces: await createDemoWorkspaces() });
+    macs.push(ata, kay);
+    await befriend(ata.person, kay.person);
+    const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
+    const theirs = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && !w.external && w.branch)!;
+    mkdirSync(path.join(theirs.path, '.context'), { recursive: true });
+    writeFileSync(path.join(theirs.path, '.gitignore'), '.context/\n.beluga/\n');
+    writeFileSync(path.join(theirs.path, '.context', 'notes.md'), 'what we know\n');
+    writeFileSync(path.join(theirs.path, '.context', 'typesafe.env'), 'TYPESAFE_KEY=ts-key-123\n');
+    await ata.shares.setForkCarry(theirs.id, { paths: ['.context/'], secrets: ['.context/typesafe.env'] });
+
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute', fork: 'code' });
+    await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.copy?.state === 'ready' && p.forks === 'code'));
+    await kay.shares.fork(ata.id, theirs.id, 'no-secrets');
+    const fork = await settle(() => {
+      const f = kay.store.getState().forks[theirs.id];
+      if (f?.state === 'failed') throw new Error(f.error);
+      return f?.state === 'ready' ? f : undefined;
+    });
+    const mine = kay.session.workspaces!.manager.find(fork.wsId!)!;
+    expect(readFileSync(path.join(mine.path, '.context', 'notes.md'), 'utf8')).toBe('what we know\n');
+    expect(existsSync(path.join(mine.path, '.context', 'typesafe.env'))).toBe(false);
+    expect(JSON.parse(readFileSync(path.join(mine.path, '.beluga', 'fork.json'), 'utf8')).left).toContainEqual({ path: '.context/typesafe.env', why: 'secret' });
+
+    // Shared again without saying (an /invite): still "Can fork". Down to "Can chat": kay's Mac is told, and forking is refused.
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
+    expect(ata.store.getState().projectShares[project.id]?.[kay.id]?.fork).toBe('code');
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute', fork: 'none' });
+    await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id && p.forks === 'none'));
+    await expect(kay.shares.fork(ata.id, theirs.id, 'again')).rejects.toThrow(/ata hasn’t let you fork it/);
+  }, 60_000 * SLOW);
+
   it('forking before the project is on your Mac gets it here first, then forks', async () => {
     net = await crowd();
     const ata = await mac(net, 'ata', { workspaces: await createDemoWorkspaces() });
@@ -191,7 +226,7 @@ describe('forking a friend’s worktree to your Mac', () => {
     await befriend(ata.person, kay.person);
     const project = ata.store.getState().projects.find((p) => p.name === 'bob-api')!;
     const theirs = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && !w.external && w.branch)!;
-    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute' });
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, projectId: project.id, role: 'contribute', fork: 'secrets' });
     // While kay's copy of it is still coming over.
     const early = await settle(() => kay.store.getState().sharedProjects.find((p) => p.id === project.id)?.copy);
     const seen: string[] = [];
@@ -224,7 +259,7 @@ describe('forking a friend’s worktree to your Mac', () => {
     const ws = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && !w.external && w.branch)!;
     // A private repository kay can't reach (.invalid never resolves).
     git(project.root!, 'remote', 'set-url', 'origin', 'https://git.nowhere.invalid/ata/bob-api');
-    ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'contribute' });
+    ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'contribute', fork: 'code' });
     await settle(() => kay.store.getState().shared.find((w) => w.id === ws.id));
 
     // Its address follows the first message (it's looked up): fork once kay has it.
@@ -256,6 +291,6 @@ describe('forking a friend’s worktree to your Mac', () => {
     const ws = project.workspaces.find((w) => w.kind === 'worktree' && !w.archived && !w.external)!;
     ata.session.sharing.shareWithFriend({ peerId: kay.id, workspaceId: ws.id, role: 'view' });
     await settle(() => kay.store.getState().sharedProjects[0]);
-    await expect(kay.shares.fork(ata.id, ws.id)).rejects.toThrow(/Can work here/);
+    await expect(kay.shares.fork(ata.id, ws.id)).rejects.toThrow(/hasn’t let you fork it/);
   }, 30_000 * SLOW);
 });

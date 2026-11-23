@@ -168,6 +168,8 @@ export interface PackInput {
   readonly out: string;
   /** What git ignores that the owner picked for forks to bring (carry.ts). */
   readonly carry?: CarryPicks;
+  /** The friend may have the secrets the owner ticked ("Can fork with secrets", BLG-1019); else they stay behind. */
+  readonly secrets?: boolean;
 }
 
 /** Pack a worktree for a friend's fork. → `fork.tgz` in `out`, its size and what's in it. */
@@ -194,7 +196,8 @@ export async function packFork(input: PackInput): Promise<{ file: string; size: 
   const scratch = existsSync(path.join(dir, SCRATCH_DIR)) ? await copyTree(path.join(dir, SCRATCH_DIR), path.join(stage, 'scratch')) : 0;
   // What's carried fits in what the pack has left (its commits, Scratch and session come first), with room to spare.
   const used = await sizeOf(stage);
-  const carried = await packCarry(dir, input.carry ?? NO_PICKS, stage, Math.max(0, MAX_DOWNLOAD_BYTES * 0.9 - used));
+  const picks = input.carry ?? NO_PICKS;
+  const carried = await packCarry(dir, input.secrets ? picks : { ...picks, secrets: [] }, stage, Math.max(0, MAX_DOWNLOAD_BYTES * 0.9 - used));
   const meta: ForkMeta = { v: 1, id: input.id, name: input.name.slice(0, 200), branch: input.branch.slice(0, 200), tip, ...(work.sha ? { work: work.sha } : {}), changed: work.changed, scratch, ...(session && input.sessionId ? { sessionId: input.sessionId } : {}), carried };
   await fs.writeFile(path.join(stage, 'history.json'), JSON.stringify(input.history));
   await fs.writeFile(path.join(stage, 'meta.json'), JSON.stringify(meta));

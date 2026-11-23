@@ -117,7 +117,7 @@ Columns: **Core** is the API method or intent it uses; **Mac** is where you find
 | `project` | sheet and right-click menu |
 | `archived` | sheet and right-click menu |
 | `agents` | sheet |
-| `ws_share` | Share sheet: everyone in the room with an access popup (Can work here / Can follow / No access), Invite by Link…; the add row's What they can do also offers Can take it over for a worktree (what Hand off was, BLG-967; `takeOver` opens on it), and Write a handoff note |
+| `ws_share` | Share sheet: everyone in the room with an access popup (Can see / Can chat / Can fork / Can fork with secrets / Remove access: forks only for a friend over the network, in a worktree), Invite by Link…; the add row's What they can do also offers Can take it over for a worktree (what Hand off was, BLG-967; `takeOver` opens on it), and Write a handoff note |
 | `shared` | sheet (Chat / Files / Changes, who's in it, Leave… with an alert; the people button on its toolbar) and right-click menu |
 | `clear` | sheet |
 | `invite_person` | sheet: workspaces with Invite buttons, Work here / Follow |

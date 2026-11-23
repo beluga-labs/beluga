@@ -28,6 +28,7 @@ import { type ForkHistory, fetchFork, haveOf, packFork, placeFork, unpackFork } 
 import { SCRATCH_DIR } from '../../shared/scratch-dir.js';
 import { HISTORY_TEXT, HISTORY_TEXT_LONG, type ShareMsg, historyPageOf } from './protocol.js';
 import { THIS_COMPUTER } from '../../shared/assistant.js';
+import { type ForkGrant, levelOf, levelWords, mayFork } from '../../shared/share-levels.js';
 
 /**
  * Sharing with friends over the network, with nobody hosting (docs/network.md, "Sharing with
@@ -218,12 +219,16 @@ export class FriendShares implements FriendSharing {
     const project = this.projectFor(share);
     const grant = this.grants[project.id]?.[peerId];
     const only = grantScope(grant, share);
-    this.grants = { ...this.grants, [project.id]: { ...this.grants[project.id], [peerId]: { role, ...(only ? { only } : {}) } } };
+    // Forks only for someone who works there, of a project with a folder (a plain chat has nothing to fork).
+    // Unsaid (an /invite, the board letting someone in): what they could do stays as it was.
+    const asked = share.fork === undefined ? grant?.fork : share.fork === 'none' ? undefined : share.fork;
+    const fork = role === 'contribute' && project.root ? asked : undefined;
+    this.grants = { ...this.grants, [project.id]: { ...this.grants[project.id], [peerId]: { role, ...(only ? { only } : {}), ...(fork ? { fork } : {}) } } };
     this.saveOwn();
     this.publishGrants();
     this.resync();
     const what = only?.length === 1 ? (project.workspaces.find((w) => w.id === only[0])?.name ?? project.name) : project.name;
-    this.opts.session.toast(`${name} ${role === 'contribute' ? 'can now work with you' : 'can now follow along'} in ${what}`, 'success');
+    this.opts.session.toast(`${name} ${levelWords(levelOf(role, fork))} in ${what}`, 'success');
   }
 
   unshareFriend(share: Omit<FriendShareInput, 'role'>): void {
@@ -335,6 +340,8 @@ export class FriendShares implements FriendSharing {
           worktrees: worktrees.map((w) => ({ id: w.id, name: w.name.slice(0, 200), ...(w.branch ? { branch: w.branch.slice(0, 200) } : {}), agent: placeAgent(w, defaultAgentOf(this.state.self)) })),
           members,
           ...(!project.root ? { chats: true as const } : grant.only ? this.repoFor(project) : this.copyFor(project)),
+          // Whether they may fork it (BLG-1019): said every time, so "no" is never taken for an older Mac's silence.
+          ...(project.root ? { forks: grant.role === 'contribute' ? (grant.fork ?? 'none') : ('none' as const) } : {}),
         };
         const sig = JSON.stringify(msg);
         const fresh = worktrees.filter((w) => !had?.ws.includes(w.id));
@@ -701,6 +708,7 @@ export class FriendShares implements FriendSharing {
       ...(m.copy ? { whole: true } : {}),
       ...(m.copy?.url || m.repo ? { url: (m.copy?.url ?? m.repo)! } : {}),
       ...(m.chats ? { chats: true as const } : {}),
+      ...(m.forks ? { forks: m.forks } : {}),
       history: Object.fromEntries(Object.entries(before?.history ?? {}).filter(([ws]) => worktrees.some((w) => w.id === ws))),
     };
     this.received = { ...this.received, [key]: next };
@@ -817,7 +825,7 @@ export class FriendShares implements FriendSharing {
     const rec = this.receivedWs(wsId);
     if (!rec || rec.owner !== owner || !rec.worktrees.some((w) => w.id === wsId)) throw new Error('That worktree isn’t shared with you');
     if (rec.chats) throw new Error('A chat has no project to fork');
-    if (rec.role !== 'contribute') throw new Error(`${rec.ownerName} shared it for you to follow along: forking it needs “Can work here”`);
+    if (!mayFork(rec)) throw new Error(`${rec.ownerName} hasn’t let you fork it: forking needs “Can fork” in their Share sheet`);
     const now = this.state.forks[wsId]?.state;
     if (now === 'preparing' || now === 'asking' || now === 'copying') return;
     const why = cannotTake(rec.ownerName, this.opts.mesh.belugaOf(owner), 'share.fork', this.opts.mesh.isLinked(owner));
@@ -880,6 +888,13 @@ export class FriendShares implements FriendSharing {
     return { ...(await carryPreview(dir, SCRATCH_DIR, picks)), picks };
   }
 
+  /** What a friend may fork of your worktree: its code (with what forks bring), and the secrets you ticked too, or nothing. */
+  private forkGrant(wsId: string, peerId: string): ForkGrant | undefined {
+    const project = this.state.projects.find((p) => p.workspaces.some((w) => w.id === wsId));
+    const grant = project ? this.grants[project.id]?.[peerId] : undefined;
+    return grant?.role === 'contribute' && (!grant.only || grant.only.includes(wsId)) ? grant.fork : undefined;
+  }
+
   private forkableDir(wsId: string): string {
     const ws = this.opts.session.workspaces?.manager.find(wsId);
     if (!ws || ws.kind !== 'worktree' || ws.archived) throw new Error('Only a worktree can be forked');
@@ -892,13 +907,16 @@ export class FriendShares implements FriendSharing {
     const ws = this.opts.session.workspaces?.manager.find(wsId);
     if (!ws || !this.grantedTo(wsId, from)) return fail('That worktree isn’t shared with you');
     if (this.state.members[wsId]?.[from] !== 'contribute') return fail('Only people who work in it can fork it');
+    // Only someone you let fork it (BLG-1019); secrets only with "Can fork with secrets".
+    const fork = this.forkGrant(wsId, from);
+    if (!fork) return fail(`${this.state.self?.name ?? 'Its owner'} hasn’t let you fork it: forking needs “Can fork” in their Share sheet`);
     if (ws.kind !== 'worktree' || !ws.branch || ws.archived) return fail('Only a worktree can be forked');
     const id = randomBytes(8).toString('hex');
     const share = `fork-${id}`;
     const dir = path.join(this.opts.dir, 'outbox', share);
     const name = this.opts.mesh.nameFor(from);
     try {
-      const { size, meta } = await packFork({ id, dir: ws.path, name: ws.name, branch: ws.branch, ...(ws.sessionId ? { sessionId: ws.sessionId } : {}), history: this.historyOf(wsId, FORK_TEXT).slice(-HISTORY_KEPT), have, out: dir, carry: this.carry.get(wsId) });
+      const { size, meta } = await packFork({ id, dir: ws.path, name: ws.name, branch: ws.branch, ...(ws.sessionId ? { sessionId: ws.sessionId } : {}), history: this.historyOf(wsId, FORK_TEXT).slice(-HISTORY_KEPT), have, out: dir, carry: this.carry.get(wsId), secrets: fork === 'secrets' });
       this.opts.session.shareService.upsert({ name: share, root: dir, writable: false, private: true, allowed: [from] });
       this.outgoing.set(share, from);
       setTimeout(() => {
