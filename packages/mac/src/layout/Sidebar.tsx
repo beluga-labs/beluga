@@ -13,7 +13,7 @@ import { inApp } from '../lib/boot.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
-import { RoomStatus } from '../dialogs/native/RoomPopover.js';
+import { RoomRow, RoomSection } from '../dialogs/native/RoomPopover.js';
 import { ChatsMenu } from './ChatsMenu.js';
 import { Projects, ProjectsAddMenu } from './ProjectTree.js';
 import { SharedProjects } from './SharedProjects.js';
@@ -209,11 +209,8 @@ export function Sidebar() {
       {/* The call you're in, while you look at something else (BLG-706). */}
       <CallPill />
       <UpdatePill />
-      {/* One row at the bottom: you, then the room (its card has Invite People…) and Usage; Add a Friend is Friends' +. Settings is ⌘, and the menu bar's. */}
-      <div className={s.dock}>
-        <SelfBar />
-        <DockTools />
-      </div>
+      {/* One card at the bottom: you (and the room, in your card) and Usage. Settings is ⌘, and the menu bar's. */}
+      <Dock />
     </nav>
     </SidebarChatSelection>
   );
@@ -239,19 +236,28 @@ function UsageButton() {
   );
 }
 
-/** The room and Usage, on the right of the sidebar's bottom card, after you. */
-function DockTools() {
+/**
+ * The sidebar's bottom card: you (your card holds your status and the room) and Usage. While the
+ * Beluga network is off there's no you to click, so the room has a row of its own.
+ */
+function Dock() {
+  const netOn = useApp((st) => st.network.enabled && st.network.self !== undefined);
+  return (
+    <div className={s.dock}>
+      {netOn ? <SelfBar extra={<RoomSection />} /> : <RoomFallback />}
+      <span className={s.dockTools}>
+        <UsageButton />
+      </span>
+    </div>
+  );
+}
+
+function RoomFallback() {
   const status = useApp((st) => st.status);
   const people = useApp((st) => st.peers.length);
   // Your own room is "your room" ("4 people in your room"), never your name back to you.
   const room = useApp((st) => (st.self?.host ? 'your room' : st.room));
   const ready = useApp((st) => st.hosting?.phase === 'ready');
   const reconnecting = useApp((st) => st.connection?.state === 'reconnecting');
-  const { label, tone } = footerStatus({ status, room, people, ready, reconnecting });
-  return (
-    <span className={s.dockTools}>
-      <RoomStatus label={label} tone={tone} people={people} />
-      <UsageButton />
-    </span>
-  );
+  return <RoomRow label={footerStatus({ status, room, people, ready, reconnecting }).label} />;
 }

@@ -1,40 +1,24 @@
-/* The room in the sidebar's bottom card: a framed button like Usage beside it, its dot on the corner. */
+/* The room as a row of its own at the sidebar's foot, while the Beluga network is off. */
 .status {
-  position: relative;
-  flex: none;
-  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 34px;
-  height: 30px;
-  padding: 0 8px;
-  border: 0.5px solid var(--hairline-strong);
-  border-radius: 8px;
-  background: var(--bg-raised);
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px 0 14px;
   color: var(--text-2);
-  font-size: 0.88rem;
-  font-variant-numeric: tabular-nums;
+  text-align: left;
 }
-.status:hover {
+.status:hover,
+.status[data-state='open'] {
   background: var(--bg-hover);
   color: var(--text);
 }
-.status[data-state='open'] {
-  background: var(--bg-press);
-  color: var(--text);
-}
-.statusCount {
-  font-weight: 600;
-}
-.statusDot {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 50%;
-  background: var(--bg-raised);
+.statusLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card.card {
@@ -101,6 +85,14 @@
   justify-content: flex-end;
   gap: 8px;
   padding-top: 12px;
+}
+/* Two buttons share the row evenly, so neither runs into the card's edge. */
+.buttons > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.buttons svg {
+  flex: none;
 }
 
 /* ---- the inspector's Room panel */
