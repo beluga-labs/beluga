@@ -23,8 +23,6 @@ const PATHS = {
   chevronDown: 'M4 6l4 4 4-4',
   chevronUp: 'M4 10l4-4 4 4',
   sidebar: 'M2.5 3.5h11v9h-11z M6 3.5v9',
-  // Usage: a pie with its used slice drawn apart.
-  usage: 'M13.5 8.5A5.5 5.5 0 1 1 7.5 2.5 M9.5 1.5a5 5 0 0 1 5 5h-5z',
   inspector: 'M2.5 3.5h11v9h-11z M10 3.5v9',
   search: 'M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z M10.5 10.5l3 3',
   // A cog of six teeth: rays around a dot read as a sun.

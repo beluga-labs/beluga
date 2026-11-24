@@ -196,18 +196,17 @@
   line-height: 1.35;
 }
 
-/* You, at the bottom of the sidebar: your avatar, name and status (a button to change it). */
+/* You, at the start of the sidebar's bottom card: your avatar, name and status (a button to change it). */
 .me {
   --ring: var(--bg-raised);
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
   min-width: 0;
   height: 52px;
   margin: 0;
-  padding: 0 10px 0 12px;
-  border-top: 0.5px solid var(--hairline);
+  padding: 0 6px 0 12px;
   text-align: left;
 }
 .me:hover,

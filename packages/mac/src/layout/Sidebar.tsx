@@ -10,7 +10,7 @@ import { Icon } from '../components/Icon.js';
 import { Badge, IconButton, cx } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { inApp } from '../lib/boot.js';
-import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
+import { useApi, useApp, useBeluga } from '../lib/beluga.js';
 import { sameDeep } from '../lib/stable.js';
 import { setPrefs, usePrefs } from '../lib/prefs.js';
 import { RoomStatus } from '../dialogs/native/RoomPopover.js';
@@ -36,7 +36,6 @@ import { LaterRows, laterOf, notLater, useLater } from './later-rows.js';
 import { footerStatus } from '../views/room/connection-model.js';
 import { WorktreesNav } from '../views/worktrees/WorktreesNav.js';
 import { SelfBar } from '../network/StatusMenu.js';
-import { openSettings } from '../lib/native-routes.js';
 import { UpdatePill } from '../components/UpdatePill.js';
 import s from './Sidebar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
@@ -210,10 +209,10 @@ export function Sidebar() {
       {/* The call you're in, while you look at something else (BLG-706). */}
       <CallPill />
       <UpdatePill />
-      {/* One card at the bottom: the room and Invite, Usage and Settings, then you. */}
+      {/* One row at the bottom: you, then the room (its card has Invite People…) and Usage; Add a Friend is Friends' +. Settings is ⌘, and the menu bar's. */}
       <div className={s.dock}>
-        <SidebarFooter />
         <SelfBar />
+        <DockTools />
       </div>
     </nav>
     </SidebarChatSelection>
@@ -235,19 +234,13 @@ function UsageButton() {
   const selected = useApp((st) => st.view.kind === 'usage');
   return (
     <span className={s.usage} data-level={week === undefined ? undefined : week >= 90 ? 'high' : week >= 70 ? 'mid' : 'low'}>
-      <IconButton size="large" icon="usage" label="Usage" className={s.dockButton} keys={shortcutKeys('go-usage')} active={selected} onClick={() => actions.run({ type: 'view', view: { kind: 'usage' } })} />
+      <IconButton size="large" icon="gauge" label="Usage" className={s.dockButton} keys={shortcutKeys('go-usage')} active={selected} onClick={() => actions.run({ type: 'view', view: { kind: 'usage' } })} />
     </span>
   );
 }
 
-/** Settings, beside Usage in the sidebar's bottom card. */
-function SettingsButton() {
-  const { ui } = useBeluga();
-  const open = useUi((u) => u.settings !== undefined);
-  return <IconButton size="large" icon="gear" label="Settings" keys={shortcutKeys('settings')} className={s.dockButton} active={open} onClick={() => openSettings(ui, 'general')} />;
-}
-
-function SidebarFooter() {
+/** The room and Usage, on the right of the sidebar's bottom card, after you. */
+function DockTools() {
   const status = useApp((st) => st.status);
   const people = useApp((st) => st.peers.length);
   const room = useApp((st) => st.room);
@@ -255,17 +248,9 @@ function SidebarFooter() {
   const reconnecting = useApp((st) => st.connection?.state === 'reconnecting');
   const { label, tone } = footerStatus({ status, room, people, ready, reconnecting });
   return (
-    <div className={s.footer}>
-      <span className={s.friends}>
-        <RoomStatus label={label} tone={tone} />
-        <button type="button" className={s.invite} onClick={() => document.dispatchEvent(new CustomEvent('beluga:invite'))}>
-          Invite
-        </button>
-      </span>
-      <span className={s.dockTools}>
-        <UsageButton />
-        <SettingsButton />
-      </span>
-    </div>
+    <span className={s.dockTools}>
+      <RoomStatus label={label} tone={tone} people={people} />
+      <UsageButton />
+    </span>
   );
 }

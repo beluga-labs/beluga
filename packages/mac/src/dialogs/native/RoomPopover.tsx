@@ -1,4 +1,5 @@
 import * as Popover from '@radix-ui/react-popover';
+import { Icon } from '../../components/Icon.js';
 import { Avatar, Button, Dot } from '../../components/ui.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
 import { Switch } from '../settings-controls.js';
@@ -20,11 +21,19 @@ function reach(phase: string | undefined, detail: string | undefined, hasLink: b
   return 'Remote access opens when you invite someone';
 }
 
+interface RoomStatusProps {
+  /** In words, for the tooltip and screen readers ("3 people in kay's room", "Offline"). */
+  readonly label: string;
+  readonly tone: Tone;
+  /** Who's here, counted on the button once there's more than you. */
+  readonly people: number;
+}
+
 /**
- * The room's status at the bottom of the sidebar ("3 people in kay's room"), as a button: it
- * opens the room's card with who's here, whether new people can join, and its link.
+ * The room at the bottom of the sidebar, as a small button beside Usage: its dot and who's here.
+ * It opens the room's card with who's here, whether new people can join, its link and Invite People….
  */
-export function RoomStatus({ label, tone }: { label: string; tone: Tone }) {
+export function RoomStatus({ label, tone, people }: RoomStatusProps) {
   const api = useApi();
   const { ui } = useBeluga();
   const room = useApp((st) => st.room);
@@ -39,9 +48,12 @@ export function RoomStatus({ label, tone }: { label: string; tone: Tone }) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" className={r.status} title={room} aria-label={`${label}: room details`}>
-          <Dot tone={tone} />
-          <span className={r.statusLabel}>{label}</span>
+        <button type="button" className={r.status} title={label} aria-label={`${label}: room details`}>
+          <Icon name="people" size={16} />
+          {people > 1 ? <span className={r.statusCount}>{people}</span> : null}
+          <span className={r.statusDot}>
+            <Dot tone={tone} />
+          </span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>

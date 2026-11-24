@@ -377,42 +377,28 @@
   margin-left: auto;
   display: inline-flex;
 }
-/* The bottom card: the room and Invite with Usage and Settings on the right, then you. */
+/* The bottom card, one row: you on the left, the room and Usage on the right. */
 .dock {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
   margin: 6px 8px 8px;
+  padding-right: 8px;
   border: 0.5px solid var(--hairline);
   border-radius: 12px;
   background: var(--bg-raised);
   overflow: hidden;
-}
-.footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 46px;
-  padding: 0 8px 0 14px;
-  flex: none;
-  color: var(--text-2);
-  font-size: 0.92rem;
-}
-.friends {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.friends > button:first-child {
-  flex: 0 1 auto;
 }
 .dockTools {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
-/* Usage and Settings as framed square buttons, like the window's own toolbar buttons. */
+/* Usage as a framed square button, like the window's own toolbar buttons (the room's beside it matches). */
 .dockButton {
   width: 34px;
   height: 30px;
@@ -423,22 +409,6 @@
 .dockButton svg {
   width: 17px;
   height: 17px;
-}
-.footerLabel {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.invite {
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 5px;
-  color: var(--accent);
-  font-weight: 600;
-}
-.invite:hover {
-  background: var(--bg-hover);
 }
 /* A folder dragged from Finder over the sidebar: dropping it adds it as a project. */
 .dropping {

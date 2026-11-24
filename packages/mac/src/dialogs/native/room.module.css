@@ -1,14 +1,20 @@
+/* The room in the sidebar's bottom card: a framed button like Usage beside it, its dot on the corner. */
 .status {
-  flex: 1;
-  min-width: 0;
-  display: flex;
+  position: relative;
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 24px;
-  margin-left: -6px;
-  padding: 0 6px;
-  border-radius: 6px;
+  justify-content: center;
+  gap: 4px;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0.5px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
   color: var(--text-2);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
 }
 .status:hover {
   background: var(--bg-hover);
@@ -18,10 +24,17 @@
   background: var(--bg-press);
   color: var(--text);
 }
-.statusLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.statusCount {
+  font-weight: 600;
+}
+.statusDot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--bg-raised);
 }
 
 .card.card {
