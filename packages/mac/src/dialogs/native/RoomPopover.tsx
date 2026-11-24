@@ -22,7 +22,7 @@ function reach(phase: string | undefined, detail: string | undefined, hasLink: b
 }
 
 interface RoomStatusProps {
-  /** In words, for the tooltip and screen readers ("3 people in kay's room", "Offline"). */
+  /** In words, for the tooltip and screen readers ("3 people in your room", "Offline"). */
   readonly label: string;
   readonly tone: Tone;
   /** Who's here, counted on the button once there's more than you. */
@@ -59,10 +59,11 @@ export function RoomStatus({ label, tone, people }: RoomStatusProps) {
       <Popover.Portal>
         <Popover.Content className={`${p.card} ${r.card}`} side="top" align="start" sideOffset={8} collisionPadding={10} aria-label="Room">
           <div className={r.head}>
-            <div className={r.room}>{room}</div>
+            {/* Yours reads "Your room", not your name back to you; someone else's keeps its name ("bob's room"). */}
+            <div className={r.room}>{host ? 'Your room' : room}</div>
             <div className={r.line}>
               <Dot tone={tone} />
-              {status === 'connected' ? (host ? 'You host this room' : 'Connected') : status === 'connecting' ? 'Connecting…' : 'Offline'}
+              {status === 'connected' ? (host ? 'Hosted on this Mac' : 'Connected') : status === 'connecting' ? 'Connecting…' : 'Offline'}
             </div>
             {host ? <div className={r.dim}>{reach(hosting?.phase, hosting?.detail, Boolean(link))}</div> : null}
           </div>

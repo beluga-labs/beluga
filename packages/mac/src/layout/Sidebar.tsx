@@ -243,7 +243,8 @@ function UsageButton() {
 function DockTools() {
   const status = useApp((st) => st.status);
   const people = useApp((st) => st.peers.length);
-  const room = useApp((st) => st.room);
+  // Your own room is "your room" ("4 people in your room"), never your name back to you.
+  const room = useApp((st) => (st.self?.host ? 'your room' : st.room));
   const ready = useApp((st) => st.hosting?.phase === 'ready');
   const reconnecting = useApp((st) => st.connection?.state === 'reconnecting');
   const { label, tone } = footerStatus({ status, room, people, ready, reconnecting });

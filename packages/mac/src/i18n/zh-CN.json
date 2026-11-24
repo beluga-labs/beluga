@@ -8890,6 +8890,8 @@
  "You heard “{0}” here.": "你在这里听到了“{0}”。",
  "You hit your {0} plan usage limit{1}": "你已达到 {0} 套餐的用量额度{1}",
  "You host this room": "你是这个房间的房主",
+ "Your room": "你的房间",
+ "Hosted on this Mac": "在这台 Mac 上主持",
  "You host this room, so you can clear it for everyone (and for people who join later).": "你是这个房间的房主，所以可以为所有人清空（包括之后加入的人）。",
  "You host this room: people who join later won’t see it either": "你是这个房间的房主：之后加入的人也看不到",
  "You host {0}": "你主持 {0}",
