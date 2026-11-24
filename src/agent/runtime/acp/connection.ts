@@ -8,7 +8,9 @@ import { codexCommand, pathVar } from '../codex/app-server.js';
 import { CodexRpc } from '../codex/rpc.js';
 import { acpHandshake } from '../opencode/connection.js';
 import type { AcpExtension } from './extension.js';
+import { endGroup, groupOf, ownGroups } from './group.js';
 import type { AcpAgentSpec, AcpConnect } from './spec.js';
+import { acpWire } from './wire.js';
 
 const STDERR_KEEP = 40;
 
@@ -42,13 +44,28 @@ export function addDirArgs(spec: Pick<AcpAgentSpec, 'addDirFlag'>, dirs: readonl
   return flag ? dirs.flatMap((dir) => [flag, dir]) : [];
 }
 
-/** Spawn an ACP agent's server and shake hands. It signs in with what it already has: never here. */
+/** How long a process gets to go on SIGTERM before what's left is killed outright. */
+const GRACE_MS = 2_000;
+
+/** Resolves once `p` is there, or after `ms`. */
+const within = (p: Promise<void>, ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    void p.then(() => (clearTimeout(timer), resolve()));
+  });
+
+/**
+ * Spawn an ACP agent's server and shake hands. It signs in with what it already has: never here.
+ * Its line goes through the wire (wire.ts): a stuck run or a sign-in it waits on ends with why.
+ * On macOS and Linux it gets a process group of its own, and ending it ends what it started too.
+ */
 export function spawnAcp(spec: AcpAgentSpec, hooks: Pick<AcpExtension, 'afterLook'> = {}): AcpConnect {
   return async ({ cwd, env, bin, args = [], look = false }) => {
     const command = bin ?? findAcpCommand(spec, env ?? process.env);
     if (!command) throw new Error(spec.missingWords(process.platform === 'darwin' ? 'Mac' : 'computer'));
     const how = codexCommand(command, [...spec.args, ...args]);
-    const child = spawn(how.command, [...how.args], { cwd, env: { ...(env ?? process.env), ...spec.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: how.shell });
+    const grouped = ownGroups() && !how.shell;
+    const child = spawn(how.command, [...how.args], { cwd, env: { ...(env ?? process.env), ...spec.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: how.shell, detached: grouped });
     const lines: string[] = [];
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => keepLines(lines, chunk, STDERR_KEEP));
@@ -58,17 +75,36 @@ export function spawnAcp(spec: AcpAgentSpec, hooks: Pick<AcpExtension, 'afterLoo
     });
     if (spawned || child.pid === undefined) throw new Error(`Couldn’t start ${spec.label} (${spawned?.message ?? 'no process'}).`);
     niceForWorktree(child.pid, env);
+    const pid = child.pid;
     const running = (c: ChildProcess): boolean => c.exitCode === null && c.signalCode === null;
     const exited = running(child) ? new Promise<void>((resolve) => child.once('exit', () => resolve())) : Promise.resolve();
-    const pid = child.pid;
-    const proc: RunProcess = { pid, alive: () => running(child), kill: () => endProcess(child).then(() => void (look && hooks.afterLook?.(pid))), exited };
-    const rpc = new CodexRpc(child.stdout, child.stdin, { name: spec.label, jsonrpc: true });
+    let ending: Promise<void> | undefined;
+    /** Ends it for sure: its whole group where it has one (what it left running too), else the one process. */
+    const endAll = (): Promise<void> =>
+      (ending ??= (async () => {
+        if (!grouped) return endProcess(child, GRACE_MS);
+        await endGroup(groupOf(pid), GRACE_MS);
+        if (running(child)) await endProcess(child, GRACE_MS);
+        await within(exited, GRACE_MS);
+      })());
+    const proc: RunProcess = { pid, alive: () => running(child), kill: () => endAll().then(() => void (look && hooks.afterLook?.(pid))), exited };
+    const wire = acpWire(child.stdout, child.stdin, { label: spec.label, signInFix: spec.signInFix, ...(spec.limits ? { limits: spec.limits } : {}), end: () => void proc.kill() });
+    /** How it exited, when it did on its own: said when nothing here knows better. */
+    let exitWhy: string | undefined;
+    child.once('exit', (code, signal) => {
+      wire.stop();
+      exitWhy = `${spec.label} exited before the turn ended (${signal ? `stopped by ${signal}` : `exit code ${code}`})`;
+      // What it started may still be there: a group's leftovers go with it.
+      if (grouped) void endAll();
+    });
+    const cause = (): string | undefined => wire.cause() ?? exitWhy;
+    const rpc = new CodexRpc(wire.fromAgent, wire.toAgent, { name: spec.label, jsonrpc: true });
     try {
       const init = await acpHandshake(rpc);
-      return { rpc, proc, init, stderr: () => lines };
+      return { rpc, proc, init, stderr: () => lines, cause: () => (rpc.isClosed ? cause() : wire.cause()), onNotice: wire.onNotice };
     } catch (err) {
       await proc.kill();
-      throw new Error(`${spec.label} didn’t start: ${err instanceof Error ? err.message : String(err)}${lines.length ? ` (${lines.at(-1)})` : ''}`);
+      throw new Error(`${spec.label} didn’t start: ${wire.cause() ?? (err instanceof Error ? err.message : String(err))}${lines.length ? ` (${lines.at(-1)})` : ''}`);
     }
   };
 }

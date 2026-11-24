@@ -108,3 +108,13 @@ export function stdioServers(servers: Readonly<Record<string, StdioServerConfig>
 export function withInstructions(instructions: string, prompt: string): string {
   return instructions.trim() ? `<beluga-instructions>\n${instructions.trim()}\n</beluga-instructions>\n\n${prompt}` : prompt;
 }
+
+/**
+ * Waits until nothing has been heard for `quietMs` (`last`: when something last was), and never
+ * longer than `capMs` in all: a loaded session's history that's still coming in is in before the
+ * first turn goes.
+ */
+export async function settled(last: () => number, quietMs = 200, capMs = 2_000, now: () => number = Date.now): Promise<void> {
+  const until = now() + capMs;
+  while (now() < until && now() - last() < quietMs) await new Promise((resolve) => setTimeout(resolve, 25));
+}

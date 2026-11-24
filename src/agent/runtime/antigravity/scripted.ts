@@ -37,6 +37,10 @@ export class ScriptedAgy {
       readonly listPage?: number;
       /** Each turn costs this much (USD): its usage_update says the session's running total, as ACP does. */
       readonly cost?: number;
+      /** More of a loaded conversation's history, sent after session/load answered (just before the next request is), as an agent that streams it late does. */
+      readonly lateHistory?: readonly object[];
+      /** Called as each turn comes in. */
+      readonly onPrompt?: () => void;
     } = {},
   ) {}
 
@@ -312,11 +316,19 @@ export class ScriptedAgy {
       }
     };
 
+    /** A session loaded whose late history hasn't gone out yet. */
+    let late: string | undefined;
     readline.createInterface({ input: toServer }).on('line', (line) => {
       const msg = JSON.parse(line) as { id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown };
       if (!msg.method && msg.id !== undefined) return void asked.get(String(msg.id))?.(msg.result);
       if (!msg.method) return;
       this.requests.push({ method: msg.method, params: msg.params ?? {} });
+      if (late && msg.method !== 'session/load') {
+        for (const u of this.opts.lateHistory ?? []) update(late, u);
+        late = undefined;
+      }
+      if (msg.method === 'session/load' && this.opts.lateHistory?.length) late = String(msg.params?.sessionId ?? '');
+      if (msg.method === 'session/prompt') this.opts.onPrompt?.();
       if (msg.method === 'session/cancel') return void (running?.sessionId === msg.params?.sessionId && running?.cancel());
       if (msg.id === undefined) return;
       answer(msg.method, msg.params ?? {}).then(

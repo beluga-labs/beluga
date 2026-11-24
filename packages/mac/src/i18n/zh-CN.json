@@ -12780,5 +12780,19 @@
  "{0} h": "{0} 小时",
  "Last 7 days": "近 7 天",
  "No runs in the last 7 days": "近 7 天没有运行",
- "No runs in the last 7 days. Pick {0} in the composer’s agent menu and its numbers show up here.": "近 7 天没有运行。在输入框的智能体菜单里选 {0}，跑一次就有数字。"
+ "No runs in the last 7 days. Pick {0} in the composer’s agent menu and its numbers show up here.": "近 7 天没有运行。在输入框的智能体菜单里选 {0}，跑一次就有数字。",
+  "{0} didn’t answer {1} and said nothing for {2} s, so Beluga stopped it.": "{0} 没有回应 {1}，{2} 秒内也没有任何输出，Beluga 已将它停止。",
+  "{0} didn’t answer {1} and said nothing for {2} min, so Beluga stopped it.": "{0} 没有回应 {1}，{2} 分钟内也没有任何输出，Beluga 已将它停止。",
+  "{0} said nothing for {1} min with no step running, so Beluga stopped it. Nothing was sent again.": "{0} 已有 {1} 分钟没有输出，也没有正在运行的步骤，Beluga 已将它停止。没有重新发送任何内容。",
+  "{0} said nothing for {1} s with no step running, so Beluga stopped it. Nothing was sent again.": "{0} 已有 {1} 秒没有输出，也没有正在运行的步骤，Beluga 已将它停止。没有重新发送任何内容。",
+  "{0} is still running a step and hasn’t said anything for {1} s. Stop ends it.": "{0} 仍在运行一个步骤，已有 {1} 秒没有输出。点“停止”可结束。",
+  "{0} is still running a step and hasn’t said anything for {1} min. Stop ends it.": "{0} 仍在运行一个步骤，已有 {1} 分钟没有输出。点“停止”可结束。",
+  "{0} hasn’t said anything for {1} s. It may still be thinking; Stop ends it.": "{0} 已有 {1} 秒没有输出，可能仍在思考；点“停止”可结束。",
+  "{0} hasn’t said anything for {1} min. It may still be thinking; Stop ends it.": "{0} 已有 {1} 分钟没有输出，可能仍在思考；点“停止”可结束。",
+  "{0} sent a message over {1} MB.": "{0} 发来的一条消息超过了 {1} MB。",
+  "{0} is not signed in: it asked to sign in in a browser.": "{0} 未登录：它要求在浏览器中登录。",
+  "{0} is not signed in: it asked to sign in in a browser. {1}.": "{0} 未登录：它要求在浏览器中登录。{1}。",
+  "{0} stopped reading what Beluga sent.": "{0} 不再读取 Beluga 发送的内容。",
+  "{0} exited before the turn ended (stopped by {1})": "{0} 在轮次结束前退出了（被 {1} 终止）",
+  "{0} exited before the turn ended (exit code {1})": "{0} 在轮次结束前退出了（退出码 {1}）"
 }
