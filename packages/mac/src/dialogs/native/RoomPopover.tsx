@@ -87,7 +87,7 @@ export function RoomSection() {
       <div className={r.buttons}>
         {link ? (
           <Button icon={copied ? 'check' : 'copy'} onClick={() => void api.session.copyInvite().then(() => flash('room'))}>
-            {copied ? 'Copied' : 'Copy Room Link'}
+            {copied ? 'Copied' : 'Copy Link'}
           </Button>
         ) : null}
         <Popover.Close asChild>

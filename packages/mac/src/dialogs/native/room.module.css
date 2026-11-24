@@ -86,12 +86,8 @@
   gap: 8px;
   padding-top: 12px;
 }
-/* Two buttons share the row evenly, so neither runs into the card's edge. */
+/* Each button keeps its own width and padding: squeezed to share the row, their words touched the edges. */
 .buttons > * {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.buttons svg {
   flex: none;
 }
 
