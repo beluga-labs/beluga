@@ -522,6 +522,8 @@ export async function buildCore(input: Config, hooks: CoreHooks, opts: { readonl
         },
         { runtime: 'antigravity', label: 'Antigravity' },
       );
+      // An ACP agent without a quota: its card shows its week from your stats.
+      session.updateUsage({ signedIn: true }, { runtime: 'cursor', label: 'Cursor' });
     }, 300);
     // bob "arrives" a moment later so you first see how inviting works (sooner at a faster pace: the e2e tests).
     const soon = (ms: number): number => ms * Math.min(1, Number(process.env.KLAUD_DEMO_PACE) || 1);
