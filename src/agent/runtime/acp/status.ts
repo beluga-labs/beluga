@@ -21,7 +21,7 @@ const cached = new Map<string, { readonly at: number; readonly status: Promise<R
  * It opens a session to find out (no message is sent, so nothing of your quota is used), then drops
  * it. Kept a minute per agent. Never signs in.
  */
-export async function acpStatus(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dropSession' | 'afterLook' | 'defaultModel'>, deps: AcpStatusDeps = {}): Promise<RuntimeStatus> {
+export async function acpStatus(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dropSession' | 'afterLook' | 'defaultModel' | 'launch'>, deps: AcpStatusDeps = {}): Promise<RuntimeStatus> {
   const now = deps.now ?? Date.now();
   const hit = cached.get(spec.id);
   if (!deps.connect && hit && now - hit.at < CACHE_MS) return hit.status;
@@ -30,7 +30,7 @@ export async function acpStatus(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dro
   return status;
 }
 
-async function check(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dropSession' | 'afterLook' | 'defaultModel'>, deps: AcpStatusDeps): Promise<RuntimeStatus> {
+async function check(spec: AcpAgentSpec, ext: Pick<AcpExtension, 'dropSession' | 'afterLook' | 'defaultModel' | 'launch'>, deps: AcpStatusDeps): Promise<RuntimeStatus> {
   const bin = deps.bin ?? (deps.connect ? undefined : findAcpCommand(spec));
   if (!bin && !deps.connect) return { state: 'missing', fix: spec.installFix, models: [] };
   const cwd = os.tmpdir();

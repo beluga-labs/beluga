@@ -52,6 +52,7 @@ Antigravity's extension:
 | `declinedNote`, `failure` | Its words after a declined step; a failure in its words | Its quota's words |
 | `quota` | Your plan's quota, for the usage tab | From its language server |
 | `tidy`, `dropSession`, `afterLook` | What it leaves behind | Its conversations and logs |
+| `launch` | Flags it starts with, made ready first; a version that doesn't know one starts without them | A Gemini folder without your global rules (`--gemini-dir`) |
 
 ## Adding an agent to Beluga's own list
 

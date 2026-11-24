@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { addDirArgs, findAcpCommand } from '../src/agent/runtime/acp/connection.js';
+import { addDirArgs, findAcpCommand, spawnAcp } from '../src/agent/runtime/acp/connection.js';
 import { acpComplete } from '../src/agent/runtime/acp/complete.js';
 import type { AcpExtension } from '../src/agent/runtime/acp/extension.js';
 import type { AcpAgentSpec } from '../src/agent/runtime/acp/spec.js';
@@ -202,5 +202,29 @@ describe('a run on an ACP agent the core has never heard of', () => {
     const b = createAcpBackend(TOY, bare, { cwd: process.cwd(), autoEdit: true, additionalDirectories: [], bridge: { ...room, reportUsage }, connect: new ScriptedAgy().connect });
     await b.refreshUsage?.();
     expect(reportUsage).not.toHaveBeenCalled();
+  });
+});
+
+describe('the flags an extension starts an agent with', () => {
+  const OLD: AcpAgentSpec = { ...TOY, args: [path.join(__dirname, 'fixtures', 'acp-old-agent.mjs'), 'acp'] };
+  const started = async (env: Record<string, string>) => {
+    const conn = await spawnAcp(OLD, { launch: async () => ['--new-flag'] })({ cwd: process.cwd(), env: { ...process.env, ...env }, bin: process.execPath, args: ['--with', 'x'] });
+    await conn.proc.kill();
+    return conn.init.agentInfo?.name;
+  };
+
+  it('go after its own args, before a run’s', async () => {
+    expect(await started({ ACP_OLD: '0' })).toBe('acp --new-flag --with x');
+  });
+
+  it('are left out when they can’t be made ready', async () => {
+    const conn = await spawnAcp(OLD, { launch: async () => Promise.reject(new Error('no')) })({ cwd: process.cwd(), env: { ...process.env, ACP_OLD: '0' }, bin: process.execPath });
+    await conn.proc.kill();
+    expect(conn.init.agentInfo?.name).toBe('acp');
+  });
+
+  // Last: from here on, this executable (node) starts without them.
+  it('are left out for a version that says it doesn’t know one', async () => {
+    expect(await started({ ACP_OLD: '1' })).toBe('acp --with x');
   });
 });

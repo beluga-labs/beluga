@@ -51,4 +51,11 @@ export interface AcpExtension {
   dropSession?(sessionId: string): Promise<unknown>;
   /** After a look's process stopped: what it left (its log). */
   afterLook?(pid: number): Promise<unknown>;
+  /**
+   * Flags it starts with after its spec's `args`, made ready first (Antigravity: a Gemini folder
+   * without your global rules). A version that says it doesn't know one ("flag provided but not
+   * defined") is started without them, and that executable goes on without them while the daemon
+   * runs. Failing to make them ready starts it without them too.
+   */
+  launch?(): Promise<readonly string[]>;
 }
