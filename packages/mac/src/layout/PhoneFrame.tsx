@@ -12,6 +12,26 @@ import s from './Shell.module.css';
 
 const noop = (): void => undefined;
 
+/**
+ * iOS Safari lays the on-screen keyboard over the page (it ignores the viewport's
+ * interactive-widget, which Android's Chrome follows): the frame follows the visual viewport
+ * instead, so the message box sits on top of the keyboard rather than under it.
+ */
+function useKeyboardRoom(): void {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const fit = (): void => root.style.setProperty('--phone-vh', `${Math.round(vv.height)}px`);
+    fit();
+    vv.addEventListener('resize', fit);
+    return () => {
+      vv.removeEventListener('resize', fit);
+      root.style.removeProperty('--phone-vh');
+    };
+  }, []);
+}
+
 /** Patch the preferences only when the patch changes something. */
 const patch = (next: Partial<ReturnType<typeof getPrefs>>): void => {
   if (Object.keys(next).length) setPrefs(next);
@@ -55,6 +75,8 @@ export function PhoneFrame() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [drawer]);
+
+  useKeyboardRoom();
 
   const shared = useMemo(() => ({ onPanelMin: noop, onCenterMin: noop, onPanelOpen: setPanelOpen, panelOpen, centerRoom: width }), [panelOpen, width]);
 

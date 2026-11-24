@@ -151,6 +151,8 @@
  */
 .phoneFrame {
   position: relative;
+  /* What the on-screen keyboard leaves (PhoneFrame's useKeyboardRoom), less the notch's inset. */
+  max-height: calc(var(--phone-vh, 100dvh) - env(safe-area-inset-top, 0px));
   /* clip, not hidden: a field brought into view (focus, scrollIntoView) can't scroll the frame from under the toolbar. */
   overflow: clip;
 }
