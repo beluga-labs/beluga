@@ -58,6 +58,11 @@ export interface AgentRunInput {
    * before acting, the tools the model was given and its MCP servers. Usage statistics only.
    */
   readonly onHarness?: (facts: HarnessFacts) => void;
+  /**
+   * A tool call starts running (its id, epoch ms): after it waited behind the calls before it, and
+   * before any approval. Its step starts when the model asked for it. Usage statistics only.
+   */
+  readonly onToolRun?: (id: string, at: number) => void;
   /** Model for this run (an alias like "sonnet" or a full id); unset: the default. */
   readonly model?: string;
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -169,6 +174,8 @@ export interface AgentRunInput {
   /** Your own runs: sentinels (core/sentinel), and what Claude is told (a sentinel run's brief, or a short note). */
   readonly sentinelTools?: SentinelTools;
   readonly sentinelBrief?: string;
+  /** A sentinel's own run (it acts on what it watched): every run of yours has the sentinel tools, only this one is a sentinel's. */
+  readonly sentinelRun?: boolean;
   /** Your own runs: dashboards and the numbers sentinels keep (server `beluga_dashboard`; sentinel_measure inside a run). */
   readonly dashboardTools?: DashboardTools;
   /** Your own runs: the notes of calls you were in (core/calls, BLG-715), to look up, never pasted in. */

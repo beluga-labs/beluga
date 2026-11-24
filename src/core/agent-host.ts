@@ -1650,7 +1650,7 @@ export class AgentHost {
         ...(mcpTools ? { mcpTools } : {}),
         ...(chats ? { chatTools: chats } : {}),
         ...(previewBrief ? { previewBrief } : {}),
-        ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
+        ...(sentinel ? { sentinelTools: sentinel.tools, sentinelBrief: sentinel.brief, ...(sentinel.inRun ? { sentinelRun: true } : {}), ...(sentinel.dashboard ? { dashboardTools: sentinel.dashboard } : {}) } : {}),
         // What MCP Apps here said for the model: your own runs only, wrapped as data (apps are third-party).
         prompt: withAppContext(this.promptOf(body, from, lane.sent), from === this.selfId ? (this.deps.appContext?.(body.channel) ?? []) : []),
         ...this.promptIdOf(body),

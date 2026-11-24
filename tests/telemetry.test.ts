@@ -15,7 +15,7 @@ import { observedBackend } from '../src/telemetry/observe.js';
 import { event, logsRequest, pseudonym, tracesRequest } from '../src/telemetry/otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from '../src/telemetry/record.js';
 import { TelemetryService } from '../src/telemetry/service.js';
-import { type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
+import { ModelIds, type TurnFacts, belugaToolSpans, isBelugaTool, turnSpans } from '../src/telemetry/turn.js';
 import { toolErrorType } from '../src/telemetry/tool-error.js';
 import { StepRecorder } from '../src/agent/step-recorder.js';
 import type { StepRecord } from '../src/shared/steps.js';
@@ -410,8 +410,23 @@ describe('a turn as spans: what Ratel Cloud keeps', () => {
     // No model picked (the default): the one that wrote the most.
     const { model: _m, ...rest } = turn({ calls });
     expect(attr(turnSpans(rest, ID)[0]!, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-haiku-5-5' });
-    // Nothing to go by: the name picked, as before.
-    expect(attr(turnSpans(turn({ model: 'opus' }), ID)[0]!, 'gen_ai.request.model')).toEqual({ stringValue: 'opus' });
+    // Nothing to go by: no model rather than the name (it would split the model's statistics, BLG-1029); the name goes apart.
+    const unsaid = turnSpans(turn({ model: 'opus' }), ID)[0]!;
+    expect(attr(unsaid, 'gen_ai.request.model')).toBeUndefined();
+    expect(attr(unsaid, 'ratel.model.alias')).toEqual({ stringValue: 'opus' });
+  });
+
+  it('a later turn that only had the name goes out with the id an earlier turn said it stood for', () => {
+    const ids = new ModelIds();
+    // Nothing said yet: nothing to fill in.
+    expect(ids.settle(turn({ model: 'opus' })).resolvedModel).toBeUndefined();
+    ids.settle(turn({ model: 'opus', resolvedModel: 'claude-opus-5-5' }));
+    const later = turnSpans(ids.settle(turn({ model: 'opus' })), ID)[0]!;
+    expect(attr(later, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-opus-5-5' });
+    expect(attr(later, 'ratel.model.alias')).toEqual({ stringValue: 'opus' });
+    // An id picked is sent as it is; another runtime's names are its own.
+    expect(attr(turnSpans(ids.settle(turn({ model: 'claude-sonnet-5-5' })), ID)[0]!, 'gen_ai.request.model')).toEqual({ stringValue: 'claude-sonnet-5-5' });
+    expect(ids.settle(turn({ runtime: 'local', model: 'opus' })).resolvedModel).toBeUndefined();
   });
 
   it('each request is a chat span with its own tokens, cost and what asked for it', () => {

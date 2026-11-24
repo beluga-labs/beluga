@@ -56,8 +56,10 @@ You can change the level any time in **Settings › General › Usage statistics
 All of it goes to the Beluga project.
 
 - **Calls to Beluga's own tools,** for every runtime (Claude, Codex, OpenCode, Copilot, Antigravity, local models). These are the tools named `mcp__beluga…`, such as `mcp__beluga_board__task_update` or `mcp__beluga_sentinel__sentinel_create`. For each turn that used one:
-  - which agent ran it and where (a worktree, a project, a plan, a sentinel, a friend's task), and how the turn ended;
-  - each Beluga tool call by name, how long it took and whether it failed. A failure has a kind, never its message: a timeout, a refusal, a stop, a failed command, a rejected input, or another error. A call that you declined, or didn't answer, isn't a failure: it says so instead. A tool's input and output are never sent.
+  - which agent ran it and where (a worktree, a project, a plan, a sentinel's own run, a friend's task), and how the turn ended: finished, stopped (by you, a steer or a timeout: never counted as a failure) or failed. A failed turn has a kind (your usage limit, signed out, a crash, the network, the provider's API, or another error) and the first line of what it said, stripped (below);
+  - each Beluga tool call by name, how long it took and whether it failed. A failure has a kind (a timeout, a refusal, a stop, a failed command, a rejected input, or another error) and the first line of what Beluga's tool said, stripped (below). A call that you declined, or didn't answer, isn't a failure: it says so instead. A call that waited for you (an approval, a question) says how long you took and how you answered; one that waited behind the calls before it says how long it waited. A tool's input and output are never sent.
+
+  **What a failure says, stripped:** only its first line, at most 160 characters, with anything quoted taken out (titles, names, what was typed), and paths, links, emails, task keys, ids, long numbers and keys by their shapes replaced. What stays is the sentence Beluga or the runtime wrote, such as "There's no milestone … in the approved plan" or "Invalid arguments for tool plan_gate: … at verdict". Another tool's failure (a command, a file) sends only its kind.
 
   No model, tokens, cost, other tools or text. A turn that used none of Beluga's tools sends nothing. It's sent as OpenTelemetry spans: an `invoke_agent` span with `execute_tool` spans under it.
 - **Features used:** the name of each action a screen takes, i.e. an API method such as `session.submit`, with how often, how many failed and how long they took, summed per minute. Never what was in it.
@@ -69,9 +71,9 @@ Each install has a random id, made once and kept in `~/.beluga/telemetry.json`. 
 ## What On adds to the agents project
 
 - **Each turn of an agent,** for every runtime:
-  - the runtime and model, the effort;
+  - the runtime and model, the effort. The model goes as its full id (`claude-opus-5-5`); a name you picked (`opus`) goes apart, and when a turn never said the id, the one an earlier turn said that name stood for;
   - tokens and cache tokens, cost, how long it took, how it ended;
-  - the kind of error, never its message;
+  - the kind of error and its first line, stripped (as above); a stop is never an error;
   - every tool call by name, how long it took, whether it failed and the kind of failure (as above). That covers Beluga's own tools and other MCP servers' tools, e.g. `mcp__github__search`;
   - what kind of call it was, worked out on your computer:
     - **a command** (`Bash`): the program it ran, as the tool's name (`Bash:git`), its subcommand for a few known tools (`commit`, `pr create`, `run build`), the names of every program in the line, how many parts the line had, and the exit code. Only program names and subcommands, never their arguments;

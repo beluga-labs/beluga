@@ -27,7 +27,7 @@ import type { ObserveDeps } from './observe.js';
 import { type AttrValue, event } from './otlp.js';
 import { loadTelemetryRecord, saveTelemetryRecord } from './record.js';
 import { issueForWorkspace } from '../core/board/model.js';
-import { type RunContext, type TurnFacts, belugaToolSpans } from './turn.js';
+import { ModelIds, type RunContext, type TurnFacts, belugaToolSpans } from './turn.js';
 
 /**
  * Usage statistics for this daemon: the level you chose, the ask, and what's collected and sent to
@@ -84,6 +84,8 @@ export class TelemetryService {
   /** Your own trace destinations, apart from usage statistics. */
   readonly traces?: TraceDestinations;
   private readonly masker = new Masker(os.homedir());
+  /** The ids the model names picked here stood for (BLG-1029). */
+  private readonly modelIds = new ModelIds();
   private secretsAt = 0;
   private timer?: ReturnType<typeof setInterval>;
   private lastDevice = 0;
@@ -184,7 +186,9 @@ export class TelemetryService {
   }
 
   /** A turn ended: its calls to Beluga's tools to Beluga's project; at On, the whole turn to the agents project. */
-  private turn(f: TurnFacts): void {
+  private turn(said: TurnFacts): void {
+    // The model as an id, also on a turn that only had the name picked ("opus"): what an earlier turn said it stood for.
+    const f = this.modelIds.settle(said);
     this.traces?.turn(f);
     const level = this.level;
     if (level === 'off' || f.leftOut) return;

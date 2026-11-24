@@ -4,8 +4,10 @@ import { CLAUDE_BUILT_INS } from '../shared/skills.js';
 import type { StepRecord } from '../shared/steps.js';
 import type { TelemetryLevel } from '../core/telemetry-store.js';
 import type { Refusal, ToolLink } from './claude-otel.js';
+import { RunFailedError, failureText } from '../shared/run-failure.js';
+import { safeErrorText } from './error-text.js';
 import { toolErrorType } from './tool-error.js';
-import type { Harness, RunContext, TurnCall, TurnCompaction, TurnFacts, TurnHook, TurnOutcome, TurnTool, TurnUsage, TurnWait, WaitKind, WaitOutcome } from './turn.js';
+import { type Harness, type RunContext, type TurnCall, type TurnCompaction, type TurnFacts, type TurnHook, type TurnOutcome, type TurnTool, type TurnUsage, type TurnWait, type WaitKind, type WaitOutcome, isBelugaTool } from './turn.js';
 
 /**
  * A runtime's backend that also tells usage statistics what each turn did, whatever the runtime:
@@ -50,9 +52,12 @@ const HUMAN_MIN_MS = 100;
 /** Beluga stops waiting for an answer after this long (core/session.ts approvalTimeoutMs). */
 const HUMAN_TIMEOUT_MS = 5 * 60_000;
 
-/** Where a turn ran, in one word. */
+/**
+ * Where a turn ran, in one word. Every run of yours has the sentinel tools and a note about them, so
+ * only a sentinel's own run is "sentinel" (BLG-1029: every run was, from 3.7.0).
+ */
 export function placeOf(input: AgentRunInput): string {
-  if (input.sentinelBrief) return 'sentinel';
+  if (input.sentinelRun) return 'sentinel';
   if (input.planTools) return 'plan';
   if (input.guest) return 'friend';
   if (input.place?.askOnly) return 'project';
@@ -60,10 +65,31 @@ export function placeOf(input: AgentRunInput): string {
   return 'room';
 }
 
-/** An error's kind, never its message (messages carry paths and names). */
+/** Every runtime ends a stopped run with this (`new Error('aborted')`): a stop, never a failure. */
+const ABORTED_MESSAGE = 'aborted';
+
+/**
+ * An error's kind, never its whole message (messages carry paths and names): how a run failed as
+ * Beluga classified it (usage_limit, signed_out, crash, network, api), else the error's own name.
+ */
 export function errorKind(err: unknown): string {
-  if (err instanceof Error) return err.name === 'Error' ? 'error' : err.name.slice(0, 60);
+  if (err instanceof RunFailedError) return err.failure.kind;
+  if (err instanceof Error) return err.name === 'Error' ? (err.message === ABORTED_MESSAGE ? 'stopped' : 'error') : err.name.slice(0, 60);
   return typeof err;
+}
+
+/** How a run that threw ended: stopped (you, a steer, a timeout: its signal), else failed. */
+export function thrownOutcome(err: unknown, signal?: AbortSignal): TurnOutcome {
+  if (signal?.aborted) return 'stopped';
+  const kind = errorKind(err);
+  return kind === 'AbortError' || kind === 'stopped' ? 'stopped' : 'error';
+}
+
+/** What a failed run said, short and stripped (src/telemetry/error-text.ts): a classified failure's first line. */
+export function errorMessage(err: unknown): string | undefined {
+  if (err instanceof RunFailedError) return safeErrorText(failureText(err.message));
+  if (err instanceof Error) return err.message === ABORTED_MESSAGE ? undefined : safeErrorText(err.message);
+  return undefined;
 }
 
 const parseUsage = (text: string): (TurnUsage & { session?: string; compactions?: number }) | undefined => {
@@ -131,6 +157,8 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       let resolvedModel: string | undefined;
       const subs = new Set<string>();
       const tools = new Map<string, TurnTool>();
+      /** When each tool call really started running, by id (the runtimes that say: Claude). */
+      const ran = new Map<string, number>();
       const thinking = { ms: 0, blocks: 0 };
       const onEvent: AgentRunInput['onEvent'] = (kind, text) => {
         input.onEvent(kind, text);
@@ -174,7 +202,8 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
         }
         if (record.kind !== 'tool' || !record.tool) return;
         const ok = record.status !== 'error' && !record.isError;
-        // Only the class of a failure is kept: its words stay in the step.
+        // A failure's class; and for Beluga's own tools, whose words Beluga wrote, those words short and stripped.
+        const said = ok || !isBelugaTool(record.tool) ? undefined : safeErrorText(record.output);
         tools.set(record.id, {
           id: record.id,
           name: record.tool,
@@ -182,6 +211,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           ...(record.endedAt ? { endedAt: record.endedAt } : {}),
           ok,
           ...(ok ? {} : { error: toolErrorType(record) }),
+          ...(said ? { errorMessage: said } : {}),
           ...(record.parent ? { parent: record.parent } : {}),
           ...(detail && record.input ? { input: record.input } : {}),
           ...(detail && record.output !== undefined ? { output: record.output } : {}),
@@ -220,6 +250,10 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
           input.onHarness?.(facts);
           harness = facts;
         },
+        onToolRun: (id, at) => {
+          input.onToolRun?.(id, at);
+          if (!ran.has(id)) ran.set(id, at);
+        },
       };
       const place = input.place ? { ...input.place, onSession: (id: string) => ((session = id), input.place!.onSession(id)) } : undefined;
       // Someone who set Claude Code's telemetry up in their own variables keeps theirs: nothing is added.
@@ -248,10 +282,12 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
               endedAt,
               outcome,
               ...(err !== undefined ? { errorKind: errorKind(err) } : {}),
+              ...(err !== undefined && outcome === 'error' && errorMessage(err) ? { errorMessage: errorMessage(err)! } : {}),
               ...(usage ? { usage } : {}),
               ...(calls?.length ? { calls } : {}),
               tools: [...tools.values()].map((t) => ({
                 ...t,
+                ...(ran.has(t.id) && ran.get(t.id)! > t.startedAt ? { ranAt: ran.get(t.id)! } : {}),
                 ...(!t.ok && refused?.has(t.id) ? { error: refused.get(t.id)! } : {}),
                 ...links?.get(t.id),
                 ...(sources.has(t.id) ? { skillSource: sources.get(t.id)! } : {}),
@@ -287,7 +323,7 @@ export function observedBackend(backend: AgentBackend, runtime: string, deps: Ob
       return backend.run(observed).then(
         (answer) => (finish('ok', answer), answer),
         (err: unknown) => {
-          finish(errorKind(err) === 'AbortError' ? 'stopped' : 'error', '', err);
+          finish(thrownOutcome(err, input.signal), '', err);
           throw err;
         },
       );
