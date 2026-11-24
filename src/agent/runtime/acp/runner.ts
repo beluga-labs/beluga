@@ -15,12 +15,12 @@ import { type ConfigOption, type ContentBlock, type PermissionRequest, type Prom
 import { OpenCodeEvents as AcpEvents, type TurnSink, contextEvent, usageEvent } from '../opencode/events.js';
 import { promptBlocks } from '../opencode/runner.js';
 import { mapOpenCodeSlash as mapSlash } from '../opencode/skills.js';
-import { httpServers } from '../copilot/run-parts.js';
 import type { ClaudeQuestion } from '../../../protocol.js';
 import { acpComplete } from './complete.js';
 import { addDirArgs, findAcpCommand, spawnAcp } from './connection.js';
 import type { AcpExtension } from './extension.js';
-import { acpEnd, acpFailure, acpModel, declinedNote, modeValue } from './parts.js';
+import { GENERIC_TOOLS, mcpServersFor } from './dialect.js';
+import { type AcpSession, acpEnd, acpFailure, acpMode, acpModel, declinedNote, modeValue, withInstructions } from './parts.js';
 import type { AcpAgentSpec, AcpConnect, AcpConnection } from './spec.js';
 import { acpStatus } from './status.js';
 
@@ -100,9 +100,12 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
       // Beluga's tools, served for this run alone and gated per call (vetTool, policy, you).
       const mounted = await host().mount(runToolSuites(input, bridge, shelf, cwd), (name, args) => gateTool(name, args, input, policy));
       const suites = Object.keys(mounted.http);
-      const dialect = ext.tools.dialect(mounted.tools);
+      const tools = ext.tools ?? GENERIC_TOOLS;
+      const dialect = tools.dialect(mounted.tools);
       const env = { ...process.env, ...input.env };
-      const meta = ext.instructions(runInstructions(input, opts.bridge.selfName(), agent));
+      const told = runInstructions(input, opts.bridge.selfName(), agent);
+      /** Beluga's instructions as the agent's own system prompt, when its extension has a way (else ahead of a new conversation's first message). */
+      const meta = ext.instructions?.(told);
 
       let planning = Boolean(input.plan);
       let wanted = modelOf(input.model ?? place?.model ?? opts.model);
@@ -143,6 +146,10 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
         // Updates count from the session's own id on: a loaded session's replay (its history) comes before.
         let sid = '';
         let options: readonly ConfigOption[] = [];
+        /** What the session says of its models and modes in ACP's older shape (models / modes), for an agent without those options. */
+        let legacy: Pick<AcpSession, 'models' | 'modes'> = {};
+        /** A conversation opened new for this run (not one it goes on with): its first message carries Beluga's instructions when they have no `_meta`. */
+        let fresh = false;
         /** Holds the session on Beluga's mode (set once the session is open). */
         let holdMode: (() => Promise<unknown>) | undefined;
         /** Why Beluga turned this turn's steps down. */
@@ -154,7 +161,10 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
           if (q && (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') && dialect.toolOf(update) === q.tool) asking = q.detect(update.rawInput) ?? asking;
           if (update.sessionUpdate === 'available_commands_update') commands = new Set(update.availableCommands.map((c) => c.name));
           if (update.sessionUpdate === 'config_option_update') options = update.configOptions;
-          if (update.sessionUpdate === 'current_mode_update') options = options.map((o) => (o.id === 'mode' ? { ...o, currentValue: update.currentModeId } : o));
+          if (update.sessionUpdate === 'current_mode_update') {
+            options = options.map((o) => (o.id === 'mode' ? { ...o, currentValue: update.currentModeId } : o));
+            if (legacy.modes) legacy = { ...legacy, modes: { ...legacy.modes, currentModeId: update.currentModeId } };
+          }
           if (update.sessionUpdate === 'config_option_update' || update.sessionUpdate === 'current_mode_update') void holdMode?.().catch(() => undefined);
           events.handle(update);
         });
@@ -175,7 +185,7 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
           const call = await events.callOf(req.toolCall);
           if (!call) return `${spec.label} didn’t say which tool this is.`;
           // Beluga's own tools are judged where they run (the tool host's gate), not twice.
-          if (ext.tools.belugaToolOf(call.tool, suites, mounted.tools)) return undefined;
+          if (tools.belugaToolOf(call.tool, suites, mounted.tools)) return undefined;
           // Its own notes aren't judged; anything else a step touches is (a note moved out of its folder, where it lands).
           const calls = dialect.callsOf(call.tool, call.raw, cwd, suites).filter((c) => !(WRITES.has(c.name) && ownNote(c.input.file_path)));
           if ((planning || readOnly) && calls.some((c) => WRITES.has(c.name))) return planning ? 'Planning only looks: nothing changes until you approve the plan.' : 'This conversation only looks: nothing may change here.';
@@ -187,21 +197,27 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
           return undefined;
         };
 
-        const servers = httpServers(mounted.http);
+        const servers = mcpServersFor(mounted, link.init, ext.mount);
+        const withMeta = meta ? { _meta: meta } : {};
         const resume = place ? place.resume : sessionId;
-        let opened: SessionResponse | undefined;
-        if (resume && !place?.forkSession) {
-          opened = await rpc.request<SessionResponse>('session/load', { sessionId: resume, cwd, mcpServers: servers, _meta: meta }).catch(() => undefined);
+        let opened: AcpSession | undefined;
+        // An agent goes on with a conversation only when it says it can (session/load).
+        if (resume && !place?.forkSession && link.init.agentCapabilities?.loadSession) {
+          opened = await rpc.request<AcpSession>('session/load', { sessionId: resume, cwd, mcpServers: servers, ...withMeta }).catch(() => undefined);
           if (opened) opened = { ...opened, sessionId: resume };
           else input.onEvent('progress', `Started a new ${spec.label} conversation (the last one couldn’t be opened)`);
         }
         try {
-          opened ??= await rpc.request<SessionResponse>('session/new', { cwd, mcpServers: servers, _meta: meta });
+          if (!opened) {
+            opened = await rpc.request<AcpSession>('session/new', { cwd, mcpServers: servers, ...withMeta });
+            fresh = true;
+          }
         } catch (err) {
           throw fail(acpEnd(err, link.stderr()));
         }
         sid = opened.sessionId!;
         options = opened.configOptions ?? [];
+        legacy = { ...(opened.models ? { models: opened.models } : {}), ...(opened.modes ? { modes: opened.modes } : {}) };
         remember(sid);
         if (input.signal.aborted) throw new Error('aborted');
 
@@ -213,15 +229,24 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
           options = res.configOptions ?? options;
           return true;
         };
-        const current = (): string => options.find((o) => o.id === 'model')?.currentValue ?? '';
+        /** A model through ACP's older session/set_model, when the session lists its models that way. */
+        const chooseLegacyModel = async (pick: string | undefined): Promise<boolean> => {
+          const m = legacy.models;
+          if (!pick || !m?.availableModels?.some((a) => a.modelId === pick) || m.currentModelId === pick) return false;
+          const ok = await rpc.request('session/set_model', { sessionId: sid, modelId: pick }).then(() => true, () => false);
+          if (ok) legacy = { ...legacy, models: { ...m, currentModelId: pick } };
+          return ok;
+        };
+        const chooseModel = async (pick: string | undefined): Promise<boolean> => (await choose('model', pick)) || (await chooseLegacyModel(pick));
+        const current = (): string => options.find((o) => o.id === 'model')?.currentValue ?? legacy.models?.currentModelId ?? '';
         /** A model picked for a later message: the session's own option when it offers it; else it stays on the one it has. */
         const switchModel = async (pick: string | undefined, sink: TurnSink): Promise<void> => {
           wanted = pick;
           if (!pick || pick === current()) return;
-          if (await choose('model', pick)) model = current() || pick;
+          if (await chooseModel(pick)) model = current() || pick;
           else sink.onEvent('progress', `${spec.label} has no ${pick} on your plan: it stays on ${current() || 'its own model'}`);
         };
-        if (wanted && !(await choose('model', wanted)) && wanted !== current()) input.onEvent('progress', `${spec.label} has no ${wanted} on your plan: it runs on ${current() || 'its own model'}`);
+        if (wanted && !(await chooseModel(wanted)) && wanted !== current()) input.onEvent('progress', `${spec.label} has no ${wanted} on your plan: it runs on ${current() || 'its own model'}`);
         model = current() || model;
         const level = ext.effort?.(input.effort ?? place?.effort);
         if (level) await choose(level.id, level.value);
@@ -231,7 +256,19 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
          * (accept-edits, auto) don't ask, so Beluga would judge nothing: whatever moved it to one (a
          * /command, the agent itself), it's put back, before each turn and when it says its mode changed.
          */
-        holdMode = () => choose('mode', modeValue(options, planning ? 'plan' : 'default'));
+        holdMode = async () => {
+          const name = planning ? 'plan' : 'default';
+          const exact = modeValue(options, name);
+          if (exact) return choose('mode', exact);
+          // An agent that names its modes otherwise, in either shape (acpMode): never one that doesn't ask.
+          const mode = acpMode({ configOptions: options, ...legacy }, name);
+          if (!mode) return false;
+          if (mode.via === 'config') return choose('mode', mode.value);
+          if (legacy.modes?.currentModeId === mode.value) return false;
+          const ok = await rpc.request('session/set_mode', { sessionId: sid, modeId: mode.value }).then(() => true, () => false);
+          if (ok && legacy.modes) legacy = { ...legacy, modes: { ...legacy.modes, currentModeId: mode.value } };
+          return ok;
+        };
         await holdMode();
 
         // Stop: cancel the turn (same contract as Claude), then the process for sure.
@@ -345,7 +382,10 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
           if (ext.compact && /^\/compact(\s|$)/.test(prompt.trim())) return compact(sink);
           const mapped = await mapSlash(prompt, cwd, claudeHome(), commands, spec.label);
           const said = noted(mapped.notes, sink);
-          const text = mapped.prompt.startsWith('/') ? mapped.prompt : built(mapped.prompt);
+          const asked = mapped.prompt.startsWith('/') ? mapped.prompt : built(mapped.prompt);
+          // A new conversation on an agent without a system prompt of its own to add to: Beluga's instructions come first, once.
+          const text = fresh && !meta && !asked.startsWith('/') ? withInstructions(told, asked) : asked;
+          fresh = false;
           return said(await answered(sink, answerOf(await runTurn(sink, promptBlocks(text, prompt, Boolean(link.init.agentCapabilities?.promptCapabilities?.image))), sink)));
         };
         /**
@@ -387,7 +427,7 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
             if (verdict.approve) {
               input.planTask?.approved();
               planning = false;
-              await choose('mode', modeValue(options, 'default'));
+              await holdMode();
             }
             const next = verdict.approve ? 'The plan is approved. Do the work now.' : verdict.feedback ? `Change the plan: ${verdict.feedback}\n\n${PLAN_NOTE}` : NOT_YET_NOTE;
             answer = await answered(sink, answerOf(await runTurn(sink, [{ type: 'text', text: next }]), sink));

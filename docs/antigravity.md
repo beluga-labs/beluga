@@ -1,14 +1,16 @@
 # Antigravity
 
-Beluga can run [Antigravity](https://antigravity.google) as your agent, beside Claude, Codex, OpenCode, Copilot and local models. It runs the Antigravity CLI (`agy`) you have installed, signed in with your own Google account, on the models your Antigravity plan has: Gemini, and the Claude and GPT-OSS models Antigravity offers.
+Beluga can run [Antigravity](https://antigravity.google) as your agent, beside Claude, Codex, OpenCode, Copilot and local models. It's one of your [ACP agents](acp.md): you add it, and only then is it in the agent pickers. It runs the Antigravity CLI (`agy`) you have installed, signed in with your own Google account, on the models your Antigravity plan has: Gemini, and the Claude and GPT-OSS models Antigravity offers.
 
 ## Set it up
 
 1. Install the Antigravity CLI: `curl -fsSL https://antigravity.google/cli/install.sh | bash` (it puts `agy` in `~/.local/bin`). Version 1.5 or newer: an older `agy` has no ACP server (`agy update`).
 2. Sign in once in Terminal: run `agy`, and it opens Google's sign-in in your browser.
-3. Open **Settings › Agent** (or the "Your agents" step when you first open Beluga). Antigravity shows **Ready** once Beluga finds it signed in. **Sign In** beside it starts `agy` in Terminal for you, and **Check Again** looks again.
+3. Open **Settings › Agent › ACP agents** and press **Add** beside Antigravity (Add shows once `agy` is on this Mac; before that, the row has its install command to copy). It shows **Ready** once Beluga finds it signed in. **Sign In** beside it starts `agy` in Terminal for you, and **Check Again** (behind •••) looks again.
 
-Make it yours with the radio button, or pick it for one conversation in the agent picker above the message box.
+Make it yours in **Your agent** at the top of Settings › Agent, or pick it for one conversation in the agent picker above the message box. **Remove** (behind •••) takes it out of the pickers again.
+
+A Mac that ran Antigravity before it became an ACP agent (it was your agent, a project's, or a conversation's) has it added already, once.
 
 `BELUGA_AGY_PATH` points Beluga at another `agy`.
 

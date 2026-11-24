@@ -1,6 +1,21 @@
 # ACP agents
 
-Beluga runs an ACP agent (an agent with an [Agent Client Protocol](https://agentclientprotocol.com) server) through one core, `src/agent/runtime/acp/`. Antigravity runs on it today.
+Beluga runs an ACP agent (an agent with an [Agent Client Protocol](https://agentclientprotocol.com) server) through one core, `src/agent/runtime/acp/`: Antigravity, and any other ACP agent you add.
+
+## Your ACP agents
+
+**Settings › Agent › ACP agents.** None is there until you add it. The fixed agents (Claude, Codex, OpenCode, Copilot, local models) stay in Your agents as they are.
+
+- **Beluga's own list** (`catalog.ts`): Antigravity, Cursor, Grok Build, Kiro, Muse Code, Pi, fx, Gemini CLI, Qwen Code, Kimi Code, goose, Droid, Cline, Auggie and Kilo, each started in its ACP mode the way the ACP Registry starts it. **Add** shows once its CLI is on this computer; before that, the row has its install command to copy.
+- **The ACP Registry** (`registry.ts`): search, or Browse all of [agentclientprotocol.com](https://agentclientprotocol.com)'s list. **Install…** asks once more before it downloads anything: Registry agents are other people's code.
+  - A binary comes over HTTPS only. It's checked against its SHA-256 when the Registry gives one, and unpacked into `~/.beluga/acp/tools/<agent>/<version>/`. Its command must be inside that folder (links followed), and at most 600 MB is downloaded.
+  - An npx or uvx package runs at the exact version the Registry names.
+  - A built-in agent installed from the Registry keeps its built-in id. The agents Beluga runs itself (Claude, Codex, Copilot, OpenCode, Antigravity) don't show in a search.
+- **A command of yours** (Add Command…): a name, a command, its ACP arguments and its variables. Its id is `acp-<name>`.
+
+Your list is kept in `~/.beluga/acp-agents.json` (0600): built-in ones by id, Registry ones and your commands whole. One you added shows in the agent pickers after the fixed agents, on the phone too. The phone can't add, remove or install one. An external agent sees the list only on a screen (`ui_only`) and can't change it, since that would run a program on this computer.
+
+An ACP agent can run some steps without asking Beluga, so friends' tasks and guests stay with Claude (or Codex). It has no Compact, fork or /btw of Beluga's: the screens say so where those are (`acp` in `src/shared/runtime-fallbacks.ts`).
 
 ## The core
 
@@ -13,7 +28,16 @@ Beluga runs an ACP agent (an agent with an [Agent Client Protocol](https://agent
 
 ## An agent's extension
 
-What an agent does past the protocol is its extension (`extension.ts`). Two members are required: its instructions (the `_meta` of `session/new`) and its tools (how its tool calls read as Beluga's). Everything else is optional:
+What an agent does past the protocol is its extension (`extension.ts`). Every member is optional. An agent without an extension of its own (`generic.ts`) gets:
+
+- Beluga's instructions ahead of a new conversation's first message;
+- the generic tool dialect (`dialect.ts`: calls read by their ACP kind, inputs in any case, files from their locations);
+- Beluga's tools over HTTP when it takes MCP over HTTP, else stdio;
+- `session/load` only when it says it can;
+- models and modes in ACP's older shape too, and never a mode that doesn't ask;
+- a model list that starts with Default.
+
+Antigravity's extension:
 
 | Member | What it is | Antigravity's |
 |---|---|---|
@@ -25,8 +49,8 @@ What an agent does past the protocol is its extension (`extension.ts`). Two memb
 | `quota` | Your plan's quota, for the usage tab | From its language server |
 | `tidy`, `dropSession`, `afterLook` | What it leaves behind | Its conversations and logs |
 
-## Adding an agent
+## Adding an agent to Beluga's own list
 
-1. A spec, and an extension with its instructions and its tool dialect.
-2. A runtime in `src/agent/runtime/registry.ts`, with its capabilities.
+1. An entry in `catalog.ts`: its id, name, command and ACP arguments, where its installer puts it, and its words for installing and signing in.
+2. If it does more than the protocol (its own system prompt, its quota, its question tool): an extension, and a runtime for it in `src/agent/runtime/registry.ts`, as Antigravity has.
 3. Tests against a scripted agent in its own shapes, and a live script against the real one.

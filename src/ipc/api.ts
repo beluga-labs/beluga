@@ -16,6 +16,7 @@ import { REVENUECAT_API } from './revenuecat-api.js';
 import { TRIAGE_API } from './triage-api.js';
 import { SUPPORT_API } from './support-api.js';
 import { TELEMETRY_API } from './telemetry-api.js';
+import { ACP_API } from './acp-api.js';
 import { TRACES_API } from './traces-api.js';
 import { STATS_API } from './stats-api.js';
 import { WEB_API } from './web-api.js';
@@ -574,6 +575,7 @@ export const API = {
   ...SUPPORT_API,
   // ---- usage statistics: your level (Off, Essential, On), the ask after an update, what's sent (telemetry-api.ts)
   ...TELEMETRY_API,
+  ...ACP_API,
   // ---- your own traces: the observability tools you connect, apart from usage statistics (traces-api.ts)
   ...TRACES_API,
   // ---- your stats in the Usage tab: counted by the daemon, pastes and dictation from the Mac (stats-api.ts)
