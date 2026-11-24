@@ -23,7 +23,6 @@ import { planOwnerOf } from '../core/plans/owner.js';
 import { branchState, notOnPr } from '../core/branch-state.js';
 import { worktreeSharedWith } from '../ui/worktree-share.js';
 import { type RunSummary, type Sentinel, type SentinelState, activeSentinelChat, chatSchedules, firstLine, isLive, isSentinelChat, lastRunOf, pausedWords, runsOf, scheduleSentence, sentinelById, sentinelChatTitle } from '../core/sentinel/model.js';
-import { experimentOn } from '../shared/experiments.js';
 import { type Dashboard, type Tile, metricOf, outputLook, tileColumns, tileCompare, tileMetrics, tileOutput, tileStateIn, tileTitle } from '../core/sentinel/dashboard-model.js';
 import { documentMime, isDocumentKind, storageName, storageSources } from '../core/sentinel/columns.js';
 import { sentinelGraph } from '../core/sentinel/workflow.js';
@@ -43,6 +42,8 @@ import { chatPeople, claudePill, offlineNote, waitingIn, waitingLabel } from '..
 import { type AgentRef, CLAUDE_AGENT, type Profile, defaultAgentOf } from '../protocol.js';
 import { threadNesting } from '../ui/thread-tree.js';
 import { type RuntimeReadiness, providerCards } from '../ui/usage-cards.js';
+import { type AgentWeek, agentWeek } from '../ui/agent-week.js';
+import type { StatsSnapshot } from '../shared/stats.js';
 import {
   type BranchView,
   type ChatMessageView,
@@ -159,6 +160,8 @@ export interface ViewContext {
   readonly merges?: (workspaceId: string) => MergeView | undefined;
   /** MCP Apps: the lines of a Claude card's steps whose tool has an app (drawn on the Mac only). */
   readonly appSteps?: (channel: string, itemId: string) => ReadonlySet<string>;
+  /** Your stats' days (core/stats), for an ACP agent's week on its usage card. */
+  readonly statsDays?: () => StatsSnapshot['days'] | undefined;
 }
 
 // ---- small helpers
@@ -178,9 +181,10 @@ const PHONE_WINDOW: Readonly<Record<string, string>> = { '5-hour': '5 hours', We
  * plan windows where they have them, tokens and speed where not; their default first. A provider
  * that has said nothing yet is left out, unless it's signed out.
  */
-export function usageViews(p: Pick<Profile, 'usage' | 'usages' | 'agents'> | undefined, defaultAgent: AgentRef | undefined, runtimes?: RuntimeReadiness): UsageView[] {
-  const cards = providerCards(p, defaultAgent, runtimes)
-    .filter((c) => c.shape !== 'empty' || !c.signedIn)
+export function usageViews(p: Pick<Profile, 'usage' | 'usages' | 'agents'> | undefined, defaultAgent: AgentRef | undefined, runtimes?: RuntimeReadiness, weekOf?: (runtime: string) => AgentWeek | undefined): UsageView[] {
+  const cards = providerCards(p, defaultAgent, runtimes, weekOf)
+    // An ACP agent with its week shows, a quiet week too (1.60).
+    .filter((c) => c.shape !== 'empty' || !c.signedIn || c.week)
     .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
   return cards.slice(0, 8).map((c) => ({
     provider: c.key === CLAUDE_AGENT.runtime ? 'Claude Code' : clip(c.agent.label, 40),
@@ -193,8 +197,15 @@ export function usageViews(p: Pick<Profile, 'usage' | 'usages' | 'agents'> | und
     ...(c.tokens ? { tokens: c.tokens } : {}),
     ...(c.tokensPerSec !== undefined ? { tokensPerSec: c.tokensPerSec } : {}),
     ...(c.signedIn ? {} : { signedIn: false }),
+    ...(c.week ? { week: { runs: c.week.runs, agentMs: Math.round(c.week.agentMs), tokens: c.week.tokens, ...(c.week.cost > 0 ? { cost: c.week.cost } : {}), days: c.week.days.map((ms) => Math.round(ms)) } } : {}),
   }));
 }
+
+/** An ACP agent's week from your stats, when the daemon has them. */
+const weekFrom = (ctx: ViewContext | undefined, now: number): ((runtime: string) => AgentWeek | undefined) | undefined => {
+  const days = ctx?.statsDays?.();
+  return days ? (runtime) => agentWeek(days, runtime, now) : undefined;
+};
 
 // ---- conversations
 
@@ -667,7 +678,7 @@ export function homeView(state: DomainState, ctx: ViewContext): HomeView {
     ...(macChats.length ? { macChats } : {}),
     me: { name: clip(myName(state), 64), peerId: myId(state) },
     // Yours: only the agents ready on this Mac, as on the Mac's Usage tab.
-    usage: usageViews(state.peers.find((p) => p.peerId === state.self?.peerId) ?? state.self, state.prefs.defaultAgent, state.runtimes),
+    usage: usageViews(state.peers.find((p) => p.peerId === state.self?.peerId) ?? state.self, state.prefs.defaultAgent, state.runtimes, weekFrom(ctx, Date.now())),
     needsYou: items,
     running: running.slice(0, 20),
     // Outputs live with their conversation now (ConvView `outputs`); Home only hints (`fresh`).
@@ -797,9 +808,9 @@ function autopilotOf(state: DomainState, channel: string): Pick<ConvView, 'autop
   return { autopilot: on.plan && on.plan.home !== channel ? { plan: clip(planTitle(on.plan), 300) } : {} };
 }
 
-/** The sentinels that send into this chat on a schedule (BLG-401), behind chat-schedules: run and pause only. */
+/** The sentinels that send into this chat on a schedule (BLG-401): run and pause only. */
 function schedulesOf(state: DomainState, channel: string): Pick<ConvView, 'schedules'> {
-  if (!experimentOn(state.prefs.experiments, 'chat-schedules') || !state.selfId) return {};
+  if (!state.selfId) return {};
   const rows = chatSchedules(state.sentinel, `${state.selfId}/${channel}`).slice(0, 20);
   const nameOf = (id: string): string | undefined => state.sentinel.items.find((i) => i.id === id)?.name;
   return rows.length ? { schedules: rows.map((r) => ({ id: r.id, name: clip(r.name, 200), sentence: clip(scheduleSentence(r.trigger, nameOf), 200), ...(r.nextAt !== undefined ? { nextAt: r.nextAt } : {}), paused: r.paused, running: r.running })) } : {};
