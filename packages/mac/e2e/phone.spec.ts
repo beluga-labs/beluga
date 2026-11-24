@@ -32,11 +32,18 @@ async function measure(page: Page) {
     };
     const targets = [...document.querySelectorAll('button, [role="button"], [role="tab"], [role="option"], [role="menuitem"], [role="combobox"], input, textarea, select')].filter(seen);
     const size = (el: Element) => el.getBoundingClientRect();
+    const inSideScroller = (el: Element): boolean => {
+      for (let up = el.parentElement; up; up = up.parentElement) {
+        if (/(auto|scroll)/.test(getComputedStyle(up).overflowX) && up.scrollWidth > up.clientWidth) return true;
+      }
+      return false;
+    };
     const small = targets.filter((el) => size(el).height < 43.5 || size(el).width < 43.5);
     return {
       targets: targets.length,
       under44: small.map((el) => `${el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? el.tagName} ${Math.round(size(el).width)}×${Math.round(size(el).height)}`),
-      cutOff: targets.filter((el) => size(el).right > vw + 1).length,
+      // Past the edge of a row that scrolls sideways (pills, Settings' panes) is meant: a swipe brings it in.
+      cutOff: targets.filter((el) => size(el).right > vw + 1 && !inSideScroller(el)).length,
       pageWiderThanScreen: document.documentElement.scrollWidth > vw,
     };
   });
@@ -120,6 +127,54 @@ for (const size of SIZES) {
       await shot('09-group-chat');
 
       if (shots) writeFileSync(path.join(shots, `${size.name}-audit.json`), `${JSON.stringify(report, null, 2)}\n`);
+    });
+
+    // BLG-8: every other page fits the screen too, nothing you tap off its edge or under 44px.
+    test('the other pages fit: Sentinel, Usage, a plan, Files, Search, Settings', async ({ page }) => {
+      test.setTimeout(90_000);
+      const report: Record<string, Awaited<ReturnType<typeof measure>>> = {};
+      const check = async (screen: string) => {
+        await page.waitForTimeout(600);
+        if (shots) {
+          mkdirSync(shots, { recursive: true });
+          await page.screenshot({ path: path.join(shots, `${size.name}-${screen}.png`) });
+        }
+        report[screen] = await measure(page);
+      };
+      const fromDrawer = async (name: string | RegExp) => {
+        await page.getByRole('button', { name: 'Show sidebar' }).tap();
+        await sidebar(page).getByRole('button', { name, exact: typeof name === 'string' }).first().tap();
+        await expect(sidebar(page)).not.toBeInViewport();
+      };
+
+      await page.goto('/');
+      await expect(page.locator('[data-layout="phone"]')).toBeVisible();
+
+      await fromDrawer(/^Sentinel/);
+      await check('10-sentinel');
+      await page.getByRole('button', { name: 'Show sidebar' }).tap();
+      await sidebar(page).getByRole('button', { name: 'Usage', exact: true }).tap();
+      await expect(sidebar(page)).not.toBeInViewport();
+      await check('11-usage');
+      await fromDrawer(/^Card checkout for launch/);
+      await check('12-plan');
+      await fromDrawer(/^Files/);
+      await check('13-files');
+      await page.getByRole('button', { name: 'Search', exact: true }).first().tap();
+      await page.keyboard.type('auth');
+      await check('14-search');
+      await page.getByRole('button', { name: 'Show sidebar' }).tap();
+      await sidebar(page).getByRole('button', { name: 'Settings and menus' }).tap();
+      await page.getByRole('menuitem', { name: /^Settings/ }).tap();
+      await expect(page.getByRole('dialog').last()).toBeVisible();
+      await check('15-settings');
+
+      if (shots) writeFileSync(path.join(shots, `${size.name}-audit-more.json`), `${JSON.stringify(report, null, 2)}\n`);
+      for (const [screen, m] of Object.entries(report)) {
+        expect.soft(m.pageWiderThanScreen, `${screen}: the page is wider than the screen`).toBe(false);
+        expect.soft(m.cutOff, `${screen}: targets run off the screen`).toBe(0);
+        expect.soft(m.under44.filter((t) => !t.startsWith('Terminal input')), `${screen}: targets under 44px`).toEqual([]);
+      }
     });
   });
 }
