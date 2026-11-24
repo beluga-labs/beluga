@@ -153,6 +153,17 @@ describe('a run on an ACP agent the core has never heard of', () => {
   const toy = (agy: ScriptedAgy, ext: AcpExtension = bare) => createAcpBackend(TOY, ext, { cwd: process.cwd(), autoEdit: true, additionalDirectories: [], bridge: room, connect: agy.connect });
   const deploy: ClaudeQuestion = { kind: 'question', questions: [{ question: 'Deploy?', header: '', options: [{ label: 'Yes', description: '' }], multiSelect: false }] };
 
+  it('counts what each turn cost, though the agent says its session’s running total', async () => {
+    const b = toy(new ScriptedAgy({ cost: 0.25 }));
+    const costs: number[] = [];
+    for (const words of ['one', 'two']) {
+      const r = run(words);
+      await b.run(r.input);
+      for (const [k, t] of r.events) if (k === 'usage') costs.push((JSON.parse(t) as { cost: number }).cost);
+    }
+    expect(costs).toEqual([0.25, 0.25]);
+  });
+
   it('answers, with Beluga’s instructions in the _meta its extension gives', async () => {
     const agy = new ScriptedAgy();
     expect(await toy(agy).run(run('hello').input)).toBe('echo: hello');

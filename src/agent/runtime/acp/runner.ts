@@ -77,6 +77,8 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
   const bin = (): string | undefined => opts.bin ?? (opts.connect ? undefined : findAcpCommand(spec));
   const side = { ...(opts.connect ? { connect: opts.connect, drop: async () => undefined } : {}), ...(opts.bin ? { bin: opts.bin } : {}) };
   const agent = { runtime: spec.id, label: spec.label } as const;
+  /** What each session's turns cost so far, as its agent said (ACP's cost is the session's running total). */
+  const spentBy = new Map<string, number>();
   const modelOf = (m: string | undefined): string | undefined => (ext.model ? ext.model(m) : acpModel(m));
   const fail = (end: Parameters<typeof acpFailure>[0]): Error => (ext.failure ? ext.failure(end) : acpFailure(end, spec.id));
   const noteFor = (why: readonly string[]): string => (ext.declinedNote ? ext.declinedNote(why) : declinedNote(why));
@@ -306,7 +308,11 @@ export function createAcpBackend(spec: AcpAgentSpec, ext: AcpExtension, opts: Ac
             rpc.request<PromptResponse>('session/prompt', { sessionId: sid, prompt: blocks }).then(done.resolve, (err: unknown) => done.reject(fail(acpEnd(err, link.stderr()))));
             const res = await Promise.race([done.promise, stopped.promise, abort.promise]);
             const text = events.endTurn(res.stopReason !== 'cancelled');
-            const used = usageEvent(res.usage, sid);
+            // This turn's cost: the session's running total less what its earlier turns came to.
+            const total = events.cost;
+            const spent = Math.max(0, total - (spentBy.get(sid) ?? 0));
+            if (total > 0) spentBy.set(sid, total);
+            const used = usageEvent(res.usage, sid, spent);
             if (used) sink.onEvent('usage', used);
             if (again && !text && res.stopReason === 'end_turn' && declined.length) {
               active = undefined;

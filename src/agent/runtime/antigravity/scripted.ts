@@ -29,7 +29,19 @@ const LEVELS = ['low', 'medium', 'high'];
  */
 export class ScriptedAgy {
   /** `stepMs`: a pause before each step ends, so a screen sees it run (the demo); none in tests. */
-  constructor(private readonly opts: { readonly stepMs?: number; readonly models?: readonly string[]; /** session/list a page of this many at a time. */ readonly listPage?: number } = {}) {}
+  constructor(
+    private readonly opts: {
+      readonly stepMs?: number;
+      readonly models?: readonly string[];
+      /** session/list a page of this many at a time. */
+      readonly listPage?: number;
+      /** Each turn costs this much (USD): its usage_update says the session's running total, as ACP does. */
+      readonly cost?: number;
+    } = {},
+  ) {}
+
+  /** What each session's turns cost so far. */
+  private readonly spent = new Map<string, number>();
 
   readonly requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   /** Each connection's flags and folder. */
@@ -129,7 +141,9 @@ export class ScriptedAgy {
     };
     const done = (sid: string, out: number): object => {
       used += 300;
-      update(sid, { sessionUpdate: 'usage_update', used, size: 1_048_576 });
+      const total = (this.spent.get(sid) ?? 0) + (this.opts.cost ?? 0);
+      this.spent.set(sid, total);
+      update(sid, { sessionUpdate: 'usage_update', used, size: 1_048_576, ...(this.opts.cost ? { cost: { amount: total, currency: 'USD' } } : {}) });
       return { stopReason: 'end_turn', usage: { inputTokens: 15_000, outputTokens: out, cachedReadTokens: 9_000, cachedWriteTokens: 0, thoughtTokens: 7, totalTokens: 24_000 + out } };
     };
 
