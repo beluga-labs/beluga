@@ -401,6 +401,8 @@ export function createClaudeBackend(opts: ClaudeBackendOptions): AgentBackend {
               hooks: [
                 async (hookInput) => {
                   if (hookInput.hook_event_name !== 'PreToolUse') return {};
+                  // It runs now: until here it waited behind the calls before it (usage statistics: BLG-1029).
+                  input.onToolRun?.(hookInput.tool_use_id, Date.now());
                   if (INTERACTIVE.has(hookInput.tool_name)) return {}; // answered in canUseTool
                   const toolInput = (hookInput.tool_input ?? {}) as Record<string, unknown>;
                   const veto = input.vetTool?.(hookInput.tool_name, toolInput);

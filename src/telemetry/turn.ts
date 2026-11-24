@@ -34,8 +34,12 @@ export interface TurnTool {
   readonly startedAt: number;
   readonly endedAt?: number;
   readonly ok: boolean;
-  /** Failed: the class of failure (src/telemetry/tool-error.ts), never its message. */
+  /** Failed: the class of failure (src/telemetry/tool-error.ts). */
   readonly error?: string;
+  /** Failed, one of Beluga's own tools: what it said, short and stripped (src/telemetry/error-text.ts). */
+  readonly errorMessage?: string;
+  /** When it really started running (its step starts when the model asked for it): it waited behind the calls before it until then. */
+  readonly ranAt?: number;
   /** A sub-agent's step: the id of the tool call that started that sub-agent. */
   readonly parent?: string;
   /** Level "on": what the call was given (bounded, secrets redacted; masked before it's turned into spans). */
@@ -144,8 +148,10 @@ export interface TurnFacts {
   readonly startedAt: number;
   readonly endedAt: number;
   readonly outcome: TurnOutcome;
-  /** What kind of error (its class), never its message. */
+  /** What kind of error (its class: usage_limit, signed_out, crash, network, api, or the error's name). */
   readonly errorKind?: string;
+  /** Failed: what it said, short and stripped (src/telemetry/error-text.ts). */
+  readonly errorMessage?: string;
   readonly usage?: TurnUsage;
   readonly calls?: readonly TurnCall[];
   readonly tools: readonly TurnTool[];
@@ -212,6 +218,37 @@ function modelOf(f: TurnFacts): string | undefined {
   return mostWritten((f.calls ?? []).filter((c) => !c.agentId && !c.agentName), named) ?? named;
 }
 
+/** A name the runtime resolves itself ("opus", "sonnet[1m]", "default"): Claude's pickers' words, never an id. */
+export const isModelAlias = (runtime: string, model: string | undefined): boolean => runtime === 'claude' && /^[a-z]+$/.test(bare(model) ?? '');
+
+/** The turn's model as a full id, never a name ("opus" splits a model's statistics from "claude-opus-5-5"). */
+export function modelIdOf(f: TurnFacts): string | undefined {
+  const model = modelOf(f);
+  return model && !isModelAlias(f.runtime, model) ? model : undefined;
+}
+
+/**
+ * The ids the names picked stood for, as this computer's runs reported them (BLG-1029): a turn that
+ * didn't say (it failed before its first request, or ran in a terminal) still goes out with the id.
+ */
+export class ModelIds {
+  private readonly ids = new Map<string, string>();
+
+  /** The turn with the id its picked name stands for, when it didn't say and an earlier turn did. */
+  settle(f: TurnFacts): TurnFacts {
+    const picked = bare(f.model);
+    if (!picked || !isModelAlias(f.runtime, picked)) return f;
+    const key = `${f.runtime}:${picked}`;
+    const id = modelIdOf(f);
+    if (id) {
+      this.ids.set(key, id);
+      return f;
+    }
+    const known = this.ids.get(key);
+    return known ? { ...f, resolvedModel: known } : f;
+  }
+}
+
 /** Of these requests, the model that wrote the most (only ids that hold `named`, when given). */
 function mostWritten(calls: readonly TurnCall[], named?: string): string | undefined {
   const written = new Map<string, number>();
@@ -257,7 +294,7 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
   const root = spanId();
   const conversation = f.session ? pseudonym(installId, f.session) : undefined;
   const provider = PROVIDERS[f.runtime] ?? f.runtime;
-  const model = modelOf(f);
+  const model = modelIdOf(f);
   const picked = bare(f.model);
   const agents = subAgentsOf(f);
   // On every span: Ratel resolves a span's session from its own attributes when a batch splits.
@@ -342,7 +379,7 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.thinking_tokens': f.usage?.thinking,
         'ratel.skill.name': f.slash,
         'ratel.skill.trigger': f.slash ? 'slash_command' : undefined,
-        'error.type': f.errorKind,
+        ...runError(f),
       }),
       ...withEvents([
         ...(f.compacted ?? []).map((c) => spanEvent('ratel.compaction', c.at, { 'ratel.compaction.trigger': c.trigger, 'ratel.compaction.pre_tokens': c.pre, 'ratel.compaction.post_tokens': c.post })),
@@ -352,7 +389,7 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         // A wait no step of this turn owns.
         ...waited.loose.map((w) => waitEvent(w, w.tool, f.content === true)),
       ]),
-      status: { code: f.outcome === 'error' ? 2 : 1 },
+      status: runStatus(f),
     },
   ];
   const declared = f.harness?.tools;
@@ -420,14 +457,14 @@ export function turnSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'gen_ai.tool.name': detail.name,
         ...detail.attributes,
         ...(asked ? { 'ratel.wait.kind': asked.kind, 'ratel.wait.outcome': asked.outcome, 'ratel.wait.human_ms': waits.reduce((n, w) => n + lasted(w), 0) } : {}),
-        ...(ok ? { 'error.type': undefined } : {}),
+        ...(ok ? { 'error.type': undefined, 'error.message': undefined } : {}),
       }),
       ...withEvents([
         ...waits.map((w) => waitEvent(w, detail.name, f.content === true)),
         // No one was asked: what Claude Code itself decided, and by what.
         ...(!waits.some(isPermission) && t.decision ? [spanEvent('ratel.permission.decision', t.startedAt, { 'gen_ai.tool.name': detail.name, 'ratel.permission.decision': t.decision, 'ratel.permission.source': t.decisionSource })] : []),
       ]),
-      status: { code: ok ? 1 : 2 },
+      status: toolStatus(t, ok),
     });
     const agent = agents.get(t.id);
     if (!agent) continue;
@@ -523,8 +560,18 @@ const toolAttrs = (t: TurnTool, who: Readonly<Record<string, string | undefined>
   'gen_ai.tool.name': t.name,
   'gen_ai.tool.call.id': t.id,
   'ratel.agent.parent_call_id': t.parent,
+  // Waiting behind the calls before it (the model asked for several at once): not the tool's own time.
+  'ratel.tool.queued_ms': t.ranAt !== undefined ? Math.max(0, t.ranAt - t.startedAt) : undefined,
   'error.type': t.ok ? undefined : (t.error ?? 'tool_error'),
+  'error.message': t.ok ? undefined : t.errorMessage,
 });
+
+/** A failed tool's status says what it said (Ratel keeps attributes, other tools the status message). */
+const toolStatus = (t: TurnTool, ok: boolean): { readonly code: number; readonly message?: string } => (ok ? { code: 1 } : { code: 2, ...(t.errorMessage ? { message: t.errorMessage } : {}) });
+
+/** A failed run says how (its class, always) and what it said; a stopped or finished one, neither. */
+const runError = (f: TurnFacts) => (f.outcome === 'error' ? { 'error.type': f.errorKind ?? 'error', 'error.message': f.errorMessage } : {});
+const runStatus = (f: TurnFacts): { readonly code: number; readonly message?: string } => (f.outcome === 'error' ? { code: 2, ...(f.errorMessage ? { message: f.errorMessage } : {}) } : { code: 1 });
 
 /** One of Beluga's own MCP tools (mcp__beluga__send_chat, mcp__beluga_board__task_update…), as every runtime names them. */
 export const isBelugaTool = (name: string): boolean => /^mcp__beluga(_\w+)?__/.test(name);
@@ -561,19 +608,29 @@ export function belugaToolSpans(f: TurnFacts, installId: string): OtlpSpan[] {
         'ratel.run.outcome': f.outcome,
         'ratel.run.tool_calls': tools.length,
         'ratel.run.tool_errors': tools.filter(failed).length,
+        ...runError(f),
       }),
-      status: { code: f.outcome === 'error' ? 2 : 1 },
+      status: runStatus(f),
     },
-    ...tools.map((t) => ({
-      traceId: trace,
-      spanId: spanId(),
-      parentSpanId: root,
-      name: `execute_tool ${t.name}`,
-      kind: 1,
-      startTimeUnixNano: nanos(t.startedAt),
-      endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
-      attributes: attrs({ ...toolAttrs(t, who), ...(failed(t) || t.ok ? {} : { 'error.type': undefined, 'ratel.wait.outcome': waited.of(t).at(-1)?.outcome }) }),
-      status: { code: failed(t) ? 2 : 1 },
-    })),
+    ...tools.map((t) => {
+      // Its waits for you (an approval, a question), approved or not: a long call that waited on a person isn't a stall.
+      const waits = waited.of(t);
+      const asked = waits.at(-1);
+      return {
+        traceId: trace,
+        spanId: spanId(),
+        parentSpanId: root,
+        name: `execute_tool ${t.name}`,
+        kind: 1,
+        startTimeUnixNano: nanos(t.startedAt),
+        endTimeUnixNano: nanos(t.endedAt ?? t.startedAt),
+        attributes: attrs({
+          ...toolAttrs(t, who),
+          ...(asked ? { 'ratel.wait.kind': asked.kind, 'ratel.wait.outcome': asked.outcome, 'ratel.wait.human_ms': waits.reduce((n, w) => n + lasted(w), 0) } : {}),
+          ...(failed(t) || t.ok ? {} : { 'error.type': undefined, 'error.message': undefined }),
+        }),
+        status: toolStatus(t, !failed(t)),
+      };
+    }),
   ];
 }
