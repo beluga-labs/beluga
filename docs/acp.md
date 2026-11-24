@@ -15,6 +15,8 @@ Beluga runs an ACP agent (an agent with an [Agent Client Protocol](https://agent
 
 Your list is kept in `~/.beluga/acp-agents.json` (0600): built-in ones by id, Registry ones and your commands whole. One you added shows in the agent pickers after the fixed agents, on the phone too. The phone can't add, remove or install one. An external agent sees the list only on a screen (`ui_only`) and can't change it, since that would run a program on this computer.
 
+**Usage.** Each ACP agent's card on the Usage tab shows its week as Beluga counted it: runs, agent time, tokens when the agent reports them, what it said its turns cost, and its last 7 days as bars. Antigravity keeps its quota bars, with its week in a line under them. The phone's usage cards show the same week. These numbers stay on your Mac: friends see only plan quotas, never your ACP agents' weeks.
+
 An ACP agent can run some steps without asking Beluga, so friends' tasks and guests stay with Claude (or Codex). It has no Compact, fork or /btw of Beluga's: the screens say so where those are (`acp` in `src/shared/runtime-fallbacks.ts`).
 
 ## The core
