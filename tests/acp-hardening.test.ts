@@ -227,12 +227,10 @@ describe('an ACP agent’s own process', () => {
   // Process groups are macOS and Linux: Windows ends the one process, as before.
   it.skipIf(process.platform === 'win32')('takes what it started with it when it ends', async () => {
     const conn = await spawnAcp(TOY)({ cwd: process.cwd(), env: as('child'), bin: process.execPath });
-    let kid: number | undefined;
-    conn.rpc.onNotification((method, params) => void (method === 'fixture/child' && (kid = Number(params.pid))));
-    // Starting node twice is slow on a busy runner: these wait for what happens, with room.
-    const pid = await waitFor(() => kid, 20_000);
+    const { pid } = await conn.rpc.request<{ pid: number }>('fixture/child');
     expect(alive(pid)).toBe(true);
     await conn.proc.kill();
+    // Starting and ending node is slow on a busy runner: this waits for it to be gone, with room.
     await waitFor(() => !alive(pid), 20_000);
   }, 60_000);
 

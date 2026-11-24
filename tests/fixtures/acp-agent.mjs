@@ -1,6 +1,6 @@
 // A tiny ACP agent for tests/acp-hardening.test.ts, run with node (never a shell script).
 // ACP_FIXTURE says how it behaves:
-//   child   answers initialize, then starts a process of its own and prints its pid as a notification
+//   child   answers initialize; asked fixture/child, starts a process of its own and answers its pid
 //   signin  prints a sign-in link on stdout instead of answering
 //   mute    reads everything and never answers
 import { spawn } from 'node:child_process';
@@ -13,9 +13,11 @@ if (mode === 'signin') process.stdout.write('Open the following link to sign in:
 
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const msg = JSON.parse(line);
-  if (mode !== 'child' || msg.method !== 'initialize') return;
-  send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
-  const kid = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  send({ method: 'fixture/child', params: { pid: kid.pid } });
+  if (mode !== 'child') return;
+  if (msg.method === 'initialize') send({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (msg.method === 'fixture/child') {
+    const kid = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    send({ id: msg.id, result: { pid: kid.pid } });
+  }
 });
 setInterval(() => {}, 1000);
