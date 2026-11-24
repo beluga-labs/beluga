@@ -64,13 +64,13 @@ const weekWords = (week: NonNullable<UsageView['week']>): string => `${week.runs
 
 /** An ACP agent's week on your Mac (1.60): two lines and its last 7 days, today stronger. */
 function WeekFigures({ week }: { readonly week: NonNullable<UsageView['week']> }) {
-  if (!week.runs) return <T v="caption">No runs this week.</T>;
+  if (!week.runs) return <T v="caption">No runs in the last 7 days.</T>;
   const top = Math.max(...week.days, 1);
   const more = [week.tokens ? `${shortTokens(week.tokens)} tokens` : '', week.cost ? `$${week.cost.toFixed(2)}` : ''].filter(Boolean).join(' · ');
   return (
     <View style={{ gap: 6 }}>
       <T v="callout" c={color.text} numberOfLines={1}>
-        This week {weekWords(week)}
+        Last 7 days: {weekWords(week)}
       </T>
       {more ? (
         <T v="caption" numberOfLines={1}>
@@ -109,7 +109,7 @@ export function UsageBars({ usage }: { readonly usage: UsageView }) {
       ))}
       {usage.week?.runs ? (
         <T v="caption" numberOfLines={1}>
-          This week {weekWords(usage.week)}
+          Last 7 days: {weekWords(usage.week)}
         </T>
       ) : null}
     </View>

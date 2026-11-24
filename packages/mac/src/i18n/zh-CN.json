@@ -12770,14 +12770,15 @@
  "Built by {0}": "由 {0} 构建",
  "{0} does the work once you approve the plan. Click to have the agent here build it too": "你批准计划后由 {0} 来做。点击改为由这里的智能体构建",
  "Built by {0}: have the agent here build it instead": "由 {0} 构建：改为由这里的智能体构建",
- "No runs this week": "本周还没运行过",
- "No runs this week. Pick {0} in the composer’s agent menu and its numbers show up here.": "本周还没运行过。在输入框的智能体菜单里选 {0}，跑一次就有数字。",
- "This week · {0}": "本周 · {0}",
  "{0} run": "{0} 次",
  "{0} runs": "{0} 次",
  "Cost": "花费",
  "Agent time on each of the last 7 days": "近 7 天每天的运行时长",
  "built-in": "内置",
  "your command": "你的命令",
- "Registry": "Registry"
+ "Registry": "Registry",
+ "{0} h": "{0} 小时",
+ "Last 7 days": "近 7 天",
+ "No runs in the last 7 days": "近 7 天没有运行",
+ "No runs in the last 7 days. Pick {0} in the composer’s agent menu and its numbers show up here.": "近 7 天没有运行。在输入框的智能体菜单里选 {0}，跑一次就有数字。"
 }

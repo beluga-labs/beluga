@@ -62,11 +62,23 @@ const money = (usd: number): string => `$${usd >= 10 ? Math.round(usd) : usd.toF
 /** "12 runs", "1 run". */
 const runsOf = (n: number): string => `${n} ${n === 1 ? 'run' : 'runs'}`;
 
-/** An ACP agent's week in one line, under its quota (Antigravity). */
+/**
+ * An ACP agent's last 7 days under its quota (Antigravity): each part whole, the row wrapping
+ * between parts when the card is narrow; each its own text, so each is translated.
+ */
 function WeekLine({ week }: { week: AgentWeek }) {
-  if (!week.runs) return <p className={s.weekLine}>No runs this week</p>;
+  if (!week.runs) return <p className={s.weekLine}>No runs in the last 7 days</p>;
   const parts = [runsOf(week.runs), duration(week.agentMs), ...(week.tokens ? [`${shortTokens(week.tokens)} tokens`] : []), ...(week.cost > 0 ? [money(week.cost)] : [])];
-  return <p className={s.weekLine}>This week · {parts.join(' · ')}</p>;
+  return (
+    <p className={s.weekLine}>
+      <span className={s.weekLabel}>Last 7 days</span>
+      {parts.map((p) => (
+        <span key={p} className={s.weekPart}>
+          {p}
+        </span>
+      ))}
+    </p>
+  );
 }
 
 /** The last 7 days' agent time, today darker. */
@@ -83,7 +95,7 @@ function WeekBars({ days }: { days: readonly number[] }) {
 
 /** An ACP agent without a quota: its week, as figures and bars. */
 function WeekFigures({ card, week }: { card: ProviderCard; week: AgentWeek }) {
-  if (!week.runs) return <p className={s.quiet}>No runs this week. Pick {card.agent.label} in the composer’s agent menu and its numbers show up here.</p>;
+  if (!week.runs) return <p className={s.quiet}>No runs in the last 7 days. Pick {card.agent.label} in the composer’s agent menu and its numbers show up here.</p>;
   const figure = (title: string, value: string) => (
     <div className={s.weekFigure}>
       <span className={s.windowTitle}>{title}</span>
@@ -92,7 +104,7 @@ function WeekFigures({ card, week }: { card: ProviderCard; week: AgentWeek }) {
   );
   return (
     <>
-      <div className={s.weekHead}>This week</div>
+      <div className={s.weekHead}>Last 7 days</div>
       <div className={s.weekGrid}>
         {figure('Runs', String(week.runs))}
         {figure('Agent time', duration(week.agentMs))}
@@ -154,7 +166,9 @@ function ProviderBox({ card, now }: { card: ProviderCard; now: number }) {
       title={
         <span className={s.agentTitle}>
           <Icon name={agentMark(card.agent)} size={13} />
-          <span className={s.agentName}>{card.agent.label}</span>
+          <span className={s.agentName} translate="no">
+            {card.agent.label}
+          </span>
         </span>
       }
       aside={
