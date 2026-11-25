@@ -453,8 +453,8 @@ describe('Codex turns, and thinking', () => {
     expect(done[1]!.exitCode).toBeUndefined();
     expect(said.compactions).toBe(2);
     expect(JSON.parse(usageEvent(said.usage!, 'thr-1', { compactions: said.compactions }))).toEqual({ input: 60, output: 30, cacheRead: 40, cacheWrite: 0, cost: 0, session: 'thr-1', thinking: 12, compactions: 2 });
-    // What the chat shows is unchanged.
-    expect(events.filter(([k]) => k === 'compact')).toHaveLength(0);
+    // The chat gets one divider for them, with Codex's count after.
+    expect(events.filter(([k]) => k === 'compact').map(([, t]) => JSON.parse(t))).toEqual([{ pre: 0, post: 130, trigger: 'auto', window: 200_000 }]);
     // A new turn counts from zero.
     ev.beginTurn({ onEvent: () => undefined });
     expect(ev.endTurn().compactions).toBe(0);
