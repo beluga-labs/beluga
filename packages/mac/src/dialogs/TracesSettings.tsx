@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useState } from 'react';
 import { ago } from '@beluga/shared/render/format.js';
 import { TRACE_PROVIDERS, type TraceDestinationView, type TraceField, type TraceProvider, type TraceProviderId, type TraceState, type TraceTestResult } from '@beluga/shared/trace-destinations.js';
+import { Icon } from '../components/Icon.js';
 import { Button, Dot, Segmented, cx } from '../components/ui.js';
 import { useApi } from '../lib/beluga.js';
 import { useClock } from '../lib/window-active.js';
@@ -202,6 +203,7 @@ export function TracesSettings() {
             <div className={s.rowLabel}>
               {p.name}
               {p.by ? <span className={t.by}> by {p.by}</span> : null}
+              {p.site ? <SiteLink name={p.name} url={p.site} /> : null}
             </div>
             {view ? (
               <div className={s.rowDetail}>
@@ -241,5 +243,15 @@ export function TracesSettings() {
         </>
       )}
     </>
+  );
+}
+
+/** A tool's website, by its domain: what it is, before you connect it. */
+function SiteLink({ name, url }: { readonly name: string; readonly url: string }) {
+  return (
+    <button type="button" className={t.site} aria-label={`${name} website`} title={url} translate="no" onClick={() => void openExternal(url)}>
+      {new URL(url).hostname.replace(/^www\./, '')}
+      <Icon name="external" size={11} />
+    </button>
   );
 }

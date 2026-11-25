@@ -21,7 +21,7 @@ It's set up in **Settings › Traces**, and it's off until you connect a tool. I
 | **Databricks** | Workspace, access token, Unity Catalog spans table | MLflow traces in Unity Catalog |
 | **Another OTLP endpoint** | Its traces address, and any headers | Any collector or tool that takes OTLP over HTTP |
 
-Each tool's form says where to find its key and links to that tool's own guide. **Send Test** sends one small trace called "Beluga test" with what you typed and saves nothing, so you know the key and project work before you connect.
+Each tool's row links to its website. Its form says where to find its key and links to that tool's own guide. **Send Test** sends one small trace called "Beluga test" with what you typed and saves nothing, so you know the key and project work before you connect.
 
 ## What's sent
 

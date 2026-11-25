@@ -34,6 +34,8 @@ export interface TraceProvider {
   readonly name: string;
   /** Whose product it is, when that's how people know it ("LangChain"). */
   readonly by?: string;
+  /** Its website, for people who don't know it yet (none: not a product). */
+  readonly site?: string;
   /** Where the key is, in the tool's own words. */
   readonly where: string;
   /** Its own page for sending OpenTelemetry. */
@@ -138,6 +140,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'ratel',
     name: 'Ratel Cloud',
+    site: 'https://www.ratel.sh',
     where: 'Your project’s Settings › API keys on cloud.ratel.sh',
     docs: 'https://www.ratel.sh/docs/platform/send-data/opentelemetry',
     keywords: 'ratel cloud badger',
@@ -147,6 +150,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'braintrust',
     name: 'Braintrust',
+    site: 'https://www.braintrust.dev',
     where: 'Settings › API keys on braintrust.dev',
     docs: 'https://www.braintrust.dev/docs/integrations/sdk-integrations/opentelemetry',
     fields: [secret('key', 'API key', 'sk-…'), { key: 'project', label: 'Project', kind: 'text', placeholder: 'My project' }, US_EU],
@@ -158,6 +162,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'posthog',
     name: 'PostHog',
+    site: 'https://posthog.com',
     where: 'Project settings › Project API key on posthog.com',
     docs: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
     keywords: 'llm analytics hedgehog',
@@ -169,6 +174,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
     id: 'langsmith',
     name: 'LangSmith',
     by: 'LangChain',
+    site: 'https://www.langchain.com/langsmith',
     where: 'Settings › API Keys on smith.langchain.com',
     docs: 'https://docs.langchain.com/langsmith/trace-with-opentelemetry',
     keywords: 'langchain langgraph',
@@ -184,6 +190,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'arize',
     name: 'Arize',
+    site: 'https://arize.com',
     where: 'Space settings › API Keys on app.arize.com',
     docs: 'https://arize.com/docs/ax/integrations/platforms/claude-managed-agents/claude-managed-agents-tracing',
     keywords: 'phoenix arize ax openinference',
@@ -216,6 +223,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
     id: 'logfire',
     name: 'Logfire',
     by: 'Pydantic',
+    site: 'https://pydantic.dev/logfire',
     where: 'Your project’s Settings › Write tokens on logfire.pydantic.dev',
     docs: 'https://pydantic.dev/docs/logfire/how-to-guides/alternative-clients/',
     keywords: 'pydantic logfire',
@@ -225,6 +233,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'sentry',
     name: 'Sentry',
+    site: 'https://sentry.io',
     where: 'Project settings › Client Keys (DSN) on sentry.io',
     docs: 'https://docs.sentry.io/concepts/otlp/',
     fields: [secret('dsn', 'DSN', 'https://…@o123.ingest.us.sentry.io/456')],
@@ -233,6 +242,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'newrelic',
     name: 'New Relic',
+    site: 'https://newrelic.com',
     where: 'API keys › INGEST - LICENSE on one.newrelic.com',
     docs: 'https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/',
     keywords: 'newrelic nr',
@@ -242,6 +252,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'datadog',
     name: 'Datadog',
+    site: 'https://www.datadoghq.com',
     where: 'Organization settings › API keys on datadoghq.com',
     docs: 'https://docs.datadoghq.com/llm_observability/instrument/otel_instrumentation/',
     keywords: 'dd llm observability apm',
@@ -275,6 +286,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'langfuse',
     name: 'Langfuse',
+    site: 'https://langfuse.com',
     where: 'Project settings › API Keys on cloud.langfuse.com',
     docs: 'https://langfuse.com/integrations/native/opentelemetry',
     fields: [
@@ -294,6 +306,7 @@ export const TRACE_PROVIDERS: readonly TraceProvider[] = [
   {
     id: 'databricks',
     name: 'Databricks',
+    site: 'https://www.databricks.com',
     where: 'The token: Settings › Developer › Access tokens. The table: Catalog Explorer › your schema › the one ending in _otel_spans, once an MLflow experiment stores its traces there',
     docs: 'https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog',
     keywords: 'mlflow unity catalog lakehouse',
