@@ -1,6 +1,7 @@
 import * as Popover from '@radix-ui/react-popover';
 import { Avatar, Button, Dot } from '../../components/ui.js';
 import { useApi, useApp, useBeluga } from '../../lib/beluga.js';
+import { thisComputer } from '../../lib/os-words.js';
 import { Switch } from '../settings-controls.js';
 import { openPerson } from './PersonPopover.js';
 import { useFlash } from './parts.js';
@@ -25,7 +26,7 @@ function useRoomLine(): { readonly line: string; readonly tone: Tone } {
   const status = useApp((st) => st.status);
   const host = useApp((st) => st.self?.host === true);
   const reconnecting = useApp((st) => st.connection?.state === 'reconnecting');
-  if (status === 'connected') return { line: host ? 'Hosted on this Mac' : 'Connected', tone: 'ok' };
+  if (status === 'connected') return { line: host ? `Hosted on ${thisComputer()}` : 'Connected', tone: 'ok' };
   if (reconnecting) return { line: 'Reconnecting…', tone: 'warn' };
   return status === 'connecting' ? { line: 'Connecting…', tone: 'warn' } : { line: 'Offline', tone: 'error' };
 }

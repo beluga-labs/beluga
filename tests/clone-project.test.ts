@@ -18,7 +18,8 @@ const repos = await vi.hoisted(async () => {
   const dir = fs.mkdtempSync(p.join(os.tmpdir(), 'beluga-clone-repos-'));
   const config = process.env.GIT_CONFIG_GLOBAL;
   if (!config) throw new Error('tests/setup.ts sets GIT_CONFIG_GLOBAL');
-  fs.appendFileSync(config, `[url "file://${dir}/"]\n\tinsteadOf = https://git.example.test/\n`);
+  // file:///C:/… on Windows (a backslash or a bare drive isn't a file URL git reads), file:///tmp/… elsewhere.
+  fs.appendFileSync(config, `[url "file:///${dir.replace(/\\/g, '/').replace(/^\//, '')}/"]\n\tinsteadOf = https://git.example.test/\n`);
   return dir;
 });
 
