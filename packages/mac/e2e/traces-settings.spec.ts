@@ -20,8 +20,9 @@ test('connect Ratel, test it, and see it under Connected without its key', async
   await dialog.getByRole('button', { name: 'Traces' }).click();
 
   const names = dialog.locator('[data-setting] > div > div:first-child');
-  await expect(names.first()).toHaveText('Ratel Cloud');
-  await expect(dialog.getByText('Langfuse', { exact: true })).toBeVisible();
+  await expect(names.first()).toContainText('Ratel Cloud');
+  await expect(dialog.getByRole('button', { name: 'Ratel Cloud website' })).toHaveAttribute('title', 'https://www.ratel.sh');
+  await expect(dialog.locator('[data-setting="langfuse"]')).toBeVisible();
   await page.screenshot({ path: path.join(SHOTS, 'traces-1-list.png') });
   await dialog.locator('[data-setting="another-otlp-endpoint"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, 'traces-1b-list-end.png') });
@@ -32,6 +33,8 @@ test('connect Ratel, test it, and see it under Connected without its key', async
   await dialog.getByLabel('API key').fill('rtl_e2e_key_1234567890');
   await dialog.getByRole('button', { name: 'Send Test' }).click();
   await expect(dialog.getByText(/Ratel Cloud took the test trace/)).toBeVisible();
+  // Its switch keeps its width beside its long text.
+  expect((await dialog.getByRole('switch', { name: 'Send what you and your agent wrote' }).boundingBox())!.width).toBe(32);
   await page.screenshot({ path: path.join(SHOTS, 'traces-2-form.png') });
 
   await dialog.getByRole('button', { name: 'Connect', exact: true }).click();

@@ -80,6 +80,9 @@ describe('the tools and what they need', () => {
     for (const p of TRACE_PROVIDERS) {
       expect(p.where.length).toBeGreaterThan(5);
       expect(p.docs).toMatch(/^https:\/\//);
+      // Any endpoint of your own is nobody's product.
+      if (p.id === 'otlp') expect(p.site).toBeUndefined();
+      else expect(p.site).toMatch(/^https:\/\//);
       expect(p.fields.length).toBeGreaterThan(0);
     }
   });
