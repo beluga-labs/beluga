@@ -680,7 +680,11 @@ export class WorkspaceManager {
 
   /** Delete a branch whose work is merged into `into` (git refuses one that isn't, or that's checked out). */
   async dropBranch(projectId: string, branch: string, into: string): Promise<void> {
-    await g.deleteMergedBranch(this.repoProject(projectId).root, branch, into);
+    const { root } = this.repoProject(projectId);
+    await g.deleteMergedBranch(root, branch, into);
+    // A worktree that built on it (a task's blocked_by) now builds on where its work went: its
+    // base never names a branch that's gone (merged "into" nothing, 0 commits, no word of it).
+    for (const r of this.records) if (r.projectRoot === root && r.base === branch && r.branch !== branch) this.patchRecord(r.id, { base: into });
   }
 
   /** Merge a branch into the main folder, which must be on the default branch. */
@@ -1676,6 +1680,8 @@ export class WorkspaceManager {
     const ws = this.require(id);
     if (ws.kind !== 'worktree' || !ws.branch) throw new WorkspaceError('Only worktrees can be merged');
     const into = this.mergeTarget(ws);
+    // A base that's gone (a branch it built on, merged and deleted) is said, never "0 commits, no conflicts".
+    if (into && !(await g.tryGit(ws.projectRoot, ['rev-parse', '--verify', '--quiet', `${into}^{commit}`]))) throw new WorkspaceError(`${ws.name} merges into ${into}, which isn’t there any more (merged and deleted?): nothing to compare it with`);
     return mergePreview({ folder: ws.projectRoot, from: ws.branch, ...(into ? { into } : {}), uncommitted: ws.status?.changed ?? 0 });
   }
 
