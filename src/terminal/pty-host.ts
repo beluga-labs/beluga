@@ -6,6 +6,7 @@
 import path from 'node:path';
 import { takesLoginFlag } from '../shared/shells.js';
 import { childEnv, defaultShell, spawnPty, type IPty } from './pty.js';
+import { withoutQueries } from './queries.js';
 
 /** Bytes kept for screens that attach later. */
 export const BACKLOG_BYTES = 256 * 1024;
@@ -120,6 +121,11 @@ export class PtyProcess {
   /** What it wrote lately (up to BACKLOG_BYTES), for a screen attaching now. */
   backlog(): string {
     return this.chunks.join('');
+  }
+
+  /** The backlog for a screen to draw again: without the program's queries, or they'd be answered twice (into its input). */
+  replay(): string {
+    return withoutQueries(this.backlog());
   }
 
   /** Input bytes (keyboard). Ignored once the program has exited. */
