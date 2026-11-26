@@ -67,6 +67,16 @@
   content: '›';
   margin-left: 6px;
 }
+/* A project's own icon, small before its name (on the text's line, not its baseline). */
+.projectIcon {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 4px;
+  object-fit: contain;
+}
 .name {
   min-width: 0;
   overflow: hidden;

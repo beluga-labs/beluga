@@ -38,6 +38,7 @@ import s from './Toolbar.module.css';
 import { shortcutKeys } from '../lib/shortcuts.js';
 import { sentinelSubtitle } from '../sentinel/sentinel-model.js';
 import { CallButton } from '../call/CallStrip.js';
+import { useProjectIcon } from '../lib/projects.js';
 import { AppMenu } from './AppMenu.js';
 
 /** Room the title keeps, and the window buttons on the right (search, bell, panel). */
@@ -68,6 +69,20 @@ function SearchButton() {
   const actions = useActions();
   const on = useApp((st) => st.view.kind === 'search');
   return <IconButton size="large" icon="search" label="Search" keys={shortcutKeys('find')} active={on} onClick={() => actions.run({ type: 'view', view: { kind: 'search' } })} />;
+}
+
+/**
+ * A project's name in the header, with its own icon small before it when it has one (no letter
+ * tile: without an icon the name reads as it always did). `crumb` is the "project ›" before a page's name.
+ */
+function ProjectName({ id, name, crumb = true }: { id: string; name: string; crumb?: boolean }) {
+  const icon = useProjectIcon(id);
+  return (
+    <span className={crumb ? s.crumb : s.name}>
+      {icon ? <img className={s.projectIcon} src={icon} alt="" draggable={false} /> : null}
+      {name}
+    </span>
+  );
 }
 
 /** Back and forward between pages, with what was open on each (⌘[ ⌘]; off with nowhere to go). */
@@ -191,7 +206,7 @@ export function Toolbar() {
           headerRef={headerRef}
           title={
             <>
-              {project?.root ? <span className={s.crumb}>{project.name}</span> : null}
+              {project?.root ? <ProjectName id={project.id} name={project.name} /> : null}
               <span className={s.name}>{sub ? agentTitle(sub.agent) : 'Sub-agent'}</span>
             </>
           }
@@ -233,7 +248,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            {project?.root ? <span className={s.crumb}>{project.name}</span> : null}
+            {project?.root ? <ProjectName id={project.id} name={project.name} /> : null}
             <span className={s.name}>{ws.name}</span>
             {branch ? (
               <span className={s.branchPill}>
@@ -368,7 +383,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            {project ? <span className={s.crumb}>{project.name}</span> : null}
+            {project ? <ProjectName id={project.id} name={project.name} /> : null}
             <span className={s.name}>{worktree ? 'New Worktree' : 'New Chat'}</span>
           </>
         }
@@ -391,7 +406,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            <span className={s.crumb}>{project?.name ?? (item ? ASSISTANT_TITLE : 'Sentinel')}</span>
+            {project ? <ProjectName id={project.id} name={project.name} /> : <span className={s.crumb}>{item ? ASSISTANT_TITLE : 'Sentinel'}</span>}
             <span className={s.name}>{view.kind === 'sentinel_run' ? `${item?.name ?? 'Sentinel'} · Run` : (item?.name ?? 'Sentinel')}</span>
           </>
         }
@@ -419,7 +434,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            <span className={s.crumb}>{project?.name ?? 'Actions'}</span>
+            {project ? <ProjectName id={project.id} name={project.name} /> : <span className={s.crumb}>Actions</span>}
             <span className={s.name}>Workflow Run</span>
           </>
         }
@@ -434,7 +449,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            <span className={s.crumb}>{project?.name ?? 'Issues'}</span>
+            {project ? <ProjectName id={project.id} name={project.name} /> : <span className={s.crumb}>Issues</span>}
             <span className={s.name}>Issue #{view.number}</span>
           </>
         }
@@ -452,7 +467,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            <span className={s.crumb}>{project?.name ?? 'Plans'}</span>
+            {project ? <ProjectName id={project.id} name={project.name} /> : <span className={s.crumb}>Plans</span>}
             <span className={s.name}>Plan</span>
           </>
         }
@@ -469,7 +484,7 @@ export function Toolbar() {
         headerRef={headerRef}
         title={
           <>
-            <span className={s.crumb}>{project?.name ?? 'Tasks'}</span>
+            {project ? <ProjectName id={project.id} name={project.name} /> : <span className={s.crumb}>Tasks</span>}
             <span className={s.name}>{issue?.key ?? 'Task'}</span>
           </>
         }
@@ -486,7 +501,7 @@ export function Toolbar() {
           headerRef={headerRef}
           title={
             <>
-              {project ? <span className={s.crumb}>{project.name}</span> : null}
+              {project ? <ProjectName id={project.id} name={project.name} /> : null}
               <span className={s.name}>History</span>
             </>
           }
@@ -494,7 +509,7 @@ export function Toolbar() {
         />
       );
     }
-    return <Shell headerRef={headerRef} title={project?.name ?? 'Project'} subtitle={<span className={s.meta}>Work happens in worktrees · the main folder is for questions</span>} />;
+    return <Shell headerRef={headerRef} title={project ? <ProjectName id={project.id} name={project.name} crumb={false} /> : 'Project'} subtitle={<span className={s.meta}>Work happens in worktrees · the main folder is for questions</span>} />;
   }
 
   return <Shell headerRef={headerRef} title={TITLES[view.kind] ?? 'Beluga'} />;
