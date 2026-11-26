@@ -277,6 +277,7 @@ export const MACHINE: Record<Method, MachineSide> = {
   'projects.setIcon': 'drive',
   'projects.add': 'drive',
   'projects.origin': 'drive',
+  'projects.setNaming': 'drive',
   'projects.addFolder': 'drive',
   'projects.initGit': 'drive',
   'projects.suggest': 'drive',

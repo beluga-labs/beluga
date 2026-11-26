@@ -1,3 +1,4 @@
+import { namingFor } from '../shared/naming.js';
 import { existsSync } from 'node:fs';
 import { chmod, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -487,7 +488,8 @@ export class Workbench {
       return;
     }
     const project = this.manager.list.find((p) => p.id === ws.projectId);
-    const prompt = buildPrPrompt({ branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', projectPrompt: project?.scripts?.prPrompt, extra });
+    const titleRule = namingFor(this.deps.store.getState().prefs, project).prTitle?.value;
+    const prompt = buildPrPrompt({ branch: ws.branch, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', projectPrompt: project?.scripts?.prPrompt, extra, ...(titleRule ? { titleRule } : {}) });
     if (!this.deps.store.getState().prs[ws.id]) this.prAsked.add(ws.id);
     if (!opts.auto) this.deps.controller.open(ws.id);
     const ask = (): void => this.deps.askClaude(prompt, `ws:${ws.id}`);

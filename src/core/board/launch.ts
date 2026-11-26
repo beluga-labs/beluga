@@ -1,3 +1,4 @@
+import { namingFor } from '../../shared/naming.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -96,7 +97,8 @@ export function launchBoard(host: BoardHost): () => void {
     askClaude: (prompt, channel, shown) => session.askOwnClaude(prompt, channel, false, shown ?? true),
     prPrompt: (ws) => {
       const project = projectOf(ws.projectId);
-      return buildPrPrompt({ branch: ws.branch ?? ws.name, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', ...(project?.scripts?.prPrompt ? { projectPrompt: project.scripts.prPrompt } : {}) });
+      const titleRule = namingFor(store.getState().prefs, project).prTitle?.value;
+      return buildPrPrompt({ branch: ws.branch ?? ws.name, base: ws.base ?? project?.base ?? 'origin/main', project: project?.name ?? '', ...(project?.scripts?.prPrompt ? { projectPrompt: project.scripts.prPrompt } : {}), ...(titleRule ? { titleRule } : {}) });
     },
   });
   attachIssues(session, issues);

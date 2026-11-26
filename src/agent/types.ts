@@ -537,6 +537,8 @@ export interface AgentPlace {
   readonly openPr?: OpenPr;
   /** Straight to main (no open PR): when its turn ends, Beluga lands its commits on this branch in the main folder. */
   readonly landsOn?: string;
+  /** How its pull request titles are written (the project's naming rule, else Settings'; BLG-1033). */
+  readonly prTitleRule?: string;
   /** A fork of a friend's worktree (BLG-1017): what came with it, and what stayed on their computer (its `.beluga/fork.json`). */
   readonly forked?: ForkedPlace;
 }
