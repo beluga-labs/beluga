@@ -146,8 +146,8 @@ export class WorkspaceManager {
   /** Worktree branches (root and branch) already checked for a fork pull request's head to follow: git asked once each. */
   private readonly pullHeadsChecked = new Set<string>();
 
-  /** What new branches start with (Settings › Workspaces; the session points this at your choice). */
-  branchPrefix: () => string = () => BRANCH_PREFIX;
+  /** What new branches in the project at `root` start with (its naming rule, else Settings › Workspaces; the session points this at your choice). */
+  branchPrefix: (root: string) => string = () => BRANCH_PREFIX;
 
   constructor(readonly store: WorkspaceStore = new WorkspaceStore()) {
     // No standing main conversation (BLG-70): one from before becomes a chat in its project, once.
@@ -627,7 +627,7 @@ export class WorkspaceManager {
     if (needed.length < 2) return { ok: true, branch: needed[0] ?? main };
     const dir = path.join(this.basesDir, `${slug(project.name)}-${project.id.slice(0, 4)}`, name);
     mkdirSync(path.dirname(dir), { recursive: true });
-    return g.combineBranches(project.root, dir, `${this.branchPrefix()}${name}`, needed);
+    return g.combineBranches(project.root, dir, `${this.branchPrefix(project.root)}${name}`, needed);
   }
 
   // ------------------------------------------------------------- a plan's branch
@@ -750,7 +750,7 @@ export class WorkspaceManager {
     if (!(await g.isCommit(project.root, startPoint))) throw new WorkspaceError(`There’s no commit ${startPoint.slice(0, 12)} here`);
     const s = slug(name);
     const dir = this.freeDir(project, s);
-    const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
+    const branch = await this.freeBranch(project.root, `${this.branchPrefix(project.root)}${s}`);
     await g.git(project.root, ['worktree', 'add', '-b', branch, dir, startPoint]);
     await g.excludeProjectDir(dir);
     await copyEnvFiles(project.root, dir);
@@ -852,7 +852,7 @@ export class WorkspaceManager {
     const from = base ?? project.base;
     const s = slug(name);
     const dir = this.freeDir(project, s);
-    const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
+    const branch = await this.freeBranch(project.root, `${this.branchPrefix(project.root)}${s}`);
     await g.addWorktree(project.root, dir, branch, from);
     await g.excludeProjectDir(dir);
     await copyEnvFiles(project.root, dir);
@@ -1042,7 +1042,7 @@ export class WorkspaceManager {
     const at = opts.at ?? now;
     try {
       const from = at ? await snapshotBase(source.path, at) : (opts.base ?? (source.kind === 'chat' ? project.base : (source.branch ?? 'HEAD')));
-      const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
+      const branch = await this.freeBranch(project.root, `${this.branchPrefix(project.root)}${s}`);
       await g.addWorktree(project.root, dir, branch, from);
       await g.excludeProjectDir(dir);
       if (at) await applySnapshot(dir, at);
@@ -1114,7 +1114,7 @@ export class WorkspaceManager {
     const s = slug(name);
     const dir = this.freeDir(project, s);
     const from = opts.base ?? project.base;
-    const branch = await this.freeBranch(project.root, `${this.branchPrefix()}${s}`);
+    const branch = await this.freeBranch(project.root, `${this.branchPrefix(project.root)}${s}`);
     await g.addWorktree(project.root, dir, branch, from);
     await g.excludeProjectDir(dir);
     await copyEnvFiles(project.root, dir);
@@ -1512,7 +1512,7 @@ export class WorkspaceManager {
 
   /** A free local branch name like beluga/<name>, beluga/<name>-2… */
   freeBranchName(projectRoot: string, name: string): Promise<string> {
-    return this.freeBranch(projectRoot, `${this.branchPrefix()}${slug(name)}`);
+    return this.freeBranch(projectRoot, `${this.branchPrefix(projectRoot)}${slug(name)}`);
   }
 
   forgetSession(id: string): void {
@@ -1536,7 +1536,7 @@ export class WorkspaceManager {
     const s = slug(name);
     // You named it meanwhile: yours stays.
     if (ws.kind !== 'worktree' || ws.nameSetByUser || !s || s === ws.name) return;
-    const prefix = this.branchPrefix();
+    const prefix = this.branchPrefix(ws.projectRoot);
     const branch = ws.branch && isOwnBranch(ws.branch, ws.name, prefix) && !(await this.onRemote(ws.path, ws.branch)) ? await this.freeBranch(ws.path, `${prefix}${s}`) : undefined;
     if (branch) await g.git(ws.path, ['branch', '-m', ws.branch!, branch]);
     this.patchRecord(id, { name: s, ...(branch ? { branch } : {}) });
@@ -1564,7 +1564,7 @@ export class WorkspaceManager {
     const kept = !old ? undefined : (await this.onRemote(ws.path, old)) ? ('pushed' as const) : undefined;
     let branch = old;
     if (old && !kept) {
-      const prefix = this.branchPrefix();
+      const prefix = this.branchPrefix(ws.projectRoot);
       const wanted = exact ?? (isOwnBranch(old, ws.name, prefix) ? `${prefix}${s}` : `${old.slice(0, old.lastIndexOf('/') + 1)}${s}`);
       branch = exact ? await this.takenOrFree(ws.path, exact, old) : await this.freeBranch(ws.path, wanted, old);
       if (branch !== old) await g.git(ws.path, ['branch', '-m', old, branch]);
@@ -1584,7 +1584,7 @@ export class WorkspaceManager {
     const ws = this.require(id);
     if (ws.kind !== 'worktree' || !ws.branch) throw new WorkspaceError('Only a worktree’s branch can have a pull request of its own');
     if (!(await g.followsPull(ws.path, ws.branch))) return ws.branch;
-    const wanted = `${this.branchPrefix()}${slug(ws.name) || 'pull-request'}`;
+    const wanted = `${this.branchPrefix(ws.projectRoot)}${slug(ws.name) || 'pull-request'}`;
     let branch = wanted;
     for (let i = 2; (await g.isCommit(ws.path, `refs/heads/${branch}`)) || (await this.onRemote(ws.path, branch)); i++) branch = `${wanted}-${i}`;
     await g.git(ws.path, ['branch', '-m', ws.branch, branch]);

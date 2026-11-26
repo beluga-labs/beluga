@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AgentRef, ClaudeAnswer, GuestCan, WsRole } from '../protocol.js';
 import { EmojiSchema } from '../shared/reactions.js';
 import { ARCHIVE_SETTLED_DAYS_MAX, BRANCH_PREFIX_RE, EFFORTS, KEEP_AWAKE, LOW_POWER, NotifySettings, RUN_ON, SETTLE_IDLE_DAYS_MAX, THEMES, ThreadLimitsSchema, TRUST_LEVELS } from '../shared/settings-schema.js';
+import { NamingRules, PR_TITLE_RULE_MAX } from '../shared/naming.js';
 import { AUTO_COMPACT_MAX, AUTO_COMPACT_MIN } from '../shared/context-usage.js';
 import { PARALLEL_RUNS_MAX, PARALLEL_RUNS_MIN } from '../shared/run-slots.js';
 import { CHAT_LIMIT_MAX } from '../shared/chat-limit.js';
@@ -110,6 +111,9 @@ export const PrefsPatch = z
     projectAgents: z.record(z.string().min(1).max(80), AgentRef),
     autoSetup: bool,
     branchPrefix: z.string().regex(BRANCH_PREFIX_RE, 'Use letters, digits and . _ - / only'),
+    // How pull request titles are written (null: no rule), and a project's own rules by project name (BLG-1033).
+    prTitleRule: z.string().trim().max(PR_TITLE_RULE_MAX).nullable().optional(),
+    projectNaming: z.record(z.string().min(1).max(80), NamingRules),
     contextMeter: bool,
     autoCompact: bool,
     autoCompactAt: z.number().int().min(AUTO_COMPACT_MIN).max(AUTO_COMPACT_MAX),
@@ -540,6 +544,8 @@ export const API = {
   'projects.add': args(path),
   // A project's git origin (none: it has none), for matching it on, or cloning it to, one of your computers (BLG-788).
   'projects.origin': args(id),
+  // A project's naming rules (BLG-1033): its branch prefix and pull request title rule (null clears one), yours or, team: in its beluga.json → 'yours' or the file's name.
+  'projects.setNaming': args(id, z.object({ branchPrefix: z.string().regex(BRANCH_PREFIX_RE, 'Use letters, digits and . _ - / only').nullable().optional(), prTitle: z.string().trim().max(PR_TITLE_RULE_MAX).nullable().optional() }).strict(), opt(bool)),
   'projects.addFolder': args(path),
   // Make a folder that isn't a git project one (git, a .gitignore, a first commit), then add it.
   'projects.initGit': args(path),

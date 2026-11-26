@@ -662,6 +662,7 @@ export const EXTERNAL_ACCESS: Record<Method, ExternalAccess> = {
   'plans.moveUndo': { refused: COMPUTERS },
   'projects.clone': { refused: NO_TOOL },
   'projects.origin': { refused: NO_TOOL },
+  'projects.setNaming': { refused: NO_TOOL },
   'projects.myRepos': { refused: NO_TOOL },
   'revenuecat.connect': { refused: SECRET_VALUES },
   'revenuecat.disconnect': { refused: NO_TOOL },
