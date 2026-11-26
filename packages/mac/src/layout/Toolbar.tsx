@@ -23,6 +23,7 @@ import { isPlanAction, runPlanAction } from '../lib/plan-task.js';
 import { askBeforeWork } from '../lib/work-confirm.js';
 import { getPrefs, setPrefs, usePrefs } from '../lib/prefs.js';
 import { togglePanel } from '../lib/panel.js';
+import { usePhoneLayout } from '../lib/phone-layout.js';
 import { navBack, navForward, useNavAbility } from '../lib/nav.js';
 import { panelFits } from '../lib/panel-model.js';
 import { mod } from '../lib/system.js';
@@ -102,6 +103,8 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
   // A plan's page has no panel: its chat is its right side (the plan's header shows and hides it, ⌥⌘0 too).
   // Nor do the pages that have the whole window (Tasks, a task, Sentinel): there the button isn't shown.
   const fits = panelFits(view);
+  // A phone (BLG-6): the browser has back and forward of its own, and the drawer has the menu; the title gets the room.
+  const phone = usePhoneLayout();
   // Only what every view needs: search, what's new, the panel. The terminal (⌘J) is a panel tab,
   // and everything you can do is ⌘K and the menu bar.
   return (
@@ -109,11 +112,11 @@ function Shell({ title, subtitle, center, right, headerRef }: { title: ReactNode
       {prefs.sidebar ? null : (
         <span className={s.lead}>
           {/* The sidebar's menu-bar button (a browser's), beside it while the sidebar is hidden. */}
-          <AppMenu />
+          {phone ? null : <AppMenu />}
           <IconButton size="large" icon="sidebar" label="Show sidebar" keys={shortcutKeys('toggle-sidebar')} onClick={() => setPrefs({ sidebar: true })} />
         </span>
       )}
-      <NavButtons />
+      {phone ? null : <NavButtons />}
       <div className={s.titles} data-tauri-drag-region>
         <div className={s.title}>
           <MachineTag />
