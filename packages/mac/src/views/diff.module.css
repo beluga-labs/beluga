@@ -328,8 +328,9 @@ tr.picked,
 /* A phone (BLG-6): the diff is for reading. A + on every line would cover the code, so commenting
    on a line is the desktop's; a comment already made still shows its bubble. */
 @media (max-width: 700px) {
+  /* !important: on a touch screen the hover-reveal copy (touch-reveal.ts) comes later and shows it. */
   .commentBtn:not(.commentOn) {
-    display: none;
+    display: none !important;
   }
   .commentBtn.commentOn {
     min-width: 0;

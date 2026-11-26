@@ -12,9 +12,13 @@ export const PHONE_QUERY = `(max-width: ${PHONE_MAX_WIDTH}px)`;
 
 export const isPhoneWidth = (width: number): boolean => width <= PHONE_MAX_WIDTH;
 
-/** Coming in to the phone layout: the page first, the drawer and the sheet closed until asked for. */
+/**
+ * Coming in to the phone layout: the page first, the drawer and the sheet closed until asked for,
+ * and the sheet's terminal group folded to its tabs (half a phone's sheet is too much for it: a
+ * diff gets the room, the terminal is a tap away).
+ */
 export function phoneEntryPrefs(prefs: UiPrefs): Partial<UiPrefs> {
-  return { ...(prefs.sidebar ? { sidebar: false } : {}), ...(prefs.inspector ? { inspector: false } : {}) };
+  return { ...(prefs.sidebar ? { sidebar: false } : {}), ...(prefs.inspector ? { inspector: false } : {}), ...(prefs.bottomOpen ? { bottomOpen: false } : {}) };
 }
 
 /** Back to a wider window: its sidebar shows again (the panel stays as you left it). */

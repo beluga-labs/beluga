@@ -52,6 +52,13 @@ async function measure(page: Page) {
 for (const size of SIZES) {
   test.describe(`${size.name} ${size.width}×${size.height}`, () => {
     test.use({ viewport: { width: size.width, height: size.height }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    // A phone can't hover and points coarsely. Chromium's emulation still says it hovers (a real
+    // iPhone's Safari showed what that hid: BLG-7), so it's told; WebKit's says so already.
+    test.beforeEach(async ({ page, browserName }) => {
+      if (browserName !== 'chromium') return;
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'hover', value: 'none' }, { name: 'pointer', value: 'coarse' }] });
+    });
 
     test('opens a worktree from the drawer, chats in it, reads its changes, a task and what waits for you', async ({ page }) => {
       test.setTimeout(90_000);
@@ -101,6 +108,9 @@ for (const size of SIZES) {
       await panel.getByRole('tab', { name: 'Changes' }).tap();
       await panel.getByRole('option', { name: /auth\.ts/ }).tap();
       await expect(panel.getByRole('region', { name: 'Changes in auth.ts' }).getByText('requireUser').first()).toBeVisible();
+      // A + on every line would cover the code: commenting on a line is the desktop's.
+      await expect(panel.getByRole('button', { name: /^Comment on line/ }).first()).toBeHidden();
+      expect(await page.evaluate(() => matchMedia('(hover: none)').matches)).toBe(true);
       await shot('05-diff');
       await sheet(page).getByRole('button', { name: 'Close the panel' }).tap();
       await expect(sheet(page)).not.toBeInViewport();
