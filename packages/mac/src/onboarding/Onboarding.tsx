@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.js';
 import { APP_VERSION } from '../lib/boot.js';
 import { useApi, useApp, useBeluga } from '../lib/beluga.js';
+import { useProjectsState } from '../lib/projects-state.js';
+import { stillLoading } from '../lib/projects-state-model.js';
 import { levelOnLeave } from '@beluga/core/telemetry-store.js';
 import { usePrefs } from '../lib/prefs.js';
 import { usePrivacyAccess } from '../lib/privacy.js';
@@ -126,6 +128,7 @@ export function Onboarding({ start = 'hello', fade = false, onClose, onArrive, o
   const api = useApi();
   const prefs = usePrefs();
   const projects = useApp((st) => st.projects.filter((p) => p.root).length);
+  const loadingProjects = stillLoading(useProjectsState());
   const phones = useApp((st) => st.companion.devices.length);
   // Usage statistics' step only in a build that can send them (BLG-922).
   const steps = stepsFor(useApp((st) => st.telemetry.available));
@@ -284,7 +287,7 @@ export function Onboarding({ start = 'hello', fade = false, onClose, onArrive, o
               {step === 'popups' ? <Popups /> : null}
               {step === 'phone' ? <PhoneStep /> : null}
               {step === 'share' ? <ShareStep onPick={onPick} /> : null}
-              {step === 'ready' ? <Ready projects={projects} onOpen={() => finish('finished')} onAddProject={() => finish('finished', () => ui.patch({ addProject: true }))} /> : null}
+              {step === 'ready' ? <Ready projects={projects} loading={loadingProjects} onOpen={() => finish('finished')} onAddProject={() => finish('finished', () => ui.patch({ addProject: true }))} /> : null}
             </motion.section>
           </AnimatePresence>
         </motion.main>

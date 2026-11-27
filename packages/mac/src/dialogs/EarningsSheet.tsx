@@ -13,6 +13,9 @@ import { REVENUECAT_KEY_URL, STRIPE_KEY_URL, closeEarnings, formatMoney, missing
 import { CurrencySelect } from './EarningsSettings.js';
 import { brandText } from '../lib/brand.js';
 import { useApi, useApp } from '../lib/beluga.js';
+import { useProjectsState } from '../lib/projects-state.js';
+import { stillLoading } from '../lib/projects-state-model.js';
+import { LOADING_PROJECTS } from '../work/NoProjects.js';
 import { openExternal } from '../lib/system.js';
 import s from './earnings.module.css';
 import { thisComputer } from '../lib/os-words.js';
@@ -25,7 +28,10 @@ import { thisComputer } from '../lib/os-words.js';
  */
 export function EarningsSheet() {
   const sheet = useEarningsSheet();
+  const loading = stillLoading(useProjectsState());
   if (!sheet) return null;
+  // Opened while Beluga is still finding your projects: wait for them, not "Add a project first".
+  if (loading) return <FormSheet title="Connect Earnings" icon="coin" intro={LOADING_PROJECTS} submitLabel="Done" hideSubmit onSubmit={() => undefined} onCancel={closeEarnings} />;
   return <EarningsSheetBody key={`${sheet.projectId ?? 'pick'}:${sheet.source ?? ''}`} initial={sheet.projectId} source={sheet.source} />;
 }
 
