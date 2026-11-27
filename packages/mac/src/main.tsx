@@ -13,7 +13,7 @@ import { brandText } from './lib/brand.js';
 import { capabilities, connect, inApp } from './lib/boot.js';
 import { BelugaProvider } from './lib/beluga.js';
 import { apply, zoom } from './lib/prefs.js';
-import { watchWindow } from './lib/window-active.js';
+import { useClock, watchWindow } from './lib/window-active.js';
 import { watchPreloadErrors } from './lib/lazy-view.js';
 import { pinWindow } from './lib/scroll-within.js';
 import { Button } from './components/ui.js';
@@ -44,7 +44,6 @@ function Root() {
   // Since this window began trying (it opened, or Beluga went away), and whether it was ever attached.
   const since = useRef(Date.now());
   const wasConnected = useRef(false);
-  const [, tick] = useState(0);
   useEffect(() => {
     let alive = true;
     // Waits longer each time in a row it fails (up to 10 s), so a broken Beluga isn't hammered.
@@ -78,16 +77,13 @@ function Root() {
       alive = false;
     };
   }, [attempt]);
-  // While waiting, the words follow how long it has been (lib/connect-model.ts): looked at again each second.
-  useEffect(() => {
-    if (client) return;
-    const t = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [client]);
+  // While waiting, the words follow how long it has been (lib/connect-model.ts): looked at again each
+  // second, and only while you're looking at the window (useClock rests otherwise, KLD-40).
+  const now = useClock(!client);
   if (!client) {
     // An attempt that fails while Beluga starts is no problem yet: it reads as starting, and the
     // reason and Try again come only once it has really taken long.
-    const waitedMs = Date.now() - since.current;
+    const waitedMs = Math.max(0, now - since.current);
     const view = connectViewOf({ failed: Boolean(error), waitedMs, wasConnected: wasConnected.current });
     const note = connectNote(view, waitedMs);
     return (
