@@ -3,6 +3,7 @@ import { shellInput } from '@beluga/shared/render/run-command.js';
 import { toast, useBeluga } from './beluga.js';
 import { type PanelState, revealTerminal } from './panel.js';
 import { sendRun } from './term-run-queue.js';
+import { askStartNext } from './term-start.js';
 
 /**
  * Run from a chat's code block (BLG-968): the terminal shows where ⌘J keeps it (the drawer or the
@@ -14,6 +15,8 @@ import { sendRun } from './term-run-queue.js';
 export function runInTerminal(state: PanelState, command: string): string | undefined {
   if (state.view.kind === 'shared') return 'A shared workspace’s terminal is its owner’s';
   if (!revealTerminal(state, true)) return 'No terminal here';
+  // Run is asking for a shell: one that hasn't started (Settings › Terminal) starts for it.
+  askStartNext();
   sendRun(shellInput(command));
   return undefined;
 }

@@ -1,5 +1,6 @@
 import { globalShellDir, globalShellId, globalShellNumber, isGlobalShell, terminalLabel } from '@beluga/shared/terminal-keys.js';
 import { useApi, useApp, useBeluga, useUi } from './beluga.js';
+import { askStart, forgetStart } from './term-start.js';
 
 /** Picked after the last shell is closed: show "no shells" instead of starting a new one. */
 const NONE = 'shell:none';
@@ -47,6 +48,8 @@ export function useGlobalShells(): GlobalShells {
       // Numbered after the open ones; it starts once it's shown.
       const k = globalShellId(Math.max(0, ...globals.map(globalShellNumber)) + 1);
       seen.delete(k);
+      // You asked for it: no Start Shell button first.
+      askStart(k);
       ui.patch({ termKey: k });
     },
     close: (k) => {
@@ -55,6 +58,7 @@ export function useGlobalShells(): GlobalShells {
       const rest = shown.filter((x) => x !== k);
       if (k === key) ui.patch({ termKey: rest[Math.min(at, rest.length - 1)] ?? NONE });
       seen.add(k);
+      forgetStart(k);
       void api.terminals.close(k);
     },
   };

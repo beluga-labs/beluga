@@ -201,6 +201,7 @@ export const SETTINGS: readonly Entry[] = [
     ['Option key as Meta', undefined, 'alt option meta key'],
   ]),
   group('terminal', 'In this window', 'The terminal at the bottom of the window.', 'dock toggle terminal shortcut'),
+  ...rows('terminal', 'In this window', [['Start a shell automatically', 'A shell starts when a chat or project opens, or waits for you.', 'auto start shell terminal open chat project placeholder launch']]),
   group('terminal', 'Colours', 'The terminal’s colour theme.', 'terminal theme colors colours palette'),
   ...rows('terminal', 'Bring your terminal’s look', [
     ['Import from', 'Your terminal app’s font and colours.', 'import iterm ghostty terminal app theme'],
