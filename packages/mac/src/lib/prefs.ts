@@ -75,6 +75,8 @@ export interface UiPrefs {
   readonly reduceTransparency: boolean;
   /** Where the terminal is kept, so where ⌘J (and Run) show it: under the chat ('drawer': a tab in the center's dock), or in the right panel. */
   readonly termIn: TerminalPlace;
+  /** A shell starts by itself when a terminal shows (a chat or project opening). Off: its place has a Start Shell button. */
+  readonly termAutoStart: boolean;
   /** Under the chat, the terminal is showing (⌘J puts it away while it has a group to itself). */
   readonly drawer: boolean;
   /** How much of the center's height the terminal starts with under the chat (0.18–0.75); after that it's as tall as you drag it. */
@@ -210,6 +212,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   reduceMotion: false,
   reduceTransparency: false,
   termIn: 'panel',
+  termAutoStart: false,
   drawer: false,
   drawerSize: DRAWER_DEFAULT,
   termFont: '',
@@ -282,7 +285,7 @@ function load(): UiPrefs {
   try {
     // Older versions docked the terminal beside or under the chat: see migratePrefs.
     const saved = { ...DEFAULT_PREFS, ...(migratePrefs(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>) as Partial<UiPrefs>) };
-    return { ...saved, sendDuringTurn: saved.sendDuringTurn === 'steer' ? 'steer' : 'queue', panelLayout: normalizeLayout(saved.panelLayout), panelShown: shownOf(saved.panelShown), dockLayouts: layoutsOf(saved.dockLayouts), centerTabs: centerOf(saved.centerTabs), sidebarWidth: widthOf(saved.sidebarWidth), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system', look: saved.look === 'macos' ? 'macos' : 'beluga' };
+    return { ...saved, sendDuringTurn: saved.sendDuringTurn === 'steer' ? 'steer' : 'queue', panelLayout: normalizeLayout(saved.panelLayout), panelShown: shownOf(saved.panelShown), dockLayouts: layoutsOf(saved.dockLayouts), centerTabs: centerOf(saved.centerTabs), sidebarWidth: widthOf(saved.sidebarWidth), maxFire: fireLookOf(saved.maxFire), menuBar: menuBarLookOf(saved.menuBar), termTheme: themeOf(saved.termTheme), shortcuts: overridesOf(saved.shortcuts), convoModes: saved.convoModes && typeof saved.convoModes === 'object' ? saved.convoModes : {}, chatWidth: chatWidthOf(saved), convoDefault: saved.convoDefaultPicked === true && isConvoMode(saved.convoDefault) ? saved.convoDefault : 'terminal', bothChat: clampBoth(saved.bothChat), termKeys: termKeysOf(saved.termKeys), termKeysFirst: saved.termKeysFirst !== false, termView: saved.termView === true, termAutoStart: saved.termAutoStart === true, lightTheme: themeIdOf(saved.lightTheme, 'light'), darkTheme: themeIdOf(saved.darkTheme, 'dark'), accent: saved.accent in ACCENTS ? saved.accent : 'system', look: saved.look === 'macos' ? 'macos' : 'beluga' };
   } catch {
     return DEFAULT_PREFS;
   }

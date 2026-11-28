@@ -83,6 +83,12 @@ export const test = base.extend<{ demo: Demo }, { demos: Demos; demoLinkMs: numb
     page.on('pageerror', (e) => {
       if (RENDER_LOOP.test(e.message)) loops.push(e.message.slice(0, 500));
     });
+    // The specs were written with a shell starting as its terminal shows; the app waits for Start Shell
+    // unless Settings › Terminal says otherwise (terminal-start.spec.ts turns this off again).
+    await page.addInitScript(() => {
+      const prefs = JSON.parse(localStorage.getItem('beluga.prefs.v1') ?? '{}') as { termAutoStart?: boolean };
+      if (prefs.termAutoStart === undefined) localStorage.setItem('beluga.prefs.v1', JSON.stringify({ ...prefs, termAutoStart: true }));
+    });
     await use(page);
     baseExpect(loops, 'A view redrew for good: React said so in the console (BLG-905)').toEqual([]);
   },

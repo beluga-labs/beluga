@@ -10,8 +10,9 @@ import { setPrefs, usePrefs } from '../../lib/prefs.js';
 import { useGlobalShells } from '../../lib/shells.js';
 import { chordLabel } from '../../lib/shortcuts-model.js';
 import { takeRuns } from '../../lib/term-run-queue.js';
+import { askStart, forgetStart, takeStartNext, useStartAsks } from '../../lib/term-start.js';
 import { claimShell, extraShells, pruneShells, releaseShell, useShellOwners } from '../../lib/ws-shells.js';
-import { EnvStale, NoShells, ShellTabs, useEnvStale } from '../../views/TerminalView.js';
+import { EnvStale, NoShells, StartShell, closeShell, useEnvStale, useHeldStart } from '../../views/TerminalView.js';
 import { TerminalTab } from '../../views/TerminalTab.js';
 import { Xterm, type XtermProps } from '../../views/Xterm.js';
 import t from '../../views/terminal.module.css';
@@ -52,17 +53,25 @@ function useWorkspaceTerminals(wsId: string): Tabbed {
   const isExtra = (k: string): boolean => extra.includes(k);
   return {
     key,
-    tabs: keys.map((k) => ({ key: k, label: terminalLabel(k, names), running: k in terminals && !(k in exits), ...(k in exits ? { exit: exits[k] } : {}), closable: isExtra(k), renamable: k === shellId(wsId) || isExtra(k) })),
+    tabs: keys.map((k) => ({ key: k, label: terminalLabel(k, names), running: k in terminals && !(k in exits), ...(k in exits ? { exit: exits[k] } : {}), closable: isExtra(k) || (k === shellId(wsId) && k in terminals), renamable: k === shellId(wsId) || isExtra(k) })),
     start: (size) => {
       if (key === shellId(wsId)) void api.terminals.shell(wsId, size);
       else if (isExtra(key) && ws) void api.terminals.global(key, ws.path, size);
     },
     ...(key === shellId(wsId) ? { restart: () => void api.terminals.shell(wsId) } : isExtra(key) && ws ? { restart: () => void api.terminals.global(key, ws.path) } : {}),
     pick: (k) => ui.patch({ termKey: k }),
-    add: () => ui.patch({ termKey: claimShell(wsId, terminals) }),
+    add: () => {
+      // You asked for it: no Start Shell button first.
+      const added = claimShell(wsId, terminals);
+      askStart(added);
+      ui.patch({ termKey: added });
+    },
     close: (k) => {
+      // The workspace's own shell keeps its tab: closed, it shows Start Shell again.
+      if (k === shellId(wsId)) return closeShell(api, k);
       if (k === key) ui.patch({ termKey: shellId(wsId) });
       releaseShell(k);
+      forgetStart(k);
       void api.terminals.close(k);
     },
   };
@@ -147,19 +156,26 @@ export function TerminalPane({ where, onClose }: { where: 'drawer' | 'panel'; on
   const focus = usePanelRuntime((r) => (wsId && r.focus?.wsId === wsId ? r.focus.kind : undefined));
   const askedFocus = usePanelRuntime((r) => r.termFocus);
   const body = useRef<HTMLDivElement>(null);
+  // Not started by itself (Settings › Terminal): its place has a Start Shell button, unless a Run just asked for it.
+  const held = useHeldStart(tabbed.key);
+  const asks = useStartAsks();
+  useEffect(() => {
+    if (tabbed.key) takeStartNext(tabbed.key);
+  }, [tabbed.key, asks]);
   // ⌘J puts the keyboard here (Run doesn't: you keep typing to Claude).
   // A terminal that's just appearing is made a frame later (Xterm, KLD-68): keep looking until it's there.
   useEffect(() => {
     let id = 0;
     const tryFocus = (): void => {
       if (Date.now() - askedFocus > FOCUS_WINDOW_MS) return;
-      const input = body.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+      // A shell that hasn't started: its Start Shell button, so Return starts it.
+      const input = body.current?.querySelector<HTMLElement>(held ? '[data-start-shell]' : '.xterm-helper-textarea');
       if (input) input.focus();
       else id = requestAnimationFrame(tryFocus);
     };
     id = requestAnimationFrame(tryFocus);
     return () => cancelAnimationFrame(id);
-  }, [askedFocus, tabbed.key]);
+  }, [askedFocus, tabbed.key, held]);
   // A terminal shows in one place at a time: the full-size view has it.
   const elsewhere = focus === 'terminal' ? 'full' : undefined;
   const { key } = tabbed;
@@ -204,6 +220,8 @@ export function TerminalPane({ where, onClose }: { where: 'drawer' | 'panel'; on
               </Button>
             }
           />
+        ) : key && held ? (
+          <StartShell termKey={key} />
         ) : key ? (
           <>
             <Xterm key={`${key}:${key in exits ? 'x' : 'live'}${stale ? ':old' : ''}`} termKey={key} start={tabbed.start} focus={false} {...(key in exits ? {} : { extend: TAKES_RUNS })} />

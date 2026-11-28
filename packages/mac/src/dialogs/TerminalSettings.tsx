@@ -150,6 +150,9 @@ function PlaceGroup() {
           ]}
         />
       </Row>
+      <Row label="Start a shell automatically" detail={prefs.termAutoStart ? 'A shell starts as soon as a terminal shows, in every chat and project you open.' : 'A terminal waits with a Start Shell button until you want one. A shell that’s already running just shows.'}>
+        <Switch label="Start a shell automatically" on={prefs.termAutoStart} onChange={(v) => setPrefs({ termAutoStart: v })} />
+      </Row>
     </Group>
   );
 }

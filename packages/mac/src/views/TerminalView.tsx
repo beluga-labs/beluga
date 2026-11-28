@@ -2,10 +2,13 @@ import { githubId, runId, setupId, shellId, terminalLabel } from '@beluga/shared
 import { findWorkspace } from '@beluga/ui/workspace-models.js';
 import { useState } from 'react';
 import { Icon } from '../components/Icon.js';
-import { Button, Dot, Empty, IconButton, Tip } from '../components/ui.js';
+import { Button, Dot, Empty, EmptyActions, IconButton, Tip } from '../components/ui.js';
 import { useActions } from '../lib/actions.js';
 import { useApi, useApp, useBeluga, useUi } from '../lib/beluga.js';
+import { focusTerminal } from '../lib/panel.js';
+import { usePrefs } from '../lib/prefs.js';
 import { sameFields } from '../lib/stable.js';
+import { askStart, closeStart, holdsStart, useStartAsks } from '../lib/term-start.js';
 import { type GlobalShells, useGlobalShells } from '../lib/shells.js';
 import { extraShells, useShellOwners } from '../lib/ws-shells.js';
 import s from './terminal.module.css';
@@ -24,6 +27,9 @@ export function TerminalView() {
   const view = state.view;
   const { terminals, termExits, termNames, termEnvStale } = state;
   const running = (k: string): boolean => k in terminals && !(k in termExits);
+  // Only a shell that isn't there yet waits to be started: the workspace's own, or the first of yours.
+  const heldKey = view.kind === 'workspace' ? shellId(view.id) : shells.key;
+  const held = useHeldStart(heldKey);
 
   if (view.kind === 'workspace') {
     const ws = findWorkspace(state.projects, view.id);
@@ -47,6 +53,7 @@ export function TerminalView() {
               onClassName={s.tabOn}
               renamable={k === shellId(ws.id) || extra.includes(k)}
               onPick={() => ui.patch({ termKey: k })}
+              {...(k === shellId(ws.id) && k in terminals ? { onClose: () => closeShell(api, k) } : {})}
               before={running(k) ? <Dot tone="ok" /> : k in termExits ? <Dot tone={termExits[k] === 0 ? 'muted' : 'error'} /> : <Dot tone="muted" />}
               after={k in termExits ? <span className={s.exit}>{termExits[k] === 0 ? 'done' : `exit ${termExits[k] ?? '?'}`}</span> : null}
             />
@@ -76,7 +83,11 @@ export function TerminalView() {
             Commands…
           </Button>
         </div>
-        <Xterm key={`${key}:${key in termExits ? 'x' : 'live'}${termEnvStale.includes(key) ? ':old' : ''}`} termKey={key} start={(size) => (key === shellId(ws.id) ? void api.terminals.shell(ws.id, size) : extra.includes(key) ? void api.terminals.global(key, ws.path, size) : undefined)} />
+        {held && key === heldKey ? (
+          <StartShell termKey={key} />
+        ) : (
+          <Xterm key={`${key}:${key in termExits ? 'x' : 'live'}${termEnvStale.includes(key) ? ':old' : ''}`} termKey={key} start={(size) => (key === shellId(ws.id) ? void api.terminals.shell(ws.id, size) : extra.includes(key) ? void api.terminals.global(key, ws.path, size) : undefined)} />
+        )}
         <EnvStale termKey={key} />
         {key in termExits && key === shellId(ws.id) ? (
           <div className={s.restart}>
@@ -98,7 +109,9 @@ export function TerminalView() {
         <span className={s.flex} />
         <span className={s.dir}>{shown}</span>
       </div>
-      {key ? (
+      {key && held ? (
+        <StartShell termKey={key} />
+      ) : key ? (
         <>
           <Xterm key={`${key}:${key in termExits ? 'x' : 'live'}${termEnvStale.includes(key) ? ':old' : ''}`} termKey={key} start={(size) => void api.terminals.global(key, dir, size)} />
           <EnvStale termKey={key} />
@@ -167,10 +180,71 @@ export function EnvStale({ termKey }: { termKey: string }) {
   );
 }
 
-export function NoShells({ open }: { open: () => void }) {
+/** Close a workspace's own shell: it stops, and its tab goes back to Start Shell (it doesn't start again by itself). */
+export function closeShell(api: ReturnType<typeof useApi>, termKey: string): void {
+  closeStart(termKey);
+  void api.terminals.close(termKey);
+}
+
+/** Whether this terminal waits for you to start it (Settings › Terminal › Start a shell automatically is off, and it isn't running). */
+export function useHeldStart(termKey: string | undefined): boolean {
+  const known = useApp((st) => Boolean(termKey && (termKey in st.terminals || termKey in st.termExits)));
+  const auto = usePrefs().termAutoStart;
+  // Drawn again at each ask and each close.
+  useStartAsks();
+  return !known && holdsStart(termKey, {}, auto);
+}
+
+/** A terminal whose shell hasn't started: what it's for, and the button that starts it. */
+export function StartShell({ termKey }: { termKey: string }) {
+  const { ui } = useBeluga();
   return (
     <div className={s.none}>
-      <Empty icon="terminal" title="No shells open" action={<Button size="small" icon="plus" onClick={open}>New shell</Button>} />
+      <Empty
+        icon="terminal"
+        title="No shell running"
+        detail="Start a shell to run commands in this folder yourself. To have one start by itself every time, turn on Start a shell automatically in Settings › Terminal."
+        action={
+          <EmptyActions>
+            <Button
+              size="small"
+              icon="play"
+              data-start-shell
+              onClick={() => {
+                askStart(termKey);
+                focusTerminal();
+              }}
+            >
+              Start Shell
+            </Button>
+            <Button size="small" variant="quiet" onClick={() => ui.patch({ settings: 'terminal' })}>
+              Terminal Settings…
+            </Button>
+          </EmptyActions>
+        }
+      />
+    </div>
+  );
+}
+
+export function NoShells({ open }: { open: () => void }) {
+  const { ui } = useBeluga();
+  return (
+    <div className={s.none}>
+      <Empty
+        icon="terminal"
+        title="No shells open"
+        action={
+          <EmptyActions>
+            <Button size="small" icon="plus" onClick={open}>
+              New shell
+            </Button>
+            <Button size="small" variant="quiet" onClick={() => ui.patch({ settings: 'terminal' })}>
+              Terminal Settings…
+            </Button>
+          </EmptyActions>
+        }
+      />
     </div>
   );
 }
